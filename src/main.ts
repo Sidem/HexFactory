@@ -83,8 +83,6 @@ function update(next: FactorySnapshot): void {
     .toString(16)
     .padStart(8, "0")
     .toUpperCase();
-  seedInput.value = String(snapshot.seed);
-  scenarioInput.value = snapshot.scenario;
   renderInventory();
   renderHotbar();
   renderTechnologies();
@@ -218,6 +216,11 @@ function setPlaying(value: boolean): void {
   playButton.setAttribute("aria-pressed", String(playing));
 }
 
+function syncSessionInputs(next: FactorySnapshot): void {
+  scenarioInput.value = next.scenario;
+  seedInput.value = String(next.seed);
+}
+
 function selectTool(next: Tool): void {
   tool = next;
   const definition =
@@ -293,7 +296,9 @@ required<HTMLButtonElement>("new-game").addEventListener("click", () => {
     parsedSeed <= 0xffffffff
       ? parsedSeed
       : undefined;
-  update(host.newGame(scenarioInput.value, seed));
+  const next = host.newGame(scenarioInput.value, seed);
+  update(next);
+  syncSessionInputs(next);
   renderer.recenter();
   setPlaying(true);
 });
@@ -311,7 +316,9 @@ required<HTMLButtonElement>("continue").addEventListener("click", () => {
   if (!save) return;
   try {
     input.clear();
-    update(host.load(save));
+    const next = host.load(save);
+    update(next);
+    syncSessionInputs(next);
     renderer.recenter();
     showFeedback("Native HXF1 save restored");
   } catch (error) {
@@ -524,6 +531,7 @@ function required<T extends HTMLElement>(id: string): T {
 }
 
 update(snapshot);
+syncSessionInputs(snapshot);
 updateContinueState();
 selectTool("inspect");
 requestAnimationFrame(frame);
@@ -557,12 +565,14 @@ window.__hexFactory = {
   newGame: (scenario = "new-game", seed) => {
     const next = host.newGame(scenario, seed);
     update(next);
+    syncSessionInputs(next);
     return next;
   },
   save: () => host.save(),
   load: (save) => {
     const next = host.load(save);
     update(next);
+    syncSessionInputs(next);
     return next;
   },
 };

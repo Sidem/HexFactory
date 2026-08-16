@@ -165,6 +165,8 @@ describe("bounded host input", () => {
     );
     expect(main.match(/host\.apply\(commands\)/g)).toHaveLength(1);
     expect(main).not.toContain("snapshot.insight =");
+    expect(main).not.toContain("scenarioInput.value = snapshot.scenario");
+    expect(main).not.toContain("seedInput.value = String(snapshot.seed)");
   });
 });
 
