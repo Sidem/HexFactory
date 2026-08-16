@@ -28,6 +28,7 @@ import {
 } from "../src/core/input";
 import {
   applyBuildingsPatch,
+  applyResourcesPatch,
   applySnapshotDelta,
 } from "../src/core/snapshotDelta";
 import type {
@@ -35,6 +36,7 @@ import type {
   EntitySnapshot,
   FactorySnapshot,
   FactorySnapshotDelta,
+  ResourceSnapshot,
 } from "../src/core/types";
 import definitions from "../src/data/definitions.json";
 import technologies from "../src/data/technologies.json";
@@ -296,6 +298,54 @@ describe("availability and expanded snapshot adapter", () => {
     ).toBe(listed);
   });
 
+  it("patches individual deposits without resending the surveyed world's resources", () => {
+    const second: ResourceSnapshot = {
+      id: 2,
+      x: 7096,
+      y: -3072,
+      radius: 720,
+      item_id: 3,
+      quantity: 32,
+      initial_quantity: 32,
+    };
+    const listed = [...snapshot.resources, second];
+    const withCrystal: FactorySnapshot = { ...snapshot, resources: listed };
+
+    // A drawn-from deposit is substituted in place; every other deposit keeps its identity, so
+    // the native ordering the host received survives the patch.
+    const drained = { ...listed[0]!, quantity: 46 };
+    const patched = applyResourcesPatch(listed, { changed: [drained] });
+    expect(patched.map(({ id }) => id)).toEqual([1, 2]);
+    expect(patched[0]).toEqual(drained);
+    expect(patched[1]).toBe(listed[1]);
+
+    // An empty patch and an untouched group both leave the previous list in place.
+    expect(applyResourcesPatch(listed, { changed: [] })).toBe(listed);
+    expect(
+      applyResourcesPatch(listed, { replace: true, changed: [second] }),
+    ).toEqual([second]);
+
+    const next = applySnapshotDelta(withCrystal, 0, {
+      base_revision: 0,
+      revision: 1,
+      tick: 13,
+      checksum: 456,
+      resources: { changed: [drained] },
+    });
+    expect(next.snapshot.resources[0]?.quantity).toBe(46);
+    expect(next.snapshot.resources[1]).toBe(second);
+    expect(next.snapshot.buildings).toBe(withCrystal.buildings);
+    expect(next.snapshot.terrain).toBe(withCrystal.terrain);
+    expect(
+      applySnapshotDelta(withCrystal, 0, {
+        base_revision: 0,
+        revision: 1,
+        tick: 13,
+        checksum: 456,
+      }).snapshot.resources,
+    ).toBe(listed);
+  });
+
   it("rejects missing or out-of-order snapshot revisions", () => {
     expect(() =>
       applySnapshotDelta(snapshot, 3, {
@@ -387,7 +437,7 @@ function fakeTransport(): {
   const requests: Array<{ method: FactoryWorkerMethod; payload: unknown }> = [];
   let revision = 0;
   const response = (
-    patch: Partial<Omit<FactorySnapshot, "buildings">>,
+    patch: Partial<Omit<FactorySnapshot, "buildings" | "resources">>,
   ): FactorySnapshotDelta => ({
     base_revision: revision,
     revision: (revision += 1),

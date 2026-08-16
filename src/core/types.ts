@@ -176,13 +176,27 @@ export interface BuildingsPatch {
   removed?: number[];
 }
 
+/**
+ * The per-deposit resources patch. `changed` carries deposits whose quantity moved, keyed by their
+ * stable native id. Deposits are never removed, and the only path that adds one — world generation
+ * — sets `replace` and sends the complete list, so an incremental patch always addresses deposits
+ * the host already holds and never disturbs their order.
+ */
+export interface ResourcesPatch {
+  replace?: boolean;
+  changed?: ResourceSnapshot[];
+}
+
 export interface FactorySnapshotDelta
-  extends Partial<Omit<FactorySnapshot, "tick" | "checksum" | "buildings">> {
+  extends Partial<
+    Omit<FactorySnapshot, "tick" | "checksum" | "buildings" | "resources">
+  > {
   base_revision: number;
   revision: number;
   tick: number;
   checksum: number;
   buildings?: BuildingsPatch;
+  resources?: ResourcesPatch;
 }
 
 export interface PlacementPreview {

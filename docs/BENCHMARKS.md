@@ -1,8 +1,8 @@
 # HexFactory capacity benchmarks
 
-Status: Sparse Cost v0.6 is the second measured record. The roadmap gates any renderer decision and
-every scale claim behind this measurement. Nothing here is an extrapolation: each number below was
-produced by the committed harness, and the raw reports are stored beside this document.
+Status: Sparse Snapshot v0.7 is the third measured record. The roadmap gates any renderer decision
+and every scale claim behind this measurement. Nothing here is an extrapolation: each number below
+was produced by the committed harness, and the raw reports are stored beside this document.
 
 Run it with:
 
@@ -33,6 +33,7 @@ runs on its own freshly warmed core, so no measurement inherits a state the prev
 | ------------- | --------------------------------------------------------------------------- |
 | `tick`        | one simulation tick, with no snapshot and no serialization                  |
 | `snapshot`    | building one complete native snapshot, before serialization                 |
+| `checksum`    | one native checksum, which every delta carries                              |
 | `frame`       | one worker frame: bounded command batch, one tick, and one serialized delta |
 | `delta bytes` | the serialized delta payload that frame sends across the worker boundary    |
 | `compile`     | one full deterministic transport compile, as used on load and restore       |
@@ -42,120 +43,151 @@ runs on its own freshly warmed core, so no measurement inherits a state the prev
 `recompile` and `compile` are directly comparable — the incremental path is timed without the edit
 path's legality work, so the comparison is not confounded by it.
 
+`snapshot` is no longer part of a frame. As of v0.7 the complete snapshot is built only for the
+host's first frame, and it is kept in the ladder as the baseline the incremental delta is measured
+against. `checksum` is new in this record (report schema 2), because the frame it still sits inside
+is now small enough that it matters.
+
 ## Recorded results
 
 Host: AMD Ryzen 7 5800X (8 cores / 16 threads), Windows 11 Pro 10.0.26200, rustc 1.87.0,
-`factory-wasm` 0.6.0 built with the shipped release profile. Recorded 2026-08-16. Raw report:
-[`benchmarks/capacity-v0.6.json`](benchmarks/capacity-v0.6.json).
+`factory-wasm` 0.7.0 built with the shipped release profile. Recorded 2026-08-16. Raw report:
+[`benchmarks/capacity-v0.7.json`](benchmarks/capacity-v0.7.json).
 
-| tier   | lines | entities |  tiles | tick µs | snapshot µs | frame µs | delta bytes | compile µs | recompile µs | edit µs |
-| ------ | ----: | -------: | -----: | ------: | ----------: | -------: | ----------: | ---------: | -----------: | ------: |
-| line   |     1 |       12 |    576 |     0.5 |        22.0 |     28.5 |       1,316 |        1.0 |          6.2 |     6.5 |
-| small  |    16 |      192 |  1,216 |     5.1 |       136.0 |    246.9 |      19,742 |       15.3 |         52.5 |    60.1 |
-| medium |    64 |      768 |  3,520 |    21.0 |       988.5 |  1,433.1 |      79,398 |       80.6 |        259.8 |   274.1 |
-| wide   |   128 |    1,536 |  6,592 |    46.2 |     3,397.4 |  4,380.5 |     159,553 |      175.6 |        596.5 |   626.7 |
-| large  |   256 |    3,072 | 12,736 |   103.9 |    13,210.7 | 14,511.8 |     320,444 |      355.3 |      1,111.5 | 1,119.9 |
-| xlarge |   512 |    6,144 | 25,024 |   236.6 |    56,083.4 | 64,881.8 |     644,142 |      864.8 |      2,648.1 | 2,513.3 |
+| tier   | lines | entities |  tiles | tick µs | snapshot µs | checksum µs | frame µs | delta bytes | compile µs | recompile µs | edit µs |
+| ------ | ----: | -------: | -----: | ------: | ----------: | ----------: | -------: | ----------: | ---------: | -----------: | ------: |
+| line   |     1 |       12 |    576 |     0.5 |        22.8 |        17.0 |     27.5 |       1,318 |        2.2 |         12.1 |    11.7 |
+| small  |    16 |      192 |  1,216 |     6.0 |        74.7 |        45.0 |    122.8 |      19,745 |       17.8 |         57.8 |    67.1 |
+| medium |    64 |      768 |  3,520 |    24.7 |       291.8 |       136.0 |    448.8 |      79,400 |       85.6 |        252.7 |   281.3 |
+| wide   |   128 |    1,536 |  6,592 |    49.9 |       540.6 |       266.7 |    964.9 |     159,555 |      199.3 |        607.6 |   760.4 |
+| large  |   256 |    3,072 | 12,736 |   107.7 |     1,120.7 |       518.0 |  1,828.5 |     320,447 |      469.3 |      1,198.9 | 1,314.5 |
+| xlarge |   512 |    6,144 | 25,024 |   263.9 |     2,093.0 |     1,043.5 |  3,852.2 |     644,144 |      798.5 |      2,405.2 | 2,444.1 |
 
-Every tier reproduces the v0.5.1 checksum and delivered total, so the two records measure the same
+Every tier reproduces the v0.6 checksum and delivered total, so the two records measure the same
 workload and can be compared directly. Against the previous record:
 
-| tier   | tick before | tick after | factor | frame before | frame after | delta bytes before | delta bytes after |
-| ------ | ----------: | ---------: | -----: | -----------: | ----------: | -----------------: | ----------------: |
-| line   |         2.2 |        0.5 |   4.4× |         35.4 |        28.5 |              2,931 |             1,316 |
-| small  |        63.5 |        5.1 |  12.5× |        378.6 |       246.9 |             46,196 |            19,742 |
-| medium |       698.9 |       21.0 |  33.3× |      2,347.2 |     1,433.1 |            186,188 |            79,398 |
-| wide   |     2,772.6 |       46.2 |  60.0× |      7,434.2 |     4,380.5 |            374,503 |           159,553 |
-| large  |    13,304.1 |      103.9 | 128.0× |     31,646.0 |    14,511.8 |            751,996 |           320,444 |
-| xlarge |    55,200.5 |      236.6 | 233.3× |    125,316.0 |    64,881.8 |          1,511,529 |           644,142 |
+| tier   | frame before | frame after | factor | snapshot before | snapshot after | factor | delta bytes before | delta bytes after |
+| ------ | -----------: | ----------: | -----: | --------------: | -------------: | -----: | -----------------: | ----------------: |
+| line   |         28.5 |        27.5 |   1.0× |            22.0 |           22.8 |   1.0× |              1,316 |             1,318 |
+| small  |        246.9 |       122.8 |   2.0× |           136.0 |           74.7 |   1.8× |             19,742 |            19,745 |
+| medium |      1,433.1 |       448.8 |   3.2× |           988.5 |          291.8 |   3.4× |             79,398 |            79,400 |
+| wide   |      4,380.5 |       964.9 |   4.5× |         3,397.4 |          540.6 |   6.3× |            159,553 |           159,555 |
+| large  |     14,511.8 |     1,828.5 |   7.9× |        13,210.7 |        1,120.7 |  11.8× |            320,444 |           320,447 |
+| xlarge |     64,881.8 |     3,852.2 |  16.8× |        56,083.4 |        2,093.0 |  26.8× |            644,142 |           644,144 |
 
 ## Measured capacity tiers
 
 Against a 16,667 µs frame at 60 Hz, using the measured `frame` cost:
 
-| tier   | entities | share of a 60 Hz frame | verdict                              |
-| ------ | -------: | ---------------------: | ------------------------------------ |
-| line   |       12 |                   0.2% | comfortable                          |
-| small  |      192 |                   1.5% | comfortable                          |
-| medium |      768 |                   8.6% | comfortable                          |
-| wide   |    1,536 |                  26.3% | comfortable                          |
-| large  |    3,072 |                  87.1% | sustained, with little headroom left |
-| xlarge |    6,144 |                   389% | misses 60 Hz and 30 Hz (195%)        |
+| tier   | entities | share of a 60 Hz frame | verdict     |
+| ------ | -------: | ---------------------: | ----------- |
+| line   |       12 |                   0.2% | comfortable |
+| small  |      192 |                   0.7% | comfortable |
+| medium |      768 |                   2.7% | comfortable |
+| wide   |    1,536 |                   5.8% | comfortable |
+| large  |    3,072 |                  11.0% | comfortable |
+| xlarge |    6,144 |                  23.1% | comfortable |
 
-**The measured native ceiling for a 60 Hz frame is now between 3,072 and 6,144 entities**, up from
-between 1,536 and 3,072 in v0.5.1. The 30 Hz ceiling sits in the same interval, because the tier
-that fails 60 Hz also fails 30 Hz. The shipped game still asks a player to build far below the first
-tier that struggles, so this remains a headroom record, not a live defect.
+**The recorded ladder no longer contains a tier that misses 60 Hz.** In v0.6 the ceiling sat between
+3,072 and 6,144 entities; the largest tier now uses under a quarter of a 60 Hz frame. This
+measurement therefore does not locate the native ceiling any more — it only shows that the ceiling
+is above 6,144 entities. Naming a specific new limit would require tiers this ladder does not have,
+so none is claimed here. Extending the ladder is a follow-up below.
 
 These are native host figures. They are not browser figures, and no browser number is claimed here —
 see the limits below.
 
 ## What the numbers say
 
-**1. Tick cost is now linear in entity count, and no longer touches world size.** Dividing `tick` by
-entity count gives 0.042, 0.027, 0.027, 0.030, 0.034, and 0.039 µs across the ladder — a factor of
-1.6, against the factor of 49 recorded in v0.5.1. Over the same range the generated tile count grows
-43-fold and no longer appears in the result. Extractors resolve their deposit once, from a cached
-candidate list invalidated when new tiles appear, instead of scanning every tile every tick. Tick is
-now 0.4% of a frame at the largest tier; it was 44%.
+**1. The frame no longer materializes a snapshot it throws away.** This was finding 3 of v0.6, and
+closing it is what this release is. Rust now marks dirty entities, deposits, terrain, and chunks
+where they are mutated, and builds the delta from those marks against a retained baseline of what
+the host was last sent. A frame that changes forty entities builds forty entity snapshots instead of
+6,144. The effect grows with the blueprint exactly as the previous cost did: 1.0× at one line,
+16.8× at 512.
 
-**2. The buildings delta is 2.3× smaller, and what remains is the workload's real change rate.**
-Payload per entity fell from 240–246 bytes to 103–110 bytes, a near-identical ratio across the full
-512-fold range. The delta now carries only entities that actually changed, so the residual
-constant is a property of this workload — roughly 43% of its entities change on any given tick,
-because every line holds an extractor and a composer whose progress advances every tick. A quieter
-blueprint sends proportionally less; the previous group-level delta sent everything regardless.
+**2. Building a complete snapshot is now linear in entity count.** Two scans inside it were
+quadratic and are gone. An extractor's reported status asked `resource_at_world` to search every
+generated tile, so a snapshot cost entities × tiles; it now resolves through the same cached deposit
+reference the tick path has used since v0.6. Each generated chunk counted its entities by filtering
+the whole blueprint; one pass over the blueprint now counts them all. Subtracting the checksum, the
+cost per entity across the ladder is 0.48, 0.16, 0.20, 0.18, 0.20, and 0.17 µs — flat apart from the
+twelve-entity tier, where fixed costs dominate. In v0.6 the same figures rose 12-fold across the
+range. This matters even though a frame no longer builds a full snapshot: the host's first frame
+does, and so does every reset, new game, and load.
 
-**3. The frame is now dominated by materializing the snapshot, not by simulating it.** `snapshot` is
-55–91% of `frame` at every tier and 86% at the largest. Rust still builds one complete snapshot per
-frame purely to diff it against the previous one, and the diff then discards most of that work. This
-is the largest remaining cost in the measured frame, and it is the natural successor to finding 2:
-the delta is now sparse on the wire but is still computed densely.
+**3. The payload did not shrink, and was not meant to.** Delta bytes are within 3 bytes of v0.6 at
+every tier — 103–110 bytes per entity, unchanged. v0.6 made the delta sparse on the wire; v0.7 makes
+it sparse to compute. The 2-byte increase is the resources group gaining an object wrapper now that
+it is a keyed patch rather than a bare array. This workload sends no less because every line's
+extractor and composer advance on the same tick and every deposit is drawn from together, so almost
+everything genuinely changes. A quieter blueprint, and any blueprint where deposits are drawn at
+different times, sends proportionally less.
 
-**4. Incremental transport recompilation still costs about three times a full compile.** The ratios
-are 6.2, 3.4, 3.2, 3.4, 3.1, and 3.1 across the six tiers, effectively unchanged from v0.5.1. This
-release did not touch the transport path, and the v0.5.1 reading stands: the incremental path
-rebuilds several whole-blueprint maps per edit where a full compile builds occupancy once.
+**4. The checksum is now the largest single identified cost in a frame.** It is 27–37% of the frame
+at every tier above the smallest, and 62% at the smallest. It is linear — 0.029 to 0.033 µs per
+tile-plus-entity across the ladder — but it walks every generated tile and every entity on every
+tick, which is now more work than anything else the frame does per entity. Subtracting tick and
+checksum leaves 58–67% of the frame above the smallest tier, which is the delta build plus JSON
+serialization of a payload that reaches 644 KB at the largest tier.
 
-**5. Legality checking is still not the expensive part of an edit.** `edit` and `recompile` are
-within 15% of each other at every tier — inside this harness's noise floor — so the transport
-machinery, not placement legality, is where edit time goes.
+**5. Tick, compile, recompile, and edit are unchanged within noise.** Tick sits 4–18% above v0.6
+across the ladder, which is inside this harness's stated noise floor; the dirty marks it now makes
+are appends to a vector, deliberately not inserts into an ordered set, and the delta sorts them once
+per frame instead. Incremental recompilation still costs about three times a full compile — the
+ratios are 5.5, 3.2, 3.0, 3.0, 2.6, and 3.0 — and this release did not touch the transport path, so
+the v0.5.1 reading stands unchanged.
 
 ## Limits of this measurement
 
 - **Native, not browser.** These runs are native host builds. The shipped artifact is wasm in a
   worker, where absolute costs differ. The tiers are a relative capacity record and a baseline for
-  regression, not a prediction of browser frame rate. Browser-side measurement is the named
-  follow-up.
+  regression, not a prediction of browser frame rate. Browser-side measurement is still the named
+  follow-up, and is now the only thing standing between this record and a real capacity claim.
+- **The ladder no longer brackets the ceiling.** Every tier fits inside a 60 Hz frame, so this run
+  measures headroom rather than a limit. Treat "above 6,144 entities" as the whole of what it says.
 - **One machine, one run per tier.** No repetition, variance, or confidence interval is recorded.
-  Treat differences under roughly 20% as noise.
+  Treat differences under roughly 20% as noise. The `line` tier's compile, recompile, and edit
+  figures move by more than that between runs and should not be read closely.
 - **The release profile is tuned for wasm size** (`opt-level = "s"`, LTO), matching what ships.
   A speed-tuned native build would be faster and would not represent the artifact.
 - **One workload shape.** Uniform straight lines with an always-accepting sink. It does not cover
   backpressure-saturated networks, long turning belt runs, dense multi-cell packing, or deposits
-  running dry. Findings 1 and 3 are properties of the core loop and generalize. Finding 2's ratio is
-  specific to this workload's change rate, and finding 4 is stated for this workload only. Its
-  rotations deliberately include orientations that merge and split neighbouring components, which is
-  demanding for the incremental path.
+  running dry. Findings 1, 2, and 4 are properties of the core loop and generalize. Finding 3's
+  ratio is specific to this workload's change rate, and finding 5 is stated for this workload only.
+  Its rotations deliberately include orientations that merge and split neighbouring components,
+  which is demanding for the incremental path.
+- **Dirty tracking is measured at a high change rate.** Roughly 43% of this workload's entities
+  change every tick, so the sparse path is measured near its worst case for payload but also near
+  its worst case for rebuild count. A quiet blueprint is not represented.
 - **Deposit references are measured with a static tile set.** No chunk is generated mid-run in this
-  workload, so the cost of re-resolving deposits after generation is not represented. That path is
-  correctness-tested but unmeasured, and it runs at most once per generated chunk.
+  workload, so the cost of re-resolving deposits after generation — which also re-marks every
+  entity — is not represented. That path is correctness-tested but unmeasured, and it runs at most
+  once per generated chunk.
 - **Timings include allocation.** No allocator was pinned or replaced.
 
 ## Follow-ups, in the order the measurement supports
 
-1. Stop materializing a complete snapshot every frame. Finding 3 makes this the highest-value
-   remaining change: track dirty entities at mutation time and build the delta from that set, so the
-   frame stops paying for a full snapshot it immediately discards.
-2. Measure the same ladder in the browser worker, so a wasm capacity tier exists next to this native
-   one. Nothing here predicts browser frame rate.
-3. Re-examine whether incremental transport recompilation should keep persistent structures across
-   edits, or whether the full compile is simply the better default at these sizes. Finding 4 is the
+1. Measure the same ladder in the browser worker, so a wasm capacity tier exists next to this native
+   one. This was follow-up 2 in v0.6 and is now first: nothing here predicts browser frame rate, and
+   every remaining native cost is small enough that the wasm and postMessage boundary is plausibly
+   the real limit.
+2. Extend the ladder past 6,144 entities, so the record brackets a native ceiling again instead of
+   only showing headroom.
+3. Attack serialization and the checksum together, in that order — findings 3 and 4. The frame's
+   remaining two-thirds is a 644 KB JSON payload; a compact binary encoding over a transferable
+   buffer would cut both the serialization cost and the copy. The whole-world checksum is the next
+   largest, and an incremental one is possible, but it is determinism-critical and should not be
+   touched before a browser measurement says it is worth the risk.
+4. Re-examine whether incremental transport recompilation should keep persistent structures across
+   edits, or whether the full compile is simply the better default at these sizes. Finding 5 is the
    evidence; do not remove the incremental path on it alone, because its tested behaviour under
    component splits and merges is a correctness asset.
-4. Only after 1: revisit the renderer. The measurement still does not implicate rendering.
+5. Only after a browser measurement: revisit the renderer. The measurement still does not implicate
+   rendering.
 
 Record new runs by adding a dated report under `docs/benchmarks/` and updating the table above.
 Comparisons are only valid while the pinned workload checksum in the Rust test gate is unchanged.
 
-Previous record: [`benchmarks/capacity-v0.5.1.json`](benchmarks/capacity-v0.5.1.json).
+Previous records: [`benchmarks/capacity-v0.6.json`](benchmarks/capacity-v0.6.json),
+[`benchmarks/capacity-v0.5.1.json`](benchmarks/capacity-v0.5.1.json).

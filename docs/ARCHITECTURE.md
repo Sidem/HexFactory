@@ -33,8 +33,9 @@ The Rust `Core` owns all state that can change a game result:
    deposits are resolved once into a candidate list ordered exactly as a full scan would resolve it,
    cached against its stable entity id, and dropped whenever chunk generation adds tiles. Remaining
    quantity is never part of that ordering, so a drained deposit falls through to the next candidate
-   without re-resolving. The cache is derived state: it is never saved, never hashed, and a test
-   pins it against the scan it replaces.
+   without re-resolving. Reported extractor status resolves through the same cache rather than a
+   second scan. The cache is derived state: it is never saved, never hashed, and tests pin both the
+   reference and the status against the scans they replace.
 6. Extractors consume one unit from the finite deposit only when an output can be created. Composers
    reserve exact recipe inputs, run for integer ticks, and emit only on completion. Containers store
    exact quantities; hubs and demo consumers count exact deliveries.
@@ -98,19 +99,48 @@ progression, player, chunks, terrain, resources, and events. The host rejects mi
 out-of-order revisions before merging a delta. Pointer-driven placement preview requests are
 coalesced to one in flight plus the latest pending position.
 
-Buildings are the exception to group granularity. v0.6 sends them as a per-entity patch: `changed`
-carries inserted and modified entities, `removed` carries dropped ids, and both arrive in ascending
-stable entity id order so one linear host pass merges them without re-sorting. A full delta sets an
-explicit `replace` flag and carries the complete list, so a host with no prior state is still
-correct. Measurement drove this: at group granularity, one moving item resent every building, which
-`docs/BENCHMARKS.md` recorded as a flat 240–246 bytes per building at every tier. The same document
-now records 103–110 bytes per building on the same workload.
+Buildings and resources are the exceptions to group granularity. Buildings travel as a per-entity
+patch: `changed` carries inserted and modified entities, `removed` carries dropped ids, and both
+arrive in ascending stable entity id order so one linear host pass merges them without re-sorting.
+Resources travel as a per-deposit patch keyed by stable deposit id. Deposits are never removed, and
+world generation — the only path that adds one — sends the group whole with `replace`, so an
+incremental patch always addresses deposits the host already holds and never disturbs their order.
+Both a full delta and a post-generation resources group set an explicit `replace` flag and carry the
+complete list, so a host with no prior state is still correct. Measurement drove the buildings
+patch: at group granularity, one moving item resent every building, recorded as a flat 240–246 bytes
+per building at every tier against 103–110 bytes now.
 
-Rust still materializes one complete snapshot per frame in order to diff it. `docs/BENCHMARKS.md`
-records that materialization as 55–91% of the measured frame — the largest remaining cost, and the
-next native change to make: track dirty entities at mutation time so the frame stops building a full
-snapshot it immediately discards. A renderer decision remains gated on that, and on a browser-side
-measurement — the recorded ladder is native.
+## Dirty tracking
+
+v0.7 stops materializing a complete snapshot per frame in order to diff it, which
+`docs/BENCHMARKS.md` had recorded as 55–91% of the measured frame. The core now marks what changed
+where state is mutated — entity ids, deposit tile keys, and flags for terrain and the chunk set —
+and the delta is built from those marks against a baseline of what the host was last sent. Only
+marked entries are materialized at all. The frame cost at the largest measured tier fell 16.8×, and
+every tier in the recorded ladder now fits inside a 60 Hz frame.
+
+The marks are derived presentation state: never saved, never hashed, never checksummed, and
+incapable of changing a simulation result. They are appended to vectors rather than inserted into
+ordered sets, because the tick loop makes thousands per frame; one sort at emit time supplies the
+ascending, duplicate-free order the wire format requires. Because every marked entry is still
+compared against the baseline before it ships, a mark that turns out to change nothing costs one
+wasted rebuild rather than a wrong frame — which is what lets the rare structural paths mark
+conservatively. World generation is the important one: it invalidates every resolved deposit
+reference, so it must invalidate every entity snapshot derived from one in the same breath.
+
+A missed mark would be a defect, so the shipped builder is pinned against the full-snapshot diff it
+replaced: a scripted run covering quiet frames, ticks, gathering to depletion, hub delivery,
+research, placement, rotation, erasure, and travel into unsurveyed world asserts after every step
+that the two deltas are byte-identical. Reset, new game, and load discard the baseline instead of
+patching against a core that no longer exists, so the host receives a complete replacement.
+
+Two scans inside the complete snapshot were quadratic and are gone: extractor status now resolves
+through the same cached deposit reference the tick path uses instead of searching every generated
+tile, and per-chunk entity counts come from one pass over the blueprint instead of one filter per
+chunk. That path still runs for the host's first frame and after every reset, new game, and load.
+
+A renderer decision remains gated on a browser-side measurement — the recorded ladder is native, and
+`docs/BENCHMARKS.md` now names that measurement as the first follow-up.
 
 ## Fog of war
 

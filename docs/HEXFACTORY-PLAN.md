@@ -1,11 +1,14 @@
 # HexFactory — architecture, roadmap, and implementation handoffs
 
-Status: Sparse Cost v0.6 is shipped on Capacity Tiers v0.5.1, Worker Boundary v0.5, Command Surface
-v0.4, Continuous Exploration v0.3, and the v0.3.1 incremental transport follow-up. Both follow-ups
-the capacity measurement identified are closed and re-measured in `docs/BENCHMARKS.md`, and that
-re-measurement, not intuition, orders what comes next: the frame is now dominated by materializing a
-complete snapshot each frame purely to diff it. Native dirty-entity tracking is the next milestone,
-then a browser-side measurement, and only then any renderer decision.
+Status: Sparse Snapshot v0.7 is shipped on Sparse Cost v0.6, Capacity Tiers v0.5.1, Worker Boundary
+v0.5, Command Surface v0.4, Continuous Exploration v0.3, and the v0.3.1 incremental transport
+follow-up. Every native follow-up the capacity measurement has identified is now closed and
+re-measured in `docs/BENCHMARKS.md`, and that re-measurement, not intuition, orders what comes next.
+The ladder no longer contains a tier that misses 60 Hz, so it no longer locates the native ceiling —
+which makes a browser-side measurement the next milestone rather than a further native one. Nothing
+here predicts browser frame rate, and every remaining native cost is now small enough that the wasm
+and postMessage boundary is plausibly the real limit. A renderer decision stays gated behind that
+measurement.
 
 Target repository: `https://github.com/Sidem/HexFactory`
 
@@ -20,6 +23,24 @@ not a source dependency: HexFactory imports only the published package. Treat th
 read-only unless a future task explicitly authorizes a separately released generic package change.
 
 ## Shipped implementation record
+
+- Sparse Snapshot v0.7 closes the follow-up v0.6 named for itself: the frame no longer materializes
+  a complete snapshot purely to diff it. The core marks dirty entities, deposits, terrain, and the
+  chunk set where state is mutated, and the delta is built from those marks against a baseline of
+  what the host was last sent, so only entries that may have moved are materialized at all. Two
+  quadratic scans inside the complete snapshot are also gone — extractor status now resolves through
+  the cached deposit reference the tick path already used, and per-chunk entity counts come from one
+  pass over the blueprint — which makes building a full snapshot linear in entity count for the
+  first-frame, reset, new-game, and load paths that still do it. Resources join buildings as a
+  keyed patch on the wire. It changes no simulation, save, determinism, or dependency contract:
+  every capacity tier reproduces its v0.6 checksum and delivered total, so the records compare
+  directly. The frame cost falls 16.8× at the largest measured tier and the complete snapshot 26.8×,
+  the delta payload is unchanged by design, and every tier in the recorded ladder now fits inside a
+  60 Hz frame — which means the ladder no longer locates a native ceiling, only headroom above
+  6,144 entities. Its two findings order what follows: the frame's remaining two-thirds is JSON
+  serialization of a payload reaching 644 KB, and the whole-world checksum is now the largest single
+  identified cost at 27–37% of a frame. Neither is worth attacking before the browser measurement
+  that has been deferred since v0.5.1.
 
 - Sparse Cost v0.6 closes both measured follow-ups and makes unexplored world visible. Extractors
   resolve a cached deposit reference instead of scanning every generated tile per tick, which makes

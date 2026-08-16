@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+#[cfg(test)]
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet};
 use wasm_bindgen::prelude::*;
@@ -332,8 +333,58 @@ struct BuildingsDelta {
     removed: Vec<u32>,
 }
 
+/// A per-deposit resources patch, keyed by the stable deposit id. Resource tiles are inserted by
+/// world generation and updated by extraction and gathering; the tile map has no removal path, so
+/// the patch needs no removal list. Generation is the only thing that adds a deposit, and it sets
+/// `replace`, so an incremental patch never disturbs the order the host already holds.
+#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
+struct ResourcesDelta {
+    /// Set when `changed` is the complete list rather than a patch.
+    #[serde(skip_serializing_if = "is_false")]
+    replace: bool,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    changed: Vec<ResourceSnapshot>,
+}
+
 fn is_false(value: &bool) -> bool {
     !*value
+}
+
+/// Which parts of the next snapshot may differ from the one the host already holds, marked where
+/// state is mutated rather than discovered by diffing a freshly materialized snapshot.
+///
+/// This is derived presentation state: it is never saved, hashed, or checksummed, and it can never
+/// change a simulation result. Every mark is a hint to rebuild one entry, and the emitted delta is
+/// still filtered against the baseline the host was actually sent — so marking something that did
+/// not change costs one wasted rebuild, never a wrong frame. Missing a mark would be a defect, so
+/// `dirty_tracked_deltas_match_a_full_snapshot_diff` pins the whole set against a full diff.
+/// Marks are appended, not inserted into an ordered set: the tick loop makes thousands of them per
+/// frame, and an ordered insert costs a tree descent each time where a push costs nothing. Order
+/// and uniqueness are what the delta needs, and it gets both from one sort at emit time — see
+/// `drain_marks`.
+#[derive(Clone, Debug, Default)]
+struct SnapshotDirty {
+    /// Stable entity ids whose snapshot may differ, including newly placed ones.
+    entities: Vec<u32>,
+    /// Stable entity ids the host must drop.
+    removed: BTreeSet<u32>,
+    /// Tile keys of deposits whose quantity may differ.
+    resources: Vec<(i32, i32)>,
+    /// Set when generation may have added deposits, so the resources group is resent whole and the
+    /// host's ordering stays exactly the native one.
+    resources_replace: bool,
+    /// Set when generation adds tiles. Terrain only ever grows, so a flag is exact.
+    terrain: bool,
+    /// Set when the generated chunk set or any chunk's entity count may differ.
+    chunks: bool,
+}
+
+/// Take a mark list as the ascending, duplicate-free order the delta must travel in.
+fn drain_marks<T: Ord>(marks: &mut Vec<T>) -> Vec<T> {
+    let mut marks = std::mem::take(marks);
+    marks.sort_unstable();
+    marks.dedup();
+    marks
 }
 
 #[derive(Debug, Serialize)]
@@ -369,7 +420,7 @@ struct SnapshotDelta {
     #[serde(skip_serializing_if = "Option::is_none")]
     terrain: Option<Vec<TileSnapshot>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    resources: Option<Vec<ResourceSnapshot>>,
+    resources: Option<ResourcesDelta>,
     #[serde(skip_serializing_if = "Option::is_none")]
     buildings: Option<BuildingsDelta>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -396,7 +447,10 @@ impl SnapshotDelta {
             researched: Some(current.researched.clone()),
             chunks: Some(current.chunks.clone()),
             terrain: Some(current.terrain.clone()),
-            resources: Some(current.resources.clone()),
+            resources: Some(ResourcesDelta {
+                replace: true,
+                changed: current.resources.clone(),
+            }),
             buildings: Some(BuildingsDelta {
                 replace: true,
                 changed: current.buildings.clone(),
@@ -406,6 +460,10 @@ impl SnapshotDelta {
         }
     }
 
+    /// The reference diff between two complete snapshots. The shipped path no longer materializes a
+    /// complete snapshot per frame, so this is retained as the oracle the dirty-tracked builder is
+    /// pinned against — see `dirty_tracked_deltas_match_a_full_snapshot_diff`.
+    #[cfg(test)]
     fn between(base_revision: u64, revision: u64, previous: &Snapshot, current: &Snapshot) -> Self {
         Self {
             base_revision,
@@ -425,15 +483,47 @@ impl SnapshotDelta {
             researched: changed(&previous.researched, &current.researched),
             chunks: changed(&previous.chunks, &current.chunks),
             terrain: changed(&previous.terrain, &current.terrain),
-            resources: changed(&previous.resources, &current.resources),
+            resources: resources_delta(&previous.resources, &current.resources),
             buildings: buildings_delta(&previous.buildings, &current.buildings),
             events: changed(&previous.events, &current.events),
         }
     }
 }
 
+/// The reference resources diff, retained alongside `SnapshotDelta::between` as the oracle for the
+/// dirty-tracked builder. A changed deposit set means generation ran, which resends the group whole
+/// so the host's ordering stays exactly the native one; otherwise only altered deposits travel.
+#[cfg(test)]
+fn resources_delta(
+    previous: &[ResourceSnapshot],
+    current: &[ResourceSnapshot],
+) -> Option<ResourcesDelta> {
+    let before: BTreeSet<u64> = previous.iter().map(|resource| resource.id).collect();
+    let after: BTreeSet<u64> = current.iter().map(|resource| resource.id).collect();
+    if before != after {
+        return Some(ResourcesDelta {
+            replace: true,
+            changed: current.to_vec(),
+        });
+    }
+    let existing: BTreeMap<u64, &ResourceSnapshot> = previous
+        .iter()
+        .map(|resource| (resource.id, resource))
+        .collect();
+    let changed: Vec<ResourceSnapshot> = current
+        .iter()
+        .filter(|resource| existing.get(&resource.id) != Some(resource))
+        .copied()
+        .collect();
+    (!changed.is_empty()).then_some(ResourcesDelta {
+        replace: false,
+        changed,
+    })
+}
+
 /// Both snapshots list buildings in ascending stable entity id order, so one linear pass finds
 /// every insert, update, and removal without comparing the arrays as a whole.
+#[cfg(test)]
 fn buildings_delta(
     previous: &[EntitySnapshot],
     current: &[EntitySnapshot],
@@ -479,10 +569,12 @@ fn buildings_delta(
     })
 }
 
+#[cfg(test)]
 fn changed<T: Clone + PartialEq>(previous: &T, current: &T) -> Option<T> {
     (previous != current).then(|| current.clone())
 }
 
+#[cfg(test)]
 fn changed_copy<T: Copy + PartialEq>(previous: T, current: T) -> Option<T> {
     (previous != current).then_some(current)
 }
@@ -545,6 +637,9 @@ struct Core {
     victory: bool,
     produced: BTreeMap<ItemId, u64>,
     events: Vec<String>,
+    /// Derived presentation state: what has changed since the host's last delta. Never saved,
+    /// hashed, or checksummed.
+    dirty: SnapshotDirty,
 }
 
 impl Core {
@@ -587,6 +682,7 @@ impl Core {
             victory: false,
             produced: BTreeMap::new(),
             events: vec![format!("{} ready", scenario.name)],
+            dirty: SnapshotDirty::default(),
         };
         core.ensure_neighborhood(core.player.x, core.player.y);
         for resource in &scenario.resources {
@@ -668,6 +764,15 @@ impl Core {
         self.footprint_for(entity.placed, entity.placed.orientation)
     }
 
+    /// `entities` is always ordered by stable id: initial ids are assigned in sorted-anchor order,
+    /// placement appends the next monotonic id, erasing preserves relative order, and restoring a
+    /// save re-sorts. So one marked id resolves in log time rather than a scan of the blueprint.
+    fn index_of_entity(&self, id: u32) -> Option<usize> {
+        self.entities
+            .binary_search_by_key(&id, |entity| entity.id)
+            .ok()
+    }
+
     fn entity_at(&self, q: i32, r: i32) -> Option<usize> {
         self.entities.iter().position(|entity| {
             self.entity_footprint(entity)
@@ -745,15 +850,38 @@ impl Core {
         if !self.generated_chunks.insert((chunk_q, chunk_r)) {
             return;
         }
-        // New tiles can cover an existing extractor, so every resolved deposit reference is stale.
+        // New tiles can cover an existing extractor, so every resolved deposit reference is stale —
+        // and so is every extractor status derived from one. The two must be invalidated together:
+        // dropping the entity marks would make snapshot correctness depend on generated deposits
+        // never reaching an existing extractor, which nothing here enforces. Generation is rare, and
+        // marks that turn out to change nothing are filtered against the baseline before they ship.
         self.deposit_links.clear();
+        self.mark_all_entities_dirty();
+        self.dirty.chunks = true;
         let size = self.scenario.chunk_size;
         for local_r in 0..size {
             for local_q in 0..size {
                 let q = chunk_q * size + local_q;
                 let r = chunk_r * size + local_r;
-                self.tiles.insert((q, r), self.generated_tile(q, r));
+                let tile = self.generated_tile(q, r);
+                // A chunk of plain ground adds nothing to either group, so both marks are narrowed
+                // to a tile that actually appears in one. Generation is the only path that adds to
+                // either: resending resources whole keeps the host's order exactly the native one,
+                // so later patches can address deposits in place.
+                self.dirty.terrain |= tile.terrain != Terrain::Ground;
+                self.dirty.resources_replace |= tile.resource.is_some();
+                self.tiles.insert((q, r), tile);
             }
+        }
+    }
+
+    /// Every entity snapshot is now suspect. Used by the rare paths that can change what a snapshot
+    /// derives from state outside the entity itself: the compiled graph behind `next_id`, and the
+    /// deposits behind an extractor's status.
+    fn mark_all_entities_dirty(&mut self) {
+        for index in 0..self.entities.len() {
+            let id = self.entities[index].id;
+            self.dirty.entities.push(id);
         }
     }
 
@@ -864,6 +992,8 @@ impl Core {
             .enumerate()
             .map(|(index, _)| self.compile_graph_target(index, &occupied))
             .collect();
+        // A full compile can move any entity's outgoing link, and `next_id` is part of its snapshot.
+        self.mark_all_entities_dirty();
     }
 
     fn occupied_entities(&self) -> BTreeMap<(i32, i32), usize> {
@@ -997,6 +1127,13 @@ impl Core {
             .filter(|id| indices_by_id.contains_key(id))
             .count();
         self.graph = graph;
+        // Exactly the entities whose outgoing link was recomputed, so their `next_id` may differ.
+        self.dirty.entities.extend(
+            affected
+                .iter()
+                .filter(|id| indices_by_id.contains_key(id))
+                .copied(),
+        );
         recompiled
     }
 
@@ -1037,10 +1174,12 @@ impl Core {
             let placed = self.entities[index].placed;
             (placed.q, placed.r, placed.definition_id)
         };
+        let id = self.entities[index].id;
         let resource_key = self.extractor_deposit(index);
         let available = resource_key
             .map(|key| self.deposit_quantity(key))
             .unwrap_or(0);
+        self.dirty.entities.push(id);
         if available == 0 {
             self.entities[index].progress = 0;
             return;
@@ -1053,20 +1192,26 @@ impl Core {
         if self.entities[index].progress < cadence {
             return;
         }
+        let resource_key = resource_key.expect("available resource key exists");
         let resource = self
             .tiles
-            .get_mut(&resource_key.expect("available resource key exists"))
+            .get_mut(&resource_key)
             .and_then(|tile| tile.resource.as_mut())
             .expect("available resource exists");
         resource.quantity -= 1;
         let item_id = resource.item_id;
+        let depleted = resource.quantity == 0;
+        self.dirty.resources.push(resource_key);
         self.entities[index].cargo = Some(Cargo {
             item_id,
             quantity: 1,
         });
         self.entities[index].progress = 0;
         *self.produced.entry(item_id).or_default() += 1;
-        if resource.quantity == 0 {
+        if depleted {
+            // Any extractor covering this deposit may now report a different status or fall
+            // through to a different candidate.
+            self.mark_all_entities_dirty();
             self.events.push(format!("Deposit at {q},{r} depleted"));
         }
     }
@@ -1082,6 +1227,8 @@ impl Core {
             return;
         }
         if self.entities[index].progress > 0 {
+            let id = self.entities[index].id;
+            self.dirty.entities.push(id);
             self.entities[index].progress += 1;
             if self.entities[index].progress >= recipe.duration {
                 self.entities[index].cargo = Some(Cargo {
@@ -1102,6 +1249,8 @@ impl Core {
                 >= ingredient.quantity
         });
         if can_start {
+            let id = self.entities[index].id;
+            self.dirty.entities.push(id);
             for ingredient in &recipe.inputs {
                 subtract_item(
                     &mut self.entities[index].inventory,
@@ -1154,6 +1303,9 @@ impl Core {
             } else {
                 self.entities[source].cargo = None;
             }
+            let (source_id, target_id) = (self.entities[source].id, self.entities[target].id);
+            self.dirty.entities.push(source_id);
+            self.dirty.entities.push(target_id);
             self.accept(target, cargo);
             claimed.insert(target);
         }
@@ -1322,11 +1474,14 @@ impl Core {
         let feature = self.tiles.get_mut(&key).expect("selected resource exists");
         let resource = feature.resource.as_mut().expect("selected resource exists");
         resource.quantity -= 1;
-        *self.player.inventory.entry(resource.item_id).or_default() += 1;
+        let (item_id, depleted) = (resource.item_id, resource.quantity == 0);
+        self.dirty.resources.push(key);
+        *self.player.inventory.entry(item_id).or_default() += 1;
         self.player.action_cooldown = 2;
-        self.events
-            .push(format!("Gathered item {}", resource.item_id));
-        if resource.quantity == 0 {
+        self.events.push(format!("Gathered item {item_id}"));
+        if depleted {
+            // Any extractor covering this deposit may now report a different status.
+            self.mark_all_entities_dirty();
             self.events.push("Deposit depleted".into());
         }
         Ok(())
@@ -1514,6 +1669,9 @@ impl Core {
             progress: 0,
         });
         self.next_entity_id += 1;
+        self.dirty.entities.push(id);
+        // A chunk's reported entity count changes with the blueprint.
+        self.dirty.chunks = true;
         let changed_cells = self
             .footprint_for(placed, orientation)
             .into_iter()
@@ -1543,6 +1701,8 @@ impl Core {
             .collect();
         let entity = self.entities.remove(index);
         self.deposit_links.remove(&entity.id);
+        self.dirty.removed.insert(entity.id);
+        self.dirty.chunks = true;
         let definition = self
             .building_definition(entity.placed.definition_id)
             .unwrap()
@@ -1586,6 +1746,7 @@ impl Core {
             return Err("rotated footprint would overlap another building".into());
         }
         self.entities[index].placed.orientation = next_orientation;
+        self.dirty.entities.push(id);
         let changed_cells = old_footprint
             .into_iter()
             .chain(next_footprint)
@@ -1647,23 +1808,13 @@ impl Core {
         Ok(())
     }
 
-    fn status(&self, entity: &Entity) -> String {
+    /// `deposit_available` is whether any deposit covering this extractor still holds stock. It is
+    /// passed in rather than searched for: resolving it through the cached candidate list keeps a
+    /// snapshot linear in entity count, where the equivalent tile scan made it quadratic.
+    fn status_of(&self, entity: &Entity, deposit_available: bool) -> String {
         match entity.kind {
             BuildingKind::Extractor if entity.cargo.is_some() => "output blocked".into(),
-            BuildingKind::Extractor
-                if self
-                    .resource_at_world(
-                        axial_world(entity.placed.q, entity.placed.r).0,
-                        axial_world(entity.placed.q, entity.placed.r).1,
-                    )
-                    .and_then(|key| self.tiles.get(&key))
-                    .and_then(|tile| tile.resource.as_ref())
-                    .map(|resource| resource.quantity)
-                    .unwrap_or(0)
-                    == 0 =>
-            {
-                "deposit depleted".into()
-            }
+            BuildingKind::Extractor if !deposit_available => "deposit depleted".into(),
             BuildingKind::Extractor if entity.progress > 0 => "extracting".into(),
             BuildingKind::Composer if entity.cargo.is_some() => "output blocked".into(),
             BuildingKind::Composer if entity.progress > 0 => "composing".into(),
@@ -1676,12 +1827,76 @@ impl Core {
         }
     }
 
-    fn snapshot(&self) -> Snapshot {
+    /// One entity's snapshot. Every path that reports an entity to the host — the complete
+    /// snapshot and the incremental delta alike — builds it here, so the sparse path cannot drift
+    /// from the full one.
+    fn entity_snapshot(&mut self, index: usize) -> EntitySnapshot {
+        // Resolving through the cached candidate list rather than scanning the tile map is what
+        // keeps this O(1) in world size. The cache is derived state, so filling it changes nothing.
+        let deposit_available = self.entities[index].kind == BuildingKind::Extractor
+            && self.extractor_deposit(index).is_some();
+        let entity = &self.entities[index];
+        let progress_total = match entity.kind {
+            BuildingKind::Extractor => self
+                .building_definition(entity.placed.definition_id)
+                .and_then(|definition| definition.cadence)
+                .unwrap_or(1),
+            BuildingKind::Composer => entity
+                .placed
+                .recipe_id
+                .and_then(|id| self.recipe(id))
+                .map(|recipe| recipe.duration)
+                .unwrap_or(0),
+            _ => 0,
+        };
+        EntitySnapshot {
+            id: entity.id,
+            q: entity.placed.q,
+            r: entity.placed.r,
+            definition_id: entity.placed.definition_id,
+            kind: entity.kind,
+            orientation: entity.placed.orientation,
+            recipe_id: entity.placed.recipe_id,
+            scenario_owned: entity.placed.scenario_owned,
+            cargo: entity.cargo,
+            inventory: entity
+                .inventory
+                .iter()
+                .map(|(&item_id, &quantity)| Ingredient { item_id, quantity })
+                .collect(),
+            progress: entity.progress,
+            progress_total,
+            status: self.status_of(entity, deposit_available),
+            next_id: self.graph[index].map(|target| self.entities[target].id),
+            footprint: self.entity_footprint(entity),
+        }
+    }
+
+    /// Every entity, in ascending stable id order.
+    fn entity_snapshots(&mut self) -> Vec<EntitySnapshot> {
         let mut indices: Vec<usize> = (0..self.entities.len()).collect();
         indices.sort_by_key(|&index| self.entities[index].id);
-        let span = self.scenario.chunk_size.saturating_mul(FEATURE_SPACING);
-        let chunks = self
-            .generated_chunks
+        indices
+            .into_iter()
+            .map(|index| self.entity_snapshot(index))
+            .collect()
+    }
+
+    /// The generated chunk set with its per-chunk entity counts. Counting in one pass over the
+    /// blueprint keeps this linear; asking each chunk to filter the whole blueprint did not.
+    fn chunk_snapshots(&self) -> Vec<ChunkSnapshot> {
+        let size = self.scenario.chunk_size;
+        let span = size.saturating_mul(FEATURE_SPACING);
+        let mut counts: BTreeMap<(i32, i32), usize> = BTreeMap::new();
+        for entity in &self.entities {
+            let (x, y) = axial_world(entity.placed.q, entity.placed.r);
+            let chunk = (
+                floor_div(floor_div(x, FEATURE_SPACING), size),
+                floor_div(floor_div(y, FEATURE_SPACING), size),
+            );
+            *counts.entry(chunk).or_default() += 1;
+        }
+        self.generated_chunks
             .iter()
             .map(|&(chunk_q, chunk_r)| ChunkSnapshot {
                 chunk_q,
@@ -1689,113 +1904,84 @@ impl Core {
                 x: chunk_q.saturating_mul(span),
                 y: chunk_r.saturating_mul(span),
                 span,
-                entity_count: self
-                    .entities
-                    .iter()
-                    .filter(|entity| {
-                        let (x, y) = axial_world(entity.placed.q, entity.placed.r);
-                        floor_div(floor_div(x, FEATURE_SPACING), self.scenario.chunk_size)
-                            == chunk_q
-                            && floor_div(floor_div(y, FEATURE_SPACING), self.scenario.chunk_size)
-                                == chunk_r
-                    })
-                    .count(),
+                entity_count: counts.get(&(chunk_q, chunk_r)).copied().unwrap_or(0),
             })
-            .collect();
+            .collect()
+    }
+
+    fn terrain_snapshots(&self) -> Vec<TileSnapshot> {
+        self.tiles
+            .values()
+            .filter(|tile| tile.terrain != Terrain::Ground)
+            .map(|tile| TileSnapshot {
+                x: tile.x,
+                y: tile.y,
+                radius: tile.radius,
+                terrain: tile.terrain,
+            })
+            .collect()
+    }
+
+    /// One deposit's snapshot, looked up by tile key. Used by the incremental path, which knows
+    /// which deposits moved but not where they sit in the tile map.
+    fn resource_snapshot(&self, key: (i32, i32)) -> Option<ResourceSnapshot> {
+        resource_snapshot_of(key, self.tiles.get(&key)?)
+    }
+
+    /// Every deposit, in tile order. This walks the map rather than looking each tile up again,
+    /// because it visits all of them.
+    fn resource_snapshots(&self) -> Vec<ResourceSnapshot> {
+        self.tiles
+            .iter()
+            .filter_map(|(&key, tile)| resource_snapshot_of(key, tile))
+            .collect()
+    }
+
+    fn delivered_by_item_snapshot(&self) -> Vec<Ingredient64> {
+        self.delivered_by_item
+            .iter()
+            .map(|(&item_id, &quantity)| Ingredient64 { item_id, quantity })
+            .collect()
+    }
+
+    fn objective_snapshot(&self) -> ObjectiveSnapshot {
+        ObjectiveSnapshot {
+            item_id: self.scenario.objective_item_id,
+            delivered: self
+                .delivered_by_item
+                .get(&self.scenario.objective_item_id)
+                .copied()
+                .unwrap_or(0),
+            required: self.scenario.objective_quantity,
+        }
+    }
+
+    /// The complete snapshot. It is the host's first frame and the oracle the incremental delta
+    /// builder is pinned against; the shipped per-frame path no longer materializes one.
+    fn snapshot(&mut self) -> Snapshot {
+        let checksum = self.checksum();
+        let chunks = self.chunk_snapshots();
+        let terrain = self.terrain_snapshots();
+        let resources = self.resource_snapshots();
+        let buildings = self.entity_snapshots();
         Snapshot {
             scenario: self.scenario.key.clone(),
             scenario_name: self.scenario.name.clone(),
             world_version: WORLD_GENERATOR_VERSION,
             seed: self.seed,
             tick: self.tick,
-            checksum: self.checksum(),
+            checksum,
             delivered: self.delivered,
-            delivered_by_item: self
-                .delivered_by_item
-                .iter()
-                .map(|(&item_id, &quantity)| Ingredient64 { item_id, quantity })
-                .collect(),
+            delivered_by_item: self.delivered_by_item_snapshot(),
             insight: self.insight,
             victory: self.victory,
-            objective: ObjectiveSnapshot {
-                item_id: self.scenario.objective_item_id,
-                delivered: self
-                    .delivered_by_item
-                    .get(&self.scenario.objective_item_id)
-                    .copied()
-                    .unwrap_or(0),
-                required: self.scenario.objective_quantity,
-            },
+            objective: self.objective_snapshot(),
             player: self.player.clone(),
             researched: self.researched.iter().copied().collect(),
             chunks,
-            terrain: self
-                .tiles
-                .values()
-                .filter(|tile| tile.terrain != Terrain::Ground)
-                .map(|tile| TileSnapshot {
-                    x: tile.x,
-                    y: tile.y,
-                    radius: tile.radius,
-                    terrain: tile.terrain,
-                })
-                .collect(),
-            resources: self
-                .tiles
-                .iter()
-                .filter_map(|(&(q, r), tile)| {
-                    let resource = tile.resource.as_ref()?;
-                    Some(ResourceSnapshot {
-                        id: feature_id(q, r),
-                        x: tile.x,
-                        y: tile.y,
-                        radius: tile.radius,
-                        item_id: resource.item_id,
-                        quantity: resource.quantity,
-                        initial_quantity: resource.initial_quantity,
-                    })
-                })
-                .collect(),
-            buildings: indices
-                .into_iter()
-                .map(|index| {
-                    let entity = &self.entities[index];
-                    let progress_total = match entity.kind {
-                        BuildingKind::Extractor => self
-                            .building_definition(entity.placed.definition_id)
-                            .and_then(|definition| definition.cadence)
-                            .unwrap_or(1),
-                        BuildingKind::Composer => entity
-                            .placed
-                            .recipe_id
-                            .and_then(|id| self.recipe(id))
-                            .map(|recipe| recipe.duration)
-                            .unwrap_or(0),
-                        _ => 0,
-                    };
-                    EntitySnapshot {
-                        id: entity.id,
-                        q: entity.placed.q,
-                        r: entity.placed.r,
-                        definition_id: entity.placed.definition_id,
-                        kind: entity.kind,
-                        orientation: entity.placed.orientation,
-                        recipe_id: entity.placed.recipe_id,
-                        scenario_owned: entity.placed.scenario_owned,
-                        cargo: entity.cargo,
-                        inventory: entity
-                            .inventory
-                            .iter()
-                            .map(|(&item_id, &quantity)| Ingredient { item_id, quantity })
-                            .collect(),
-                        progress: entity.progress,
-                        progress_total,
-                        status: self.status(entity),
-                        next_id: self.graph[index].map(|target| self.entities[target].id),
-                        footprint: self.entity_footprint(entity),
-                    }
-                })
-                .collect(),
+            terrain,
+            resources,
+            buildings,
             events: self.events.clone(),
         }
     }
@@ -1968,6 +2154,10 @@ impl Core {
             .collect();
         core.deposit_links.clear();
         core.entities = envelope.state.entities;
+        // A save records entities in stable id order; sorting makes that an invariant of the loaded
+        // core rather than a property of the file. Entity order is not a simulation input — the
+        // checksum and every arbitration order sort by id — so this cannot change a result.
+        core.entities.sort_by_key(|entity| entity.id);
         core.player = envelope.state.player;
         core.researched = envelope.state.researched;
         core.next_entity_id = envelope.state.next_entity_id;
@@ -2017,6 +2207,71 @@ struct SavedState {
     produced: BTreeMap<ItemId, u64>,
 }
 
+/// The snapshot state the host was last sent, retained so the next delta can be built from the
+/// core's dirty marks instead of a freshly materialized snapshot.
+///
+/// The cheap groups are kept by value and compared directly. Buildings are kept keyed by stable id,
+/// so one marked entity costs one rebuild and one comparison rather than a rebuild of the whole
+/// blueprint. Terrain and resources are kept by neither: generation is the only path that adds
+/// either, and it marks them, so the marks alone are exact.
+#[derive(Clone, Debug)]
+struct SnapshotBaseline {
+    scenario: String,
+    scenario_name: String,
+    world_version: u16,
+    seed: u32,
+    delivered: u64,
+    delivered_by_item: Vec<Ingredient64>,
+    insight: u64,
+    victory: bool,
+    objective: ObjectiveSnapshot,
+    player: PlayerState,
+    researched: Vec<TechnologyId>,
+    chunks: Vec<ChunkSnapshot>,
+    buildings: BTreeMap<u32, EntitySnapshot>,
+    events: Vec<String>,
+}
+
+impl SnapshotBaseline {
+    fn from_snapshot(snapshot: &Snapshot) -> Self {
+        Self {
+            scenario: snapshot.scenario.clone(),
+            scenario_name: snapshot.scenario_name.clone(),
+            world_version: snapshot.world_version,
+            seed: snapshot.seed,
+            delivered: snapshot.delivered,
+            delivered_by_item: snapshot.delivered_by_item.clone(),
+            insight: snapshot.insight,
+            victory: snapshot.victory,
+            objective: snapshot.objective,
+            player: snapshot.player.clone(),
+            researched: snapshot.researched.clone(),
+            chunks: snapshot.chunks.clone(),
+            buildings: snapshot
+                .buildings
+                .iter()
+                .map(|entity| (entity.id, entity.clone()))
+                .collect(),
+            events: snapshot.events.clone(),
+        }
+    }
+}
+
+/// Advance one baseline field, yielding the delta entry only when it actually changed.
+fn take_changed<T: Clone + PartialEq>(baseline: &mut T, current: T) -> Option<T> {
+    (*baseline != current).then(|| {
+        baseline.clone_from(&current);
+        current
+    })
+}
+
+fn take_changed_copy<T: Copy + PartialEq>(baseline: &mut T, current: T) -> Option<T> {
+    (*baseline != current).then(|| {
+        *baseline = current;
+        current
+    })
+}
+
 #[wasm_bindgen]
 pub struct Factory {
     definitions: DefinitionsInput,
@@ -2024,7 +2279,113 @@ pub struct Factory {
     scenarios: ScenariosInput,
     core: Core,
     snapshot_revision: u64,
-    last_snapshot: Option<Snapshot>,
+    baseline: Option<SnapshotBaseline>,
+}
+
+impl Factory {
+    /// The next delta, built from the core's dirty marks against the baseline the host holds.
+    ///
+    /// With no baseline — the first delta, and every reset, new game, and load — the host has no
+    /// state to patch, so it gets a complete replacement. Otherwise only marked entries are
+    /// materialized at all, and only those that genuinely differ from the baseline travel.
+    fn build_delta(&mut self) -> SnapshotDelta {
+        let base_revision = self.snapshot_revision;
+        let revision = base_revision.saturating_add(1);
+        self.snapshot_revision = revision;
+
+        if self.baseline.is_none() {
+            let snapshot = self.core.snapshot();
+            self.baseline = Some(SnapshotBaseline::from_snapshot(&snapshot));
+            self.core.dirty = SnapshotDirty::default();
+            return SnapshotDelta::full(base_revision, revision, &snapshot);
+        }
+
+        let core = &mut self.core;
+        let baseline = self.baseline.as_mut().expect("baseline exists");
+        let mut dirty = std::mem::take(&mut core.dirty);
+        let marked_entities = drain_marks(&mut dirty.entities);
+        let marked_resources = drain_marks(&mut dirty.resources);
+
+        let mut removed: Vec<u32> = Vec::new();
+        for id in &dirty.removed {
+            if baseline.buildings.remove(id).is_some() {
+                removed.push(*id);
+            }
+        }
+        let mut changed: Vec<EntitySnapshot> = Vec::new();
+        for id in marked_entities {
+            // Ids are monotonic, so an erased id never returns and needs no rebuild.
+            if !dirty.removed.is_empty() && dirty.removed.contains(&id) {
+                continue;
+            }
+            let Some(index) = core.index_of_entity(id) else {
+                continue;
+            };
+            // A mark only says an entry may have moved. Comparing against what the host already
+            // holds is what keeps a conservative mark from becoming wasted payload.
+            let entity = core.entity_snapshot(index);
+            if baseline.buildings.get(&id) != Some(&entity) {
+                baseline.buildings.insert(id, entity.clone());
+                changed.push(entity);
+            }
+        }
+        // Both lists are in ascending id order, so the host merges them in one linear pass.
+        let buildings = (!changed.is_empty() || !removed.is_empty()).then_some(BuildingsDelta {
+            replace: false,
+            changed,
+            removed,
+        });
+
+        let resources = if dirty.resources_replace {
+            Some(ResourcesDelta {
+                replace: true,
+                changed: core.resource_snapshots(),
+            })
+        } else {
+            let changed: Vec<ResourceSnapshot> = marked_resources
+                .into_iter()
+                .filter_map(|key| core.resource_snapshot(key))
+                .collect();
+            (!changed.is_empty()).then_some(ResourcesDelta {
+                replace: false,
+                changed,
+            })
+        };
+
+        SnapshotDelta {
+            base_revision,
+            revision,
+            tick: core.tick,
+            checksum: core.checksum(),
+            scenario: take_changed(&mut baseline.scenario, core.scenario.key.clone()),
+            scenario_name: take_changed(&mut baseline.scenario_name, core.scenario.name.clone()),
+            world_version: take_changed_copy(&mut baseline.world_version, WORLD_GENERATOR_VERSION),
+            seed: take_changed_copy(&mut baseline.seed, core.seed),
+            delivered: take_changed_copy(&mut baseline.delivered, core.delivered),
+            delivered_by_item: take_changed(
+                &mut baseline.delivered_by_item,
+                core.delivered_by_item_snapshot(),
+            ),
+            insight: take_changed_copy(&mut baseline.insight, core.insight),
+            victory: take_changed_copy(&mut baseline.victory, core.victory),
+            objective: take_changed_copy(&mut baseline.objective, core.objective_snapshot()),
+            player: take_changed(&mut baseline.player, core.player.clone()),
+            researched: take_changed(
+                &mut baseline.researched,
+                core.researched.iter().copied().collect(),
+            ),
+            chunks: dirty
+                .chunks
+                .then(|| take_changed(&mut baseline.chunks, core.chunk_snapshots()))
+                .flatten(),
+            // Terrain is never retained for comparison: `generate_chunk` is the only path that can
+            // add a non-ground tile, and it marks exactly that case.
+            terrain: dirty.terrain.then(|| core.terrain_snapshots()),
+            resources,
+            buildings,
+            events: take_changed(&mut baseline.events, core.events.clone()),
+        }
+    }
 }
 
 #[wasm_bindgen]
@@ -2054,7 +2415,7 @@ impl Factory {
             scenarios,
             core,
             snapshot_revision: 0,
-            last_snapshot: None,
+            baseline: None,
         })
     }
 
@@ -2070,6 +2431,8 @@ impl Factory {
             Some(self.core.seed),
         )
         .map_err(js_error)?;
+        // The core the baseline described is gone, so the next delta is a complete replacement.
+        self.baseline = None;
         Ok(())
     }
 
@@ -2091,6 +2454,7 @@ impl Factory {
             seed_override,
         )
         .map_err(js_error)?;
+        self.baseline = None;
         Ok(())
     }
 
@@ -2129,25 +2493,14 @@ impl Factory {
     pub fn snapshot_json(&mut self) -> String {
         let snapshot = self.core.snapshot();
         self.snapshot_revision = 0;
-        self.last_snapshot = Some(snapshot.clone());
+        self.baseline = Some(SnapshotBaseline::from_snapshot(&snapshot));
+        self.core.dirty = SnapshotDirty::default();
         serde_json::to_string(&snapshot).expect("snapshot is serializable")
     }
 
     pub fn snapshot_delta_json(&mut self) -> String {
-        let current = self.core.snapshot();
-        let base_revision = self.snapshot_revision;
-        let revision = base_revision.saturating_add(1);
-        let delta = self
-            .last_snapshot
-            .as_ref()
-            .map(|previous| SnapshotDelta::between(base_revision, revision, previous, &current));
-        self.snapshot_revision = revision;
-        self.last_snapshot = Some(current.clone());
-        match delta {
-            Some(delta) => serde_json::to_string(&delta).expect("snapshot delta is serializable"),
-            None => serde_json::to_string(&SnapshotDelta::full(base_revision, revision, &current))
-                .expect("snapshot delta is serializable"),
-        }
+        let delta = self.build_delta();
+        serde_json::to_string(&delta).expect("snapshot delta is serializable")
     }
 
     pub fn save_string(&self) -> Result<String, JsValue> {
@@ -2157,6 +2510,7 @@ impl Factory {
     pub fn load_string(&mut self, save: &str) -> Result<(), JsValue> {
         self.core = Core::from_save(&self.definitions, &self.technologies, &self.scenarios, save)
             .map_err(js_error)?;
+        self.baseline = None;
         Ok(())
     }
 
@@ -2541,6 +2895,19 @@ fn circles_overlap(ax: i32, ay: i32, ar: i32, bx: i32, by: i32, br: i32) -> bool
     squared_distance(ax, ay, bx, by) < i64::from(ar + br).pow(2)
 }
 
+fn resource_snapshot_of(key: (i32, i32), tile: &TileState) -> Option<ResourceSnapshot> {
+    let resource = tile.resource.as_ref()?;
+    Some(ResourceSnapshot {
+        id: feature_id(key.0, key.1),
+        x: tile.x,
+        y: tile.y,
+        radius: tile.radius,
+        item_id: resource.item_id,
+        quantity: resource.quantity,
+        initial_quantity: resource.initial_quantity,
+    })
+}
+
 fn feature_id(q: i32, r: i32) -> u64 {
     (u64::from(q as u32) << 32) | u64::from(r as u32)
 }
@@ -2642,7 +3009,8 @@ pub mod capacity {
     const ORE: ItemId = 1;
 
     /// Report format version, so recorded JSON stays interpretable as the metric set changes.
-    pub const REPORT_SCHEMA: u32 = 1;
+    /// Version 2 adds `checksum_us`, which the sparse-snapshot release needed to see.
+    pub const REPORT_SCHEMA: u32 = 2;
     /// Lines sit three rows apart so one line's two-cell composer cannot touch the next.
     const ROW_PITCH: i32 = 3;
     /// Large enough that no deposit empties inside a measured run, so every tier measures the same
@@ -2697,8 +3065,13 @@ pub mod capacity {
         /// Mean cost of one simulation tick with no snapshot or serialization.
         pub tick_us: f64,
         pub ticks_per_second: f64,
-        /// Mean cost of building one complete native snapshot, before serialization.
+        /// Mean cost of building one complete native snapshot, before serialization. The shipped
+        /// frame no longer pays this — it is the host's first frame, and the baseline the
+        /// incremental delta is measured against.
         pub snapshot_us: f64,
+        /// Mean cost of one native checksum. Every delta carries one, so this is a floor under the
+        /// frame that no amount of snapshot sparsity can remove.
+        pub checksum_us: f64,
         /// Mean cost of one worker frame: bounded command batch, one tick, and a serialized delta.
         pub frame_us: f64,
         pub frames_per_second: f64,
@@ -2871,7 +3244,7 @@ pub mod capacity {
             },
             core: warm_core(spec),
             snapshot_revision: 0,
-            last_snapshot: None,
+            baseline: None,
         }
     }
 
@@ -2894,6 +3267,12 @@ pub mod capacity {
         }
         let snapshot_us = per(start, spec.snapshots);
 
+        let start = Instant::now();
+        for _ in 0..spec.snapshots {
+            std::hint::black_box(core.checksum());
+        }
+        let checksum_us = per(start, spec.snapshots);
+
         let (frame_us, delta_bytes) = measure_frames(spec);
         let full_compile_us = measure_full_compile(spec);
         let incremental_recompile_us = measure_recompiles(spec);
@@ -2909,6 +3288,7 @@ pub mod capacity {
             tick_us,
             ticks_per_second: rate(tick_us),
             snapshot_us,
+            checksum_us,
             frame_us,
             frames_per_second: rate(frame_us),
             delta_bytes,
@@ -3040,13 +3420,14 @@ pub mod capacity {
 
     pub fn table_header() -> String {
         format!(
-            "{:<8}{:>7}{:>10}{:>11}{:>10}{:>12}{:>11}{:>10}{:>13}{:>12}{:>13}{:>10}",
+            "{:<8}{:>7}{:>10}{:>11}{:>10}{:>12}{:>12}{:>11}{:>10}{:>13}{:>12}{:>13}{:>10}",
             "tier",
             "lines",
             "entities",
             "tick us",
             "ticks/s",
             "snapshot us",
+            "checksum us",
             "frame us",
             "frames/s",
             "delta bytes",
@@ -3058,13 +3439,14 @@ pub mod capacity {
 
     pub fn table_row(tier: &TierResult) -> String {
         format!(
-            "{:<8}{:>7}{:>10}{:>11.1}{:>10.0}{:>12.1}{:>11.1}{:>10.0}{:>13.0}{:>12.1}{:>13.1}{:>10.1}",
+            "{:<8}{:>7}{:>10}{:>11.1}{:>10.0}{:>12.1}{:>12.1}{:>11.1}{:>10.0}{:>13.0}{:>12.1}{:>13.1}{:>10.1}",
             tier.key,
             tier.lines,
             tier.entities,
             tier.tick_us,
             tier.ticks_per_second,
             tier.snapshot_us,
+            tier.checksum_us,
             tier.frame_us,
             tier.frames_per_second,
             tier.delta_bytes,
@@ -3121,6 +3503,43 @@ mod tests {
         let scenarios = serde_json::from_str(SCENARIOS).unwrap();
         validate_all(&definitions, &technologies, &scenarios).unwrap();
         (definitions, technologies, scenarios)
+    }
+
+    /// The bounded idle batch the host sends on a frame with no held key.
+    const IDLE: &str = r#"[{"type":"move_intent","x":0,"y":0}]"#;
+
+    fn test_factory(key: &str) -> Factory {
+        let (definitions, technologies, scenarios) = catalogs();
+        let scenario = scenarios
+            .scenarios
+            .iter()
+            .find(|value| value.key == key)
+            .unwrap()
+            .clone();
+        let core = Core::new(&definitions, &technologies, &scenario, None).unwrap();
+        Factory {
+            definitions,
+            technologies,
+            scenarios,
+            core,
+            snapshot_revision: 0,
+            baseline: None,
+        }
+    }
+
+    /// Assert that the delta the shipped builder produces from its dirty marks is byte-identical to
+    /// the one a full diff of two complete snapshots would have produced, then advance the oracle.
+    fn assert_delta_matches_full_diff(factory: &mut Factory, previous: &mut Snapshot, step: &str) {
+        let current = factory.core.snapshot();
+        let base_revision = factory.snapshot_revision;
+        let oracle = SnapshotDelta::between(base_revision, base_revision + 1, previous, &current);
+        let actual = factory.build_delta();
+        assert_eq!(
+            serde_json::to_string(&actual).unwrap(),
+            serde_json::to_string(&oracle).unwrap(),
+            "dirty-tracked delta diverged from the full snapshot diff after {step}"
+        );
+        *previous = current;
     }
 
     fn game(key: &str) -> Core {
@@ -3810,6 +4229,225 @@ mod tests {
         let full = SnapshotDelta::full(0, 1, &current).buildings.unwrap();
         assert!(full.replace);
         assert_eq!(full.changed, current.buildings);
+    }
+
+    /// The shipped delta is built from marks made where state is mutated, not by diffing two
+    /// complete snapshots, so a missed mark would silently strand the host on stale state. This
+    /// pins the builder against the full diff it replaces, step by step, across every path that
+    /// touches a snapshot group: quiet frames, ticks, gathering to depletion, hub delivery,
+    /// research, placement, rotation, erasure, and travel into unsurveyed world.
+    #[test]
+    fn dirty_tracked_deltas_match_a_full_snapshot_diff() {
+        let mut factory = test_factory("new-game");
+        // Setup pokes happen before the baseline is taken, so the checked run only exercises real
+        // native paths. Shrinking a guaranteed deposit lets the run reach depletion.
+        factory.core.player.inventory.insert(1, 200);
+        factory.core.player.inventory.insert(3, 100);
+        set_player_hex(&mut factory.core, 4, -2);
+        factory
+            .core
+            .tiles
+            .get_mut(&(4, -2))
+            .unwrap()
+            .resource
+            .as_mut()
+            .unwrap()
+            .quantity = 2;
+        let surveyed_at_start = factory.core.generated_chunks.len();
+
+        // Establish the baseline exactly as the worker does on its first frame.
+        let _ = factory.snapshot_json();
+        let mut previous = factory.core.snapshot();
+        let mut check = |factory: &mut Factory, step: &str| {
+            assert_delta_matches_full_diff(factory, &mut previous, step);
+        };
+
+        factory.core.advance("[]", 0).unwrap();
+        check(&mut factory, "an empty frame");
+        factory.core.advance(IDLE, 1).unwrap();
+        check(&mut factory, "one idle tick");
+
+        // Gathering, through the tick the deposit runs dry and one rejected attempt after it.
+        for round in 0..3 {
+            factory.core.advance(r#"[{"type":"gather"}]"#, 2).unwrap();
+            check(&mut factory, &format!("gather attempt {round}"));
+        }
+        assert_eq!(
+            factory.core.tiles[&(4, -2)]
+                .resource
+                .as_ref()
+                .unwrap()
+                .quantity,
+            0
+        );
+
+        // Delivery and research: insight, delivered totals, the objective, and unlocks.
+        set_player_hex(&mut factory.core, 1, 0);
+        check(&mut factory, "walking to the landing hub");
+        factory.core.advance(r#"[{"type":"deposit"}]"#, 1).unwrap();
+        check(&mut factory, "delivering inventory to the hub");
+        for technology in [1, 2, 3, 4] {
+            let command = format!(r#"[{{"type":"research","technology_id":{technology}}}]"#);
+            factory.core.advance(&command, 1).unwrap();
+            check(
+                &mut factory,
+                &format!("researching technology {technology}"),
+            );
+        }
+        assert_eq!(factory.core.researched.len(), 4);
+
+        // Player state is compared against the baseline rather than marked, so restocking directly
+        // is exactly what the host would see from any native path that changes inventory.
+        factory.core.player.inventory.insert(1, 200);
+        factory.core.player.inventory.insert(3, 100);
+        check(&mut factory, "restocking the player");
+
+        // Construction: inserted entities, recompiled transport, and per-chunk entity counts.
+        set_player_hex(&mut factory.core, 3, 1);
+        check(&mut factory, "walking to the build site");
+        factory.core.place(3, 0, 1, 3, None).unwrap();
+        check(&mut factory, "placing an extractor");
+        factory.core.place(2, 0, 2, 3, None).unwrap();
+        check(&mut factory, "placing a belt");
+        factory.core.place(1, 0, 3, 3, Some(1)).unwrap();
+        check(&mut factory, "placing a composer");
+
+        // The factory running: machine progress, cargo transfer, hub deliveries, and victory.
+        for round in 0..8 {
+            factory.core.advance(IDLE, 20).unwrap();
+            check(&mut factory, &format!("running the factory, round {round}"));
+        }
+        assert!(factory.core.delivered > 0, "the scripted run must produce");
+
+        // Edits against a live blueprint, including orientations that split and rejoin components.
+        for turn in 0..6 {
+            factory.core.rotate(2, 0).unwrap();
+            check(&mut factory, &format!("rotating a belt, turn {turn}"));
+        }
+        factory.core.erase(2, 0).unwrap();
+        check(&mut factory, "erasing a belt");
+        factory.core.advance(IDLE, 5).unwrap();
+        check(&mut factory, "ticking with the belt gone");
+        factory.core.place(2, 0, 2, 3, None).unwrap();
+        check(&mut factory, "replacing the belt");
+
+        // Travel into unsurveyed world: terrain, deposits, chunk bounds, and every extractor's
+        // resolved deposit reference at once.
+        for (label, command) in [
+            ("east", r#"[{"type":"move_intent","x":1000,"y":0}]"#),
+            ("south", r#"[{"type":"move_intent","x":0,"y":1000}]"#),
+        ] {
+            factory.core.advance(command, 60).unwrap();
+            check(
+                &mut factory,
+                &format!("travelling {label} into unsurveyed world"),
+            );
+        }
+        factory.core.advance(IDLE, 1).unwrap();
+        check(&mut factory, "standing still again");
+        assert!(
+            factory.core.generated_chunks.len() > surveyed_at_start,
+            "the scripted run must survey new world"
+        );
+
+        // A load replaces the core the baseline described, so the host is sent a complete
+        // replacement rather than a patch against state that no longer exists.
+        let save = factory.core.save_string().unwrap();
+        factory.load_string(&save).unwrap();
+        let delta = factory.build_delta();
+        assert!(
+            delta
+                .buildings
+                .expect("full delta carries buildings")
+                .replace
+        );
+        assert!(
+            delta
+                .resources
+                .expect("full delta carries resources")
+                .replace
+        );
+        assert!(delta.terrain.is_some());
+        assert!(delta.chunks.is_some());
+        assert!(delta.player.is_some());
+    }
+
+    /// World generation invalidates resolved deposit references, so it must invalidate the entity
+    /// snapshots derived from them in the same breath. Today's deposit radii are smaller than the
+    /// tile spacing, so a generated deposit does not in fact reach an existing extractor and the
+    /// scripted equivalence run cannot observe this — which is exactly why the coupling is pinned
+    /// here directly rather than left to depend on that geometry holding.
+    #[test]
+    fn world_generation_invalidates_resolved_deposits_and_the_snapshots_built_from_them() {
+        let mut core = game("new-game");
+        core.researched.insert(2);
+        core.player.inventory.insert(1, 8);
+        core.player.inventory.insert(3, 2);
+        set_player_hex(&mut core, 3, 1);
+        core.place(3, 0, 1, 0, None).unwrap();
+        let index = core.entity_at(3, 0).unwrap();
+        core.extractor_deposit(index);
+        assert_eq!(core.deposit_links.len(), 1);
+
+        core.dirty = SnapshotDirty::default();
+        core.generate_chunk(-9, 7);
+
+        assert!(core.deposit_links.is_empty(), "references are re-resolved");
+        let marked: Vec<u32> = core.entities.iter().map(|entity| entity.id).collect();
+        assert_eq!(
+            drain_marks(&mut core.dirty.entities),
+            marked,
+            "every entity snapshot derived from a deposit is suspect too"
+        );
+        assert!(core.dirty.chunks, "the surveyed chunk set grew");
+    }
+
+    /// An extractor's reported status is resolved through its cached deposit reference instead of
+    /// a scan over every generated tile. The two must agree exactly, including after the deposit
+    /// under it runs dry.
+    #[test]
+    fn extractor_status_matches_a_full_deposit_scan() {
+        let mut core = game("new-game");
+        core.researched.extend([1, 2]);
+        core.player.inventory.insert(1, 40);
+        core.player.inventory.insert(3, 20);
+        set_player_hex(&mut core, 3, 1);
+        core.place(3, 0, 1, 0, None).unwrap();
+        let index = core.entity_at(3, 0).unwrap();
+
+        let scanned = |core: &Core| {
+            let (x, y) = axial_world(core.entities[index].placed.q, core.entities[index].placed.r);
+            core.resource_at_world(x, y)
+                .and_then(|key| core.tiles.get(&key))
+                .and_then(|tile| tile.resource.as_ref())
+                .map(|resource| resource.quantity)
+                .unwrap_or(0)
+                > 0
+        };
+
+        for _ in 0..3 {
+            let expected = scanned(&core);
+            assert_eq!(core.extractor_deposit(index).is_some(), expected);
+            let entity = core.entities[index].clone();
+            assert_eq!(
+                core.status_of(&entity, expected),
+                core.entity_snapshot(index).status
+            );
+            core.tick_many(20);
+        }
+
+        // Draining the deposit must flip both the scan and the cached reference together.
+        core.tiles
+            .get_mut(&(3, 0))
+            .unwrap()
+            .resource
+            .as_mut()
+            .unwrap()
+            .quantity = 0;
+        assert!(!scanned(&core));
+        assert!(core.extractor_deposit(index).is_none());
+        core.entities[index].cargo = None;
+        assert_eq!(core.entity_snapshot(index).status, "deposit depleted");
     }
 
     #[test]

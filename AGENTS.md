@@ -33,6 +33,11 @@ roadmap and implementation handoffs live in `docs/HEXFACTORY-PLAN.md`, architect
   JSON insertion order cannot change a run.
 - Derived caches never become truth. Resolved extractor deposit references are rebuilt from tiles,
   invalidated when chunk generation adds tiles, and are never saved, hashed, or checksummed.
+- Snapshot deltas are built from dirty marks made where state is mutated, not by diffing two
+  complete snapshots. Marks are derived state under the same rule: never saved, hashed, or
+  checksummed. Every new mutation path must mark what it changed, and every marked entry is still
+  compared against the host's baseline before it ships, so over-marking is safe and under-marking is
+  a defect. `dirty_tracked_deltas_match_a_full_snapshot_diff` is the gate that catches it.
 - Fog of war is presentation over the generated chunk set. Chunk snapshots carry native world
   bounds; the host may draw and describe them but must not invent world outside them.
 - Time and quantities are integers. Any blocked transfer leaves its source unchanged.

@@ -3,6 +3,8 @@ import type {
   EntitySnapshot,
   FactorySnapshot,
   FactorySnapshotDelta,
+  ResourceSnapshot,
+  ResourcesPatch,
 } from "./types";
 
 export function applySnapshotDelta(
@@ -22,9 +24,12 @@ export function applySnapshotDelta(
   delete groups.base_revision;
   delete groups.revision;
   delete groups.buildings;
+  delete groups.resources;
   const next: FactorySnapshot = { ...snapshot, ...groups };
   if (delta.buildings)
     next.buildings = applyBuildingsPatch(snapshot.buildings, delta.buildings);
+  if (delta.resources)
+    next.resources = applyResourcesPatch(snapshot.resources, delta.resources);
   return { snapshot: next, revision: delta.revision };
 }
 
@@ -57,4 +62,21 @@ export function applyBuildingsPatch(
   }
   carryBefore(Number.POSITIVE_INFINITY);
   return next;
+}
+
+/**
+ * Merge a per-deposit resources patch. Native world generation is the only path that adds a
+ * deposit, and it sends `replace` with the complete list, so an incremental patch only ever
+ * addresses deposits already present — each is substituted in place and the native ordering the
+ * host received survives untouched.
+ */
+export function applyResourcesPatch(
+  current: ResourceSnapshot[],
+  patch: ResourcesPatch,
+): ResourceSnapshot[] {
+  if (patch.replace) return patch.changed ?? [];
+  const changed = patch.changed ?? [];
+  if (changed.length === 0) return current;
+  const byId = new Map(changed.map((resource) => [resource.id, resource]));
+  return current.map((resource) => byId.get(resource.id) ?? resource);
 }
