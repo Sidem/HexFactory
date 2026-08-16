@@ -27,6 +27,7 @@ jobs:
         with:
           toolchain: 1.87.0
           targets: wasm32-unknown-unknown
+          components: rustfmt
       - uses: jetli/wasm-pack-action@v0.4.0
         with:
           version: v0.13.1
@@ -37,7 +38,7 @@ jobs:
       - run: npm run typecheck
       - run: npm run test:run
       - run: npm run test:rust
-      - run: vite build
+      - run: npm exec -- vite build
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
