@@ -1,7 +1,18 @@
 # HexFactory agent notes
 
-HexFactory is a deterministic browser factory simulator. Keep this file concise; durable design
-decisions live in `docs/ARCHITECTURE.md` and MVP status in `docs/MVP.md`.
+HexFactory is a deterministic browser factory simulator. Keep this file concise; the durable
+roadmap and implementation handoffs live in `docs/HEXFACTORY-PLAN.md`, architecture decisions in
+`docs/ARCHITECTURE.md`, and shipped MVP status in `docs/MVP.md`.
+
+## Workspace boundary
+
+- All HexFactory code, plans, and durable project information belong in
+  `X:\Programming\Projects\HexFactory`. Begin feature sessions here and read the plan first.
+- The source/reference checkout for the published geometry dependency is
+  `X:\Programming\Projects\HexLife`. It is not part of this project and is read-only unless a
+  separate task explicitly authorizes a generic package release.
+- Consume the exact published npm dependency through `@hexlife/embed/hex`; never source-import the
+  HexLife checkout or reach into package internals.
 
 ## Invariants
 

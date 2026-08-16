@@ -1,0 +1,41 @@
+{
+  "version": 1,
+  "technologies": [
+    {
+      "id": 1,
+      "key": "field-logistics",
+      "name": "Field Logistics",
+      "description": "Unlock directional transport belts.",
+      "prerequisites": [],
+      "cost": 3,
+      "unlocks": [2]
+    },
+    {
+      "id": 2,
+      "key": "automated-extraction",
+      "name": "Automated Extraction",
+      "description": "Unlock finite-deposit extractors.",
+      "prerequisites": [1],
+      "cost": 5,
+      "unlocks": [1]
+    },
+    {
+      "id": 3,
+      "key": "composition",
+      "name": "Composition",
+      "description": "Unlock component composers and the landing objective path.",
+      "prerequisites": [2],
+      "cost": 8,
+      "unlocks": [3]
+    },
+    {
+      "id": 4,
+      "key": "storage-planning",
+      "name": "Storage Planning",
+      "description": "Optional branch that unlocks exact-quantity containers.",
+      "prerequisites": [1],
+      "cost": 4,
+      "unlocks": [4]
+    }
+  ]
+}

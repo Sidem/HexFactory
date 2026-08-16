@@ -1,0 +1,110 @@
+{
+  "version": 1,
+  "scenarios": [
+    {
+      "id": 1,
+      "key": "new-game",
+      "name": "New game",
+      "description": "Explore, gather, research, automate, and deliver three components.",
+      "version": 1,
+      "seed": 1213486160,
+      "chunk_size": 8,
+      "generated_environment": true,
+      "player_spawn": { "q": 1, "r": 0 },
+      "player_facing": 0,
+      "build_range": 5,
+      "objective_item_id": 2,
+      "objective_quantity": 3,
+      "resources": [],
+      "buildings": [
+        {
+          "q": 0,
+          "r": 0,
+          "definition_id": 6,
+          "orientation": 0,
+          "scenario_owned": true
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "key": "factory-demo",
+      "name": "Factory demo",
+      "description": "The founding prebuilt turning-belt architecture proof.",
+      "version": 1,
+      "seed": 404112911,
+      "chunk_size": 8,
+      "generated_environment": false,
+      "player_spawn": { "q": 0, "r": -2 },
+      "player_facing": 1,
+      "build_range": 8,
+      "objective_item_id": 2,
+      "objective_quantity": 999,
+      "initial_inventory": [
+        { "item_id": 1, "quantity": 30 },
+        { "item_id": 3, "quantity": 12 }
+      ],
+      "initial_researched": [1, 2, 3, 4],
+      "resources": [{ "q": -4, "r": 0, "item_id": 1, "quantity": 240 }],
+      "buildings": [
+        {
+          "q": -4,
+          "r": 0,
+          "definition_id": 1,
+          "orientation": 0,
+          "scenario_owned": true
+        },
+        {
+          "q": -3,
+          "r": 0,
+          "definition_id": 2,
+          "orientation": 0,
+          "scenario_owned": true
+        },
+        {
+          "q": -2,
+          "r": 0,
+          "definition_id": 2,
+          "orientation": 1,
+          "scenario_owned": true
+        },
+        {
+          "q": -2,
+          "r": 1,
+          "definition_id": 2,
+          "orientation": 0,
+          "scenario_owned": true
+        },
+        {
+          "q": -1,
+          "r": 1,
+          "definition_id": 3,
+          "orientation": 0,
+          "recipe_id": 1,
+          "scenario_owned": true
+        },
+        {
+          "q": 0,
+          "r": 1,
+          "definition_id": 2,
+          "orientation": 0,
+          "scenario_owned": true
+        },
+        {
+          "q": 1,
+          "r": 1,
+          "definition_id": 4,
+          "orientation": 0,
+          "scenario_owned": true
+        },
+        {
+          "q": 2,
+          "r": 1,
+          "definition_id": 5,
+          "orientation": 0,
+          "scenario_owned": true
+        }
+      ]
+    }
+  ]
+}

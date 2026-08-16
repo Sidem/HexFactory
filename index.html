@@ -3,82 +3,173 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="theme-color" content="#11161e" />
-    <title>HexFactory</title>
+    <meta name="theme-color" content="#0e1718" />
+    <meta
+      name="description"
+      content="HexFactory is a deterministic Rust/Wasm factory game on an unbounded hex world."
+    />
+    <title>HexFactory — Playable Game v0.2</title>
   </head>
   <body>
     <main class="app-shell">
-      <header>
+      <header class="masthead">
         <div>
-          <p class="eyebrow">Rust/Wasm factory architecture proof</p>
+          <p class="eyebrow">Deterministic Rust/Wasm factory game</p>
           <h1>HexFactory</h1>
           <p class="lede">
-            Ore follows a turning compiled belt path, becomes components,
-            buffers in a real container, and reaches the consumer.
+            Gather finite resources, spend insight on research, automate a
+            compiled transport line, and deliver three components to the hub.
           </p>
         </div>
-        <a href="https://github.com/Sidem/HexFactory">Source</a>
+        <a href="https://github.com/Sidem/HexFactory">Source on GitHub</a>
       </header>
-      <section class="toolbar" aria-label="Simulation controls">
-        <button id="play" type="button" aria-pressed="true">Pause</button>
-        <button id="step" type="button">Step</button>
-        <button id="reset" type="button">Reset</button>
-        <label
-          >Speed
-          <select id="speed">
-            <option value="4">4 tps</option>
-            <option value="10" selected>10 tps</option>
-            <option value="30">30 tps</option>
-            <option value="60">60 tps</option>
-          </select></label
-        >
-        <span>Tick <strong id="tick-value">0</strong></span>
-        <span>Delivered <strong id="delivered-value">0</strong></span>
-        <span>Checksum <code id="checksum-value">00000000</code></span>
+
+      <section class="session-bar" aria-label="Game and save controls">
+        <label>
+          Scenario
+          <select id="scenario" aria-label="Scenario">
+            <option value="new-game">New game</option>
+            <option value="factory-demo">Factory demo</option>
+          </select>
+        </label>
+        <label>
+          Seed
+          <input
+            id="seed"
+            type="number"
+            min="0"
+            max="4294967295"
+            value="1213486160"
+          />
+        </label>
+        <button id="new-game" type="button">Start scenario</button>
+        <button id="save" type="button">Save</button>
+        <button id="continue" type="button">Continue</button>
+        <span id="save-status" role="status">No local save yet.</span>
       </section>
+
+      <section class="hud" aria-label="Simulation controls and status">
+        <div class="hud-controls">
+          <button id="play" type="button" aria-pressed="true">Pause</button>
+          <button id="step" type="button">Single step</button>
+          <button id="reset" type="button">Reset scenario</button>
+          <label>
+            Speed
+            <select id="speed" aria-label="Simulation speed">
+              <option value="4">4 tps</option>
+              <option value="10" selected>10 tps</option>
+              <option value="30">30 tps</option>
+              <option value="60">60 tps</option>
+            </select>
+          </label>
+        </div>
+        <dl class="status-grid">
+          <div>
+            <dt>Scenario</dt>
+            <dd id="scenario-value">New game</dd>
+          </div>
+          <div>
+            <dt>Tick</dt>
+            <dd id="tick-value">0</dd>
+          </div>
+          <div>
+            <dt>Insight</dt>
+            <dd id="insight-value">0</dd>
+          </div>
+          <div>
+            <dt>Objective</dt>
+            <dd id="objective-value">0 / 3</dd>
+          </div>
+          <div>
+            <dt>Tool</dt>
+            <dd id="selected-tool-value">Inspect</dd>
+          </div>
+          <div>
+            <dt>Checksum</dt>
+            <dd><code id="checksum-value">00000000</code></dd>
+          </div>
+        </dl>
+      </section>
+
       <section class="workspace">
-        <aside>
-          <h2>Build</h2>
-          <div id="tool-shelf" class="tool-shelf">
+        <aside
+          class="panel build-panel"
+          aria-label="Inventory and construction"
+        >
+          <h2>Inventory</h2>
+          <div id="inventory" class="inventory" aria-live="polite"></div>
+          <div class="action-row">
+            <button id="gather" type="button">Gather <kbd>F</kbd></button>
+            <button id="deposit" type="button">Deliver <kbd>X</kbd></button>
+          </div>
+
+          <h2>Build hotbar</h2>
+          <div
+            id="tool-shelf"
+            class="tool-shelf"
+            role="toolbar"
+            aria-label="Build tools"
+          >
             <button type="button" data-tool="inspect">Inspect</button>
             <button type="button" data-tool="erase">Erase</button>
             <button type="button" data-tool="rotate">Rotate placed</button>
           </div>
-          <button id="turn" class="turn" type="button">
-            Turn new building ↻
+          <button id="turn" class="wide" type="button">
+            Rotate new building <kbd>R</kbd>
           </button>
-          <p>New orientation: <strong id="orientation-value">0</strong></p>
-          <p class="hint">
-            Choose a building, then click a hex. Rotate cycles the six public
-            clockwise directions.
+          <p class="microcopy">
+            Direction <strong id="orientation-value">0 · East</strong>
           </p>
+
+          <details>
+            <summary>Controls</summary>
+            <p class="microcopy">
+              Move: <kbd>W</kbd> northwest, <kbd>E</kbd> northeast,
+              <kbd>D</kbd> east, <kbd>S</kbd> southeast, <kbd>A</kbd> west,
+              <kbd>Q</kbd> southwest. <kbd>F</kbd> gathers here or ahead;
+              <kbd>X</kbd> delivers beside the hub. Drag or middle-drag to pan,
+              wheel to zoom, then use Recenter.
+            </p>
+          </details>
         </aside>
+
         <div class="canvas-wrap">
           <canvas
             id="factory-canvas"
-            aria-label="Interactive HexFactory map"
+            tabindex="0"
+            aria-label="Interactive HexFactory world map. Use WASD plus Q and E to move in six directions."
           ></canvas>
+          <div class="canvas-actions">
+            <button id="recenter" type="button">Recenter player</button>
+          </div>
+          <div
+            id="feedback"
+            class="feedback"
+            role="status"
+            aria-live="polite"
+          ></div>
+          <div id="victory" class="victory" hidden>
+            <strong>Landing objective complete</strong>
+            <span>Free play continues.</span>
+          </div>
         </div>
-        <aside class="readout">
-          <h2>Selection</h2>
-          <p id="selection-value">Move over the map.</p>
-          <h2>Vertical slice</h2>
-          <ol>
-            <li>Extractor produces ore every 4 ticks.</li>
-            <li>
-              Belts follow a compiled directed graph, including the southeast
-              turn.
-            </li>
-            <li>Composer consumes 2 ore for 1 component over 6 ticks.</li>
-            <li>
-              Container buffers 8 real items before the consumer counts
-              delivery.
-            </li>
-          </ol>
-          <p class="hint">
-            Cargo waits when the next slot or inventory is full. No item is
-            duplicated or deleted.
+
+        <aside class="panel info-panel" aria-label="Research and inspector">
+          <h2>Technology</h2>
+          <p class="microcopy">
+            Deliver items for insight, then unlock atomically in the native
+            core.
           </p>
+          <div id="technology-list" class="technology-list"></div>
+
+          <h2>Inspector</h2>
+          <div id="selection-value" class="inspector">
+            Select a hex on the map.
+          </div>
+          <p id="placement-value" class="placement-readout"></p>
+
+          <h2>Objective</h2>
+          <p id="objective-detail" class="objective-detail"></p>
         </aside>
       </section>
     </main>

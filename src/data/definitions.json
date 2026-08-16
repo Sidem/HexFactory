@@ -1,16 +1,43 @@
 {
+  "version": 2,
   "items": [
-    { "id": 1, "key": "ore", "name": "Ore", "color": "#e6a85c" },
-    { "id": 2, "key": "component", "name": "Component", "color": "#72d6c9" }
+    {
+      "id": 1,
+      "key": "ore",
+      "name": "Iron ore",
+      "color": "#e2a85f",
+      "icon": "ORE",
+      "description": "A common construction metal.",
+      "insight_value": 1
+    },
+    {
+      "id": 2,
+      "key": "component",
+      "name": "Component",
+      "color": "#6fddd0",
+      "icon": "CMP",
+      "description": "A composed part required by the landing objective.",
+      "insight_value": 5
+    },
+    {
+      "id": 3,
+      "key": "crystal",
+      "name": "Signal crystal",
+      "color": "#b78cff",
+      "icon": "CRY",
+      "description": "A finite secondary resource used by advanced machines.",
+      "insight_value": 2
+    }
   ],
   "recipes": [
     {
       "id": 1,
       "key": "component",
       "name": "Compose component",
+      "description": "Bind two ore and one crystal into a landing component.",
       "inputs": [{ "item_id": 1, "quantity": 2 }],
       "output": { "item_id": 2, "quantity": 1 },
-      "duration": 6
+      "duration": 8
     }
   ],
   "buildings": [
@@ -19,23 +46,85 @@
       "key": "extractor",
       "name": "Extractor",
       "kind": "extractor",
-      "cadence": 4
+      "description": "Consumes the finite deposit beneath it and emits one item at a time.",
+      "icon": "EXT",
+      "cadence": 5,
+      "construction_cost": [
+        { "item_id": 1, "quantity": 4 },
+        { "item_id": 3, "quantity": 1 }
+      ],
+      "unlock_technology_id": 2,
+      "placement_rule": "resource",
+      "buildable": true,
+      "blocks_movement": true
     },
-    { "id": 2, "key": "belt", "name": "Belt", "kind": "belt" },
+    {
+      "id": 2,
+      "key": "belt",
+      "name": "Belt",
+      "kind": "belt",
+      "description": "Moves one cargo stack along its clockwise hex direction.",
+      "icon": "BLT",
+      "construction_cost": [{ "item_id": 1, "quantity": 1 }],
+      "unlock_technology_id": 1,
+      "placement_rule": "ground",
+      "buildable": true,
+      "blocks_movement": false
+    },
     {
       "id": 3,
       "key": "composer",
       "name": "Composer",
       "kind": "composer",
-      "capacity": 12
+      "description": "Runs a data-defined recipe when its input inventory is ready.",
+      "icon": "COM",
+      "capacity": 12,
+      "construction_cost": [
+        { "item_id": 1, "quantity": 5 },
+        { "item_id": 3, "quantity": 3 }
+      ],
+      "unlock_technology_id": 3,
+      "placement_rule": "ground",
+      "buildable": true,
+      "blocks_movement": true
     },
     {
       "id": 4,
       "key": "container",
       "name": "Container",
       "kind": "container",
-      "capacity": 8
+      "description": "Buffers exact item quantities and releases the lowest item ID first.",
+      "icon": "BOX",
+      "capacity": 12,
+      "construction_cost": [{ "item_id": 1, "quantity": 3 }],
+      "unlock_technology_id": 4,
+      "placement_rule": "ground",
+      "buildable": true,
+      "blocks_movement": true
     },
-    { "id": 5, "key": "consumer", "name": "Consumer", "kind": "consumer" }
+    {
+      "id": 5,
+      "key": "consumer",
+      "name": "Demo receiver",
+      "kind": "consumer",
+      "description": "Scenario-owned receiver retained for the factory demo.",
+      "icon": "RCV",
+      "construction_cost": [],
+      "placement_rule": "ground",
+      "buildable": false,
+      "blocks_movement": true
+    },
+    {
+      "id": 6,
+      "key": "landing-hub",
+      "name": "Landing hub",
+      "kind": "hub",
+      "description": "Accepts deliveries, awards insight, and tracks the native objective.",
+      "icon": "HUB",
+      "construction_cost": [],
+      "placement_rule": "ground",
+      "buildable": false,
+      "blocks_movement": true
+    }
   ]
 }

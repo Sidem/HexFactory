@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+
 import {
   HEX_DIRECTIONS,
   axialNeighbor,
@@ -5,46 +7,221 @@ import {
   pixelToAxial,
   rotateHexDirection,
 } from "@hexlife/embed/hex";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import directionFixture from "../fixtures/hex-directions.json";
+import {
+  buildingAvailability,
+  technologyAvailability,
+} from "../src/core/availability";
 import { encodeCommand } from "../src/core/commands";
+import { FactoryHost } from "../src/core/FactoryHost";
+import {
+  BoundedInputQueue,
+  MAX_INPUT_COMMANDS,
+  MOVEMENT_KEYS,
+} from "../src/core/input";
+import type {
+  BuildingDefinition,
+  FactorySnapshot,
+  NativeFactory,
+} from "../src/core/types";
+import definitions from "../src/data/definitions.json";
+import technologies from "../src/data/technologies.json";
+import { HexCamera } from "../src/rendering/CanvasFactoryRenderer";
+
+const snapshot: FactorySnapshot = {
+  scenario: "new-game",
+  scenario_name: "New game",
+  world_version: 1,
+  seed: 1213486160,
+  tick: 12,
+  checksum: 123,
+  delivered: 2,
+  delivered_by_item: [{ item_id: 1, quantity: 2 }],
+  insight: 4,
+  victory: false,
+  objective: { item_id: 2, delivered: 0, required: 3 },
+  player: {
+    q: 1,
+    r: 0,
+    facing: 0,
+    inventory: { "1": 3 },
+    action_cooldown: 0,
+    build_range: 5,
+  },
+  researched: [1],
+  chunks: [{ chunk_q: 0, chunk_r: 0, entity_count: 1 }],
+  terrain: [{ q: 0, r: 0, terrain: "ground" }],
+  resources: [{ q: 3, r: 0, item_id: 1, quantity: 47, initial_quantity: 48 }],
+  buildings: [
+    {
+      id: 1,
+      q: 0,
+      r: 0,
+      definition_id: 6,
+      kind: "hub",
+      orientation: 0,
+      scenario_owned: true,
+      inventory: [],
+      progress: 0,
+      progress_total: 0,
+      status: "landing hub",
+    },
+  ],
+  events: [],
+};
 
 describe("public hex host contract", () => {
-  it("pins TypeScript and Rust to the published clockwise direction fixture", () => {
+  it("pins TypeScript and Rust to the clockwise six-direction fixture", () => {
     expect(HEX_DIRECTIONS).toEqual(directionFixture);
     expect(axialNeighbor({ q: -2, r: 0 }, 1)).toEqual({ q: -2, r: 1 });
     expect(rotateHexDirection(5, 1)).toBe(0);
   });
 
-  it("round-trips Canvas placement hit testing through @hexlife/embed/hex", () => {
+  it("round-trips base and pan/zoom camera picking through @hexlife/embed/hex", () => {
     const origin = { x: 410, y: 330 };
-    for (const coordinate of [
-      { q: -4, r: 0 },
-      { q: -2, r: 1 },
-      { q: 2, r: 1 },
-    ]) {
-      expect(
-        pixelToAxial(axialToPixel(coordinate, 35, origin), 35, origin),
-      ).toEqual(coordinate);
-    }
+    expect(
+      pixelToAxial(axialToPixel({ q: -4, r: 2 }, 35, origin), 35, origin),
+    ).toEqual({ q: -4, r: 2 });
+    const camera = new HexCamera();
+    camera.recenter({ q: 3, r: -2 });
+    const coordinate = { q: -4, r: 5 };
+    const screen = camera.project(coordinate, 900, 650);
+    expect(camera.pick(screen, 900, 650)).toEqual(coordinate);
+    camera.panBy(73, -42);
+    camera.zoomAt(1.6, { x: 320, y: 240 }, 900, 650);
+    const moved = camera.project(coordinate, 900, 650);
+    expect(camera.pick(moved, 900, 650)).toEqual(coordinate);
+  });
+});
+
+describe("bounded host input", () => {
+  it("maps all six keyboard directions and never exceeds one native batch limit", () => {
+    expect(MOVEMENT_KEYS).toEqual({
+      KeyD: 0,
+      KeyS: 1,
+      KeyQ: 2,
+      KeyA: 3,
+      KeyW: 4,
+      KeyE: 5,
+    });
+    const queue = new BoundedInputQueue();
+    for (let index = 0; index < MAX_INPUT_COMMANDS; index += 1)
+      expect(queue.enqueue({ type: "move", direction: index % 6 })).toBe(true);
+    expect(queue.enqueue({ type: "gather" })).toBe(false);
+    expect(queue.drain()).toHaveLength(MAX_INPUT_COMMANDS);
+    expect(queue.drain()).toEqual([]);
   });
 
-  it("encodes bounded native commands without embedding simulation behavior", () => {
+  it("encodes commands without embedding simulation behavior", () => {
+    expect(encodeCommand({ type: "move", direction: 5 })).toEqual({
+      opcode: 0,
+      args: [5],
+    });
     expect(
       encodeCommand({
         type: "place",
-        coordinate: { q: -3, r: 2 },
-        definitionId: 2,
+        q: -3,
+        r: 2,
+        definition_id: 2,
         orientation: 5,
       }),
-    ).toEqual({ opcode: 0, args: [-3, 2, 2, 5, 0] });
-    expect(encodeCommand({ type: "tick", count: 12 })).toEqual({
-      opcode: 3,
-      args: [12],
-    });
-    expect(() => encodeCommand({ type: "tick", count: 0 })).toThrow(
-      /positive integer/,
+    ).toEqual({ opcode: 3, args: [-3, 2, 2, 5, 0] });
+    expect(() => encodeCommand({ type: "move", direction: 6 })).toThrow(
+      /0\.\.6/,
     );
   });
+
+  it("contains no host-side player or progression mutation loop", () => {
+    const main = readFileSync(
+      new URL("../src/main.ts", import.meta.url),
+      "utf8",
+    );
+    expect(main).not.toMatch(
+      /player\.(q|r|inventory|action_cooldown)\s*[+\-=]/,
+    );
+    expect(main.match(/host\.apply\(commands\)/g)).toHaveLength(1);
+    expect(main).not.toContain("snapshot.insight =");
+  });
 });
+
+describe("availability and expanded snapshot adapter", () => {
+  it("derives hotbar costs/locks and technology prerequisites from native truth", () => {
+    const belt = definitions.buildings.find(
+      ({ key }) => key === "belt",
+    ) as BuildingDefinition;
+    const extractor = definitions.buildings.find(
+      ({ key }) => key === "extractor",
+    ) as BuildingDefinition;
+    expect(buildingAvailability(belt, snapshot, definitions.items)).toEqual({
+      locked: false,
+      affordable: true,
+      costLabel: "1 ORE",
+    });
+    expect(
+      buildingAvailability(extractor, snapshot, definitions.items),
+    ).toMatchObject({
+      locked: true,
+      affordable: false,
+    });
+    expect(
+      technologyAvailability(technologies.technologies[0]!, snapshot),
+    ).toEqual({
+      complete: true,
+      prerequisitesMet: true,
+      affordable: true,
+    });
+    expect(
+      technologyAvailability(technologies.technologies[2]!, snapshot)
+        .prerequisitesMet,
+    ).toBe(false);
+  });
+
+  it("delegates snapshots and HXF1 saves without reconstructing native state", () => {
+    const native = fakeNative();
+    const host = FactoryHost.forTesting(native);
+    expect(host.snapshot()).toEqual(snapshot);
+    expect(host.save()).toBe("HXF1\n{} ");
+    host.load("HXF1\nrestored");
+    expect(native.load_string).toHaveBeenCalledWith("HXF1\nrestored");
+    expect(native.snapshot_json).toHaveBeenCalled();
+    host.apply([{ type: "gather" }]);
+    expect(native.apply_commands_json).toHaveBeenCalledWith(
+      '[{"type":"gather"}]',
+    );
+  });
+
+  it("ships responsive controls and accessible labels", () => {
+    const html = readFileSync(
+      new URL("../index.html", import.meta.url),
+      "utf8",
+    );
+    const styles = readFileSync(
+      new URL("../src/styles.css", import.meta.url),
+      "utf8",
+    );
+    expect(html).toContain('aria-label="Interactive HexFactory world map');
+    expect(html).toContain('id="technology-list"');
+    expect(html).toContain('id="continue"');
+    expect(html).toContain("<kbd>W</kbd>");
+    expect(styles).toContain("@media (max-width: 720px)");
+    expect(styles).toContain("prefers-reduced-motion: reduce");
+  });
+});
+
+function fakeNative(): NativeFactory {
+  return {
+    tick: vi.fn(),
+    reset: vi.fn(),
+    new_game: vi.fn(),
+    apply_commands_json: vi.fn(),
+    placement_preview_json: vi.fn(() => '{"legal":true,"reason":"Ready"}'),
+    snapshot_json: vi.fn(() => JSON.stringify(snapshot)),
+    save_string: vi.fn(() => "HXF1\n{} "),
+    load_string: vi.fn(),
+    checksum: vi.fn(() => snapshot.checksum),
+    tick_count: vi.fn(() => BigInt(snapshot.tick)),
+    free: vi.fn(),
+  };
+}

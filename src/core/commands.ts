@@ -1,46 +1,40 @@
-import type { AxialCoordinate, HexDirection } from "@hexlife/embed/hex";
-
-export type FactoryCommand =
-  | {
-      type: "place";
-      coordinate: AxialCoordinate;
-      definitionId: number;
-      orientation: HexDirection;
-      recipeId?: number;
-    }
-  | { type: "erase"; coordinate: AxialCoordinate }
-  | { type: "rotate"; coordinate: AxialCoordinate }
-  | { type: "tick"; count: number }
-  | { type: "reset" };
+import type { NativeInputCommand } from "./types";
 
 export interface EncodedCommand {
-  opcode: 0 | 1 | 2 | 3 | 4;
+  opcode: number;
   args: number[];
 }
 
-export function encodeCommand(command: FactoryCommand): EncodedCommand {
+export function encodeCommand(command: NativeInputCommand): EncodedCommand {
   switch (command.type) {
+    case "move":
+      if (
+        !Number.isInteger(command.direction) ||
+        command.direction < 0 ||
+        command.direction > 5
+      )
+        throw new RangeError("direction must be in 0..6");
+      return { opcode: 0, args: [command.direction] };
+    case "gather":
+      return { opcode: 1, args: [] };
+    case "deposit":
+      return { opcode: 2, args: [] };
     case "place":
       return {
-        opcode: 0,
+        opcode: 3,
         args: [
-          command.coordinate.q,
-          command.coordinate.r,
-          command.definitionId,
+          command.q,
+          command.r,
+          command.definition_id,
           command.orientation,
-          command.recipeId ?? 0,
+          command.recipe_id ?? 0,
         ],
       };
     case "erase":
-      return { opcode: 1, args: [command.coordinate.q, command.coordinate.r] };
+      return { opcode: 4, args: [command.q, command.r] };
     case "rotate":
-      return { opcode: 2, args: [command.coordinate.q, command.coordinate.r] };
-    case "tick":
-      if (!Number.isSafeInteger(command.count) || command.count < 1) {
-        throw new RangeError("tick count must be a positive integer");
-      }
-      return { opcode: 3, args: [command.count] };
-    case "reset":
-      return { opcode: 4, args: [] };
+      return { opcode: 5, args: [command.q, command.r] };
+    case "research":
+      return { opcode: 6, args: [command.technology_id] };
   }
 }

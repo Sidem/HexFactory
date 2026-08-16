@@ -1,27 +1,47 @@
 import init, { Factory } from "../../factory-wasm/pkg/factory_wasm.js";
 
-import blueprint from "../data/blueprint.json";
 import definitionsJson from "../data/definitions.json";
-import { validateDefinitions } from "./definitions";
-import type { Definitions, FactorySnapshot, NativeFactory } from "./types";
+import scenariosJson from "../data/scenarios.json";
+import technologiesJson from "../data/technologies.json";
+import { validateDefinitions, validateTechnologies } from "./definitions";
+import type {
+  Definitions,
+  FactorySnapshot,
+  NativeFactory,
+  NativeInputCommand,
+  PlacementPreview,
+  Scenarios,
+  Technologies,
+} from "./types";
 
 export class FactoryHost {
   readonly definitions: Definitions;
+  readonly technologies: Technologies;
+  readonly scenarios: Scenarios;
   private readonly native: NativeFactory;
 
-  private constructor(native: NativeFactory, definitions: Definitions) {
+  private constructor(native: NativeFactory) {
     this.native = native;
-    this.definitions = definitions;
+    this.definitions = definitionsJson as Definitions;
+    this.technologies = technologiesJson as Technologies;
+    this.scenarios = scenariosJson as Scenarios;
   }
 
-  static async create(): Promise<FactoryHost> {
+  static async create(scenario = "new-game"): Promise<FactoryHost> {
     validateDefinitions(definitionsJson);
+    validateTechnologies(technologiesJson, definitionsJson);
     await init();
     const native = new Factory(
       JSON.stringify(definitionsJson),
-      JSON.stringify(blueprint),
+      JSON.stringify(technologiesJson),
+      JSON.stringify(scenariosJson),
+      scenario,
     ) as NativeFactory;
-    return new FactoryHost(native, definitionsJson);
+    return new FactoryHost(native);
+  }
+
+  static forTesting(native: NativeFactory): FactoryHost {
+    return new FactoryHost(native);
   }
 
   tick(count = 1): FactorySnapshot {
@@ -34,30 +54,46 @@ export class FactoryHost {
     return this.snapshot();
   }
 
-  place(
+  newGame(scenario = "new-game", seed?: number): FactorySnapshot {
+    this.native.new_game(scenario, seed);
+    return this.snapshot();
+  }
+
+  apply(commands: NativeInputCommand[]): FactorySnapshot {
+    this.native.apply_commands_json(JSON.stringify(commands));
+    return this.snapshot();
+  }
+
+  placementPreview(
     q: number,
     r: number,
     definitionId: number,
     orientation: number,
-  ): FactorySnapshot {
+  ): PlacementPreview {
     const definition = this.definitions.buildings.find(
-      (candidate) => candidate.id === definitionId,
+      ({ id }) => id === definitionId,
     );
     const recipeId =
       definition?.kind === "composer"
         ? this.definitions.recipes[0]?.id
         : undefined;
-    this.native.place(q, r, definitionId, orientation, recipeId);
-    return this.snapshot();
+    return JSON.parse(
+      this.native.placement_preview_json(
+        q,
+        r,
+        definitionId,
+        orientation,
+        recipeId,
+      ),
+    ) as PlacementPreview;
   }
 
-  erase(q: number, r: number): FactorySnapshot {
-    this.native.erase(q, r);
-    return this.snapshot();
+  save(): string {
+    return this.native.save_string();
   }
 
-  rotate(q: number, r: number): FactorySnapshot {
-    this.native.rotate(q, r);
+  load(save: string): FactorySnapshot {
+    this.native.load_string(save);
     return this.snapshot();
   }
 
