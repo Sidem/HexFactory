@@ -86,7 +86,8 @@
             </button>
           </div>
           <p id="next-action-detail" class="next-action-detail">
-            Move toward a glowing resource deposit and gather a sample.
+            The hatched fog is unsurveyed world. Walk toward it to reveal
+            terrain, then gather from a glowing deposit.
           </p>
           <div class="primary-actions">
             <button id="gather" class="primary-action" type="button">
@@ -107,6 +108,11 @@
               Move with <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd>. Drag
               with the right or middle button to pan, use the wheel to zoom, and
               press <kbd>R</kbd> to rotate a new building.
+            </p>
+            <p>
+              The hatched veil past the dashed survey frontier is world the
+              simulation has not generated yet. Travelling toward it surveys new
+              sectors and lifts the fog for good.
             </p>
           </details>
         </aside>
@@ -211,6 +217,10 @@
             <div>
               <dt>Position</dt>
               <dd id="position-value">0.0, 0.0</dd>
+            </div>
+            <div>
+              <dt>Sectors surveyed</dt>
+              <dd id="surveyed-value">0</dd>
             </div>
             <div>
               <dt>Checksum</dt>

@@ -5,9 +5,9 @@
 HexFactory is a deliberately small, deterministic factory game in an unbounded continuous world.
 Its full-viewport command surface keeps the current directive, next useful action, cargo, research,
 and construction costs close to the world on desktop and touch layouts. A
-new game starts beside a landing hub: explore, gather finite ore and crystal, deliver items for
-insight, unlock a short technology tree, build a compiled transport line, compose three components,
-and win. The founding prebuilt architecture proof remains available as the **Factory demo** scenario.
+new game starts beside a landing hub inside a small surveyed area, with the rest of the world under
+fog: explore to lift it, gather finite ore and crystal, deliver items for insight, unlock a short
+technology tree, build a compiled transport line, compose three components, and win. The founding prebuilt architecture proof remains available as the **Factory demo** scenario.
 
 Rust/Wasm runs inside a dedicated module worker and owns environment features, resources, collision,
 continuous player movement, inventories, costs, research, objectives, saves, transport, machines,
@@ -18,7 +18,8 @@ presentation.
 ## Controls
 
 - Move freely with `W/A/S/D` or the narrow-layout touch pad; movement is not snapped to building
-  cells.
+  cells. Travelling past the dashed survey frontier generates new world and permanently lifts its
+  fog.
 - Gather a nearby deposit with `F`; deliver the complete player inventory while beside the hub with
   `X`.
 - Select build tools with the hotbar or number keys, rotate new buildings with `R`, and click to
@@ -56,7 +57,10 @@ npm run quality
 - `HXF1` saves are emitted and restored by Rust. Browser storage holds only the opaque native save
   string. v0.3 intentionally rejects incompatible v0.2 saves.
 - The worker advances commands and ticks in order and returns native dirty snapshot groups. Static
-  terrain, resource, and building arrays do not cross the worker boundary when unchanged.
+  terrain and resource arrays do not cross the worker boundary when unchanged, and buildings cross
+  as a per-entity patch of changed and removed entities.
+- Fog covers world the simulation has not generated. It is drawn from the native chunk bounds in
+  each snapshot, so exploring — not a host-side reveal rule — is what lifts it.
 - The host consumes exactly `@hexlife/embed/hex@1.15.0` for public pointy-top axial geometry. It
   never imports HexLife source or package internals.
 
@@ -66,11 +70,14 @@ See the [roadmap and implementation handoff](docs/HEXFACTORY-PLAN.md),
 
 ## Measured capacity
 
-Capacity is now measured rather than asserted. On the recorded native host, a worker frame stays
-within a 60 Hz budget through 1,536 simultaneous buildings and within 30 Hz through 3,072 — far
-above anything the game asks a player to build. The measurement also names its own next targets:
-tick cost is dominated by each extractor rescanning every generated tile, and the snapshot delta
-resends the whole buildings array whenever any building changes.
+Capacity is measured rather than asserted, and the measurement orders the work. On the recorded
+native host, a worker frame now stays within a 60 Hz budget through 3,072 simultaneous buildings —
+up from 1,536 — after v0.6 gave extractors a resolved deposit reference instead of a per-tick scan
+over every generated tile (233× cheaper ticks at the largest tier) and made the buildings delta
+per-entity instead of per-group (2.3× less payload at every tier). Every tier reproduces its
+previous checksum, so the two records compare directly. The new measurement names its own next
+target: a complete snapshot is still materialized every frame purely to diff it, which is now most
+of the frame.
 
 These are native figures. No browser performance claim is made, and no claim is made beyond the
 recorded ladder. Run the ladder with `npm run bench`; see [docs/BENCHMARKS.md](docs/BENCHMARKS.md)

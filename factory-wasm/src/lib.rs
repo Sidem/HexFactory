@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet};
 use wasm_bindgen::prelude::*;
 
@@ -271,6 +272,12 @@ struct ChunkSnapshot {
     chunk_q: i32,
     chunk_r: i32,
     entity_count: usize,
+    /// World-space origin and side length of the generated square this chunk owns. A chunk is the
+    /// unit of world generation, so these bounds are exactly the surveyed area: everything outside
+    /// the reported chunks is world the simulation has not generated yet.
+    x: i32,
+    y: i32,
+    span: i32,
 }
 
 #[derive(Clone, Copy, Debug, Serialize, PartialEq, Eq)]
@@ -311,6 +318,24 @@ struct EntitySnapshot {
     footprint: Vec<Coordinate>,
 }
 
+/// A per-entity buildings patch. `changed` carries inserted and modified entities and `removed`
+/// carries the ids the host must drop, both in ascending stable-id order. Group-level dirty
+/// tracking cannot help a running factory, because one moving item resends every building.
+#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
+struct BuildingsDelta {
+    /// Set only on a full delta, where `changed` is the complete list rather than a patch.
+    #[serde(skip_serializing_if = "is_false")]
+    replace: bool,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    changed: Vec<EntitySnapshot>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    removed: Vec<u32>,
+}
+
+fn is_false(value: &bool) -> bool {
+    !*value
+}
+
 #[derive(Debug, Serialize)]
 struct SnapshotDelta {
     base_revision: u64,
@@ -346,7 +371,7 @@ struct SnapshotDelta {
     #[serde(skip_serializing_if = "Option::is_none")]
     resources: Option<Vec<ResourceSnapshot>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    buildings: Option<Vec<EntitySnapshot>>,
+    buildings: Option<BuildingsDelta>,
     #[serde(skip_serializing_if = "Option::is_none")]
     events: Option<Vec<String>>,
 }
@@ -372,7 +397,11 @@ impl SnapshotDelta {
             chunks: Some(current.chunks.clone()),
             terrain: Some(current.terrain.clone()),
             resources: Some(current.resources.clone()),
-            buildings: Some(current.buildings.clone()),
+            buildings: Some(BuildingsDelta {
+                replace: true,
+                changed: current.buildings.clone(),
+                removed: Vec::new(),
+            }),
             events: Some(current.events.clone()),
         }
     }
@@ -397,10 +426,57 @@ impl SnapshotDelta {
             chunks: changed(&previous.chunks, &current.chunks),
             terrain: changed(&previous.terrain, &current.terrain),
             resources: changed(&previous.resources, &current.resources),
-            buildings: changed(&previous.buildings, &current.buildings),
+            buildings: buildings_delta(&previous.buildings, &current.buildings),
             events: changed(&previous.events, &current.events),
         }
     }
+}
+
+/// Both snapshots list buildings in ascending stable entity id order, so one linear pass finds
+/// every insert, update, and removal without comparing the arrays as a whole.
+fn buildings_delta(
+    previous: &[EntitySnapshot],
+    current: &[EntitySnapshot],
+) -> Option<BuildingsDelta> {
+    let mut changed: Vec<EntitySnapshot> = Vec::new();
+    let mut removed: Vec<u32> = Vec::new();
+    let mut before = previous.iter().peekable();
+    let mut after = current.iter().peekable();
+    loop {
+        match (before.peek(), after.peek()) {
+            (Some(old), Some(new)) => match old.id.cmp(&new.id) {
+                Ordering::Less => {
+                    removed.push(old.id);
+                    before.next();
+                }
+                Ordering::Greater => {
+                    changed.push((*new).clone());
+                    after.next();
+                }
+                Ordering::Equal => {
+                    if old != new {
+                        changed.push((*new).clone());
+                    }
+                    before.next();
+                    after.next();
+                }
+            },
+            (Some(old), None) => {
+                removed.push(old.id);
+                before.next();
+            }
+            (None, Some(new)) => {
+                changed.push((*new).clone());
+                after.next();
+            }
+            (None, None) => break,
+        }
+    }
+    (!changed.is_empty() || !removed.is_empty()).then_some(BuildingsDelta {
+        replace: false,
+        changed,
+        removed,
+    })
 }
 
 fn changed<T: Clone + PartialEq>(previous: &T, current: &T) -> Option<T> {
@@ -454,6 +530,9 @@ struct Core {
     seed: u32,
     generated_chunks: BTreeSet<(i32, i32)>,
     tiles: BTreeMap<(i32, i32), TileState>,
+    /// Deposit references resolved per extractor entity id, so a running extractor never scans the
+    /// tile map. Derived cache only: it is rebuilt from tiles on demand and never saved or hashed.
+    deposit_links: BTreeMap<u32, Vec<(i32, i32)>>,
     entities: Vec<Entity>,
     graph: Vec<Option<usize>>,
     player: PlayerState,
@@ -485,6 +564,7 @@ impl Core {
             seed,
             generated_chunks: BTreeSet::new(),
             tiles: BTreeMap::new(),
+            deposit_links: BTreeMap::new(),
             entities: Vec::new(),
             graph: Vec::new(),
             player: PlayerState {
@@ -612,6 +692,48 @@ impl Core {
             .map(|(key, _)| *key)
     }
 
+    /// Every deposit covering a world point, ordered nearest first and then by tile key — the exact
+    /// order `resource_at_world` resolves. Remaining quantity is deliberately not part of the
+    /// ordering, so one resolved list stays correct for the whole life of the deposits under it.
+    fn deposit_candidates(&self, x: i32, y: i32) -> Vec<(i32, i32)> {
+        let mut candidates: Vec<(i64, (i32, i32))> = self
+            .tiles
+            .iter()
+            .filter(|(_, feature)| feature.resource.is_some())
+            .filter_map(|(key, feature)| {
+                let distance = squared_distance(x, y, feature.x, feature.y);
+                (distance <= i64::from(feature.radius).pow(2)).then_some((distance, *key))
+            })
+            .collect();
+        candidates.sort_unstable();
+        candidates.into_iter().map(|(_, key)| key).collect()
+    }
+
+    fn deposit_quantity(&self, key: (i32, i32)) -> u32 {
+        self.tiles
+            .get(&key)
+            .and_then(|tile| tile.resource.as_ref())
+            .map(|resource| resource.quantity)
+            .unwrap_or(0)
+    }
+
+    /// The deposit an extractor draws from this tick, resolved from its cached candidate list
+    /// instead of a scan over every generated tile. `generate_chunk` drops the cache whenever new
+    /// tiles appear, so a reference can never outlive the tile set it was resolved against.
+    fn extractor_deposit(&mut self, index: usize) -> Option<(i32, i32)> {
+        let id = self.entities[index].id;
+        if !self.deposit_links.contains_key(&id) {
+            let placed = self.entities[index].placed;
+            let (x, y) = axial_world(placed.q, placed.r);
+            let candidates = self.deposit_candidates(x, y);
+            self.deposit_links.insert(id, candidates);
+        }
+        self.deposit_links[&id]
+            .iter()
+            .copied()
+            .find(|&key| self.deposit_quantity(key) > 0)
+    }
+
     fn technology(&self, id: TechnologyId) -> Option<&TechnologyDefinition> {
         self.technologies
             .technologies
@@ -623,6 +745,8 @@ impl Core {
         if !self.generated_chunks.insert((chunk_q, chunk_r)) {
             return;
         }
+        // New tiles can cover an existing extractor, so every resolved deposit reference is stale.
+        self.deposit_links.clear();
         let size = self.scenario.chunk_size;
         for local_r in 0..size {
             for local_q in 0..size {
@@ -913,13 +1037,9 @@ impl Core {
             let placed = self.entities[index].placed;
             (placed.q, placed.r, placed.definition_id)
         };
-        let (extractor_x, extractor_y) = axial_world(q, r);
-        let resource_key = self.resource_at_world(extractor_x, extractor_y);
-        let available = self
-            .tiles
-            .get(&resource_key.unwrap_or((i32::MIN, i32::MIN)))
-            .and_then(|tile| tile.resource.as_ref())
-            .map(|resource| resource.quantity)
+        let resource_key = self.extractor_deposit(index);
+        let available = resource_key
+            .map(|key| self.deposit_quantity(key))
             .unwrap_or(0);
         if available == 0 {
             self.entities[index].progress = 0;
@@ -1422,6 +1542,7 @@ impl Core {
             .map(|cell| (cell.q, cell.r))
             .collect();
         let entity = self.entities.remove(index);
+        self.deposit_links.remove(&entity.id);
         let definition = self
             .building_definition(entity.placed.definition_id)
             .unwrap()
@@ -1558,12 +1679,16 @@ impl Core {
     fn snapshot(&self) -> Snapshot {
         let mut indices: Vec<usize> = (0..self.entities.len()).collect();
         indices.sort_by_key(|&index| self.entities[index].id);
+        let span = self.scenario.chunk_size.saturating_mul(FEATURE_SPACING);
         let chunks = self
             .generated_chunks
             .iter()
             .map(|&(chunk_q, chunk_r)| ChunkSnapshot {
                 chunk_q,
                 chunk_r,
+                x: chunk_q.saturating_mul(span),
+                y: chunk_r.saturating_mul(span),
+                span,
                 entity_count: self
                     .entities
                     .iter()
@@ -1841,6 +1966,7 @@ impl Core {
             .into_iter()
             .map(|tile| ((tile.q, tile.r), tile))
             .collect();
+        core.deposit_links.clear();
         core.entities = envelope.state.entities;
         core.player = envelope.state.player;
         core.researched = envelope.state.researched;
@@ -3246,6 +3372,52 @@ mod tests {
     }
 
     #[test]
+    fn resolved_deposit_references_match_a_full_tile_scan_and_survive_generation() {
+        let mut core = game("new-game");
+        core.researched.insert(2);
+        core.player.inventory.insert(1, 8);
+        core.player.inventory.insert(3, 2);
+        set_player_hex(&mut core, 3, 1);
+        core.place(3, 0, 1, 0, None).unwrap();
+        let index = core
+            .entities
+            .iter()
+            .position(|entity| entity.placed.q == 3 && entity.placed.r == 0)
+            .unwrap();
+        let scan = |core: &Core| {
+            let (x, y) = axial_world(3, 0);
+            core.resource_at_world(x, y)
+        };
+
+        let expected = scan(&core);
+        assert_eq!(core.extractor_deposit(index), expected);
+        assert_eq!(expected, Some((3, 0)));
+        // The second lookup is served from the cache and must not drift from the scan.
+        assert_eq!(core.extractor_deposit(index), scan(&core));
+        assert_eq!(core.deposit_links.len(), 1);
+
+        // Generating tiles invalidates every resolved reference, and the extractor re-resolves.
+        core.generate_chunk(-9, 7);
+        assert!(core.deposit_links.is_empty());
+        assert_eq!(core.extractor_deposit(index), scan(&core));
+
+        // A drained deposit falls through to the scan's next choice without re-resolving.
+        core.tiles
+            .get_mut(&(3, 0))
+            .unwrap()
+            .resource
+            .as_mut()
+            .unwrap()
+            .quantity = 0;
+        assert_eq!(core.extractor_deposit(index), scan(&core));
+        assert_eq!(core.extractor_deposit(index), None);
+
+        // Erasing the extractor releases its entry rather than leaking one per placement.
+        core.erase(3, 0).unwrap();
+        assert!(core.deposit_links.is_empty());
+    }
+
+    #[test]
     fn research_is_atomic_validates_prerequisites_and_unlocks() {
         let mut core = game("new-game");
         core.insight = 20;
@@ -3556,6 +3728,88 @@ mod tests {
         assert!(!json.contains("\"terrain\""));
         assert!(!json.contains("\"resources\""));
         assert!(!json.contains("\"buildings\""));
+    }
+
+    #[test]
+    fn generated_chunk_bounds_report_the_surveyed_world_area() {
+        let mut core = game("new-game");
+        let snapshot = core.snapshot();
+        let span = 8 * FEATURE_SPACING;
+        assert!(!snapshot.chunks.is_empty());
+        for chunk in &snapshot.chunks {
+            assert_eq!(chunk.span, span);
+            assert_eq!(chunk.x, chunk.chunk_q * span);
+            assert_eq!(chunk.y, chunk.chunk_r * span);
+        }
+        let contains = |chunk: &ChunkSnapshot, x: i32, y: i32| {
+            (chunk.x..chunk.x + chunk.span).contains(&x)
+                && (chunk.y..chunk.y + chunk.span).contains(&y)
+        };
+        // The player always stands inside surveyed world.
+        assert!(snapshot
+            .chunks
+            .iter()
+            .any(|chunk| contains(chunk, core.player.x, core.player.y)));
+        // Distant world stays unreported, which is what the host renders as fog.
+        let (far_x, far_y) = (span * 4, span * 4);
+        assert!(!snapshot
+            .chunks
+            .iter()
+            .any(|chunk| contains(chunk, far_x, far_y)));
+
+        // Travelling there surveys it, so the fogged area shrinks as the player explores.
+        core.ensure_neighborhood(far_x, far_y);
+        let explored = core.snapshot();
+        assert!(explored.chunks.len() > snapshot.chunks.len());
+        assert!(explored
+            .chunks
+            .iter()
+            .any(|chunk| contains(chunk, far_x, far_y)));
+    }
+
+    #[test]
+    fn buildings_delta_sends_only_the_entities_that_changed() {
+        let mut core = game("new-game");
+        core.researched.insert(2);
+        core.player.inventory.insert(1, 12);
+        core.player.inventory.insert(3, 4);
+        set_player_hex(&mut core, 3, 1);
+        core.place(3, 0, 1, 0, None).unwrap();
+        add_test_belt(&mut core, 4, 1, 0);
+        core.compile_graph();
+
+        // One tick advances only the extractor's progress; the hub and the belt are untouched.
+        let previous = core.snapshot();
+        core.tick_many(1);
+        let current = core.snapshot();
+        let patch = buildings_delta(&previous.buildings, &current.buildings).unwrap();
+        assert!(!patch.replace);
+        assert!(patch.removed.is_empty());
+        assert_eq!(
+            patch
+                .changed
+                .iter()
+                .map(|entity| entity.id)
+                .collect::<Vec<_>>(),
+            vec![2]
+        );
+        assert!(current.buildings.len() > patch.changed.len());
+        let json =
+            serde_json::to_string(&SnapshotDelta::between(0, 1, &previous, &current)).unwrap();
+        assert!(json.len() < serde_json::to_string(&current.buildings).unwrap().len());
+
+        // Erasing reports the id instead of resending every surviving entity.
+        let previous = current;
+        core.erase(3, 0).unwrap();
+        let current = core.snapshot();
+        let patch = buildings_delta(&previous.buildings, &current.buildings).unwrap();
+        assert_eq!(patch.removed, vec![2]);
+        assert!(patch.changed.is_empty());
+
+        // A full delta stays a complete replacement, so a host with no prior state is correct.
+        let full = SnapshotDelta::full(0, 1, &current).buildings.unwrap();
+        assert!(full.replace);
+        assert_eq!(full.changed, current.buildings);
     }
 
     #[test]

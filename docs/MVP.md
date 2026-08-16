@@ -1,9 +1,34 @@
-# Worker Boundary v0.5 scope and acceptance
+# Sparse Cost v0.6 scope and acceptance
 
-Status: Worker Boundary v0.5 is shipped on the Command Surface v0.4 experience. It moves the native
-simulation off the main thread and adds revision-checked dirty snapshot transport without changing
-world, transport, save, checksum, or player-facing progression contracts. Continuous Exploration
-v0.3 and Playable Game v0.2 remain the simulation and historical baselines.
+Status: Sparse Cost v0.6 is shipped on the Worker Boundary v0.5 transport and the Command Surface
+v0.4 experience. It closes the two follow-ups the Capacity Tiers v0.5.1 measurement identified —
+extractor deposits resolved by reference, and a per-entity buildings delta — and makes unexplored
+world visible as fog. World, transport, save, checksum, and progression contracts are unchanged, and
+every tier reproduces its v0.5.1 checksum. Continuous Exploration v0.3 and Playable Game v0.2 remain
+the simulation and historical baselines.
+
+## Sparse cost contract
+
+- Extractors hold a resolved deposit reference instead of scanning every generated tile each tick.
+  The cached candidate list is ordered exactly as the scan it replaces, is invalidated whenever
+  chunk generation adds tiles, and is derived state: never saved, never hashed, never a checksum
+  input. Measured: tick cost is now linear in entity count and 233× cheaper at the largest tier.
+- The buildings delta is per-entity. Rust sends changed and removed entities in stable id order; the
+  host merges them in one linear pass and rejects revision gaps exactly as before. A full delta
+  still carries the complete list under an explicit replace flag. Measured: 2.3× less payload per
+  frame at every tier.
+- Both changes are behaviour-preserving. The pinned capacity workload, every determinism test, and
+  the `HXF1` contract produce identical checksums before and after.
+
+## Fog of war
+
+- The generated chunk set is the surveyed world. Each chunk snapshot carries its native world-space
+  origin and span; the host renders everything outside them as a hatched veil with a dashed survey
+  frontier, and travelling generates chunks that lift it permanently.
+- The inspector names an unsurveyed selection, the game menu counts surveyed sectors, and the
+  landing guidance explains that the fog is unexplored world rather than a rendering edge.
+- Fog is presentation over native truth. The host derives pixels and copy from reported chunk
+  bounds; it never invents terrain, resources, or geography beyond them.
 
 ## Worker and delta contract
 
@@ -12,8 +37,8 @@ v0.3 and Playable Game v0.2 remain the simulation and historical baselines.
 - A frame combines at most one bounded command batch and a bounded native tick count into one worker
   advance. Rust remains the only running tick and state owner.
 - The initial snapshot is complete. Later native deltas always carry base revision, next revision,
-  tick, and checksum, and omit unchanged snapshot groups. The host rejects revision gaps before
-  applying presentation patches.
+  tick, and checksum, and omit unchanged snapshot groups. Buildings travel as a per-entity patch
+  rather than a group. The host rejects revision gaps before applying presentation patches.
 - Reset, new game, load, save, and placement legality all cross the same worker boundary. Placement
   previews are coalesced so pointer movement cannot create an unbounded request queue.
 - `HXF1` version 2 and deterministic checksums are unchanged. Save strings remain opaque to the
@@ -99,16 +124,24 @@ Native tests also pin the capacity workload's checksum, delivery rate, and entit
 that the capacity ladder still produces a result for every tier. The benchmark itself stays outside
 the gate because shared runners cannot produce comparable timings.
 
+v0.6 adds native coverage for resolved deposit references matching a full tile scan across
+generation, depletion, and erasure; per-entity buildings deltas reporting only changed and removed
+entities while a full delta stays a complete replacement; and chunk bounds reporting the surveyed
+world and growing as the player travels. Host tests add per-entity patch merging — in-place updates,
+ordered inserts, removals, replacement, and untouched groups — and pin the fog to native chunk
+bounds rather than host-side geometry.
+
 The local release gate is npm audit, Prettier/Rust formatting, ESLint, strict TypeScript, Vitest,
 Rust tests, Wasm build, and production Vite build. Deployment and live verification are separate
 release actions and must not be implied by local success.
 
 ## Explicit follow-ups
 
-1. Closed by Capacity Tiers v0.5.1. Measured tiers are recorded in `docs/BENCHMARKS.md` and now
-   order the remaining native work: resolve extractor deposits instead of rescanning every tile per
-   tick, then make the buildings delta per-entity rather than per-group. A renderer decision and any
-   scale claim still wait on those, and on a browser-side measurement.
+1. Both v0.5.1 follow-ups are closed and re-measured in `docs/BENCHMARKS.md`. The new measurement
+   names the next one: Rust still materializes a complete snapshot every frame only to diff it, and
+   that materialization is 55–91% of the measured frame. Track dirty entities at mutation time
+   instead. A renderer decision and any scale claim still wait on that, and on a browser-side
+   measurement.
 2. Richer biomes/resource identification, inventory capacity/equipment, footprint-aware demolition
    previews, inserters, splitters, lanes, power, fluids, circuits, trains, enemies, multiplayer, mod
    scripting, and evolutionary systems remain beyond this deliberately basic milestone.

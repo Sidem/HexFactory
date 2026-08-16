@@ -29,10 +29,16 @@ The Rust `Core` owns all state that can change a game result:
 4. `compile_graph` resolves each entity output into one directed transport edge after edits. Runtime
    transfers use this compiled graph. Proposals sort by stable entity ID and a rejected transfer
    never changes its source.
-5. Extractors consume one unit from the finite deposit only when an output can be created. Composers
+5. Extractors resolve their deposit by reference rather than by search. Each extractor's covering
+   deposits are resolved once into a candidate list ordered exactly as a full scan would resolve it,
+   cached against its stable entity id, and dropped whenever chunk generation adds tiles. Remaining
+   quantity is never part of that ordering, so a drained deposit falls through to the next candidate
+   without re-resolving. The cache is derived state: it is never saved, never hashed, and a test
+   pins it against the scan it replaces.
+6. Extractors consume one unit from the finite deposit only when an output can be created. Composers
    reserve exact recipe inputs, run for integer ticks, and emit only on completion. Containers store
    exact quantities; hubs and demo consumers count exact deliveries.
-6. The landing hub awards integer insight from data-defined item values. Research prerequisites,
+7. The landing hub awards integer insight from data-defined item values. Research prerequisites,
    costs, atomic spending, unlocks, objective progress, and persistent victory all live in Rust.
 
 Blueprint edits retain the previous graph by stable entity ID, invalidate output rays crossing the
@@ -63,8 +69,8 @@ both host and core. Native ticks are a separate bounded call. TypeScript does no
 coordinates, quantities, insight, research, machines, cargo, or victory.
 
 The replaceable Canvas 2D renderer consumes snapshots and draws continuous regions/resources,
-multi-cell buildings, player, hover, selection, build radius, legality, definition labels, and cargo
-layers. The construction grid is hidden outside editing unless explicitly toggled. The command bar,
+multi-cell buildings, player, hover, selection, build radius, legality, definition labels, cargo
+layers, and the fog of war over ungenerated world. The construction grid is hidden outside editing unless explicitly toggled. The command bar,
 snapshot-derived next-action guidance, inventory/research panels, construction dock, held touch pad,
 camera following, pan/zoom, feedback, and reduced-motion behavior are presentation only. Touch and
 keyboard movement share the same bounded native intent commands. `@hexlife/embed/hex` performs
@@ -88,19 +94,31 @@ thread keeps only the latest presentation snapshot and never imports or instanti
 
 The first snapshot is complete. Every later native delta carries a base revision, the next revision,
 tick, and checksum. Rust compares deterministic snapshot groups and omits unchanged scenario,
-progression, player, chunks, terrain, resources, buildings, and events. The host rejects missing or
+progression, player, chunks, terrain, resources, and events. The host rejects missing or
 out-of-order revisions before merging a delta. Pointer-driven placement preview requests are
 coalesced to one in flight plus the latest pending position.
 
-Rust still materializes the current snapshot to compare groups, and changed groups are replaced as
-whole arrays rather than item-level patches. This removes main-thread simulation and unnecessary
-cross-thread transport.
+Buildings are the exception to group granularity. v0.6 sends them as a per-entity patch: `changed`
+carries inserted and modified entities, `removed` carries dropped ids, and both arrive in ascending
+stable entity id order so one linear host pass merges them without re-sorting. A full delta sets an
+explicit `replace` flag and carries the complete list, so a host with no prior state is still
+correct. Measurement drove this: at group granularity, one moving item resent every building, which
+`docs/BENCHMARKS.md` recorded as a flat 240–246 bytes per building at every tier. The same document
+now records 103–110 bytes per building on the same workload.
 
-That group granularity has since been measured. `docs/BENCHMARKS.md` records a delta payload of
-240–246 bytes per building at every tier from 12 to 6,144 buildings: because a running factory
-always changes some building, the whole buildings array crosses the boundary every frame, and the
-payload is effectively linear in blueprint size regardless of how little moved. Per-entity delta
-granularity is therefore a measured need rather than a speculative refinement. The same measurement
-found the running tick dominated by each extractor rescanning every generated tile, which is the
-first native change to make. A renderer decision remains gated on both, and on a browser-side
+Rust still materializes one complete snapshot per frame in order to diff it. `docs/BENCHMARKS.md`
+records that materialization as 55–91% of the measured frame — the largest remaining cost, and the
+next native change to make: track dirty entities at mutation time so the frame stops building a full
+snapshot it immediately discards. A renderer decision remains gated on that, and on a browser-side
 measurement — the recorded ladder is native.
+
+## Fog of war
+
+Chunks are the unit of world generation, so the set of generated chunks is exactly the surveyed
+world. Each chunk snapshot carries its native world-space origin and span, and the host renders
+everything outside those bounds as fog: a hatched cool veil punched out by the surveyed rectangles
+on an offscreen layer, so overlapping chunk edges leave no seams, with a dashed frontier drawn along
+every surveyed edge whose neighbouring chunk does not exist yet. The inspector reports an unsurveyed
+selection and the game menu counts surveyed sectors. None of this is host-invented geography: the
+host derives only pixels and copy from native chunk bounds, and travelling generates the chunks that
+lift the fog.

@@ -1,10 +1,11 @@
 # HexFactory — architecture, roadmap, and implementation handoffs
 
-Status: Capacity Tiers v0.5.1 is shipped on Worker Boundary v0.5, Command Surface v0.4, Continuous
-Exploration v0.3, and the v0.3.1 incremental transport follow-up. The capacity gate is now closed:
-measured tiers are recorded in `docs/BENCHMARKS.md`, and they, not intuition, order the next
-architecture work. The next milestone is the deposit-reference and per-entity delta work that
-measurement identified, in that order, before any renderer decision.
+Status: Sparse Cost v0.6 is shipped on Capacity Tiers v0.5.1, Worker Boundary v0.5, Command Surface
+v0.4, Continuous Exploration v0.3, and the v0.3.1 incremental transport follow-up. Both follow-ups
+the capacity measurement identified are closed and re-measured in `docs/BENCHMARKS.md`, and that
+re-measurement, not intuition, orders what comes next: the frame is now dominated by materializing a
+complete snapshot each frame purely to diff it. Native dirty-entity tracking is the next milestone,
+then a browser-side measurement, and only then any renderer decision.
 
 Target repository: `https://github.com/Sidem/HexFactory`
 
@@ -19,6 +20,18 @@ not a source dependency: HexFactory imports only the published package. Treat th
 read-only unless a future task explicitly authorizes a separately released generic package change.
 
 ## Shipped implementation record
+
+- Sparse Cost v0.6 closes both measured follow-ups and makes unexplored world visible. Extractors
+  resolve a cached deposit reference instead of scanning every generated tile per tick, which makes
+  tick cost linear in entity count and 233× cheaper at the largest measured tier. The buildings
+  delta becomes per-entity — changed and removed entities in stable id order, merged by one linear
+  host pass — cutting delta payload 2.3× at every tier. Neither change touches simulation results:
+  every capacity tier reproduces its v0.5.1 checksum and delivered total, so the two records compare
+  directly. It also adds a fog of war derived from native chunk bounds: a hatched veil with a dashed
+  survey frontier over world the simulation has not generated, an unsurveyed-selection readout, and
+  a surveyed-sector count. The re-measurement moves the 60 Hz native ceiling from between 1,536 and
+  3,072 entities to between 3,072 and 6,144, and names its own successor — a complete snapshot is
+  still materialized every frame only to be diffed, which is now 55–91% of the frame.
 
 - Capacity Tiers v0.5.1 adds a deterministic headless capacity ladder to the native crate and
   records the first measured tiers. Six steady-state tiers from 12 to 6,144 buildings are timed for

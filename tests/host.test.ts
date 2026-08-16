@@ -26,15 +26,19 @@ import {
   MOVEMENT_KEYS,
   movementIntent,
 } from "../src/core/input";
-import { applySnapshotDelta } from "../src/core/snapshotDelta";
+import {
+  applyBuildingsPatch,
+  applySnapshotDelta,
+} from "../src/core/snapshotDelta";
 import type {
   BuildingDefinition,
+  EntitySnapshot,
   FactorySnapshot,
   FactorySnapshotDelta,
 } from "../src/core/types";
 import definitions from "../src/data/definitions.json";
 import technologies from "../src/data/technologies.json";
-import { HexCamera } from "../src/rendering/CanvasFactoryRenderer";
+import { HexCamera, isSurveyed } from "../src/rendering/CanvasFactoryRenderer";
 
 const snapshot: FactorySnapshot = {
   scenario: "new-game",
@@ -60,7 +64,9 @@ const snapshot: FactorySnapshot = {
     build_range: 8870,
   },
   researched: [1],
-  chunks: [{ chunk_q: 0, chunk_r: 0, entity_count: 1 }],
+  chunks: [
+    { chunk_q: 0, chunk_r: 0, entity_count: 1, x: 0, y: 0, span: 16384 },
+  ],
   terrain: [{ x: 3550, y: 1500, radius: 660, terrain: "water" }],
   resources: [
     {
@@ -226,6 +232,70 @@ describe("availability and expanded snapshot adapter", () => {
     ]);
   });
 
+  it("applies per-entity buildings patches instead of whole-array replacements", () => {
+    const belt: EntitySnapshot = {
+      id: 4,
+      q: 1,
+      r: 0,
+      definition_id: 2,
+      kind: "belt",
+      orientation: 0,
+      scenario_owned: false,
+      inventory: [],
+      progress: 0,
+      progress_total: 0,
+      status: "idle",
+      footprint: [{ q: 1, r: 0 }],
+    };
+    const extractor: EntitySnapshot = { ...belt, id: 2, kind: "extractor" };
+    const listed = [...snapshot.buildings, extractor, belt];
+    const withLine: FactorySnapshot = { ...snapshot, buildings: listed };
+
+    // A changed entity is patched in place; every untouched entity keeps its identity.
+    const moved = { ...belt, cargo: { item_id: 1, quantity: 1 } };
+    const patched = applyBuildingsPatch(listed, { changed: [moved] });
+    expect(patched.map(({ id }) => id)).toEqual([1, 2, 4]);
+    expect(patched[2]).toEqual(moved);
+    expect(patched[0]).toBe(listed[0]);
+    expect(patched[1]).toBe(listed[1]);
+
+    // Inserts land in native id order, and removals drop without resending survivors.
+    const inserted: EntitySnapshot = { ...belt, id: 3, kind: "container" };
+    expect(
+      applyBuildingsPatch(listed, { changed: [inserted] }).map(({ id }) => id),
+    ).toEqual([1, 2, 3, 4]);
+    expect(
+      applyBuildingsPatch(listed, { removed: [2, 4] }).map(({ id }) => id),
+    ).toEqual([1]);
+    expect(
+      applyBuildingsPatch(listed, { replace: true, changed: [belt] }),
+    ).toEqual([belt]);
+
+    const next = applySnapshotDelta(withLine, 0, {
+      base_revision: 0,
+      revision: 1,
+      tick: 13,
+      checksum: 456,
+      buildings: { changed: [moved], removed: [2] },
+    });
+    expect(next.snapshot.buildings.map(({ id }) => id)).toEqual([1, 4]);
+    expect(next.snapshot.buildings[1]?.cargo).toEqual({
+      item_id: 1,
+      quantity: 1,
+    });
+    expect(next.snapshot.resources).toBe(withLine.resources);
+    expect(next.revision).toBe(1);
+    // An untouched buildings group leaves the previous list in place.
+    expect(
+      applySnapshotDelta(withLine, 0, {
+        base_revision: 0,
+        revision: 1,
+        tick: 13,
+        checksum: 456,
+      }).snapshot.buildings,
+    ).toBe(listed);
+  });
+
   it("rejects missing or out-of-order snapshot revisions", () => {
     expect(() =>
       applySnapshotDelta(snapshot, 3, {
@@ -263,6 +333,29 @@ describe("availability and expanded snapshot adapter", () => {
     expect(workerSource).toContain("factory.snapshot_delta_json()");
   });
 
+  it("derives the fog of war from native chunk bounds only", () => {
+    // Inside the one surveyed chunk, on its exclusive far edge, and far outside it.
+    expect(isSurveyed(snapshot.chunks, { x: 5322, y: 0 })).toBe(true);
+    expect(isSurveyed(snapshot.chunks, { x: 0, y: 0 })).toBe(true);
+    expect(isSurveyed(snapshot.chunks, { x: 16384, y: 0 })).toBe(false);
+    expect(isSurveyed(snapshot.chunks, { x: -1, y: 4000 })).toBe(false);
+    expect(isSurveyed([], { x: 0, y: 0 })).toBe(false);
+
+    const renderer = readFileSync(
+      new URL("../src/rendering/CanvasFactoryRenderer.ts", import.meta.url),
+      "utf8",
+    );
+    const main = readFileSync(
+      new URL("../src/main.ts", import.meta.url),
+      "utf8",
+    );
+    // Fog is presentation over native chunk truth: the renderer must not invent chunk geometry.
+    expect(renderer).toContain("this.drawFog(");
+    expect(renderer).toContain("destination-out");
+    expect(renderer).not.toMatch(/span\s*=\s*\d/);
+    expect(main).toContain("isSurveyed(snapshot.chunks");
+  });
+
   it("ships responsive controls and accessible labels", () => {
     const html = readFileSync(
       new URL("../index.html", import.meta.url),
@@ -280,6 +373,7 @@ describe("availability and expanded snapshot adapter", () => {
     expect(html).toContain('data-move-key="KeyW"');
     expect(html).toContain('data-native-action="gather"');
     expect(html).toContain('aria-label="Current mission"');
+    expect(html).toContain('id="surveyed-value"');
     expect(styles).toContain("height: 100dvh");
     expect(styles).toContain("@media (max-width: 720px)");
     expect(styles).toContain("prefers-reduced-motion: reduce");
@@ -292,7 +386,9 @@ function fakeTransport(): {
 } {
   const requests: Array<{ method: FactoryWorkerMethod; payload: unknown }> = [];
   let revision = 0;
-  const response = (patch: Partial<FactorySnapshot>): FactorySnapshotDelta => ({
+  const response = (
+    patch: Partial<Omit<FactorySnapshot, "buildings">>,
+  ): FactorySnapshotDelta => ({
     base_revision: revision,
     revision: (revision += 1),
     tick: patch.tick ?? snapshot.tick,

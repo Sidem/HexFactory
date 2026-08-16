@@ -15,7 +15,10 @@ import type {
   NativeInputCommand,
   PlacementPreview,
 } from "./core/types";
-import { CanvasFactoryRenderer } from "./rendering/CanvasFactoryRenderer";
+import {
+  CanvasFactoryRenderer,
+  isSurveyed,
+} from "./rendering/CanvasFactoryRenderer";
 import "./styles.css";
 
 type Tool = "inspect" | "erase" | "rotate" | number;
@@ -87,6 +90,8 @@ function update(next: FactorySnapshot): void {
       : `${snapshot.objective.delivered} / ${snapshot.objective.required}`;
   required<HTMLElement>("position-value").textContent =
     `${(snapshot.player.x / 1024).toFixed(1)}, ${(snapshot.player.y / 1024).toFixed(1)}`;
+  required<HTMLElement>("surveyed-value").textContent =
+    snapshot.chunks.length.toLocaleString();
   required<HTMLElement>("checksum-value").textContent = snapshot.checksum
     .toString(16)
     .padStart(8, "0")
@@ -181,6 +186,8 @@ function renderInspector(): void {
       Math.hypot(x - selectedWorld.x, y - selectedWorld.y) <= radius,
   );
   const lines = [`Build hex ${selected.q}, ${selected.r}`];
+  if (!isSurveyed(snapshot.chunks, selectedWorld))
+    lines.push("Unsurveyed — travel here to lift the fog");
   if (resource) {
     const item = host.definitions.items.find(
       ({ id }) => id === resource.item_id,
@@ -233,7 +240,8 @@ function renderNextAction(): void {
   const crystals = snapshot.player.inventory["3"] ?? 0;
   const researched = new Set(snapshot.researched);
   let title = "Survey the landing zone";
-  let detail = "Move toward a glowing resource deposit and gather a sample.";
+  let detail =
+    "The hatched fog is unsurveyed world. Walk toward it to reveal terrain, then gather from a glowing deposit.";
   if (snapshot.victory) {
     title = "Factory online";
     detail =

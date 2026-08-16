@@ -31,6 +31,10 @@ roadmap and implementation handoffs live in `docs/HEXFACTORY-PLAN.md`, architect
   machines; it does not discover six neighbors for every belt on every tick.
 - Arbitration is stable by native entity ID. Initial entity IDs derive from sorted coordinates, so
   JSON insertion order cannot change a run.
+- Derived caches never become truth. Resolved extractor deposit references are rebuilt from tiles,
+  invalidated when chunk generation adds tiles, and are never saved, hashed, or checksummed.
+- Fog of war is presentation over the generated chunk set. Chunk snapshots carry native world
+  bounds; the host may draw and describe them but must not invent world outside them.
 - Time and quantities are integers. Any blocked transfer leaves its source unchanged.
 - Canvas 2D is replaceable presentation. Simulation truth comes only from native snapshots.
 - Every performance or scale claim must cite a measured tier in `docs/BENCHMARKS.md`. Claims beyond

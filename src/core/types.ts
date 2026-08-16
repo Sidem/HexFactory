@@ -124,6 +124,17 @@ export interface TerrainSnapshot extends WorldPoint {
   terrain: Terrain;
 }
 
+/**
+ * A generated world chunk. `x`/`y`/`span` are the native world-space square the chunk owns, so the
+ * reported chunks are exactly the surveyed world and everything else is unexplored.
+ */
+export interface ChunkSnapshot extends WorldPoint {
+  chunk_q: number;
+  chunk_r: number;
+  entity_count: number;
+  span: number;
+}
+
 export interface PlayerSnapshot extends WorldPoint {
   facing_x: number;
   facing_y: number;
@@ -148,19 +159,30 @@ export interface FactorySnapshot {
   objective: { item_id: number; delivered: number; required: number };
   player: PlayerSnapshot;
   researched: number[];
-  chunks: Array<{ chunk_q: number; chunk_r: number; entity_count: number }>;
+  chunks: ChunkSnapshot[];
   terrain: TerrainSnapshot[];
   resources: ResourceSnapshot[];
   buildings: EntitySnapshot[];
   events: string[];
 }
 
+/**
+ * The per-entity buildings patch. `changed` carries inserted and modified entities and `removed`
+ * the ids to drop, both in ascending native entity id order. `replace` marks a complete list.
+ */
+export interface BuildingsPatch {
+  replace?: boolean;
+  changed?: EntitySnapshot[];
+  removed?: number[];
+}
+
 export interface FactorySnapshotDelta
-  extends Partial<Omit<FactorySnapshot, "tick" | "checksum">> {
+  extends Partial<Omit<FactorySnapshot, "tick" | "checksum" | "buildings">> {
   base_revision: number;
   revision: number;
   tick: number;
   checksum: number;
+  buildings?: BuildingsPatch;
 }
 
 export interface PlacementPreview {

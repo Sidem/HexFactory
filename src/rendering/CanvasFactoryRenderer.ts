@@ -9,6 +9,7 @@ import {
 } from "@hexlife/embed/hex";
 
 import type {
+  ChunkSnapshot,
   Definitions,
   EntitySnapshot,
   FactorySnapshot,
@@ -18,6 +19,23 @@ import type {
 
 const BASE_HEX_SIZE = 31;
 const WORLD_SCALE = 1024;
+
+/**
+ * True when a world point lies inside a chunk the native simulation has generated. Chunks are the
+ * unit of world generation, so anything outside them is unexplored world drawn as fog.
+ */
+export function isSurveyed(
+  chunks: ChunkSnapshot[],
+  point: WorldPoint,
+): boolean {
+  return chunks.some(
+    (chunk) =>
+      point.x >= chunk.x &&
+      point.x < chunk.x + chunk.span &&
+      point.y >= chunk.y &&
+      point.y < chunk.y + chunk.span,
+  );
+}
 
 export class HexCamera {
   center: WorldPoint = { x: 0, y: 0 };
@@ -105,6 +123,7 @@ export class CanvasFactoryRenderer {
   private buildMode = false;
   private gridToggled = false;
   private buildFootprint: AxialCoordinate[] = [{ q: 0, r: 0 }];
+  private veil: HTMLCanvasElement | null = null;
   private now = 0;
 
   constructor(
@@ -224,6 +243,7 @@ export class CanvasFactoryRenderer {
     if (this.buildMode) this.drawBuildRange(width, height);
     for (const building of this.snapshot.buildings)
       this.drawBuilding(building, width, height, size);
+    this.drawFog(width, height, ratio);
     this.drawPlayer(width, height, size);
     if (this.selection)
       drawHex(
@@ -311,6 +331,100 @@ export class CanvasFactoryRenderer {
       ctx.textAlign = "center";
       ctx.fillText(label, center.x, labelY + 15);
     }
+  }
+
+  /**
+   * Veil every part of the viewport the simulation has not generated yet. The surveyed area is
+   * punched out of an offscreen veil so overlapping chunk edges cannot leave seams, and the
+   * frontier of the surveyed world is drawn as a dashed edge on top.
+   */
+  private drawFog(width: number, height: number, ratio: number): void {
+    if (!this.snapshot) return;
+    const chunks = this.snapshot.chunks;
+    if (!chunks.length) return;
+    const scale = (BASE_HEX_SIZE * this.camera.zoom) / WORLD_SCALE;
+    const surveyed = chunks.map((chunk) => {
+      const origin = this.camera.projectWorld(chunk, width, height);
+      return { chunk, x: origin.x, y: origin.y, size: chunk.span * scale };
+    });
+    const veil = this.veilCanvas();
+    const target = {
+      width: Math.floor(width * ratio),
+      height: Math.floor(height * ratio),
+    };
+    if (veil.width !== target.width || veil.height !== target.height) {
+      veil.width = target.width;
+      veil.height = target.height;
+    }
+    const fog = veil.getContext("2d");
+    if (!fog) return;
+    fog.setTransform(ratio, 0, 0, ratio, 0, 0);
+    fog.clearRect(0, 0, width, height);
+    // A cool slate lighter than the surveyed ground, so fog reads as unknown rather than as night.
+    fog.fillStyle = "#18242fee";
+    fog.fillRect(0, 0, width, height);
+    fog.strokeStyle = "#a9d8ff22";
+    fog.lineWidth = 2;
+    fog.beginPath();
+    for (let x = -height; x < width; x += 26) {
+      fog.moveTo(x, 0);
+      fog.lineTo(x + height, height);
+    }
+    fog.stroke();
+    fog.globalCompositeOperation = "destination-out";
+    fog.filter = "blur(13px)";
+    fog.fillStyle = "#000";
+    for (const region of surveyed) {
+      // The blur reaches past the rect, so keep a margin when culling offscreen chunks.
+      if (
+        region.x > width + 24 ||
+        region.y > height + 24 ||
+        region.x + region.size < -24 ||
+        region.y + region.size < -24
+      )
+        continue;
+      fog.fillRect(region.x, region.y, region.size, region.size);
+    }
+    fog.filter = "none";
+    fog.globalCompositeOperation = "source-over";
+    this.context.drawImage(veil, 0, 0, width, height);
+
+    const generated = new Set(
+      chunks.map(({ chunk_q, chunk_r }) => `${chunk_q},${chunk_r}`),
+    );
+    const ctx = this.context;
+    ctx.strokeStyle = "#7fe0c088";
+    ctx.lineWidth = 2;
+    ctx.setLineDash([9, 8]);
+    ctx.beginPath();
+    for (const { chunk, x, y, size } of surveyed) {
+      if (x > width || y > height || x + size < 0 || y + size < 0) continue;
+      const frontier = (dq: number, dr: number): boolean =>
+        !generated.has(`${chunk.chunk_q + dq},${chunk.chunk_r + dr}`);
+      if (frontier(-1, 0)) {
+        ctx.moveTo(x, y);
+        ctx.lineTo(x, y + size);
+      }
+      if (frontier(1, 0)) {
+        ctx.moveTo(x + size, y);
+        ctx.lineTo(x + size, y + size);
+      }
+      if (frontier(0, -1)) {
+        ctx.moveTo(x, y);
+        ctx.lineTo(x + size, y);
+      }
+      if (frontier(0, 1)) {
+        ctx.moveTo(x, y + size);
+        ctx.lineTo(x + size, y + size);
+      }
+    }
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
+
+  private veilCanvas(): HTMLCanvasElement {
+    this.veil ??= document.createElement("canvas");
+    return this.veil;
   }
 
   private drawGrid(width: number, height: number, size: number): void {
