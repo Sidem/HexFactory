@@ -1,0 +1,8 @@
+[
+  { "index": 0, "name": "east", "q": 1, "r": 0 },
+  { "index": 1, "name": "southeast", "q": 0, "r": 1 },
+  { "index": 2, "name": "southwest", "q": -1, "r": 1 },
+  { "index": 3, "name": "west", "q": -1, "r": 0 },
+  { "index": 4, "name": "northwest", "q": 0, "r": -1 },
+  { "index": 5, "name": "northeast", "q": 1, "r": -1 }
+]

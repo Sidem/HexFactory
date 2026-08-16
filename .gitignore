@@ -1,0 +1,5 @@
+node_modules/
+dist/
+factory-wasm/pkg/
+factory-wasm/target/
+*.log

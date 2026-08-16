@@ -1,0 +1,14 @@
+{
+  "chunk_size": 16,
+  "resources": [{ "q": -4, "r": 0, "item_id": 1 }],
+  "buildings": [
+    { "q": -4, "r": 0, "definition_id": 1, "orientation": 0 },
+    { "q": -3, "r": 0, "definition_id": 2, "orientation": 0 },
+    { "q": -2, "r": 0, "definition_id": 2, "orientation": 1 },
+    { "q": -2, "r": 1, "definition_id": 2, "orientation": 0 },
+    { "q": -1, "r": 1, "definition_id": 3, "orientation": 0, "recipe_id": 1 },
+    { "q": 0, "r": 1, "definition_id": 2, "orientation": 0 },
+    { "q": 1, "r": 1, "definition_id": 4, "orientation": 0 },
+    { "q": 2, "r": 1, "definition_id": 5, "orientation": 0 }
+  ]
+}

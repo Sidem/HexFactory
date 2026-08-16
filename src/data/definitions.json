@@ -1,0 +1,41 @@
+{
+  "items": [
+    { "id": 1, "key": "ore", "name": "Ore", "color": "#e6a85c" },
+    { "id": 2, "key": "component", "name": "Component", "color": "#72d6c9" }
+  ],
+  "recipes": [
+    {
+      "id": 1,
+      "key": "component",
+      "name": "Compose component",
+      "inputs": [{ "item_id": 1, "quantity": 2 }],
+      "output": { "item_id": 2, "quantity": 1 },
+      "duration": 6
+    }
+  ],
+  "buildings": [
+    {
+      "id": 1,
+      "key": "extractor",
+      "name": "Extractor",
+      "kind": "extractor",
+      "cadence": 4
+    },
+    { "id": 2, "key": "belt", "name": "Belt", "kind": "belt" },
+    {
+      "id": 3,
+      "key": "composer",
+      "name": "Composer",
+      "kind": "composer",
+      "capacity": 12
+    },
+    {
+      "id": 4,
+      "key": "container",
+      "name": "Container",
+      "kind": "container",
+      "capacity": 8
+    },
+    { "id": 5, "key": "consumer", "name": "Consumer", "kind": "consumer" }
+  ]
+}

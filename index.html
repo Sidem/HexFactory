@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#11161e" />
+    <title>HexFactory</title>
+  </head>
+  <body>
+    <main class="app-shell">
+      <header>
+        <div>
+          <p class="eyebrow">Rust/Wasm factory architecture proof</p>
+          <h1>HexFactory</h1>
+          <p class="lede">
+            Ore follows a turning compiled belt path, becomes components,
+            buffers in a real container, and reaches the consumer.
+          </p>
+        </div>
+        <a href="https://github.com/Sidem/HexFactory">Source</a>
+      </header>
+      <section class="toolbar" aria-label="Simulation controls">
+        <button id="play" type="button" aria-pressed="true">Pause</button>
+        <button id="step" type="button">Step</button>
+        <button id="reset" type="button">Reset</button>
+        <label
+          >Speed
+          <select id="speed">
+            <option value="4">4 tps</option>
+            <option value="10" selected>10 tps</option>
+            <option value="30">30 tps</option>
+            <option value="60">60 tps</option>
+          </select></label
+        >
+        <span>Tick <strong id="tick-value">0</strong></span>
+        <span>Delivered <strong id="delivered-value">0</strong></span>
+        <span>Checksum <code id="checksum-value">00000000</code></span>
+      </section>
+      <section class="workspace">
+        <aside>
+          <h2>Build</h2>
+          <div id="tool-shelf" class="tool-shelf">
+            <button type="button" data-tool="inspect">Inspect</button>
+            <button type="button" data-tool="erase">Erase</button>
+            <button type="button" data-tool="rotate">Rotate placed</button>
+          </div>
+          <button id="turn" class="turn" type="button">
+            Turn new building ↻
+          </button>
+          <p>New orientation: <strong id="orientation-value">0</strong></p>
+          <p class="hint">
+            Choose a building, then click a hex. Rotate cycles the six public
+            clockwise directions.
+          </p>
+        </aside>
+        <div class="canvas-wrap">
+          <canvas
+            id="factory-canvas"
+            aria-label="Interactive HexFactory map"
+          ></canvas>
+        </div>
+        <aside class="readout">
+          <h2>Selection</h2>
+          <p id="selection-value">Move over the map.</p>
+          <h2>Vertical slice</h2>
+          <ol>
+            <li>Extractor produces ore every 4 ticks.</li>
+            <li>
+              Belts follow a compiled directed graph, including the southeast
+              turn.
+            </li>
+            <li>Composer consumes 2 ore for 1 component over 6 ticks.</li>
+            <li>
+              Container buffers 8 real items before the consumer counts
+              delivery.
+            </li>
+          </ol>
+          <p class="hint">
+            Cargo waits when the next slot or inventory is full. No item is
+            duplicated or deleted.
+          </p>
+        </aside>
+      </section>
+    </main>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
