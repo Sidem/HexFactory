@@ -23,6 +23,9 @@ describe("data-defined content", () => {
       definitions.buildings.find(({ key }) => key === "extractor")
         ?.placement_rule,
     ).toBe("resource");
+    expect(
+      definitions.buildings.find(({ key }) => key === "composer")?.footprint,
+    ).toHaveLength(2);
     expect(technologies.technologies.map(({ key }) => key)).toEqual([
       "field-logistics",
       "automated-extraction",

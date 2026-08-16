@@ -6,9 +6,9 @@
     <meta name="theme-color" content="#0e1718" />
     <meta
       name="description"
-      content="HexFactory is a deterministic Rust/Wasm factory game on an unbounded hex world."
+      content="HexFactory is a deterministic Rust/Wasm factory game with continuous exploration and hex-snapped construction."
     />
-    <title>HexFactory — Playable Game v0.2</title>
+    <title>HexFactory — Continuous Exploration v0.3</title>
   </head>
   <body>
     <main class="app-shell">
@@ -17,8 +17,8 @@
           <p class="eyebrow">Deterministic Rust/Wasm factory game</p>
           <h1>HexFactory</h1>
           <p class="lede">
-            Gather finite resources, spend insight on research, automate a
-            compiled transport line, and deliver three components to the hub.
+            Explore a continuous world, identify finite resources, unlock
+            technology, and construct a snapped factory near your player.
           </p>
         </div>
         <a href="https://github.com/Sidem/HexFactory">Source on GitHub</a>
@@ -85,6 +85,10 @@
             <dd id="selected-tool-value">Inspect</dd>
           </div>
           <div>
+            <dt>Position</dt>
+            <dd id="position-value">0.0, 0.0</dd>
+          </div>
+          <div>
             <dt>Checksum</dt>
             <dd><code id="checksum-value">00000000</code></dd>
           </div>
@@ -124,11 +128,10 @@
           <details>
             <summary>Controls</summary>
             <p class="microcopy">
-              Move: <kbd>W</kbd> northwest, <kbd>E</kbd> northeast,
-              <kbd>D</kbd> east, <kbd>S</kbd> southeast, <kbd>A</kbd> west,
-              <kbd>Q</kbd> southwest. <kbd>F</kbd> gathers here or ahead;
-              <kbd>X</kbd> delivers beside the hub. Drag or middle-drag to pan,
-              wheel to zoom, then use Recenter.
+              Move freely with <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd>.
+              <kbd>F</kbd> gathers a nearby deposit; <kbd>X</kbd> delivers
+              beside the hub. Drag or middle-drag to pan, wheel to zoom.
+              Building locations snap to the grid; the world and player do not.
             </p>
           </details>
         </aside>
@@ -137,10 +140,13 @@
           <canvas
             id="factory-canvas"
             tabindex="0"
-            aria-label="Interactive HexFactory world map. Use WASD plus Q and E to move in six directions."
+            aria-label="Interactive HexFactory world map. Use WASD to move freely and construction tools to build on hex locations."
           ></canvas>
           <div class="canvas-actions">
             <button id="recenter" type="button">Recenter player</button>
+            <button id="toggle-grid" type="button" aria-pressed="false">
+              Show build grid
+            </button>
           </div>
           <div
             id="feedback"

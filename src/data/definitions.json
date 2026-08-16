@@ -1,5 +1,5 @@
 {
-  "version": 2,
+  "version": 3,
   "items": [
     {
       "id": 1,
@@ -56,7 +56,8 @@
       "unlock_technology_id": 2,
       "placement_rule": "resource",
       "buildable": true,
-      "blocks_movement": true
+      "blocks_movement": true,
+      "footprint": [{ "q": 0, "r": 0 }]
     },
     {
       "id": 2,
@@ -69,7 +70,8 @@
       "unlock_technology_id": 1,
       "placement_rule": "ground",
       "buildable": true,
-      "blocks_movement": false
+      "blocks_movement": false,
+      "footprint": [{ "q": 0, "r": 0 }]
     },
     {
       "id": 3,
@@ -86,7 +88,11 @@
       "unlock_technology_id": 3,
       "placement_rule": "ground",
       "buildable": true,
-      "blocks_movement": true
+      "blocks_movement": true,
+      "footprint": [
+        { "q": 0, "r": 0 },
+        { "q": 0, "r": -1 }
+      ]
     },
     {
       "id": 4,
@@ -100,7 +106,8 @@
       "unlock_technology_id": 4,
       "placement_rule": "ground",
       "buildable": true,
-      "blocks_movement": true
+      "blocks_movement": true,
+      "footprint": [{ "q": 0, "r": 0 }]
     },
     {
       "id": 5,
@@ -112,7 +119,8 @@
       "construction_cost": [],
       "placement_rule": "ground",
       "buildable": false,
-      "blocks_movement": true
+      "blocks_movement": true,
+      "footprint": [{ "q": 0, "r": 0 }]
     },
     {
       "id": 6,
@@ -124,7 +132,12 @@
       "construction_cost": [],
       "placement_rule": "ground",
       "buildable": false,
-      "blocks_movement": true
+      "blocks_movement": true,
+      "footprint": [
+        { "q": 0, "r": 0 },
+        { "q": 0, "r": 1 },
+        { "q": -1, "r": 1 }
+      ]
     }
   ]
 }

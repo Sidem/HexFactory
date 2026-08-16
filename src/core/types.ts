@@ -49,6 +49,7 @@ export interface BuildingDefinition {
   placement_rule: PlacementRule;
   buildable: boolean;
   blocks_movement: boolean;
+  footprint: AxialCoordinate[];
 }
 
 export interface Definitions {
@@ -102,20 +103,32 @@ export interface EntitySnapshot extends AxialCoordinate {
   progress_total: number;
   status: string;
   next_id?: number;
+  footprint: AxialCoordinate[];
 }
 
-export interface ResourceSnapshot extends AxialCoordinate {
+export interface WorldPoint {
+  x: number;
+  y: number;
+}
+
+export interface ResourceSnapshot extends WorldPoint {
+  id: number;
+  radius: number;
   item_id: number;
   quantity: number;
   initial_quantity: number;
 }
 
-export interface TerrainSnapshot extends AxialCoordinate {
+export interface TerrainSnapshot extends WorldPoint {
+  radius: number;
   terrain: Terrain;
 }
 
-export interface PlayerSnapshot extends AxialCoordinate {
-  facing: number;
+export interface PlayerSnapshot extends WorldPoint {
+  facing_x: number;
+  facing_y: number;
+  move_x: number;
+  move_y: number;
   inventory: Record<string, number>;
   action_cooldown: number;
   build_range: number;
@@ -148,7 +161,7 @@ export interface PlacementPreview {
 }
 
 export type NativeInputCommand =
-  | { type: "move"; direction: number }
+  | { type: "move_intent"; x: number; y: number }
   | { type: "gather" }
   | { type: "deposit" }
   | {

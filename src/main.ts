@@ -1,11 +1,15 @@
-import { rotateHexDirection, type HexDirection } from "@hexlife/embed/hex";
+import {
+  axialToPixel,
+  rotateHexDirection,
+  type HexDirection,
+} from "@hexlife/embed/hex";
 
 import {
   buildingAvailability,
   technologyAvailability,
 } from "./core/availability";
 import { FactoryHost } from "./core/FactoryHost";
-import { BoundedInputQueue, MOVEMENT_KEYS } from "./core/input";
+import { BoundedInputQueue, MOVEMENT_KEYS, movementIntent } from "./core/input";
 import type {
   FactorySnapshot,
   NativeInputCommand,
@@ -16,7 +20,7 @@ import "./styles.css";
 
 type Tool = "inspect" | "erase" | "rotate" | number;
 
-const SAVE_KEY = "hexfactory:hxf1:v1";
+const SAVE_KEY = "hexfactory:hxf1:v2";
 const DIRECTION_NAMES = [
   "East",
   "Southeast",
@@ -49,6 +53,8 @@ let feedbackTimer = 0;
 let panPointer: { id: number; x: number; y: number; moved: boolean } | null =
   null;
 let suppressMapClick = false;
+const pressedMovement = new Set<string>();
+let movementRevision = 0;
 
 for (const definition of host.definitions.buildings.filter(
   ({ buildable }) => buildable,
@@ -71,6 +77,8 @@ function update(next: FactorySnapshot): void {
     snapshot.insight.toLocaleString();
   required<HTMLElement>("objective-value").textContent =
     `${snapshot.objective.delivered} / ${snapshot.objective.required}`;
+  required<HTMLElement>("position-value").textContent =
+    `${(snapshot.player.x / 1024).toFixed(1)}, ${(snapshot.player.y / 1024).toFixed(1)}`;
   required<HTMLElement>("checksum-value").textContent = snapshot.checksum
     .toString(16)
     .padStart(8, "0")
@@ -150,18 +158,15 @@ function renderInspector(): void {
     element.textContent = "Select a hex on the map.";
     return;
   }
-  const building = snapshot.buildings.find(
-    ({ q, r }) => q === selected?.q && r === selected?.r,
+  const building = snapshot.buildings.find(({ footprint }) =>
+    footprint.some(({ q, r }) => q === selected?.q && r === selected?.r),
   );
+  const selectedWorld = axialToPixel(selected, 1024, { x: 0, y: 0 });
   const resource = snapshot.resources.find(
-    ({ q, r }) => q === selected?.q && r === selected?.r,
+    ({ x, y, radius }) =>
+      Math.hypot(x - selectedWorld.x, y - selectedWorld.y) <= radius,
   );
-  const terrain = snapshot.terrain.find(
-    ({ q, r }) => q === selected?.q && r === selected?.r,
-  );
-  const lines = [
-    `Hex ${selected.q}, ${selected.r} · ${terrain?.terrain ?? "ungenerated"}`,
-  ];
+  const lines = [`Build hex ${selected.q}, ${selected.r}`];
   if (resource) {
     const item = host.definitions.items.find(
       ({ id }) => id === resource.item_id,
@@ -221,6 +226,11 @@ function selectTool(next: Tool): void {
       : undefined;
   required<HTMLElement>("selected-tool-value").textContent =
     definition?.name ?? titleCase(String(next));
+  renderer.setBuildMode(next !== "inspect");
+  renderer.setBuildFootprint(
+    definition?.footprint ?? [{ q: 0, r: 0 }],
+    orientation,
+  );
   renderHotbar();
   refreshHoverPreview();
 }
@@ -264,6 +274,15 @@ required<HTMLButtonElement>("deposit").addEventListener("click", () =>
 );
 required<HTMLButtonElement>("recenter").addEventListener("click", () =>
   renderer.recenter(),
+);
+required<HTMLButtonElement>("toggle-grid").addEventListener(
+  "click",
+  (event) => {
+    const visible = renderer.toggleGrid();
+    const button = event.currentTarget as HTMLButtonElement;
+    button.setAttribute("aria-pressed", String(visible));
+    button.textContent = visible ? "Hide build grid" : "Show build grid";
+  },
 );
 required<HTMLButtonElement>("new-game").addEventListener("click", () => {
   input.clear();
@@ -330,10 +349,13 @@ window.addEventListener("keydown", (event) => {
     isTypingTarget(event.target)
   )
     return;
-  const direction = MOVEMENT_KEYS[event.code];
-  if (direction !== undefined) {
+  if (event.code in MOVEMENT_KEYS) {
     event.preventDefault();
-    enqueue({ type: "move", direction });
+    if (!pressedMovement.has(event.code)) {
+      pressedMovement.add(event.code);
+      movementRevision += 1;
+      enqueue(movementIntent(pressedMovement));
+    }
     return;
   }
   if (event.code === "KeyF") enqueue({ type: "gather" });
@@ -347,6 +369,23 @@ window.addEventListener("keydown", (event) => {
     if (definition) selectTool(definition.id);
   } else return;
   event.preventDefault();
+});
+
+window.addEventListener("keyup", (event) => {
+  if (!pressedMovement.delete(event.code)) return;
+  event.preventDefault();
+  movementRevision += 1;
+  const revision = movementRevision;
+  window.setTimeout(() => {
+    if (revision === movementRevision) enqueue(movementIntent(pressedMovement));
+  }, 110);
+});
+
+window.addEventListener("blur", () => {
+  if (!pressedMovement.size) return;
+  pressedMovement.clear();
+  movementRevision += 1;
+  enqueue(movementIntent(pressedMovement));
 });
 
 canvas.addEventListener("pointermove", (event) => {
@@ -430,6 +469,14 @@ function rotateNewBuilding(): void {
   orientation = rotateHexDirection(orientation, 1);
   required<HTMLElement>("orientation-value").textContent =
     `${orientation} · ${DIRECTION_NAMES[orientation]}`;
+  const definition =
+    typeof tool === "number"
+      ? host.definitions.buildings.find(({ id }) => id === tool)
+      : undefined;
+  renderer.setBuildFootprint(
+    definition?.footprint ?? [{ q: 0, r: 0 }],
+    orientation,
+  );
   refreshHoverPreview();
 }
 

@@ -70,11 +70,24 @@ export function validateDefinitions(
       !KINDS.has(building.kind) ||
       !PLACEMENT_RULES.has(building.placement_rule) ||
       !Array.isArray(building.construction_cost) ||
+      !Array.isArray(building.footprint) ||
+      !building.footprint.length ||
       typeof building.buildable !== "boolean" ||
       typeof building.blocks_movement !== "boolean"
     ) {
       throw new TypeError(`building ${building.id} is incomplete`);
     }
+    const footprint = new Set(
+      building.footprint.map(({ q, r }) => `${q},${r}`),
+    );
+    if (
+      footprint.size !== building.footprint.length ||
+      !footprint.has("0,0") ||
+      building.footprint.some(
+        ({ q, r }) => !Number.isInteger(q) || !Number.isInteger(r),
+      )
+    )
+      throw new TypeError(`building ${building.id} has an invalid footprint`);
     for (const ingredient of building.construction_cost) {
       if (
         !itemIds.has(ingredient.item_id) ||

@@ -7,14 +7,15 @@ export interface EncodedCommand {
 
 export function encodeCommand(command: NativeInputCommand): EncodedCommand {
   switch (command.type) {
-    case "move":
+    case "move_intent":
       if (
-        !Number.isInteger(command.direction) ||
-        command.direction < 0 ||
-        command.direction > 5
+        !Number.isInteger(command.x) ||
+        !Number.isInteger(command.y) ||
+        Math.abs(command.x) > 1000 ||
+        Math.abs(command.y) > 1000
       )
-        throw new RangeError("direction must be in 0..6");
-      return { opcode: 0, args: [command.direction] };
+        throw new RangeError("movement intent must be in -1000..1000");
+      return { opcode: 0, args: [command.x, command.y] };
     case "gather":
       return { opcode: 1, args: [] };
     case "deposit":

@@ -1,53 +1,68 @@
-# Playable Game v0.2 scope and acceptance
+# Continuous Exploration v0.3 scope and acceptance
 
-Status: implemented for the v0.2 release gate. The founding architecture proof is retained as the
-selectable **Factory demo**; **New game** is the default live scenario.
+Status: implemented locally as the active playable milestone. Playable Game v0.2 remains the
+shipped historical baseline; v0.3 deliberately changes its world and save contracts.
 
 ## Playable loop
 
-A deterministic seed places the native player beside a protected landing hub in an unbounded,
-chunk-generated environment. The shipped loop is:
+The loop remains intentionally compact:
 
-`explore → gather finite ore/crystal → deliver for insight → research → construct → compose → win`
+`explore freely → identify/gather finite resources → deliver for insight → research → construct nearby → automate → win`
 
-Field Logistics unlocks belts, Automated Extraction unlocks finite-deposit extractors, Composition
-unlocks the composer, and optional Storage Planning unlocks containers. The recipe consumes exactly
-two ore for one component over eight integer ticks. Delivering three components to the landing hub
-sets persistent native victory and leaves free play enabled.
+The player carries exact native inventory quantities. Field Logistics unlocks belts, Automated
+Extraction unlocks extractors, Composition unlocks the composer, and Storage Planning unlocks
+containers. Construction spends that inventory atomically. Extractors consume finite continuous
+resource regions, transport runs on compiled edges, and delivering three components sets persistent
+native victory while leaving free play enabled.
 
-## Interaction and presentation
+## World and interaction contract
 
-- Six native step directions use `D/S/Q/A/W/E` for E/SE/SW/W/NW/NE. `F` gathers on the player hex
-  or the facing neighbor and `X` delivers the inventory beside the hub.
-- The cost- and lock-aware hotbar covers belts, extractors, composers, and containers. Build range,
-  terrain, deposits, occupancy, costs, recipe selection, and technology are enforced by Rust even
-  for forged commands.
-- Inspect, place, erase, rotate-existing, rotate-new, play/pause, single-step, reset, four speeds,
-  native New Game/Factory demo, Save, and Continue are exposed with visible labels.
-- The Canvas renderer follows the player until the user pans/zooms, shows the required simulation
-  layers and legality feedback, and supports desktop, narrow screens, keyboard focus, and reduced
-  motion.
-- Erase refunds full construction cost and all currently represented contents/reserved inputs.
-  Scenario-owned hub/demo objects are protected.
+- Player and environment positions are integer fixed-point `x/y` owned by Rust. The host sends only
+  bounded held-key intent from `W/A/S/D`; each native tick owns movement, facing, sliding collision,
+  continuous chunk generation, and checksums.
+- Water, rock, and resource regions are continuous circular features. Resources show kind and
+  remaining quantity in the world and can be identified while exploring. `F` gathers within native
+  reach; `X` delivers within native hub distance.
+- Hex geometry is reserved for building anchors, orientation, footprints, editing, and compiled
+  transport. The two-cell composer and three-cell landing hub prove rotated multi-cell occupancy.
+- Rust enforces technology, carried construction cost, continuous player proximity, complete
+  footprint occupancy, environment collision, player collision, deposit requirements, recipe
+  selection, protected scenario objects, refunds, and legal rotations—even for forged commands.
+- The tile-edge overlay is absent during ordinary exploration. It appears while placing, erasing,
+  or rotating, and can be explicitly toggled. Build mode also shows the native proximity radius and
+  the complete rotated footprint preview.
+- Canvas following, pan/zoom, responsive panels, feedback, accessibility, and reduced motion remain
+  host presentation. No TypeScript player, environment, inventory, progression, or cargo tick exists.
+
+## Determinism and persistence
+
+Continuous features are generated into lazy ordered chunks from the versioned seed and coordinate
+hash, without traversal-order state. Stable native entity IDs still arbitrate transfers. Blocked
+transfers and machines leave their sources unchanged.
+
+`HXF1` save version 2 and world-generator version 2 serialize continuous player/feature truth,
+footprints, inventories, research, machines, cargo, objective, and checksum. The loader validates
+versions, references, feature uniqueness/radii, entity IDs, footprint overlap, input bounds, and
+checksum. Held movement intent is neutralized after a successful restore. v0.2 saves are rejected
+with an explicit incompatible-version error; browser storage treats the native string as opaque.
 
 ## Verification coverage
 
-Native Rust tests cover the cross-language direction protocol; same/different-seed chunk fixtures;
-chunk request order; six-direction movement, facing, cadence, and blocking; finite gathering and
-conservation; placement range/terrain/occupancy/cost/technology/deposit rules; exact erase refunds;
-extractor depletion; research prerequisites and atomic spending; forged locked commands; the full
-victory path; `HXF1` round-trip, incompatibility rejection, and resumed checksum equivalence; sorted
-initial IDs and insertion independence; turning compiled paths; cargo conservation; backpressure;
-exact recipe quantities/timing; container order; delivery totals; and reset/replay.
+Native tests cover direction fixture parity; seeded and request-order-independent generation;
+continuous intent, diagonal normalization, stopping, obstacle collision, and input bounds; finite
+gathering/conservation; proximity/environment/footprint/cost/technology/deposit placement;
+footprint-aware graph compilation; exact refunds; extraction depletion; research atomicity; forged
+commands; complete victory; HXF1 equivalence and incompatibility; stable IDs; transport conservation,
+backpressure, recipe timing, container order, delivery totals, and reset/replay.
 
-Host tests cover published geometry parity, camera-aware pan/zoom picking, bounded six-direction
-keyboard input, command encoding, absence of host movement/progression mutation, dynamic definition
-and technology validation, hotbar costs/locks, research prerequisites, expanded snapshot parsing,
-native save delegation, responsive breakpoints, reduced motion, and accessible labels.
+Host tests cover the exact published geometry package, camera-aware construction picking with a
+continuous camera center, WASD intent normalization, bounded batching/encoding, absence of host
+simulation mutation, footprint and technology definition validation, costs/locks, snapshot/save
+delegation, responsive breakpoints, reduced motion, and accessible labels.
 
-The release gate is npm audit, Prettier/Rust formatting, ESLint, strict TypeScript, Vitest, Rust
-tests, Wasm build, and production Vite build before GitHub Pages deployment and real-browser
-verification.
+The local release gate is npm audit, Prettier/Rust formatting, ESLint, strict TypeScript, Vitest,
+Rust tests, Wasm build, and production Vite build. Deployment and live verification are separate
+release actions and must not be implied by local success.
 
 ## Explicit follow-ups
 
@@ -55,5 +70,6 @@ verification.
    rebuild after edits.
 2. A Web Worker simulation boundary plus dirty snapshot/delta transport.
 3. Benchmarked capacity tiers before selecting WebGL instancing or making scale claims.
-4. Inserters, splitters, multiple lanes, power, fluids, circuits, trains, enemies, multiplayer,
-   mod scripting, and evolutionary systems remain deliberately out of v0.2.
+4. Richer biomes/resource identification, inventory capacity/equipment, footprint-aware demolition
+   previews, inserters, splitters, lanes, power, fluids, circuits, trains, enemies, multiplayer, mod
+   scripting, and evolutionary systems remain beyond this deliberately basic milestone.

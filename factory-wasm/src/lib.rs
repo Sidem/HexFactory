@@ -8,10 +8,22 @@ type DefinitionId = u16;
 type TechnologyId = u16;
 
 const SAVE_PREFIX: &str = "HXF1\n";
-const SAVE_VERSION: u16 = 1;
-const WORLD_GENERATOR_VERSION: u16 = 1;
+const SAVE_VERSION: u16 = 2;
+const WORLD_GENERATOR_VERSION: u16 = 2;
 const MAX_COMMANDS_PER_BATCH: usize = 8;
 const DIRECTIONS: [(i32, i32); 6] = [(1, 0), (0, 1), (-1, 1), (-1, 0), (0, -1), (1, -1)];
+const HEX_X: i32 = 1774;
+const HEX_Y: i32 = 1536;
+const FEATURE_SPACING: i32 = 2048;
+const PLAYER_SPEED: i32 = 300;
+const PLAYER_RADIUS: i32 = 360;
+const BUILDING_RADIUS: i32 = 690;
+const GATHER_RANGE: i32 = 1450;
+const HUB_RANGE: i32 = 1900;
+
+fn default_footprint() -> Vec<Coordinate> {
+    vec![Coordinate { q: 0, r: 0 }]
+}
 
 #[derive(Clone, Deserialize)]
 struct DefinitionsInput {
@@ -67,6 +79,8 @@ struct BuildingDefinition {
     placement_rule: PlacementRule,
     buildable: bool,
     blocks_movement: bool,
+    #[serde(default = "default_footprint")]
+    footprint: Vec<Coordinate>,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -185,15 +199,21 @@ struct ResourceState {
 struct TileState {
     q: i32,
     r: i32,
+    x: i32,
+    y: i32,
+    radius: u32,
     terrain: Terrain,
     resource: Option<ResourceState>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 struct PlayerState {
-    q: i32,
-    r: i32,
-    facing: u8,
+    x: i32,
+    y: i32,
+    facing_x: i16,
+    facing_y: i16,
+    move_x: i16,
+    move_y: i16,
     inventory: BTreeMap<ItemId, u32>,
     action_cooldown: u32,
     build_range: u32,
@@ -254,15 +274,18 @@ struct ChunkSnapshot {
 
 #[derive(Serialize)]
 struct TileSnapshot {
-    q: i32,
-    r: i32,
+    x: i32,
+    y: i32,
+    radius: u32,
     terrain: Terrain,
 }
 
 #[derive(Serialize)]
 struct ResourceSnapshot {
-    q: i32,
-    r: i32,
+    id: u64,
+    x: i32,
+    y: i32,
+    radius: u32,
     item_id: ItemId,
     quantity: u32,
     initial_quantity: u32,
@@ -284,6 +307,7 @@ struct EntitySnapshot {
     progress_total: u32,
     status: String,
     next_id: Option<u32>,
+    footprint: Vec<Coordinate>,
 }
 
 #[derive(Serialize)]
@@ -295,8 +319,9 @@ struct PlacementPreview {
 #[derive(Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 enum InputCommand {
-    Move {
-        direction: u8,
+    MoveIntent {
+        x: i16,
+        y: i16,
     },
     Gather,
     Deposit,
@@ -362,12 +387,15 @@ impl Core {
             entities: Vec::new(),
             graph: Vec::new(),
             player: PlayerState {
-                q: scenario.player_spawn.q,
-                r: scenario.player_spawn.r,
-                facing: scenario.player_facing,
+                x: axial_world(scenario.player_spawn.q, scenario.player_spawn.r).0,
+                y: axial_world(scenario.player_spawn.q, scenario.player_spawn.r).1,
+                facing_x: world_direction(scenario.player_facing).0,
+                facing_y: world_direction(scenario.player_facing).1,
+                move_x: 0,
+                move_y: 0,
                 inventory,
                 action_cooldown: 0,
-                build_range: scenario.build_range,
+                build_range: scenario.build_range.saturating_mul(HEX_X as u32),
             },
             researched: scenario.initial_researched.iter().copied().collect(),
             next_entity_id: 1,
@@ -379,10 +407,14 @@ impl Core {
             produced: BTreeMap::new(),
             events: vec![format!("{} ready", scenario.name)],
         };
-        core.ensure_neighborhood(scenario.player_spawn.q, scenario.player_spawn.r);
+        core.ensure_neighborhood(core.player.x, core.player.y);
         for resource in &scenario.resources {
             core.ensure_tile(resource.q, resource.r);
             let tile = core.tiles.get_mut(&(resource.q, resource.r)).unwrap();
+            let (x, y) = axial_world(resource.q, resource.r);
+            tile.x = x;
+            tile.y = y;
+            tile.radius = 720;
             tile.terrain = Terrain::Ground;
             tile.resource = Some(ResourceState {
                 item_id: resource.item_id,
@@ -394,7 +426,6 @@ impl Core {
         buildings.sort_by_key(placed_sort_key);
         for placed in buildings {
             core.ensure_tile(placed.q, placed.r);
-            core.tiles.get_mut(&(placed.q, placed.r)).unwrap().terrain = Terrain::Ground;
             let kind = core
                 .building_definition(placed.definition_id)
                 .ok_or_else(|| format!("unknown building definition {}", placed.definition_id))?
@@ -429,6 +460,57 @@ impl Core {
         self.definitions.recipes.iter().find(|value| value.id == id)
     }
 
+    fn footprint_for(&self, placed: PlacedBuilding, orientation: u8) -> Vec<Coordinate> {
+        self.building_definition(placed.definition_id)
+            .map(|definition| {
+                definition
+                    .footprint
+                    .iter()
+                    .map(|offset| {
+                        let offset = rotate_coordinate(*offset, orientation);
+                        Coordinate {
+                            q: placed.q + offset.q,
+                            r: placed.r + offset.r,
+                        }
+                    })
+                    .collect()
+            })
+            .unwrap_or_else(|| {
+                vec![Coordinate {
+                    q: placed.q,
+                    r: placed.r,
+                }]
+            })
+    }
+
+    fn entity_footprint(&self, entity: &Entity) -> Vec<Coordinate> {
+        self.footprint_for(entity.placed, entity.placed.orientation)
+    }
+
+    fn entity_at(&self, q: i32, r: i32) -> Option<usize> {
+        self.entities.iter().position(|entity| {
+            self.entity_footprint(entity)
+                .iter()
+                .any(|cell| cell.q == q && cell.r == r)
+        })
+    }
+
+    fn resource_at_world(&self, x: i32, y: i32) -> Option<(i32, i32)> {
+        self.tiles
+            .iter()
+            .filter(|(_, feature)| {
+                feature
+                    .resource
+                    .as_ref()
+                    .map(|resource| resource.quantity > 0)
+                    .unwrap_or(false)
+                    && squared_distance(x, y, feature.x, feature.y)
+                        <= i64::from(feature.radius).pow(2)
+            })
+            .min_by_key(|(_, feature)| squared_distance(x, y, feature.x, feature.y))
+            .map(|(key, _)| *key)
+    }
+
     fn technology(&self, id: TechnologyId) -> Option<&TechnologyDefinition> {
         self.technologies
             .technologies
@@ -451,10 +533,21 @@ impl Core {
     }
 
     fn generated_tile(&self, q: i32, r: i32) -> TileState {
+        let hash = coordinate_hash(self.seed, q, r);
+        let jitter_x = (hash & 0x3ff) as i32 - 512;
+        let jitter_y = ((hash >> 10) & 0x3ff) as i32 - 512;
+        let (mut x, mut y) = (
+            q * FEATURE_SPACING + jitter_x,
+            r * FEATURE_SPACING + jitter_y,
+        );
+        let mut radius = 520 + ((hash >> 20) % 360);
         if !self.scenario.generated_environment {
             return TileState {
                 q,
                 r,
+                x,
+                y,
+                radius,
                 terrain: Terrain::Ground,
                 resource: None,
             };
@@ -468,9 +561,14 @@ impl Core {
             _ => None,
         };
         if let Some((terrain, resource)) = guaranteed {
+            (x, y) = axial_world(q, r);
+            radius = if resource.is_some() { 720 } else { 660 };
             return TileState {
                 q,
                 r,
+                x,
+                y,
+                radius,
                 terrain,
                 resource: resource.map(|(item_id, quantity)| ResourceState {
                     item_id,
@@ -479,8 +577,7 @@ impl Core {
                 }),
             };
         }
-        let hash = coordinate_hash(self.seed, q, r);
-        let near_landing = axial_distance(q, r, 0, 0) <= 7;
+        let near_landing = squared_distance(x, y, 0, 0) <= i64::from(HEX_X * 7).pow(2);
         let terrain = if near_landing {
             Terrain::Ground
         } else if hash % 31 == 0 {
@@ -510,6 +607,9 @@ impl Core {
         TileState {
             q,
             r,
+            x,
+            y,
+            radius,
             terrain,
             resource,
         }
@@ -520,9 +620,11 @@ impl Core {
         self.generate_chunk(floor_div(q, size), floor_div(r, size));
     }
 
-    fn ensure_neighborhood(&mut self, q: i32, r: i32) {
+    fn ensure_neighborhood(&mut self, x: i32, y: i32) {
         let size = self.scenario.chunk_size;
-        let center = (floor_div(q, size), floor_div(r, size));
+        let cell_x = floor_div(x, FEATURE_SPACING);
+        let cell_y = floor_div(y, FEATURE_SPACING);
+        let center = (floor_div(cell_x, size), floor_div(cell_y, size));
         self.generate_chunk(center.0, center.1);
         for (dq, dr) in DIRECTIONS {
             self.generate_chunk(center.0 + dq, center.1 + dr);
@@ -530,20 +632,30 @@ impl Core {
     }
 
     fn compile_graph(&mut self) {
-        let occupied: BTreeMap<(i32, i32), usize> = self
-            .entities
-            .iter()
-            .enumerate()
-            .map(|(index, entity)| ((entity.placed.q, entity.placed.r), index))
-            .collect();
+        let mut occupied = BTreeMap::new();
+        for (index, entity) in self.entities.iter().enumerate() {
+            for cell in self.entity_footprint(entity) {
+                occupied.insert((cell.q, cell.r), index);
+            }
+        }
         self.graph = self
             .entities
             .iter()
-            .map(|entity| {
+            .enumerate()
+            .map(|(index, entity)| {
                 let (dq, dr) = DIRECTIONS[usize::from(entity.placed.orientation % 6)];
-                occupied
-                    .get(&(entity.placed.q + dq, entity.placed.r + dr))
-                    .copied()
+                let mut q = entity.placed.q + dq;
+                let mut r = entity.placed.r + dr;
+                for _ in 0..8 {
+                    match occupied.get(&(q, r)).copied() {
+                        Some(target) if target == index => {
+                            q += dq;
+                            r += dr;
+                        }
+                        target => return target,
+                    }
+                }
+                None
             })
             .collect();
     }
@@ -554,6 +666,7 @@ impl Core {
         }
         for _ in 0..count {
             self.player.action_cooldown = self.player.action_cooldown.saturating_sub(1);
+            self.advance_player();
             self.advance_machines();
             self.transfer_cargo();
             self.tick += 1;
@@ -580,9 +693,11 @@ impl Core {
             let placed = self.entities[index].placed;
             (placed.q, placed.r, placed.definition_id)
         };
+        let (extractor_x, extractor_y) = axial_world(q, r);
+        let resource_key = self.resource_at_world(extractor_x, extractor_y);
         let available = self
             .tiles
-            .get(&(q, r))
+            .get(&resource_key.unwrap_or((i32::MIN, i32::MIN)))
             .and_then(|tile| tile.resource.as_ref())
             .map(|resource| resource.quantity)
             .unwrap_or(0);
@@ -600,7 +715,7 @@ impl Core {
         }
         let resource = self
             .tiles
-            .get_mut(&(q, r))
+            .get_mut(&resource_key.expect("available resource key exists"))
             .and_then(|tile| tile.resource.as_mut())
             .expect("available resource exists");
         resource.quantity -= 1;
@@ -781,75 +896,100 @@ impl Core {
         }
     }
 
-    fn move_player(&mut self, direction: u8) -> Result<(), String> {
-        if direction >= 6 {
-            return Err("direction must be in 0..6".into());
+    fn set_move_intent(&mut self, x: i16, y: i16) -> Result<(), String> {
+        if !(-1000..=1000).contains(&x) || !(-1000..=1000).contains(&y) {
+            return Err("movement intent must be in -1000..1000".into());
         }
-        self.player.facing = direction;
-        if self.player.action_cooldown > 0 {
-            return Err("movement cooling down".into());
+        self.player.move_x = x;
+        self.player.move_y = y;
+        if x != 0 || y != 0 {
+            self.player.facing_x = x;
+            self.player.facing_y = y;
         }
-        let (dq, dr) = DIRECTIONS[usize::from(direction)];
-        let q = self.player.q + dq;
-        let r = self.player.r + dr;
-        self.ensure_neighborhood(q, r);
-        let terrain = self.tiles.get(&(q, r)).unwrap().terrain;
-        if terrain != Terrain::Ground {
-            return Err(match terrain {
-                Terrain::Water => "water blocks movement",
-                Terrain::Rock => "rock blocks movement",
-                Terrain::Ground => unreachable!(),
-            }
-            .into());
+        Ok(())
+    }
+
+    fn advance_player(&mut self) {
+        let dx = i32::from(self.player.move_x) * PLAYER_SPEED / 1000;
+        let dy = i32::from(self.player.move_y) * PLAYER_SPEED / 1000;
+        if dx == 0 && dy == 0 {
+            return;
         }
-        if self.entities.iter().any(|entity| {
-            entity.placed.q == q
-                && entity.placed.r == r
-                && self
-                    .building_definition(entity.placed.definition_id)
+        self.ensure_neighborhood(self.player.x + dx, self.player.y + dy);
+        let next_x = self.player.x + dx;
+        if !self.player_blocked(next_x, self.player.y) {
+            self.player.x = next_x;
+        }
+        let next_y = self.player.y + dy;
+        if !self.player_blocked(self.player.x, next_y) {
+            self.player.y = next_y;
+        }
+    }
+
+    fn player_blocked(&self, x: i32, y: i32) -> bool {
+        let feature_collision = self.tiles.values().any(|feature| {
+            feature.terrain != Terrain::Ground
+                && circles_overlap(
+                    x,
+                    y,
+                    PLAYER_RADIUS,
+                    feature.x,
+                    feature.y,
+                    feature.radius as i32,
+                )
+        });
+        feature_collision
+            || self.entities.iter().any(|entity| {
+                self.building_definition(entity.placed.definition_id)
                     .map(|definition| definition.blocks_movement)
                     .unwrap_or(true)
-        }) {
-            return Err("a building blocks movement".into());
-        }
-        self.player.q = q;
-        self.player.r = r;
-        self.player.action_cooldown = 1;
-        Ok(())
+                    && self.entity_footprint(entity).iter().any(|cell| {
+                        let (building_x, building_y) = axial_world(cell.q, cell.r);
+                        circles_overlap(
+                            x,
+                            y,
+                            PLAYER_RADIUS,
+                            building_x,
+                            building_y,
+                            BUILDING_RADIUS,
+                        )
+                    })
+            })
     }
 
     fn gather(&mut self) -> Result<(), String> {
         if self.player.action_cooldown > 0 {
             return Err("action cooling down".into());
         }
-        let (dq, dr) = DIRECTIONS[usize::from(self.player.facing % 6)];
-        let candidates = [
-            (self.player.q, self.player.r),
-            (self.player.q + dq, self.player.r + dr),
-        ];
-        for (q, r) in candidates {
-            self.ensure_tile(q, r);
-            let Some(resource) = self
-                .tiles
-                .get_mut(&(q, r))
-                .and_then(|tile| tile.resource.as_mut())
-            else {
-                continue;
-            };
-            if resource.quantity == 0 {
-                continue;
-            }
-            resource.quantity -= 1;
-            *self.player.inventory.entry(resource.item_id).or_default() += 1;
-            self.player.action_cooldown = 2;
-            self.events
-                .push(format!("Gathered item {}", resource.item_id));
-            if resource.quantity == 0 {
-                self.events.push(format!("Deposit at {q},{r} depleted"));
-            }
-            return Ok(());
+        self.ensure_neighborhood(self.player.x, self.player.y);
+        let target_x = self.player.x + i32::from(self.player.facing_x) * (GATHER_RANGE / 2) / 1000;
+        let target_y = self.player.y + i32::from(self.player.facing_y) * (GATHER_RANGE / 2) / 1000;
+        let key = self
+            .tiles
+            .iter()
+            .filter(|(_, feature)| {
+                feature
+                    .resource
+                    .as_ref()
+                    .map(|resource| resource.quantity > 0)
+                    .unwrap_or(false)
+                    && squared_distance(target_x, target_y, feature.x, feature.y)
+                        <= i64::from(GATHER_RANGE + feature.radius as i32).pow(2)
+            })
+            .min_by_key(|(_, feature)| squared_distance(target_x, target_y, feature.x, feature.y))
+            .map(|(key, _)| *key)
+            .ok_or("no finite resource within gathering reach")?;
+        let feature = self.tiles.get_mut(&key).expect("selected resource exists");
+        let resource = feature.resource.as_mut().expect("selected resource exists");
+        resource.quantity -= 1;
+        *self.player.inventory.entry(resource.item_id).or_default() += 1;
+        self.player.action_cooldown = 2;
+        self.events
+            .push(format!("Gathered item {}", resource.item_id));
+        if resource.quantity == 0 {
+            self.events.push("Deposit depleted".into());
         }
-        Err("no finite resource here or ahead".into())
+        Ok(())
     }
 
     fn deposit_inventory(&mut self) -> Result<(), String> {
@@ -860,7 +1000,10 @@ impl Core {
         let Some(hub) = hub else {
             return Err("this scenario has no landing hub".into());
         };
-        if axial_distance(self.player.q, self.player.r, hub.placed.q, hub.placed.r) > 1 {
+        let (hub_x, hub_y) = axial_world(hub.placed.q, hub.placed.r);
+        if squared_distance(self.player.x, self.player.y, hub_x, hub_y)
+            > i64::from(HUB_RANGE).pow(2)
+        {
             return Err("move beside the landing hub to deliver".into());
         }
         if self.player.inventory.is_empty() {
@@ -928,36 +1071,55 @@ impl Core {
                 return Err("building is locked by research".into());
             }
         }
-        if axial_distance(self.player.q, self.player.r, q, r) > self.player.build_range {
+        let placed = PlacedBuilding {
+            q,
+            r,
+            definition_id,
+            orientation,
+            recipe_id,
+            scenario_owned: false,
+        };
+        let footprint = self.footprint_for(placed, orientation);
+        if footprint.is_empty() {
+            return Err("building footprint is empty".into());
+        }
+        let (anchor_x, anchor_y) = axial_world(q, r);
+        if squared_distance(self.player.x, self.player.y, anchor_x, anchor_y)
+            > i64::from(self.player.build_range).pow(2)
+        {
             return Err("placement is outside build range".into());
         }
-        if self
-            .entities
-            .iter()
-            .any(|entity| entity.placed.q == q && entity.placed.r == r)
-        {
-            return Err("hex is occupied".into());
-        }
-        if self.player.q == q && self.player.r == r {
-            return Err("the player occupies this hex".into());
-        }
-        let generated_tile;
-        let tile = if let Some(tile) = self.tiles.get(&(q, r)) {
-            tile
-        } else {
-            generated_tile = self.generated_tile(q, r);
-            &generated_tile
-        };
-        if tile.terrain != Terrain::Ground {
-            return Err("terrain blocks construction".into());
+        for cell in &footprint {
+            if self.entity_at(cell.q, cell.r).is_some() {
+                return Err("building footprint overlaps an occupied hex".into());
+            }
+            let (cell_x, cell_y) = axial_world(cell.q, cell.r);
+            if circles_overlap(
+                self.player.x,
+                self.player.y,
+                PLAYER_RADIUS,
+                cell_x,
+                cell_y,
+                BUILDING_RADIUS,
+            ) {
+                return Err("the player blocks this footprint".into());
+            }
+            if self.tiles.values().any(|feature| {
+                feature.terrain != Terrain::Ground
+                    && circles_overlap(
+                        cell_x,
+                        cell_y,
+                        BUILDING_RADIUS,
+                        feature.x,
+                        feature.y,
+                        feature.radius as i32,
+                    )
+            }) {
+                return Err("environment blocks construction".into());
+            }
         }
         if definition.placement_rule == PlacementRule::Resource
-            && tile
-                .resource
-                .as_ref()
-                .map(|resource| resource.quantity)
-                .unwrap_or(0)
-                == 0
+            && self.resource_at_world(anchor_x, anchor_y).is_none()
         {
             return Err("extractors require a non-empty deposit".into());
         }
@@ -981,7 +1143,8 @@ impl Core {
         orientation: u8,
         recipe_id: Option<RecipeId>,
     ) -> Result<(), String> {
-        self.ensure_tile(q, r);
+        let (x, y) = axial_world(q, r);
+        self.ensure_neighborhood(x, y);
         self.placement_legality(q, r, definition_id, orientation, recipe_id, true)?;
         let definition = self.building_definition(definition_id).unwrap().clone();
         for ingredient in &definition.construction_cost {
@@ -1014,14 +1177,13 @@ impl Core {
     }
 
     fn erase(&mut self, q: i32, r: i32) -> Result<(), String> {
-        if axial_distance(self.player.q, self.player.r, q, r) > self.player.build_range {
+        let (target_x, target_y) = axial_world(q, r);
+        if squared_distance(self.player.x, self.player.y, target_x, target_y)
+            > i64::from(self.player.build_range).pow(2)
+        {
             return Err("erase target is outside build range".into());
         }
-        let index = self
-            .entities
-            .iter()
-            .position(|entity| entity.placed.q == q && entity.placed.r == r)
-            .ok_or("no building to erase")?;
+        let index = self.entity_at(q, r).ok_or("no building to erase")?;
         if self.entities[index].placed.scenario_owned {
             return Err("scenario-owned objects are protected".into());
         }
@@ -1042,18 +1204,30 @@ impl Core {
     }
 
     fn rotate(&mut self, q: i32, r: i32) -> Result<(), String> {
-        if axial_distance(self.player.q, self.player.r, q, r) > self.player.build_range {
+        let (target_x, target_y) = axial_world(q, r);
+        if squared_distance(self.player.x, self.player.y, target_x, target_y)
+            > i64::from(self.player.build_range).pow(2)
+        {
             return Err("rotate target is outside build range".into());
         }
-        let entity = self
-            .entities
-            .iter_mut()
-            .find(|entity| entity.placed.q == q && entity.placed.r == r)
-            .ok_or("no building to rotate")?;
-        if entity.placed.scenario_owned {
+        let index = self.entity_at(q, r).ok_or("no building to rotate")?;
+        if self.entities[index].placed.scenario_owned {
             return Err("scenario-owned objects are protected".into());
         }
-        entity.placed.orientation = (entity.placed.orientation + 1) % 6;
+        let next_orientation = (self.entities[index].placed.orientation + 1) % 6;
+        let next_footprint = self.footprint_for(self.entities[index].placed, next_orientation);
+        if next_footprint.iter().any(|cell| {
+            self.entities.iter().enumerate().any(|(other, entity)| {
+                other != index
+                    && self
+                        .entity_footprint(entity)
+                        .iter()
+                        .any(|occupied| occupied == cell)
+            })
+        }) {
+            return Err("rotated footprint would overlap another building".into());
+        }
+        self.entities[index].placed.orientation = next_orientation;
         self.compile_graph();
         self.events.push("Rotated building".into());
         Ok(())
@@ -1070,7 +1244,7 @@ impl Core {
         self.events.clear();
         for command in commands {
             let result = match command {
-                InputCommand::Move { direction } => self.move_player(direction),
+                InputCommand::MoveIntent { x, y } => self.set_move_intent(x, y),
                 InputCommand::Gather => self.gather(),
                 InputCommand::Deposit => self.deposit_inventory(),
                 InputCommand::Place {
@@ -1096,8 +1270,11 @@ impl Core {
             BuildingKind::Extractor if entity.cargo.is_some() => "output blocked".into(),
             BuildingKind::Extractor
                 if self
-                    .tiles
-                    .get(&(entity.placed.q, entity.placed.r))
+                    .resource_at_world(
+                        axial_world(entity.placed.q, entity.placed.r).0,
+                        axial_world(entity.placed.q, entity.placed.r).1,
+                    )
+                    .and_then(|key| self.tiles.get(&key))
                     .and_then(|tile| tile.resource.as_ref())
                     .map(|resource| resource.quantity)
                     .unwrap_or(0)
@@ -1130,8 +1307,11 @@ impl Core {
                     .entities
                     .iter()
                     .filter(|entity| {
-                        floor_div(entity.placed.q, self.scenario.chunk_size) == chunk_q
-                            && floor_div(entity.placed.r, self.scenario.chunk_size) == chunk_r
+                        let (x, y) = axial_world(entity.placed.q, entity.placed.r);
+                        floor_div(floor_div(x, FEATURE_SPACING), self.scenario.chunk_size)
+                            == chunk_q
+                            && floor_div(floor_div(y, FEATURE_SPACING), self.scenario.chunk_size)
+                                == chunk_r
                     })
                     .count(),
             })
@@ -1166,20 +1346,24 @@ impl Core {
             terrain: self
                 .tiles
                 .values()
+                .filter(|tile| tile.terrain != Terrain::Ground)
                 .map(|tile| TileSnapshot {
-                    q: tile.q,
-                    r: tile.r,
+                    x: tile.x,
+                    y: tile.y,
+                    radius: tile.radius,
                     terrain: tile.terrain,
                 })
                 .collect(),
             resources: self
                 .tiles
-                .values()
-                .filter_map(|tile| {
+                .iter()
+                .filter_map(|(&(q, r), tile)| {
                     let resource = tile.resource.as_ref()?;
                     Some(ResourceSnapshot {
-                        q: tile.q,
-                        r: tile.r,
+                        id: feature_id(q, r),
+                        x: tile.x,
+                        y: tile.y,
+                        radius: tile.radius,
                         item_id: resource.item_id,
                         quantity: resource.quantity,
                         initial_quantity: resource.initial_quantity,
@@ -1222,6 +1406,7 @@ impl Core {
                         progress_total,
                         status: self.status(entity),
                         next_id: self.graph[index].map(|target| self.entities[target].id),
+                        footprint: self.entity_footprint(entity),
                     }
                 })
                 .collect(),
@@ -1238,9 +1423,12 @@ impl Core {
         hash_u64(&mut hash, self.delivered);
         hash_u64(&mut hash, self.insight);
         hash_u32(&mut hash, u32::from(self.victory));
-        hash_i32(&mut hash, self.player.q);
-        hash_i32(&mut hash, self.player.r);
-        hash_u32(&mut hash, u32::from(self.player.facing));
+        hash_i32(&mut hash, self.player.x);
+        hash_i32(&mut hash, self.player.y);
+        hash_i32(&mut hash, i32::from(self.player.facing_x));
+        hash_i32(&mut hash, i32::from(self.player.facing_y));
+        hash_i32(&mut hash, i32::from(self.player.move_x));
+        hash_i32(&mut hash, i32::from(self.player.move_y));
         hash_u32(&mut hash, self.player.action_cooldown);
         for (&item, &quantity) in &self.player.inventory {
             hash_u32(&mut hash, u32::from(item));
@@ -1258,6 +1446,9 @@ impl Core {
         for tile in self.tiles.values() {
             hash_i32(&mut hash, tile.q);
             hash_i32(&mut hash, tile.r);
+            hash_i32(&mut hash, tile.x);
+            hash_i32(&mut hash, tile.y);
+            hash_u32(&mut hash, tile.radius);
             hash_u32(
                 &mut hash,
                 match tile.terrain {
@@ -1404,6 +1595,8 @@ impl Core {
         if core.checksum() != envelope.checksum {
             return Err("save checksum does not match its native state".into());
         }
+        core.player.move_x = 0;
+        core.player.move_y = 0;
         Ok(core)
     }
 }
@@ -1631,6 +1824,17 @@ fn validate_definitions(definitions: &DefinitionsInput) -> Result<(), String> {
         if building.kind == BuildingKind::Extractor && building.cadence.unwrap_or(0) == 0 {
             return Err(format!("extractor {} requires a cadence", building.id));
         }
+        let footprint: BTreeSet<_> = building
+            .footprint
+            .iter()
+            .map(|cell| (cell.q, cell.r))
+            .collect();
+        if footprint.len() != building.footprint.len()
+            || !footprint.contains(&(0, 0))
+            || footprint.len() > 7
+        {
+            return Err(format!("building {} has an invalid footprint", building.id));
+        }
         for ingredient in &building.construction_cost {
             if ingredient.quantity == 0 || !item_ids.contains(&ingredient.item_id) {
                 return Err(format!("building {} has an invalid cost", building.id));
@@ -1754,9 +1958,19 @@ fn validate_scenarios(
         }
         let mut occupied = BTreeSet::new();
         for building in &scenario.buildings {
+            let definition = definitions
+                .buildings
+                .iter()
+                .find(|definition| definition.id == building.definition_id);
+            let footprint_clear = definition.map(|definition| {
+                definition.footprint.iter().all(|offset| {
+                    let offset = rotate_coordinate(*offset, building.orientation);
+                    occupied.insert((building.q + offset.q, building.r + offset.r))
+                })
+            });
             if !building_ids.contains(&building.definition_id)
                 || building.orientation >= 6
-                || !occupied.insert((building.q, building.r))
+                || footprint_clear != Some(true)
                 || building
                     .recipe_id
                     .is_some_and(|id| !recipe_ids.contains(&id))
@@ -1806,16 +2020,23 @@ fn validate_saved_state(
             .iter()
             .find(|value| value.id == entity.placed.definition_id)
             .ok_or("save references an unknown building")?;
+        let footprint_valid = definition.footprint.iter().all(|offset| {
+            let offset = rotate_coordinate(*offset, entity.placed.orientation);
+            coordinates.insert((entity.placed.q + offset.q, entity.placed.r + offset.r))
+        });
         if entity.kind != definition.kind
             || entity.placed.orientation >= 6
-            || !coordinates.insert((entity.placed.q, entity.placed.r))
+            || !footprint_valid
             || !entity_ids.insert(entity.id)
         {
             return Err("save contains invalid entity state".into());
         }
     }
-    if state.player.facing >= 6
-        || state.player.build_range != scenario.build_range
+    if !(-1000..=1000).contains(&state.player.facing_x)
+        || !(-1000..=1000).contains(&state.player.facing_y)
+        || !(-1000..=1000).contains(&state.player.move_x)
+        || !(-1000..=1000).contains(&state.player.move_y)
+        || state.player.build_range != scenario.build_range.saturating_mul(HEX_X as u32)
         || state
             .player
             .inventory
@@ -1829,7 +2050,7 @@ fn validate_saved_state(
         return Err("save contains invalid player or research state".into());
     }
     let unique_tiles: BTreeSet<_> = state.tiles.iter().map(|tile| (tile.q, tile.r)).collect();
-    if unique_tiles.len() != state.tiles.len() {
+    if unique_tiles.len() != state.tiles.len() || state.tiles.iter().any(|tile| tile.radius == 0) {
         return Err("save contains duplicate tiles".into());
     }
     Ok(())
@@ -1869,11 +2090,44 @@ fn floor_div(value: i32, divisor: i32) -> i32 {
     value.div_euclid(divisor)
 }
 
-fn axial_distance(aq: i32, ar: i32, bq: i32, br: i32) -> u32 {
-    let dq = aq - bq;
-    let dr = ar - br;
-    let ds = -dq - dr;
-    ((dq.abs() + dr.abs() + ds.abs()) / 2) as u32
+fn axial_world(q: i32, r: i32) -> (i32, i32) {
+    (q * HEX_X + r * (HEX_X / 2), r * HEX_Y)
+}
+
+fn world_direction(direction: u8) -> (i16, i16) {
+    const WORLD_DIRECTIONS: [(i16, i16); 6] = [
+        (1000, 0),
+        (500, 866),
+        (-500, 866),
+        (-1000, 0),
+        (-500, -866),
+        (500, -866),
+    ];
+    WORLD_DIRECTIONS[usize::from(direction % 6)]
+}
+
+fn rotate_coordinate(mut coordinate: Coordinate, turns: u8) -> Coordinate {
+    for _ in 0..turns % 6 {
+        coordinate = Coordinate {
+            q: -coordinate.r,
+            r: coordinate.q + coordinate.r,
+        };
+    }
+    coordinate
+}
+
+fn squared_distance(ax: i32, ay: i32, bx: i32, by: i32) -> i64 {
+    let dx = i64::from(ax) - i64::from(bx);
+    let dy = i64::from(ay) - i64::from(by);
+    dx * dx + dy * dy
+}
+
+fn circles_overlap(ax: i32, ay: i32, ar: i32, bx: i32, by: i32, br: i32) -> bool {
+    squared_distance(ax, ay, bx, by) < i64::from(ar + br).pow(2)
+}
+
+fn feature_id(q: i32, r: i32) -> u64 {
+    (u64::from(q as u32) << 32) | u64::from(r as u32)
 }
 
 fn inventory_total(inventory: &BTreeMap<ItemId, u32>) -> u32 {
@@ -1965,6 +2219,11 @@ mod tests {
         core.tick_many(2);
     }
 
+    fn set_player_hex(core: &mut Core, q: i32, r: i32) {
+        (core.player.x, core.player.y) = axial_world(q, r);
+        core.ensure_neighborhood(core.player.x, core.player.y);
+    }
+
     #[test]
     fn public_direction_protocol_matches_cross_language_fixture() {
         let fixture: Vec<serde_json::Value> =
@@ -1998,43 +2257,50 @@ mod tests {
     }
 
     #[test]
-    fn six_direction_movement_facing_blocking_and_cadence_are_native() {
+    fn continuous_movement_intent_and_collision_are_native() {
         let mut core = game("new-game");
-        core.player.q = 10;
-        core.player.r = 10;
-        core.ensure_neighborhood(10, 10);
-        for direction in 0..6 {
-            let start = (core.player.q, core.player.r);
-            let target = (
-                start.0 + DIRECTIONS[direction as usize].0,
-                start.1 + DIRECTIONS[direction as usize].1,
-            );
-            core.ensure_tile(target.0, target.1);
-            core.tiles.get_mut(&target).unwrap().terrain = Terrain::Ground;
-            core.move_player(direction).unwrap();
-            assert_eq!(core.player.facing, direction);
-            assert_eq!(
-                (core.player.q, core.player.r),
-                (
-                    start.0 + DIRECTIONS[direction as usize].0,
-                    start.1 + DIRECTIONS[direction as usize].1
-                )
-            );
-            assert!(core.move_player(direction).is_err());
-            cooldown(&mut core);
-        }
-        core.player.q = 1;
-        core.player.r = 0;
-        core.player.action_cooldown = 0;
-        assert!(core.move_player(5).is_err());
-        assert_eq!(core.player.facing, 5);
+        set_player_hex(&mut core, 10, 10);
+        core.tiles
+            .values_mut()
+            .for_each(|feature| feature.terrain = Terrain::Ground);
+        let start = (core.player.x, core.player.y);
+        core.set_move_intent(707, -707).unwrap();
+        core.tick_many(3);
+        assert_eq!(core.player.x, start.0 + 636);
+        assert_eq!(core.player.y, start.1 - 636);
+        assert_eq!((core.player.facing_x, core.player.facing_y), (707, -707));
+        core.set_move_intent(0, 0).unwrap();
+        core.tick_many(3);
+        assert_eq!(
+            (core.player.x, core.player.y),
+            (start.0 + 636, start.1 - 636)
+        );
+        assert!(core.set_move_intent(1001, 0).is_err());
+
+        let rock_x = core.player.x + PLAYER_SPEED + PLAYER_RADIUS;
+        let key = (999, 999);
+        core.tiles.insert(
+            key,
+            TileState {
+                q: key.0,
+                r: key.1,
+                x: rock_x,
+                y: core.player.y,
+                radius: 300,
+                terrain: Terrain::Rock,
+                resource: None,
+            },
+        );
+        let blocked_x = core.player.x;
+        core.set_move_intent(1000, 0).unwrap();
+        core.tick_many(1);
+        assert_eq!(core.player.x, blocked_x);
     }
 
     #[test]
     fn gathering_depletes_finite_resources_and_conserves_items() {
         let mut core = game("new-game");
-        core.player.q = 3;
-        core.player.r = 0;
+        set_player_hex(&mut core, 3, 0);
         let before = core.tiles[&(3, 0)].resource.as_ref().unwrap().quantity;
         for _ in 0..before {
             core.gather().unwrap();
@@ -2055,7 +2321,7 @@ mod tests {
         assert!(core
             .place(2, 1, 2, 0, None)
             .unwrap_err()
-            .contains("terrain"));
+            .contains("environment"));
         assert!(core
             .place(20, 20, 2, 0, None)
             .unwrap_err()
@@ -2072,8 +2338,7 @@ mod tests {
             .place(2, -2, 1, 0, None)
             .unwrap_err()
             .contains("deposit"));
-        core.player.q = 100;
-        core.player.r = 100;
+        set_player_hex(&mut core, 100, 100);
         core.player.inventory.insert(1, 2);
         let checksum_before_preview = core.checksum();
         assert!(core.placement_legality(101, 100, 2, 0, None, true).is_ok());
@@ -2106,13 +2371,37 @@ mod tests {
     }
 
     #[test]
+    fn multi_cell_footprints_drive_occupancy_snapshots_and_edit_targeting() {
+        let mut core = game("new-game");
+        core.researched.extend([1, 2, 3]);
+        core.player.inventory.insert(1, 20);
+        core.player.inventory.insert(3, 10);
+        core.place(-2, 0, 3, 0, Some(1)).unwrap();
+        let composer = core
+            .snapshot()
+            .buildings
+            .into_iter()
+            .find(|entity| entity.definition_id == 3)
+            .unwrap();
+        assert_eq!(
+            composer.footprint,
+            vec![Coordinate { q: -2, r: 0 }, Coordinate { q: -2, r: -1 }]
+        );
+        assert!(core
+            .place(-2, -1, 2, 0, None)
+            .unwrap_err()
+            .contains("footprint"));
+        core.erase(-2, -1).unwrap();
+        assert!(core.entity_at(-2, 0).is_none());
+    }
+
+    #[test]
     fn extractor_stops_exactly_when_its_deposit_empties() {
         let mut core = game("new-game");
         core.researched.insert(2);
         core.player.inventory.insert(1, 4);
         core.player.inventory.insert(3, 1);
-        core.player.q = 3;
-        core.player.r = 1;
+        set_player_hex(&mut core, 3, 1);
         core.tiles
             .get_mut(&(3, 0))
             .unwrap()
@@ -2303,16 +2592,14 @@ mod tests {
         let mut core = game("new-game");
         core.player.inventory.insert(1, 8);
         core.player.inventory.insert(3, 4);
-        core.player.q = 1;
-        core.player.r = 0;
+        set_player_hex(&mut core, 1, 0);
         core.deposit_inventory().unwrap();
         core.research(1).unwrap();
         core.research(2).unwrap();
         core.research(3).unwrap();
         core.player.inventory.insert(1, 30);
         core.player.inventory.insert(3, 8);
-        core.player.q = 3;
-        core.player.r = 1;
+        set_player_hex(&mut core, 3, 1);
         core.place(3, 0, 1, 3, None).unwrap();
         core.place(2, 0, 2, 3, None).unwrap();
         core.place(1, 0, 3, 3, Some(1)).unwrap();
@@ -2338,7 +2625,7 @@ mod tests {
         assert_eq!(uninterrupted.delivered, resumed.delivered);
         assert!(Core::from_save(&definitions, &technologies, &scenarios, "bad").is_err());
         let incompatible =
-            save.replacen("\"definition_version\":2", "\"definition_version\":999", 1);
+            save.replacen("\"definition_version\":3", "\"definition_version\":999", 1);
         assert!(Core::from_save(&definitions, &technologies, &scenarios, &incompatible).is_err());
     }
 

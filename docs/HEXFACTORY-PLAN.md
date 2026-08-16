@@ -1,6 +1,8 @@
 # HexFactory — architecture, roadmap, and implementation handoffs
 
-Status: Playable Game v0.2 shipped and browser-verified 2026-08-16.
+Status: Playable Game v0.2 shipped and browser-verified 2026-08-16. Continuous Exploration v0.3 is
+the active milestone: the environment and native player use continuous fixed-point world space,
+while hex coordinates are reserved for construction footprints and compiled transport.
 
 Target repository: `https://github.com/Sidem/HexFactory`
 
@@ -15,6 +17,11 @@ not a source dependency: HexFactory imports only the published package. Treat th
 read-only unless a future task explicitly authorizes a separately released generic package change.
 
 ## Shipped implementation record
+
+- Continuous Exploration v0.3 replaces hex-step movement with native two-axis intent, continuous
+  collision and gathering, proximity-limited construction, definition-driven rotated footprints,
+  and a construction-only/toggled grid. Its HXF1 save and generator versions are intentionally
+  incompatible with v0.2. The exact public geometry dependency remains unchanged.
 
 - Playable Game v0.2: HexFactory commit `b636dc2`, successful quality/Pages run `31951039927`.
 - The live release was verified in a real browser through movement/collision, finite gathering,

@@ -1,24 +1,24 @@
 # HexFactory
 
-**[Play HexFactory v0.2](https://sidem.github.io/HexFactory/)**
+**[Play HexFactory](https://sidem.github.io/HexFactory/)**
 
-HexFactory is a deliberately small, deterministic factory game on an unbounded hexagonal world. A
+HexFactory is a deliberately small, deterministic factory game in an unbounded continuous world. A
 new game starts beside a landing hub: explore, gather finite ore and crystal, deliver items for
 insight, unlock a short technology tree, build a compiled transport line, compose three components,
 and win. The founding prebuilt architecture proof remains available as the **Factory demo** scenario.
 
-Rust/Wasm owns terrain, resources, collision, player movement, inventories, costs, research,
+Rust/Wasm owns environment features, resources, collision, continuous player movement, inventories, costs, research,
 objectives, saves, transport, machines, cargo, ticks, and checksums. TypeScript sends one bounded
 input batch per rendered frame and owns only controls, camera, interface, and Canvas presentation.
 
 ## Controls
 
-- Move in all six directions: `D` east, `S` southeast, `Q` southwest, `A` west, `W` northwest, and
-  `E` northeast.
-- Gather here or ahead with `F`; deliver the complete player inventory while beside the hub with
+- Move freely with `W/A/S/D`; movement is not snapped to building cells.
+- Gather a nearby deposit with `F`; deliver the complete player inventory while beside the hub with
   `X`.
 - Select build tools with the hotbar or number keys, rotate new buildings with `R`, and click to
-  place. Inspect, erase, and rotate-existing tools are also available.
+  place on the construction grid. Some definitions occupy multiple cells. Inspect, erase, and
+  rotate-existing tools are also available; the grid appears during editing or via its toggle.
 - Drag, middle-drag, or right-drag the map to pan; use the wheel to zoom and **Recenter player** to
   resume camera following.
 
@@ -40,7 +40,7 @@ npm run quality
 
 ## Architecture
 
-- The versioned native seed generates lazy chunks independently of traversal order. Terrain,
+- The versioned native seed generates continuous environment chunks independently of traversal order. Obstacles,
   finite resources, placement legality, collision, and player state are native checksum inputs.
 - Data files define dynamic items, recipes, buildings, costs, descriptions, icons, unlock
   requirements, and the acyclic technology graph. Native code validates and enforces them against
@@ -48,12 +48,12 @@ npm run quality
 - Blueprint edits compile a directed transport graph. Runtime arbitration is stable by entity ID;
   rejected transfers leave their sources unchanged.
 - `HXF1` saves are emitted and restored by Rust. Browser storage holds only the opaque native save
-  string.
+  string. v0.3 intentionally rejects incompatible v0.2 saves.
 - The host consumes exactly `@hexlife/embed/hex@1.15.0` for public pointy-top axial geometry. It
   never imports HexLife source or package internals.
 
 See the [roadmap and implementation handoff](docs/HEXFACTORY-PLAN.md),
-[architecture](docs/ARCHITECTURE.md), [v0.2 acceptance](docs/MVP.md), and
+[architecture](docs/ARCHITECTURE.md), [current acceptance](docs/MVP.md), and
 [agent invariants](AGENTS.md).
 
 No large-map performance claim is made. The next performance gates are incremental connected-

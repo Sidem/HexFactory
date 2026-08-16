@@ -20,6 +20,7 @@ import {
   BoundedInputQueue,
   MAX_INPUT_COMMANDS,
   MOVEMENT_KEYS,
+  movementIntent,
 } from "../src/core/input";
 import type {
   BuildingDefinition,
@@ -33,7 +34,7 @@ import { HexCamera } from "../src/rendering/CanvasFactoryRenderer";
 const snapshot: FactorySnapshot = {
   scenario: "new-game",
   scenario_name: "New game",
-  world_version: 1,
+  world_version: 2,
   seed: 1213486160,
   tick: 12,
   checksum: 123,
@@ -43,17 +44,30 @@ const snapshot: FactorySnapshot = {
   victory: false,
   objective: { item_id: 2, delivered: 0, required: 3 },
   player: {
-    q: 1,
-    r: 0,
-    facing: 0,
+    x: 1774,
+    y: 0,
+    facing_x: 1000,
+    facing_y: 0,
+    move_x: 0,
+    move_y: 0,
     inventory: { "1": 3 },
     action_cooldown: 0,
-    build_range: 5,
+    build_range: 8870,
   },
   researched: [1],
   chunks: [{ chunk_q: 0, chunk_r: 0, entity_count: 1 }],
-  terrain: [{ q: 0, r: 0, terrain: "ground" }],
-  resources: [{ q: 3, r: 0, item_id: 1, quantity: 47, initial_quantity: 48 }],
+  terrain: [{ x: 3550, y: 1500, radius: 660, terrain: "water" }],
+  resources: [
+    {
+      id: 1,
+      x: 5322,
+      y: 0,
+      radius: 720,
+      item_id: 1,
+      quantity: 47,
+      initial_quantity: 48,
+    },
+  ],
   buildings: [
     {
       id: 1,
@@ -67,6 +81,11 @@ const snapshot: FactorySnapshot = {
       progress: 0,
       progress_total: 0,
       status: "landing hub",
+      footprint: [
+        { q: 0, r: 0 },
+        { q: 0, r: 1 },
+        { q: -1, r: 1 },
+      ],
     },
   ],
   events: [],
@@ -85,7 +104,7 @@ describe("public hex host contract", () => {
       pixelToAxial(axialToPixel({ q: -4, r: 2 }, 35, origin), 35, origin),
     ).toEqual({ q: -4, r: 2 });
     const camera = new HexCamera();
-    camera.recenter({ q: 3, r: -2 });
+    camera.recenter({ x: 3550, y: -3072 });
     const coordinate = { q: -4, r: 5 };
     const screen = camera.project(coordinate, 900, 650);
     expect(camera.pick(screen, 900, 650)).toEqual(coordinate);
@@ -97,27 +116,30 @@ describe("public hex host contract", () => {
 });
 
 describe("bounded host input", () => {
-  it("maps all six keyboard directions and never exceeds one native batch limit", () => {
+  it("maps WASD to normalized continuous intent and never exceeds one native batch limit", () => {
     expect(MOVEMENT_KEYS).toEqual({
-      KeyD: 0,
-      KeyS: 1,
-      KeyQ: 2,
-      KeyA: 3,
-      KeyW: 4,
-      KeyE: 5,
+      KeyW: { x: 0, y: -1 },
+      KeyA: { x: -1, y: 0 },
+      KeyS: { x: 0, y: 1 },
+      KeyD: { x: 1, y: 0 },
+    });
+    expect(movementIntent(new Set(["KeyW", "KeyD"]))).toEqual({
+      type: "move_intent",
+      x: 707,
+      y: -707,
     });
     const queue = new BoundedInputQueue();
     for (let index = 0; index < MAX_INPUT_COMMANDS; index += 1)
-      expect(queue.enqueue({ type: "move", direction: index % 6 })).toBe(true);
+      expect(queue.enqueue({ type: "move_intent", x: 0, y: -1000 })).toBe(true);
     expect(queue.enqueue({ type: "gather" })).toBe(false);
     expect(queue.drain()).toHaveLength(MAX_INPUT_COMMANDS);
     expect(queue.drain()).toEqual([]);
   });
 
   it("encodes commands without embedding simulation behavior", () => {
-    expect(encodeCommand({ type: "move", direction: 5 })).toEqual({
+    expect(encodeCommand({ type: "move_intent", x: 707, y: -707 })).toEqual({
       opcode: 0,
-      args: [5],
+      args: [707, -707],
     });
     expect(
       encodeCommand({
@@ -128,8 +150,8 @@ describe("bounded host input", () => {
         orientation: 5,
       }),
     ).toEqual({ opcode: 3, args: [-3, 2, 2, 5, 0] });
-    expect(() => encodeCommand({ type: "move", direction: 6 })).toThrow(
-      /0\.\.6/,
+    expect(() => encodeCommand({ type: "move_intent", x: 1001, y: 0 })).toThrow(
+      /-1000\.\.1000/,
     );
   });
 
@@ -139,7 +161,7 @@ describe("bounded host input", () => {
       "utf8",
     );
     expect(main).not.toMatch(
-      /player\.(q|r|inventory|action_cooldown)\s*[+\-=]/,
+      /player\.(x|y|inventory|action_cooldown)\s*[+\-=]/,
     );
     expect(main.match(/host\.apply\(commands\)/g)).toHaveLength(1);
     expect(main).not.toContain("snapshot.insight =");

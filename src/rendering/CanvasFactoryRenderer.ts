@@ -3,6 +3,7 @@ import {
   axialNeighbor,
   axialToPixel,
   pixelToAxial,
+  rotateAxial,
   type AxialCoordinate,
   type PixelPoint,
 } from "@hexlife/embed/hex";
@@ -12,24 +13,23 @@ import type {
   EntitySnapshot,
   FactorySnapshot,
   PlacementPreview,
+  WorldPoint,
 } from "../core/types";
 
 const BASE_HEX_SIZE = 31;
+const WORLD_SCALE = 1024;
 
 export class HexCamera {
-  center: AxialCoordinate = { q: 0, r: 0 };
+  center: WorldPoint = { x: 0, y: 0 };
   pan: PixelPoint = { x: 0, y: 0 };
   zoom = 1;
   following = true;
 
   origin(width: number, height: number): PixelPoint {
-    const centerPixel = axialToPixel(this.center, BASE_HEX_SIZE * this.zoom, {
-      x: 0,
-      y: 0,
-    });
+    const scale = (BASE_HEX_SIZE * this.zoom) / WORLD_SCALE;
     return {
-      x: width / 2 + this.pan.x - centerPixel.x,
-      y: height / 2 + this.pan.y - centerPixel.y,
+      x: width / 2 + this.pan.x - this.center.x * scale,
+      y: height / 2 + this.pan.y - this.center.y * scale,
     };
   }
 
@@ -53,15 +53,21 @@ export class HexCamera {
     );
   }
 
-  follow(coordinate: AxialCoordinate): void {
+  projectWorld(point: WorldPoint, width: number, height: number): PixelPoint {
+    const origin = this.origin(width, height);
+    const scale = (BASE_HEX_SIZE * this.zoom) / WORLD_SCALE;
+    return { x: origin.x + point.x * scale, y: origin.y + point.y * scale };
+  }
+
+  follow(point: WorldPoint): void {
     if (!this.following) return;
-    this.center = { ...coordinate };
+    this.center = { ...point };
     this.pan = { x: 0, y: 0 };
   }
 
-  recenter(coordinate: AxialCoordinate): void {
+  recenter(point: WorldPoint): void {
     this.following = true;
-    this.center = { ...coordinate };
+    this.center = { ...point };
     this.pan = { x: 0, y: 0 };
   }
 
@@ -77,9 +83,9 @@ export class HexCamera {
     width: number,
     height: number,
   ): void {
-    const anchor = this.pick(point, width, height);
+    const before = this.pick(point, width, height);
     this.zoom = Math.max(0.55, Math.min(2.2, this.zoom * factor));
-    const projected = this.project(anchor, width, height);
+    const projected = this.project(before, width, height);
     this.pan.x += point.x - projected.x;
     this.pan.y += point.y - projected.y;
     this.following = false;
@@ -96,6 +102,9 @@ export class CanvasFactoryRenderer {
   private hover: AxialCoordinate | null = null;
   private selection: AxialCoordinate | null = null;
   private placement: PlacementPreview | null = null;
+  private buildMode = false;
+  private gridToggled = false;
+  private buildFootprint: AxialCoordinate[] = [{ q: 0, r: 0 }];
   private now = 0;
 
   constructor(
@@ -126,6 +135,24 @@ export class CanvasFactoryRenderer {
   setSelection(coordinate: AxialCoordinate | null): void {
     this.selection = coordinate;
     this.draw();
+  }
+
+  setBuildMode(active: boolean): void {
+    this.buildMode = active;
+    this.draw();
+  }
+
+  setBuildFootprint(footprint: AxialCoordinate[], orientation: number): void {
+    this.buildFootprint = footprint.map((cell) =>
+      rotateAxial(cell, orientation, { q: 0, r: 0 }),
+    );
+    this.draw();
+  }
+
+  toggleGrid(): boolean {
+    this.gridToggled = !this.gridToggled;
+    this.draw();
+    return this.gridToggled;
   }
 
   pick(clientX: number, clientY: number): AxialCoordinate {
@@ -177,45 +204,23 @@ export class CanvasFactoryRenderer {
     const ctx = this.context;
     ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
     ctx.clearRect(0, 0, width, height);
-    ctx.fillStyle = "#0b1116";
+    const gradient = ctx.createRadialGradient(
+      width * 0.5,
+      height * 0.45,
+      30,
+      width * 0.5,
+      height * 0.5,
+      Math.max(width, height),
+    );
+    gradient.addColorStop(0, "#182720");
+    gradient.addColorStop(1, "#091114");
+    ctx.fillStyle = gradient;
     ctx.fillRect(0, 0, width, height);
     if (!this.snapshot) return;
     const size = BASE_HEX_SIZE * this.camera.zoom;
-    for (const tile of this.snapshot.terrain) {
-      const center = this.camera.project(tile, width, height);
-      if (!visible(center, size, width, height)) continue;
-      const colors = {
-        ground: ["#17231f", "#2d3c34"],
-        water: ["#17314a", "#2e6384"],
-        rock: ["#31343a", "#626872"],
-      } as const;
-      drawHex(
-        ctx,
-        center,
-        size * 0.97,
-        colors[tile.terrain][0],
-        colors[tile.terrain][1],
-      );
-    }
-    for (const resource of this.snapshot.resources) {
-      if (resource.quantity === 0) continue;
-      const center = this.camera.project(resource, width, height);
-      if (!visible(center, size, width, height)) continue;
-      const item = this.definitions.items.find(
-        ({ id }) => id === resource.item_id,
-      );
-      ctx.fillStyle = item?.color ?? "#fff";
-      ctx.strokeStyle = "#0a0d10";
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.arc(center.x, center.y, Math.max(4, size * 0.22), 0, Math.PI * 2);
-      ctx.fill();
-      ctx.stroke();
-      ctx.fillStyle = "#f4f7f5";
-      ctx.font = `700 ${Math.max(9, size * 0.28)}px system-ui`;
-      ctx.textAlign = "center";
-      ctx.fillText(String(resource.quantity), center.x, center.y - size * 0.42);
-    }
+    this.drawEnvironment(width, height, size);
+    if (this.buildMode || this.gridToggled) this.drawGrid(width, height, size);
+    if (this.buildMode) this.drawBuildRange(width, height);
     for (const building of this.snapshot.buildings)
       this.drawBuilding(building, width, height, size);
     this.drawPlayer(width, height, size);
@@ -234,15 +239,109 @@ export class CanvasFactoryRenderer {
           ? "#76e0aa"
           : "#ff7b78"
         : "#e9f0f7";
-      drawHex(
-        ctx,
-        this.camera.project(this.hover, width, height),
-        size * 0.88,
-        `${stroke}18`,
-        stroke,
-        2,
+      const footprint = this.buildMode ? this.buildFootprint : [{ q: 0, r: 0 }];
+      for (const offset of footprint) {
+        drawHex(
+          ctx,
+          this.camera.project(
+            { q: this.hover.q + offset.q, r: this.hover.r + offset.r },
+            width,
+            height,
+          ),
+          size * 0.88,
+          `${stroke}18`,
+          stroke,
+          2,
+        );
+      }
+    }
+  }
+
+  private drawEnvironment(width: number, height: number, size: number): void {
+    if (!this.snapshot) return;
+    const ctx = this.context;
+    const scale = size / WORLD_SCALE;
+    for (const region of this.snapshot.terrain) {
+      const center = this.camera.projectWorld(region, width, height);
+      const radius = region.radius * scale;
+      if (!visible(center, radius, width, height)) continue;
+      const water = region.terrain === "water";
+      ctx.fillStyle = water ? "#163c57cc" : "#464a4dcc";
+      ctx.strokeStyle = water ? "#39789c" : "#777d80";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(center.x, center.y, radius, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+    }
+    for (const resource of this.snapshot.resources) {
+      if (resource.quantity === 0) continue;
+      const center = this.camera.projectWorld(resource, width, height);
+      const radius = resource.radius * scale;
+      if (!visible(center, radius, width, height)) continue;
+      const item = this.definitions.items.find(
+        ({ id }) => id === resource.item_id,
+      );
+      const pulse = this.reducedMotion ? 0 : Math.sin(this.now / 450) * 2;
+      ctx.fillStyle = `${item?.color ?? "#ffffff"}55`;
+      ctx.strokeStyle = item?.color ?? "#fff";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(center.x, center.y, radius + pulse, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+      ctx.fillStyle = "#f4f7f5";
+      ctx.font = `700 ${Math.max(10, size * 0.28)}px system-ui`;
+      ctx.textAlign = "center";
+      ctx.fillText(
+        `${item?.icon ?? "RES"} ${resource.quantity}`,
+        center.x,
+        center.y + 4,
       );
     }
+  }
+
+  private drawGrid(width: number, height: number, size: number): void {
+    const corners = [
+      this.camera.pick({ x: 0, y: 0 }, width, height),
+      this.camera.pick({ x: width, y: 0 }, width, height),
+      this.camera.pick({ x: 0, y: height }, width, height),
+      this.camera.pick({ x: width, y: height }, width, height),
+    ];
+    const minQ = Math.min(...corners.map(({ q }) => q)) - 3;
+    const maxQ = Math.max(...corners.map(({ q }) => q)) + 3;
+    const minR = Math.min(...corners.map(({ r }) => r)) - 3;
+    const maxR = Math.max(...corners.map(({ r }) => r)) + 3;
+    for (let q = minQ; q <= maxQ; q += 1) {
+      for (let r = minR; r <= maxR; r += 1) {
+        drawHex(
+          this.context,
+          this.camera.project({ q, r }, width, height),
+          size * 0.97,
+          "transparent",
+          "#9bb9af2d",
+        );
+      }
+    }
+  }
+
+  private drawBuildRange(width: number, height: number): void {
+    if (!this.snapshot) return;
+    const center = this.camera.projectWorld(
+      this.snapshot.player,
+      width,
+      height,
+    );
+    const radius =
+      (this.snapshot.player.build_range * BASE_HEX_SIZE * this.camera.zoom) /
+      WORLD_SCALE;
+    this.context.strokeStyle = "#f2cc6577";
+    this.context.lineWidth = 2;
+    this.context.setLineDash([7, 7]);
+    this.context.beginPath();
+    this.context.arc(center.x, center.y, radius, 0, Math.PI * 2);
+    this.context.stroke();
+    this.context.setLineDash([]);
   }
 
   private drawBuilding(
@@ -252,8 +351,6 @@ export class CanvasFactoryRenderer {
     size: number,
   ): void {
     const ctx = this.context;
-    const center = this.camera.project(building, width, height);
-    if (!visible(center, size, width, height)) return;
     const colors: Record<EntitySnapshot["kind"], string> = {
       extractor: "#b75e45",
       belt: "#415b78",
@@ -262,7 +359,20 @@ export class CanvasFactoryRenderer {
       consumer: "#3c806a",
       hub: "#d1a945",
     };
-    drawHex(ctx, center, size * 0.78, colors[building.kind], "#dce7ef", 1.4);
+    for (const cell of building.footprint) {
+      const cellCenter = this.camera.project(cell, width, height);
+      if (visible(cellCenter, size, width, height))
+        drawHex(
+          ctx,
+          cellCenter,
+          size * 0.78,
+          colors[building.kind],
+          "#dce7ef",
+          1.4,
+        );
+    }
+    const center = this.camera.project(building, width, height);
+    if (!visible(center, size, width, height)) return;
     const direction = axialNeighbor({ q: 0, r: 0 }, building.orientation);
     const tip = axialToPixel(direction, size * 0.39, center);
     ctx.strokeStyle = "#f3f7fa";
@@ -271,10 +381,6 @@ export class CanvasFactoryRenderer {
     ctx.moveTo(center.x, center.y);
     ctx.lineTo(tip.x, tip.y);
     ctx.stroke();
-    ctx.fillStyle = "#f3f7fa";
-    ctx.beginPath();
-    ctx.arc(tip.x, tip.y, Math.max(2.5, size * 0.09), 0, Math.PI * 2);
-    ctx.fill();
     if (building.progress_total > 0 && building.progress > 0) {
       ctx.strokeStyle = "#f5d572";
       ctx.lineWidth = Math.max(2, size * 0.1);
@@ -299,41 +405,18 @@ export class CanvasFactoryRenderer {
       ctx.textAlign = "center";
       ctx.fillText(String(quantity), center.x, center.y + 4);
     }
-    if (building.cargo) {
-      const color =
-        this.definitions.items.find(
-          (item) => item.id === building.cargo?.item_id,
-        )?.color ?? "#fff";
-      const phase = this.reducedMotion ? 0.5 : (this.now % 700) / 700;
-      const cargoCenter = {
-        x: center.x + (tip.x - center.x) * (phase * 0.5),
-        y: center.y + (tip.y - center.y) * (phase * 0.5),
-      };
-      ctx.fillStyle = color;
-      ctx.strokeStyle = "#10141a";
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.arc(
-        cargoCenter.x,
-        cargoCenter.y,
-        Math.max(5, size * 0.21),
-        0,
-        Math.PI * 2,
-      );
-      ctx.fill();
-      ctx.stroke();
-    }
   }
 
   private drawPlayer(width: number, height: number, size: number): void {
     if (!this.snapshot) return;
+    const player = this.snapshot.player;
+    const center = this.camera.projectWorld(player, width, height);
+    const length = size * 0.53;
+    const tip = {
+      x: center.x + (player.facing_x / 1000) * length,
+      y: center.y + (player.facing_y / 1000) * length,
+    };
     const ctx = this.context;
-    const center = this.camera.project(this.snapshot.player, width, height);
-    const direction = axialNeighbor(
-      { q: 0, r: 0 },
-      this.snapshot.player.facing,
-    );
-    const tip = axialToPixel(direction, size * 0.53, center);
     ctx.fillStyle = "#f4f7f2";
     ctx.strokeStyle = "#142028";
     ctx.lineWidth = 3;
