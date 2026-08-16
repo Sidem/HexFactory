@@ -56,6 +56,10 @@ let panPointer: { id: number; x: number; y: number; moved: boolean } | null =
 let suppressMapClick = false;
 const pressedMovement = new Set<string>();
 let movementRevision = 0;
+let advancePending = false;
+let previewPending = false;
+let previewRequested = false;
+let previewRevision = 0;
 
 for (const definition of host.definitions.buildings.filter(
   ({ buildable }) => buildable,
@@ -331,24 +335,58 @@ function enqueue(command: NativeInputCommand): void {
 }
 
 function refreshHoverPreview(): void {
-  hoverPreview =
-    hover && typeof tool === "number"
-      ? host.placementPreview(hover.q, hover.r, tool, orientation)
-      : null;
-  renderer.setHover(hover, hoverPreview);
-  required<HTMLElement>("placement-value").textContent =
-    hoverPreview?.reason ?? "";
+  previewRevision += 1;
+  previewRequested = true;
+  if (!previewPending) void flushHoverPreview();
+}
+
+async function flushHoverPreview(): Promise<void> {
+  previewPending = true;
+  while (previewRequested) {
+    previewRequested = false;
+    const revision = previewRevision;
+    const coordinate = hover;
+    const definitionId = typeof tool === "number" ? tool : null;
+    const direction = orientation;
+    if (!coordinate || definitionId === null) {
+      hoverPreview = null;
+    } else {
+      try {
+        const result = await host.placementPreview(
+          coordinate.q,
+          coordinate.r,
+          definitionId,
+          direction,
+        );
+        if (revision === previewRevision) hoverPreview = result;
+      } catch (error) {
+        if (revision === previewRevision)
+          showFeedback(`Placement preview failed: ${String(error)}`);
+      }
+    }
+    if (revision === previewRevision) {
+      renderer.setHover(hover, hoverPreview);
+      required<HTMLElement>("placement-value").textContent =
+        hoverPreview?.reason ?? "";
+    }
+  }
+  previewPending = false;
 }
 
 playButton.addEventListener("click", () => setPlaying(!playing));
 required<HTMLButtonElement>("step").addEventListener("click", () => {
   setPlaying(false);
-  update(host.tick(1));
+  void host.tick(1).then(update).catch(reportWorkerError);
 });
 required<HTMLButtonElement>("reset").addEventListener("click", () => {
   input.clear();
-  update(host.reset());
-  renderer.recenter();
+  void host
+    .reset()
+    .then((next) => {
+      update(next);
+      renderer.recenter();
+    })
+    .catch(reportWorkerError);
 });
 required<HTMLButtonElement>("turn").addEventListener(
   "click",
@@ -386,7 +424,7 @@ required<HTMLButtonElement>("toggle-grid").addEventListener(
       : "Show construction grid";
   },
 );
-required<HTMLButtonElement>("new-game").addEventListener("click", () => {
+required<HTMLButtonElement>("new-game").addEventListener("click", async () => {
   input.clear();
   const parsedSeed = Number(seedInput.value);
   const seed =
@@ -395,28 +433,32 @@ required<HTMLButtonElement>("new-game").addEventListener("click", () => {
     parsedSeed <= 0xffffffff
       ? parsedSeed
       : undefined;
-  const next = host.newGame(scenarioInput.value, seed);
-  update(next);
-  syncSessionInputs(next);
-  renderer.recenter();
-  setPlaying(true);
-  closePanels();
-});
-required<HTMLButtonElement>("save").addEventListener("click", () => {
   try {
-    localStorage.setItem(SAVE_KEY, host.save());
+    const next = await host.newGame(scenarioInput.value, seed);
+    update(next);
+    syncSessionInputs(next);
+    renderer.recenter();
+    setPlaying(true);
+    closePanels();
+  } catch (error) {
+    reportWorkerError(error);
+  }
+});
+required<HTMLButtonElement>("save").addEventListener("click", async () => {
+  try {
+    localStorage.setItem(SAVE_KEY, await host.save());
     updateContinueState("HXF1 save stored locally.");
     showFeedback("Game saved");
   } catch (error) {
     updateContinueState(`Save failed: ${String(error)}`);
   }
 });
-required<HTMLButtonElement>("continue").addEventListener("click", () => {
+required<HTMLButtonElement>("continue").addEventListener("click", async () => {
   const save = localStorage.getItem(SAVE_KEY);
   if (!save) return;
   try {
     input.clear();
-    const next = host.load(save);
+    const next = await host.load(save);
     update(next);
     syncSessionInputs(next);
     renderer.recenter();
@@ -595,14 +637,20 @@ function rotateNewBuilding(): void {
 function frame(now: number): void {
   const elapsed = Math.min(250, now - previousTime);
   previousTime = now;
-  const commands = input.drain();
-  if (commands.length) update(host.apply(commands));
-  if (playing) {
-    accumulator += elapsed * Number(speedInput.value);
-    const ticks = Math.min(20, Math.floor(accumulator / 1000));
-    if (ticks > 0) {
+  if (playing) accumulator += elapsed * Number(speedInput.value);
+  if (!advancePending) {
+    const commands = input.drain();
+    const ticks = playing ? Math.min(20, Math.floor(accumulator / 1000)) : 0;
+    if (commands.length || ticks > 0) {
       accumulator -= ticks * 1000;
-      update(host.tick(ticks));
+      advancePending = true;
+      void host
+        .advance(commands, ticks)
+        .then(update)
+        .catch(reportWorkerError)
+        .finally(() => {
+          advancePending = false;
+        });
     }
   }
   renderer.renderFrame(now);
@@ -629,6 +677,11 @@ function isTypingTarget(target: EventTarget | null): boolean {
 
 function titleCase(value: string): string {
   return value.charAt(0).toUpperCase() + value.slice(1);
+}
+
+function reportWorkerError(error: unknown): void {
+  setPlaying(false);
+  showFeedback(`Simulation worker error: ${String(error)}`);
 }
 
 function closePanels(except?: HTMLElement): void {
@@ -710,37 +763,37 @@ declare global {
   interface Window {
     __hexFactory?: {
       snapshot: () => FactorySnapshot;
-      step: (count?: number) => FactorySnapshot;
-      reset: () => FactorySnapshot;
-      newGame: (scenario?: string, seed?: number) => FactorySnapshot;
-      save: () => string;
-      load: (save: string) => FactorySnapshot;
+      step: (count?: number) => Promise<FactorySnapshot>;
+      reset: () => Promise<FactorySnapshot>;
+      newGame: (scenario?: string, seed?: number) => Promise<FactorySnapshot>;
+      save: () => Promise<string>;
+      load: (save: string) => Promise<FactorySnapshot>;
     };
   }
 }
 
 window.__hexFactory = {
   snapshot: () => host.snapshot(),
-  step: (count = 1) => {
+  step: async (count = 1) => {
     setPlaying(false);
-    const next = host.tick(count);
+    const next = await host.tick(count);
     update(next);
     return next;
   },
-  reset: () => {
-    const next = host.reset();
+  reset: async () => {
+    const next = await host.reset();
     update(next);
     return next;
   },
-  newGame: (scenario = "new-game", seed) => {
-    const next = host.newGame(scenario, seed);
+  newGame: async (scenario = "new-game", seed) => {
+    const next = await host.newGame(scenario, seed);
     update(next);
     syncSessionInputs(next);
     return next;
   },
   save: () => host.save(),
-  load: (save) => {
-    const next = host.load(save);
+  load: async (save) => {
+    const next = await host.load(save);
     update(next);
     syncSessionInputs(next);
     return next;

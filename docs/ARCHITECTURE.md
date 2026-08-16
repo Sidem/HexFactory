@@ -78,8 +78,22 @@ machine and cargo state, counters, tick, victory, and a native checksum. Loading
 references, uniqueness, and checksum before accepting state. `localStorage` stores only that opaque
 string. Save/resume and uninterrupted runs converge on the same checksum after equal commands.
 
-## Current cost boundary
+## Worker and snapshot boundary
 
-v0.3.1 still serializes a full small snapshot and runs the core on the browser main thread. No
-large-map performance claim is made. The ordered follow-ups are a worker boundary with dirty
-snapshot deltas and benchmarks that establish capacity tiers before considering WebGL instancing.
+v0.5 moves the Wasm `Factory` off the browser main thread into one dedicated module worker. Worker
+messages are serialized through a single operation queue. Each advance applies at most one bounded
+native command batch, advances a bounded native tick count, and then requests one snapshot delta;
+placement previews, saves, resets, new games, and loads use the same ordered boundary. The main
+thread keeps only the latest presentation snapshot and never imports or instantiates the Wasm core.
+
+The first snapshot is complete. Every later native delta carries a base revision, the next revision,
+tick, and checksum. Rust compares deterministic snapshot groups and omits unchanged scenario,
+progression, player, chunks, terrain, resources, buildings, and events. The host rejects missing or
+out-of-order revisions before merging a delta. Pointer-driven placement preview requests are
+coalesced to one in flight plus the latest pending position.
+
+Rust still materializes the current snapshot to compare groups, and changed groups are replaced as
+whole arrays rather than item-level patches. This removes main-thread simulation and unnecessary
+cross-thread transport without making an unbenchmarked capacity claim. The next gate is a repeatable
+benchmark harness and measured capacity tiers before considering finer dirty tracking or WebGL
+instancing.

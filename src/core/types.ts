@@ -155,6 +155,14 @@ export interface FactorySnapshot {
   events: string[];
 }
 
+export interface FactorySnapshotDelta
+  extends Partial<Omit<FactorySnapshot, "tick" | "checksum">> {
+  base_revision: number;
+  revision: number;
+  tick: number;
+  checksum: number;
+}
+
 export interface PlacementPreview {
   legal: boolean;
   reason: string;
@@ -181,6 +189,7 @@ export interface NativeFactory {
   reset(): void;
   new_game(scenarioKey: string, seedOverride?: number): void;
   apply_commands_json(commands: string): void;
+  advance_json(commands: string, count: number): void;
   placement_preview_json(
     q: number,
     r: number,
@@ -189,6 +198,7 @@ export interface NativeFactory {
     recipeId?: number,
   ): string;
   snapshot_json(): string;
+  snapshot_delta_json(): string;
   save_string(): string;
   load_string(save: string): void;
   checksum(): number;

@@ -1,8 +1,8 @@
 # HexFactory — architecture, roadmap, and implementation handoffs
 
-Status: Command Surface v0.4 is shipped on top of Continuous Exploration v0.3 and the v0.3.1
-incremental transport follow-up. The next architecture milestone is the Web Worker simulation
-boundary with dirty snapshot/delta transport, followed by benchmarked capacity tiers.
+Status: Worker Boundary v0.5 is shipped on Command Surface v0.4, Continuous Exploration v0.3, and
+the v0.3.1 incremental transport follow-up. The next architecture milestone is benchmarked capacity
+tiers before finer dirty tracking or a renderer decision.
 
 Target repository: `https://github.com/Sidem/HexFactory`
 
@@ -17,6 +17,12 @@ not a source dependency: HexFactory imports only the published package. Treat th
 read-only unless a future task explicitly authorizes a separately released generic package change.
 
 ## Shipped implementation record
+
+- Worker Boundary v0.5 moves the Wasm `Factory` into a dedicated module worker with serialized RPC,
+  combines each frame's bounded commands and native ticks into one advance, and transports
+  revision-checked native snapshot deltas. Rust omits unchanged snapshot groups; the host caches only
+  presentation state and rejects revision gaps. Placement previews are coalesced, and native save,
+  load, scenario, determinism, and checksum contracts are unchanged.
 
 - Command Surface v0.4 makes the world a full-viewport play surface with a persistent landing
   directive, snapshot-derived next-action guidance, compact cargo and research surfaces, a
@@ -86,8 +92,8 @@ contract.
 - Live MVP: `https://sidem.github.io/HexFactory/`, deployed by Actions run `31947910003`.
 - The shipped slice keeps the approved boundary: `/hex` is the only HexLife dependency; factory
   simulation is an independent Rust/Wasm crate with compiled transport and native machine state.
-- First follow-ups: worker + dirty snapshot deltas, then benchmarked capacity tiers before any
-  renderer or scale claim.
+- First follow-up: benchmarked capacity tiers before finer dirty tracking, a renderer change, or any
+  scale claim.
 
 ## Product decision
 

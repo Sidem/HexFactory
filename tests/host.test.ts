@@ -15,17 +15,22 @@ import {
   technologyAvailability,
 } from "../src/core/availability";
 import { encodeCommand } from "../src/core/commands";
-import { FactoryHost } from "../src/core/FactoryHost";
+import {
+  FactoryHost,
+  type FactoryTransport,
+  type FactoryWorkerMethod,
+} from "../src/core/FactoryHost";
 import {
   BoundedInputQueue,
   MAX_INPUT_COMMANDS,
   MOVEMENT_KEYS,
   movementIntent,
 } from "../src/core/input";
+import { applySnapshotDelta } from "../src/core/snapshotDelta";
 import type {
   BuildingDefinition,
   FactorySnapshot,
-  NativeFactory,
+  FactorySnapshotDelta,
 } from "../src/core/types";
 import definitions from "../src/data/definitions.json";
 import technologies from "../src/data/technologies.json";
@@ -163,7 +168,7 @@ describe("bounded host input", () => {
     expect(main).not.toMatch(
       /player\.(x|y|inventory|action_cooldown)\s*[+\-=]/,
     );
-    expect(main.match(/host\.apply\(commands\)/g)).toHaveLength(1);
+    expect(main.match(/\.advance\(commands, ticks\)/g)).toHaveLength(1);
     expect(main).not.toContain("snapshot.insight =");
     expect(main).not.toContain("scenarioInput.value = snapshot.scenario");
     expect(main).not.toContain("seedInput.value = String(snapshot.seed)");
@@ -202,18 +207,60 @@ describe("availability and expanded snapshot adapter", () => {
     ).toBe(false);
   });
 
-  it("delegates snapshots and HXF1 saves without reconstructing native state", () => {
-    const native = fakeNative();
-    const host = FactoryHost.forTesting(native);
+  it("delegates worker commands and applies revision-checked native deltas", async () => {
+    const { transport, requests } = fakeTransport();
+    const host = FactoryHost.forTesting(transport, snapshot);
     expect(host.snapshot()).toEqual(snapshot);
-    expect(host.save()).toBe("HXF1\n{} ");
-    host.load("HXF1\nrestored");
-    expect(native.load_string).toHaveBeenCalledWith("HXF1\nrestored");
-    expect(native.snapshot_json).toHaveBeenCalled();
-    host.apply([{ type: "gather" }]);
-    expect(native.apply_commands_json).toHaveBeenCalledWith(
-      '[{"type":"gather"}]',
+    expect(await host.save()).toBe("HXF1\n{} ");
+    expect((await host.load("HXF1\nrestored")).events).toEqual([
+      "HXF1 save restored",
+    ]);
+    expect((await host.advance([{ type: "gather" }], 2)).tick).toBe(14);
+    expect(requests).toEqual([
+      { method: "save", payload: undefined },
+      { method: "load", payload: { save: "HXF1\nrestored" } },
+      {
+        method: "advance",
+        payload: { commands: [{ type: "gather" }], ticks: 2 },
+      },
+    ]);
+  });
+
+  it("rejects missing or out-of-order snapshot revisions", () => {
+    expect(() =>
+      applySnapshotDelta(snapshot, 3, {
+        base_revision: 2,
+        revision: 3,
+        tick: 13,
+        checksum: 456,
+      }),
+    ).toThrow(/expected 3, received 2/);
+    expect(() =>
+      applySnapshotDelta(snapshot, 3, {
+        base_revision: 3,
+        revision: 5,
+        tick: 13,
+        checksum: 456,
+      }),
+    ).toThrow(/advance by one/);
+  });
+
+  it("keeps Wasm ownership in a module worker and transports native deltas", () => {
+    const hostSource = readFileSync(
+      new URL("../src/core/FactoryHost.ts", import.meta.url),
+      "utf8",
     );
+    const workerSource = readFileSync(
+      new URL("../src/core/factory.worker.ts", import.meta.url),
+      "utf8",
+    );
+    expect(hostSource).toContain('new Worker(new URL("./factory.worker.ts"');
+    expect(hostSource).not.toContain("factory_wasm.js");
+    expect(workerSource).toContain(
+      'from "../../factory-wasm/pkg/factory_wasm.js"',
+    );
+    expect(workerSource).toContain("factory.advance_json(");
+    expect(workerSource).toContain("factory.snapshot_delta_json()");
   });
 
   it("ships responsive controls and accessible labels", () => {
@@ -239,18 +286,29 @@ describe("availability and expanded snapshot adapter", () => {
   });
 });
 
-function fakeNative(): NativeFactory {
-  return {
-    tick: vi.fn(),
-    reset: vi.fn(),
-    new_game: vi.fn(),
-    apply_commands_json: vi.fn(),
-    placement_preview_json: vi.fn(() => '{"legal":true,"reason":"Ready"}'),
-    snapshot_json: vi.fn(() => JSON.stringify(snapshot)),
-    save_string: vi.fn(() => "HXF1\n{} "),
-    load_string: vi.fn(),
-    checksum: vi.fn(() => snapshot.checksum),
-    tick_count: vi.fn(() => BigInt(snapshot.tick)),
-    free: vi.fn(),
+function fakeTransport(): {
+  transport: FactoryTransport;
+  requests: Array<{ method: FactoryWorkerMethod; payload: unknown }>;
+} {
+  const requests: Array<{ method: FactoryWorkerMethod; payload: unknown }> = [];
+  let revision = 0;
+  const response = (patch: Partial<FactorySnapshot>): FactorySnapshotDelta => ({
+    base_revision: revision,
+    revision: (revision += 1),
+    tick: patch.tick ?? snapshot.tick,
+    checksum: patch.checksum ?? snapshot.checksum,
+    ...patch,
+  });
+  const transport: FactoryTransport = {
+    request: async <T>(method: FactoryWorkerMethod, payload?: unknown) => {
+      requests.push({ method, payload });
+      if (method === "save") return "HXF1\n{} " as T;
+      if (method === "load")
+        return response({ events: ["HXF1 save restored"] }) as T;
+      if (method === "advance") return response({ tick: 14 }) as T;
+      throw new Error(`Unexpected test method ${method}`);
+    },
+    dispose: vi.fn(),
   };
+  return { transport, requests };
 }

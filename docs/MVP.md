@@ -1,8 +1,23 @@
-# Command Surface v0.4 scope and acceptance
+# Worker Boundary v0.5 scope and acceptance
 
-Status: Command Surface v0.4 is shipped. It redesigns the playable v0.3.1 simulation without
-changing native world, transport, save, or checksum contracts. Continuous Exploration v0.3 and
-Playable Game v0.2 remain the shipped simulation and historical baselines.
+Status: Worker Boundary v0.5 is shipped on the Command Surface v0.4 experience. It moves the native
+simulation off the main thread and adds revision-checked dirty snapshot transport without changing
+world, transport, save, checksum, or player-facing progression contracts. Continuous Exploration
+v0.3 and Playable Game v0.2 remain the simulation and historical baselines.
+
+## Worker and delta contract
+
+- Only the dedicated module worker imports and instantiates `factory_wasm`. The main thread sends
+  ordered RPC requests and keeps a cached presentation snapshot.
+- A frame combines at most one bounded command batch and a bounded native tick count into one worker
+  advance. Rust remains the only running tick and state owner.
+- The initial snapshot is complete. Later native deltas always carry base revision, next revision,
+  tick, and checksum, and omit unchanged snapshot groups. The host rejects revision gaps before
+  applying presentation patches.
+- Reset, new game, load, save, and placement legality all cross the same worker boundary. Placement
+  previews are coalesced so pointer movement cannot create an unbounded request queue.
+- `HXF1` version 2 and deterministic checksums are unchanged. Save strings remain opaque to the
+  browser host.
 
 ## Player-facing command surface
 
@@ -76,7 +91,9 @@ backpressure, recipe timing, container order, delivery totals, and reset/replay.
 Host tests cover the exact published geometry package, camera-aware construction picking with a
 continuous camera center, WASD intent normalization, bounded batching/encoding, absence of host
 simulation mutation, footprint and technology definition validation, costs/locks, snapshot/save
-delegation, responsive breakpoints, reduced motion, and accessible labels.
+delegation, worker-only Wasm ownership, revision enforcement, responsive breakpoints, reduced
+motion, and accessible labels. Native tests pin dirty-group omission and revision metadata alongside
+the existing simulation invariants.
 
 The local release gate is npm audit, Prettier/Rust formatting, ESLint, strict TypeScript, Vitest,
 Rust tests, Wasm build, and production Vite build. Deployment and live verification are separate
@@ -84,8 +101,8 @@ release actions and must not be implied by local success.
 
 ## Explicit follow-ups
 
-1. A Web Worker simulation boundary plus dirty snapshot/delta transport.
-2. Benchmarked capacity tiers before selecting WebGL instancing or making scale claims.
-3. Richer biomes/resource identification, inventory capacity/equipment, footprint-aware demolition
+1. Benchmarked capacity tiers before selecting finer native dirty tracking, WebGL instancing, or
+   making scale claims.
+2. Richer biomes/resource identification, inventory capacity/equipment, footprint-aware demolition
    previews, inserters, splitters, lanes, power, fluids, circuits, trains, enemies, multiplayer, mod
    scripting, and evolutionary systems remain beyond this deliberately basic milestone.

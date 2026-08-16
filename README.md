@@ -9,9 +9,11 @@ new game starts beside a landing hub: explore, gather finite ore and crystal, de
 insight, unlock a short technology tree, build a compiled transport line, compose three components,
 and win. The founding prebuilt architecture proof remains available as the **Factory demo** scenario.
 
-Rust/Wasm owns environment features, resources, collision, continuous player movement, inventories, costs, research,
-objectives, saves, transport, machines, cargo, ticks, and checksums. TypeScript sends one bounded
-input batch per rendered frame and owns only controls, camera, interface, and Canvas presentation.
+Rust/Wasm runs inside a dedicated module worker and owns environment features, resources, collision,
+continuous player movement, inventories, costs, research, objectives, saves, transport, machines,
+cargo, ticks, and checksums. TypeScript sends one bounded input batch per rendered frame, applies
+revision-checked native snapshot deltas, and owns only controls, camera, interface, and Canvas
+presentation.
 
 ## Controls
 
@@ -53,6 +55,8 @@ npm run quality
   rejected transfers leave their sources unchanged.
 - `HXF1` saves are emitted and restored by Rust. Browser storage holds only the opaque native save
   string. v0.3 intentionally rejects incompatible v0.2 saves.
+- The worker advances commands and ticks in order and returns native dirty snapshot groups. Static
+  terrain, resource, and building arrays do not cross the worker boundary when unchanged.
 - The host consumes exactly `@hexlife/embed/hex@1.15.0` for public pointy-top axial geometry. It
   never imports HexLife source or package internals.
 
@@ -61,8 +65,8 @@ See the [roadmap and implementation handoff](docs/HEXFACTORY-PLAN.md),
 [agent invariants](AGENTS.md).
 
 No large-map performance claim is made. Blueprint edits incrementally recompile affected transport
-components; the next performance gates are worker-hosted simulation with dirty snapshot deltas and
-measured capacity tiers before any renderer rewrite.
+components and simulation is worker-hosted with dirty snapshot deltas; measured capacity tiers are
+the next gate before any renderer rewrite.
 
 ## License
 

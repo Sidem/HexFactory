@@ -231,7 +231,7 @@ struct Entity {
     progress: u32,
 }
 
-#[derive(Serialize)]
+#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
 struct Snapshot {
     scenario: String,
     scenario_name: String,
@@ -253,27 +253,27 @@ struct Snapshot {
     events: Vec<String>,
 }
 
-#[derive(Serialize)]
+#[derive(Clone, Copy, Debug, Serialize, PartialEq, Eq)]
 struct Ingredient64 {
     item_id: ItemId,
     quantity: u64,
 }
 
-#[derive(Serialize)]
+#[derive(Clone, Copy, Debug, Serialize, PartialEq, Eq)]
 struct ObjectiveSnapshot {
     item_id: ItemId,
     delivered: u64,
     required: u32,
 }
 
-#[derive(Serialize)]
+#[derive(Clone, Copy, Debug, Serialize, PartialEq, Eq)]
 struct ChunkSnapshot {
     chunk_q: i32,
     chunk_r: i32,
     entity_count: usize,
 }
 
-#[derive(Serialize)]
+#[derive(Clone, Copy, Debug, Serialize, PartialEq, Eq)]
 struct TileSnapshot {
     x: i32,
     y: i32,
@@ -281,7 +281,7 @@ struct TileSnapshot {
     terrain: Terrain,
 }
 
-#[derive(Serialize)]
+#[derive(Clone, Copy, Debug, Serialize, PartialEq, Eq)]
 struct ResourceSnapshot {
     id: u64,
     x: i32,
@@ -292,7 +292,7 @@ struct ResourceSnapshot {
     initial_quantity: u32,
 }
 
-#[derive(Serialize)]
+#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
 struct EntitySnapshot {
     id: u32,
     q: i32,
@@ -309,6 +309,106 @@ struct EntitySnapshot {
     status: String,
     next_id: Option<u32>,
     footprint: Vec<Coordinate>,
+}
+
+#[derive(Debug, Serialize)]
+struct SnapshotDelta {
+    base_revision: u64,
+    revision: u64,
+    tick: u64,
+    checksum: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    scenario: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    scenario_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    world_version: Option<u16>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    seed: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    delivered: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    delivered_by_item: Option<Vec<Ingredient64>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    insight: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    victory: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    objective: Option<ObjectiveSnapshot>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    player: Option<PlayerState>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    researched: Option<Vec<TechnologyId>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    chunks: Option<Vec<ChunkSnapshot>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    terrain: Option<Vec<TileSnapshot>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    resources: Option<Vec<ResourceSnapshot>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    buildings: Option<Vec<EntitySnapshot>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    events: Option<Vec<String>>,
+}
+
+impl SnapshotDelta {
+    fn full(base_revision: u64, revision: u64, current: &Snapshot) -> Self {
+        Self {
+            base_revision,
+            revision,
+            tick: current.tick,
+            checksum: current.checksum,
+            scenario: Some(current.scenario.clone()),
+            scenario_name: Some(current.scenario_name.clone()),
+            world_version: Some(current.world_version),
+            seed: Some(current.seed),
+            delivered: Some(current.delivered),
+            delivered_by_item: Some(current.delivered_by_item.clone()),
+            insight: Some(current.insight),
+            victory: Some(current.victory),
+            objective: Some(current.objective),
+            player: Some(current.player.clone()),
+            researched: Some(current.researched.clone()),
+            chunks: Some(current.chunks.clone()),
+            terrain: Some(current.terrain.clone()),
+            resources: Some(current.resources.clone()),
+            buildings: Some(current.buildings.clone()),
+            events: Some(current.events.clone()),
+        }
+    }
+
+    fn between(base_revision: u64, revision: u64, previous: &Snapshot, current: &Snapshot) -> Self {
+        Self {
+            base_revision,
+            revision,
+            tick: current.tick,
+            checksum: current.checksum,
+            scenario: changed(&previous.scenario, &current.scenario),
+            scenario_name: changed(&previous.scenario_name, &current.scenario_name),
+            world_version: changed_copy(previous.world_version, current.world_version),
+            seed: changed_copy(previous.seed, current.seed),
+            delivered: changed_copy(previous.delivered, current.delivered),
+            delivered_by_item: changed(&previous.delivered_by_item, &current.delivered_by_item),
+            insight: changed_copy(previous.insight, current.insight),
+            victory: changed_copy(previous.victory, current.victory),
+            objective: changed_copy(previous.objective, current.objective),
+            player: changed(&previous.player, &current.player),
+            researched: changed(&previous.researched, &current.researched),
+            chunks: changed(&previous.chunks, &current.chunks),
+            terrain: changed(&previous.terrain, &current.terrain),
+            resources: changed(&previous.resources, &current.resources),
+            buildings: changed(&previous.buildings, &current.buildings),
+            events: changed(&previous.events, &current.events),
+        }
+    }
+}
+
+fn changed<T: Clone + PartialEq>(previous: &T, current: &T) -> Option<T> {
+    (previous != current).then(|| current.clone())
+}
+
+fn changed_copy<T: Copy + PartialEq>(previous: T, current: T) -> Option<T> {
+    (previous != current).then_some(current)
 }
 
 #[derive(Serialize)]
@@ -780,6 +880,10 @@ impl Core {
         if count > 0 {
             self.events.clear();
         }
+        self.advance_ticks(count);
+    }
+
+    fn advance_ticks(&mut self, count: u32) {
         for _ in 0..count {
             self.player.action_cooldown = self.player.action_cooldown.saturating_sub(1);
             self.advance_player();
@@ -1374,12 +1478,31 @@ impl Core {
     fn apply_commands(&mut self, commands_json: &str) -> Result<(), String> {
         let commands: Vec<InputCommand> =
             serde_json::from_str(commands_json).map_err(|error| error.to_string())?;
+        self.apply_command_batch(commands, true)
+    }
+
+    fn advance(&mut self, commands_json: &str, count: u32) -> Result<(), String> {
+        let commands: Vec<InputCommand> =
+            serde_json::from_str(commands_json).map_err(|error| error.to_string())?;
+        let should_clear_events = !commands.is_empty() || count > 0;
+        self.apply_command_batch(commands, should_clear_events)?;
+        self.advance_ticks(count.min(240));
+        Ok(())
+    }
+
+    fn apply_command_batch(
+        &mut self,
+        commands: Vec<InputCommand>,
+        clear_events: bool,
+    ) -> Result<(), String> {
         if commands.len() > MAX_COMMANDS_PER_BATCH {
             return Err(format!(
                 "input batch exceeds the native limit of {MAX_COMMANDS_PER_BATCH}"
             ));
         }
-        self.events.clear();
+        if clear_events {
+            self.events.clear();
+        }
         for command in commands {
             let result = match command {
                 InputCommand::MoveIntent { x, y } => self.set_move_intent(x, y),
@@ -1774,6 +1897,8 @@ pub struct Factory {
     technologies: TechnologiesInput,
     scenarios: ScenariosInput,
     core: Core,
+    snapshot_revision: u64,
+    last_snapshot: Option<Snapshot>,
 }
 
 #[wasm_bindgen]
@@ -1802,6 +1927,8 @@ impl Factory {
             technologies,
             scenarios,
             core,
+            snapshot_revision: 0,
+            last_snapshot: None,
         })
     }
 
@@ -1845,6 +1972,10 @@ impl Factory {
         self.core.apply_commands(commands_json).map_err(js_error)
     }
 
+    pub fn advance_json(&mut self, commands_json: &str, count: u32) -> Result<(), JsValue> {
+        self.core.advance(commands_json, count).map_err(js_error)
+    }
+
     pub fn placement_preview_json(
         &self,
         q: i32,
@@ -1869,8 +2000,28 @@ impl Factory {
         serde_json::to_string(&preview).expect("preview is serializable")
     }
 
-    pub fn snapshot_json(&self) -> String {
-        serde_json::to_string(&self.core.snapshot()).expect("snapshot is serializable")
+    pub fn snapshot_json(&mut self) -> String {
+        let snapshot = self.core.snapshot();
+        self.snapshot_revision = 0;
+        self.last_snapshot = Some(snapshot.clone());
+        serde_json::to_string(&snapshot).expect("snapshot is serializable")
+    }
+
+    pub fn snapshot_delta_json(&mut self) -> String {
+        let current = self.core.snapshot();
+        let base_revision = self.snapshot_revision;
+        let revision = base_revision.saturating_add(1);
+        let delta = self
+            .last_snapshot
+            .as_ref()
+            .map(|previous| SnapshotDelta::between(base_revision, revision, previous, &current));
+        self.snapshot_revision = revision;
+        self.last_snapshot = Some(current.clone());
+        match delta {
+            Some(delta) => serde_json::to_string(&delta).expect("snapshot delta is serializable"),
+            None => serde_json::to_string(&SnapshotDelta::full(base_revision, revision, &current))
+                .expect("snapshot delta is serializable"),
+        }
     }
 
     pub fn save_string(&self) -> Result<String, JsValue> {
@@ -2896,6 +3047,40 @@ mod tests {
         let mut replay = Core::new(&definitions, &technologies, scenario, None).unwrap();
         replay.tick_many(300);
         assert_eq!(replay.checksum(), expected);
+    }
+
+    #[test]
+    fn snapshot_delta_omits_unchanged_world_groups_and_pins_revisions() {
+        let mut core = game("new-game");
+        let previous = core.snapshot();
+        core.tick_many(1);
+        let current = core.snapshot();
+        let delta = SnapshotDelta::between(7, 8, &previous, &current);
+        assert_eq!(delta.base_revision, 7);
+        assert_eq!(delta.revision, 8);
+        assert_eq!(delta.tick, 1);
+        assert!(delta.terrain.is_none());
+        assert!(delta.resources.is_none());
+        assert!(delta.buildings.is_none());
+        assert!(delta.events.is_some());
+        let json = serde_json::to_string(&delta).unwrap();
+        assert!(!json.contains("\"terrain\""));
+        assert!(!json.contains("\"resources\""));
+        assert!(!json.contains("\"buildings\""));
+    }
+
+    #[test]
+    fn combined_advance_preserves_command_events_through_native_ticks() {
+        let mut core = game("new-game");
+        core.player.inventory.insert(1, 8);
+        core.player.inventory.insert(3, 4);
+        set_player_hex(&mut core, 1, 0);
+        core.advance(r#"[{"type":"deposit"}]"#, 1).unwrap();
+        assert_eq!(core.tick, 1);
+        assert!(core
+            .events
+            .iter()
+            .any(|event| event.contains("Delivered inventory")));
     }
 
     #[test]
