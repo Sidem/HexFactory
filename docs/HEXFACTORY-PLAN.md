@@ -1,6 +1,6 @@
 # HexFactory — architecture, roadmap, and implementation handoffs
 
-Status: Playable Game v0.2 implemented 2026-08-16; release verification is recorded after deployment.
+Status: Playable Game v0.2 shipped and browser-verified 2026-08-16.
 
 Target repository: `https://github.com/Sidem/HexFactory`
 
@@ -15,6 +15,13 @@ not a source dependency: HexFactory imports only the published package. Treat th
 read-only unless a future task explicitly authorizes a separately released generic package change.
 
 ## Shipped implementation record
+
+- Playable Game v0.2: HexFactory commit `b636dc2`, successful quality/Pages run `31951039927`.
+- The live release was verified in a real browser through movement/collision, finite gathering,
+  research, construction/editing, compiled factory operation, victory, exact save/continue checksum
+  restoration, the retained Factory demo, a 390 px responsive layout, and a clean console.
+- The playable release did not require a HexLife change: `@hexlife/embed/hex@1.15.0` remains the
+  exact public geometry dependency.
 
 - Generic prerequisite: `@hexlife/embed@1.15.0`, tag `embed-v1.15.0`, HexLife merge `37f3c63`.
 - Factory repository: `https://github.com/Sidem/HexFactory` (`main` head `cf3d154`).
