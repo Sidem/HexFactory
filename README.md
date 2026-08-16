@@ -56,9 +56,9 @@ See the [roadmap and implementation handoff](docs/HEXFACTORY-PLAN.md),
 [architecture](docs/ARCHITECTURE.md), [current acceptance](docs/MVP.md), and
 [agent invariants](AGENTS.md).
 
-No large-map performance claim is made. The next performance gates are incremental connected-
-component recompilation, worker-hosted simulation with dirty snapshot deltas, and measured capacity
-tiers before any renderer rewrite.
+No large-map performance claim is made. Blueprint edits incrementally recompile affected transport
+components; the next performance gates are worker-hosted simulation with dirty snapshot deltas and
+measured capacity tiers before any renderer rewrite.
 
 ## License
 

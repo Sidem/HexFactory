@@ -35,9 +35,11 @@ The Rust `Core` owns all state that can change a game result:
 6. The landing hub awards integer insight from data-defined item values. Research prerequisites,
    costs, atomic spending, unlocks, objective progress, and persistent victory all live in Rust.
 
-The full small graph is recompiled after an edit. Entity machine/cargo state is preserved; an edit
-does not reset the simulation. Incremental connected-component recompilation remains the next graph
-performance gate.
+Blueprint edits retain the previous graph by stable entity ID, invalidate output rays crossing the
+changed footprint, and recompile only the affected weak transport components. Component closure
+uses both pre-edit links and newly joined targets, so placement/rotation merges and removal splits
+match a full deterministic rebuild without resetting machine or cargo state. Full compilation is
+still used for scenario initialization and validated save restoration.
 
 ## Definitions and scenarios
 
@@ -76,7 +78,6 @@ string. Save/resume and uninterrupted runs converge on the same checksum after e
 
 ## Current cost boundary
 
-v0.3 deliberately serializes a full small snapshot and runs the core on the browser main thread.
-No large-map performance claim is made. The ordered follow-ups are incremental connected-component
-graph recompilation, a worker boundary with dirty snapshot deltas, and benchmarks that establish
-capacity tiers before considering WebGL instancing.
+v0.3.1 still serializes a full small snapshot and runs the core on the browser main thread. No
+large-map performance claim is made. The ordered follow-ups are a worker boundary with dirty
+snapshot deltas and benchmarks that establish capacity tiers before considering WebGL instancing.

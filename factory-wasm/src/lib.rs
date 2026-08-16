@@ -11,6 +11,7 @@ const SAVE_PREFIX: &str = "HXF1\n";
 const SAVE_VERSION: u16 = 2;
 const WORLD_GENERATOR_VERSION: u16 = 2;
 const MAX_COMMANDS_PER_BATCH: usize = 8;
+const GRAPH_TRACE_LIMIT: i32 = 8;
 const DIRECTIONS: [(i32, i32); 6] = [(1, 0), (0, 1), (-1, 1), (-1, 0), (0, -1), (1, -1)];
 const HEX_X: i32 = 1774;
 const HEX_Y: i32 = 1536;
@@ -632,32 +633,147 @@ impl Core {
     }
 
     fn compile_graph(&mut self) {
+        let occupied = self.occupied_entities();
+        self.graph = self
+            .entities
+            .iter()
+            .enumerate()
+            .map(|(index, _)| self.compile_graph_target(index, &occupied))
+            .collect();
+    }
+
+    fn occupied_entities(&self) -> BTreeMap<(i32, i32), usize> {
         let mut occupied = BTreeMap::new();
         for (index, entity) in self.entities.iter().enumerate() {
             for cell in self.entity_footprint(entity) {
                 occupied.insert((cell.q, cell.r), index);
             }
         }
-        self.graph = self
-            .entities
+        occupied
+    }
+
+    fn compile_graph_target(
+        &self,
+        index: usize,
+        occupied: &BTreeMap<(i32, i32), usize>,
+    ) -> Option<usize> {
+        let entity = &self.entities[index];
+        let (dq, dr) = DIRECTIONS[usize::from(entity.placed.orientation % 6)];
+        let mut q = entity.placed.q + dq;
+        let mut r = entity.placed.r + dr;
+        for _ in 0..GRAPH_TRACE_LIMIT {
+            match occupied.get(&(q, r)).copied() {
+                Some(target) if target == index => {
+                    q += dq;
+                    r += dr;
+                }
+                target => return target,
+            }
+        }
+        None
+    }
+
+    fn graph_links_by_id(&self) -> BTreeMap<u32, Option<u32>> {
+        self.entities
             .iter()
             .enumerate()
             .map(|(index, entity)| {
-                let (dq, dr) = DIRECTIONS[usize::from(entity.placed.orientation % 6)];
-                let mut q = entity.placed.q + dq;
-                let mut r = entity.placed.r + dr;
-                for _ in 0..8 {
-                    match occupied.get(&(q, r)).copied() {
-                        Some(target) if target == index => {
-                            q += dq;
-                            r += dr;
-                        }
-                        target => return target,
-                    }
-                }
-                None
+                (
+                    entity.id,
+                    self.graph[index].map(|target| self.entities[target].id),
+                )
+            })
+            .collect()
+    }
+
+    fn recompile_graph_components(
+        &mut self,
+        old_links: &BTreeMap<u32, Option<u32>>,
+        changed_cells: &BTreeSet<(i32, i32)>,
+        edited_ids: &BTreeSet<u32>,
+    ) -> usize {
+        // Erasing shifts vector indices, so preserve unaffected edges through stable entity IDs.
+        let occupied = self.occupied_entities();
+        let indices_by_id: BTreeMap<u32, usize> = self
+            .entities
+            .iter()
+            .enumerate()
+            .map(|(index, entity)| (entity.id, index))
+            .collect();
+        let anchors: BTreeMap<(i32, i32), u32> = self
+            .entities
+            .iter()
+            .map(|entity| ((entity.placed.q, entity.placed.r), entity.id))
+            .collect();
+
+        let mut graph: Vec<Option<usize>> = self
+            .entities
+            .iter()
+            .map(|entity| {
+                old_links
+                    .get(&entity.id)
+                    .copied()
+                    .flatten()
+                    .and_then(|target| indices_by_id.get(&target).copied())
             })
             .collect();
+
+        let mut old_adjacency: BTreeMap<u32, BTreeSet<u32>> = BTreeMap::new();
+        for (&source, &target) in old_links {
+            old_adjacency.entry(source).or_default();
+            if let Some(target) = target {
+                old_adjacency.entry(source).or_default().insert(target);
+                old_adjacency.entry(target).or_default().insert(source);
+            }
+        }
+
+        let mut affected = edited_ids.clone();
+        // An edit can change the edited entity's own output or an output ray that crosses any cell
+        // in its old/new footprint. The trace bound matches the full compiler's footprint walk.
+        for &(q, r) in changed_cells {
+            if let Some(&index) = occupied.get(&(q, r)) {
+                affected.insert(self.entities[index].id);
+            }
+            for (dq, dr) in DIRECTIONS {
+                for distance in 1..=GRAPH_TRACE_LIMIT {
+                    if let Some(&source) = anchors.get(&(q - dq * distance, r - dr * distance)) {
+                        affected.insert(source);
+                    }
+                }
+            }
+        }
+
+        expand_components(&mut affected, &old_adjacency);
+        // New edges can merge previously independent components. Recompile and expand until every
+        // newly reached target's prior weak component is included.
+        loop {
+            let current_ids: Vec<u32> = affected
+                .iter()
+                .filter(|id| indices_by_id.contains_key(id))
+                .copied()
+                .collect();
+            let mut joined = false;
+            for id in current_ids {
+                let index = indices_by_id[&id];
+                let target = self.compile_graph_target(index, &occupied);
+                graph[index] = target;
+                if let Some(target) = target {
+                    joined |= affected.insert(self.entities[target].id);
+                }
+            }
+            let before = affected.len();
+            expand_components(&mut affected, &old_adjacency);
+            if !joined && affected.len() == before {
+                break;
+            }
+        }
+
+        let recompiled = affected
+            .iter()
+            .filter(|id| indices_by_id.contains_key(id))
+            .count();
+        self.graph = graph;
+        recompiled
     }
 
     fn tick_many(&mut self, count: u32) {
@@ -1143,6 +1259,7 @@ impl Core {
         orientation: u8,
         recipe_id: Option<RecipeId>,
     ) -> Result<(), String> {
+        let old_links = self.graph_links_by_id();
         let (x, y) = axial_world(q, r);
         self.ensure_neighborhood(x, y);
         self.placement_legality(q, r, definition_id, orientation, recipe_id, true)?;
@@ -1154,16 +1271,18 @@ impl Core {
                 ingredient.quantity,
             );
         }
+        let id = self.next_entity_id;
+        let placed = PlacedBuilding {
+            q,
+            r,
+            definition_id,
+            orientation,
+            recipe_id,
+            scenario_owned: false,
+        };
         self.entities.push(Entity {
-            id: self.next_entity_id,
-            placed: PlacedBuilding {
-                q,
-                r,
-                definition_id,
-                orientation,
-                recipe_id,
-                scenario_owned: false,
-            },
+            id,
+            placed,
             kind: definition.kind,
             cargo: None,
             inventory: BTreeMap::new(),
@@ -1171,7 +1290,12 @@ impl Core {
             progress: 0,
         });
         self.next_entity_id += 1;
-        self.compile_graph();
+        let changed_cells = self
+            .footprint_for(placed, orientation)
+            .into_iter()
+            .map(|cell| (cell.q, cell.r))
+            .collect();
+        self.recompile_graph_components(&old_links, &changed_cells, &BTreeSet::from([id]));
         self.events.push(format!("Placed {}", definition.name));
         Ok(())
     }
@@ -1187,6 +1311,12 @@ impl Core {
         if self.entities[index].placed.scenario_owned {
             return Err("scenario-owned objects are protected".into());
         }
+        let old_links = self.graph_links_by_id();
+        let changed_cells = self
+            .entity_footprint(&self.entities[index])
+            .into_iter()
+            .map(|cell| (cell.q, cell.r))
+            .collect();
         let entity = self.entities.remove(index);
         let definition = self
             .building_definition(entity.placed.definition_id)
@@ -1198,7 +1328,7 @@ impl Core {
         if let Some(cargo) = entity.cargo {
             *self.player.inventory.entry(cargo.item_id).or_default() += cargo.quantity;
         }
-        self.compile_graph();
+        self.recompile_graph_components(&old_links, &changed_cells, &BTreeSet::from([entity.id]));
         self.events.push(format!("Recovered {}", definition.name));
         Ok(())
     }
@@ -1214,6 +1344,9 @@ impl Core {
         if self.entities[index].placed.scenario_owned {
             return Err("scenario-owned objects are protected".into());
         }
+        let old_links = self.graph_links_by_id();
+        let old_footprint = self.entity_footprint(&self.entities[index]);
+        let id = self.entities[index].id;
         let next_orientation = (self.entities[index].placed.orientation + 1) % 6;
         let next_footprint = self.footprint_for(self.entities[index].placed, next_orientation);
         if next_footprint.iter().any(|cell| {
@@ -1228,7 +1361,12 @@ impl Core {
             return Err("rotated footprint would overlap another building".into());
         }
         self.entities[index].placed.orientation = next_orientation;
-        self.compile_graph();
+        let changed_cells = old_footprint
+            .into_iter()
+            .chain(next_footprint)
+            .map(|cell| (cell.q, cell.r))
+            .collect();
+        self.recompile_graph_components(&old_links, &changed_cells, &BTreeSet::from([id]));
         self.events.push("Rotated building".into());
         Ok(())
     }
@@ -2162,6 +2300,20 @@ fn add_inventory(target: &mut BTreeMap<ItemId, u32>, source: &BTreeMap<ItemId, u
     }
 }
 
+fn expand_components(affected: &mut BTreeSet<u32>, adjacency: &BTreeMap<u32, BTreeSet<u32>>) {
+    let mut pending: Vec<u32> = affected.iter().copied().collect();
+    while let Some(id) = pending.pop() {
+        let Some(neighbors) = adjacency.get(&id) else {
+            continue;
+        };
+        for &neighbor in neighbors {
+            if affected.insert(neighbor) {
+                pending.push(neighbor);
+            }
+        }
+    }
+}
+
 fn hash_inventory(hash: &mut u32, inventory: &BTreeMap<ItemId, u32>) {
     for (&item, &quantity) in inventory {
         hash_u32(hash, u32::from(item));
@@ -2222,6 +2374,28 @@ mod tests {
     fn set_player_hex(core: &mut Core, q: i32, r: i32) {
         (core.player.x, core.player.y) = axial_world(q, r);
         core.ensure_neighborhood(core.player.x, core.player.y);
+    }
+
+    fn add_test_belt(core: &mut Core, q: i32, r: i32, orientation: u8) -> u32 {
+        let id = core.next_entity_id;
+        core.next_entity_id += 1;
+        core.entities.push(Entity {
+            id,
+            placed: PlacedBuilding {
+                q,
+                r,
+                definition_id: 2,
+                orientation,
+                recipe_id: None,
+                scenario_owned: false,
+            },
+            kind: BuildingKind::Belt,
+            cargo: None,
+            inventory: BTreeMap::new(),
+            reserved_inputs: BTreeMap::new(),
+            progress: 0,
+        });
+        id
     }
 
     #[test]
@@ -2492,6 +2666,80 @@ mod tests {
         let component_equivalent = core.delivered_by_item.get(&2).copied().unwrap_or(0) * 2;
         assert_eq!(produced, ore_in_system + component_equivalent);
         assert!(core.delivered > 0);
+    }
+
+    #[test]
+    fn incremental_recompile_matches_full_graph_and_skips_unrelated_components() {
+        let mut core = game("factory-demo");
+        add_test_belt(&mut core, 100, 100, 0);
+        add_test_belt(&mut core, 101, 100, 0);
+        core.compile_graph();
+
+        let index = core
+            .entities
+            .iter()
+            .position(|entity| (entity.placed.q, entity.placed.r) == (-3, 0))
+            .unwrap();
+        let old_links = core.graph_links_by_id();
+        let id = core.entities[index].id;
+        let changed_cells = BTreeSet::from([(-3, 0)]);
+        core.entities[index].placed.orientation = 1;
+
+        let recompiled =
+            core.recompile_graph_components(&old_links, &changed_cells, &BTreeSet::from([id]));
+        assert!(recompiled > 0);
+        assert!(recompiled < core.entities.len());
+        let incremental = core.graph_links_by_id();
+        core.compile_graph();
+        assert_eq!(core.graph_links_by_id(), incremental);
+        assert_eq!(
+            incremental.get(&(core.next_entity_id - 2)),
+            old_links.get(&(core.next_entity_id - 2))
+        );
+    }
+
+    #[test]
+    fn incremental_recompile_handles_component_splits_and_merges() {
+        let mut core = game("new-game");
+        core.entities.clear();
+        core.graph.clear();
+        core.next_entity_id = 1;
+        let left = add_test_belt(&mut core, 0, 0, 0);
+        let bridge = add_test_belt(&mut core, 1, 0, 0);
+        let right = add_test_belt(&mut core, 2, 0, 0);
+        core.compile_graph();
+        assert_eq!(core.graph_links_by_id()[&left], Some(bridge));
+        assert_eq!(core.graph_links_by_id()[&bridge], Some(right));
+
+        let old_links = core.graph_links_by_id();
+        let bridge_index = core
+            .entities
+            .iter()
+            .position(|entity| entity.id == bridge)
+            .unwrap();
+        core.entities.remove(bridge_index);
+        let changed_cells = BTreeSet::from([(1, 0)]);
+        let recompiled =
+            core.recompile_graph_components(&old_links, &changed_cells, &BTreeSet::from([bridge]));
+        assert_eq!(recompiled, 2);
+        assert_eq!(core.graph_links_by_id()[&left], None);
+        let incremental_split = core.graph_links_by_id();
+        core.compile_graph();
+        assert_eq!(core.graph_links_by_id(), incremental_split);
+
+        let old_links = core.graph_links_by_id();
+        let replacement = add_test_belt(&mut core, 1, 0, 0);
+        let recompiled = core.recompile_graph_components(
+            &old_links,
+            &changed_cells,
+            &BTreeSet::from([replacement]),
+        );
+        assert_eq!(recompiled, 3);
+        assert_eq!(core.graph_links_by_id()[&left], Some(replacement));
+        assert_eq!(core.graph_links_by_id()[&replacement], Some(right));
+        let incremental_merge = core.graph_links_by_id();
+        core.compile_graph();
+        assert_eq!(core.graph_links_by_id(), incremental_merge);
     }
 
     #[test]

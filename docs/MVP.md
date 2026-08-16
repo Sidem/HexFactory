@@ -1,7 +1,8 @@
 # Continuous Exploration v0.3 scope and acceptance
 
-Status: implemented locally as the active playable milestone. Playable Game v0.2 remains the
-shipped historical baseline; v0.3 deliberately changes its world and save contracts.
+Status: Continuous Exploration v0.3 is shipped. The v0.3.1 transport follow-up incrementally
+recompiles affected connected components after blueprint edits while preserving the same world and
+save contracts. Playable Game v0.2 remains the shipped historical baseline.
 
 ## Playable loop
 
@@ -66,10 +67,8 @@ release actions and must not be implied by local success.
 
 ## Explicit follow-ups
 
-1. Incremental connected-component graph recompilation instead of the current full small-graph
-   rebuild after edits.
-2. A Web Worker simulation boundary plus dirty snapshot/delta transport.
-3. Benchmarked capacity tiers before selecting WebGL instancing or making scale claims.
-4. Richer biomes/resource identification, inventory capacity/equipment, footprint-aware demolition
+1. A Web Worker simulation boundary plus dirty snapshot/delta transport.
+2. Benchmarked capacity tiers before selecting WebGL instancing or making scale claims.
+3. Richer biomes/resource identification, inventory capacity/equipment, footprint-aware demolition
    previews, inserters, splitters, lanes, power, fluids, circuits, trains, enemies, multiplayer, mod
    scripting, and evolutionary systems remain beyond this deliberately basic milestone.

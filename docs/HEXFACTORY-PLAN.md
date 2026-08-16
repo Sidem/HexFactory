@@ -1,8 +1,8 @@
 # HexFactory — architecture, roadmap, and implementation handoffs
 
-Status: Playable Game v0.2 shipped and browser-verified 2026-08-16. Continuous Exploration v0.3 is
-the active milestone: the environment and native player use continuous fixed-point world space,
-while hex coordinates are reserved for construction footprints and compiled transport.
+Status: Continuous Exploration v0.3 is shipped. The v0.3.1 transport follow-up incrementally
+recompiles affected connected components after edits. The next architecture milestone is the Web
+Worker simulation boundary with dirty snapshot/delta transport; benchmarked capacity tiers follow.
 
 Target repository: `https://github.com/Sidem/HexFactory`
 
@@ -18,6 +18,10 @@ read-only unless a future task explicitly authorizes a separately released gener
 
 ## Shipped implementation record
 
+- Transport Graph v0.3.1 replaces full post-edit graph rebuilds with stable-ID invalidation and
+  affected weak-component recompilation. Tests pin full-rebuild equivalence, unrelated-component
+  isolation, component splits, and component merges. Initialization and save restoration retain a
+  full deterministic compile.
 - Continuous Exploration v0.3 replaces hex-step movement with native two-axis intent, continuous
   collision and gathering, proximity-limited construction, definition-driven rotated footprints,
   and a construction-only/toggled grid. Its HXF1 save and generator versions are intentionally
@@ -35,8 +39,8 @@ read-only unless a future task explicitly authorizes a separately released gener
 - Live MVP: `https://sidem.github.io/HexFactory/`, deployed by Actions run `31947910003`.
 - The shipped slice keeps the approved boundary: `/hex` is the only HexLife dependency; factory
   simulation is an independent Rust/Wasm crate with compiled transport and native machine state.
-- First follow-ups: incremental connected-component recompilation, worker + dirty snapshot deltas,
-  then benchmarked capacity tiers before any renderer or scale claim.
+- First follow-ups: worker + dirty snapshot deltas, then benchmarked capacity tiers before any
+  renderer or scale claim.
 
 ## Product decision
 
@@ -273,7 +277,7 @@ The founding prompt created the repository, published `@hexlife/embed/hex@1.15.0
 native factory slice, and deployed the first live page. Its durable results and boundaries are
 recorded above; the obsolete prompt itself is intentionally not carried forward as project guidance.
 
-## Next milestone — Playable Game v0.2
+## Historical milestone — Playable Game v0.2
 
 The next release turns the architecture proof into a small, complete game. A new game begins in a
 deterministic seeded environment with the player beside a landing hub. The core loop is:
@@ -400,7 +404,7 @@ Enemies, combat, survival meters, multiplayer, networking, fluids, power, circui
 inserters, splitters, multi-lane belts, broad biome simulation, mod scripting, evolution/neural
 features, a WebGL rewrite, large-scale claims, and substantial music/audio production.
 
-## Exact next-session prompt — implement Playable Game v0.2
+## Historical exact-session prompt — implement Playable Game v0.2
 
 Copy everything inside the following block into a fresh Codex task:
 
