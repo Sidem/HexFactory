@@ -1,8 +1,10 @@
 # HexFactory — architecture, roadmap, and implementation handoffs
 
-Status: Worker Boundary v0.5 is shipped on Command Surface v0.4, Continuous Exploration v0.3, and
-the v0.3.1 incremental transport follow-up. The next architecture milestone is benchmarked capacity
-tiers before finer dirty tracking or a renderer decision.
+Status: Capacity Tiers v0.5.1 is shipped on Worker Boundary v0.5, Command Surface v0.4, Continuous
+Exploration v0.3, and the v0.3.1 incremental transport follow-up. The capacity gate is now closed:
+measured tiers are recorded in `docs/BENCHMARKS.md`, and they, not intuition, order the next
+architecture work. The next milestone is the deposit-reference and per-entity delta work that
+measurement identified, in that order, before any renderer decision.
 
 Target repository: `https://github.com/Sidem/HexFactory`
 
@@ -17,6 +19,16 @@ not a source dependency: HexFactory imports only the published package. Treat th
 read-only unless a future task explicitly authorizes a separately released generic package change.
 
 ## Shipped implementation record
+
+- Capacity Tiers v0.5.1 adds a deterministic headless capacity ladder to the native crate and
+  records the first measured tiers. Six steady-state tiers from 12 to 6,144 buildings are timed for
+  tick, snapshot, worker frame, delta payload, full compile, incremental recompile, and public edit
+  cost. The harness is excluded from the wasm target and from the CI gate; the test gate instead
+  pins the workload checksum so recorded numbers cannot silently stop being comparable. It changes
+  no simulation, save, determinism, or dependency contract. Its three findings — extractor deposit
+  lookup dominating tick cost, group-level deltas resending the whole buildings array, and
+  incremental recompilation costing about three times a full compile — replace the previous
+  unmeasured ordering of follow-up work.
 
 - Worker Boundary v0.5 moves the Wasm `Factory` into a dedicated module worker with serialized RPC,
   combines each frame's bounded commands and native ticks into one advance, and transports

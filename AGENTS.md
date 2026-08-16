@@ -2,7 +2,8 @@
 
 HexFactory is a deterministic browser factory simulator. Keep this file concise; the durable
 roadmap and implementation handoffs live in `docs/HEXFACTORY-PLAN.md`, architecture decisions in
-`docs/ARCHITECTURE.md`, and shipped MVP status in `docs/MVP.md`.
+`docs/ARCHITECTURE.md`, shipped MVP status in `docs/MVP.md`, and measured capacity in
+`docs/BENCHMARKS.md`.
 
 ## Workspace boundary
 
@@ -32,7 +33,8 @@ roadmap and implementation handoffs live in `docs/HEXFACTORY-PLAN.md`, architect
   JSON insertion order cannot change a run.
 - Time and quantities are integers. Any blocked transfer leaves its source unchanged.
 - Canvas 2D is replaceable presentation. Simulation truth comes only from native snapshots.
-- Do not claim large-map performance before a benchmark exists.
+- Every performance or scale claim must cite a measured tier in `docs/BENCHMARKS.md`. Claims beyond
+  the recorded ladder, and browser-side claims of any kind, are not yet supported.
 
 ## Commands
 
@@ -41,6 +43,8 @@ roadmap and implementation handoffs live in `docs/HEXFACTORY-PLAN.md`, architect
 - `npm run build` — Wasm + typecheck + production Vite build
 - `npm run format` / `npm run lint` / `npm run typecheck`
 - `npm run test:run` / `npm run test:rust`
+- `npm run bench` — native capacity ladder; deliberately outside the gate, since shared runners do
+  not produce comparable timings
 - `npm run quality` — complete local gate
 
 Commit both `package-lock.json` and `factory-wasm/Cargo.lock`. Do not commit `node_modules`, Rust

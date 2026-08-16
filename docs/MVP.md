@@ -95,14 +95,20 @@ delegation, worker-only Wasm ownership, revision enforcement, responsive breakpo
 motion, and accessible labels. Native tests pin dirty-group omission and revision metadata alongside
 the existing simulation invariants.
 
+Native tests also pin the capacity workload's checksum, delivery rate, and entity count, and assert
+that the capacity ladder still produces a result for every tier. The benchmark itself stays outside
+the gate because shared runners cannot produce comparable timings.
+
 The local release gate is npm audit, Prettier/Rust formatting, ESLint, strict TypeScript, Vitest,
 Rust tests, Wasm build, and production Vite build. Deployment and live verification are separate
 release actions and must not be implied by local success.
 
 ## Explicit follow-ups
 
-1. Benchmarked capacity tiers before selecting finer native dirty tracking, WebGL instancing, or
-   making scale claims.
+1. Closed by Capacity Tiers v0.5.1. Measured tiers are recorded in `docs/BENCHMARKS.md` and now
+   order the remaining native work: resolve extractor deposits instead of rescanning every tile per
+   tick, then make the buildings delta per-entity rather than per-group. A renderer decision and any
+   scale claim still wait on those, and on a browser-side measurement.
 2. Richer biomes/resource identification, inventory capacity/equipment, footprint-aware demolition
    previews, inserters, splitters, lanes, power, fluids, circuits, trains, enemies, multiplayer, mod
    scripting, and evolutionary systems remain beyond this deliberately basic milestone.

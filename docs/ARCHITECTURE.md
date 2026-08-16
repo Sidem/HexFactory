@@ -94,6 +94,13 @@ coalesced to one in flight plus the latest pending position.
 
 Rust still materializes the current snapshot to compare groups, and changed groups are replaced as
 whole arrays rather than item-level patches. This removes main-thread simulation and unnecessary
-cross-thread transport without making an unbenchmarked capacity claim. The next gate is a repeatable
-benchmark harness and measured capacity tiers before considering finer dirty tracking or WebGL
-instancing.
+cross-thread transport.
+
+That group granularity has since been measured. `docs/BENCHMARKS.md` records a delta payload of
+240–246 bytes per building at every tier from 12 to 6,144 buildings: because a running factory
+always changes some building, the whole buildings array crosses the boundary every frame, and the
+payload is effectively linear in blueprint size regardless of how little moved. Per-entity delta
+granularity is therefore a measured need rather than a speculative refinement. The same measurement
+found the running tick dominated by each extractor rescanning every generated tile, which is the
+first native change to make. A renderer decision remains gated on both, and on a browser-side
+measurement — the recorded ladder is native.

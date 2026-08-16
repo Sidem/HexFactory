@@ -2492,6 +2492,495 @@ fn hash_u64(hash: &mut u32, value: u64) {
     hash_bytes(hash, &value.to_le_bytes());
 }
 
+/// Deterministic headless capacity measurement.
+///
+/// The roadmap gates finer dirty tracking, any renderer decision, and every scale claim behind
+/// measured tiers. This module builds synthetic steady-state factories from the shipped
+/// definitions, drives them through the same entry points the worker uses, and reports per-phase
+/// cost so capacity is measured instead of asserted. It is excluded from the wasm target, so the
+/// deployed artifact never carries it.
+#[cfg(not(target_arch = "wasm32"))]
+pub mod capacity {
+    use super::*;
+    use std::time::Instant;
+
+    const DEFINITIONS: &str = include_str!("../../src/data/definitions.json");
+    const TECHNOLOGIES: &str = include_str!("../../src/data/technologies.json");
+
+    const EXTRACTOR: DefinitionId = 1;
+    const BELT: DefinitionId = 2;
+    const COMPOSER: DefinitionId = 3;
+    const CONTAINER: DefinitionId = 4;
+    const CONSUMER: DefinitionId = 5;
+    const COMPONENT_RECIPE: RecipeId = 1;
+    const ORE: ItemId = 1;
+
+    /// Report format version, so recorded JSON stays interpretable as the metric set changes.
+    pub const REPORT_SCHEMA: u32 = 1;
+    /// Lines sit three rows apart so one line's two-cell composer cannot touch the next.
+    const ROW_PITCH: i32 = 3;
+    /// Large enough that no deposit empties inside a measured run, so every tier measures the same
+    /// steady state rather than a decaying one.
+    const DEPOSIT_QUANTITY: u32 = 1_000_000;
+    /// Reach far past the generated blueprint so edit measurements are never range-rejected.
+    const BUILD_RANGE_HEXES: u32 = 100_000;
+    /// The bounded idle batch the host sends on a frame with no held key.
+    const IDLE_COMMANDS: &str = "[{\"type\":\"move_intent\",\"x\":0,\"y\":0}]";
+    /// Rotation restores a belt's original orientation every six edits.
+    const ROTATION_CYCLE: u32 = 6;
+
+    /// One measured tier: `lines` independent
+    /// `extractor → belts → composer → belt → container → belt → consumer` production lines.
+    ///
+    /// Sample budgets shrink as tiers grow so a complete run stays interactive; per-unit results
+    /// stay comparable because every metric is reported per tick, per frame, or per edit.
+    #[derive(Clone, Copy, Debug)]
+    pub struct TierSpec {
+        pub key: &'static str,
+        pub lines: u32,
+        pub belt_span: u32,
+        pub warmup_ticks: u32,
+        pub measured_ticks: u32,
+        pub frames: u32,
+        pub snapshots: u32,
+        pub edits: u32,
+    }
+
+    impl TierSpec {
+        /// Entities per line: extractor, transport belts, composer, output belt, container,
+        /// delivery belt, and consumer.
+        pub fn entities_per_line(&self) -> u32 {
+            self.belt_span + 6
+        }
+
+        pub fn entities(&self) -> u32 {
+            self.lines * self.entities_per_line()
+        }
+    }
+
+    /// Measured cost for one tier. Every field is a primitive so the report stays a stable,
+    /// machine-readable record.
+    #[derive(Clone, Debug, Serialize)]
+    pub struct TierResult {
+        pub key: String,
+        pub lines: u32,
+        pub entities: usize,
+        pub tiles: usize,
+        pub chunks: usize,
+        pub measured_ticks: u32,
+        /// Mean cost of one simulation tick with no snapshot or serialization.
+        pub tick_us: f64,
+        pub ticks_per_second: f64,
+        /// Mean cost of building one complete native snapshot, before serialization.
+        pub snapshot_us: f64,
+        /// Mean cost of one worker frame: bounded command batch, one tick, and a serialized delta.
+        pub frame_us: f64,
+        pub frames_per_second: f64,
+        /// Mean serialized delta payload crossing the worker boundary per frame.
+        pub delta_bytes: f64,
+        /// Mean cost of one full deterministic transport compile.
+        pub full_compile_us: f64,
+        /// Mean cost of the incremental transport machinery alone, for the same edit: stable-ID
+        /// link capture plus affected-component recompilation. Directly comparable to
+        /// `full_compile_us`.
+        pub incremental_recompile_us: f64,
+        /// Mean cost of one complete public rotate edit, including legality checks. The difference
+        /// from `incremental_recompile_us` is what the edit path spends outside transport.
+        pub edit_us: f64,
+        /// Native checksum after the measured tick phase, pinning the workload against drift.
+        pub checksum: u32,
+        pub delivered: u64,
+    }
+
+    #[derive(Clone, Debug, Serialize)]
+    pub struct Report {
+        pub schema: u32,
+        pub crate_version: String,
+        pub profile: String,
+        pub tiers: Vec<TierResult>,
+    }
+
+    /// The recorded tier ladder. It spans one line to a blueprint far past anything the current
+    /// game asks a player to build, so the measurement shows where cost stops being linear.
+    pub fn default_tiers() -> Vec<TierSpec> {
+        vec![
+            tier("line", 1, 2000, 400, 400, 60),
+            tier("small", 16, 1000, 200, 200, 60),
+            tier("medium", 64, 400, 100, 100, 60),
+            tier("wide", 128, 240, 60, 60, 60),
+            tier("large", 256, 120, 40, 40, 30),
+            tier("xlarge", 512, 60, 20, 20, 12),
+        ]
+    }
+
+    /// A reduced ladder for smoke coverage inside the test gate.
+    pub fn quick_tiers() -> Vec<TierSpec> {
+        vec![tier("line", 1, 20, 5, 5, 6), tier("small", 16, 20, 5, 5, 6)]
+    }
+
+    fn tier(
+        key: &'static str,
+        lines: u32,
+        measured_ticks: u32,
+        frames: u32,
+        snapshots: u32,
+        edits: u32,
+    ) -> TierSpec {
+        TierSpec {
+            key,
+            lines,
+            belt_span: 6,
+            // Long enough for the first components to reach the consumer, so every tier is timed
+            // with cargo actually moving.
+            warmup_ticks: 40,
+            measured_ticks,
+            frames,
+            snapshots,
+            edits,
+        }
+    }
+
+    fn catalogs() -> (DefinitionsInput, TechnologiesInput) {
+        (
+            serde_json::from_str(DEFINITIONS).expect("shipped definitions parse"),
+            serde_json::from_str(TECHNOLOGIES).expect("shipped technologies parse"),
+        )
+    }
+
+    fn placed(
+        q: i32,
+        r: i32,
+        definition_id: DefinitionId,
+        recipe_id: Option<RecipeId>,
+    ) -> PlacedBuilding {
+        PlacedBuilding {
+            q,
+            r,
+            definition_id,
+            // Every line runs east, so compiled transport is a straight directed chain.
+            orientation: 0,
+            recipe_id,
+            // Left unowned so the edit phase can exercise the ordinary player rotate path.
+            scenario_owned: false,
+        }
+    }
+
+    /// Build the synthetic scenario for a tier. It is an ordinary scenario definition, validated by
+    /// the same rules as the shipped catalog.
+    pub(crate) fn tier_scenario(spec: &TierSpec) -> ScenarioDefinition {
+        let mut resources = Vec::new();
+        let mut buildings = Vec::new();
+        for line in 0..spec.lines {
+            let r = line as i32 * ROW_PITCH;
+            resources.push(ScenarioResource {
+                q: 0,
+                r,
+                item_id: ORE,
+                quantity: DEPOSIT_QUANTITY,
+            });
+            buildings.push(placed(0, r, EXTRACTOR, None));
+            for q in 1..=spec.belt_span as i32 {
+                buildings.push(placed(q, r, BELT, None));
+            }
+            let composer_q = spec.belt_span as i32 + 1;
+            buildings.push(placed(composer_q, r, COMPOSER, Some(COMPONENT_RECIPE)));
+            buildings.push(placed(composer_q + 1, r, BELT, None));
+            buildings.push(placed(composer_q + 2, r, CONTAINER, None));
+            buildings.push(placed(composer_q + 3, r, BELT, None));
+            buildings.push(placed(composer_q + 4, r, CONSUMER, None));
+        }
+        ScenarioDefinition {
+            id: 1,
+            key: format!("capacity-{}", spec.key),
+            name: format!("Capacity tier {}", spec.key),
+            description: "Synthetic steady-state capacity workload".into(),
+            version: 1,
+            seed: 2_071_003_907,
+            chunk_size: 8,
+            // Terrain is uniform ground so a tier measures transport and machines, not the
+            // incidental obstacle layout of a generated seed.
+            generated_environment: false,
+            // Away from every line, so the idle player never blocks a footprint.
+            player_spawn: Coordinate { q: -6, r: -6 },
+            player_facing: 0,
+            build_range: BUILD_RANGE_HEXES,
+            objective_item_id: 2,
+            // Never reached, so victory cannot change the measured workload partway through.
+            objective_quantity: u32::MAX,
+            initial_inventory: Vec::new(),
+            initial_researched: vec![1, 2, 3, 4],
+            resources,
+            buildings,
+        }
+    }
+
+    /// A warmed core for a tier, advanced far enough that cargo is already flowing.
+    pub(crate) fn warm_core(spec: &TierSpec) -> Core {
+        let (definitions, technologies) = catalogs();
+        let scenario = tier_scenario(spec);
+        validate_all(
+            &definitions,
+            &technologies,
+            &ScenariosInput {
+                version: 1,
+                scenarios: vec![scenario.clone()],
+            },
+        )
+        .expect("capacity scenario is valid");
+        let mut core =
+            Core::new(&definitions, &technologies, &scenario, None).expect("capacity core builds");
+        core.advance_ticks(spec.warmup_ticks);
+        core
+    }
+
+    fn warm_factory(spec: &TierSpec) -> Factory {
+        let (definitions, technologies) = catalogs();
+        let scenario = tier_scenario(spec);
+        Factory {
+            definitions,
+            technologies,
+            scenarios: ScenariosInput {
+                version: 1,
+                scenarios: vec![scenario],
+            },
+            core: warm_core(spec),
+            snapshot_revision: 0,
+            last_snapshot: None,
+        }
+    }
+
+    pub fn measure_tier(spec: &TierSpec) -> TierResult {
+        let mut core = warm_core(spec);
+        let entities = core.entities.len();
+        let tiles = core.tiles.len();
+        let chunks = core.generated_chunks.len();
+
+        let start = Instant::now();
+        core.advance_ticks(spec.measured_ticks);
+        let tick_us = per(start, spec.measured_ticks);
+        let checksum = core.checksum();
+        let delivered = core.delivered;
+
+        let start = Instant::now();
+        for _ in 0..spec.snapshots {
+            let snapshot = core.snapshot();
+            std::hint::black_box(&snapshot);
+        }
+        let snapshot_us = per(start, spec.snapshots);
+
+        let (frame_us, delta_bytes) = measure_frames(spec);
+        let full_compile_us = measure_full_compile(spec);
+        let incremental_recompile_us = measure_recompiles(spec);
+        let edit_us = measure_edits(spec);
+
+        TierResult {
+            key: spec.key.into(),
+            lines: spec.lines,
+            entities,
+            tiles,
+            chunks,
+            measured_ticks: spec.measured_ticks,
+            tick_us,
+            ticks_per_second: rate(tick_us),
+            snapshot_us,
+            frame_us,
+            frames_per_second: rate(frame_us),
+            delta_bytes,
+            full_compile_us,
+            incremental_recompile_us,
+            edit_us,
+            checksum,
+            delivered,
+        }
+    }
+
+    /// One worker frame, measured through the exact entry points the host RPC calls.
+    fn measure_frames(spec: &TierSpec) -> (f64, f64) {
+        let mut factory = warm_factory(spec);
+        // The first delta is a complete snapshot; take it outside the measurement so the reported
+        // payload is the steady-state per-frame cost.
+        let _ = factory.snapshot_delta_json();
+        let mut bytes = 0usize;
+        let start = Instant::now();
+        for _ in 0..spec.frames {
+            if factory.advance_json(IDLE_COMMANDS, 1).is_err() {
+                panic!("capacity frame commands must be accepted");
+            }
+            bytes += factory.snapshot_delta_json().len();
+        }
+        let frame_us = per(start, spec.frames);
+        (frame_us, mean(bytes as f64, spec.frames))
+    }
+
+    /// The full deterministic compile used on load and restore, as the incremental baseline.
+    fn measure_full_compile(spec: &TierSpec) -> f64 {
+        let mut core = warm_core(spec);
+        let samples = spec.edits.max(1);
+        let start = Instant::now();
+        for _ in 0..samples {
+            core.compile_graph();
+        }
+        per(start, samples)
+    }
+
+    /// The complete public rotate path. Rotating a belt through all six orientations covers edits
+    /// that merge and split neighbouring components, not only the cheap self-contained case.
+    fn measure_edits(spec: &TierSpec) -> f64 {
+        let mut core = warm_core(spec);
+        let edits = rotation_edits(spec);
+        if edits == 0 {
+            return 0.0;
+        }
+        let start = Instant::now();
+        for edit in 0..edits {
+            // Spread edits across lines so no single component stays warm in cache.
+            core.rotate(1, edit_row(spec, edit))
+                .expect("capacity belt rotates");
+        }
+        per(start, edits)
+    }
+
+    /// The incremental transport machinery alone, driving the same rotations. Isolating it from
+    /// the edit path's legality checks is what makes the comparison against a full compile fair.
+    fn measure_recompiles(spec: &TierSpec) -> f64 {
+        let mut core = warm_core(spec);
+        let edits = rotation_edits(spec);
+        if edits == 0 {
+            return 0.0;
+        }
+        // Entity lookup is part of the edit path, not the transport machinery, so resolve targets
+        // before timing. No entity is added or removed here, so the indices stay valid.
+        let targets: Vec<(usize, u32)> = (0..edits)
+            .map(|edit| {
+                let index = core
+                    .entity_at(1, edit_row(spec, edit))
+                    .expect("capacity belt exists");
+                (index, core.entities[index].id)
+            })
+            .collect();
+
+        let start = Instant::now();
+        for &(index, id) in &targets {
+            let old_links = core.graph_links_by_id();
+            let old_footprint = core.entity_footprint(&core.entities[index]);
+            let orientation = (core.entities[index].placed.orientation + 1) % 6;
+            let next_footprint = core.footprint_for(core.entities[index].placed, orientation);
+            core.entities[index].placed.orientation = orientation;
+            let changed_cells = old_footprint
+                .into_iter()
+                .chain(next_footprint)
+                .map(|cell| (cell.q, cell.r))
+                .collect();
+            core.recompile_graph_components(&old_links, &changed_cells, &BTreeSet::from([id]));
+        }
+        per(start, edits)
+    }
+
+    fn rotation_edits(spec: &TierSpec) -> u32 {
+        spec.edits - (spec.edits % ROTATION_CYCLE)
+    }
+
+    fn edit_row(spec: &TierSpec, edit: u32) -> i32 {
+        ((edit / ROTATION_CYCLE) % spec.lines) as i32 * ROW_PITCH
+    }
+
+    pub fn run(specs: &[TierSpec]) -> Report {
+        run_with(specs, |_| {})
+    }
+
+    /// Run the ladder, reporting each tier as it completes so a long run shows progress.
+    pub fn run_with(specs: &[TierSpec], mut observe: impl FnMut(&TierResult)) -> Report {
+        let mut tiers = Vec::new();
+        for spec in specs {
+            let result = measure_tier(spec);
+            observe(&result);
+            tiers.push(result);
+        }
+        Report {
+            schema: REPORT_SCHEMA,
+            crate_version: env!("CARGO_PKG_VERSION").into(),
+            profile: if cfg!(debug_assertions) {
+                "debug".into()
+            } else {
+                "release".into()
+            },
+            tiers,
+        }
+    }
+
+    pub fn format_json(report: &Report) -> String {
+        serde_json::to_string_pretty(report).expect("report is serializable")
+    }
+
+    pub fn table_header() -> String {
+        format!(
+            "{:<8}{:>7}{:>10}{:>11}{:>10}{:>12}{:>11}{:>10}{:>13}{:>12}{:>13}{:>10}",
+            "tier",
+            "lines",
+            "entities",
+            "tick us",
+            "ticks/s",
+            "snapshot us",
+            "frame us",
+            "frames/s",
+            "delta bytes",
+            "compile us",
+            "recompile us",
+            "edit us",
+        )
+    }
+
+    pub fn table_row(tier: &TierResult) -> String {
+        format!(
+            "{:<8}{:>7}{:>10}{:>11.1}{:>10.0}{:>12.1}{:>11.1}{:>10.0}{:>13.0}{:>12.1}{:>13.1}{:>10.1}",
+            tier.key,
+            tier.lines,
+            tier.entities,
+            tier.tick_us,
+            tier.ticks_per_second,
+            tier.snapshot_us,
+            tier.frame_us,
+            tier.frames_per_second,
+            tier.delta_bytes,
+            tier.full_compile_us,
+            tier.incremental_recompile_us,
+            tier.edit_us,
+        )
+    }
+
+    pub fn format_table(report: &Report) -> String {
+        let mut lines = vec![
+            format!(
+                "HexFactory capacity tiers — factory-wasm {} ({} profile)",
+                report.crate_version, report.profile
+            ),
+            table_header(),
+        ];
+        lines.extend(report.tiers.iter().map(table_row));
+        lines.join("\n")
+    }
+
+    fn per(start: Instant, samples: u32) -> f64 {
+        mean(start.elapsed().as_secs_f64() * 1e6, samples)
+    }
+
+    fn mean(total: f64, samples: u32) -> f64 {
+        if samples == 0 {
+            0.0
+        } else {
+            total / f64::from(samples)
+        }
+    }
+
+    fn rate(microseconds: f64) -> f64 {
+        if microseconds <= 0.0 {
+            0.0
+        } else {
+            1e6 / microseconds
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -3102,5 +3591,42 @@ mod tests {
         assert_eq!(floor_div(-1, 8), -1);
         assert_eq!(floor_div(-8, 8), -1);
         assert_eq!(floor_div(-9, 8), -2);
+    }
+
+    #[test]
+    fn capacity_workload_is_deterministic_and_actually_produces() {
+        let spec = capacity::quick_tiers()[1];
+        let mut first = capacity::warm_core(&spec);
+        let mut second = capacity::warm_core(&spec);
+        first.advance_ticks(120);
+        second.advance_ticks(120);
+        assert_eq!(first.checksum(), second.checksum());
+        // Pinned so a change to definitions, the workload, or the simulation cannot silently
+        // invalidate comparisons against previously recorded tier numbers.
+        assert_eq!(first.checksum(), 1_693_021_923);
+        assert_eq!(first.entities.len(), spec.entities() as usize);
+        // Every line must be running end to end, or the tiers would measure an idle blueprint.
+        assert_eq!(first.delivered, u64::from(spec.lines) * 14);
+    }
+
+    #[test]
+    fn capacity_ladder_reports_a_result_for_every_tier() {
+        let specs = capacity::quick_tiers();
+        let report = capacity::run(&specs);
+        assert_eq!(report.schema, capacity::REPORT_SCHEMA);
+        assert_eq!(report.tiers.len(), specs.len());
+        for (tier, spec) in report.tiers.iter().zip(&specs) {
+            assert_eq!(tier.entities, spec.entities() as usize);
+            assert!(tier.tick_us > 0.0);
+            assert!(tier.frame_us > 0.0);
+            assert!(tier.full_compile_us > 0.0);
+            assert!(tier.incremental_recompile_us > 0.0);
+            assert!(tier.edit_us > 0.0);
+            // A steady-state frame always carries at least the tick's changed groups.
+            assert!(tier.delta_bytes > 0.0);
+        }
+        let table = capacity::format_table(&report);
+        assert!(specs.iter().all(|spec| table.contains(spec.key)));
+        assert!(capacity::format_json(&report).contains("\"schema\""));
     }
 }

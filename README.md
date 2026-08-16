@@ -61,12 +61,20 @@ npm run quality
   never imports HexLife source or package internals.
 
 See the [roadmap and implementation handoff](docs/HEXFACTORY-PLAN.md),
-[architecture](docs/ARCHITECTURE.md), [current acceptance](docs/MVP.md), and
-[agent invariants](AGENTS.md).
+[architecture](docs/ARCHITECTURE.md), [current acceptance](docs/MVP.md),
+[measured capacity](docs/BENCHMARKS.md), and [agent invariants](AGENTS.md).
 
-No large-map performance claim is made. Blueprint edits incrementally recompile affected transport
-components and simulation is worker-hosted with dirty snapshot deltas; measured capacity tiers are
-the next gate before any renderer rewrite.
+## Measured capacity
+
+Capacity is now measured rather than asserted. On the recorded native host, a worker frame stays
+within a 60 Hz budget through 1,536 simultaneous buildings and within 30 Hz through 3,072 — far
+above anything the game asks a player to build. The measurement also names its own next targets:
+tick cost is dominated by each extractor rescanning every generated tile, and the snapshot delta
+resends the whole buildings array whenever any building changes.
+
+These are native figures. No browser performance claim is made, and no claim is made beyond the
+recorded ladder. Run the ladder with `npm run bench`; see [docs/BENCHMARKS.md](docs/BENCHMARKS.md)
+for method, results, and limits.
 
 ## License
 
