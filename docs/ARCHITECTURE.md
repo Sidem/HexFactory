@@ -63,9 +63,11 @@ both host and core. Native ticks are a separate bounded call. TypeScript does no
 coordinates, quantities, insight, research, machines, cargo, or victory.
 
 The replaceable Canvas 2D renderer consumes snapshots and draws continuous regions/resources,
-multi-cell buildings, player, hover, selection, build radius, and legality layers. The construction
-grid is hidden outside editing unless explicitly toggled. Camera following, pan/zoom, responsive
-panels, feedback, and reduced-motion behavior are presentation only. `@hexlife/embed/hex` performs
+multi-cell buildings, player, hover, selection, build radius, legality, definition labels, and cargo
+layers. The construction grid is hidden outside editing unless explicitly toggled. The command bar,
+snapshot-derived next-action guidance, inventory/research panels, construction dock, held touch pad,
+camera following, pan/zoom, feedback, and reduced-motion behavior are presentation only. Touch and
+keyboard movement share the same bounded native intent commands. `@hexlife/embed/hex` performs
 construction projection, rotation, and picking; TypeScript does not integrate player motion.
 
 ## Save contract

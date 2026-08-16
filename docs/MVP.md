@@ -1,8 +1,25 @@
-# Continuous Exploration v0.3 scope and acceptance
+# Command Surface v0.4 scope and acceptance
 
-Status: Continuous Exploration v0.3 is shipped. The v0.3.1 transport follow-up incrementally
-recompiles affected connected components after blueprint edits while preserving the same world and
-save contracts. Playable Game v0.2 remains the shipped historical baseline.
+Status: Command Surface v0.4 is shipped. It redesigns the playable v0.3.1 simulation without
+changing native world, transport, save, or checksum contracts. Continuous Exploration v0.3 and
+Playable Game v0.2 remain the shipped simulation and historical baselines.
+
+## Player-facing command surface
+
+- The continuous world fills the available viewport. A compact command bar keeps the landing
+  directive, progress, insight, pause state, and game menu visible without pushing play below the
+  fold.
+- Snapshot-derived guidance names the next useful action across gathering, delivery, research,
+  automation, composition, victory, and the Factory demo. It is explanatory host presentation; it
+  does not mutate or reconstruct native state.
+- Inventory and exact carried quantities sit with Gather and Deliver. Research shows prerequisite,
+  affordability, and completion states. The bottom construction dock keeps inspect/edit/build,
+  locks, exact costs, and orientation in one spatial workflow.
+- Resource labels expose identity and remaining quantity; machines expose definition identity,
+  direction, progress, inventory, and snapshot-backed cargo animation in the world.
+- At 390 px the map remains the primary surface. Mission, research, and session controls become
+  dismissible overlays, while a held four-direction touch pad emits the same bounded movement
+  intents as WASD and direct Gather/Deliver actions remain available.
 
 ## Playable loop
 

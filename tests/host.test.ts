@@ -229,6 +229,11 @@ describe("availability and expanded snapshot adapter", () => {
     expect(html).toContain('id="technology-list"');
     expect(html).toContain('id="continue"');
     expect(html).toContain("<kbd>W</kbd>");
+    expect(html).toContain('id="next-action-title"');
+    expect(html).toContain('data-move-key="KeyW"');
+    expect(html).toContain('data-native-action="gather"');
+    expect(html).toContain('aria-label="Current mission"');
+    expect(styles).toContain("height: 100dvh");
     expect(styles).toContain("@media (max-width: 720px)");
     expect(styles).toContain("prefers-reduced-motion: reduce");
   });

@@ -212,8 +212,9 @@ export class CanvasFactoryRenderer {
       height * 0.5,
       Math.max(width, height),
     );
-    gradient.addColorStop(0, "#182720");
-    gradient.addColorStop(1, "#091114");
+    gradient.addColorStop(0, "#173128");
+    gradient.addColorStop(0.55, "#0c1d19");
+    gradient.addColorStop(1, "#06100f");
     ctx.fillStyle = gradient;
     ctx.fillRect(0, 0, width, height);
     if (!this.snapshot) return;
@@ -290,14 +291,25 @@ export class CanvasFactoryRenderer {
       ctx.arc(center.x, center.y, radius + pulse, 0, Math.PI * 2);
       ctx.fill();
       ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(center.x, center.y, Math.max(4, size * 0.13), 0, Math.PI * 2);
+      ctx.fillStyle = item?.color ?? "#fff";
+      ctx.fill();
+      const label = `${item?.name ?? "Resource"} · ${resource.quantity}`;
+      const fontSize = Math.max(10, size * 0.27);
+      ctx.font = `700 ${fontSize}px system-ui`;
+      const labelWidth = ctx.measureText(label).width + 16;
+      const labelY = center.y - radius - 24;
+      ctx.fillStyle = "#081411e8";
+      ctx.strokeStyle = `${item?.color ?? "#ffffff"}99`;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.roundRect(center.x - labelWidth / 2, labelY, labelWidth, 22, 8);
+      ctx.fill();
+      ctx.stroke();
       ctx.fillStyle = "#f4f7f5";
-      ctx.font = `700 ${Math.max(10, size * 0.28)}px system-ui`;
       ctx.textAlign = "center";
-      ctx.fillText(
-        `${item?.icon ?? "RES"} ${resource.quantity}`,
-        center.x,
-        center.y + 4,
-      );
+      ctx.fillText(label, center.x, labelY + 15);
     }
   }
 
@@ -381,6 +393,18 @@ export class CanvasFactoryRenderer {
     ctx.moveTo(center.x, center.y);
     ctx.lineTo(tip.x, tip.y);
     ctx.stroke();
+    const definition = this.definitions.buildings.find(
+      ({ id }) => id === building.definition_id,
+    );
+    ctx.fillStyle = "#f5fbf8";
+    ctx.font = `900 ${Math.max(8, size * 0.23)}px system-ui`;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(
+      definition?.icon ?? building.kind.slice(0, 3).toUpperCase(),
+      center.x,
+      center.y,
+    );
     if (building.progress_total > 0 && building.progress > 0) {
       ctx.strokeStyle = "#f5d572";
       ctx.lineWidth = Math.max(2, size * 0.1);
@@ -400,10 +424,48 @@ export class CanvasFactoryRenderer {
       0,
     );
     if (quantity > 0) {
+      ctx.fillStyle = "#07100fdd";
+      ctx.beginPath();
+      ctx.arc(
+        center.x + size * 0.47,
+        center.y - size * 0.4,
+        size * 0.22,
+        0,
+        Math.PI * 2,
+      );
+      ctx.fill();
       ctx.fillStyle = "#fff";
-      ctx.font = `bold ${Math.max(10, size * 0.34)}px system-ui`;
-      ctx.textAlign = "center";
-      ctx.fillText(String(quantity), center.x, center.y + 4);
+      ctx.font = `bold ${Math.max(9, size * 0.25)}px system-ui`;
+      ctx.fillText(
+        String(quantity),
+        center.x + size * 0.47,
+        center.y - size * 0.4,
+      );
+    }
+    if (building.cargo) {
+      const item = this.definitions.items.find(
+        ({ id }) => id === building.cargo?.item_id,
+      );
+      const travel = this.reducedMotion
+        ? 0.72
+        : 0.3 + ((this.now / 900) % 0.55);
+      const cargoPoint = {
+        x: center.x + (tip.x - center.x) * travel,
+        y: center.y + (tip.y - center.y) * travel,
+      };
+      ctx.beginPath();
+      ctx.arc(
+        cargoPoint.x,
+        cargoPoint.y,
+        Math.max(4, size * 0.11),
+        0,
+        Math.PI * 2,
+      );
+      ctx.fillStyle = item?.color ?? "#fff";
+      ctx.shadowColor = item?.color ?? "#fff";
+      ctx.shadowBlur = 10;
+      ctx.fill();
+      ctx.shadowBlur = 0;
     }
   }
 
@@ -417,6 +479,11 @@ export class CanvasFactoryRenderer {
       y: center.y + (player.facing_y / 1000) * length,
     };
     const ctx = this.context;
+    ctx.beginPath();
+    ctx.arc(center.x, center.y, size * 0.48, 0, Math.PI * 2);
+    ctx.strokeStyle = "#72e2b477";
+    ctx.lineWidth = 2;
+    ctx.stroke();
     ctx.fillStyle = "#f4f7f2";
     ctx.strokeStyle = "#142028";
     ctx.lineWidth = 3;
@@ -424,6 +491,11 @@ export class CanvasFactoryRenderer {
     ctx.arc(center.x, center.y, size * 0.3, 0, Math.PI * 2);
     ctx.fill();
     ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(tip.x, tip.y, Math.max(3, size * 0.08), 0, Math.PI * 2);
+    ctx.fillStyle = "#ef6f61";
+    ctx.fill();
+    ctx.textBaseline = "alphabetic";
     ctx.strokeStyle = "#ef6f61";
     ctx.lineWidth = 4;
     ctx.beginPath();

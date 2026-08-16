@@ -50,6 +50,7 @@ let hoverPreview: PlacementPreview | null = null;
 let accumulator = 0;
 let previousTime = performance.now();
 let feedbackTimer = 0;
+let lastEvent = "";
 let panPointer: { id: number; x: number; y: number; moved: boolean } | null =
   null;
 let suppressMapClick = false;
@@ -63,6 +64,7 @@ for (const definition of host.definitions.buildings.filter(
   button.type = "button";
   button.dataset.tool = String(definition.id);
   button.setAttribute("aria-label", `Build ${definition.name}`);
+  button.innerHTML = `<span>${definition.icon}</span><small>${definition.name}</small>`;
   toolShelf.append(button);
 }
 
@@ -76,7 +78,9 @@ function update(next: FactorySnapshot): void {
   required<HTMLElement>("insight-value").textContent =
     snapshot.insight.toLocaleString();
   required<HTMLElement>("objective-value").textContent =
-    `${snapshot.objective.delivered} / ${snapshot.objective.required}`;
+    snapshot.scenario === "factory-demo"
+      ? "LIVE"
+      : `${snapshot.objective.delivered} / ${snapshot.objective.required}`;
   required<HTMLElement>("position-value").textContent =
     `${(snapshot.player.x / 1024).toFixed(1)}, ${(snapshot.player.y / 1024).toFixed(1)}`;
   required<HTMLElement>("checksum-value").textContent = snapshot.checksum
@@ -88,7 +92,10 @@ function update(next: FactorySnapshot): void {
   renderTechnologies();
   renderInspector();
   renderObjective();
-  if (snapshot.events.length) showFeedback(snapshot.events.at(-1) ?? "");
+  renderNextAction();
+  const latestEvent = snapshot.events.at(-1) ?? "";
+  if (latestEvent && latestEvent !== lastEvent) showFeedback(latestEvent);
+  lastEvent = latestEvent;
   const victory = required<HTMLDivElement>("victory");
   victory.hidden = !snapshot.victory;
   if (!previousVictory && snapshot.victory)
@@ -125,7 +132,8 @@ function renderHotbar(): void {
     );
     button.disabled = availability.locked;
     button.classList.toggle("unaffordable", !availability.affordable);
-    button.innerHTML = `<span>${definition.icon} · ${definition.name}</span><small>${availability.locked ? "Locked" : availability.costLabel}</small>`;
+    button.classList.toggle("locked", availability.locked);
+    button.innerHTML = `<span>${availability.locked ? "◇" : definition.icon}</span><small>${availability.locked ? definition.name : `${definition.name} · ${availability.costLabel}`}</small>`;
     button.title = `${definition.description} ${availability.costLabel}`;
   }
 }
@@ -140,7 +148,11 @@ function renderTechnologies(): void {
     button.dataset.technologyId = String(technology.id);
     button.disabled =
       state.complete || !state.prerequisitesMet || !state.affordable;
-    button.className = state.complete ? "complete" : "";
+    button.className = state.complete
+      ? "complete"
+      : state.prerequisitesMet && state.affordable
+        ? "available"
+        : "";
     button.setAttribute(
       "aria-label",
       `Research ${technology.name} for ${technology.cost} insight`,
@@ -197,6 +209,74 @@ function renderObjective(): void {
   required<HTMLElement>("objective-detail").textContent = snapshot.victory
     ? `Complete: ${snapshot.objective.delivered} ${item?.name ?? "items"} delivered. Continue building freely.`
     : `Deliver ${snapshot.objective.required} ${item?.name ?? "items"} to the landing hub. Progress: ${snapshot.objective.delivered}.`;
+  const progress = Math.min(
+    100,
+    (snapshot.objective.delivered / Math.max(1, snapshot.objective.required)) *
+      100,
+  );
+  required<HTMLElement>("mission-progress-fill").style.width =
+    snapshot.scenario === "factory-demo" ? "100%" : `${progress}%`;
+  required<HTMLElement>("mission-title").textContent = snapshot.victory
+    ? "Landing directive complete — free build enabled"
+    : snapshot.scenario === "factory-demo"
+      ? "Observe the compiled production line"
+      : "Establish component production";
+}
+
+function renderNextAction(): void {
+  const ore = snapshot.player.inventory["1"] ?? 0;
+  const components = snapshot.player.inventory["2"] ?? 0;
+  const crystals = snapshot.player.inventory["3"] ?? 0;
+  const researched = new Set(snapshot.researched);
+  let title = "Survey the landing zone";
+  let detail = "Move toward a glowing resource deposit and gather a sample.";
+  if (snapshot.victory) {
+    title = "Factory online";
+    detail =
+      "The landing directive is complete. Expand, optimize, or inspect the running line.";
+  } else if (snapshot.scenario === "factory-demo") {
+    title = "Trace the material flow";
+    detail =
+      "Follow cargo from extractor to receiver. Pause or single-step to inspect arbitration.";
+  } else if (!researched.has(1) && snapshot.insight >= 3) {
+    title = "Unlock Field Logistics";
+    detail =
+      "You have enough insight. Research Field Logistics to add belts to the construction dock.";
+  } else if (!researched.has(1) && ore + crystals === 0) {
+    title = "Gather your first material";
+    detail =
+      "Walk beside a glowing deposit, then gather. Resource circles show their remaining amount.";
+  } else if (!researched.has(1)) {
+    title = "Deliver materials for insight";
+    detail =
+      "Return to the gold landing hub and deliver your cargo. Three ore fund the first breakthrough.";
+  } else if (!researched.has(2) && snapshot.insight >= 5) {
+    title = "Automate extraction";
+    detail =
+      "Research Automated Extraction, then place an extractor directly on a resource deposit.";
+  } else if (!researched.has(2)) {
+    title = "Fund Automated Extraction";
+    detail =
+      "Gather and deliver more raw material until you have five insight.";
+  } else if (!researched.has(3) && snapshot.insight >= 8) {
+    title = "Unlock Composition";
+    detail =
+      "Research Composition to unlock the two-hex composer and the final production path.";
+  } else if (!researched.has(3)) {
+    title = "Build the supply line";
+    detail =
+      "Use extractors and directional belts to automate deliveries and earn eight insight.";
+  } else if (components > 0) {
+    title = "Deliver completed components";
+    detail =
+      "Bring components to the landing hub and deliver them to finish the directive.";
+  } else {
+    title = "Compose three components";
+    detail =
+      "Route ore into a composer, point its output toward the hub, and keep the line supplied.";
+  }
+  required<HTMLElement>("next-action-title").textContent = title;
+  required<HTMLElement>("next-action-detail").textContent = detail;
 }
 
 function showFeedback(message: string): void {
@@ -212,8 +292,13 @@ function showFeedback(message: string): void {
 
 function setPlaying(value: boolean): void {
   playing = value;
-  playButton.textContent = playing ? "Pause" : "Play";
+  playButton.textContent = playing ? "Ⅱ" : "▶";
   playButton.setAttribute("aria-pressed", String(playing));
+  playButton.setAttribute(
+    "aria-label",
+    playing ? "Pause simulation" : "Play simulation",
+  );
+  playButton.title = playing ? "Pause simulation" : "Play simulation";
 }
 
 function syncSessionInputs(next: FactorySnapshot): void {
@@ -275,6 +360,14 @@ required<HTMLButtonElement>("gather").addEventListener("click", () =>
 required<HTMLButtonElement>("deposit").addEventListener("click", () =>
   enqueue({ type: "deposit" }),
 );
+for (const button of document.querySelectorAll<HTMLButtonElement>(
+  "[data-native-action]",
+)) {
+  button.addEventListener("click", () => {
+    const type = button.dataset.nativeAction;
+    if (type === "gather" || type === "deposit") enqueue({ type });
+  });
+}
 required<HTMLButtonElement>("recenter").addEventListener("click", () =>
   renderer.recenter(),
 );
@@ -284,7 +377,13 @@ required<HTMLButtonElement>("toggle-grid").addEventListener(
     const visible = renderer.toggleGrid();
     const button = event.currentTarget as HTMLButtonElement;
     button.setAttribute("aria-pressed", String(visible));
-    button.textContent = visible ? "Hide build grid" : "Show build grid";
+    button.setAttribute(
+      "aria-label",
+      visible ? "Hide construction grid" : "Show construction grid",
+    );
+    button.title = visible
+      ? "Hide construction grid"
+      : "Show construction grid";
   },
 );
 required<HTMLButtonElement>("new-game").addEventListener("click", () => {
@@ -301,6 +400,7 @@ required<HTMLButtonElement>("new-game").addEventListener("click", () => {
   syncSessionInputs(next);
   renderer.recenter();
   setPlaying(true);
+  closePanels();
 });
 required<HTMLButtonElement>("save").addEventListener("click", () => {
   try {
@@ -321,6 +421,7 @@ required<HTMLButtonElement>("continue").addEventListener("click", () => {
     syncSessionInputs(next);
     renderer.recenter();
     showFeedback("Native HXF1 save restored");
+    closePanels();
   } catch (error) {
     updateContinueState(`Continue rejected: ${String(error)}`);
   }
@@ -365,7 +466,11 @@ window.addEventListener("keydown", (event) => {
     }
     return;
   }
-  if (event.code === "KeyF") enqueue({ type: "gather" });
+  if (event.code === "Escape") {
+    selectTool("inspect");
+    closePanels();
+  } else if (event.code === "Space") setPlaying(!playing);
+  else if (event.code === "KeyF") enqueue({ type: "gather" });
   else if (event.code === "KeyX") enqueue({ type: "deposit" });
   else if (event.code === "KeyR") rotateNewBuilding();
   else if (/^Digit[1-4]$/.test(event.code)) {
@@ -475,7 +580,7 @@ canvas.addEventListener("click", (event) => {
 function rotateNewBuilding(): void {
   orientation = rotateHexDirection(orientation, 1);
   required<HTMLElement>("orientation-value").textContent =
-    `${orientation} · ${DIRECTION_NAMES[orientation]}`;
+    `${DIRECTION_NAMES[orientation]} · R`;
   const definition =
     typeof tool === "number"
       ? host.definitions.buildings.find(({ id }) => id === tool)
@@ -516,12 +621,77 @@ function isTypingTarget(target: EventTarget | null): boolean {
   return (
     target instanceof HTMLInputElement ||
     target instanceof HTMLSelectElement ||
-    target instanceof HTMLTextAreaElement
+    target instanceof HTMLTextAreaElement ||
+    target instanceof HTMLButtonElement ||
+    target instanceof HTMLAnchorElement
   );
 }
 
 function titleCase(value: string): string {
   return value.charAt(0).toUpperCase() + value.slice(1);
+}
+
+function closePanels(except?: HTMLElement): void {
+  for (const panel of document.querySelectorAll<HTMLElement>(
+    ".glass-panel.open",
+  )) {
+    if (panel === except) continue;
+    panel.classList.remove("open");
+  }
+  for (const toggle of document.querySelectorAll<HTMLButtonElement>(
+    ".panel-toggle",
+  )) {
+    const target = document.getElementById(toggle.dataset.panelTarget ?? "");
+    toggle.setAttribute(
+      "aria-expanded",
+      String(target?.classList.contains("open") ?? false),
+    );
+  }
+}
+
+for (const toggle of document.querySelectorAll<HTMLButtonElement>(
+  ".panel-toggle",
+)) {
+  toggle.addEventListener("click", () => {
+    const target = document.getElementById(toggle.dataset.panelTarget ?? "");
+    if (!target) return;
+    const opening = !target.classList.contains("open");
+    closePanels(target);
+    target.classList.toggle("open", opening);
+    toggle.setAttribute("aria-expanded", String(opening));
+  });
+}
+
+for (const close of document.querySelectorAll<HTMLButtonElement>(
+  ".panel-close",
+)) {
+  close.addEventListener("click", () => {
+    close.closest<HTMLElement>(".glass-panel")?.classList.remove("open");
+    closePanels();
+  });
+}
+
+for (const button of document.querySelectorAll<HTMLButtonElement>(
+  "[data-move-key]",
+)) {
+  const code = button.dataset.moveKey ?? "";
+  const start = (event: PointerEvent): void => {
+    event.preventDefault();
+    button.setPointerCapture(event.pointerId);
+    if (pressedMovement.has(code)) return;
+    pressedMovement.add(code);
+    movementRevision += 1;
+    enqueue(movementIntent(pressedMovement));
+  };
+  const stop = (event: PointerEvent): void => {
+    event.preventDefault();
+    if (!pressedMovement.delete(code)) return;
+    movementRevision += 1;
+    enqueue(movementIntent(pressedMovement));
+  };
+  button.addEventListener("pointerdown", start);
+  button.addEventListener("pointerup", stop);
+  button.addEventListener("pointercancel", stop);
 }
 
 function required<T extends HTMLElement>(id: string): T {

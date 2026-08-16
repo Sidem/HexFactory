@@ -1,8 +1,8 @@
 # HexFactory — architecture, roadmap, and implementation handoffs
 
-Status: Continuous Exploration v0.3 is shipped. The v0.3.1 transport follow-up incrementally
-recompiles affected connected components after edits. The next architecture milestone is the Web
-Worker simulation boundary with dirty snapshot/delta transport; benchmarked capacity tiers follow.
+Status: Command Surface v0.4 is shipped on top of Continuous Exploration v0.3 and the v0.3.1
+incremental transport follow-up. The next architecture milestone is the Web Worker simulation
+boundary with dirty snapshot/delta transport, followed by benchmarked capacity tiers.
 
 Target repository: `https://github.com/Sidem/HexFactory`
 
@@ -18,6 +18,12 @@ read-only unless a future task explicitly authorizes a separately released gener
 
 ## Shipped implementation record
 
+- Command Surface v0.4 makes the world a full-viewport play surface with a persistent landing
+  directive, snapshot-derived next-action guidance, compact cargo and research surfaces, a
+  lock/cost-aware construction dock, clearer world labels/cargo, an intentional session menu, and
+  narrow-layout touch movement plus direct field actions. It changes presentation only; native
+  simulation, save, determinism, and dependency contracts are unchanged.
+
 - Transport Graph v0.3.1 replaces full post-edit graph rebuilds with stable-ID invalidation and
   affected weak-component recompilation. Tests pin full-rebuild equivalence, unrelated-component
   isolation, component splits, and component merges. Initialization and save restoration retain a
@@ -26,6 +32,47 @@ read-only unless a future task explicitly authorizes a separately released gener
   collision and gathering, proximity-limited construction, definition-driven rotated footprints,
   and a construction-only/toggled grid. Its HXF1 save and generator versions are intentionally
   incompatible with v0.2. The exact public geometry dependency remains unchanged.
+
+## Shipped milestone — Command Surface v0.4
+
+The simulation is playable, but the v0.3 interface presents the architecture before it presents the
+game: a large masthead pushes the world below the fold, primary progression competes with debug and
+session controls, the research path is visually disconnected from its costs, and the narrow layout
+has no practical movement surface. v0.4 is an interface and onboarding release, not a new simulation
+contract.
+
+### Experience principles
+
+- The world owns the viewport. Brand, objective, inventory, research, editing, and session controls
+  sit on a compact command surface over the map instead of forming a long document around it.
+- At every progression state, one contextual next action explains both the goal and the mechanic:
+  gather, deliver, research, automate, compose, or complete. It is derived from native snapshots and
+  never invents progression truth.
+- The landing directive and its progress remain visible at all times. Insight and carried materials
+  are readable at a glance; checksum, seed, and single-step controls move into an intentional game
+  menu.
+- Construction is a spatial mode. A bottom dock groups inspect/edit/build actions, communicates
+  locks and exact costs, keeps orientation adjacent to placement, and preserves full-footprint legal
+  previews.
+- Desktop retains direct panels and keyboard shortcuts. Narrow and coarse-pointer layouts preserve
+  the full map, expose mission/research as dismissible overlays, and add a held touch movement pad
+  that sends the same bounded native movement intents as the keyboard.
+- World readability must distinguish resources, machine identity, direction, inventory, progress,
+  and cargo without requiring the inspector. Animation remains presentation-only.
+
+### Acceptance and release gate
+
+- A new player can identify the first useful action, gather and deliver without opening help, see
+  when research becomes affordable, find newly unlocked buildings, understand orientation before
+  placement, and recover the camera after panning.
+- The first desktop and 390 px narrow view show the playable world rather than a marketing header;
+  narrow play supports movement, gathering, delivery, research, construction, and panel dismissal.
+- Keyboard operation includes visible focus, WASD, gather/deliver, build number shortcuts, rotate,
+  pause, Escape-to-inspect, and all controls retain accessible names. Reduced motion is preserved.
+- Host logic may derive copy, classes, and interpolation only. Rust/Wasm continues to own every
+  tick, coordinate, quantity, unlock, legality result, objective, save, and checksum.
+- Completion requires the complete local quality gate, an intentional main-branch release, a
+  successful Pages deployment, and live desktop/narrow interaction plus a clean console.
 
 - Playable Game v0.2: HexFactory commit `b636dc2`, successful quality/Pages run `31951039927`.
 - The live release was verified in a real browser through movement/collision, finite gathering,

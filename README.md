@@ -2,7 +2,9 @@
 
 **[Play HexFactory](https://sidem.github.io/HexFactory/)**
 
-HexFactory is a deliberately small, deterministic factory game in an unbounded continuous world. A
+HexFactory is a deliberately small, deterministic factory game in an unbounded continuous world.
+Its full-viewport command surface keeps the current directive, next useful action, cargo, research,
+and construction costs close to the world on desktop and touch layouts. A
 new game starts beside a landing hub: explore, gather finite ore and crystal, deliver items for
 insight, unlock a short technology tree, build a compiled transport line, compose three components,
 and win. The founding prebuilt architecture proof remains available as the **Factory demo** scenario.
@@ -13,7 +15,8 @@ input batch per rendered frame and owns only controls, camera, interface, and Ca
 
 ## Controls
 
-- Move freely with `W/A/S/D`; movement is not snapped to building cells.
+- Move freely with `W/A/S/D` or the narrow-layout touch pad; movement is not snapped to building
+  cells.
 - Gather a nearby deposit with `F`; deliver the complete player inventory while beside the hub with
   `X`.
 - Select build tools with the hotbar or number keys, rotate new buildings with `R`, and click to
@@ -21,6 +24,7 @@ input batch per rendered frame and owns only controls, camera, interface, and Ca
   rotate-existing tools are also available; the grid appears during editing or via its toggle.
 - Drag, middle-drag, or right-drag the map to pan; use the wheel to zoom and **Recenter player** to
   resume camera following.
+- Press `Space` to pause/resume and `Escape` to return to inspection and close open panels.
 
 ## Run locally
 
