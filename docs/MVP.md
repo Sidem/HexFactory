@@ -207,6 +207,14 @@ extractor at a guaranteed ore cell also sees a neighbour written into the overla
 does not appear in the overlay; generating a chunk does not change the checksum until something
 is taken. Host tests accept the new terrain names, published player radius, and item icon keys.
 
+v0.11.1 adds native coverage for the three defects the dense field made visible in harvesting: a
+gather takes from the hex the player stands on from every position inside it and at every facing;
+its reach is the extractor predicate and is the same in all six directions; and the cooldown
+between two gathers is paid in player steps, so it clears while the factory is paused and is not
+cleared by running the factory alone. Host tests pin the resources patch to the tile key, with a
+column of negative-coordinate cells whose packed 64-bit ids used to round to one JSON number —
+harvesting one of them overwrote the rest with a copy of it.
+
 v0.10 adds native coverage for the single placement overlap rule — a deposit displaced most of a hex
 step is still minable, the extractor's cached reference resolves the same deposit the placement rule
 allowed, and an obstacle blocks only past the intrusion depth; for the carrying rule, its stack

@@ -119,8 +119,12 @@ export interface WorldPoint {
   y: number;
 }
 
+/**
+ * One field cell. `q`/`r` is its identity — the tile key native stores it under and the key a
+ * patch addresses it by. There is deliberately no separate numeric id: a packed 64-bit one cannot
+ * survive JSON, which carries numbers as doubles.
+ */
 export interface ResourceSnapshot extends WorldPoint {
-  id: number;
   q: number;
   r: number;
   radius: number;
@@ -198,8 +202,8 @@ export interface BuildingsPatch {
 }
 
 /**
- * The per-deposit resources patch. `changed` carries deposits whose quantity moved, keyed by their
- * stable native id. Deposits are never removed, and the only path that adds one — world generation
+ * The per-deposit resources patch. `changed` carries deposits whose quantity moved, addressed by
+ * their tile key. Deposits are never removed, and the only path that adds one — world generation
  * — sets `replace` and sends the complete list, so an incremental patch always addresses deposits
  * the host already holds and never disturbs their order.
  */

@@ -39,7 +39,11 @@ const PLAYER_SPEED: i32 = 242;
 const PLAYER_TICKS_PER_SECOND: u32 = 30;
 const PLAYER_RADIUS: i32 = 580;
 const BUILDING_RADIUS: i32 = 690;
-const GATHER_RANGE: i32 = 1450;
+/// Player steps between one gather and the next. Counted on the player's own cadence like the
+/// walk, so holding the action key harvests at one rate whether the factory is paused, running at
+/// 4 tps, or running at 60. Six steps is the 0.2s the old two-tick cooldown was worth at the
+/// default simulation speed, which is the pace the action was tuned at.
+const GATHER_COOLDOWN_STEPS: u32 = 6;
 const HUB_RANGE: i32 = 1900;
 
 fn default_footprint() -> Vec<Coordinate> {
@@ -349,9 +353,13 @@ struct TileSnapshot {
     terrain: Terrain,
 }
 
+/// One field cell. `q`/`r` is its identity: the tile key it is stored under, and what the host
+/// addresses it by in a patch. It deliberately carries no separate id — a `u64` packed from the
+/// two coordinates used to travel beside them, and JSON numbers are IEEE-754 doubles, so every
+/// such id past 2^53 arrived at the host rounded. Whole columns of the field collapsed onto one
+/// value, and patching by it rewrote unrelated cells with a copy of the harvested one.
 #[derive(Clone, Copy, Debug, Serialize, PartialEq, Eq)]
 struct ResourceSnapshot {
-    id: u64,
     q: i32,
     r: i32,
     x: i32,
@@ -395,7 +403,7 @@ struct BuildingsDelta {
     removed: Vec<u32>,
 }
 
-/// A per-deposit resources patch, keyed by the stable deposit id. Resource tiles are inserted by
+/// A per-deposit resources patch, addressed by tile key. Resource tiles are inserted by
 /// world generation and updated by extraction and gathering; the tile map has no removal path, so
 /// the patch needs no removal list. Generation is the only thing that adds a deposit, and it sets
 /// `replace`, so an incremental patch never disturbs the order the host already holds.
@@ -560,21 +568,22 @@ fn resources_delta(
     previous: &[ResourceSnapshot],
     current: &[ResourceSnapshot],
 ) -> Option<ResourcesDelta> {
-    let before: BTreeSet<u64> = previous.iter().map(|resource| resource.id).collect();
-    let after: BTreeSet<u64> = current.iter().map(|resource| resource.id).collect();
+    let key = |resource: &ResourceSnapshot| (resource.q, resource.r);
+    let before: BTreeSet<(i32, i32)> = previous.iter().map(key).collect();
+    let after: BTreeSet<(i32, i32)> = current.iter().map(key).collect();
     if before != after {
         return Some(ResourcesDelta {
             replace: true,
             changed: current.to_vec(),
         });
     }
-    let existing: BTreeMap<u64, &ResourceSnapshot> = previous
+    let existing: BTreeMap<(i32, i32), &ResourceSnapshot> = previous
         .iter()
-        .map(|resource| (resource.id, resource))
+        .map(|resource| (key(resource), resource))
         .collect();
     let changed: Vec<ResourceSnapshot> = current
         .iter()
-        .filter(|resource| existing.get(&resource.id) != Some(resource))
+        .filter(|resource| existing.get(&key(resource)) != Some(resource))
         .copied()
         .collect();
     (!changed.is_empty()).then_some(ResourcesDelta {
@@ -961,7 +970,9 @@ impl Core {
         axial_distance(extractor, cell) <= EXTRACT_RADIUS && self.field_at(cell.0, cell.1).is_some()
     }
 
-    #[cfg_attr(not(test), allow(dead_code))]
+    /// The field cell a player standing at this world point draws from: their own hex while it
+    /// still holds stock, otherwise the nearest covered neighbour. `gather` and placement both go
+    /// through here, so one rule decides what a hex reaches.
     fn resource_at_world(&self, x: i32, y: i32) -> Option<(i32, i32)> {
         let (q, r) = world_to_axial(x, y);
         self.deposit_candidates(q, r)
@@ -1286,7 +1297,6 @@ impl Core {
 
     fn advance_ticks(&mut self, count: u32) {
         for _ in 0..count {
-            self.player.action_cooldown = self.player.action_cooldown.saturating_sub(1);
             self.advance_machines();
             self.transfer_cargo();
             self.tick += 1;
@@ -1298,8 +1308,12 @@ impl Core {
     /// make walking feel broken. Frame-coupled movement stays refused — the host sends a step
     /// count, not a delta — so the same command sequence still reproduces the same position and the
     /// same checksum.
+    /// The player's clock. It runs on elapsed real time rather than factory time, so everything
+    /// the player does themselves — walking, and the cooldown between one action and the next —
+    /// keeps the same pace whether the factory is paused, slowed, or running flat out.
     fn advance_player_steps(&mut self, count: u32) {
         for _ in 0..count {
+            self.player.action_cooldown = self.player.action_cooldown.saturating_sub(1);
             self.advance_player();
         }
     }
@@ -1600,26 +1614,17 @@ impl Core {
             return Err("action cooling down".into());
         }
         self.ensure_neighborhood(self.player.x, self.player.y);
-        let target_x = self.player.x + i32::from(self.player.facing_x) * (GATHER_RANGE / 2) / 1000;
-        let target_y = self.player.y + i32::from(self.player.facing_y) * (GATHER_RANGE / 2) / 1000;
-        let (target_q, target_r) = world_to_axial(target_x, target_y);
-        let key = hexes_in_radius((target_q, target_r), 2)
-            .into_iter()
-            .filter(|&(q, r)| {
-                self.deposit_quantity((q, r)) > 0 && {
-                    let (fx, fy) = axial_world(q, r);
-                    squared_distance(target_x, target_y, fx, fy)
-                        <= i64::from(GATHER_RANGE + HEX_RADIUS).pow(2)
-                }
-            })
-            .min_by_key(|&(q, r)| {
-                let (fx, fy) = axial_world(q, r);
-                squared_distance(target_x, target_y, fx, fy)
-            })
-            .ok_or("no finite resource within gathering reach")?;
+        // The same question placement and every extractor ask — the field cells the player's own
+        // hex covers, nearest first — so a gather can never reach a cell an extractor standing
+        // here could not. Facing is deliberately not part of it. Nothing on screen shows which way
+        // the player points, so weighting the target by facing drained a neighbour's number while
+        // the hex underfoot stayed full, which is a change the player cannot connect to an action.
+        let key = self
+            .resource_at_world(self.player.x, self.player.y)
+            .ok_or("stand on or beside a field hex to gather")?;
         let field = self
             .field_at(key.0, key.1)
-            .ok_or("no finite resource within gathering reach")?;
+            .ok_or("stand on or beside a field hex to gather")?;
         if self.player_room_for(field.item_id) == 0 {
             return Err("carrying capacity is full".into());
         }
@@ -1634,7 +1639,7 @@ impl Core {
         let (item_id, depleted) = (field.item_id, remaining == 0);
         self.dirty.resources.push(key);
         *self.player.inventory.entry(item_id).or_default() += 1;
-        self.player.action_cooldown = 2;
+        self.player.action_cooldown = GATHER_COOLDOWN_STEPS;
         self.events.push(format!("Gathered item {item_id}"));
         if depleted {
             // Any extractor covering this deposit may now report a different status.
@@ -3481,7 +3486,6 @@ fn resource_snapshot_of(
 ) -> ResourceSnapshot {
     let (x, y) = axial_world(key.0, key.1);
     ResourceSnapshot {
-        id: feature_id(key.0, key.1),
         q: key.0,
         r: key.1,
         x,
@@ -3693,10 +3697,6 @@ fn field_at(seed: u32, q: i32, r: i32, generated_environment: bool) -> Option<Re
         }
         _ => None,
     }
-}
-
-fn feature_id(q: i32, r: i32) -> u64 {
-    (u64::from(q as u32) << 32) | u64::from(r as u32)
 }
 
 fn inventory_total(inventory: &BTreeMap<ItemId, u32>) -> u32 {
@@ -4621,8 +4621,10 @@ mod tests {
         Core::new(&definitions, &technologies, scenario, None).unwrap()
     }
 
+    /// Wait out a gather cooldown the way a player does — on their own clock, with the factory
+    /// untouched.
     fn cooldown(core: &mut Core) {
-        core.tick_many(2);
+        core.advance_player_steps(GATHER_COOLDOWN_STEPS);
     }
 
     fn set_player_hex(core: &mut Core, q: i32, r: i32) {
@@ -4817,6 +4819,97 @@ mod tests {
         assert_eq!(core.player.inventory.get(&1), Some(&before));
         assert_eq!(core.deposit_quantity((3, 0)), 0);
         assert!(core.gather().is_err());
+    }
+
+    /// A gather takes from the hex the player is standing on, wherever they stand inside it and
+    /// whichever way they face. The old target was pushed half a gather range along the facing and
+    /// then resolved to the nearest field cell, so stepping off-centre inside your own hex silently
+    /// moved the harvest to the neighbour ahead: the number under your feet stayed put while a
+    /// different hex counted down. Nothing on screen shows facing, so that was unattributable.
+    #[test]
+    fn a_gather_takes_from_the_hex_the_player_stands_on_whatever_way_they_face() {
+        for (facing_x, facing_y) in [(1000, 0), (-1000, 0), (500, 866), (-500, -866)] {
+            for offset in [-880, -400, 0, 400, 880] {
+                let mut core = game("new-game");
+                set_player_hex(&mut core, 3, 0);
+                // Field cells on both sides, so a target that drifts either way is visible.
+                core.write_overlay(4, 0, 1, 20, 20);
+                core.write_overlay(2, 0, 1, 20, 20);
+                core.player.x += offset;
+                core.player.facing_x = facing_x;
+                core.player.facing_y = facing_y;
+                core.gather().unwrap();
+                assert_eq!(
+                    (
+                        core.deposit_quantity((2, 0)),
+                        core.deposit_quantity((3, 0)),
+                        core.deposit_quantity((4, 0)),
+                    ),
+                    (20, 47, 20),
+                    "offset {offset} facing {facing_x},{facing_y} took from the wrong hex"
+                );
+            }
+        }
+    }
+
+    /// Reach is exactly what an extractor on the same hex would cover, and it does not depend on
+    /// facing. Standing on the field takes from it; standing one step away still reaches it, which
+    /// is what lets a player work a field edge; two steps away is out of reach from every angle.
+    #[test]
+    fn gather_reach_is_the_extractor_predicate_and_is_the_same_in_every_direction() {
+        for &(dq, dr) in &DIRECTIONS {
+            for steps in 0..=2 {
+                for facing in 0..6u8 {
+                    let mut core = game("new-game");
+                    let (x, y) = axial_world(3 + dq * steps, dr * steps);
+                    core.player.x = x;
+                    core.player.y = y;
+                    (core.player.facing_x, core.player.facing_y) = world_direction(facing);
+                    core.ensure_neighborhood(core.player.x, core.player.y);
+                    let reached = core.gather().is_ok();
+                    // One step out only reaches back if no nearer field cell outbids (3,0); the
+                    // rule is the shared candidate list, so ask it rather than restating it.
+                    let expected = core.resource_at_world(x, y) == Some((3, 0));
+                    assert_eq!(
+                        reached && core.deposit_quantity((3, 0)) == 47,
+                        expected,
+                        "step {steps} along {dq},{dr} facing {facing}"
+                    );
+                    if steps == 2 {
+                        assert_eq!(core.deposit_quantity((3, 0)), 48, "reach ran past one hex");
+                    }
+                }
+            }
+        }
+    }
+
+    /// The cooldown between two gathers runs on the player's clock, not the factory's. It used to
+    /// be decremented once per simulation tick, so pausing froze it outright — one gather, then
+    /// "action cooling down" for as long as the factory stayed paused — and the harvest rate
+    /// otherwise rode the speed setting, six times faster at 60 tps than at 4.
+    #[test]
+    fn the_gather_cooldown_runs_on_the_players_clock_not_the_factorys() {
+        let mut core = game("new-game");
+        set_player_hex(&mut core, 3, 0);
+        core.gather().unwrap();
+        assert!(core.gather().is_err(), "the cooldown has to hold at all");
+        // The factory is paused for the whole of this: not one tick is advanced.
+        core.advance_player_steps(GATHER_COOLDOWN_STEPS - 1);
+        assert!(core.gather().is_err(), "cleared early");
+        core.advance_player_steps(1);
+        core.gather().unwrap();
+        assert_eq!(core.tick, 0);
+        assert_eq!(core.deposit_quantity((3, 0)), 46);
+
+        // And running the factory on its own no longer clears it.
+        let mut core = game("new-game");
+        set_player_hex(&mut core, 3, 0);
+        core.gather().unwrap();
+        core.tick_many(240);
+        assert!(
+            core.gather().is_err(),
+            "factory time paid the player's debt"
+        );
     }
 
     #[test]
@@ -5757,11 +5850,13 @@ mod tests {
         factory.core.advance(IDLE, 1, 1).unwrap();
         check(&mut factory, "one idle tick");
 
-        // Gathering, through the tick the deposit runs dry and one rejected attempt after it.
+        // Gathering, through the frame the deposit runs dry and one rejected attempt after it.
+        // The cooldown between attempts is paid in player steps, because that is the clock the
+        // player's own actions run on — the factory ticks here only exercise the tick paths.
         for round in 0..3 {
             factory
                 .core
-                .advance(r#"[{"type":"gather"}]"#, 2, 0)
+                .advance(r#"[{"type":"gather"}]"#, 2, GATHER_COOLDOWN_STEPS)
                 .unwrap();
             check(&mut factory, &format!("gather attempt {round}"));
         }

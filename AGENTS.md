@@ -45,7 +45,17 @@ Keep this file concise; the durable roadmap, design pillars, and implementation 
 - The player walks on its own native cadence, not inside the simulation tick, so a paused or slowed
   factory never pins it in place. The host converts elapsed real time into a step count using the
   rate native publishes and sends it beside the tick count. Frame-coupled movement stays refused:
-  the host may send a count, never a position or a delta.
+  the host may send a count, never a position or a delta. That clock owns everything the player
+  does themselves, actions as well as walking — a cooldown spent per simulation tick froze
+  gathering outright while paused and otherwise scaled the harvest rate with the speed setting. So
+  the host keeps the player's clock running while a cooldown is outstanding, not only while walking.
+- A gather asks the same question an extractor on that hex asks, through `resource_at_world`, and
+  facing is not part of it. Nothing in the presentation shows which way the player points, so a
+  target weighted by facing counted down a neighbouring hex while the one underfoot stayed full —
+  a change with no visible cause.
+- Snapshots cross to the host as JSON, whose numbers are IEEE-754 doubles. Nothing wider than 2^53
+  may travel as a number, and nothing whose identity matters may be re-derived into one: field
+  cells are addressed by their tile key, never by an id packed from the same two coordinates.
 - Placement asks one overlap question of deposits and obstacles alike, at two tuned depths. Two
   different tests for the same question is the defect v0.10 fixed. `deposit_candidates` and
   `resource_at_world` share that predicate and must keep sharing it, or a resolved extractor

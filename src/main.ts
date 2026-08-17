@@ -55,9 +55,9 @@ let hoverPreview: PlacementPreview | null = null;
 let accumulator = 0;
 /**
  * Real time owed to the player's own cadence. The factory's accumulator is scaled by the speed
- * setting and stops while paused; this one is not and does not, because the player walks at one
- * rate whatever the factory is doing. A standing player accrues nothing, so an idle frame still
- * costs no worker round trip.
+ * setting and stops while paused; this one is not and does not, because everything the player does
+ * themselves runs at one rate whatever the factory is doing. A player who is neither walking nor
+ * waiting out an action accrues nothing, so an idle frame still costs no worker round trip.
  */
 let playerAccumulator = 0;
 let previousTime = performance.now();
@@ -1003,8 +1003,10 @@ function frame(now: number): void {
   previousTime = now;
   if (playing) accumulator += elapsed * Number(speedInput.value);
   // Walking is paced by native's cadence against elapsed real time, not by the tick the factory
-  // happens to be running, so a paused or slowed factory no longer pins the player in place.
-  if (pressedMovement.size)
+  // happens to be running, so a paused or slowed factory no longer pins the player in place. The
+  // same clock counts down the cooldown between one field action and the next, so it has to keep
+  // running for a player who is standing still waiting to gather again.
+  if (pressedMovement.size || snapshot.player.action_cooldown > 0)
     playerAccumulator += elapsed * host.playerTicksPerSecond;
   else playerAccumulator = 0;
   if (!advancePending) {

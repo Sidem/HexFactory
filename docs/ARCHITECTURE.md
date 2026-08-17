@@ -31,7 +31,9 @@ The Rust `Core` owns all state that can change a game result:
    paused or slowed factory does not pin the player in place. The host converts elapsed real time
    into a step count using a rate native publishes, and sends that count beside the tick count; it
    never turns a frame delta into a position, so the same commands and counts still reproduce the
-   same position and the same checksum.
+   same position and the same checksum. The same clock owns the cooldown between field actions: it
+   used to be spent one unit per simulation tick, so pausing froze gathering after a single attempt
+   and the harvest rate otherwise rode the speed multiplier.
 4. Carrying capacity is a rule over the ordinary inventory, not a stored array of slots: each item
    occupies `ceil(quantity / stack_size)` slots and a scenario fixes the slot count. Every path that
    adds to the player — gathering, erasing, withdrawing — asks first. Gathering into a full pack is
@@ -42,15 +44,22 @@ The Rust `Core` owns all state that can change a game result:
    input, so the save format and every existing checksum are untouched by it.
 5. Placement asks whether the hex is a field cell (for extractors) or blocking terrain (for
    everything). `deposit_candidates` and `resource_at_world` share that field predicate. Extractors
-   harvest every field cell within hex radius 1.
-6. Placed entities keep definition, axial anchor, orientation, cargo, inventory, reserved recipe
+   harvest every field cell within hex radius 1, and a player's gather goes through the same
+   `resource_at_world`, so an action reaches exactly what an extractor on that hex would. Facing is
+   not an input to it: nothing on screen shows which way the player points, so a facing-weighted
+   target drained a neighbouring cell's amount while the hex underfoot stayed full.
+6. A field cell's identity on the wire is its tile key, and nothing derived from it travels beside
+   it. Snapshots reach the host as JSON, whose numbers are IEEE-754 doubles, so a 64-bit id packed
+   from two coordinates arrived rounded past 2^53 and a whole column of the field shared one value.
+   Patching by it rewrote cells the player never touched with a copy of the harvested one.
+7. Placed entities keep definition, axial anchor, orientation, cargo, inventory, reserved recipe
    inputs, progress, and scenario ownership separate. Definitions include a bounded axial footprint;
    occupancy, collision, edit targeting, scenario validation, and snapshots rotate the same data.
    Initial entity IDs derive from sorted anchors; later IDs are monotonic.
-7. `compile_graph` resolves each entity output into one directed transport edge after edits. Runtime
+8. `compile_graph` resolves each entity output into one directed transport edge after edits. Runtime
    transfers use this compiled graph. Proposals sort by stable entity ID and a rejected transfer
    never changes its source.
-8. A construction or removal drag arrives as one bounded command holding two endpoints. `hex_line`
+9. A construction or removal drag arrives as one bounded command holding two endpoints. `hex_line`
    walks between them by taking the lowest-numbered direction that closes the distance, so a run
    uses at most two directions and turns once, and each cell then goes through the same `place` or
    `erase` a single-cell command uses. Belts are oriented at their successor, so the drag routes the
@@ -58,17 +67,17 @@ The Rust `Core` owns all state that can change a game result:
    inventory, so what is drawn during a drag is what the drag will build. Undo is a stack of
    constructed entity ids replayed through `erase`; like `deposit_links` it is derived state and is
    never saved, hashed, or checksummed.
-9. Extractors resolve their deposit by reference rather than by search. Each extractor's covering
-   deposits are resolved once into a candidate list ordered exactly as a full scan would resolve it,
-   cached against its stable entity id, and dropped whenever chunk generation adds tiles. Remaining
-   quantity is never part of that ordering, so a drained deposit falls through to the next candidate
-   without re-resolving. Reported extractor status resolves through the same cache rather than a
-   second scan. The cache is derived state: it is never saved, never hashed, and tests pin both the
-   reference and the status against the scans they replace.
-10. Extractors consume one unit from the finite deposit only when an output can be created.
+10. Extractors resolve their deposit by reference rather than by search. Each extractor's covering
+    deposits are resolved once into a candidate list ordered exactly as a full scan would resolve
+    it, cached against its stable entity id, and dropped whenever chunk generation adds tiles.
+    Remaining quantity is never part of that ordering, so a drained deposit falls through to the
+    next candidate without re-resolving. Reported extractor status resolves through the same cache
+    rather than a second scan. The cache is derived state: it is never saved, never hashed, and
+    tests pin both the reference and the status against the scans they replace.
+11. Extractors consume one unit from the finite deposit only when an output can be created.
     Composers reserve exact recipe inputs, run for integer ticks, and emit only on completion.
     Containers store exact quantities; hubs and demo consumers count exact deliveries.
-11. The landing hub awards integer insight from data-defined item values. Research prerequisites,
+12. The landing hub awards integer insight from data-defined item values. Research prerequisites,
     costs, atomic spending, unlocks, objective progress, and persistent victory all live in Rust.
 
 Blueprint edits retain the previous graph by stable entity ID, invalidate output rays crossing the

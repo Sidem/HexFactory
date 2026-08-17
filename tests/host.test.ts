@@ -84,7 +84,6 @@ const snapshot: FactorySnapshot = {
   ],
   resources: [
     {
-      id: 1,
       q: 3,
       r: 0,
       x: 5322,
@@ -402,7 +401,6 @@ describe("availability and expanded snapshot adapter", () => {
 
   it("patches individual deposits without resending the surveyed world's resources", () => {
     const second: ResourceSnapshot = {
-      id: 2,
       q: 4,
       r: -2,
       x: 7096,
@@ -419,9 +417,31 @@ describe("availability and expanded snapshot adapter", () => {
     // the native ordering the host received survives the patch.
     const drained = { ...listed[0]!, quantity: 46 };
     const patched = applyResourcesPatch(listed, { changed: [drained] });
-    expect(patched.map(({ id }) => id)).toEqual([1, 2]);
+    expect(patched.map(({ q, r }) => `${q},${r}`)).toEqual(["3,0", "4,-2"]);
     expect(patched[0]).toEqual(drained);
     expect(patched[1]).toBe(listed[1]);
+
+    // A patch touches the harvested cell and nothing else, including in the negative-coordinate
+    // world where a 64-bit id packed from q and r used to round to the same JSON number for a
+    // whole column of the field — harvesting one cell then overwrote its neighbours with a copy
+    // of it, so hexes the player never touched changed their amount and their position.
+    const column: ResourceSnapshot[] = [0, 1, 2, 3].map((r) => ({
+      q: -32,
+      r,
+      x: -56768,
+      y: r * 1536,
+      radius: 1024,
+      item_id: 1,
+      quantity: 20,
+      initial_quantity: 20,
+    }));
+    const harvested = { ...column[2]!, quantity: 19 };
+    expect(applyResourcesPatch(column, { changed: [harvested] })).toEqual([
+      column[0],
+      column[1],
+      harvested,
+      column[3],
+    ]);
 
     // An empty patch and an untouched group both leave the previous list in place.
     expect(applyResourcesPatch(listed, { changed: [] })).toBe(listed);

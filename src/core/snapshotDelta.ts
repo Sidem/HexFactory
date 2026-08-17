@@ -69,6 +69,11 @@ export function applyBuildingsPatch(
  * deposit, and it sends `replace` with the complete list, so an incremental patch only ever
  * addresses deposits already present — each is substituted in place and the native ordering the
  * host received survives untouched.
+ *
+ * Cells are addressed by their tile key. An earlier version keyed them by a `u64` native packed
+ * from the same two coordinates, which JSON delivers as a double: past 2^53 those ids arrived
+ * rounded, several cells shared one, and a single harvest overwrote each of them with a copy of
+ * the cell that had actually changed.
  */
 export function applyResourcesPatch(
   current: ResourceSnapshot[],
@@ -77,6 +82,12 @@ export function applyResourcesPatch(
   if (patch.replace) return patch.changed ?? [];
   const changed = patch.changed ?? [];
   if (changed.length === 0) return current;
-  const byId = new Map(changed.map((resource) => [resource.id, resource]));
-  return current.map((resource) => byId.get(resource.id) ?? resource);
+  const byKey = new Map(
+    changed.map((resource) => [tileKey(resource), resource]),
+  );
+  return current.map((resource) => byKey.get(tileKey(resource)) ?? resource);
+}
+
+function tileKey(resource: ResourceSnapshot): string {
+  return `${resource.q},${resource.r}`;
 }
