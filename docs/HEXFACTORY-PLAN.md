@@ -10,6 +10,14 @@ costs the host, tracking payload bytes at about 10 µs/KB. The next milestone is
 compact binary delta encoding over a transferable buffer, not a further native optimization. A
 renderer decision stays gated behind a renderer measurement, which is now the second follow-up.
 
+Read that as the engine's internal ordering. The project goal was restated on 2026-08-17: HexFactory
+is a game first, and the architecture is the means that makes the game possible at scale. See
+**Product decision** below for the pillars that now govern milestone selection — engineering work is
+chosen for the play it unlocks, and a milestone that improves nothing the player can feel needs a
+reason to come before one that does. **Game Feel v0.9** shipped under that ordering; the binary
+delta encoding is the next engine milestone, and the drag's per-cell transport recompile is a new
+entry on the engine list.
+
 Target repository: `https://github.com/Sidem/HexFactory`
 
 Target live MVP: `https://sidem.github.io/HexFactory/`
@@ -23,6 +31,25 @@ not a source dependency: HexFactory imports only the published package. Treat th
 read-only unless a future task explicitly authorizes a separately released generic package change.
 
 ## Shipped implementation record
+
+- Game Feel v0.9 is the first milestone chosen by the restated game-first goal rather than by the
+  capacity ladder, and it attacks the friction between intent and result. A belt run is now one
+  drag: `place_line` and `erase_line` carry two endpoints as a single bounded command, and Rust
+  resolves the path, the per-cell heading, the legality, and the cost. The resolver takes the
+  lowest-numbered direction that closes the distance, so a run uses at most two directions and turns
+  exactly once — the fewest turns a line between those endpoints can have. Illegal cells are skipped
+  rather than aborting the run, and a run that stops short says why. The drag preview comes from the
+  same resolver and spends materials against a copy of the inventory as it walks, so it marks the
+  exact cell a run stops at; a host test pins that neither `main.ts` nor the renderer contains a
+  line traversal of its own. Undo takes back the last construction through the ordinary erase path,
+  from a stack that is derived session state and therefore never saved, hashed, or checksummed.
+  Rotation became one idea instead of two, `Q` copies what is under the cursor, the hotbar grows to
+  nine, `F` repeats while held on the native cooldown, and movement stops on the frame the key comes
+  up rather than 110 ms later. It changes no simulation, save, determinism, or dependency contract:
+  the placement, erase, refund, and recompile paths are the tested ones, reached from a new entry
+  point. Its own follow-up is named and left to the engine track — a drag recompiles the transport
+  graph once per cell, which is a one-off hitch at release of the pointer and a real optimization
+  worth measuring rather than assuming.
 
 - Browser Capacity v0.8 closes the follow-up every record since v0.5.1 has deferred: the ladder is
   measured in the browser worker, so a wasm capacity record now sits beside the native one. The
@@ -107,6 +134,111 @@ read-only unless a future task explicitly authorizes a separately released gener
   and a construction-only/toggled grid. Its HXF1 save and generator versions are intentionally
   incompatible with v0.2. The exact public geometry dependency remains unchanged.
 
+## Shipped milestone — Game Feel v0.9
+
+v0.4 built a command surface that presents the game well. v0.9 is about what it feels like to
+operate: the moment-to-moment loop of moving, aiming, placing, routing, and correcting. The
+simulation is correct and fast enough that the honest limit on enjoyment is now ergonomic. Nothing
+here changes what the game means — it changes how much friction sits between intent and result.
+
+The measured engine follow-ups in `docs/BENCHMARKS.md` are not cancelled and not reordered among
+themselves; they are deferred behind this one. The binary delta encoding remains the next _engine_
+milestone and the renderer measurement still gates any renderer decision.
+
+### The friction this milestone removes
+
+- **Building a line costs one click per cell.** Placement is a single click handler, so a ten-hex
+  belt run is ten clicks plus manual rotation. This is the largest single ergonomic gap against the
+  games named as inspiration, where a run is one drag.
+- **Routing is manual.** Orientation is chosen before placement with `R` and corrected afterwards
+  with a separate rotate tool. The player is doing the pathfinding the compiled transport graph
+  already understands.
+- **Rotation has two mental models for one idea.** `R` rotates the pending building; changing an
+  existing one requires selecting a different tool first.
+- **The hotbar is capped at four.** Build selection is a hardcoded `Digit[1-4]` match, which the
+  pillars' promise of depth outgrows immediately.
+- **There is no way to say "one of those."** No pick-block or pipette to adopt the tool matching
+  what is under the cursor.
+- **Mistakes are expensive.** No undo; a misplacement costs resources and a manual erase.
+- **Repetition is unrewarded.** Gathering is one keypress per action with no hold-to-repeat.
+
+### Design direction
+
+- Drag to build a run, drag to erase a run. The host sends bounded path endpoints; Rust resolves the
+  path, the per-cell legality, the orientations, and the cost as one atomic operation. The host must
+  not expand a drag into per-cell commands — that would both break the one-bounded-batch-per-frame
+  rule and put routing truth in TypeScript.
+- One rotation model: the same key rotates the pending building when a build tool is held and the
+  hovered building when it is not.
+- A hotbar that grows with the building set, with pick-block adopting whatever is under the cursor.
+- Undo for construction actions, resolved natively so the refund policy stays the tested one.
+- Held actions repeat on a native cadence rather than a host timer.
+- Movement and camera should feel direct: revisit the 110 ms release coalescing on movement keys,
+  which exists to debounce transitions but is felt on every stop.
+- Feedback is part of the control, not decoration: a placement that is refused, a belt that is
+  backed up, and a deposit that is running out should each be legible the instant they happen.
+
+### Acceptance and release gate
+
+- A belt run is built in one drag, correctly oriented, with the same result the equivalent per-cell
+  placements would produce — pinned by `one_drag_builds_exactly_what_the_equivalent_placements_build`,
+  which compares checksums rather than descriptions.
+
+  This criterion originally asked for a run with _two_ turns. That was written before the path
+  resolver existed and does not describe anything the feature can produce: `hex_line` takes the
+  lowest-numbered direction that closes the distance, so a direction that stops helping never helps
+  again and a drag uses at most two directions — exactly one turn. That is the better behaviour, not
+  a shortfall, because it is the fewest turns a belt line between two endpoints can have. An S-shaped
+  run is two drags. The gate is a one-turn run.
+
+- What the drag preview promises is what the drag builds, including where a run stops for cost —
+  pinned by `a_drag_preview_is_what_the_drag_builds`, which walks the preview and the placement
+  through the same core.
+- Every new control is reachable by keyboard, has an accessible name, respects reduced motion, and
+  works on the narrow touch layout.
+- Rust still owns every placement, orientation, path, cost, refund, and legality result. Forged host
+  commands are rejected exactly as before. The host adds no per-cell loop and still sends at most
+  one bounded batch per rendered frame.
+- Determinism, save, checksum, and dependency contracts are unchanged, and the capacity ladder
+  reproduces its v0.8 checksums.
+- A player new to the game builds and routes a working line without documentation. This is a stated
+  acceptance criterion, not a hope, and it is checked in a real browser on desktop and narrow
+  layouts with a clean console.
+
+### What shipped
+
+- **Drag to build, drag to erase.** `place_line` and `erase_line` are single bounded commands
+  carrying two endpoints. Rust resolves the path with `hex_line`, orients each belt at its
+  successor, checks legality and cost per cell, and skips what it cannot use rather than aborting
+  the run. A run that stops short reports why.
+- **A preview that cannot lie.** `line_preview_json` and `erase_line_preview_json` return the cells,
+  headings, and per-cell legality from the same resolver the command uses, spending materials
+  against a copy of the inventory as it walks. The host draws that list and derives nothing; a host
+  test pins that `main.ts` and the renderer contain no line traversal of their own.
+- **Undo.** `Undo` takes back the most recent construction through the ordinary `erase` path, so the
+  refund is the one the erase tests already pin. The stack is derived session state — never saved,
+  hashed, or checksummed — so a loaded save has nothing to take back.
+- **One rotation model.** `R` turns the pending building with a build tool held, and the building
+  under the cursor without one.
+- **Pick-block.** `Q` adopts the definition and orientation under the cursor as the active tool.
+- **A hotbar that grows.** `Digit1`–`Digit9` instead of `Digit1`–`Digit4`, and `E` selects erase.
+- **Held gather.** `F` repeats while held, paced by the native action cooldown rather than a host
+  timer.
+- **Movement that stops when the key does.** The 110 ms release coalescing is gone; a stop intent is
+  sent on the frame the key comes up.
+
+### Deliberately not in v0.9
+
+- Undo covers construction, not erasure. Erase already refunds cost and contents, so an accidental
+  removal is recovered by rebuilding; reversing one would mean restoring an entity's exact id,
+  inventory, cargo, and progress, which is a larger change than this milestone justified.
+- A drag places at most `MAX_LINE_CELLS` (32) cells and recompiles the transport graph once per
+  cell, because each cell goes through the tested `place`. At the largest measured tier that is a
+  one-off hitch on release of the pointer, not a per-frame cost. Batching the run into a single
+  recompile is a real optimization and is left for the engine track, where it can be measured.
+- Multi-hex buildings are not draggable; the host only starts a drag for single-cell definitions,
+  which keeps the preview exact and matches how nobody wants a row of composers.
+
 ## Shipped milestone — Command Surface v0.4
 
 The simulation is playable, but the v0.3 interface presents the architecture before it presents the
@@ -165,9 +297,45 @@ contract.
 
 ## Product decision
 
-HexFactory is a deterministic, browser-native, hexagonal factory-automation simulator designed for
-large sparse maps, arbitrary data-defined items and recipes, headless evolutionary evaluation, and
-eventual mod-extensibility.
+HexFactory is a game first. The goal is a beautiful, open-ended factory-automation game that is fun
+to play for its own sake, fascinating to keep exploring, and a pleasure to control — drawing on
+Factorio's automation depth, Satisfactory's sense of place and scale, and Minecraft's freedom to
+build what you want where you want, expressed in hexagonal space rather than square.
+
+The deterministic Rust/Wasm core, the sparse architecture, the compiled transport graph, and the
+narrow `@hexlife/embed` geometry dependency are the means to that end, not the end itself. They exist
+because a large, living world that never stutters and never loses a save is a player experience
+before it is an engineering result. Where an architectural preference and the player's experience
+genuinely conflict, the player's experience wins and the architecture has to find another way to pay
+for it.
+
+That ordering weakens no invariant. Determinism, native ownership of the tick, sparse cost, and
+measured-before-claimed all remain non-negotiable — they are what buys the game its scale, its
+trustworthy saves, and the headroom for the world to keep growing. What changes is why they are
+there, and therefore how milestones are chosen: engineering work earns its place by naming the
+player-visible thing it enables.
+
+The design intent is inspiration, never imitation. Original neutral shapes, names, and systems only;
+this remains true of every commercial title named above, and the existing prohibition on asset or
+branding imitation is unchanged.
+
+### Design pillars
+
+- **Fun is a requirement, not a polish pass.** A release that is correct, fast, and joyless has not
+  met its acceptance criteria. Every milestone states what it makes better to play.
+- **Controls must be obvious in the first minute and precise in the hundredth hour.** Movement,
+  building, rotating, routing, and inspecting should be learnable without documentation and should
+  stay pleasant under heavy repetition. A control that needs explaining is a defect in the control.
+- **The player should always know what just happened and what to try next.** Feedback for gathering,
+  placement, blockage, depletion, research, and delivery is part of the mechanic, not decoration.
+- **The world should reward looking at it.** Readability first — resources, machine identity,
+  direction, throughput, and blockage legible at a glance — and beauty close behind it. The fog
+  frontier, the surveyed world, and a running factory should all be things a player wants to watch.
+- **Open-ended, not scripted.** Progression opens options rather than prescribing a route. The world
+  is unbounded and the player decides what to build, where, and how large. Victory is a milestone in
+  a longer game, never a wall.
+- **Nothing may stutter.** Frame stability, instant response to input, and saves that always restore
+  exactly are player-experience features. This is what the measured capacity ladder is protecting.
 
 HexLife is the engineering reference and `@hexlife/embed` is a narrow public dependency, but neither
 is the factory simulation kernel. Reuse its successful patterns: Rust/Wasm hot paths, workers,
@@ -389,8 +557,14 @@ blindly.
 
 Splitters, inserters, multiple belt lanes or tiers, fluids, power, circuits, trains, enemies,
 multiplayer, arbitrary mod bytecode, neural agents, evolutionary UI, massive-map performance claims,
-and Factorio asset/content imitation. Use original neutral shapes and names; this is a factory-
-automation architecture proof.
+and asset or content imitation of any commercial title. Several of these are wanted eventually —
+the design pillars call for an open-ended game, and depth arrives through them — but they were out
+of the founding slice's scope and each still needs its own milestone rather than an improvised
+addition.
+
+The asset rule is permanent and is not an MVP-scope item: HexFactory takes design inspiration from
+Factorio, Satisfactory, and Minecraft and takes nothing else from them. Original neutral shapes,
+names, and systems only.
 
 ## Historical founding-session prompt (completed)
 

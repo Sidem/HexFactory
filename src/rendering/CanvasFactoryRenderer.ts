@@ -13,6 +13,7 @@ import type {
   Definitions,
   EntitySnapshot,
   FactorySnapshot,
+  LinePreviewCell,
   PlacementPreview,
   WorldPoint,
 } from "../core/types";
@@ -123,6 +124,7 @@ export class CanvasFactoryRenderer {
   private buildMode = false;
   private gridToggled = false;
   private buildFootprint: AxialCoordinate[] = [{ q: 0, r: 0 }];
+  private dragPath: LinePreviewCell[] = [];
   private veil: HTMLCanvasElement | null = null;
   private now = 0;
 
@@ -158,6 +160,15 @@ export class CanvasFactoryRenderer {
 
   setBuildMode(active: boolean): void {
     this.buildMode = active;
+    this.draw();
+  }
+
+  /**
+   * The cells the in-progress drag covers, exactly as native resolved them. Presentation only: the
+   * renderer draws this list and never computes a path of its own.
+   */
+  setDragPath(cells: LinePreviewCell[]): void {
+    this.dragPath = cells;
     this.draw();
   }
 
@@ -254,7 +265,9 @@ export class CanvasFactoryRenderer {
         "#f5d572",
         3,
       );
-    if (this.hover) {
+    // A drag replaces the single-cell hover: the run it would build is the thing to look at.
+    if (this.dragPath.length) this.drawDragPath(width, height, size);
+    else if (this.hover) {
       const stroke = this.placement
         ? this.placement.legal
           ? "#76e0aa"
@@ -275,6 +288,35 @@ export class CanvasFactoryRenderer {
           2,
         );
       }
+    }
+  }
+
+  /**
+   * The run the current drag would build, cell by cell, in the native headings. Cells the drag
+   * cannot use are drawn in the refusal colour rather than hidden, so a run that stops short of the
+   * cursor shows where and not merely that.
+   */
+  private drawDragPath(width: number, height: number, size: number): void {
+    const ctx = this.context;
+    for (const cell of this.dragPath) {
+      const center = this.camera.project(cell, width, height);
+      if (!visible(center, size, width, height)) continue;
+      const stroke = cell.legal ? "#76e0aa" : "#ff7b78";
+      drawHex(ctx, center, size * 0.88, `${stroke}22`, stroke, 2);
+      if (!cell.legal) continue;
+      // The same heading mark placed buildings carry, so a previewed run reads like the run it
+      // becomes rather than like a selection.
+      const tip = axialToPixel(
+        axialNeighbor({ q: 0, r: 0 }, cell.orientation),
+        size * 0.34,
+        center,
+      );
+      ctx.strokeStyle = stroke;
+      ctx.lineWidth = Math.max(2, size * 0.07);
+      ctx.beginPath();
+      ctx.moveTo(center.x, center.y);
+      ctx.lineTo(tip.x, tip.y);
+      ctx.stroke();
     }
   }
 

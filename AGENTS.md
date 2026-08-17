@@ -1,9 +1,13 @@
 # HexFactory agent notes
 
-HexFactory is a deterministic browser factory simulator. Keep this file concise; the durable
-roadmap and implementation handoffs live in `docs/HEXFACTORY-PLAN.md`, architecture decisions in
-`docs/ARCHITECTURE.md`, shipped MVP status in `docs/MVP.md`, and measured capacity in
-`docs/BENCHMARKS.md`.
+HexFactory is a browser factory-automation game. The goal is a beautiful, open-ended game that is
+fun to play and a pleasure to control, inspired by Factorio, Satisfactory, and Minecraft — never
+imitating their assets, names, or branding. The deterministic Rust/Wasm core and the sparse
+architecture are the means that make that game possible at scale, not the point of the project.
+
+Keep this file concise; the durable roadmap, design pillars, and implementation handoffs live in
+`docs/HEXFACTORY-PLAN.md`, architecture decisions in `docs/ARCHITECTURE.md`, shipped MVP status in
+`docs/MVP.md`, and measured capacity in `docs/BENCHMARKS.md`.
 
 ## Workspace boundary
 
@@ -17,6 +21,10 @@ roadmap and implementation handoffs live in `docs/HEXFACTORY-PLAN.md`, architect
 
 ## Invariants
 
+- The player's experience is the tiebreaker. Every invariant below is load-bearing and none may be
+  broken casually, but when a technical preference and how the game feels to play genuinely
+  conflict, the architecture is what has to find another way. Correct, fast, and joyless is not
+  done.
 - Rust/Wasm owns every running tick: cargo movement, compiled transport, arbitration, machine
   progress, inventories, recipe quantities, delivery totals, and checksums. TypeScript may send
   bounded commands and render snapshots; never add a per-cell or per-item JavaScript tick loop.
@@ -29,6 +37,11 @@ roadmap and implementation handoffs live in `docs/HEXFACTORY-PLAN.md`, architect
   Items, recipes, and buildings have dynamic integer definition IDs.
 - Blueprint edits compile a directed transport graph. Runtime follows graph edges and scheduled
   machines; it does not discover six neighbors for every belt on every tick.
+- A drag is one bounded command carrying two endpoints. The path between them, the per-cell
+  heading, the legality, and the cost are resolved natively by `hex_line` and the ordinary `place`
+  and `erase` paths — and the drag preview comes from that same resolver, so it cannot promise a run
+  the drag will not build. Never expand a drag into per-cell commands on the host, and never give
+  the host a line traversal of its own.
 - Arbitration is stable by native entity ID. Initial entity IDs derive from sorted coordinates, so
   JSON insertion order cannot change a run.
 - Derived caches never become truth. Resolved extractor deposit references are rebuilt from tiles,

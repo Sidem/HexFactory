@@ -204,6 +204,18 @@ export interface PlacementPreview {
   reason: string;
 }
 
+/**
+ * One cell of a drag preview, resolved natively. The host draws these and derives nothing: the
+ * path, the per-cell heading, and the legality all come from the same native code that will run
+ * the drag, so the preview cannot promise a line the drag will not build.
+ */
+export interface LinePreviewCell {
+  q: number;
+  r: number;
+  orientation: number;
+  legal: boolean;
+}
+
 export type NativeInputCommand =
   | { type: "move_intent"; x: number; y: number }
   | { type: "gather" }
@@ -216,8 +228,25 @@ export type NativeInputCommand =
       orientation: number;
       recipe_id?: number;
     }
+  /**
+   * One drag of construction. The host sends only the endpoints it dragged between: the path, the
+   * per-cell orientation, the legality, and the cost are resolved natively, so a drag can never
+   * become a host-side loop over cells.
+   */
+  | {
+      type: "place_line";
+      q: number;
+      r: number;
+      to_q: number;
+      to_r: number;
+      definition_id: number;
+      orientation: number;
+      recipe_id?: number;
+    }
   | { type: "erase"; q: number; r: number }
+  | { type: "erase_line"; q: number; r: number; to_q: number; to_r: number }
   | { type: "rotate"; q: number; r: number }
+  | { type: "undo" }
   | { type: "research"; technology_id: number };
 
 export interface NativeFactory {
@@ -232,6 +261,20 @@ export interface NativeFactory {
     definitionId: number,
     orientation: number,
     recipeId?: number,
+  ): string;
+  line_preview_json(
+    q: number,
+    r: number,
+    toQ: number,
+    toR: number,
+    definitionId: number,
+    orientation: number,
+  ): string;
+  erase_line_preview_json(
+    q: number,
+    r: number,
+    toQ: number,
+    toR: number,
   ): string;
   snapshot_json(): string;
   snapshot_delta_json(): string;

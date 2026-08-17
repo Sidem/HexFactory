@@ -168,6 +168,41 @@ describe("bounded host input", () => {
     );
   });
 
+  it("sends a drag as two endpoints and never resolves the run itself", () => {
+    // One drag is one bounded command carrying only what the pointer did.
+    expect(
+      encodeCommand({
+        type: "place_line",
+        q: 2,
+        r: 0,
+        to_q: 4,
+        to_r: 1,
+        definition_id: 2,
+        orientation: 0,
+      }),
+    ).toEqual({ opcode: 7, args: [2, 0, 4, 1, 2, 0, 0] });
+    expect(
+      encodeCommand({ type: "erase_line", q: 2, r: 0, to_q: 4, to_r: 1 }),
+    ).toEqual({ opcode: 8, args: [2, 0, 4, 1] });
+    expect(encodeCommand({ type: "undo" })).toEqual({ opcode: 9, args: [] });
+
+    const main = readFileSync(
+      new URL("../src/main.ts", import.meta.url),
+      "utf8",
+    );
+    const renderer = readFileSync(
+      new URL("../src/rendering/CanvasFactoryRenderer.ts", import.meta.url),
+      "utf8",
+    );
+    // The path between the endpoints is native truth. The host asks for it and draws the answer;
+    // it must not walk hexes, expand a drag into per-cell commands, or import a line traversal.
+    expect(main).toContain("host.linePreview(");
+    expect(main).not.toMatch(/hexLine|axialLine|for \(const cell of .*path/);
+    expect(main.match(/type: "place_line"/g)).toHaveLength(1);
+    expect(renderer).toContain("setDragPath(");
+    expect(renderer).not.toMatch(/hexLine|axialLine/);
+  });
+
   it("contains no host-side player or progression mutation loop", () => {
     const main = readFileSync(
       new URL("../src/main.ts", import.meta.url),
@@ -419,6 +454,9 @@ describe("availability and expanded snapshot adapter", () => {
     expect(html).toContain('id="technology-list"');
     expect(html).toContain('id="continue"');
     expect(html).toContain("<kbd>W</kbd>");
+    // The drag, copy, and undo bindings are documented in the page itself, not only in the repo.
+    expect(html).toContain("<kbd>Q</kbd>");
+    expect(html).toContain("<kbd>Ctrl</kbd>+<kbd>Z</kbd>");
     expect(html).toContain('id="next-action-title"');
     expect(html).toContain('data-move-key="KeyW"');
     expect(html).toContain('data-native-action="gather"');

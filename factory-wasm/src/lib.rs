@@ -13,6 +13,11 @@ const SAVE_PREFIX: &str = "HXF1\n";
 const SAVE_VERSION: u16 = 2;
 const WORLD_GENERATOR_VERSION: u16 = 2;
 const MAX_COMMANDS_PER_BATCH: usize = 8;
+/// A drag is one bounded command, so the run it expands into has to be bounded too. This is the
+/// native cap on cells a single `place_line` or `erase_line` may touch.
+const MAX_LINE_CELLS: usize = 32;
+/// How many constructions back one session can be taken. Derived state, so it costs nothing saved.
+const MAX_UNDO_DEPTH: usize = 64;
 const GRAPH_TRACE_LIMIT: i32 = 8;
 const DIRECTIONS: [(i32, i32); 6] = [(1, 0), (0, 1), (-1, 1), (-1, 0), (0, -1), (1, -1)];
 const HEX_X: i32 = 1774;
@@ -585,6 +590,17 @@ struct PlacementPreview {
     reason: String,
 }
 
+/// One cell of a drag preview. The host draws these and nothing else: it never derives the path,
+/// the heading, or the legality itself, so what is shown during a drag is what `place_line` and
+/// `erase_line` will do with the same endpoints.
+#[derive(Serialize)]
+struct LinePreviewCell {
+    q: i32,
+    r: i32,
+    orientation: u8,
+    legal: bool,
+}
+
 #[derive(Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 enum InputCommand {
@@ -602,14 +618,33 @@ enum InputCommand {
         #[serde(default)]
         recipe_id: Option<RecipeId>,
     },
+    /// One drag, resolved natively. The host sends only the two endpoints it dragged between; the
+    /// path, the per-cell orientation, the legality, and the cost are all resolved here.
+    PlaceLine {
+        q: i32,
+        r: i32,
+        to_q: i32,
+        to_r: i32,
+        definition_id: DefinitionId,
+        orientation: u8,
+        #[serde(default)]
+        recipe_id: Option<RecipeId>,
+    },
     Erase {
         q: i32,
         r: i32,
+    },
+    EraseLine {
+        q: i32,
+        r: i32,
+        to_q: i32,
+        to_r: i32,
     },
     Rotate {
         q: i32,
         r: i32,
     },
+    Undo,
     Research {
         technology_id: TechnologyId,
     },
@@ -640,6 +675,11 @@ struct Core {
     /// Derived presentation state: what has changed since the host's last delta. Never saved,
     /// hashed, or checksummed.
     dirty: SnapshotDirty,
+    /// Ids of entities this session constructed, most recent last, so one misplacement can be taken
+    /// back. Derived session state under the same rule as `deposit_links` and `dirty`: never saved,
+    /// hashed, or checksummed, so a loaded save starts with nothing to undo. Undo runs the ordinary
+    /// erase path, which is why it cannot invent a refund the erase tests do not already pin.
+    undo_stack: Vec<u32>,
 }
 
 impl Core {
@@ -683,6 +723,7 @@ impl Core {
             produced: BTreeMap::new(),
             events: vec![format!("{} ready", scenario.name)],
             dirty: SnapshotDirty::default(),
+            undo_stack: Vec::new(),
         };
         core.ensure_neighborhood(core.player.x, core.player.y);
         for resource in &scenario.resources {
@@ -1669,6 +1710,10 @@ impl Core {
             progress: 0,
         });
         self.next_entity_id += 1;
+        self.undo_stack.push(id);
+        if self.undo_stack.len() > MAX_UNDO_DEPTH {
+            self.undo_stack.remove(0);
+        }
         self.dirty.entities.push(id);
         // A chunk's reported entity count changes with the blueprint.
         self.dirty.chunks = true;
@@ -1680,6 +1725,200 @@ impl Core {
         self.recompile_graph_components(&old_links, &changed_cells, &BTreeSet::from([id]));
         self.events.push(format!("Placed {}", definition.name));
         Ok(())
+    }
+
+    /// One drag of construction. The host sends the endpoints it dragged between and nothing else:
+    /// every cell, orientation, legality result, and cost is resolved here, and each cell goes
+    /// through the same `place` the single-cell command uses, so a drag can only ever produce what
+    /// the equivalent individual placements would have produced.
+    ///
+    /// Illegal cells are skipped rather than aborting the run, so dragging a belt past a rock or
+    /// past the end of the materials builds everything it legally can. The per-cell events are
+    /// replaced by one summary, because ten "Placed Belt" lines is not feedback.
+    fn place_line(
+        &mut self,
+        from: (i32, i32),
+        to: (i32, i32),
+        definition_id: DefinitionId,
+        orientation: u8,
+        recipe_id: Option<RecipeId>,
+    ) -> Result<(), String> {
+        let definition = self
+            .building_definition(definition_id)
+            .ok_or_else(|| format!("unknown building definition {definition_id}"))?;
+        let routed = definition.kind == BuildingKind::Belt;
+        let name = definition.name.clone();
+        let cells = hex_line(from, to);
+        let before = self.events.len();
+        let mut placed = 0usize;
+        let mut last_error = None;
+        for (index, &(q, r)) in cells.iter().enumerate() {
+            // A belt run points every cell at the next one, so the drag routes the line and the
+            // player never orients a segment by hand. The final cell keeps the run's heading.
+            let cell_orientation = if routed {
+                Self::run_orientation(&cells, index, orientation)
+            } else {
+                orientation
+            };
+            match self.place(q, r, definition_id, cell_orientation, recipe_id) {
+                Ok(()) => placed += 1,
+                Err(error) => last_error = Some(error),
+            }
+        }
+        self.events.truncate(before);
+        match (placed, last_error) {
+            (0, Some(error)) => Err(error),
+            (0, None) => Err("nothing to build along that drag".into()),
+            (count, reason) => {
+                self.events.push(if count == 1 {
+                    format!("Placed {name}")
+                } else {
+                    format!("Placed {count} × {name}")
+                });
+                // A run that stopped short says why. Silently building four of ten is the kind of
+                // thing a player notices only much later, when the line does not work.
+                if let Some(reason) = reason {
+                    self.events.push(format!("Run stopped: {reason}"));
+                }
+                Ok(())
+            }
+        }
+    }
+
+    /// The heading a belt takes at `index` along `cells`: toward its successor, or — for the last
+    /// cell — continuing the heading it arrived on. Shared by the drag and its preview so the two
+    /// cannot disagree.
+    fn run_orientation(cells: &[(i32, i32)], index: usize, fallback: u8) -> u8 {
+        let (q, r) = cells[index];
+        match cells.get(index + 1) {
+            Some(&next) => step_direction((q, r), next),
+            None => index
+                .checked_sub(1)
+                .and_then(|previous| cells.get(previous))
+                .and_then(|&previous| step_direction(previous, (q, r))),
+        }
+        .unwrap_or(fallback)
+    }
+
+    /// What a construction drag between these endpoints would do, without doing it. Materials are
+    /// spent against a copy of the player's inventory as the run is walked, so the preview shows
+    /// exactly where a run will stop for cost rather than implying the whole line is affordable.
+    fn line_preview(
+        &self,
+        from: (i32, i32),
+        to: (i32, i32),
+        definition_id: DefinitionId,
+        orientation: u8,
+    ) -> Vec<LinePreviewCell> {
+        let Some(definition) = self.building_definition(definition_id) else {
+            return Vec::new();
+        };
+        let routed = definition.kind == BuildingKind::Belt;
+        let cost = definition.construction_cost.clone();
+        let cells = hex_line(from, to);
+        let mut budget = self.player.inventory.clone();
+        let mut taken = BTreeSet::new();
+        cells
+            .iter()
+            .enumerate()
+            .map(|(index, &(q, r))| {
+                let cell_orientation = if routed {
+                    Self::run_orientation(&cells, index, orientation)
+                } else {
+                    orientation
+                };
+                let legal = !taken.contains(&(q, r))
+                    && self
+                        .placement_legality(q, r, definition_id, cell_orientation, None, false)
+                        .is_ok()
+                    && has_ingredients(&budget, &cost);
+                if legal {
+                    for ingredient in &cost {
+                        subtract_item(&mut budget, ingredient.item_id, ingredient.quantity);
+                    }
+                    taken.insert((q, r));
+                }
+                LinePreviewCell {
+                    q,
+                    r,
+                    orientation: cell_orientation,
+                    legal,
+                }
+            })
+            .collect()
+    }
+
+    /// What a removal drag between these endpoints would take back.
+    fn erase_line_preview(&self, from: (i32, i32), to: (i32, i32)) -> Vec<LinePreviewCell> {
+        hex_line(from, to)
+            .into_iter()
+            .map(|(q, r)| {
+                let (x, y) = axial_world(q, r);
+                let legal = squared_distance(self.player.x, self.player.y, x, y)
+                    <= i64::from(self.player.build_range).pow(2)
+                    && self
+                        .entity_at(q, r)
+                        .is_some_and(|index| !self.entities[index].placed.scenario_owned);
+                LinePreviewCell {
+                    q,
+                    r,
+                    orientation: 0,
+                    legal,
+                }
+            })
+            .collect()
+    }
+
+    /// One drag of removal, resolved exactly as `place_line` resolves construction.
+    fn erase_line(&mut self, from: (i32, i32), to: (i32, i32)) -> Result<(), String> {
+        let cells = hex_line(from, to);
+        let before = self.events.len();
+        let mut removed = 0usize;
+        let mut last_error = None;
+        for &(q, r) in &cells {
+            // A multi-cell footprint is reached from several cells of the drag; the first one
+            // removes it and the rest simply find nothing there.
+            match self.erase(q, r) {
+                Ok(()) => removed += 1,
+                Err(error) => last_error = Some(error),
+            }
+        }
+        self.events.truncate(before);
+        match (removed, last_error) {
+            (0, Some(error)) => Err(error),
+            (0, None) => Err("nothing to remove along that drag".into()),
+            (count, _) => {
+                // Dragging across ground that holds nothing is the normal case for erasure, so
+                // unlike construction it is not worth reporting a reason for each empty cell.
+                self.events.push(if count == 1 {
+                    "Recovered 1 building".into()
+                } else {
+                    format!("Recovered {count} buildings")
+                });
+                Ok(())
+            }
+        }
+    }
+
+    /// Take back the most recent construction this session made, through the ordinary erase path so
+    /// the refund is the tested one. A construction that has already been removed is skipped, and a
+    /// failed undo keeps its entry so the player can walk back into range and retry.
+    fn undo(&mut self) -> Result<(), String> {
+        while let Some(&id) = self.undo_stack.last() {
+            let Some(index) = self.index_of_entity(id) else {
+                self.undo_stack.pop();
+                continue;
+            };
+            let (q, r) = (self.entities[index].placed.q, self.entities[index].placed.r);
+            let before = self.events.len();
+            let result = self.erase(q, r);
+            self.events.truncate(before);
+            result?;
+            self.undo_stack.pop();
+            self.events.push("Undid the last construction".into());
+            return Ok(());
+        }
+        Err("nothing to undo".into())
     }
 
     fn erase(&mut self, q: i32, r: i32) -> Result<(), String> {
@@ -1797,8 +2036,21 @@ impl Core {
                     orientation,
                     recipe_id,
                 } => self.place(q, r, definition_id, orientation, recipe_id),
+                InputCommand::PlaceLine {
+                    q,
+                    r,
+                    to_q,
+                    to_r,
+                    definition_id,
+                    orientation,
+                    recipe_id,
+                } => self.place_line((q, r), (to_q, to_r), definition_id, orientation, recipe_id),
                 InputCommand::Erase { q, r } => self.erase(q, r),
+                InputCommand::EraseLine { q, r, to_q, to_r } => {
+                    self.erase_line((q, r), (to_q, to_r))
+                }
                 InputCommand::Rotate { q, r } => self.rotate(q, r),
+                InputCommand::Undo => self.undo(),
                 InputCommand::Research { technology_id } => self.research(technology_id),
             };
             if let Err(error) = result {
@@ -2153,6 +2405,8 @@ impl Core {
             .map(|tile| ((tile.q, tile.r), tile))
             .collect();
         core.deposit_links.clear();
+        // Undo history is session state, not saved state: a restored save has nothing to take back.
+        core.undo_stack.clear();
         core.entities = envelope.state.entities;
         // A save records entities in stable id order; sorting makes that an invariant of the loaded
         // core rather than a property of the file. Entity order is not a simulation input — the
@@ -2488,6 +2742,28 @@ impl Factory {
             },
         };
         serde_json::to_string(&preview).expect("preview is serializable")
+    }
+
+    /// The cells, headings, and legality a construction drag between these endpoints would produce.
+    pub fn line_preview_json(
+        &self,
+        q: i32,
+        r: i32,
+        to_q: i32,
+        to_r: i32,
+        definition_id: DefinitionId,
+        orientation: u8,
+    ) -> String {
+        let cells = self
+            .core
+            .line_preview((q, r), (to_q, to_r), definition_id, orientation);
+        serde_json::to_string(&cells).expect("preview is serializable")
+    }
+
+    /// The cells a removal drag between these endpoints would take back.
+    pub fn erase_line_preview_json(&self, q: i32, r: i32, to_q: i32, to_r: i32) -> String {
+        let cells = self.core.erase_line_preview((q, r), (to_q, to_r));
+        serde_json::to_string(&cells).expect("preview is serializable")
     }
 
     pub fn snapshot_json(&mut self) -> String {
@@ -2883,6 +3159,47 @@ fn rotate_coordinate(mut coordinate: Coordinate, turns: u8) -> Coordinate {
         };
     }
     coordinate
+}
+
+fn axial_distance(from: (i32, i32), to: (i32, i32)) -> i32 {
+    let dq = to.0 - from.0;
+    let dr = to.1 - from.1;
+    (dq.abs() + dr.abs() + (dq + dr).abs()) / 2
+}
+
+/// The direction index that steps from one hex to an adjacent one, or `None` if they are not
+/// neighbours.
+fn step_direction(from: (i32, i32), to: (i32, i32)) -> Option<u8> {
+    let delta = (to.0 - from.0, to.1 - from.1);
+    DIRECTIONS
+        .iter()
+        .position(|direction| *direction == delta)
+        .map(|index| index as u8)
+}
+
+/// The cells one drag covers, from `from` through `to` inclusive.
+///
+/// Each step takes the lowest-numbered of the six directions that moves strictly closer to the
+/// target. Once a direction stops closing the distance it never starts again, so a run uses at most
+/// two directions and turns exactly once — the fewest turns a belt line between those endpoints can
+/// have, and the same path every time. Integer-only and independent of iteration order, so it is
+/// safe on a state-affecting path. The result is capped at `MAX_LINE_CELLS`; a longer drag builds
+/// as far as the cap and stops.
+fn hex_line(from: (i32, i32), to: (i32, i32)) -> Vec<(i32, i32)> {
+    let mut cells = vec![from];
+    let mut current = from;
+    while current != to && cells.len() < MAX_LINE_CELLS {
+        let remaining = axial_distance(current, to);
+        let Some(&(dq, dr)) = DIRECTIONS
+            .iter()
+            .find(|(dq, dr)| axial_distance((current.0 + dq, current.1 + dr), to) < remaining)
+        else {
+            break;
+        };
+        current = (current.0 + dq, current.1 + dr);
+        cells.push(current);
+    }
+    cells
 }
 
 fn squared_distance(ax: i32, ay: i32, bx: i32, by: i32) -> i64 {
@@ -3982,6 +4299,203 @@ mod tests {
             .placement_legality(100, 100, 2, 0, None, true)
             .unwrap_err()
             .contains("player"));
+    }
+
+    #[test]
+    fn a_drag_resolves_one_turn_and_stays_bounded() {
+        // A straight run along a hex axis.
+        assert_eq!(
+            hex_line((0, 0), (3, 0)),
+            vec![(0, 0), (1, 0), (2, 0), (3, 0)]
+        );
+        // An off-axis run turns exactly once rather than staircasing, so a belt line between two
+        // endpoints carries the fewest direction changes it can.
+        assert_eq!(
+            hex_line((2, 0), (4, 1)),
+            vec![(2, 0), (3, 0), (4, 0), (4, 1)]
+        );
+        let turns = hex_line((0, 0), (5, 3))
+            .windows(2)
+            .filter_map(|pair| step_direction(pair[0], pair[1]))
+            .collect::<Vec<_>>()
+            .windows(2)
+            .filter(|step| step[0] != step[1])
+            .count();
+        assert_eq!(turns, 1);
+        // Both endpoints are always included, and a single-cell drag is a single placement.
+        assert_eq!(hex_line((-3, 2), (-3, 2)), vec![(-3, 2)]);
+        // One command can only ever expand into a bounded run.
+        assert_eq!(hex_line((0, 0), (900, 0)).len(), MAX_LINE_CELLS);
+        assert_eq!(step_direction((0, 0), (0, 1)), Some(1));
+        assert_eq!(step_direction((0, 0), (4, 4)), None);
+    }
+
+    #[test]
+    fn one_drag_builds_exactly_what_the_equivalent_placements_build() {
+        // The path and per-cell headings `a_drag_resolves_one_turn_and_stays_bounded` pins, written
+        // out so this test does not re-derive them from the code it is checking.
+        let equivalent = [((2, 0), 0u8), ((3, 0), 0), ((4, 0), 1), ((4, 1), 1)];
+
+        let mut dragged = game("new-game");
+        dragged.researched.extend([1, 2, 3, 4]);
+        dragged.player.inventory.insert(1, 100);
+        dragged.place_line((2, 0), (4, 1), 2, 0, None).unwrap();
+
+        let mut individual = game("new-game");
+        individual.researched.extend([1, 2, 3, 4]);
+        individual.player.inventory.insert(1, 100);
+        for ((q, r), orientation) in equivalent {
+            individual.place(q, r, 2, orientation, None).unwrap();
+        }
+
+        // Same world, same blueprint, same materials spent: a drag is exactly its placements.
+        assert_eq!(dragged.checksum(), individual.checksum());
+        assert_eq!(dragged.entities.len(), individual.entities.len());
+        // The drag routed the run itself — every belt points at its successor and the last one
+        // keeps the run's heading — so the player never oriented a segment by hand.
+        let headings: Vec<u8> = dragged
+            .entities
+            .iter()
+            .filter(|entity| !entity.placed.scenario_owned)
+            .map(|entity| entity.placed.orientation)
+            .collect();
+        assert_eq!(headings, vec![0, 0, 1, 1]);
+        // One drag reports one result, not one per cell.
+        assert_eq!(dragged.events.last().unwrap(), "Placed 4 × Belt");
+    }
+
+    #[test]
+    fn a_drag_builds_what_it_legally_can_and_reports_why_it_stopped() {
+        let mut core = game("new-game");
+        core.researched.extend([1, 2, 3, 4]);
+        // Enough for two of the four cells the drag covers.
+        core.player.inventory.insert(1, 2);
+        core.place_line((2, 0), (4, 1), 2, 0, None).unwrap();
+        assert_eq!(
+            core.entities
+                .iter()
+                .filter(|entity| !entity.placed.scenario_owned)
+                .count(),
+            2
+        );
+        assert_eq!(core.player.inventory.get(&1).copied().unwrap_or(0), 0);
+        // Running out of materials part-way is reported, and what was affordable still stands.
+        assert!(core.events.iter().any(|event| event.contains("cost")));
+
+        // A drag that can place nothing at all fails as the single placement would have.
+        let mut empty = game("new-game");
+        empty.researched.extend([1, 2, 3, 4]);
+        assert!(empty
+            .place_line((2, 0), (4, 1), 2, 0, None)
+            .unwrap_err()
+            .contains("cost"));
+        assert!(empty
+            .entities
+            .iter()
+            .all(|entity| entity.placed.scenario_owned));
+    }
+
+    #[test]
+    fn a_drag_preview_is_what_the_drag_builds() {
+        let mut core = game("new-game");
+        core.researched.extend([1, 2, 3, 4]);
+        // Materials for two of the four cells, so the preview has to show the run stopping.
+        core.player.inventory.insert(1, 2);
+
+        let preview = core.line_preview((2, 0), (4, 1), 2, 0);
+        assert_eq!(preview.len(), 4);
+        let promised: Vec<(i32, i32, u8)> = preview
+            .iter()
+            .filter(|cell| cell.legal)
+            .map(|cell| (cell.q, cell.r, cell.orientation))
+            .collect();
+        assert_eq!(promised.len(), 2);
+        // The preview spends materials as it walks, so it marks the exact cell the run stops at
+        // rather than implying the whole line is affordable.
+        assert!(!preview[2].legal && !preview[3].legal);
+
+        core.place_line((2, 0), (4, 1), 2, 0, None).unwrap();
+        let built: Vec<(i32, i32, u8)> = core
+            .entities
+            .iter()
+            .filter(|entity| !entity.placed.scenario_owned)
+            .map(|entity| (entity.placed.q, entity.placed.r, entity.placed.orientation))
+            .collect();
+        assert_eq!(built, promised);
+
+        // Removal previews the same way: only cells actually holding something removable.
+        let erasable = core.erase_line_preview((2, 0), (4, 1));
+        assert_eq!(
+            erasable
+                .iter()
+                .filter(|cell| cell.legal)
+                .map(|cell| (cell.q, cell.r))
+                .collect::<Vec<_>>(),
+            vec![(2, 0), (3, 0)]
+        );
+    }
+
+    #[test]
+    fn one_drag_removes_the_run_it_covers() {
+        let mut core = game("new-game");
+        core.researched.extend([1, 2, 3, 4]);
+        core.player.inventory.insert(1, 100);
+        core.place_line((2, 0), (4, 1), 2, 0, None).unwrap();
+        let spent = *core.player.inventory.get(&1).unwrap();
+        core.erase_line((2, 0), (4, 1)).unwrap();
+        assert!(core
+            .entities
+            .iter()
+            .all(|entity| entity.placed.scenario_owned));
+        // Removal refunds through the ordinary erase path, so a built-then-removed run is free.
+        assert_eq!(core.player.inventory.get(&1), Some(&(spent + 4)));
+        assert_eq!(core.events.last().unwrap(), "Recovered 4 buildings");
+        // A drag across empty ground reports the same refusal a single erase would.
+        assert!(core
+            .erase_line((2, 0), (4, 1))
+            .unwrap_err()
+            .contains("no building"));
+    }
+
+    #[test]
+    fn undo_takes_back_the_last_construction_through_the_erase_path() {
+        let mut core = game("new-game");
+        core.researched.extend([1, 2, 3, 4]);
+        core.player.inventory.insert(1, 100);
+        let before = core.checksum();
+
+        core.place(2, 0, 2, 0, None).unwrap();
+        core.undo().unwrap();
+        // Undo is exactly an erase of what was just built, so the world returns to where it was.
+        assert_eq!(core.checksum(), before);
+        assert_eq!(core.events.last().unwrap(), "Undid the last construction");
+
+        // It unwinds a drag one construction at a time, most recent first.
+        core.place_line((2, 0), (4, 1), 2, 0, None).unwrap();
+        for _ in 0..4 {
+            core.undo().unwrap();
+        }
+        assert_eq!(core.checksum(), before);
+        assert!(core.undo().unwrap_err().contains("nothing to undo"));
+
+        // A construction already removed by hand is skipped rather than undoing something else.
+        core.place(2, 0, 2, 0, None).unwrap();
+        core.place(3, 0, 2, 0, None).unwrap();
+        core.erase(3, 0).unwrap();
+        core.undo().unwrap();
+        assert!(core
+            .entities
+            .iter()
+            .all(|entity| entity.placed.scenario_owned));
+
+        // Undo history is session state: a save carries none of it, so a restored game has nothing
+        // to take back and cannot erase across a load boundary.
+        core.place(2, 0, 2, 0, None).unwrap();
+        let (definitions, technologies, scenarios) = catalogs();
+        let save = core.save_string().unwrap();
+        let restored = Core::from_save(&definitions, &technologies, &scenarios, &save).unwrap();
+        assert!(restored.undo_stack.is_empty());
+        assert_eq!(restored.checksum(), core.checksum());
     }
 
     #[test]

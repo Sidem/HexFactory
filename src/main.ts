@@ -57,8 +57,19 @@ let lastEvent = "";
 let panPointer: { id: number; x: number; y: number; moved: boolean } | null =
   null;
 let suppressMapClick = false;
+/**
+ * The in-progress construction or removal drag. Only the two endpoints are ever held here — the
+ * path between them belongs to native, which resolves it for both the preview and the command.
+ */
+let dragBuild: {
+  id: number;
+  from: { q: number; r: number };
+  to: { q: number; r: number };
+  erasing: boolean;
+} | null = null;
+let dragPreviewPending = false;
+let gatherHeld = false;
 const pressedMovement = new Set<string>();
-let movementRevision = 0;
 let advancePending = false;
 let previewPending = false;
 let previewRequested = false;
@@ -500,18 +511,18 @@ required<HTMLDivElement>("technology-list").addEventListener(
 );
 
 window.addEventListener("keydown", (event) => {
-  if (
-    event.ctrlKey ||
-    event.metaKey ||
-    event.altKey ||
-    isTypingTarget(event.target)
-  )
+  if (isTypingTarget(event.target)) return;
+  // Undo is the one binding that keeps its modifier, because every other application uses it.
+  if ((event.ctrlKey || event.metaKey) && event.code === "KeyZ") {
+    event.preventDefault();
+    enqueue({ type: "undo" });
     return;
+  }
+  if (event.ctrlKey || event.metaKey || event.altKey) return;
   if (event.code in MOVEMENT_KEYS) {
     event.preventDefault();
     if (!pressedMovement.has(event.code)) {
       pressedMovement.add(event.code);
-      movementRevision += 1;
       enqueue(movementIntent(pressedMovement));
     }
     return;
@@ -520,10 +531,16 @@ window.addEventListener("keydown", (event) => {
     selectTool("inspect");
     closePanels();
   } else if (event.code === "Space") setPlaying(!playing);
-  else if (event.code === "KeyF") enqueue({ type: "gather" });
-  else if (event.code === "KeyX") enqueue({ type: "deposit" });
-  else if (event.code === "KeyR") rotateNewBuilding();
-  else if (/^Digit[1-4]$/.test(event.code)) {
+  else if (event.code === "KeyF") {
+    // Held rather than tapped. The native action cooldown already paces this, so the repeat
+    // cannot outrun the simulation.
+    gatherHeld = true;
+    enqueue({ type: "gather" });
+  } else if (event.code === "KeyX") enqueue({ type: "deposit" });
+  else if (event.code === "KeyR") rotateUnderCursorOrPending();
+  else if (event.code === "KeyQ") pickToolUnderCursor();
+  else if (event.code === "KeyE") selectTool("erase");
+  else if (/^Digit[1-9]$/.test(event.code)) {
     const buildable = host.definitions.buildings.filter(
       ({ buildable }) => buildable,
     );
@@ -534,19 +551,18 @@ window.addEventListener("keydown", (event) => {
 });
 
 window.addEventListener("keyup", (event) => {
+  if (event.code === "KeyF") gatherHeld = false;
   if (!pressedMovement.delete(event.code)) return;
   event.preventDefault();
-  movementRevision += 1;
-  const revision = movementRevision;
-  window.setTimeout(() => {
-    if (revision === movementRevision) enqueue(movementIntent(pressedMovement));
-  }, 110);
+  // Stopping is sent on the same frame the key comes up. Coalescing the release made every stop
+  // read as a slide, which is the kind of latency a player feels without being able to name it.
+  enqueue(movementIntent(pressedMovement));
 });
 
 window.addEventListener("blur", () => {
+  gatherHeld = false;
   if (!pressedMovement.size) return;
   pressedMovement.clear();
-  movementRevision += 1;
   enqueue(movementIntent(pressedMovement));
 });
 
@@ -560,7 +576,15 @@ canvas.addEventListener("pointermove", (event) => {
     panPointer.y = event.clientY;
     return;
   }
-  hover = renderer.pick(event.clientX, event.clientY);
+  const coordinate = renderer.pick(event.clientX, event.clientY);
+  if (dragBuild?.id === event.pointerId) {
+    if (coordinate.q === dragBuild.to.q && coordinate.r === dragBuild.to.r)
+      return;
+    dragBuild.to = coordinate;
+    void refreshDragPreview();
+    return;
+  }
+  hover = coordinate;
   refreshHoverPreview();
 });
 canvas.addEventListener("pointerdown", (event) => {
@@ -573,17 +597,52 @@ canvas.addEventListener("pointerdown", (event) => {
     };
     canvas.setPointerCapture(event.pointerId);
     event.preventDefault();
+    return;
   }
+  if (event.button !== 0 || !draggableTool()) return;
+  const from = renderer.pick(event.clientX, event.clientY);
+  dragBuild = {
+    id: event.pointerId,
+    from,
+    to: from,
+    erasing: tool === "erase",
+  };
+  canvas.setPointerCapture(event.pointerId);
+  void refreshDragPreview();
 });
 canvas.addEventListener("pointerup", (event) => {
   if (panPointer?.id === event.pointerId) {
     suppressMapClick = panPointer.moved;
     canvas.releasePointerCapture(event.pointerId);
     panPointer = null;
+    return;
   }
+  if (dragBuild?.id !== event.pointerId) return;
+  const { from, to, erasing } = dragBuild;
+  endDrag(event.pointerId);
+  // A drag that never left its starting hex is an ordinary click; the click handler runs it.
+  if (from.q === to.q && from.r === to.r) return;
+  suppressMapClick = true;
+  selected = to;
+  renderer.setSelection(to);
+  enqueue(
+    erasing
+      ? { type: "erase_line", q: from.q, r: from.r, to_q: to.q, to_r: to.r }
+      : {
+          type: "place_line",
+          q: from.q,
+          r: from.r,
+          to_q: to.q,
+          to_r: to.r,
+          definition_id: tool as number,
+          orientation,
+          recipe_id: recipeFor(tool),
+        },
+  );
 });
+canvas.addEventListener("pointercancel", (event) => endDrag(event.pointerId));
 canvas.addEventListener("pointerleave", () => {
-  if (!panPointer) {
+  if (!panPointer && !dragBuild) {
     hover = null;
     refreshHoverPreview();
   }
@@ -627,8 +686,121 @@ canvas.addEventListener("click", (event) => {
   renderInspector();
 });
 
-function rotateNewBuilding(): void {
-  orientation = rotateHexDirection(orientation, 1);
+/**
+ * Whether the selected tool can be dragged into a run. Erasure always can; construction can when
+ * the definition occupies a single hex, because a run of multi-hex footprints would overlap itself.
+ */
+function draggableTool(): boolean {
+  if (tool === "erase") return true;
+  if (typeof tool !== "number") return false;
+  const definition = host.definitions.buildings.find(({ id }) => id === tool);
+  return definition?.footprint.length === 1;
+}
+
+function recipeFor(value: Tool): number | undefined {
+  const definition =
+    typeof value === "number"
+      ? host.definitions.buildings.find(({ id }) => id === value)
+      : undefined;
+  return definition?.kind === "composer"
+    ? host.definitions.recipes[0]?.id
+    : undefined;
+}
+
+/**
+ * Ask native what the current drag would do and hand the answer straight to the renderer. The host
+ * never resolves the path itself, so the preview and the eventual command cannot disagree.
+ */
+async function refreshDragPreview(): Promise<void> {
+  if (!dragBuild || dragPreviewPending) return;
+  dragPreviewPending = true;
+  try {
+    while (dragBuild) {
+      const { from, to, erasing } = dragBuild;
+      const cells = await host.linePreview(
+        from.q,
+        from.r,
+        to.q,
+        to.r,
+        erasing ? undefined : (tool as number),
+        orientation,
+      );
+      if (!dragBuild) break;
+      renderer.setDragPath(cells);
+      const legal = cells.filter((cell) => cell.legal).length;
+      required<HTMLElement>("placement-value").textContent = erasing
+        ? `Remove ${legal} of ${cells.length}`
+        : `Build ${legal} of ${cells.length}`;
+      if (dragBuild.to.q === to.q && dragBuild.to.r === to.r) break;
+    }
+  } catch (error) {
+    showFeedback(`Drag preview failed: ${String(error)}`);
+  } finally {
+    dragPreviewPending = false;
+  }
+}
+
+function endDrag(pointerId: number): void {
+  if (dragBuild?.id !== pointerId) return;
+  dragBuild = null;
+  renderer.setDragPath([]);
+  if (canvas.hasPointerCapture(pointerId))
+    canvas.releasePointerCapture(pointerId);
+  required<HTMLElement>("placement-value").textContent =
+    hoverPreview?.reason ?? "";
+}
+
+/**
+ * One rotation idea, not two: with a build tool held this turns the pending building, and otherwise
+ * it turns the building under the cursor.
+ */
+function rotateUnderCursorOrPending(): void {
+  if (typeof tool === "number" || tool === "inspect") {
+    const target = hover ?? selected;
+    const existing =
+      typeof tool === "number"
+        ? null
+        : target &&
+          snapshot.buildings.find(({ footprint }) =>
+            footprint.some(({ q, r }) => q === target.q && r === target.r),
+          );
+    if (existing && target) {
+      enqueue({ type: "rotate", q: target.q, r: target.r });
+      return;
+    }
+  }
+  rotateNewBuilding();
+}
+
+/**
+ * Adopt whatever is under the cursor as the active tool, orientation included, so repeating an
+ * existing building never means hunting for it in the dock.
+ */
+function pickToolUnderCursor(): void {
+  const target = hover ?? selected;
+  const building =
+    target &&
+    snapshot.buildings.find(({ footprint }) =>
+      footprint.some(({ q, r }) => q === target.q && r === target.r),
+    );
+  if (!building) {
+    showFeedback("Nothing under the cursor to copy");
+    return;
+  }
+  const definition = host.definitions.buildings.find(
+    ({ id }) => id === building.definition_id,
+  );
+  if (!definition?.buildable) {
+    showFeedback(`${definition?.name ?? "That"} cannot be built`);
+    return;
+  }
+  setOrientation(building.orientation as HexDirection);
+  selectTool(definition.id);
+  showFeedback(`Copied ${definition.name}`);
+}
+
+function setOrientation(next: HexDirection): void {
+  orientation = next;
   required<HTMLElement>("orientation-value").textContent =
     `${DIRECTION_NAMES[orientation]} · R`;
   const definition =
@@ -642,11 +814,18 @@ function rotateNewBuilding(): void {
   refreshHoverPreview();
 }
 
+function rotateNewBuilding(): void {
+  setOrientation(rotateHexDirection(orientation, 1));
+}
+
 function frame(now: number): void {
   const elapsed = Math.min(250, now - previousTime);
   previousTime = now;
   if (playing) accumulator += elapsed * Number(speedInput.value);
   if (!advancePending) {
+    // A held gather repeats at frame rate and is paced natively by the action cooldown, so the
+    // player holds the key instead of tapping it once per unit.
+    if (gatherHeld && !input.size) input.enqueue({ type: "gather" });
     const commands = input.drain();
     const ticks = playing ? Math.min(20, Math.floor(accumulator / 1000)) : 0;
     if (commands.length || ticks > 0) {
@@ -741,13 +920,11 @@ for (const button of document.querySelectorAll<HTMLButtonElement>(
     button.setPointerCapture(event.pointerId);
     if (pressedMovement.has(code)) return;
     pressedMovement.add(code);
-    movementRevision += 1;
     enqueue(movementIntent(pressedMovement));
   };
   const stop = (event: PointerEvent): void => {
     event.preventDefault();
     if (!pressedMovement.delete(code)) return;
-    movementRevision += 1;
     enqueue(movementIntent(pressedMovement));
   };
   button.addEventListener("pointerdown", start);

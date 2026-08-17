@@ -6,6 +6,7 @@ import technologies from "../data/technologies.json";
 import type {
   FactorySnapshot,
   FactorySnapshotDelta,
+  LinePreviewCell,
   NativeFactory,
   NativeInputCommand,
   PlacementPreview,
@@ -85,6 +86,24 @@ async function handle(request: WorkerRequest): Promise<unknown> {
           optionalNumber(payload.recipeId),
         ),
       ) as PlacementPreview;
+    case "linePreview":
+      return JSON.parse(
+        payload.definitionId === undefined
+          ? factory.erase_line_preview_json(
+              Number(payload.q),
+              Number(payload.r),
+              Number(payload.toQ),
+              Number(payload.toR),
+            )
+          : factory.line_preview_json(
+              Number(payload.q),
+              Number(payload.r),
+              Number(payload.toQ),
+              Number(payload.toR),
+              Number(payload.definitionId),
+              Number(payload.orientation),
+            ),
+      ) as LinePreviewCell[];
     case "save":
       return factory.save_string();
     case "load":

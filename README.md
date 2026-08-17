@@ -2,8 +2,13 @@
 
 **[Play HexFactory](https://sidem.github.io/HexFactory/)**
 
-HexFactory is a deliberately small, deterministic factory game in an unbounded continuous world.
-Its full-viewport command surface keeps the current directive, next useful action, cargo, research,
+HexFactory is a factory-automation game in an unbounded continuous hex world, built to be fun to
+play, fascinating to explore, and effortless to control. The goal is an open-ended game in the
+spirit of Factorio, Satisfactory, and Minecraft — original in its own shapes and systems — and the
+deterministic Rust/Wasm core exists to make a world that large stay responsive and its saves stay
+exact.
+
+What is playable today is deliberately small. Its full-viewport command surface keeps the current directive, next useful action, cargo, research,
 and construction costs close to the world on desktop and touch layouts. A
 new game starts beside a landing hub inside a small surveyed area, with the rest of the world under
 fog: explore to lift it, gather finite ore and crystal, deliver items for insight, unlock a short
@@ -20,11 +25,16 @@ presentation.
 - Move freely with `W/A/S/D` or the narrow-layout touch pad; movement is not snapped to building
   cells. Travelling past the dashed survey frontier generates new world and permanently lifts its
   fog.
-- Gather a nearby deposit with `F`; deliver the complete player inventory while beside the hub with
-  `X`.
-- Select build tools with the hotbar or number keys, rotate new buildings with `R`, and click to
-  place on the construction grid. Some definitions occupy multiple cells. Inspect, erase, and
-  rotate-existing tools are also available; the grid appears during editing or via its toggle.
+- Hold `F` to keep gathering a nearby deposit; deliver the complete player inventory while beside
+  the hub with `X`.
+- Select build tools with the hotbar or number keys `1`–`9`, and click to place on the construction
+  grid. With a belt or other single-hex building selected, **drag across the map to lay a whole run
+  at once** — it routes itself, turning where the drag turns, and the preview shows exactly which
+  cells it will use and where it stops. `E` selects erase, and dragging with it removes a run.
+- `R` rotates the pending building, or the building under the cursor when no build tool is held.
+  `Q` copies whatever is under the cursor, and `Ctrl`+`Z` takes back the last thing you built.
+  Some definitions occupy multiple cells; those are placed one at a time. The grid appears during
+  editing or via its toggle.
 - Drag, middle-drag, or right-drag the map to pan; use the wheel to zoom and **Recenter player** to
   resume camera following.
 - Press `Space` to pause/resume and `Escape` to return to inspection and close open panels.

@@ -227,6 +227,10 @@ work for a modest share; the encoding is not. The measurement reorders them.
 
 ## Follow-ups, in the order the measurement supports
 
+These are the _engine's_ follow-ups, ordered by evidence. The restated game-first goal placed the
+Game Feel v0.9 milestone ahead of them; that milestone has shipped, so these are next. The ordering
+among them is unchanged, and v0.9 added one new entry at the end.
+
 1. Replace the JSON delta with a compact binary encoding over a transferable buffer. Finding 3 is
    the evidence: the boundary is 60% of a host frame and tracks payload bytes at about 10 µs/KB, so
    this is the only identified change that can move the browser ladder. It attacks serialization,
@@ -244,6 +248,10 @@ work for a modest share; the encoding is not. The measurement reorders them.
    because its tested behaviour under component splits and merges is a correctness asset.
 6. Only after the renderer measurement: revisit the renderer itself. Nothing measured yet implicates
    it, and nothing measured yet exonerates it.
+7. Batch the transport recompile inside a construction drag. v0.9 routes a drag through the tested
+   per-cell `place`, so a 32-cell run recompiles 32 times. It happens once when the pointer is
+   released rather than every frame, and no tier in the ladder measures it, so this is a known cost
+   and not yet a measured one — measure it before optimizing it, like everything else on this list.
 
 Record new runs by adding a dated report under `docs/benchmarks/` and updating the tables above.
 Comparisons are only valid while the pinned workload checksum in the Rust test gate is unchanged.

@@ -7,6 +7,7 @@ import type {
   Definitions,
   FactorySnapshot,
   FactorySnapshotDelta,
+  LinePreviewCell,
   NativeInputCommand,
   PlacementPreview,
   Scenarios,
@@ -19,6 +20,7 @@ export type FactoryWorkerMethod =
   | "reset"
   | "newGame"
   | "placementPreview"
+  | "linePreview"
   | "save"
   | "load";
 
@@ -184,6 +186,28 @@ export class FactoryHost {
       definitionId,
       orientation,
       recipeId,
+    });
+  }
+
+  /**
+   * The cells a drag between these endpoints would touch. Passing no `definitionId` previews a
+   * removal drag. The host never resolves the path itself — see {@link LinePreviewCell}.
+   */
+  linePreview(
+    q: number,
+    r: number,
+    toQ: number,
+    toR: number,
+    definitionId?: number,
+    orientation = 0,
+  ): Promise<LinePreviewCell[]> {
+    return this.transport.request<LinePreviewCell[]>("linePreview", {
+      q,
+      r,
+      toQ,
+      toR,
+      definitionId,
+      orientation,
     });
   }
 

@@ -1,5 +1,10 @@
 # HexFactory architecture
 
+Everything below serves the goal in `docs/HEXFACTORY-PLAN.md`: an open-ended factory game that is
+fun to play and a pleasure to control. Determinism, sparse cost, and native ownership of the tick
+are here because a world that large has to stay responsive, restore exactly, and keep growing —
+not as ends in themselves.
+
 HexFactory is not a cellular automaton. Exploration uses unbounded continuous fixed-point world
 space. Pointy-top axial coordinates exist only for construction anchors/footprints and compiled
 transport; the running simulation follows graph edges and sparse scheduled entities.
@@ -29,17 +34,25 @@ The Rust `Core` owns all state that can change a game result:
 4. `compile_graph` resolves each entity output into one directed transport edge after edits. Runtime
    transfers use this compiled graph. Proposals sort by stable entity ID and a rejected transfer
    never changes its source.
-5. Extractors resolve their deposit by reference rather than by search. Each extractor's covering
+5. A construction or removal drag arrives as one bounded command holding two endpoints. `hex_line`
+   walks between them by taking the lowest-numbered direction that closes the distance, so a run
+   uses at most two directions and turns once, and each cell then goes through the same `place` or
+   `erase` a single-cell command uses. Belts are oriented at their successor, so the drag routes the
+   line. The preview entry points share that resolver and spend materials against a copy of the
+   inventory, so what is drawn during a drag is what the drag will build. Undo is a stack of
+   constructed entity ids replayed through `erase`; like `deposit_links` it is derived state and is
+   never saved, hashed, or checksummed.
+6. Extractors resolve their deposit by reference rather than by search. Each extractor's covering
    deposits are resolved once into a candidate list ordered exactly as a full scan would resolve it,
    cached against its stable entity id, and dropped whenever chunk generation adds tiles. Remaining
    quantity is never part of that ordering, so a drained deposit falls through to the next candidate
    without re-resolving. Reported extractor status resolves through the same cache rather than a
    second scan. The cache is derived state: it is never saved, never hashed, and tests pin both the
    reference and the status against the scans they replace.
-6. Extractors consume one unit from the finite deposit only when an output can be created. Composers
+7. Extractors consume one unit from the finite deposit only when an output can be created. Composers
    reserve exact recipe inputs, run for integer ticks, and emit only on completion. Containers store
    exact quantities; hubs and demo consumers count exact deliveries.
-7. The landing hub awards integer insight from data-defined item values. Research prerequisites,
+8. The landing hub awards integer insight from data-defined item values. Research prerequisites,
    costs, atomic spending, unlocks, objective progress, and persistent victory all live in Rust.
 
 Blueprint edits retain the previous graph by stable entity ID, invalidate output rays crossing the
