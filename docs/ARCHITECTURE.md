@@ -23,7 +23,12 @@ The Rust `Core` owns all state that can change a game result:
 1. A versioned seed and integer value noise generate fixed-size axial environment chunks without
    shared traversal state. Terrain bands and resource fields are derived from seed and hex; only
    the sparse depletion overlay, the generated chunk set, and ordinary simulation state are
-   checksum inputs. Collision and placement read the hex under the point.
+   checksum inputs. Collision and placement read the hex under the point. Each raw resource is
+   generated only in the band its geography names, so terrain is the material map rather than a
+   colour: iron and coal on highland, copper on hills, sand and clay on shores, stone on cliffs,
+   flora in moist lowland. Flora is the one source that comes back — an item's `regrowth_ticks`
+   makes a cut cell climb toward what generation gave it, walked from a derived set of cut cells so
+   that an untouched forest and a fully regrown one both cost nothing.
 2. The player has native integer `x/y`, facing and bounded movement intent vectors, action cooldown,
    world-unit build range, a carrying slot count, and an ordered `item_id → quantity` inventory.
    Gathering, delivery, construction costs, erasing, withdrawal, and research are native.
@@ -52,32 +57,45 @@ The Rust `Core` owns all state that can change a game result:
    it. Snapshots reach the host as JSON, whose numbers are IEEE-754 doubles, so a 64-bit id packed
    from two coordinates arrived rounded past 2^53 and a whole column of the field shared one value.
    Patching by it rewrote cells the player never touched with a copy of the harvested one.
-7. Placed entities keep definition, axial anchor, orientation, cargo, inventory, reserved recipe
-   inputs, progress, and scenario ownership separate. Definitions include a bounded axial footprint;
+7. Fuel is a property of `ItemDefinition`, never an entry in a recipe's `inputs`. A smelting recipe
+   therefore names no fuel at all, and coal, charcoal, wood, and every fuel added later are
+   interchangeable at different values; naming one would force a separate recipe per fuel and
+   hardcode the bootstrap path. A machine burns from its own stock, lowest item id first, and never
+   from the quantity a recipe input reserves — steel names coal as carbon, and a smelter that burned
+   those units would starve itself on its own recipe. `burnable_item` is the one predicate that
+   decides it, asked by the tick that burns and by the status line that explains why nothing did.
+   Smelter, kiln, cutter, crusher, and composer are one `BuildingKind` separated by a
+   `recipe_category` field and one check, asked at placement and again at reassignment. `Pump` is a
+   kind of its own only because it draws from terrain rather than a deposit and never depletes it.
+8. Placed entities keep definition, axial anchor, orientation, cargo, inventory, reserved recipe
+   inputs, progress, fuel charge, and scenario ownership separate. Definitions include a bounded axial footprint;
    occupancy, collision, edit targeting, scenario validation, and snapshots rotate the same data.
    Initial entity IDs derive from sorted anchors; later IDs are monotonic.
-8. `compile_graph` resolves each entity output into one directed transport edge after edits. Runtime
+9. `compile_graph` resolves each entity output into one directed transport edge after edits. Runtime
    transfers use this compiled graph. Proposals sort by stable entity ID and a rejected transfer
    never changes its source.
-9. A construction or removal drag arrives as one bounded command holding two endpoints. `hex_line`
-   walks between them by taking the lowest-numbered direction that closes the distance, so a run
-   uses at most two directions and turns once, and each cell then goes through the same `place` or
-   `erase` a single-cell command uses. Belts are oriented at their successor, so the drag routes the
-   line. The preview entry points share that resolver and spend materials against a copy of the
-   inventory, so what is drawn during a drag is what the drag will build. Undo is a stack of
-   constructed entity ids replayed through `erase`; like `deposit_links` it is derived state and is
-   never saved, hashed, or checksummed.
-10. Extractors resolve their deposit by reference rather than by search. Each extractor's covering
+10. A construction or removal drag arrives as one bounded command holding two endpoints. `hex_line`
+    walks between them by taking the lowest-numbered direction that closes the distance, so a run
+    uses at most two directions and turns once, and each cell then goes through the same `place` or
+    `erase` a single-cell command uses. Belts are oriented at their successor, so the drag routes
+    the line. The preview entry points share that resolver, spend materials against a copy of the
+    inventory, and carry the recipe the drag will carry — legality depends on the recipe's category,
+    so a preview asking without one would refuse a run the drag would build. Undo is a stack of
+    constructed entity ids replayed through `erase`; like `deposit_links` it is derived state and is
+    never saved, hashed, or checksummed.
+11. Extractors resolve their deposit by reference rather than by search. Each extractor's covering
     deposits are resolved once into a candidate list ordered exactly as a full scan would resolve
     it, cached against its stable entity id, and dropped whenever chunk generation adds tiles.
     Remaining quantity is never part of that ordering, so a drained deposit falls through to the
     next candidate without re-resolving. Reported extractor status resolves through the same cache
     rather than a second scan. The cache is derived state: it is never saved, never hashed, and
     tests pin both the reference and the status against the scans they replace.
-11. Extractors consume one unit from the finite deposit only when an output can be created.
-    Composers reserve exact recipe inputs, run for integer ticks, and emit only on completion.
-    Containers store exact quantities; hubs and demo consumers count exact deliveries.
-12. The landing hub awards integer insight from data-defined item values. Research prerequisites,
+12. Extractors consume one unit from the finite deposit only when an output can be created.
+    Composers reserve exact recipe inputs, charge the recipe's fuel at the moment the craft starts,
+    run for integer ticks, and emit only on completion. Pumps produce on a cadence while water is in
+    reach and write nothing down, because a basin cannot be depleted. Containers store exact
+    quantities; hubs and demo consumers count exact deliveries.
+13. The landing hub awards integer insight from data-defined item values. Research prerequisites,
     costs, atomic spending, unlocks, objective progress, and persistent victory all live in Rust.
 
 Blueprint edits retain the previous graph by stable entity ID, invalidate output rays crossing the

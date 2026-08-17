@@ -99,7 +99,7 @@
           </div>
           <div class="inventory-heading">
             <span class="section-kicker">Cargo pack</span
-            ><small id="carry-value" aria-live="polite">0 / 6 slots</small>
+            ><small id="carry-value" aria-live="polite">0 / 8 slots</small>
           </div>
           <div
             id="inventory"
@@ -128,6 +128,18 @@
               recovering a building with something inside it, both stop when
               there is no slot free. Build a container, select it, and use the
               inspector to take stock back out a stack at a time.
+            </p>
+            <p>
+              Each machine runs one category of recipe: choose it in the build
+              dock before placing, or select a built machine and change it in
+              the inspector between crafts. Smelters and kilns also need fuel —
+              belt them coal, charcoal, or wood, and they burn whatever arrives.
+            </p>
+            <p>
+              Terrain is the material map. Iron and coal come from highland,
+              copper from hills, sand and clay from shores, stone from cliffs,
+              and wood from moist lowland — where it grows back. Water is pumped
+              from a basin rather than mined.
             </p>
             <p>
               The hatched veil past the dashed survey frontier is world the
@@ -173,6 +185,13 @@
             aria-label="Container contents"
             hidden
           ></div>
+          <label id="inspector-recipe" class="recipe-picker" hidden>
+            <span class="section-kicker">Machine recipe</span>
+            <select
+              id="machine-recipe"
+              aria-label="Recipe for the inspected machine"
+            ></select>
+          </label>
           <p id="placement-value" class="placement-readout"></p>
         </aside>
 
@@ -353,6 +372,13 @@
             <span aria-hidden="true">↻</span
             ><small id="orientation-value">East · R</small>
           </button>
+          <label id="recipe-picker" class="recipe-picker" hidden>
+            <span class="section-kicker">Recipe</span>
+            <select
+              id="recipe"
+              aria-label="Recipe for the machine about to be built"
+            ></select>
+          </label>
         </section>
 
         <div

@@ -579,6 +579,28 @@ canvas {
   margin-left: 5px;
   border-left-color: #627870;
 }
+/* The job a machine is set to build — in the dock before placing, in the inspector after. */
+.recipe-picker {
+  display: grid;
+  flex: 0 0 auto;
+  align-content: center;
+  gap: 2px;
+  margin-left: 5px;
+  max-width: 158px;
+}
+.recipe-picker[hidden] {
+  display: none;
+}
+.recipe-picker select {
+  max-width: 100%;
+  padding: 5px 6px;
+  font-size: 0.68rem;
+}
+.inspector-actions + .recipe-picker {
+  margin-top: 8px;
+  margin-left: 0;
+  max-width: none;
+}
 
 .feedback {
   position: absolute;

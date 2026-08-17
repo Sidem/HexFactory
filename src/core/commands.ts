@@ -62,5 +62,10 @@ export function encodeCommand(command: NativeInputCommand): EncodedCommand {
         opcode: 10,
         args: [command.q, command.r, command.item_id, command.quantity],
       };
+    case "set_recipe":
+      return {
+        opcode: 11,
+        args: [command.q, command.r, command.recipe_id],
+      };
   }
 }

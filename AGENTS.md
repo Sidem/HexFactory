@@ -56,6 +56,21 @@ Keep this file concise; the durable roadmap, design pillars, and implementation 
 - Snapshots cross to the host as JSON, whose numbers are IEEE-754 doubles. Nothing wider than 2^53
   may travel as a number, and nothing whose identity matters may be re-derived into one: field
   cells are addressed by their tile key, never by an id packed from the same two coordinates.
+- Fuel is a property of the item, never an entry in a recipe's `inputs`. A recipe that named its
+  fuel would need one variant per fuel and would hardcode the bootstrap path. A machine burns from
+  its own stock and never from the quantity a recipe input reserves — steel names coal as carbon,
+  and a smelter that burned those units starves itself on its own recipe. `burnable_item` is the one
+  predicate; the tick that burns and the status that explains why nothing did must keep asking it.
+- A new machine is a `recipe_category` and a check, not a `BuildingKind` and a tick path. Smelter,
+  kiln, cutter, crusher, and composer are one kind. Add a kind only when a building's _source_ is
+  genuinely different, which is the whole reason `Pump` is one: it draws from terrain rather than a
+  deposit, and its basin never empties.
+- Terrain is the material map. Each raw resource is generated only in the band its geography names,
+  because a landscape the player cannot read is decoration. A resource reachable from no buildable
+  hex is a defect — stone sits on impassable cliffs and is quarried from the hex beside them.
+- Anything the host draws as a proportion must be given both numbers. The cooldown ring takes
+  `action_cooldown` and a published `action_cooldown_total`; inferring a maximum by watching a value
+  count down is the host re-deriving native truth.
 - Placement asks one overlap question of deposits and obstacles alike, at two tuned depths. Two
   different tests for the same question is the defect v0.10 fixed. `deposit_candidates` and
   `resource_at_world` share that predicate and must keep sharing it, or a resolved extractor
@@ -80,6 +95,11 @@ Keep this file concise; the durable roadmap, design pillars, and implementation 
   bounds; the host may draw and describe them but must not invent world outside them.
 - Time and quantities are integers. Any blocked transfer leaves its source unchanged.
 - Canvas 2D is replaceable presentation. Simulation truth comes only from native snapshots.
+- A milestone that changes the world generator, the item roster, or the entity snapshot re-runs
+  `npm run bench` before it ships. v0.12's re-measurement found two regressions it had introduced —
+  86 KB of delta payload and a 3.9× slower snapshot — and one 3.0× saving v0.11 had shipped without
+  measuring. A checksum change invalidates checksum comparisons, not timing ones: say which of the
+  two a record is claiming.
 - Every performance or scale claim must cite a measured tier in `docs/BENCHMARKS.md`. Claims beyond
   the recorded ladder are not supported. Browser claims are supported only for the simulation half
   of a frame — advancing a tick, crossing the worker boundary, and merging the delta — because

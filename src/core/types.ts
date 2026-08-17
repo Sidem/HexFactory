@@ -6,15 +6,17 @@ export type BuildingKind =
   | "composer"
   | "container"
   | "consumer"
-  | "hub";
+  | "hub"
+  | "pump";
 export type Terrain =
   | "deep_water"
   | "shallow_water"
   | "shore"
   | "lowland"
+  | "hills"
   | "highland"
   | "cliff";
-export type PlacementRule = "ground" | "resource";
+export type PlacementRule = "ground" | "resource" | "water";
 
 export interface Ingredient {
   item_id: number;
@@ -31,6 +33,10 @@ export interface ItemDefinition {
   insight_value: number;
   /** How many of this item fill one carried slot. The rule itself lives in Rust. */
   stack_size: number;
+  /** Energy one unit releases when burned, for an item that is fuel. */
+  fuel_value?: number;
+  /** Ticks between one unit of regrowth and the next, for a resource that is flora. */
+  regrowth_ticks?: number;
 }
 
 export interface RecipeDefinition {
@@ -38,9 +44,13 @@ export interface RecipeDefinition {
   key: string;
   name: string;
   description: string;
+  /** Which machines may run this. A kiln cannot be given a smelting recipe. */
+  category: string;
   inputs: Ingredient[];
   output: Ingredient;
   duration: number;
+  /** Energy one craft consumes, paid from whatever fuel the machine has been fed. */
+  fuel?: number;
 }
 
 export interface BuildingDefinition {
@@ -52,6 +62,10 @@ export interface BuildingDefinition {
   icon: string;
   cadence?: number;
   capacity?: number;
+  /** The recipe category a composer-kind machine may be assigned. */
+  recipe_category?: string;
+  /** What a source building produces, for a pump. */
+  output_item_id?: number;
   construction_cost: Ingredient[];
   unlock_technology_id?: number;
   placement_rule: PlacementRule;
@@ -109,6 +123,12 @@ export interface EntitySnapshot extends AxialCoordinate {
   inventory: Ingredient[];
   progress: number;
   progress_total: number;
+  /**
+   * Energy the machine is holding, and what one craft of its recipe costs. Both are omitted from
+   * the wire when zero, which is what they are for everything that is not a furnace.
+   */
+  fuel_charge?: number;
+  fuel_required?: number;
   status: string;
   next_id?: number;
   footprint: AxialCoordinate[];
@@ -168,6 +188,11 @@ export interface PlayerSnapshot extends WorldPoint {
   carry_stacks: Ingredient[];
   /** Collision and drawing radius in native world units. */
   radius: number;
+  /**
+   * What a fresh action cooldown is worth. The wait is drawn as `action_cooldown` against this,
+   * so the host never infers the maximum by watching the value fall.
+   */
+  action_cooldown_total: number;
 }
 
 export interface FactorySnapshot {
@@ -282,6 +307,11 @@ export type NativeInputCommand =
       item_id: number;
       quantity: number;
     }
+  /**
+   * Give a machine a different job. Native enforces the same category rule placement does, and
+   * refuses a machine that is mid-craft.
+   */
+  | { type: "set_recipe"; q: number; r: number; recipe_id: number }
   | { type: "undo" }
   | { type: "research"; technology_id: number };
 
@@ -305,6 +335,7 @@ export interface NativeFactory {
     toR: number,
     definitionId: number,
     orientation: number,
+    recipeId?: number,
   ): string;
   erase_line_preview_json(
     q: number,

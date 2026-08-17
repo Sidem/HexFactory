@@ -67,6 +67,7 @@ const snapshot: FactorySnapshot = {
     carry_slots: 6,
     carry_stacks: [{ item_id: 1, quantity: 3 }],
     radius: 580,
+    action_cooldown_total: 6,
   },
   researched: [1],
   chunks: [
@@ -106,6 +107,8 @@ const snapshot: FactorySnapshot = {
       inventory: [],
       progress: 0,
       progress_total: 0,
+      fuel_charge: 0,
+      fuel_required: 0,
       status: "landing hub",
       footprint: [
         { q: 0, r: 0 },
@@ -201,6 +204,9 @@ describe("bounded host input", () => {
     expect(
       encodeCommand({ type: "withdraw", q: 1, r: 1, item_id: 2, quantity: 7 }),
     ).toEqual({ opcode: 10, args: [1, 1, 2, 7] });
+    expect(
+      encodeCommand({ type: "set_recipe", q: 1, r: 1, recipe_id: 6 }),
+    ).toEqual({ opcode: 11, args: [1, 1, 6] });
 
     const main = readFileSync(
       new URL("../src/main.ts", import.meta.url),
@@ -347,6 +353,8 @@ describe("availability and expanded snapshot adapter", () => {
       inventory: [],
       progress: 0,
       progress_total: 0,
+      fuel_charge: 0,
+      fuel_required: 0,
       status: "idle",
       footprint: [{ q: 1, r: 0 }],
     };
@@ -555,6 +563,84 @@ describe("availability and expanded snapshot adapter", () => {
     expect(styles).toContain("height: 100dvh");
     expect(styles).toContain("@media (max-width: 720px)");
     expect(styles).toContain("prefers-reduced-motion: reduce");
+    // The recipe a machine runs is chosen before placing and changeable after, both reachable by
+    // keyboard and both named.
+    expect(html).toContain(
+      'aria-label="Recipe for the machine about to be built"',
+    );
+    expect(html).toContain('aria-label="Recipe for the inspected machine"');
+  });
+
+  it("offers each machine only the recipes of its own category", () => {
+    // The host must not hand a machine "the first recipe in the catalog": native would refuse it,
+    // and a build tool that cannot place anything is a defect the player has to diagnose.
+    const main = readFileSync(
+      new URL("../src/main.ts", import.meta.url),
+      "utf8",
+    );
+    const hostSource = readFileSync(
+      new URL("../src/core/FactoryHost.ts", import.meta.url),
+      "utf8",
+    );
+    expect(main).toContain("function recipeChoices(");
+    expect(main).not.toContain("host.definitions.recipes[0]");
+    expect(hostSource).not.toContain("this.definitions.recipes[0]");
+
+    const byCategory = (key: string): string[] => {
+      const definition = definitions.buildings.find(
+        (building) => building.key === key,
+      ) as BuildingDefinition;
+      return definitions.recipes
+        .filter(({ category }) => category === definition.recipe_category)
+        .map(({ key: recipe }) => recipe);
+    };
+    expect(byCategory("kiln")).toEqual(["brick", "charcoal"]);
+    expect(byCategory("crusher")).toEqual(["gravel"]);
+    expect(byCategory("smelter")).toContain("steel");
+    expect(byCategory("smelter")).not.toContain("circuit");
+  });
+
+  it("draws the harvest wait where the harvest happens, from native numbers", () => {
+    const renderer = readFileSync(
+      new URL("../src/rendering/CanvasFactoryRenderer.ts", import.meta.url),
+      "utf8",
+    );
+    const main = readFileSync(
+      new URL("../src/main.ts", import.meta.url),
+      "utf8",
+    );
+    // Both the wait outstanding and what a fresh one is worth are published, so the ring is a
+    // proportion the host was given rather than a maximum it inferred by watching a value fall.
+    expect(renderer).toContain("action_cooldown_total");
+    expect(renderer).toContain("drawActionCooldown(");
+    expect(renderer).not.toMatch(/action_cooldown\w*\s*=\s*\d/);
+    // And the refusal it replaces no longer reaches the message strip.
+    expect(main).toContain('SILENT_EVENTS = new Set(["action cooling down"])');
+    expect(snapshot.player.action_cooldown_total).toBeGreaterThan(0);
+  });
+
+  it("names every surveyed hex, including the band native does not send", () => {
+    const main = readFileSync(
+      new URL("../src/main.ts", import.meta.url),
+      "utf8",
+    );
+    // Lowland is the default surveyed fill and is deliberately omitted from the terrain group, so
+    // a surveyed hex with no entry is lowland — not an unknown tile and not a hole in the world.
+    expect(main).toContain('?.terrain ?? "lowland"');
+    const labels = main.slice(
+      main.indexOf("const TERRAIN_LABELS"),
+      main.indexOf("};", main.indexOf("const TERRAIN_LABELS")),
+    );
+    for (const band of [
+      "deep_water",
+      "shallow_water",
+      "shore",
+      "lowland",
+      "hills",
+      "highland",
+      "cliff",
+    ])
+      expect(labels, band).toContain(band);
   });
 });
 

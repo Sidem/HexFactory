@@ -106,6 +106,7 @@ async function handle(request: WorkerRequest): Promise<unknown> {
               Number(payload.toR),
               Number(payload.definitionId),
               Number(payload.orientation),
+              optionalNumber(payload.recipeId),
             ),
       ) as LinePreviewCell[];
     case "save":

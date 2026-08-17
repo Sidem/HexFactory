@@ -515,6 +515,7 @@ export class CanvasFactoryRenderer {
       container: "#a07c3e",
       consumer: "#3c806a",
       hub: "#d1a945",
+      pump: "#2f7d9c",
     };
     for (const cell of building.footprint) {
       const cellCenter = this.camera.project(cell, width, height);
@@ -649,6 +650,45 @@ export class CanvasFactoryRenderer {
     ctx.moveTo(center.x, center.y);
     ctx.lineTo(tip.x, tip.y);
     ctx.stroke();
+    this.drawActionCooldown(center, radius);
+  }
+
+  /**
+   * The wait between one field action and the next, drawn where the action happens instead of
+   * written in the message strip. A refusal the player can see coming is not an error message: the
+   * ring closes as the cooldown drains, so holding the harvest key reads as a rhythm rather than as
+   * a stream of "cooling down" toasts.
+   *
+   * Both numbers are native. `action_cooldown` is the wait still outstanding and
+   * `action_cooldown_total` is what a fresh one is worth, so the host draws a proportion it was
+   * given rather than inferring a maximum from a value it watched fall.
+   */
+  private drawActionCooldown(center: PixelPoint, radius: number): void {
+    if (!this.snapshot) return;
+    const { action_cooldown: remaining, action_cooldown_total: total } =
+      this.snapshot.player;
+    if (remaining <= 0 || total <= 0) return;
+    const ready = Math.min(1, Math.max(0, 1 - remaining / total));
+    const ctx = this.context;
+    const ring = radius * 1.55;
+    ctx.save();
+    ctx.lineCap = "round";
+    ctx.lineWidth = Math.max(2, radius * 0.22);
+    ctx.strokeStyle = "#0b1a1633";
+    ctx.beginPath();
+    ctx.arc(center.x, center.y, ring, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.strokeStyle = "#f5d572";
+    ctx.beginPath();
+    ctx.arc(
+      center.x,
+      center.y,
+      ring,
+      -Math.PI / 2,
+      -Math.PI / 2 + Math.PI * 2 * ready,
+    );
+    ctx.stroke();
+    ctx.restore();
   }
 }
 
@@ -674,6 +714,8 @@ function terrainPaint(terrain: Terrain): { fill: string; stroke: string } {
       return { fill: "#1a5474dd", stroke: "#3d8aaa" };
     case "shore":
       return { fill: "#c4a56add", stroke: "#e0c88a" };
+    case "hills":
+      return { fill: "#48604ddd", stroke: "#6f8a6c" };
     case "highland":
       return { fill: "#5c6b58dd", stroke: "#8a9a84" };
     case "cliff":

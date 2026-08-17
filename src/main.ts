@@ -11,10 +11,13 @@ import {
 import { FactoryHost } from "./core/FactoryHost";
 import { BoundedInputQueue, MOVEMENT_KEYS, movementIntent } from "./core/input";
 import type {
+  BuildingDefinition,
   EntitySnapshot,
   FactorySnapshot,
   NativeInputCommand,
   PlacementPreview,
+  RecipeDefinition,
+  Terrain,
 } from "./core/types";
 import {
   CanvasFactoryRenderer,
@@ -25,7 +28,7 @@ import "./styles.css";
 
 type Tool = "inspect" | "erase" | "rotate" | number;
 
-const SAVE_KEY = "hexfactory:hxf1:v4";
+const SAVE_KEY = "hexfactory:hxf1:v5";
 const DIRECTION_NAMES = [
   "East",
   "Southeast",
@@ -34,6 +37,34 @@ const DIRECTION_NAMES = [
   "Northwest",
   "Northeast",
 ];
+/**
+ * What each terrain band is and what it means for play. Terrain is the material map now, so the
+ * inspector naming a hex is the difference between a coloured tile and a reason to build there.
+ *
+ * Lowland is deliberately absent from the native terrain group — it is the default surveyed fill
+ * and sending every cell of it would be most of the world — so a surveyed hex with no entry is
+ * lowland. Anything outside the surveyed chunks is named as unsurveyed instead.
+ */
+const TERRAIN_LABELS: Record<Terrain, { name: string; note: string }> = {
+  deep_water: { name: "Deep water", note: "Impassable · pump from the shore" },
+  shallow_water: {
+    name: "Shallow water",
+    note: "Impassable · pump from the shore",
+  },
+  shore: { name: "Shore", note: "Buildable · sand and clay" },
+  lowland: { name: "Lowland", note: "Buildable · wood, clay, crystal" },
+  hills: { name: "Hills", note: "Buildable · copper ore and coal" },
+  highland: { name: "Highland", note: "Buildable · iron ore, coal, crystal" },
+  cliff: {
+    name: "Cliff",
+    note: "Impassable · stone, quarried from the hex beside it",
+  },
+};
+/**
+ * A refusal the world itself already shows. The cooldown ring around the player says the wait is
+ * running, so repeating it as a message strip toast on every frame of a held harvest is noise.
+ */
+const SILENT_EVENTS = new Set(["action cooling down"]);
 const canvas = required<HTMLCanvasElement>("factory-canvas");
 const playButton = required<HTMLButtonElement>("play");
 const speedInput = required<HTMLSelectElement>("speed");
@@ -78,6 +109,13 @@ let dragBuild: {
 } | null = null;
 let dragPreviewPending = false;
 let gatherHeld = false;
+/**
+ * Which recipe each machine definition is currently set to build with, so a choice survives
+ * switching tools. Presentation state: native still validates the category on every placement.
+ */
+const selectedRecipes = new Map<number, number>();
+/** The inspected machine and assignment the recipe select was last built for. */
+let inspectorRecipeKey = "";
 const pressedMovement = new Set<string>();
 let advancePending = false;
 let previewPending = false;
@@ -123,7 +161,12 @@ function update(next: FactorySnapshot): void {
   renderObjective();
   renderNextAction();
   const latestEvent = snapshot.events.at(-1) ?? "";
-  if (latestEvent && latestEvent !== lastEvent) showFeedback(latestEvent);
+  if (
+    latestEvent &&
+    latestEvent !== lastEvent &&
+    !SILENT_EVENTS.has(latestEvent)
+  )
+    showFeedback(latestEvent);
   lastEvent = latestEvent;
   const victory = required<HTMLDivElement>("victory");
   victory.hidden = !snapshot.victory;
@@ -342,25 +385,35 @@ function renderInspector(): void {
   if (!selected) {
     element.textContent = "Select a hex on the map.";
     renderInspectorActions(undefined);
+    renderInspectorRecipe(undefined);
     return;
   }
   const building = snapshot.buildings.find(({ footprint }) =>
     footprint.some(({ q, r }) => q === selected?.q && r === selected?.r),
   );
   const selectedWorld = axialToPixel(selected, 1024, { x: 0, y: 0 });
+  // Field cells are addressed by their tile key, exactly as the native patch addresses them.
   const resource = snapshot.resources.find(
-    ({ x, y, radius }) =>
-      Math.hypot(x - selectedWorld.x, y - selectedWorld.y) <= radius,
+    ({ q, r }) => q === selected?.q && r === selected?.r,
   );
   const lines = [`Build hex ${selected.q}, ${selected.r}`];
-  if (!isSurveyed(snapshot.chunks, selectedWorld))
+  if (isSurveyed(snapshot.chunks, selectedWorld)) {
+    const terrain =
+      snapshot.terrain.find(
+        ({ q, r }) => q === selected?.q && r === selected?.r,
+      )?.terrain ?? "lowland";
+    const label = TERRAIN_LABELS[terrain];
+    lines.push(`${label.name} · ${label.note}`);
+  } else {
     lines.push("Unsurveyed — travel here to lift the fog");
+  }
   if (resource) {
     const item = host.definitions.items.find(
       ({ id }) => id === resource.item_id,
     );
+    const renewable = item?.regrowth_ticks ? " · regrows" : "";
     lines.push(
-      `${item?.name ?? "Resource"}: ${resource.quantity} / ${resource.initial_quantity}`,
+      `${item?.name ?? "Resource"}: ${resource.quantity} / ${resource.initial_quantity}${renewable}`,
     );
   }
   if (building) {
@@ -372,6 +425,14 @@ function renderInspector(): void {
       0,
     );
     lines.push(`${definition?.name ?? building.kind} · ${building.status}`);
+    const recipe = host.definitions.recipes.find(
+      ({ id }) => id === building.recipe_id,
+    );
+    if (recipe) lines.push(`Recipe: ${recipe.name}`);
+    if (building.fuel_required)
+      lines.push(
+        `Fuel: ${building.fuel_charge ?? 0} stored · ${building.fuel_required} per craft`,
+      );
     lines.push(
       `Direction ${building.orientation} · stored ${stored}${building.cargo ? ` · cargo ${building.cargo.quantity}` : ""}`,
     );
@@ -379,6 +440,77 @@ function renderInspector(): void {
   }
   element.textContent = lines.join("\n");
   renderInspectorActions(building);
+  renderInspectorRecipe(building);
+}
+
+/** The recipes a machine definition may be assigned, in catalog order. */
+function recipeChoices(
+  definition: BuildingDefinition | undefined,
+): RecipeDefinition[] {
+  if (!definition?.recipe_category) return [];
+  return host.definitions.recipes.filter(
+    ({ category }) => category === definition.recipe_category,
+  );
+}
+
+function fillRecipeOptions(
+  select: HTMLSelectElement,
+  choices: RecipeDefinition[],
+): void {
+  const options = syncChildren(
+    select,
+    choices.map(({ id }) => String(id)),
+    () => document.createElement("option"),
+  );
+  choices.forEach((recipe, index) => {
+    const option = options[index] as HTMLOptionElement;
+    option.value = String(recipe.id);
+    option.textContent = recipe.name;
+    option.title = recipe.description;
+  });
+}
+
+/**
+ * The recipe of the machine under the inspector, changeable between crafts. Rebuilt only when the
+ * inspected machine or its assignment actually changes: patching a `<select>` on every snapshot
+ * would fight a player who has the list open, which is the same defect the research panel had in a
+ * different shape.
+ */
+function renderInspectorRecipe(building: EntitySnapshot | undefined): void {
+  const wrapper = required<HTMLElement>("inspector-recipe");
+  const select = required<HTMLSelectElement>("machine-recipe");
+  const definition = building
+    ? host.definitions.buildings.find(({ id }) => id === building.definition_id)
+    : undefined;
+  const choices = recipeChoices(definition);
+  // Nothing to choose between is not a choice worth showing.
+  wrapper.hidden = !building || building.scenario_owned || choices.length < 2;
+  if (wrapper.hidden || !building) {
+    inspectorRecipeKey = "";
+    return;
+  }
+  const key = `${building.id}:${building.recipe_id ?? 0}`;
+  if (key === inspectorRecipeKey) return;
+  inspectorRecipeKey = key;
+  fillRecipeOptions(select, choices);
+  select.value = String(building.recipe_id ?? choices[0]?.id ?? "");
+  select.dataset.q = String(building.q);
+  select.dataset.r = String(building.r);
+}
+
+/** The recipe the pending machine will be built with. */
+function renderRecipePicker(): void {
+  const wrapper = required<HTMLElement>("recipe-picker");
+  const select = required<HTMLSelectElement>("recipe");
+  const definition =
+    typeof tool === "number"
+      ? host.definitions.buildings.find(({ id }) => id === tool)
+      : undefined;
+  const choices = recipeChoices(definition);
+  wrapper.hidden = choices.length === 0;
+  if (!choices.length) return;
+  fillRecipeOptions(select, choices);
+  select.value = String(recipeFor(tool) ?? choices[0]?.id ?? "");
 }
 
 function renderObjective(): void {
@@ -457,10 +589,18 @@ function renderNextAction(): void {
     title = "Deliver completed components";
     detail =
       "Bring components to the landing hub and deliver them to finish the directive.";
-  } else {
+  } else if (!researched.has(5) && snapshot.insight >= 6) {
+    title = "Unlock Material Processing";
+    detail =
+      "Research it for the smelter and the kiln. A kiln chars wood into fuel, and that fuel is what a smelter burns to make plate.";
+  } else if (!researched.has(5)) {
     title = "Compose three components";
     detail =
-      "Route ore into a composer, point its output toward the hub, and keep the line supplied.";
+      "Route ore into a composer, point its output toward the hub, and keep the line supplied. Six insight also unlocks smelting.";
+  } else {
+    title = "Build the material base";
+    detail =
+      "Terrain is the material map: iron and coal in highland, copper in hills, sand and clay on shores, stone at cliffs, wood in moist lowland. Belt fuel into a smelter and it burns whatever arrives.";
   }
   required<HTMLElement>("next-action-title").textContent = title;
   required<HTMLElement>("next-action-detail").textContent = detail;
@@ -506,6 +646,7 @@ function selectTool(next: Tool): void {
     definition?.footprint ?? [{ q: 0, r: 0 }],
     orientation,
   );
+  renderRecipePicker();
   renderHotbar();
   refreshHoverPreview();
 }
@@ -540,6 +681,7 @@ async function flushHoverPreview(): Promise<void> {
           coordinate.r,
           definitionId,
           direction,
+          recipeFor(definitionId),
         );
         if (revision === previewRevision) hoverPreview = result;
       } catch (error) {
@@ -670,6 +812,24 @@ required<HTMLDivElement>("technology-list").addEventListener(
     enqueue({
       type: "research",
       technology_id: Number(button.dataset.technologyId),
+    });
+  },
+);
+required<HTMLSelectElement>("recipe").addEventListener("change", (event) => {
+  const select = event.currentTarget as HTMLSelectElement;
+  if (typeof tool !== "number") return;
+  selectedRecipes.set(tool, Number(select.value));
+  refreshHoverPreview();
+});
+required<HTMLSelectElement>("machine-recipe").addEventListener(
+  "change",
+  (event) => {
+    const select = event.currentTarget as HTMLSelectElement;
+    enqueue({
+      type: "set_recipe",
+      q: Number(select.dataset.q),
+      r: Number(select.dataset.r),
+      recipe_id: Number(select.value),
     });
   },
 );
@@ -851,16 +1011,12 @@ canvas.addEventListener("click", (event) => {
   if (tool === "erase") enqueue({ type: "erase", ...coordinate });
   else if (tool === "rotate") enqueue({ type: "rotate", ...coordinate });
   else if (typeof tool === "number") {
-    const definition = host.definitions.buildings.find(({ id }) => id === tool);
     enqueue({
       type: "place",
       ...coordinate,
       definition_id: tool,
       orientation,
-      recipe_id:
-        definition?.kind === "composer"
-          ? host.definitions.recipes[0]?.id
-          : undefined,
+      recipe_id: recipeFor(tool),
     });
   }
   renderInspector();
@@ -877,14 +1033,22 @@ function draggableTool(): boolean {
   return definition?.footprint.length === 1;
 }
 
+/**
+ * The recipe a placement of this tool carries. It is whichever of the definition's own category
+ * the player chose, defaulting to the first — never simply "the first recipe in the catalog",
+ * which since the material base would hand a kiln a smelting job that native then refuses.
+ */
 function recipeFor(value: Tool): number | undefined {
   const definition =
     typeof value === "number"
       ? host.definitions.buildings.find(({ id }) => id === value)
       : undefined;
-  return definition?.kind === "composer"
-    ? host.definitions.recipes[0]?.id
-    : undefined;
+  const choices = recipeChoices(definition);
+  if (!choices.length || !definition) return undefined;
+  const chosen = selectedRecipes.get(definition.id);
+  return chosen !== undefined && choices.some(({ id }) => id === chosen)
+    ? chosen
+    : choices[0]?.id;
 }
 
 /**
@@ -904,6 +1068,7 @@ async function refreshDragPreview(): Promise<void> {
         to.r,
         erasing ? undefined : (tool as number),
         orientation,
+        erasing ? undefined : recipeFor(tool),
       );
       if (!dragBuild) break;
       renderer.setDragPath(cells);

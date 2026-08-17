@@ -1,9 +1,17 @@
 # HexFactory capacity benchmarks
 
-Status: Browser Capacity v0.8 is the fourth measured record and the first that is not native. The
-roadmap gates any renderer decision and every scale claim behind this measurement. Nothing here is
-an extrapolation: each number below was produced by the committed harness, and the raw reports are
-stored beside this document.
+Status: Browser Capacity v0.8 is the fourth measured record and the first that is not native, and
+**Material Base v0.12 adds a native re-measurement on top of it**. The roadmap gates any renderer
+decision and every scale claim behind this measurement. Nothing here is an extrapolation: each
+number below was produced by the committed harness, and the raw reports are stored beside this
+document.
+
+**The v0.8 tables below are a historical record, not the current cost.** v0.11 changed the world
+generator and v0.12 changed the item roster, so the workload's pinned checksum moved twice and the
+v0.8 numbers no longer describe the shipped core. The [v0.12 native
+re-measurement](#native--v012-re-measurement) is what currently holds. There is no v0.12 browser
+record; the v0.8 browser table is the only browser evidence that exists, and the ratios it
+established should be re-derived before being relied on again.
 
 The same ladder now runs in both places. Rust owns the measurement; only the clock differs — a
 native `Instant`, or `performance.now` inside the browser worker — so the two records are
@@ -25,8 +33,10 @@ npm run bench:browser
 
 That builds the harness artifact and starts the dev server; open `/HexFactory/bench.html` and press
 **Run full ladder**. The harness is compiled into wasm only by `--features bench`, so the deployed
-game artifact never carries it: the shipped wasm is unchanged at 464 KB, while the harness build is
-496 KB. Neither benchmark is part of `npm run quality`: shared CI runners do not produce comparable
+game artifact never carries it: at v0.8 the shipped wasm was 464 KB and the harness build 496 KB,
+and the harness has never been part of the shipped one. (v0.12's shipped wasm is 527 KB — the
+material base's definitions and generation, not the harness.) Neither benchmark is part of
+`npm run quality`: shared CI runners do not produce comparable
 timings. The test gate instead pins the workload's checksum and asserts the harness still runs, so
 recorded numbers cannot silently stop being comparable.
 
@@ -99,6 +109,51 @@ Recorded 2026-08-17. Raw reports:
 Every tier reproduces its v0.7 checksum and delivered total exactly, and every timing sits within
 the harness's stated noise floor of the v0.7 record. This run is the control the browser record is
 measured against, not a new native finding.
+
+### Native — v0.12 re-measurement
+
+Same host and harness, `factory-wasm` at v0.12, recorded 2026-08-17. Raw report:
+[`benchmarks/capacity-v0.12-native.json`](benchmarks/capacity-v0.12-native.json). The workload's
+shape, entity counts, and delivered totals are unchanged; its checksum is not, because
+`WORLD_GENERATOR_VERSION` and every machine's fuel charge are checksum inputs. **Tier checksums are
+therefore not comparable to the v0.8 record — the timings are, and that is what this run is for.**
+
+| tier   | entities | tiles | tick µs | snapshot µs | checksum µs | frame µs | delta bytes | compile µs | recompile µs | edit µs |
+| ------ | -------: | ----: | ------: | ----------: | ----------: | -------: | ----------: | ---------: | -----------: | ------: |
+| line   |       12 |     1 |     0.5 |        11.2 |         0.8 |      6.6 |       1,319 |        0.9 |          5.8 |     6.0 |
+| small  |      192 |    16 |     5.7 |        57.8 |         9.3 |     83.1 |      19,764 |       17.3 |         54.2 |    61.3 |
+| medium |      768 |    64 |    23.6 |       264.8 |        36.4 |    366.7 |      79,477 |       87.8 |        262.9 |   280.7 |
+| wide   |    1,536 |   128 |    49.6 |       593.0 |        73.1 |    748.5 |     159,709 |      189.6 |        569.2 |   643.6 |
+| large  |    3,072 |   256 |   113.1 |     1,131.6 |       145.0 |  1,434.9 |     320,754 |      400.7 |      1,150.6 | 1,230.8 |
+| xlarge |    6,144 |   512 |   261.0 |     2,219.7 |       293.1 |  2,908.5 |     644,758 |      794.3 |      2,261.7 | 2,446.5 |
+
+Three things moved, and only one of them is v0.12's doing.
+
+**The checksum got 3.0× cheaper, and that is v0.11 being measured for the first time.** 890 µs to
+293 µs at the largest tier. The checksum hashes the stored tile overlay, and v0.11 made that overlay
+sparse: unmined field is derived and only drawn-from cells are stored, so this workload's tile count
+fell from 25,024 to 512 — one per line, exactly the deposits its extractors work. v0.11 shipped
+without re-measuring, so the saving is recorded here rather than there. It carries the in-wasm frame
+with it: 3,516 µs to 2,908 µs, 17% cheaper at the largest tier. **Finding 5 of the v0.8 record no
+longer holds** — the checksum is not the largest cost inside wasm any more, and an incremental
+checksum has lost most of its case.
+
+**Two v0.12 regressions were found by this run and fixed before it was recorded.** They are kept
+here because they are what re-measuring a milestone is for:
+
+- Publishing `fuel_charge` and `fuel_required` on every entity added 86 KB to the largest tier's
+  delta — 13%, or roughly 860 µs of boundary at the v0.8 record's 10 µs/KB — to say "this is not a
+  furnace" about belts and containers. Both are now omitted when zero, and the payload is back to
+  644 KB with the 614 bytes of real fuel data the composers carry.
+- `field_at` scanned the scenario's hand-placed resource list for every hex, and a complete snapshot
+  asks it once per hex of every surveyed chunk. Against a tier that places one resource per line
+  that made the snapshot O(hexes × resources): 7,480 µs at the largest tier against v0.8's 1,933 µs.
+  The list is now indexed by tile key at construction, and the snapshot is 2,220 µs. This was a
+  v0.11 defect that v0.12's re-measurement exposed; the snapshot is not part of a frame, so it was
+  costing the first frame, reset, new game, and load rather than steady state.
+
+Everything else sits within the harness's stated noise. `compile` and `edit` read 4–10% higher and
+`tick` within 7%; treat differences under roughly 20% as noise, as the limits below say.
 
 ### Browser worker
 
@@ -195,6 +250,10 @@ It remains 23–26% of the in-wasm frame, linear, and unchanged in character fro
 determinism-critical
 work for a modest share; the encoding is not. The measurement reorders them.
 
+> **Superseded by the v0.12 native re-measurement.** v0.11's sparse tile overlay made the checksum
+> 3.0× cheaper and 10% of the in-wasm frame rather than a quarter of it. The finding stood on the
+> dense overlay it was measured against. Findings 1–4 are unaffected.
+
 ## Limits of this measurement
 
 - **One browser, one shell.** Chromium 148's V8 and wasm engine, running inside an Electron 42
@@ -231,6 +290,9 @@ These are the _engine's_ follow-ups, ordered by evidence. The restated game-firs
 Game Feel v0.9 milestone ahead of them; that milestone has shipped, so these are next. The ordering
 among them is unchanged, and v0.9 added one new entry at the end.
 
+v0.12's re-measurement changes two of them: entry 4 loses most of its case, and a new entry 8
+records that the browser half of this document is now stale.
+
 1. Replace the JSON delta with a compact binary encoding over a transferable buffer. Finding 3 is
    the evidence: the boundary is 60% of a host frame and tracks payload bytes at about 10 µs/KB, so
    this is the only identified change that can move the browser ladder. It attacks serialization,
@@ -240,8 +302,10 @@ among them is unchanged, and v0.9 added one new entry at the end.
    is supported, only the simulation half of one.
 3. Extend the ladder past 6,144 entities, so the record brackets a ceiling again instead of only
    showing headroom.
-4. An incremental checksum, after the encoding. Finding 5: it is the largest cost inside wasm but a
-   ninth of a host frame, and it is determinism-critical, so it should not be touched first.
+4. ~~An incremental checksum, after the encoding.~~ **Dropped to the bottom by the v0.12
+   re-measurement.** v0.11's sparse tile overlay already took 3.0× off it; it is now about a tenth
+   of the in-wasm frame and a much smaller share of a host one. Determinism-critical work for a
+   small and shrinking share is the wrong thing to attack.
 5. Re-examine whether incremental transport recompilation should keep persistent structures across
    edits, or whether the full compile is simply the better default at these sizes. Both records show
    the incremental path costing about three times a full compile; do not remove it on that alone,
@@ -252,10 +316,19 @@ among them is unchanged, and v0.9 added one new entry at the end.
    per-cell `place`, so a 32-cell run recompiles 32 times. It happens once when the pointer is
    released rather than every frame, and no tier in the ladder measures it, so this is a known cost
    and not yet a measured one — measure it before optimizing it, like everything else on this list.
+8. Re-run the browser ladder. v0.11 and v0.12 both moved the native record, and the browser half of
+   this document has not been re-measured since v0.8. Every wasm-versus-native ratio above describes
+   a core two milestones old, and the 62.1%-of-a-60-Hz-frame figure is the one that most needs
+   re-earning before it is quoted again.
 
 Record new runs by adding a dated report under `docs/benchmarks/` and updating the tables above.
-Comparisons are only valid while the pinned workload checksum in the Rust test gate is unchanged.
+**Checksum comparisons are only valid while the pinned workload checksum in the Rust test gate is
+unchanged; timing comparisons survive a checksum change as long as the workload's shape, entity
+counts, and delivered totals do not move.** v0.12 is the first record to rely on that distinction,
+which is why it states which of the two it is claiming.
 
-Previous records: [`benchmarks/capacity-v0.7.json`](benchmarks/capacity-v0.7.json),
+Previous records:
+[`benchmarks/capacity-v0.8-native.json`](benchmarks/capacity-v0.8-native.json),
+[`benchmarks/capacity-v0.7.json`](benchmarks/capacity-v0.7.json),
 [`benchmarks/capacity-v0.6.json`](benchmarks/capacity-v0.6.json),
 [`benchmarks/capacity-v0.5.1.json`](benchmarks/capacity-v0.5.1.json).

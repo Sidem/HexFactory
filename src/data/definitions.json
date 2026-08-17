@@ -1,5 +1,5 @@
 {
-  "version": 4,
+  "version": 5,
   "items": [
     {
       "id": 1,
@@ -7,7 +7,7 @@
       "name": "Iron ore",
       "color": "#e2a85f",
       "icon": "ore",
-      "description": "A common construction metal.",
+      "description": "Highland ore. Smelts into the plate everything else is built from.",
       "insight_value": 1,
       "stack_size": 20
     },
@@ -30,6 +30,210 @@
       "description": "A finite secondary resource used by advanced machines.",
       "insight_value": 2,
       "stack_size": 10
+    },
+    {
+      "id": 4,
+      "key": "copper-ore",
+      "name": "Copper ore",
+      "color": "#c9743f",
+      "icon": "ore",
+      "description": "Hill ore. Becomes the plate and wire every circuit needs.",
+      "insight_value": 1,
+      "stack_size": 20
+    },
+    {
+      "id": 5,
+      "key": "coal",
+      "name": "Coal",
+      "color": "#39404a",
+      "icon": "lump",
+      "description": "Dense highland fuel, and the carbon steel is made with.",
+      "insight_value": 1,
+      "stack_size": 20,
+      "fuel_value": 8
+    },
+    {
+      "id": 6,
+      "key": "stone",
+      "name": "Stone",
+      "color": "#96938c",
+      "icon": "lump",
+      "description": "Cut from cliff faces. The cheapest structural material there is.",
+      "insight_value": 1,
+      "stack_size": 20
+    },
+    {
+      "id": 7,
+      "key": "sand",
+      "name": "Sand",
+      "color": "#ded0a3",
+      "icon": "grains",
+      "description": "Shore grit. Melts into glass and binds into concrete.",
+      "insight_value": 1,
+      "stack_size": 20
+    },
+    {
+      "id": 8,
+      "key": "clay",
+      "name": "Clay",
+      "color": "#b0714c",
+      "icon": "grains",
+      "description": "Damp shore and lowland earth. Fires into brick.",
+      "insight_value": 1,
+      "stack_size": 20
+    },
+    {
+      "id": 9,
+      "key": "wood",
+      "name": "Wood",
+      "color": "#7c5a34",
+      "icon": "log",
+      "description": "Cut from lowland flora, which grows back. Burns, and cuts into timber.",
+      "insight_value": 1,
+      "stack_size": 20,
+      "fuel_value": 2,
+      "regrowth_ticks": 90
+    },
+    {
+      "id": 10,
+      "key": "water",
+      "name": "Water",
+      "color": "#4aa8d8",
+      "icon": "droplet",
+      "description": "Pumped from a basin and belted like anything else, for now.",
+      "insight_value": 1,
+      "stack_size": 20
+    },
+    {
+      "id": 11,
+      "key": "iron-plate",
+      "name": "Iron plate",
+      "color": "#c3ced6",
+      "icon": "plate",
+      "description": "Smelted iron. The structural backbone of every later tier.",
+      "insight_value": 3,
+      "stack_size": 10
+    },
+    {
+      "id": 12,
+      "key": "copper-plate",
+      "name": "Copper plate",
+      "color": "#e08e58",
+      "icon": "plate",
+      "description": "Smelted copper, drawn into wire.",
+      "insight_value": 3,
+      "stack_size": 10
+    },
+    {
+      "id": 13,
+      "key": "glass",
+      "name": "Glass",
+      "color": "#a8dbe6",
+      "icon": "plate",
+      "description": "Melted sand. The substrate a circuit is printed on.",
+      "insight_value": 3,
+      "stack_size": 10
+    },
+    {
+      "id": 14,
+      "key": "brick",
+      "name": "Brick",
+      "color": "#b5563f",
+      "icon": "plate",
+      "description": "Fired clay. Cheap, plentiful, and it holds heat.",
+      "insight_value": 2,
+      "stack_size": 20
+    },
+    {
+      "id": 15,
+      "key": "charcoal",
+      "name": "Charcoal",
+      "color": "#5c5148",
+      "icon": "lump",
+      "description": "Wood pyrolysed into fuel, so smelting never waits on a coal field.",
+      "insight_value": 2,
+      "stack_size": 20,
+      "fuel_value": 4
+    },
+    {
+      "id": 16,
+      "key": "timber",
+      "name": "Timber",
+      "color": "#b3874f",
+      "icon": "log",
+      "description": "Wood cut to length. Frames are built from it.",
+      "insight_value": 2,
+      "stack_size": 20
+    },
+    {
+      "id": 17,
+      "key": "gravel",
+      "name": "Gravel",
+      "color": "#9a9188",
+      "icon": "grains",
+      "description": "Crushed stone. Aggregate for concrete.",
+      "insight_value": 1,
+      "stack_size": 20
+    },
+    {
+      "id": 18,
+      "key": "copper-wire",
+      "name": "Copper wire",
+      "color": "#e0a45f",
+      "icon": "wire",
+      "description": "Drawn copper. Three of them and a pane of glass make a circuit.",
+      "insight_value": 4,
+      "stack_size": 20
+    },
+    {
+      "id": 19,
+      "key": "gear",
+      "name": "Gear",
+      "color": "#b9c2c8",
+      "icon": "gear",
+      "description": "Cut iron teeth. The first part that is a mechanism rather than a material.",
+      "insight_value": 5,
+      "stack_size": 10
+    },
+    {
+      "id": 20,
+      "key": "frame",
+      "name": "Frame",
+      "color": "#a08a63",
+      "icon": "frame",
+      "description": "Timber braced with iron. Everything large is hung on one.",
+      "insight_value": 6,
+      "stack_size": 10
+    },
+    {
+      "id": 21,
+      "key": "concrete",
+      "name": "Concrete",
+      "color": "#9aa0a4",
+      "icon": "plate",
+      "description": "Gravel, sand, and water. The first recipe that needs a basin nearby.",
+      "insight_value": 4,
+      "stack_size": 20
+    },
+    {
+      "id": 22,
+      "key": "circuit",
+      "name": "Circuit",
+      "color": "#5fd6a8",
+      "icon": "circuit",
+      "description": "Glass printed with copper. Where the material base starts to think.",
+      "insight_value": 8,
+      "stack_size": 10
+    },
+    {
+      "id": 23,
+      "key": "steel",
+      "name": "Steel",
+      "color": "#8fa3b0",
+      "icon": "plate",
+      "description": "Iron smelted again with coal. The strongest thing this world makes.",
+      "insight_value": 8,
+      "stack_size": 10
     }
   ],
   "recipes": [
@@ -37,10 +241,159 @@
       "id": 1,
       "key": "component",
       "name": "Compose component",
-      "description": "Bind two ore and one crystal into a landing component.",
+      "description": "Bind two iron ore into a landing component.",
+      "category": "assembly",
       "inputs": [{ "item_id": 1, "quantity": 2 }],
       "output": { "item_id": 2, "quantity": 1 },
       "duration": 8
+    },
+    {
+      "id": 2,
+      "key": "iron-plate",
+      "name": "Smelt iron plate",
+      "description": "Melt two iron ore down into one plate.",
+      "category": "smelting",
+      "inputs": [{ "item_id": 1, "quantity": 2 }],
+      "output": { "item_id": 11, "quantity": 1 },
+      "duration": 10,
+      "fuel": 4
+    },
+    {
+      "id": 3,
+      "key": "copper-plate",
+      "name": "Smelt copper plate",
+      "description": "Melt two copper ore down into one plate.",
+      "category": "smelting",
+      "inputs": [{ "item_id": 4, "quantity": 2 }],
+      "output": { "item_id": 12, "quantity": 1 },
+      "duration": 10,
+      "fuel": 4
+    },
+    {
+      "id": 4,
+      "key": "glass",
+      "name": "Melt glass",
+      "description": "Melt two sand into one pane of glass.",
+      "category": "smelting",
+      "inputs": [{ "item_id": 7, "quantity": 2 }],
+      "output": { "item_id": 13, "quantity": 1 },
+      "duration": 12,
+      "fuel": 5
+    },
+    {
+      "id": 5,
+      "key": "steel",
+      "name": "Smelt steel",
+      "description": "Smelt two iron plate with two coal as carbon. The heat is fuel on top of that.",
+      "category": "smelting",
+      "inputs": [
+        { "item_id": 11, "quantity": 2 },
+        { "item_id": 5, "quantity": 2 }
+      ],
+      "output": { "item_id": 23, "quantity": 1 },
+      "duration": 20,
+      "fuel": 8
+    },
+    {
+      "id": 6,
+      "key": "brick",
+      "name": "Fire brick",
+      "description": "Fire two clay into three brick.",
+      "category": "firing",
+      "inputs": [{ "item_id": 8, "quantity": 2 }],
+      "output": { "item_id": 14, "quantity": 3 },
+      "duration": 12,
+      "fuel": 4
+    },
+    {
+      "id": 7,
+      "key": "charcoal",
+      "name": "Char wood",
+      "description": "Pyrolyse two wood into charcoal. Needs no fuel, so smelting can start without coal.",
+      "category": "firing",
+      "inputs": [{ "item_id": 9, "quantity": 2 }],
+      "output": { "item_id": 15, "quantity": 1 },
+      "duration": 10
+    },
+    {
+      "id": 8,
+      "key": "timber",
+      "name": "Cut timber",
+      "description": "Cut one wood into two lengths of timber.",
+      "category": "cutting",
+      "inputs": [{ "item_id": 9, "quantity": 1 }],
+      "output": { "item_id": 16, "quantity": 2 },
+      "duration": 6
+    },
+    {
+      "id": 9,
+      "key": "gravel",
+      "name": "Crush gravel",
+      "description": "Crush one stone into two gravel.",
+      "category": "crushing",
+      "inputs": [{ "item_id": 6, "quantity": 1 }],
+      "output": { "item_id": 17, "quantity": 2 },
+      "duration": 6
+    },
+    {
+      "id": 10,
+      "key": "copper-wire",
+      "name": "Draw copper wire",
+      "description": "Draw one copper plate into two lengths of wire.",
+      "category": "assembly",
+      "inputs": [{ "item_id": 12, "quantity": 1 }],
+      "output": { "item_id": 18, "quantity": 2 },
+      "duration": 6
+    },
+    {
+      "id": 11,
+      "key": "gear",
+      "name": "Cut gear",
+      "description": "Cut two iron plate into one toothed gear.",
+      "category": "assembly",
+      "inputs": [{ "item_id": 11, "quantity": 2 }],
+      "output": { "item_id": 19, "quantity": 1 },
+      "duration": 8
+    },
+    {
+      "id": 12,
+      "key": "frame",
+      "name": "Build frame",
+      "description": "Brace two timber with an iron plate.",
+      "category": "assembly",
+      "inputs": [
+        { "item_id": 16, "quantity": 2 },
+        { "item_id": 11, "quantity": 1 }
+      ],
+      "output": { "item_id": 20, "quantity": 1 },
+      "duration": 10
+    },
+    {
+      "id": 13,
+      "key": "concrete",
+      "name": "Mix concrete",
+      "description": "Mix two gravel, one sand, and one water into two concrete.",
+      "category": "assembly",
+      "inputs": [
+        { "item_id": 17, "quantity": 2 },
+        { "item_id": 7, "quantity": 1 },
+        { "item_id": 10, "quantity": 1 }
+      ],
+      "output": { "item_id": 21, "quantity": 2 },
+      "duration": 12
+    },
+    {
+      "id": 14,
+      "key": "circuit",
+      "name": "Print circuit",
+      "description": "Print three copper wire onto a pane of glass.",
+      "category": "assembly",
+      "inputs": [
+        { "item_id": 13, "quantity": 1 },
+        { "item_id": 18, "quantity": 3 }
+      ],
+      "output": { "item_id": 22, "quantity": 1 },
+      "duration": 14
     }
   ],
   "buildings": [
@@ -81,9 +434,10 @@
       "key": "composer",
       "name": "Composer",
       "kind": "composer",
-      "description": "Runs a data-defined recipe when its input inventory is ready.",
+      "description": "Assembles parts from finished materials. Needs no fuel.",
       "icon": "COM",
       "capacity": 12,
+      "recipe_category": "assembly",
       "construction_cost": [
         { "item_id": 1, "quantity": 5 },
         { "item_id": 3, "quantity": 3 }
@@ -141,6 +495,101 @@
         { "q": 0, "r": 1 },
         { "q": -1, "r": 1 }
       ]
+    },
+    {
+      "id": 7,
+      "key": "smelter",
+      "name": "Smelter",
+      "kind": "composer",
+      "description": "Melts ore and sand. Burns any fuel item fed to it.",
+      "icon": "SML",
+      "capacity": 16,
+      "recipe_category": "smelting",
+      "construction_cost": [
+        { "item_id": 6, "quantity": 8 },
+        { "item_id": 1, "quantity": 4 }
+      ],
+      "unlock_technology_id": 5,
+      "placement_rule": "ground",
+      "buildable": true,
+      "blocks_movement": true,
+      "footprint": [{ "q": 0, "r": 0 }]
+    },
+    {
+      "id": 8,
+      "key": "kiln",
+      "name": "Kiln",
+      "kind": "composer",
+      "description": "Fires clay and chars wood. Burns any fuel item fed to it.",
+      "icon": "KLN",
+      "capacity": 16,
+      "recipe_category": "firing",
+      "construction_cost": [
+        { "item_id": 6, "quantity": 6 },
+        { "item_id": 8, "quantity": 4 }
+      ],
+      "unlock_technology_id": 5,
+      "placement_rule": "ground",
+      "buildable": true,
+      "blocks_movement": true,
+      "footprint": [{ "q": 0, "r": 0 }]
+    },
+    {
+      "id": 9,
+      "key": "cutter",
+      "name": "Cutter",
+      "kind": "composer",
+      "description": "Cuts wood to length. Needs no fuel.",
+      "icon": "CUT",
+      "capacity": 12,
+      "recipe_category": "cutting",
+      "construction_cost": [
+        { "item_id": 11, "quantity": 3 },
+        { "item_id": 6, "quantity": 4 }
+      ],
+      "unlock_technology_id": 6,
+      "placement_rule": "ground",
+      "buildable": true,
+      "blocks_movement": true,
+      "footprint": [{ "q": 0, "r": 0 }]
+    },
+    {
+      "id": 10,
+      "key": "crusher",
+      "name": "Crusher",
+      "kind": "composer",
+      "description": "Crushes stone into aggregate. Needs no fuel.",
+      "icon": "CRU",
+      "capacity": 12,
+      "recipe_category": "crushing",
+      "construction_cost": [
+        { "item_id": 11, "quantity": 4 },
+        { "item_id": 6, "quantity": 6 }
+      ],
+      "unlock_technology_id": 6,
+      "placement_rule": "ground",
+      "buildable": true,
+      "blocks_movement": true,
+      "footprint": [{ "q": 0, "r": 0 }]
+    },
+    {
+      "id": 11,
+      "key": "pump",
+      "name": "Pump",
+      "kind": "pump",
+      "description": "Draws water from a basin it stands beside. The basin never runs dry.",
+      "icon": "PMP",
+      "cadence": 6,
+      "output_item_id": 10,
+      "construction_cost": [
+        { "item_id": 11, "quantity": 4 },
+        { "item_id": 14, "quantity": 4 }
+      ],
+      "unlock_technology_id": 7,
+      "placement_rule": "water",
+      "buildable": true,
+      "blocks_movement": true,
+      "footprint": [{ "q": 0, "r": 0 }]
     }
   ]
 }

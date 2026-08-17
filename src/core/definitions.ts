@@ -7,8 +7,9 @@ const KINDS = new Set([
   "container",
   "consumer",
   "hub",
+  "pump",
 ]);
-const PLACEMENT_RULES = new Set(["ground", "resource"]);
+const PLACEMENT_RULES = new Set(["ground", "resource", "water"]);
 
 export function validateDefinitions(
   value: unknown,
@@ -43,16 +44,28 @@ export function validateDefinitions(
     )
       throw new TypeError(`item ${item.id} is incomplete`);
   }
+  const categories = new Set(
+    data.buildings
+      .map((building) => building.recipe_category)
+      .filter((category): category is string => Boolean(category)),
+  );
   for (const recipe of data.recipes) {
     if (
       !recipe.key ||
       !recipe.name ||
       !recipe.description ||
+      !recipe.category ||
       !positiveInteger(recipe.duration) ||
       !recipe.inputs.length
     ) {
       throw new TypeError(`recipe ${recipe.id} is incomplete`);
     }
+    // A recipe no machine can be assigned is unreachable content, which is a defect in the
+    // catalog rather than something to discover in play.
+    if (!categories.has(recipe.category))
+      throw new TypeError(
+        `recipe ${recipe.id} has category ${recipe.category}, which no building runs`,
+      );
     for (const ingredient of [...recipe.inputs, recipe.output]) {
       if (
         !itemIds.has(ingredient.item_id) ||
@@ -89,6 +102,19 @@ export function validateDefinitions(
       )
     )
       throw new TypeError(`building ${building.id} has an invalid footprint`);
+    // A machine that runs recipes needs a category, and one that does not must not claim one.
+    if ((building.kind === "composer") !== Boolean(building.recipe_category))
+      throw new TypeError(
+        `building ${building.id} has a recipe category that does not match its kind`,
+      );
+    if (
+      building.kind === "pump" &&
+      !(
+        building.output_item_id !== undefined &&
+        itemIds.has(building.output_item_id)
+      )
+    )
+      throw new TypeError(`pump ${building.id} requires a known output item`);
     for (const ingredient of building.construction_cost) {
       if (
         !itemIds.has(ingredient.item_id) ||

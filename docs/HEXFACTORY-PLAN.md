@@ -1,12 +1,14 @@
 # HexFactory — architecture, roadmap, and implementation handoffs
 
-Status: World Shape v0.11 is shipped on Playability v0.10, Game Feel v0.9, Browser Capacity v0.8,
-Sparse Snapshot v0.7, Sparse Cost v0.6, Capacity Tiers v0.5.1, Worker Boundary v0.5, Command Surface
-v0.4, Continuous Exploration v0.3, and the v0.3.1 incremental transport follow-up. The world is now
-hex-lattice fields and terrain bands rather than salt-and-pepper circles, so a site is a choice
-instead of a scatter. Next play milestone is Material Base v0.12. The compact binary delta encoding
-stays the next engine milestone and should land between v0.12 and v0.13; the renderer measurement
-gates animation; and the drag's per-cell transport recompile is unblocked and can land anywhere.
+Status: Material Base v0.12 is shipped on World Shape v0.11, Playability v0.10, Game Feel v0.9,
+Browser Capacity v0.8, Sparse Snapshot v0.7, Sparse Cost v0.6, Capacity Tiers v0.5.1, Worker
+Boundary v0.5, Command Surface v0.4, Continuous Exploration v0.3, and the v0.3.1 incremental
+transport follow-up. The world now produces eight raw materials, each where its geography says it
+should be, and fourteen recipes across five machine categories turn them into something the player
+wanted. Next play milestone is Power v0.13. **The compact binary delta encoding is now the next
+thing that should land**: the roadmap named the v0.12/v0.13 boundary as its deadline and v0.12 grew
+the item roster it prices. The renderer measurement gates animation, and the drag's per-cell
+transport recompile is unblocked and can land anywhere.
 
 Target repository: `https://github.com/Sidem/HexFactory`
 
@@ -21,6 +23,33 @@ not a source dependency: HexFactory imports only the published package. Treat th
 read-only unless a future task explicitly authorizes a separately released generic package change.
 
 ## Shipped implementation record
+
+- Material Base v0.12 gives the world more than one thing to be made of. Eight raw resources —
+  iron ore, copper ore, coal, stone, sand, clay, wood, and water — are generated where their
+  geography says they belong, which is what turns terrain from a colour into information: iron and
+  coal on highland, copper on the new **hills** band between lowland and highland, sand and clay on
+  shores, stone on cliffs the player cannot stand on and quarries from the hex beside, wood in moist
+  lowland, and water pumped rather than mined. Fourteen recipes across five machine categories run
+  on one `Composer` kind: smelter, kiln, cutter, crusher, and the existing composer differ by a
+  `recipe_category` field and one check at assignment, not by a new tick path each. **Fuel is a
+  property of the item, never a recipe input** — a smelting recipe names no fuel, so coal, charcoal,
+  and wood are interchangeable at different values and every fuel added later is too; a machine
+  burns from its own stock and never from the quantity a recipe input reserves, which is what keeps
+  steel (whose inputs name coal as carbon) from starving itself. Charcoal is deliberately fuel-free,
+  so a player who lands away from a coal field still bootstraps smelting from trees. Wood is the one
+  renewable source: `regrowth_ticks` on the item makes a cut cell climb back to what generation gave
+  it, walked from a derived set of cut cells rather than from the world, so an untouched forest costs
+  nothing and a regrown one costs nothing again. `Pump` is the only new `BuildingKind`, because it
+  draws from terrain rather than from a deposit and its basin never empties. `set_recipe` joins
+  `place`, `erase`, and `withdraw` as a bounded, range-checked command; it refuses a machine
+  mid-craft, because the inputs it reserved belong to the job it is running.
+  Two player-facing changes ride along. The wait between one field action and the next is now a ring
+  that closes around the player instead of a "cooling down" line in the message strip — both numbers
+  are native, `action_cooldown` against a published `action_cooldown_total`, so the host draws a
+  proportion it was given. And the inspector names every surveyed hex and what its band is good for,
+  where before it described only buildings and resources and left the coloured tiles unexplained.
+  `WORLD_GENERATOR_VERSION` is 4 and `HXF1` save version is 5; there is no migration from a
+  three-item world to a twenty-three-item one.
 
 - World Shape v0.11 replaces salt-and-pepper circles with a single axial lattice. Elevation and
   moisture are integer value noise; terrain is read from bands (deep water, shallow water, shore,
@@ -324,6 +353,9 @@ spend or improve. Each entry states the play it unlocks, per the design pillars.
 | v0.13 Power              | A second constraint that reshapes layout                   | v0.12 materials |
 | v0.14 Upgrades and Tiers | Growth in place; extraction radius as the flagship upgrade | v0.12 and v0.13 |
 
+v0.11 and v0.12 have shipped. What follows records what v0.12 actually decided where it differed
+from the plan it was written against.
+
 **Where the engine milestones slot.** The compact binary delta encoding should land no later than
 between v0.12 and v0.13. Every milestone here grows the snapshot — more item IDs in more
 inventories, terrain with more bands, then a power network with a per-entity satisfaction figure —
@@ -431,10 +463,31 @@ against fields rather than merely updated, and the v0.10 placement-legality fix 
 here. That argues for v0.10 item 1 fixing the **inconsistency** — one overlap rule for both tests —
 and deliberately not over-investing in threshold tuning that this milestone will redo.
 
-### v0.12 — Material Base
+### v0.12 — Material Base (shipped)
 
 Eight raw resources and a first processing tier. The point is not quantity; it is that a material
 should arrive from somewhere specific and become something the player wanted.
+
+**What shipped differently from the plan below.** Three deliberate departures, plus one addition:
+
+- **Hills became a real terrain band.** The plan wanted copper in "hills" while v0.11 had shipped a
+  single raised band. Rather than correlate copper and iron by noise inside one band — which would
+  have made the distinction invisible on the map — `Hills` was added between lowland and highland.
+  Terrain being the material map only works if the player can see the bands apart.
+- **Stone lives on cliffs, which nothing can stand on.** The plan listed stone at "cliffs, rock".
+  Cliffs are impassable and unbuildable, so a stone field there is reached from the hex beside it,
+  through the extraction radius. That is the cheapest possible lesson in what the radius means, and
+  it makes cliffs geography rather than an obstacle.
+- **Fuel is charged at craft start, not spread over the duration.** A recipe declares `fuel`, a
+  machine banks a `fuel_charge` from whatever it burns, and the charge is spent when the craft
+  begins — beside the inputs it reserves. A half-finished job can never hold energy it has not paid
+  for, and no per-tick fuel arithmetic enters the hot loop.
+- **`set_recipe` was added.** Not in the plan, and needed by it: fourteen recipes across five
+  categories make "erase and rebuild to change a job" friction on every layout decision. It refuses
+  a machine mid-craft rather than deciding what happens to reserved inputs, which is the same
+  question that still keeps composers from being unloaded.
+
+The rest of this section is the plan as written, kept for the reasoning behind each choice.
 
 #### Raw resources
 

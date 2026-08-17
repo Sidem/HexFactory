@@ -10,8 +10,8 @@ type DefinitionId = u16;
 type TechnologyId = u16;
 
 const SAVE_PREFIX: &str = "HXF1\n";
-const SAVE_VERSION: u16 = 4;
-const WORLD_GENERATOR_VERSION: u16 = 3;
+const SAVE_VERSION: u16 = 5;
+const WORLD_GENERATOR_VERSION: u16 = 4;
 const MAX_COMMANDS_PER_BATCH: usize = 8;
 /// A drag is one bounded command, so the run it expands into has to be bounded too. This is the
 /// native cap on cells a single `place_line` or `erase_line` may touch.
@@ -45,6 +45,9 @@ const BUILDING_RADIUS: i32 = 690;
 /// default simulation speed, which is the pace the action was tuned at.
 const GATHER_COOLDOWN_STEPS: u32 = 6;
 const HUB_RANGE: i32 = 1900;
+/// How far a pump reaches for open water. One hex, like every other radius in the game, so a pump
+/// stands on buildable ground at the edge of a basin rather than in it.
+const PUMP_RADIUS: i32 = 1;
 
 fn default_footprint() -> Vec<Coordinate> {
     vec![Coordinate { q: 0, r: 0 }]
@@ -71,6 +74,17 @@ struct ItemDefinition {
     /// player's ordinary `item_id → quantity` map rather than a stored array of slots, so the save
     /// format, the checksum inputs, and every ordering guarantee are unchanged by it.
     stack_size: u32,
+    /// Energy one unit releases when burned. Fuel is a property of the item, never an entry in a
+    /// recipe's `inputs`: naming a fuel in a recipe would force one recipe per fuel and hardcode
+    /// the bootstrap path, where this way coal and charcoal are the same recipe at different
+    /// values and every fuel added later is too.
+    #[serde(default)]
+    fuel_value: Option<u32>,
+    /// Ticks between one unit of regrowth and the next, for a resource that is flora rather than
+    /// ore. A harvested cell climbs back toward the quantity generation gave it and stops there,
+    /// which is what makes wood renewable while every ore field is finite.
+    #[serde(default)]
+    regrowth_ticks: Option<u32>,
 }
 
 #[derive(Clone, Deserialize)]
@@ -79,9 +93,17 @@ struct RecipeDefinition {
     key: String,
     name: String,
     description: String,
+    /// Which machines may run this. A kiln and a smelter are the same `BuildingKind` with
+    /// different recipe categories — one field and one check at recipe assignment, rather than a
+    /// new kind and a new tick path for every machine the material tree adds.
+    category: String,
     inputs: Vec<Ingredient>,
     output: Ingredient,
     duration: u32,
+    /// Energy one craft consumes, paid from whatever fuel item the machine has been fed. Zero for
+    /// every recipe that needs no heat, which is what keeps charcoal reachable without coal.
+    #[serde(default)]
+    fuel: u32,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -102,6 +124,15 @@ struct BuildingDefinition {
     cadence: Option<u32>,
     #[serde(default)]
     capacity: Option<u32>,
+    /// The recipe category this machine can be assigned, for a composer-kind building. A kiln
+    /// cannot be given a circuit recipe because its category does not match, not because a new
+    /// `BuildingKind` exists for it.
+    #[serde(default)]
+    recipe_category: Option<String>,
+    /// What a pump produces. Data-defined for the same reason recipes are: a source building's
+    /// output is content, not a branch in the tick.
+    #[serde(default)]
+    output_item_id: Option<ItemId>,
     construction_cost: Vec<Ingredient>,
     #[serde(default)]
     unlock_technology_id: Option<TechnologyId>,
@@ -121,6 +152,10 @@ enum BuildingKind {
     Container,
     Consumer,
     Hub,
+    /// Draws from water terrain rather than from a field cell, and never depletes it. That is why
+    /// it is a kind of its own and the smelter, kiln, cutter, and crusher are not: they are all a
+    /// composer running a recipe, and a pump is a different source.
+    Pump,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
@@ -128,6 +163,8 @@ enum BuildingKind {
 enum PlacementRule {
     Ground,
     Resource,
+    /// Buildable ground with open water inside `PUMP_RADIUS`.
+    Water,
 }
 
 #[derive(Clone, Deserialize)]
@@ -211,13 +248,17 @@ struct Cargo {
     quantity: u32,
 }
 
-#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq, PartialOrd, Ord)]
 #[serde(rename_all = "snake_case")]
 enum Terrain {
     DeepWater,
     ShallowWater,
     Shore,
     Lowland,
+    /// The band between lowland and highland. v0.11 read one raised band; the material base needs
+    /// two, because copper belongs to rolling ground and iron and coal to the tops, and a player
+    /// who cannot see the difference cannot choose a site from the terrain.
+    Hills,
     Highland,
     Cliff,
 }
@@ -232,6 +273,10 @@ impl Terrain {
 
     fn blocks_construction(self) -> bool {
         self.blocks_movement()
+    }
+
+    fn is_water(self) -> bool {
+        matches!(self, Terrain::DeepWater | Terrain::ShallowWater)
     }
 }
 
@@ -279,6 +324,11 @@ struct Entity {
     inventory: BTreeMap<ItemId, u32>,
     reserved_inputs: BTreeMap<ItemId, u32>,
     progress: u32,
+    /// Energy left in the machine from fuel it has already burned. Real state: it is saved,
+    /// hashed, and checksummed, because a smelter that is a quarter of the way through a coal is
+    /// not the same machine as one that has just been fed.
+    #[serde(default)]
+    fuel_charge: u32,
 }
 
 #[derive(Clone, Debug, Serialize, PartialEq, Eq)]
@@ -314,6 +364,9 @@ struct PlayerSnapshot {
     /// Collision and drawing radius in world units. Published so the host draws the body that
     /// native actually walks, rather than a hardcoded fraction of the hex size.
     radius: i32,
+    /// What a fresh action cooldown is worth. The host draws the wait as a proportion of this, so
+    /// it never has to infer the maximum by watching a number count down.
+    action_cooldown_total: u32,
 }
 
 #[derive(Clone, Copy, Debug, Serialize, PartialEq, Eq)]
@@ -384,6 +437,18 @@ struct EntitySnapshot {
     inventory: Vec<Ingredient>,
     progress: u32,
     progress_total: u32,
+    /// Energy the machine is holding, and what one craft of its recipe costs. Both are published
+    /// so the inspector can say "out of fuel" for the reason the machine actually stopped rather
+    /// than re-deriving the fuel rule in the host.
+    ///
+    /// Omitted when zero, which is what they are for every belt, container, and fuel-free machine.
+    /// Sent unconditionally they cost two numbers per entity per delta — 86 KB at the largest
+    /// measured tier, against a boundary priced at about 10 µs/KB — to say "this is not a furnace"
+    /// about entities that never will be.
+    #[serde(skip_serializing_if = "is_zero")]
+    fuel_charge: u32,
+    #[serde(skip_serializing_if = "is_zero")]
+    fuel_required: u32,
     status: String,
     next_id: Option<u32>,
     footprint: Vec<Coordinate>,
@@ -418,6 +483,10 @@ struct ResourcesDelta {
 
 fn is_false(value: &bool) -> bool {
     !*value
+}
+
+fn is_zero(value: &u32) -> bool {
+    *value == 0
 }
 
 /// Which parts of the next snapshot may differ from the one the host already holds, marked where
@@ -717,6 +786,14 @@ enum InputCommand {
         item_id: ItemId,
         quantity: u32,
     },
+    /// Give a machine a different job. With fourteen recipes across five machine categories,
+    /// erasing and rebuilding to change one assignment is friction the material base would add to
+    /// every layout decision.
+    SetRecipe {
+        q: i32,
+        r: i32,
+        recipe_id: RecipeId,
+    },
     Undo,
     Research {
         technology_id: TechnologyId,
@@ -733,6 +810,18 @@ struct Core {
     /// Deposit references resolved per extractor entity id, so a running extractor never scans the
     /// tile map. Derived cache only: it is rebuilt from tiles on demand and never saved or hashed.
     deposit_links: BTreeMap<u32, Vec<(i32, i32)>>,
+    /// The scenario's hand-placed resources, keyed by tile. `field_at` is asked once per hex of
+    /// every surveyed chunk when a complete snapshot is built, so scanning the scenario's list for
+    /// each of them made that snapshot O(hexes × placed resources) — 3.9× slower at the largest
+    /// measured tier, which places one per line. Derived from the scenario definition, so it is
+    /// never saved, hashed, or checksummed.
+    scenario_resources: BTreeMap<(i32, i32), ResourceState>,
+    /// Flora cells standing below the quantity generation gave them. Regrowth walks this set
+    /// rather than the world, so a forest costs nothing until somebody cuts it and nothing again
+    /// once it has grown back. Derived state under the same rule as `deposit_links`: it is a pure
+    /// function of the overlay and the item definitions, so it is rebuilt on load rather than
+    /// saved, and it is never hashed or checksummed.
+    flora_regrowth: BTreeSet<(i32, i32)>,
     entities: Vec<Entity>,
     graph: Vec<Option<usize>>,
     player: PlayerState,
@@ -773,6 +862,21 @@ impl Core {
             generated_chunks: BTreeSet::new(),
             tiles: BTreeMap::new(),
             deposit_links: BTreeMap::new(),
+            scenario_resources: scenario
+                .resources
+                .iter()
+                .map(|resource| {
+                    (
+                        (resource.q, resource.r),
+                        ResourceState {
+                            item_id: resource.item_id,
+                            quantity: resource.quantity,
+                            initial_quantity: resource.quantity,
+                        },
+                    )
+                })
+                .collect(),
+            flora_regrowth: BTreeSet::new(),
             entities: Vec::new(),
             graph: Vec::new(),
             player: PlayerState {
@@ -826,6 +930,7 @@ impl Core {
                 inventory: BTreeMap::new(),
                 reserved_inputs: BTreeMap::new(),
                 progress: 0,
+                fuel_charge: 0,
             });
             core.next_entity_id += 1;
         }
@@ -873,6 +978,7 @@ impl Core {
             state: self.player.clone(),
             carry_stacks: self.carry_stacks(),
             radius: PLAYER_RADIUS,
+            action_cooldown_total: GATHER_COOLDOWN_STEPS,
         }
     }
 
@@ -1026,6 +1132,90 @@ impl Core {
                 }),
             },
         );
+        // Every overlay write is where a cell enters or leaves regrowth, so the set stays exact
+        // without anything scanning the world for it.
+        if quantity < initial && self.regrowth_ticks(item_id).is_some() {
+            self.flora_regrowth.insert((q, r));
+        } else {
+            self.flora_regrowth.remove(&(q, r));
+        }
+    }
+
+    /// How often one unit of this item grows back, for a resource that is flora. `None` for every
+    /// ore, which is what makes ore finite.
+    fn regrowth_ticks(&self, item_id: ItemId) -> Option<u32> {
+        self.item_definition(item_id)
+            .and_then(|item| item.regrowth_ticks)
+            .filter(|&ticks| ticks > 0)
+    }
+
+    /// Rebuild the regrowth set from the overlay. It is a pure function of the stored tiles and the
+    /// item definitions, so a save records the tiles and this recovers the set — the file never
+    /// carries derived state.
+    fn rebuild_flora_regrowth(&mut self) {
+        self.flora_regrowth = self
+            .tiles
+            .iter()
+            .filter_map(|(&key, tile)| {
+                let resource = tile.resource.as_ref()?;
+                (resource.quantity < resource.initial_quantity
+                    && self.regrowth_ticks(resource.item_id).is_some())
+                .then_some(key)
+            })
+            .collect();
+    }
+
+    /// Grow every cut flora cell back by one unit on the cadence its item declares. Walking the
+    /// marked set rather than the world is the same sparsity rule the rest of the tick follows: an
+    /// untouched forest is not in the set, and a fully regrown cell leaves it.
+    fn regrow_flora(&mut self) {
+        if self.flora_regrowth.is_empty() {
+            return;
+        }
+        let due: Vec<(i32, i32)> = self
+            .flora_regrowth
+            .iter()
+            .copied()
+            .filter(|key| {
+                self.tiles
+                    .get(key)
+                    .and_then(|tile| tile.resource.as_ref())
+                    .and_then(|resource| self.regrowth_ticks(resource.item_id))
+                    .is_some_and(|ticks| self.tick % u64::from(ticks) == 0)
+            })
+            .collect();
+        for key in due {
+            let Some(resource) = self.tiles.get(&key).and_then(|tile| tile.resource.as_ref())
+            else {
+                continue;
+            };
+            let (item_id, quantity, initial) = (
+                resource.item_id,
+                resource.quantity,
+                resource.initial_quantity,
+            );
+            if quantity >= initial {
+                self.flora_regrowth.remove(&key);
+                continue;
+            }
+            self.write_overlay(key.0, key.1, item_id, quantity + 1, initial);
+            self.dirty.resources.push(key);
+            if quantity == 0 {
+                // A cell that had been cut to nothing can restart an extractor that reported it
+                // exhausted, and every extractor covering it may now report a different status.
+                self.mark_all_entities_dirty();
+                self.events
+                    .push(format!("Flora at {},{} regrew", key.0, key.1));
+            }
+        }
+    }
+
+    /// Whether open water sits inside `PUMP_RADIUS` of a hex. Terrain is a pure function of the
+    /// seed, so this needs no generated tile and works at the frontier.
+    fn water_within_reach(&self, q: i32, r: i32) -> bool {
+        hexes_in_radius((q, r), PUMP_RADIUS)
+            .into_iter()
+            .any(|(cell_q, cell_r)| self.terrain_at(cell_q, cell_r).is_water())
     }
 
     /// The deposit an extractor draws from this tick, resolved from its cached candidate list
@@ -1105,17 +1295,8 @@ impl Core {
                 initial_quantity: resource.initial_quantity,
             });
         }
-        if let Some(resource) = self
-            .scenario
-            .resources
-            .iter()
-            .find(|resource| resource.q == q && resource.r == r)
-        {
-            return Some(ResourceState {
-                item_id: resource.item_id,
-                quantity: resource.quantity,
-                initial_quantity: resource.quantity,
-            });
+        if let Some(resource) = self.scenario_resources.get(&(q, r)) {
+            return Some(resource.clone());
         }
         field_at(self.seed, q, r, self.scenario.generated_environment)
     }
@@ -1300,6 +1481,7 @@ impl Core {
             self.advance_machines();
             self.transfer_cargo();
             self.tick += 1;
+            self.regrow_flora();
         }
     }
 
@@ -1325,6 +1507,7 @@ impl Core {
             match self.entities[index].kind {
                 BuildingKind::Extractor => self.advance_extractor(index),
                 BuildingKind::Composer => self.advance_composer(index),
+                BuildingKind::Pump => self.advance_pump(index),
                 _ => {}
             }
         }
@@ -1381,8 +1564,88 @@ impl Core {
             // Any extractor covering this deposit may now report a different status or fall
             // through to a different candidate.
             self.mark_all_entities_dirty();
-            self.events.push(format!("Deposit at {q},{r} depleted"));
+            self.events
+                .push(format!("Deposit at {q},{r} is worked out"));
         }
+    }
+
+    /// A pump draws from the basin it stands beside. Water is the one source in the game that is
+    /// not finite: there is no overlay entry to write down and nothing to deplete, so a pump is an
+    /// extractor without the deposit rather than a special case of one.
+    fn advance_pump(&mut self, index: usize) {
+        if self.entities[index].cargo.is_some() {
+            return;
+        }
+        let (q, r, definition_id) = {
+            let placed = self.entities[index].placed;
+            (placed.q, placed.r, placed.definition_id)
+        };
+        let id = self.entities[index].id;
+        self.dirty.entities.push(id);
+        let definition = self.building_definition(definition_id);
+        let cadence = definition.and_then(|value| value.cadence).unwrap_or(1);
+        let Some(item_id) = definition.and_then(|value| value.output_item_id) else {
+            return;
+        };
+        if !self.water_within_reach(q, r) {
+            self.entities[index].progress = 0;
+            return;
+        }
+        self.entities[index].progress += 1;
+        if self.entities[index].progress < cadence {
+            return;
+        }
+        self.entities[index].cargo = Some(Cargo {
+            item_id,
+            quantity: 1,
+        });
+        self.entities[index].progress = 0;
+        *self.produced.entry(item_id).or_default() += 1;
+    }
+
+    fn fuel_value(&self, item_id: ItemId) -> u32 {
+        self.item_definition(item_id)
+            .and_then(|item| item.fuel_value)
+            .unwrap_or(0)
+    }
+
+    /// The lowest-id item a machine holding this inventory may burn. Never the quantity a recipe
+    /// input reserves: steel names coal in its `inputs`, and a smelter that burned the very coal it
+    /// was waiting on would starve itself on its own recipe. One predicate serves both the tick
+    /// that burns and the status line that explains why nothing burned.
+    fn burnable_item(
+        &self,
+        inventory: &BTreeMap<ItemId, u32>,
+        inputs: &[Ingredient],
+    ) -> Option<ItemId> {
+        inventory
+            .iter()
+            .find(|&(&item_id, &quantity)| {
+                let reserved = inputs
+                    .iter()
+                    .find(|input| input.item_id == item_id)
+                    .map_or(0, |input| input.quantity);
+                quantity > reserved && self.fuel_value(item_id) > 0
+            })
+            .map(|(&item_id, _)| item_id)
+    }
+
+    /// Burn stored fuel until the machine holds at least `required` energy, reporting whether it
+    /// got there.
+    fn charge_fuel(&mut self, index: usize, required: u32, inputs: &[Ingredient]) -> bool {
+        while self.entities[index].fuel_charge < required {
+            let Some(item_id) = self.burnable_item(&self.entities[index].inventory, inputs) else {
+                return false;
+            };
+            let value = self.fuel_value(item_id);
+            subtract_item(&mut self.entities[index].inventory, item_id, 1);
+            self.entities[index].fuel_charge += value;
+            // Burning is a visible change even on a tick the craft does not start, because the
+            // machine banks the charge and its stock went down.
+            let id = self.entities[index].id;
+            self.dirty.entities.push(id);
+        }
+        true
     }
 
     fn advance_composer(&mut self, index: usize) {
@@ -1417,9 +1680,12 @@ impl Core {
                 .unwrap_or(0)
                 >= ingredient.quantity
         });
-        if can_start {
+        // Fuel is charged at the moment a craft starts, beside the inputs it reserves, so a
+        // half-finished job can never be holding energy it has not paid for.
+        if can_start && self.charge_fuel(index, recipe.fuel, &recipe.inputs) {
             let id = self.entities[index].id;
             self.dirty.entities.push(id);
+            self.entities[index].fuel_charge -= recipe.fuel;
             for ingredient in &recipe.inputs {
                 subtract_item(
                     &mut self.entities[index].inventory,
@@ -1491,10 +1757,20 @@ impl Core {
                 let Some(recipe) = self.recipe(recipe_id) else {
                     return false;
                 };
-                let accepts = recipe
-                    .inputs
-                    .iter()
-                    .any(|input| input.item_id == cargo.item_id);
+                // A machine takes its recipe's inputs, and — when the recipe needs heat — anything
+                // that burns. Fuel is not in `inputs`, so this is where a belt of coal is allowed
+                // into a smelter without every smelting recipe having to name a fuel.
+                let burns = recipe.fuel > 0
+                    && self
+                        .item_definition(cargo.item_id)
+                        .and_then(|item| item.fuel_value)
+                        .unwrap_or(0)
+                        > 0;
+                let accepts = burns
+                    || recipe
+                        .inputs
+                        .iter()
+                        .any(|input| input.item_id == cargo.item_id);
                 let capacity = self
                     .building_definition(entity.placed.definition_id)
                     .and_then(|definition| definition.capacity)
@@ -1509,7 +1785,7 @@ impl Core {
                 inventory_total(&entity.inventory) + cargo.quantity <= capacity
             }
             BuildingKind::Consumer | BuildingKind::Hub => true,
-            BuildingKind::Extractor => false,
+            BuildingKind::Extractor | BuildingKind::Pump => false,
         }
     }
 
@@ -1529,7 +1805,9 @@ impl Core {
                 self.check_victory();
             }
             BuildingKind::Hub => self.deliver_to_hub(cargo.item_id, cargo.quantity),
-            BuildingKind::Extractor => unreachable!("extractors reject cargo"),
+            BuildingKind::Extractor | BuildingKind::Pump => {
+                unreachable!("sources reject cargo")
+            }
         }
     }
 
@@ -1640,7 +1918,13 @@ impl Core {
         self.dirty.resources.push(key);
         *self.player.inventory.entry(item_id).or_default() += 1;
         self.player.action_cooldown = GATHER_COOLDOWN_STEPS;
-        self.events.push(format!("Gathered item {item_id}"));
+        // Named, not numbered. "Gathered item 6" was serviceable when the world held three items;
+        // against a material base of twenty-three it tells the player nothing they can act on.
+        let name = self
+            .item_definition(item_id)
+            .map(|item| item.name.clone())
+            .unwrap_or_else(|| format!("item {item_id}"));
+        self.events.push(format!("Gathered {name}"));
         if depleted {
             // Any extractor covering this deposit may now report a different status.
             self.mark_all_entities_dirty();
@@ -1770,10 +2054,21 @@ impl Core {
         {
             return Err("extractors require a non-empty deposit".into());
         }
+        if definition.placement_rule == PlacementRule::Water && !self.water_within_reach(q, r) {
+            return Err("pumps must be placed beside open water".into());
+        }
         if definition.kind == BuildingKind::Composer {
-            let id = recipe_id.ok_or("composer requires a recipe")?;
-            if self.recipe(id).is_none() {
-                return Err(format!("unknown recipe {id}"));
+            let id = recipe_id.ok_or("this machine requires a recipe")?;
+            let recipe = self
+                .recipe(id)
+                .ok_or_else(|| format!("unknown recipe {id}"))?;
+            // One field, one check: a kiln cannot be given a circuit recipe because the categories
+            // disagree, not because there is a separate building kind for every machine.
+            if definition.recipe_category.as_deref() != Some(recipe.category.as_str()) {
+                return Err(format!(
+                    "{} cannot run a {} recipe",
+                    definition.name, recipe.category
+                ));
             }
         }
         if check_cost && !has_ingredients(&self.player.inventory, &definition.construction_cost) {
@@ -1819,6 +2114,7 @@ impl Core {
             inventory: BTreeMap::new(),
             reserved_inputs: BTreeMap::new(),
             progress: 0,
+            fuel_charge: 0,
         });
         self.next_entity_id += 1;
         self.undo_stack.push(id);
@@ -1914,12 +2210,16 @@ impl Core {
     /// What a construction drag between these endpoints would do, without doing it. Materials are
     /// spent against a copy of the player's inventory as the run is walked, so the preview shows
     /// exactly where a run will stop for cost rather than implying the whole line is affordable.
+    /// `recipe_id` travels with the preview for the same reason it travels with the drag: a
+    /// machine's legality now depends on whether its recipe belongs to its category, so a preview
+    /// that asked without one would refuse every cell of a run the drag would happily build.
     fn line_preview(
         &self,
         from: (i32, i32),
         to: (i32, i32),
         definition_id: DefinitionId,
         orientation: u8,
+        recipe_id: Option<RecipeId>,
     ) -> Vec<LinePreviewCell> {
         let Some(definition) = self.building_definition(definition_id) else {
             return Vec::new();
@@ -1940,7 +2240,7 @@ impl Core {
                 };
                 let legal = !taken.contains(&(q, r))
                     && self
-                        .placement_legality(q, r, definition_id, cell_orientation, None, false)
+                        .placement_legality(q, r, definition_id, cell_orientation, recipe_id, false)
                         .is_ok()
                     && has_ingredients(&budget, &cost);
                 if legal {
@@ -2146,6 +2446,53 @@ impl Core {
         Ok(())
     }
 
+    /// Give the machine at this hex a different recipe. Bounded and range-checked like every other
+    /// edit, and it enforces the same category rule placement does, so a kiln can no more be
+    /// reassigned to a circuit than it could be built with one.
+    ///
+    /// A machine mid-craft is refused rather than reassigned: its reserved inputs belong to the job
+    /// it is running, and deciding what happens to a part-finished one is a question worth its own
+    /// pass — the same reason composers still cannot be unloaded.
+    fn set_recipe(&mut self, q: i32, r: i32, recipe_id: RecipeId) -> Result<(), String> {
+        let (target_x, target_y) = axial_world(q, r);
+        if squared_distance(self.player.x, self.player.y, target_x, target_y)
+            > i64::from(self.player.build_range).pow(2)
+        {
+            return Err("recipe target is outside build range".into());
+        }
+        let index = self.entity_at(q, r).ok_or("no machine at that hex")?;
+        if self.entities[index].kind != BuildingKind::Composer {
+            return Err("only machines that run recipes can be reassigned".into());
+        }
+        if self.entities[index].placed.scenario_owned {
+            return Err("scenario-owned objects are protected".into());
+        }
+        if self.entities[index].progress > 0 {
+            return Err("this machine is mid-craft".into());
+        }
+        if self.entities[index].placed.recipe_id == Some(recipe_id) {
+            return Err("this machine already runs that recipe".into());
+        }
+        let recipe = self
+            .recipe(recipe_id)
+            .ok_or_else(|| format!("unknown recipe {recipe_id}"))?
+            .clone();
+        let definition = self
+            .building_definition(self.entities[index].placed.definition_id)
+            .ok_or("unknown building definition")?;
+        if definition.recipe_category.as_deref() != Some(recipe.category.as_str()) {
+            return Err(format!(
+                "{} cannot run a {} recipe",
+                definition.name, recipe.category
+            ));
+        }
+        self.entities[index].placed.recipe_id = Some(recipe_id);
+        let id = self.entities[index].id;
+        self.dirty.entities.push(id);
+        self.events.push(format!("Set recipe to {}", recipe.name));
+        Ok(())
+    }
+
     fn rotate(&mut self, q: i32, r: i32) -> Result<(), String> {
         let (target_x, target_y) = axial_world(q, r);
         if squared_distance(self.player.x, self.player.y, target_x, target_y)
@@ -2254,6 +2601,7 @@ impl Core {
                     item_id,
                     quantity,
                 } => self.withdraw(q, r, item_id, quantity),
+                InputCommand::SetRecipe { q, r, recipe_id } => self.set_recipe(q, r, recipe_id),
                 InputCommand::Undo => self.undo(),
                 InputCommand::Research { technology_id } => self.research(technology_id),
             };
@@ -2264,16 +2612,34 @@ impl Core {
         Ok(())
     }
 
-    /// `deposit_available` is whether any deposit covering this extractor still holds stock. It is
-    /// passed in rather than searched for: resolving it through the cached candidate list keeps a
-    /// snapshot linear in entity count, where the equivalent tile scan made it quadratic.
-    fn status_of(&self, entity: &Entity, deposit_available: bool) -> String {
+    /// Whether a machine can pay for its next craft's heat: already charged, or holding something
+    /// it may burn. Read-only, and it asks `burnable_item` exactly as the tick does.
+    fn fuel_ready(&self, entity: &Entity) -> bool {
+        let Some(recipe) = entity.placed.recipe_id.and_then(|id| self.recipe(id)) else {
+            return true;
+        };
+        recipe.fuel == 0
+            || entity.fuel_charge >= recipe.fuel
+            || self
+                .burnable_item(&entity.inventory, &recipe.inputs)
+                .is_some()
+    }
+
+    /// `deposit_available` is whether the source this entity draws from still has anything in it —
+    /// a covering deposit for an extractor, open water for a pump. It is passed in rather than
+    /// searched for: resolving it through the cached candidate list keeps a snapshot linear in
+    /// entity count, where the equivalent tile scan made it quadratic.
+    fn status_of(&self, entity: &Entity, deposit_available: bool, fuel_ready: bool) -> String {
         match entity.kind {
             BuildingKind::Extractor if entity.cargo.is_some() => "output blocked".into(),
             BuildingKind::Extractor if !deposit_available => "deposit depleted".into(),
             BuildingKind::Extractor if entity.progress > 0 => "extracting".into(),
+            BuildingKind::Pump if entity.cargo.is_some() => "output blocked".into(),
+            BuildingKind::Pump if !deposit_available => "no water in reach".into(),
+            BuildingKind::Pump => "pumping".into(),
             BuildingKind::Composer if entity.cargo.is_some() => "output blocked".into(),
             BuildingKind::Composer if entity.progress > 0 => "composing".into(),
+            BuildingKind::Composer if !fuel_ready => "out of fuel".into(),
             BuildingKind::Composer => "waiting for inputs".into(),
             BuildingKind::Container if inventory_total(&entity.inventory) > 0 => "buffered".into(),
             BuildingKind::Belt if entity.cargo.is_some() => "carrying".into(),
@@ -2289,11 +2655,25 @@ impl Core {
     fn entity_snapshot(&mut self, index: usize) -> EntitySnapshot {
         // Resolving through the cached candidate list rather than scanning the tile map is what
         // keeps this O(1) in world size. The cache is derived state, so filling it changes nothing.
-        let deposit_available = self.entities[index].kind == BuildingKind::Extractor
-            && self.extractor_deposit(index).is_some();
+        let deposit_available = match self.entities[index].kind {
+            BuildingKind::Extractor => self.extractor_deposit(index).is_some(),
+            // A pump's "deposit" is the basin it stands beside, which never empties, so the only
+            // question is whether one is in reach at all.
+            BuildingKind::Pump => {
+                let placed = self.entities[index].placed;
+                self.water_within_reach(placed.q, placed.r)
+            }
+            _ => false,
+        };
         let entity = &self.entities[index];
+        let fuel_required = entity
+            .placed
+            .recipe_id
+            .and_then(|id| self.recipe(id))
+            .map_or(0, |recipe| recipe.fuel);
+        let fuel_ready = self.fuel_ready(entity);
         let progress_total = match entity.kind {
-            BuildingKind::Extractor => self
+            BuildingKind::Extractor | BuildingKind::Pump => self
                 .building_definition(entity.placed.definition_id)
                 .and_then(|definition| definition.cadence)
                 .unwrap_or(1),
@@ -2322,7 +2702,9 @@ impl Core {
                 .collect(),
             progress: entity.progress,
             progress_total,
-            status: self.status_of(entity, deposit_available),
+            fuel_charge: entity.fuel_charge,
+            fuel_required,
+            status: self.status_of(entity, deposit_available, fuel_ready),
             next_id: self.graph[index].map(|target| self.entities[target].id),
             footprint: self.entity_footprint(entity),
         }
@@ -2520,6 +2902,7 @@ impl Core {
             hash_u32(&mut hash, u32::from(entity.placed.recipe_id.unwrap_or(0)));
             hash_u32(&mut hash, u32::from(entity.placed.scenario_owned));
             hash_u32(&mut hash, entity.progress);
+            hash_u32(&mut hash, entity.fuel_charge);
             hash_inventory(&mut hash, &entity.inventory);
             hash_inventory(&mut hash, &entity.reserved_inputs);
             if let Some(cargo) = entity.cargo {
@@ -2625,6 +3008,9 @@ impl Core {
             .map(|tile| ((tile.q, tile.r), tile))
             .collect();
         core.deposit_links.clear();
+        // Regrowth is derived from the overlay the save just restored, so it is recovered here
+        // rather than carried in the file.
+        core.rebuild_flora_regrowth();
         // Undo history is session state, not saved state: a restored save has nothing to take back.
         core.undo_stack.clear();
         core.entities = envelope.state.entities;
@@ -2991,10 +3377,11 @@ impl Factory {
         to_r: i32,
         definition_id: DefinitionId,
         orientation: u8,
+        recipe_id: Option<RecipeId>,
     ) -> String {
-        let cells = self
-            .core
-            .line_preview((q, r), (to_q, to_r), definition_id, orientation);
+        let cells =
+            self.core
+                .line_preview((q, r), (to_q, to_r), definition_id, orientation, recipe_id);
         serde_json::to_string(&cells).expect("preview is serializable")
     }
 
@@ -3081,15 +3468,35 @@ fn validate_definitions(definitions: &DefinitionsInput) -> Result<(), String> {
             ));
         }
     }
+    // A fuel item has to be worth burning, or a machine could consume one for nothing.
+    for item in &definitions.items {
+        if item.fuel_value == Some(0) || item.regrowth_ticks == Some(0) {
+            return Err(format!("item {} has a zero fuel or regrowth rate", item.id));
+        }
+    }
+    let categories: BTreeSet<&str> = definitions
+        .buildings
+        .iter()
+        .filter_map(|building| building.recipe_category.as_deref())
+        .collect();
     for recipe in &definitions.recipes {
         if recipe.key.trim().is_empty()
             || recipe.name.trim().is_empty()
             || recipe.description.trim().is_empty()
+            || recipe.category.trim().is_empty()
             || recipe.duration == 0
             || recipe.inputs.is_empty()
             || recipe.output.quantity == 0
         {
             return Err(format!("recipe {} is incomplete", recipe.id));
+        }
+        // A recipe no machine can be assigned is content that cannot be reached, which is a defect
+        // in the catalog rather than something to discover in play.
+        if !categories.contains(recipe.category.as_str()) {
+            return Err(format!(
+                "recipe {} has category {}, which no building runs",
+                recipe.id, recipe.category
+            ));
         }
         for ingredient in recipe.inputs.iter().chain(std::iter::once(&recipe.output)) {
             if ingredient.quantity == 0 || !item_ids.contains(&ingredient.item_id) {
@@ -3105,8 +3512,30 @@ fn validate_definitions(definitions: &DefinitionsInput) -> Result<(), String> {
         {
             return Err(format!("building {} is incomplete", building.id));
         }
-        if building.kind == BuildingKind::Extractor && building.cadence.unwrap_or(0) == 0 {
-            return Err(format!("extractor {} requires a cadence", building.id));
+        if matches!(building.kind, BuildingKind::Extractor | BuildingKind::Pump)
+            && building.cadence.unwrap_or(0) == 0
+        {
+            return Err(format!("source {} requires a cadence", building.id));
+        }
+        if building.kind == BuildingKind::Pump
+            && !building
+                .output_item_id
+                .is_some_and(|item_id| item_ids.contains(&item_id))
+        {
+            return Err(format!("pump {} requires a known output item", building.id));
+        }
+        // A machine that runs recipes needs a category, and one that does not must not claim one.
+        if (building.kind == BuildingKind::Composer) != building.recipe_category.is_some() {
+            return Err(format!(
+                "building {} has a recipe category that does not match its kind",
+                building.id
+            ));
+        }
+        if building.placement_rule == PlacementRule::Water && building.kind != BuildingKind::Pump {
+            return Err(format!(
+                "building {} places on water but is not a pump",
+                building.id
+            ));
         }
         let footprint: BTreeSet<_> = building
             .footprint
@@ -3638,35 +4067,52 @@ fn terrain_at(seed: u32, q: i32, r: i32, generated_environment: bool) -> Terrain
     }
     if elevation > 42_000 {
         Terrain::Highland
+    } else if elevation > 33_000 {
+        Terrain::Hills
     } else {
         Terrain::Lowland
     }
 }
 
+/// Item ids the generator writes into the world. Generation is content, so these name the shipped
+/// catalog the same way the guaranteed landing cells below do.
+const IRON_ORE: ItemId = 1;
+const CRYSTAL: ItemId = 3;
+const COPPER_ORE: ItemId = 4;
+const COAL: ItemId = 5;
+const STONE: ItemId = 6;
+const SAND: ItemId = 7;
+const CLAY: ItemId = 8;
+const WOOD: ItemId = 9;
+
+/// The cells the landing clearing is guaranteed to hold, so the first hour of any seed can reach
+/// every tier-1 recipe on foot. Stone sits on a cliff the player cannot stand on — it is taken from
+/// the hex beside it, which is the cheapest possible lesson in what the extraction radius means.
+const LANDING_FIELD: [(i32, i32, ItemId, u32); 9] = [
+    (3, 0, IRON_ORE, 48),
+    (4, -2, IRON_ORE, 36),
+    (-2, 2, CRYSTAL, 32),
+    (0, -3, COPPER_ORE, 40),
+    (2, -3, COAL, 28),
+    (1, -1, STONE, 40),
+    (1, 3, SAND, 30),
+    (-1, 3, CLAY, 26),
+    (-3, 1, WOOD, 14),
+];
+
+/// The resource field at one hex: a pure function of seed and hex, correlated with the terrain
+/// band so that reading the landscape is reading the material map. Only cells an extractor or a
+/// player has actually drawn from are stored; everything here is derived and costs nothing.
 fn field_at(seed: u32, q: i32, r: i32, generated_environment: bool) -> Option<ResourceState> {
-    match (q, r) {
-        (3, 0) => {
-            return Some(ResourceState {
-                item_id: 1,
-                quantity: 48,
-                initial_quantity: 48,
-            })
-        }
-        (4, -2) => {
-            return Some(ResourceState {
-                item_id: 1,
-                quantity: 36,
-                initial_quantity: 36,
-            })
-        }
-        (-2, 2) => {
-            return Some(ResourceState {
-                item_id: 3,
-                quantity: 32,
-                initial_quantity: 32,
-            })
-        }
-        _ => {}
+    if let Some(&(_, _, item_id, quantity)) = LANDING_FIELD
+        .iter()
+        .find(|&&(cell_q, cell_r, _, _)| cell_q == q && cell_r == r)
+    {
+        return Some(ResourceState {
+            item_id,
+            quantity,
+            initial_quantity: quantity,
+        });
     }
     if !generated_environment {
         return None;
@@ -3676,25 +4122,32 @@ fn field_at(seed: u32, q: i32, r: i32, generated_environment: bool) -> Option<Re
     }
     let terrain = terrain_at(seed, q, r, true);
     let richness = value_noise(seed, q, r, 5, 0x0E55);
+    let moisture = moisture_at(seed, q, r);
+    // A second richness channel, so which of two resources a band holds is not the same question
+    // as whether it holds one at all. Sharing one channel made coal a rind around every iron field.
+    let vein = value_noise(seed, q, r, 4, 0x0C0A1);
+    let field = |item_id: ItemId, base: u32, spread: u32| {
+        let quantity = base + (coordinate_hash(seed, q, r) % spread);
+        Some(ResourceState {
+            item_id,
+            quantity,
+            initial_quantity: quantity,
+        })
+    };
     match terrain {
-        Terrain::Highland if richness > 38_000 => {
-            let quantity = 16 + (coordinate_hash(seed, q, r) % 21);
-            Some(ResourceState {
-                item_id: 1,
-                quantity,
-                initial_quantity: quantity,
-            })
-        }
-        Terrain::Highland | Terrain::Lowland
-            if moisture_at(seed, q, r) > 44_000 && richness > 46_000 =>
-        {
-            let quantity = 10 + (coordinate_hash(seed, q, r) % 15);
-            Some(ResourceState {
-                item_id: 3,
-                quantity,
-                initial_quantity: quantity,
-            })
-        }
+        // Cliffs are the exposed rock of a landform, so they are where stone is quarried from.
+        Terrain::Cliff if richness > 30_000 => field(STONE, 24, 25),
+        Terrain::Highland if moisture > 44_000 && richness > 46_000 => field(CRYSTAL, 10, 15),
+        Terrain::Highland if richness > 38_000 => field(IRON_ORE, 16, 21),
+        Terrain::Highland if vein > 44_000 => field(COAL, 14, 19),
+        Terrain::Hills if richness > 36_000 => field(COPPER_ORE, 16, 21),
+        Terrain::Hills if vein > 47_000 => field(COAL, 12, 15),
+        Terrain::Shore if moisture > 38_000 && richness > 30_000 => field(CLAY, 14, 19),
+        Terrain::Shore if richness > 26_000 => field(SAND, 18, 23),
+        Terrain::Lowland if moisture > 46_000 && richness > 44_000 => field(CRYSTAL, 10, 15),
+        // Flora, not a deposit: `regrowth_ticks` on the item is what makes this one renewable.
+        Terrain::Lowland if moisture > 40_000 && richness > 30_000 => field(WOOD, 10, 13),
+        Terrain::Lowland if moisture > 44_000 && richness > 22_000 => field(CLAY, 12, 15),
         _ => None,
     }
 }
@@ -4650,6 +5103,7 @@ mod tests {
             inventory: BTreeMap::new(),
             reserved_inputs: BTreeMap::new(),
             progress: 0,
+            fuel_charge: 0,
         });
         id
     }
@@ -4738,6 +5192,217 @@ mod tests {
         assert_eq!(core.extractor_deposit(index), Some((3, 0)));
         core.write_overlay(3, 0, 1, 0, 48);
         assert_eq!(core.extractor_deposit(index), Some((4, 0)));
+    }
+
+    /// Geography is the material map. Every band holds only what belongs to it, so reading the
+    /// landscape is how a player decides where to build — and the landing clearing is guaranteed to
+    /// reach one cell of every tier-1 material on foot, whatever the seed does elsewhere.
+    #[test]
+    fn every_material_is_generated_where_its_geography_says_it_should_be() {
+        let core = game("new-game");
+        for &(q, r, item_id, quantity) in &LANDING_FIELD {
+            let field = core.field_at(q, r).expect("guaranteed landing cell");
+            assert_eq!((field.item_id, field.quantity), (item_id, quantity));
+        }
+        // Stone is quarried from a cliff, which nothing can stand on or build on. It is reached
+        // from the hex beside it, through the same radius an extractor uses.
+        assert_eq!(core.terrain_at(1, -1), Terrain::Cliff);
+        assert!(core.terrain_at(1, -1).blocks_construction());
+        assert!(core.deposit_candidates(1, 0).contains(&(1, -1)));
+
+        let mut seen: BTreeMap<Terrain, BTreeSet<ItemId>> = BTreeMap::new();
+        for q in -60..60 {
+            for r in -60..60 {
+                // The guaranteed clearing is deliberately not geography, so it is not evidence
+                // about which band holds what.
+                if axial_distance((0, 0), (q, r)) <= LANDING_CLEAR_RADIUS {
+                    continue;
+                }
+                if let Some(field) = field_at(core.seed, q, r, true) {
+                    seen.entry(terrain_at(core.seed, q, r, true))
+                        .or_default()
+                        .insert(field.item_id);
+                }
+            }
+        }
+        assert_eq!(seen.get(&Terrain::Cliff), Some(&BTreeSet::from([STONE])));
+        assert_eq!(
+            seen.get(&Terrain::Shore),
+            Some(&BTreeSet::from([SAND, CLAY]))
+        );
+        assert_eq!(
+            seen.get(&Terrain::Hills),
+            Some(&BTreeSet::from([COPPER_ORE, COAL]))
+        );
+        assert_eq!(
+            seen.get(&Terrain::Highland),
+            Some(&BTreeSet::from([IRON_ORE, COAL, CRYSTAL]))
+        );
+        assert_eq!(
+            seen.get(&Terrain::Lowland),
+            Some(&BTreeSet::from([WOOD, CLAY, CRYSTAL]))
+        );
+        // Water is pumped, not mined, which is why a basin can never be emptied.
+        assert!(!seen.contains_key(&Terrain::DeepWater));
+        assert!(!seen.contains_key(&Terrain::ShallowWater));
+    }
+
+    /// Fuel is a property of the item, so a smelting recipe never names one and coal, charcoal, and
+    /// wood are interchangeable at different values. The one case that has to be got right is a
+    /// recipe that names a fuel item as an input: steel takes two coal as carbon, and a smelter
+    /// that burned those two would starve itself on its own recipe.
+    #[test]
+    fn a_machine_burns_fuel_from_its_stock_and_never_the_input_it_is_waiting_on() {
+        let mut core = game("new-game");
+        core.researched.extend([1, 2, 3, 5]);
+        core.player.inventory.insert(1, 40);
+        core.player.inventory.insert(6, 40);
+        set_player_hex(&mut core, 0, 3);
+        core.place(0, 4, 7, 0, Some(2)).unwrap();
+        let smelter = core.entity_at(0, 4).unwrap();
+
+        // Inputs but no fuel: the smelter holds everything and says exactly why it is stopped.
+        core.entities[smelter].inventory.insert(1, 4);
+        core.tick_many(30);
+        assert_eq!(core.entities[smelter].progress, 0);
+        assert_eq!(core.entity_snapshot(smelter).status, "out of fuel");
+        assert_eq!(core.entities[smelter].inventory.get(&1), Some(&4));
+
+        // One coal is eight energy against a four-energy craft, so the change is banked.
+        core.entities[smelter].inventory.insert(5, 1);
+        core.tick_many(30);
+        assert_eq!(
+            core.entities[smelter].cargo,
+            Some(Cargo {
+                item_id: 11,
+                quantity: 1
+            })
+        );
+        assert_eq!(core.entities[smelter].fuel_charge, 4);
+        assert_eq!(core.entities[smelter].inventory.get(&5), None);
+        assert_eq!(core.entities[smelter].inventory.get(&1), Some(&2));
+
+        // Steel, whose inputs name coal. Exactly the two it needs must not be burned.
+        core.player.inventory.insert(1, 40);
+        core.player.inventory.insert(6, 40);
+        core.place(0, 5, 7, 0, Some(5)).unwrap();
+        let steel = core.entity_at(0, 5).unwrap();
+        core.entities[steel].inventory.insert(11, 2);
+        core.entities[steel].inventory.insert(5, 2);
+        core.tick_many(30);
+        assert_eq!(core.entities[steel].progress, 0);
+        assert_eq!(core.entity_snapshot(steel).status, "out of fuel");
+        assert_eq!(core.entities[steel].inventory.get(&5), Some(&2));
+
+        // A third coal is surplus, and surplus is what burns.
+        core.entities[steel].inventory.insert(5, 3);
+        core.tick_many(40);
+        assert_eq!(
+            core.entities[steel].cargo,
+            Some(Cargo {
+                item_id: 23,
+                quantity: 1
+            })
+        );
+        assert_eq!(core.entities[steel].inventory.get(&5), None);
+    }
+
+    /// Flora is the one source that comes back, which is what gives wood and ore different
+    /// strategic weight. Regrowth walks a set of cut cells rather than the world, and that set is
+    /// derived from the overlay — so a save records the tiles and the set is rebuilt from them.
+    #[test]
+    fn cut_flora_grows_back_to_what_generation_gave_it_and_then_stops() {
+        let (definitions, technologies, scenarios) = catalogs();
+        let mut core = game("new-game");
+        let cell = (-3, 1);
+        let initial = core.deposit_quantity(cell);
+        set_player_hex(&mut core, cell.0, cell.1);
+        core.gather().unwrap();
+        assert_eq!(core.deposit_quantity(cell), initial - 1);
+        assert!(core.flora_regrowth.contains(&cell));
+
+        let save = core.save_string().unwrap();
+        let restored = Core::from_save(&definitions, &technologies, &scenarios, &save).unwrap();
+        assert_eq!(restored.flora_regrowth, core.flora_regrowth);
+
+        let ticks = core
+            .item_definition(WOOD)
+            .unwrap()
+            .regrowth_ticks
+            .expect("wood regrows");
+        core.tick_many(ticks);
+        assert_eq!(core.deposit_quantity(cell), initial);
+        // Back to what generation gave it, so it costs nothing again until somebody cuts it.
+        assert!(core.flora_regrowth.is_empty());
+
+        // Ore is finite: cutting into a deposit never puts it in the set at all.
+        cooldown(&mut core);
+        set_player_hex(&mut core, 3, 0);
+        core.gather().unwrap();
+        assert_eq!(core.deposit_quantity((3, 0)), 47);
+        assert!(core.flora_regrowth.is_empty());
+    }
+
+    /// A pump is a source without a deposit: it draws from the basin beside it, writes nothing into
+    /// the overlay, and the basin never runs down. Away from water it is refused outright, which is
+    /// what makes a basin a reason to build somewhere.
+    #[test]
+    fn a_pump_draws_from_the_basin_beside_it_and_never_empties_it() {
+        let mut core = game("new-game");
+        core.researched.extend([1, 2, 5, 7]);
+        core.player.inventory.insert(11, 20);
+        core.player.inventory.insert(14, 20);
+        set_player_hex(&mut core, 2, 0);
+        assert!(core.terrain_at(2, 1).is_water());
+        core.place(3, 1, 11, 0, None).unwrap();
+        let index = core.entity_at(3, 1).unwrap();
+        core.tick_many(6);
+        assert_eq!(
+            core.entities[index].cargo,
+            Some(Cargo {
+                item_id: 10,
+                quantity: 1
+            })
+        );
+        assert_eq!(core.entity_snapshot(index).status, "output blocked");
+        assert!(core.tiles.get(&(2, 1)).is_none());
+        assert!(core
+            .place(3, -1, 11, 0, None)
+            .unwrap_err()
+            .contains("beside open water"));
+    }
+
+    /// A kiln and a smelter are the same `BuildingKind` running different recipe categories, so the
+    /// rule that keeps a circuit out of a kiln is one field and one check — asked once at placement
+    /// and again at reassignment, because a machine that could be reassigned past the rule would
+    /// make the rule decorative.
+    #[test]
+    fn a_machine_runs_only_its_own_category_and_is_reassigned_only_between_crafts() {
+        let mut core = game("new-game");
+        core.researched.extend([1, 2, 3, 5, 6]);
+        core.player.inventory.insert(1, 40);
+        core.player.inventory.insert(6, 40);
+        core.player.inventory.insert(8, 20);
+        set_player_hex(&mut core, 0, 3);
+        assert!(core
+            .place(0, 4, 8, 0, Some(2))
+            .unwrap_err()
+            .contains("cannot run a smelting recipe"));
+        core.place(0, 4, 8, 0, Some(6)).unwrap();
+        let index = core.entity_at(0, 4).unwrap();
+
+        assert!(core
+            .set_recipe(0, 4, 2)
+            .unwrap_err()
+            .contains("cannot run a smelting recipe"));
+        core.set_recipe(0, 4, 7).unwrap();
+        assert_eq!(core.entities[index].placed.recipe_id, Some(7));
+
+        // Mid-craft it keeps the job it is running: the inputs it reserved belong to that job.
+        core.entities[index].inventory.insert(9, 4);
+        core.tick_many(2);
+        assert!(core.entities[index].progress > 0);
+        assert!(core.set_recipe(0, 4, 6).unwrap_err().contains("mid-craft"));
     }
 
     #[test]
@@ -5051,7 +5716,7 @@ mod tests {
         // Materials for two of the four cells, so the preview has to show the run stopping.
         core.player.inventory.insert(1, 2);
 
-        let preview = core.line_preview((2, 0), (4, 1), 2, 0);
+        let preview = core.line_preview((2, 0), (4, 1), 2, 0, None);
         assert_eq!(preview.len(), 4);
         let promised: Vec<(i32, i32, u8)> = preview
             .iter()
@@ -5686,11 +6351,11 @@ mod tests {
         assert_eq!(uninterrupted.delivered, resumed.delivered);
         assert!(Core::from_save(&definitions, &technologies, &scenarios, "bad").is_err());
         let incompatible =
-            save.replacen("\"definition_version\":4", "\"definition_version\":999", 1);
+            save.replacen("\"definition_version\":5", "\"definition_version\":999", 1);
         assert!(Core::from_save(&definitions, &technologies, &scenarios, &incompatible).is_err());
         let old_world = save.replacen(
+            "\"world_generator_version\":4",
             "\"world_generator_version\":3",
-            "\"world_generator_version\":2",
             1,
         );
         assert!(Core::from_save(&definitions, &technologies, &scenarios, &old_world).is_err());
@@ -5916,6 +6581,28 @@ mod tests {
         factory.core.place(2, 0, 2, 3, None).unwrap();
         check(&mut factory, "replacing the belt");
 
+        // Cutting flora and letting it grow back. Regrowth is the one thing that changes a deposit
+        // without an extractor or a player touching it that frame, so it has to mark what it moved.
+        set_player_hex(&mut factory.core, -3, 1);
+        check(&mut factory, "walking to the flora");
+        factory
+            .core
+            .advance(r#"[{"type":"gather"}]"#, 1, GATHER_COOLDOWN_STEPS)
+            .unwrap();
+        check(&mut factory, "cutting flora");
+        let regrowth = factory
+            .core
+            .item_definition(WOOD)
+            .unwrap()
+            .regrowth_ticks
+            .expect("wood regrows");
+        factory.core.advance(IDLE, regrowth, 0).unwrap();
+        check(&mut factory, "flora growing back");
+        assert!(
+            factory.core.flora_regrowth.is_empty(),
+            "the cut cell must have grown back inside its own cadence"
+        );
+
         // Travel into unsurveyed world: terrain, deposits, chunk bounds, and every extractor's
         // resolved deposit reference at once. The neighborhood generator is the same one walking
         // uses; a far hex is used so derived water or cliffs cannot stall the survey.
@@ -6012,7 +6699,7 @@ mod tests {
             assert_eq!(core.extractor_deposit(index).is_some(), expected);
             let entity = core.entities[index].clone();
             assert_eq!(
-                core.status_of(&entity, expected),
+                core.status_of(&entity, expected, core.fuel_ready(&entity)),
                 core.entity_snapshot(index).status
             );
             core.tick_many(20);
@@ -6070,8 +6757,11 @@ mod tests {
         second.advance_ticks(120);
         assert_eq!(first.checksum(), second.checksum());
         // Pinned so a change to definitions, the workload, or the simulation cannot silently
-        // invalidate comparisons against previously recorded tier numbers.
-        assert_eq!(first.checksum(), 1_987_448_481);
+        // invalidate comparisons against previously recorded tier numbers. v0.12 moved it
+        // deliberately: `WORLD_GENERATOR_VERSION` and every machine's fuel charge are checksum
+        // inputs, so the number changed while the workload did not — which is why the delivered
+        // total and the entity count below are the assertions that say the run is the same run.
+        assert_eq!(first.checksum(), 99_485_578);
         assert_eq!(first.entities.len(), spec.entities() as usize);
         // Every line must be running end to end, or the tiers would measure an idle blueprint.
         assert_eq!(first.delivered, u64::from(spec.lines) * 14);

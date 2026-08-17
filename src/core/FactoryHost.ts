@@ -187,19 +187,18 @@ export class FactoryHost {
     );
   }
 
+  /**
+   * Whether native would allow this placement. `recipeId` is the caller's — a machine's legality
+   * depends on whether the recipe belongs to its category, so a preview that substituted a recipe
+   * of its own would answer a different question from the placement it is previewing.
+   */
   placementPreview(
     q: number,
     r: number,
     definitionId: number,
     orientation: number,
+    recipeId?: number,
   ): Promise<PlacementPreview> {
-    const definition = this.definitions.buildings.find(
-      ({ id }) => id === definitionId,
-    );
-    const recipeId =
-      definition?.kind === "composer"
-        ? this.definitions.recipes[0]?.id
-        : undefined;
     return this.transport.request<PlacementPreview>("placementPreview", {
       q,
       r,
@@ -220,6 +219,7 @@ export class FactoryHost {
     toR: number,
     definitionId?: number,
     orientation = 0,
+    recipeId?: number,
   ): Promise<LinePreviewCell[]> {
     return this.transport.request<LinePreviewCell[]>("linePreview", {
       q,
@@ -228,6 +228,7 @@ export class FactoryHost {
       toR,
       definitionId,
       orientation,
+      recipeId,
     });
   }
 

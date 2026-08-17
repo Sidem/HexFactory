@@ -1,11 +1,39 @@
-# World Shape v0.11 scope and acceptance
+# Material Base v0.12 scope and acceptance
 
-Status: World Shape v0.11 is shipped on Playability v0.10, Game Feel v0.9, Browser Capacity v0.8,
-Sparse Snapshot v0.7, Sparse Cost v0.6, Worker Boundary v0.5, and Command Surface v0.4. v0.11 is
-the first release to change the world itself: hex-lattice fields, terrain bands, a sparse
-depletion overlay, and an extractor radius. `WORLD_GENERATOR_VERSION` 3 and `HXF1` save version 4
-reject earlier envelopes. The capacity ladder is re-pinned; its workload still uses
-`generated_environment: false`, so the new landforms do not move the measured factory.
+Status: Material Base v0.12 is shipped on World Shape v0.11, Playability v0.10, Game Feel v0.9,
+Browser Capacity v0.8, Sparse Snapshot v0.7, Sparse Cost v0.6, Worker Boundary v0.5, and Command
+Surface v0.4. v0.11 changed what the world looks like; v0.12 changes what it is made of — eight raw
+resources correlated with terrain, fourteen recipes across five machine categories, fuel as a
+property of items, renewable flora, and a pump that draws from a basin.
+`WORLD_GENERATOR_VERSION` 4 and `HXF1` save version 5 reject earlier envelopes. The capacity ladder
+is re-pinned and, for the first time since v0.8, re-measured.
+
+## Material base contract
+
+- Terrain is the material map. Each of the eight raw resources is generated only where its band
+  says it belongs, so reading the landscape is how a site is chosen. Water is the exception: it is
+  pumped rather than mined, so a basin cannot be depleted and has no overlay entry.
+- Fuel is a property of `ItemDefinition`, never an entry in a recipe's `inputs`. A machine burns
+  from its own stock, lowest item id first, and never from the quantity a recipe input reserves —
+  steel names coal as carbon, and a smelter that burned those units would starve itself. One
+  predicate, `burnable_item`, serves both the tick that burns and the status that explains why
+  nothing did.
+- Smelter, kiln, cutter, crusher, and composer are one `BuildingKind` with different
+  `recipe_category` values. The rule is checked at placement and again at reassignment, because a
+  machine that could be reassigned past it would make the rule decorative.
+- `Pump` is a `BuildingKind` because it draws from terrain rather than from a deposit. Everything
+  else the material base adds is data.
+- Flora regrowth walks a derived set of cut cells, not the world. The set is a pure function of the
+  overlay and the item definitions, so it is rebuilt on load and never saved, hashed, or
+  checksummed — the same rule `deposit_links` follows.
+- `set_recipe` is a bounded, range-checked command beside `place`, `erase`, and `withdraw`. It
+  refuses a machine mid-craft: reserved inputs belong to the job that reserved them.
+- A drag preview carries the recipe the drag will carry. Legality now depends on the recipe's
+  category, so a preview asking without one would refuse a run the drag would build.
+- The wait between two field actions is drawn where the action happens, from `action_cooldown`
+  against a published `action_cooldown_total`. The host draws a proportion it was given.
+- The inspector names every surveyed hex. Lowland is the default fill and is deliberately not sent,
+  so a surveyed hex with no terrain entry is lowland — not an unknown tile.
 
 ## World Shape contract
 
@@ -122,7 +150,7 @@ reject earlier envelopes. The capacity ladder is re-pinned; its workload still u
 
 The loop remains intentionally compact:
 
-`explore freely → identify/gather finite resources → deliver for insight → research → construct nearby → automate → win`
+`explore freely → read the terrain for materials → gather → deliver for insight → research → construct nearby → process and combine → automate → win`
 
 The player carries exact native inventory quantities, up to a fixed number of stacks. Field Logistics
 unlocks belts, Automated Extraction unlocks extractors, Composition unlocks the composer, and Storage
@@ -207,6 +235,18 @@ extractor at a guaranteed ore cell also sees a neighbour written into the overla
 does not appear in the overlay; generating a chunk does not change the checksum until something
 is taken. Host tests accept the new terrain names, published player radius, and item icon keys.
 
+v0.12 adds native coverage for the material base: every band holds only the resources its geography
+allows and the landing clearing guarantees one cell of each tier-1 material on foot; a machine burns
+fuel from its own stock and refuses to burn the coal a steel recipe is waiting on; cut flora climbs
+back to what generation gave it, leaves the regrowth set when full, never contains an ore cell, and
+is rebuilt from the overlay on load; a pump produces beside water, writes nothing into the overlay,
+and is refused away from it; and a machine runs only its own category of recipe, at placement and at
+reassignment alike, with a mid-craft reassignment refused. The dirty-delta gate gains a flora step,
+because regrowth is the only thing that moves a deposit without an extractor or a player touching it
+that frame. Host tests cover the recipe picker offering each machine only its own category, the
+cooldown ring drawing from published native numbers rather than an inferred maximum, and the
+inspector naming every band including the one native does not send.
+
 v0.11.1 adds native coverage for the three defects the dense field made visible in harvesting: a
 gather takes from the hex the player stands on from every position inside it and at every facing;
 its reach is the extractor predicate and is the same in all six directions; and the cooldown
@@ -231,11 +271,20 @@ release actions and must not be implied by local success.
 
 ## Explicit follow-ups
 
-1. Next play milestone is Material Base v0.12. The compact binary delta encoding should land
-   between v0.12 and v0.13. Measuring the Canvas renderer against the same tiers follows it — no
-   complete browser frame-rate claim is supported until that exists — and a renderer decision still
-   waits on both.
-2. Eight raw resources and first recipes, power, upgrades, per-slot inventory rearrangement,
-   equipment, inserters, splitters, lanes, fluids, circuits, trains, enemies, multiplayer, mod
-   scripting, and evolutionary systems remain beyond this milestone. The material, power, and
-   tier arc is in `docs/HEXFACTORY-PLAN.md`.
+1. Next play milestone is Power v0.13. The compact binary delta encoding is now overdue by its own
+   deadline — the roadmap set it at the v0.12/v0.13 boundary — and v0.12 grew exactly the payload
+   it prices. Measuring the Canvas renderer against the same tiers follows it; no complete browser
+   frame-rate claim is supported until that exists, and a renderer decision waits on both.
+2. The browser half of `docs/BENCHMARKS.md` has not been re-measured since v0.8 and now describes a
+   core two milestones old. v0.12 re-measured the native ladder and found the checksum 3.0× cheaper
+   than v0.8 recorded, which retires the incremental-checksum follow-up; the browser ratios that
+   depended on the old figure need re-earning before they are quoted again.
+3. Power, upgrades and tiers, multi-output recipes and byproducts, per-slot inventory
+   rearrangement, equipment, inserters, splitters, lanes, fluid networks, trains, enemies,
+   multiplayer, mod scripting, and evolutionary systems remain beyond this milestone. The material,
+   power, and tier arc is in `docs/HEXFACTORY-PLAN.md`.
+4. Deliberately not in v0.12: intermittent generation, accumulators, and a day cycle (they belong
+   with power); terraforming a cliff into buildable ground; unloading a composer, which is still the
+   mid-recipe-state question `set_recipe` sidesteps by refusing rather than answering; and
+   `outputs: Vec<Ingredient>`, which arrives with the byproduct economy that needs it rather than as
+   a format change with no consumer.

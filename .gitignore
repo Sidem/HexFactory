@@ -4,3 +4,4 @@ factory-wasm/pkg/
 factory-wasm/pkg-bench/
 factory-wasm/target/
 *.log
+.claude/

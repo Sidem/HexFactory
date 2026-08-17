@@ -1,5 +1,5 @@
 {
-  "version": 1,
+  "version": 2,
   "technologies": [
     {
       "id": 1,
@@ -36,6 +36,33 @@
       "prerequisites": [1],
       "cost": 4,
       "unlocks": [4]
+    },
+    {
+      "id": 5,
+      "key": "material-processing",
+      "name": "Material Processing",
+      "description": "Unlock the smelter and the kiln, and with them plate, glass, brick, and charcoal.",
+      "prerequisites": [2],
+      "cost": 6,
+      "unlocks": [7, 8]
+    },
+    {
+      "id": 6,
+      "key": "mechanical-shaping",
+      "name": "Mechanical Shaping",
+      "description": "Unlock the cutter and the crusher, which turn wood and stone into timber and gravel.",
+      "prerequisites": [5],
+      "cost": 10,
+      "unlocks": [9, 10]
+    },
+    {
+      "id": 7,
+      "key": "hydrology",
+      "name": "Hydrology",
+      "description": "Unlock the pump, so a basin becomes a reason to build beside it.",
+      "prerequisites": [5],
+      "cost": 12,
+      "unlocks": [11]
     }
   ]
 }
