@@ -1,25 +1,12 @@
 # HexFactory — architecture, roadmap, and implementation handoffs
 
-Status: Browser Capacity v0.8 is shipped on Sparse Snapshot v0.7, Sparse Cost v0.6, Capacity Tiers
-v0.5.1, Worker Boundary v0.5, Command Surface v0.4, Continuous Exploration v0.3, and the v0.3.1
-incremental transport follow-up. The capacity ladder now runs in the browser worker as well as
-natively, so `docs/BENCHMARKS.md` finally measures the artifact that ships instead of a proxy for
-it, and that measurement — not intuition — orders what comes next. It settled the open question:
-the wasm engine costs about 1.2× native, and the worker boundary costs roughly 60% of what a frame
-costs the host, tracking payload bytes at about 10 µs/KB. The next milestone is therefore the
-compact binary delta encoding over a transferable buffer, not a further native optimization. A
-renderer decision stays gated behind a renderer measurement, which is now the second follow-up.
-
-Read that as the engine's internal ordering. The project goal was restated on 2026-08-17: HexFactory
-is a game first, and the architecture is the means that makes the game possible at scale. See
-**Product decision** below for the pillars that now govern milestone selection — engineering work is
-chosen for the play it unlocks, and a milestone that improves nothing the player can feel needs a
-reason to come before one that does. **Game Feel v0.9** and **Playability v0.10** both shipped under
-that ordering. Next is the four-milestone arc in **Roadmap after v0.10**: World Shape v0.11,
-Material Base v0.12, Power v0.13, and Upgrades and Tiers v0.14. The binary delta encoding stays the
-next engine milestone and should land between v0.12 and v0.13, before those milestones grow the
-snapshot it compacts; the renderer measurement gates animation; and the drag's per-cell transport
-recompile is unblocked and can land anywhere.
+Status: World Shape v0.11 is shipped on Playability v0.10, Game Feel v0.9, Browser Capacity v0.8,
+Sparse Snapshot v0.7, Sparse Cost v0.6, Capacity Tiers v0.5.1, Worker Boundary v0.5, Command Surface
+v0.4, Continuous Exploration v0.3, and the v0.3.1 incremental transport follow-up. The world is now
+hex-lattice fields and terrain bands rather than salt-and-pepper circles, so a site is a choice
+instead of a scatter. Next play milestone is Material Base v0.12. The compact binary delta encoding
+stays the next engine milestone and should land between v0.12 and v0.13; the renderer measurement
+gates animation; and the drag's per-cell transport recompile is unblocked and can land anywhere.
 
 Target repository: `https://github.com/Sidem/HexFactory`
 
@@ -34,6 +21,15 @@ not a source dependency: HexFactory imports only the published package. Treat th
 read-only unless a future task explicitly authorizes a separately released generic package change.
 
 ## Shipped implementation record
+
+- World Shape v0.11 replaces salt-and-pepper circles with a single axial lattice. Elevation and
+  moisture are integer value noise; terrain is read from bands (deep water, shallow water, shore,
+  lowland, highland) and cliffs from the elevation gradient. Resource fields are a pure function of
+  seed and hex that returns `(item_id, richness)`; only a sparse depletion overlay is stored, saved,
+  or checksummed. Extractors harvest every field cell within hex radius 1, nearest first. Player
+  radius is published on the snapshot and the host draws from it (580 world units, speed 242).
+  `WORLD_GENERATOR_VERSION` is 3 and `HXF1` save version is 4; earlier envelopes are rejected. Stage
+  A art direction lives in `docs/ART.md`.
 
 - Playability v0.10 is the milestone playtesting asked for, and it is the first to change what the
   player may carry. Placement stopped asking the same question two ways: a deposit was tested by
@@ -172,6 +168,37 @@ read-only unless a future task explicitly authorizes a separately released gener
   collision and gathering, proximity-limited construction, definition-driven rotated footprints,
   and a construction-only/toggled grid. Its HXF1 save and generator versions are intentionally
   incompatible with v0.2. The exact public geometry dependency remains unchanged.
+
+## Shipped milestone — World Shape v0.11
+
+Sourced from the 2026-08-17 design conversation. The world is now worth walking across: fields
+instead of point deposits, landforms instead of hashed puddles, and one lattice so generation and
+construction agree.
+
+### What shipped
+
+- **One lattice.** Every tile sits at `axial_world(q, r)`. `ensure_neighborhood` converts the
+  player to axial with cube rounding and generates that hex chunk plus its six neighbours.
+  `FEATURE_SPACING` is gone.
+- **Terrain bands.** Integer value noise for elevation and moisture. Deep water, shallow water,
+  shore, lowland, highland, and cliffs from the elevation gradient. A radius-7 landing stays
+  lowland except for a small pond and two cliffs that keep the tutorial readable.
+- **Resource fields.** A pure function of seed and hex. Iron ore clusters in highlands, crystal in
+  moist highland and lowland. Guaranteed cells at `(3,0)`, `(4,-2)`, and `(-2,2)` keep the first
+  loop stable. The tile map is a sparse depletion overlay: unmined field is not stored, saved, or
+  checksummed.
+- **Extraction radius.** An extractor harvests every field cell within hex distance 1, nearest
+  first, then by cell key. Yield continues from farther cells as nearby ones empty. Overlap still
+  arbitrates by stable entity ID.
+- **Player scale.** `PLAYER_RADIUS` is 580 and `PLAYER_SPEED` is 242. The snapshot publishes the
+  radius; the host draws the body and the collision ring from it.
+- **Stage A art.** Palette and shape language in `docs/ART.md`, geometric item icons for ore,
+  crystal, and component, and a still mockup at `docs/art/world-shape-still.png`.
+
+### Compatibility
+
+`WORLD_GENERATOR_VERSION` is 3 and `HXF1` save version is 4. There is no migration from
+salt-and-pepper circles to fields.
 
 ## Shipped milestone — Playability v0.10
 

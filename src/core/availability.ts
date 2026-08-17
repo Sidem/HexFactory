@@ -27,7 +27,7 @@ export function buildingAvailability(
     ? building.construction_cost
         .map(({ item_id, quantity }) => {
           const item = items.find(({ id }) => id === item_id);
-          return `${quantity} ${item?.icon ?? `#${item_id}`}`;
+          return `${quantity} ${item?.name ?? `#${item_id}`}`;
         })
         .join(" · ")
     : "Scenario only";

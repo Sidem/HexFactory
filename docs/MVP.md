@@ -1,14 +1,27 @@
-# Playability v0.10 scope and acceptance
+# World Shape v0.11 scope and acceptance
 
-Status: Playability v0.10 is shipped on the Game Feel v0.9 controls, the Browser Capacity v0.8
-measurement, the Sparse Snapshot v0.7 delta, the Sparse Cost v0.6 transport, the Worker Boundary
-v0.5 RPC, and the Command Surface v0.4 experience. v0.10 is the first release since v0.3 to change
-what the player may do rather than how fast or how comfortably they may do it: placement geometry is
-one rule instead of two, the player walks on its own cadence, the pack has a slot limit, containers
-can be unloaded by hand, and the research panel explains itself. World generation, transport,
-arbitration, and checksum contracts are unchanged, and the capacity ladder still reproduces its
-v0.8 checksums. Continuous Exploration v0.3 and Playable Game v0.2 remain the simulation and
-historical baselines.
+Status: World Shape v0.11 is shipped on Playability v0.10, Game Feel v0.9, Browser Capacity v0.8,
+Sparse Snapshot v0.7, Sparse Cost v0.6, Worker Boundary v0.5, and Command Surface v0.4. v0.11 is
+the first release to change the world itself: hex-lattice fields, terrain bands, a sparse
+depletion overlay, and an extractor radius. `WORLD_GENERATOR_VERSION` 3 and `HXF1` save version 4
+reject earlier envelopes. The capacity ladder is re-pinned; its workload still uses
+`generated_environment: false`, so the new landforms do not move the measured factory.
+
+## World Shape contract
+
+- Generation is a pure function of seed and axial hex. Feature circles on a rectangular lattice
+  are gone. `world_to_axial` inverts `axial_world` with integer cube rounding.
+- Terrain is read from elevation and moisture bands. Cliffs come from the elevation gradient.
+  Deep water, shallow water, and cliffs block walking and construction; shore, lowland, and
+  highland do not.
+- A field cell is `(item_id, richness)` above a threshold. Only drawn-from cells are stored in
+  the depletion overlay. The overlay is saved, hashed, and checksummed; the generated field is
+  not.
+- `deposit_candidates` and `resource_at_world` share `field_covered_at`: hex distance at most
+  `EXTRACT_RADIUS` (1) and a field present. Remaining quantity is not part of the order.
+- Player radius is published on the snapshot. The host draws the body from that radius.
+- Fog still punches native chunk bounds. Those bounds are now the bounding square of the chunk's
+  hexes.
 
 ## Playability contract
 
@@ -188,6 +201,12 @@ to tiers by key, rendering an unmeasured tier as absent rather than free, the 60
 entity-count check on the applied snapshot, and a clock-resolution probe against both a clamped and
 a fine-grained clock.
 
+v0.11 adds native coverage for hex-lattice fields and terrain bands: `world_to_axial` inverts
+`axial_world`; landing water and cliffs stay legal to stand beside and illegal to build on; an
+extractor at a guaranteed ore cell also sees a neighbour written into the overlay; unmined field
+does not appear in the overlay; generating a chunk does not change the checksum until something
+is taken. Host tests accept the new terrain names, published player radius, and item icon keys.
+
 v0.10 adds native coverage for the single placement overlap rule — a deposit displaced most of a hex
 step is still minable, the extractor's cached reference resolves the same deposit the placement rule
 allowed, and an obstacle blocks only past the intrusion depth; for the carrying rule, its stack
@@ -204,14 +223,11 @@ release actions and must not be implied by local success.
 
 ## Explicit follow-ups
 
-1. Every native follow-up is closed, and the browser measurement that was deferred since v0.5.1 is
-   now recorded in `docs/BENCHMARKS.md`. It names the next one: the worker boundary is 57–61% of a
-   host frame and scales with the JSON delta at about 10 µs per kilobyte, so the delta becomes a
-   compact binary encoding over a transferable buffer. Measuring the Canvas renderer against the
-   same tiers follows it — no complete browser frame-rate claim is supported until that exists — and
-   a renderer decision still waits on both.
-2. Richer biomes and resource identification, per-slot inventory rearrangement, equipment,
-   footprint-aware demolition previews, inserters, splitters, lanes, power, fluids, circuits, trains,
-   enemies, multiplayer, mod scripting, and evolutionary systems remain beyond this milestone. The
-   world, material, power, and tier arc that takes several of them on is in
-   `docs/HEXFACTORY-PLAN.md`.
+1. Next play milestone is Material Base v0.12. The compact binary delta encoding should land
+   between v0.12 and v0.13. Measuring the Canvas renderer against the same tiers follows it — no
+   complete browser frame-rate claim is supported until that exists — and a renderer decision still
+   waits on both.
+2. Eight raw resources and first recipes, power, upgrades, per-slot inventory rearrangement,
+   equipment, inserters, splitters, lanes, fluids, circuits, trains, enemies, multiplayer, mod
+   scripting, and evolutionary systems remain beyond this milestone. The material, power, and
+   tier arc is in `docs/HEXFACTORY-PLAN.md`.

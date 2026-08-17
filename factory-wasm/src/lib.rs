@@ -10,8 +10,8 @@ type DefinitionId = u16;
 type TechnologyId = u16;
 
 const SAVE_PREFIX: &str = "HXF1\n";
-const SAVE_VERSION: u16 = 3;
-const WORLD_GENERATOR_VERSION: u16 = 2;
+const SAVE_VERSION: u16 = 4;
+const WORLD_GENERATOR_VERSION: u16 = 3;
 const MAX_COMMANDS_PER_BATCH: usize = 8;
 /// A drag is one bounded command, so the run it expands into has to be bounded too. This is the
 /// native cap on cells a single `place_line` or `erase_line` may touch.
@@ -22,30 +22,25 @@ const GRAPH_TRACE_LIMIT: i32 = 8;
 const DIRECTIONS: [(i32, i32); 6] = [(1, 0), (0, 1), (-1, 1), (-1, 0), (0, -1), (1, -1)];
 const HEX_X: i32 = 1774;
 const HEX_Y: i32 = 1536;
-const FEATURE_SPACING: i32 = 2048;
+/// Center-to-vertex of a pointy-top hex. `HEX_Y * 2 / 3` and `HEX_X / √3` both land on 1024.
+const HEX_RADIUS: i32 = 1024;
+/// How many hex steps an extractor reaches, counting its own cell. v0.14 makes this the upgrade.
+const EXTRACT_RADIUS: i32 = 1;
+/// Hexes around the hub forced to lowland so the landing is always a buildable clearing.
+const LANDING_CLEAR_RADIUS: i32 = 7;
 /// World units the player covers per player step. Paced by `PLAYER_TICKS_PER_SECOND`, not by the
-/// simulation tick, so the walk keeps one speed at every simulation speed.
-const PLAYER_SPEED: i32 = 150;
+/// simulation tick, so the walk keeps one speed at every simulation speed. Raised with
+/// `PLAYER_RADIUS` so the larger body still covers a hex in about the same time it used to.
+const PLAYER_SPEED: i32 = 242;
 /// The player's own cadence, in steps per real second. Walking used to run inside the simulation
 /// tick, which made it stop when the factory paused and crawl at a low speed multiplier. It is
 /// still integer, still native, and still deterministic — a given step count always produces the
 /// same position — it is simply no longer measured in factory time.
 const PLAYER_TICKS_PER_SECOND: u32 = 30;
-const PLAYER_RADIUS: i32 = 360;
+const PLAYER_RADIUS: i32 = 580;
 const BUILDING_RADIUS: i32 = 690;
 const GATHER_RANGE: i32 = 1450;
 const HUB_RANGE: i32 = 1900;
-/// Placement asks one question of a deposit and of an obstacle alike: does the hex a building would
-/// occupy overlap the feature's circle, and by enough to matter? `placement_overlap` is that single
-/// rule, and these two depths are the only difference between the two answers.
-///
-/// A hex step is 1774 world units, so the hex lattice's covering radius — the furthest any world
-/// point can sit from the nearest hex centre — is 1774/√3 ≈ 1024. A deposit is therefore reachable
-/// from some hex only while `deposit radius + BUILDING_RADIUS - depth` stays above that, and zero
-/// keeps the smallest generated deposit (radius 520, so a reach of 1210) minable from somewhere.
-/// The obstacle depth is what stops a rock that merely grazes a hex from making it unbuildable.
-const DEPOSIT_COVERAGE_DEPTH: i32 = 0;
-const OBSTACLE_INTRUSION_DEPTH: i32 = 400;
 
 fn default_footprint() -> Vec<Coordinate> {
     vec![Coordinate { q: 0, r: 0 }]
@@ -213,11 +208,27 @@ struct Cargo {
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
-#[serde(rename_all = "lowercase")]
+#[serde(rename_all = "snake_case")]
 enum Terrain {
-    Ground,
-    Water,
-    Rock,
+    DeepWater,
+    ShallowWater,
+    Shore,
+    Lowland,
+    Highland,
+    Cliff,
+}
+
+impl Terrain {
+    fn blocks_movement(self) -> bool {
+        matches!(
+            self,
+            Terrain::DeepWater | Terrain::ShallowWater | Terrain::Cliff
+        )
+    }
+
+    fn blocks_construction(self) -> bool {
+        self.blocks_movement()
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -296,6 +307,9 @@ struct PlayerSnapshot {
     #[serde(flatten)]
     state: PlayerState,
     carry_stacks: Vec<Ingredient>,
+    /// Collision and drawing radius in world units. Published so the host draws the body that
+    /// native actually walks, rather than a hardcoded fraction of the hex size.
+    radius: i32,
 }
 
 #[derive(Clone, Copy, Debug, Serialize, PartialEq, Eq)]
@@ -318,7 +332,8 @@ struct ChunkSnapshot {
     entity_count: usize,
     /// World-space origin and side length of the generated square this chunk owns. A chunk is the
     /// unit of world generation, so these bounds are exactly the surveyed area: everything outside
-    /// the reported chunks is world the simulation has not generated yet.
+    /// the reported chunks is world the simulation has not generated yet. The square is the
+    /// bounding box of the chunk's hexes on the single axial lattice.
     x: i32,
     y: i32,
     span: i32,
@@ -326,6 +341,8 @@ struct ChunkSnapshot {
 
 #[derive(Clone, Copy, Debug, Serialize, PartialEq, Eq)]
 struct TileSnapshot {
+    q: i32,
+    r: i32,
     x: i32,
     y: i32,
     radius: u32,
@@ -335,6 +352,8 @@ struct TileSnapshot {
 #[derive(Clone, Copy, Debug, Serialize, PartialEq, Eq)]
 struct ResourceSnapshot {
     id: u64,
+    q: i32,
+    r: i32,
     x: i32,
     y: i32,
     radius: u32,
@@ -774,17 +793,13 @@ impl Core {
         core.ensure_neighborhood(core.player.x, core.player.y);
         for resource in &scenario.resources {
             core.ensure_tile(resource.q, resource.r);
-            let tile = core.tiles.get_mut(&(resource.q, resource.r)).unwrap();
-            let (x, y) = axial_world(resource.q, resource.r);
-            tile.x = x;
-            tile.y = y;
-            tile.radius = 720;
-            tile.terrain = Terrain::Ground;
-            tile.resource = Some(ResourceState {
-                item_id: resource.item_id,
-                quantity: resource.quantity,
-                initial_quantity: resource.quantity,
-            });
+            core.write_overlay(
+                resource.q,
+                resource.r,
+                resource.item_id,
+                resource.quantity,
+                resource.quantity,
+            );
         }
         let mut buildings = scenario.buildings.clone();
         buildings.sort_by_key(placed_sort_key);
@@ -848,6 +863,7 @@ impl Core {
         PlayerSnapshot {
             state: self.player.clone(),
             carry_stacks: self.carry_stacks(),
+            radius: PLAYER_RADIUS,
         }
     }
 
@@ -938,46 +954,33 @@ impl Core {
         })
     }
 
-    /// Whether a building occupying the hex at this world point covers `feature`'s deposit well
-    /// enough to draw from it — the same overlap rule an obstacle is tested with, at its own depth.
-    fn deposit_covered_at(&self, x: i32, y: i32, feature: &TileState) -> bool {
-        placement_overlap(
-            x,
-            y,
-            BUILDING_RADIUS,
-            feature.x,
-            feature.y,
-            feature.radius as i32,
-            DEPOSIT_COVERAGE_DEPTH,
-        )
+    /// Whether an extractor (or a gather) at this hex can draw from `cell`. One predicate: the
+    /// cell is a field hex inside the extractor's radius. Placement and the cached candidate list
+    /// share it, so a resolved reference cannot drift from the rule that allowed the building.
+    fn field_covered_at(&self, extractor: (i32, i32), cell: (i32, i32)) -> bool {
+        axial_distance(extractor, cell) <= EXTRACT_RADIUS && self.field_at(cell.0, cell.1).is_some()
     }
 
+    #[cfg_attr(not(test), allow(dead_code))]
     fn resource_at_world(&self, x: i32, y: i32) -> Option<(i32, i32)> {
-        self.tiles
-            .iter()
-            .filter(|(_, feature)| {
-                feature
-                    .resource
-                    .as_ref()
-                    .map(|resource| resource.quantity > 0)
-                    .unwrap_or(false)
-                    && self.deposit_covered_at(x, y, feature)
-            })
-            .min_by_key(|(_, feature)| squared_distance(x, y, feature.x, feature.y))
-            .map(|(key, _)| *key)
+        let (q, r) = world_to_axial(x, y);
+        self.deposit_candidates(q, r)
+            .into_iter()
+            .find(|&key| self.deposit_quantity(key) > 0)
     }
 
-    /// Every deposit covering a world point, ordered nearest first and then by tile key — the exact
-    /// order `resource_at_world` resolves. Remaining quantity is deliberately not part of the
-    /// ordering, so one resolved list stays correct for the whole life of the deposits under it.
-    fn deposit_candidates(&self, x: i32, y: i32) -> Vec<(i32, i32)> {
-        let mut candidates: Vec<(i64, (i32, i32))> = self
-            .tiles
-            .iter()
-            .filter(|(_, feature)| feature.resource.is_some())
-            .filter_map(|(key, feature)| {
-                self.deposit_covered_at(x, y, feature)
-                    .then(|| (squared_distance(x, y, feature.x, feature.y), *key))
+    /// Every field cell an extractor at `(q, r)` covers, ordered nearest first and then by tile
+    /// key — the exact order `resource_at_world` resolves. Remaining quantity is deliberately not
+    /// part of the ordering, so one resolved list stays correct for the whole life of the field.
+    fn deposit_candidates(&self, q: i32, r: i32) -> Vec<(i32, i32)> {
+        let origin = (q, r);
+        let mut candidates: Vec<(i64, (i32, i32))> = hexes_in_radius(origin, EXTRACT_RADIUS)
+            .into_iter()
+            .filter(|&cell| self.field_covered_at(origin, cell))
+            .map(|cell| {
+                let (x, y) = axial_world(q, r);
+                let (cx, cy) = axial_world(cell.0, cell.1);
+                (squared_distance(x, y, cx, cy), cell)
             })
             .collect();
         candidates.sort_unstable();
@@ -985,11 +988,33 @@ impl Core {
     }
 
     fn deposit_quantity(&self, key: (i32, i32)) -> u32 {
-        self.tiles
-            .get(&key)
-            .and_then(|tile| tile.resource.as_ref())
-            .map(|resource| resource.quantity)
+        if let Some(resource) = self.tiles.get(&key).and_then(|tile| tile.resource.as_ref()) {
+            return resource.quantity;
+        }
+        self.field_at(key.0, key.1)
+            .map(|field| field.quantity)
             .unwrap_or(0)
+    }
+
+    fn write_overlay(&mut self, q: i32, r: i32, item_id: ItemId, quantity: u32, initial: u32) {
+        let (x, y) = axial_world(q, r);
+        let terrain = self.terrain_at(q, r);
+        self.tiles.insert(
+            (q, r),
+            TileState {
+                q,
+                r,
+                x,
+                y,
+                radius: HEX_RADIUS as u32,
+                terrain,
+                resource: Some(ResourceState {
+                    item_id,
+                    quantity,
+                    initial_quantity: initial,
+                }),
+            },
+        );
     }
 
     /// The deposit an extractor draws from this tick, resolved from its cached candidate list
@@ -999,8 +1024,7 @@ impl Core {
         let id = self.entities[index].id;
         if !self.deposit_links.contains_key(&id) {
             let placed = self.entities[index].placed;
-            let (x, y) = axial_world(placed.q, placed.r);
-            let candidates = self.deposit_candidates(x, y);
+            let candidates = self.deposit_candidates(placed.q, placed.r);
             self.deposit_links.insert(id, candidates);
         }
         self.deposit_links[&id]
@@ -1033,14 +1057,13 @@ impl Core {
             for local_q in 0..size {
                 let q = chunk_q * size + local_q;
                 let r = chunk_r * size + local_r;
-                let tile = self.generated_tile(q, r);
-                // A chunk of plain ground adds nothing to either group, so both marks are narrowed
-                // to a tile that actually appears in one. Generation is the only path that adds to
-                // either: resending resources whole keeps the host's order exactly the native one,
-                // so later patches can address deposits in place.
-                self.dirty.terrain |= tile.terrain != Terrain::Ground;
-                self.dirty.resources_replace |= tile.resource.is_some();
-                self.tiles.insert((q, r), tile);
+                let terrain = self.terrain_at(q, r);
+                // A chunk of plain lowland adds nothing to either group, so both marks are
+                // narrowed to a cell that actually appears in one. Generation is the only path
+                // that adds to either: resending resources whole keeps the host's order exactly
+                // the native one, so later patches can address field cells in place.
+                self.dirty.terrain |= terrain != Terrain::Lowland;
+                self.dirty.resources_replace |= self.field_at(q, r).is_some();
             }
         }
     }
@@ -1055,87 +1078,35 @@ impl Core {
         }
     }
 
-    fn generated_tile(&self, q: i32, r: i32) -> TileState {
-        let hash = coordinate_hash(self.seed, q, r);
-        let jitter_x = (hash & 0x3ff) as i32 - 512;
-        let jitter_y = ((hash >> 10) & 0x3ff) as i32 - 512;
-        let (mut x, mut y) = (
-            q * FEATURE_SPACING + jitter_x,
-            r * FEATURE_SPACING + jitter_y,
-        );
-        let mut radius = 520 + ((hash >> 20) % 360);
-        if !self.scenario.generated_environment {
-            return TileState {
-                q,
-                r,
-                x,
-                y,
-                radius,
-                terrain: Terrain::Ground,
-                resource: None,
-            };
+    fn terrain_at(&self, q: i32, r: i32) -> Terrain {
+        terrain_at(self.seed, q, r, self.scenario.generated_environment)
+    }
+
+    fn field_at(&self, q: i32, r: i32) -> Option<ResourceState> {
+        if let Some(resource) = self
+            .tiles
+            .get(&(q, r))
+            .and_then(|tile| tile.resource.as_ref())
+        {
+            return Some(ResourceState {
+                item_id: resource.item_id,
+                quantity: resource.initial_quantity,
+                initial_quantity: resource.initial_quantity,
+            });
         }
-        let guaranteed = match (q, r) {
-            (3, 0) => Some((Terrain::Ground, Some((1, 48)))),
-            (4, -2) => Some((Terrain::Ground, Some((1, 36)))),
-            (-2, 2) => Some((Terrain::Ground, Some((3, 32)))),
-            (2, 1) | (2, 2) | (1, 2) => Some((Terrain::Water, None)),
-            (1, -1) | (2, -1) => Some((Terrain::Rock, None)),
-            _ => None,
-        };
-        if let Some((terrain, resource)) = guaranteed {
-            (x, y) = axial_world(q, r);
-            radius = if resource.is_some() { 720 } else { 660 };
-            return TileState {
-                q,
-                r,
-                x,
-                y,
-                radius,
-                terrain,
-                resource: resource.map(|(item_id, quantity)| ResourceState {
-                    item_id,
-                    quantity,
-                    initial_quantity: quantity,
-                }),
-            };
+        if let Some(resource) = self
+            .scenario
+            .resources
+            .iter()
+            .find(|resource| resource.q == q && resource.r == r)
+        {
+            return Some(ResourceState {
+                item_id: resource.item_id,
+                quantity: resource.quantity,
+                initial_quantity: resource.quantity,
+            });
         }
-        let near_landing = squared_distance(x, y, 0, 0) <= i64::from(HEX_X * 7).pow(2);
-        let terrain = if near_landing {
-            Terrain::Ground
-        } else if hash % 31 == 0 {
-            Terrain::Water
-        } else if hash % 23 == 0 {
-            Terrain::Rock
-        } else {
-            Terrain::Ground
-        };
-        let resource = if terrain != Terrain::Ground || near_landing {
-            None
-        } else if hash % 67 == 1 {
-            Some(ResourceState {
-                item_id: 1,
-                quantity: 24 + (hash % 25),
-                initial_quantity: 24 + (hash % 25),
-            })
-        } else if hash % 149 == 2 {
-            Some(ResourceState {
-                item_id: 3,
-                quantity: 16 + (hash % 17),
-                initial_quantity: 16 + (hash % 17),
-            })
-        } else {
-            None
-        };
-        TileState {
-            q,
-            r,
-            x,
-            y,
-            radius,
-            terrain,
-            resource,
-        }
+        field_at(self.seed, q, r, self.scenario.generated_environment)
     }
 
     fn ensure_tile(&mut self, q: i32, r: i32) {
@@ -1145,9 +1116,8 @@ impl Core {
 
     fn ensure_neighborhood(&mut self, x: i32, y: i32) {
         let size = self.scenario.chunk_size;
-        let cell_x = floor_div(x, FEATURE_SPACING);
-        let cell_y = floor_div(y, FEATURE_SPACING);
-        let center = (floor_div(cell_x, size), floor_div(cell_y, size));
+        let (q, r) = world_to_axial(x, y);
+        let center = (floor_div(q, size), floor_div(r, size));
         self.generate_chunk(center.0, center.1);
         for (dq, dr) in DIRECTIONS {
             self.generate_chunk(center.0 + dq, center.1 + dr);
@@ -1373,14 +1343,19 @@ impl Core {
             return;
         }
         let resource_key = resource_key.expect("available resource key exists");
-        let resource = self
-            .tiles
-            .get_mut(&resource_key)
-            .and_then(|tile| tile.resource.as_mut())
+        let field = self
+            .field_at(resource_key.0, resource_key.1)
             .expect("available resource exists");
-        resource.quantity -= 1;
-        let item_id = resource.item_id;
-        let depleted = resource.quantity == 0;
+        let remaining = self.deposit_quantity(resource_key) - 1;
+        self.write_overlay(
+            resource_key.0,
+            resource_key.1,
+            field.item_id,
+            remaining,
+            field.initial_quantity,
+        );
+        let item_id = field.item_id;
+        let depleted = remaining == 0;
         self.dirty.resources.push(resource_key);
         self.entities[index].cargo = Some(Cargo {
             item_id,
@@ -1599,17 +1574,8 @@ impl Core {
     }
 
     fn player_blocked(&self, x: i32, y: i32) -> bool {
-        let feature_collision = self.tiles.values().any(|feature| {
-            feature.terrain != Terrain::Ground
-                && circles_overlap(
-                    x,
-                    y,
-                    PLAYER_RADIUS,
-                    feature.x,
-                    feature.y,
-                    feature.radius as i32,
-                )
-        });
+        let (q, r) = world_to_axial(x, y);
+        let feature_collision = self.terrain_at(q, r).blocks_movement();
         feature_collision
             || self.entities.iter().any(|entity| {
                 self.building_definition(entity.placed.definition_id)
@@ -1636,33 +1602,36 @@ impl Core {
         self.ensure_neighborhood(self.player.x, self.player.y);
         let target_x = self.player.x + i32::from(self.player.facing_x) * (GATHER_RANGE / 2) / 1000;
         let target_y = self.player.y + i32::from(self.player.facing_y) * (GATHER_RANGE / 2) / 1000;
-        let key = self
-            .tiles
-            .iter()
-            .filter(|(_, feature)| {
-                feature
-                    .resource
-                    .as_ref()
-                    .map(|resource| resource.quantity > 0)
-                    .unwrap_or(false)
-                    && squared_distance(target_x, target_y, feature.x, feature.y)
-                        <= i64::from(GATHER_RANGE + feature.radius as i32).pow(2)
+        let (target_q, target_r) = world_to_axial(target_x, target_y);
+        let key = hexes_in_radius((target_q, target_r), 2)
+            .into_iter()
+            .filter(|&(q, r)| {
+                self.deposit_quantity((q, r)) > 0 && {
+                    let (fx, fy) = axial_world(q, r);
+                    squared_distance(target_x, target_y, fx, fy)
+                        <= i64::from(GATHER_RANGE + HEX_RADIUS).pow(2)
+                }
             })
-            .min_by_key(|(_, feature)| squared_distance(target_x, target_y, feature.x, feature.y))
-            .map(|(key, _)| *key)
+            .min_by_key(|&(q, r)| {
+                let (fx, fy) = axial_world(q, r);
+                squared_distance(target_x, target_y, fx, fy)
+            })
             .ok_or("no finite resource within gathering reach")?;
-        let gathered = self.tiles[&key]
-            .resource
-            .as_ref()
-            .expect("selected resource exists")
-            .item_id;
-        if self.player_room_for(gathered) == 0 {
+        let field = self
+            .field_at(key.0, key.1)
+            .ok_or("no finite resource within gathering reach")?;
+        if self.player_room_for(field.item_id) == 0 {
             return Err("carrying capacity is full".into());
         }
-        let feature = self.tiles.get_mut(&key).expect("selected resource exists");
-        let resource = feature.resource.as_mut().expect("selected resource exists");
-        resource.quantity -= 1;
-        let (item_id, depleted) = (resource.item_id, resource.quantity == 0);
+        let remaining = self.deposit_quantity(key) - 1;
+        self.write_overlay(
+            key.0,
+            key.1,
+            field.item_id,
+            remaining,
+            field.initial_quantity,
+        );
+        let (item_id, depleted) = (field.item_id, remaining == 0);
         self.dirty.resources.push(key);
         *self.player.inventory.entry(item_id).or_default() += 1;
         self.player.action_cooldown = 2;
@@ -1787,23 +1756,12 @@ impl Core {
             ) {
                 return Err("the player blocks this footprint".into());
             }
-            if self.tiles.values().any(|feature| {
-                feature.terrain != Terrain::Ground
-                    && placement_overlap(
-                        cell_x,
-                        cell_y,
-                        BUILDING_RADIUS,
-                        feature.x,
-                        feature.y,
-                        feature.radius as i32,
-                        OBSTACLE_INTRUSION_DEPTH,
-                    )
-            }) {
+            if self.terrain_at(cell.q, cell.r).blocks_construction() {
                 return Err("environment blocks construction".into());
             }
         }
         if definition.placement_rule == PlacementRule::Resource
-            && self.resource_at_world(anchor_x, anchor_y).is_none()
+            && self.deposit_quantity((q, r)) == 0
         {
             return Err("extractors require a non-empty deposit".into());
         }
@@ -2379,55 +2337,82 @@ impl Core {
     /// blueprint keeps this linear; asking each chunk to filter the whole blueprint did not.
     fn chunk_snapshots(&self) -> Vec<ChunkSnapshot> {
         let size = self.scenario.chunk_size;
-        let span = size.saturating_mul(FEATURE_SPACING);
         let mut counts: BTreeMap<(i32, i32), usize> = BTreeMap::new();
         for entity in &self.entities {
-            let (x, y) = axial_world(entity.placed.q, entity.placed.r);
             let chunk = (
-                floor_div(floor_div(x, FEATURE_SPACING), size),
-                floor_div(floor_div(y, FEATURE_SPACING), size),
+                floor_div(entity.placed.q, size),
+                floor_div(entity.placed.r, size),
             );
             *counts.entry(chunk).or_default() += 1;
         }
         self.generated_chunks
             .iter()
-            .map(|&(chunk_q, chunk_r)| ChunkSnapshot {
-                chunk_q,
-                chunk_r,
-                x: chunk_q.saturating_mul(span),
-                y: chunk_r.saturating_mul(span),
-                span,
-                entity_count: counts.get(&(chunk_q, chunk_r)).copied().unwrap_or(0),
+            .map(|&(chunk_q, chunk_r)| {
+                let (x, y, span) = chunk_world_bounds(chunk_q, chunk_r, size);
+                ChunkSnapshot {
+                    chunk_q,
+                    chunk_r,
+                    x,
+                    y,
+                    span,
+                    entity_count: counts.get(&(chunk_q, chunk_r)).copied().unwrap_or(0),
+                }
             })
             .collect()
     }
 
     fn terrain_snapshots(&self) -> Vec<TileSnapshot> {
-        self.tiles
-            .values()
-            .filter(|tile| tile.terrain != Terrain::Ground)
-            .map(|tile| TileSnapshot {
-                x: tile.x,
-                y: tile.y,
-                radius: tile.radius,
-                terrain: tile.terrain,
-            })
-            .collect()
+        let mut tiles = Vec::new();
+        let size = self.scenario.chunk_size;
+        for &(chunk_q, chunk_r) in &self.generated_chunks {
+            for (q, r) in hexes_in_chunk(chunk_q, chunk_r, size) {
+                let terrain = self.terrain_at(q, r);
+                if terrain == Terrain::Lowland {
+                    continue;
+                }
+                let (x, y) = axial_world(q, r);
+                tiles.push(TileSnapshot {
+                    q,
+                    r,
+                    x,
+                    y,
+                    radius: HEX_RADIUS as u32,
+                    terrain,
+                });
+            }
+        }
+        tiles
     }
 
-    /// One deposit's snapshot, looked up by tile key. Used by the incremental path, which knows
-    /// which deposits moved but not where they sit in the tile map.
+    /// One field cell's snapshot, looked up by tile key. Used by the incremental path, which knows
+    /// which cells moved but not where they sit in the overlay.
     fn resource_snapshot(&self, key: (i32, i32)) -> Option<ResourceSnapshot> {
-        resource_snapshot_of(key, self.tiles.get(&key)?)
+        let field = self.field_at(key.0, key.1)?;
+        let quantity = self.deposit_quantity(key);
+        Some(resource_snapshot_of(
+            key,
+            field.item_id,
+            quantity,
+            field.initial_quantity,
+        ))
     }
 
-    /// Every deposit, in tile order. This walks the map rather than looking each tile up again,
-    /// because it visits all of them.
+    /// Every field cell in the surveyed world, in tile order. Derived cells with no overlay still
+    /// appear, because the host has to draw the field; only remaining quantity comes from the
+    /// stored overlay.
     fn resource_snapshots(&self) -> Vec<ResourceSnapshot> {
-        self.tiles
-            .iter()
-            .filter_map(|(&key, tile)| resource_snapshot_of(key, tile))
-            .collect()
+        let mut resources = Vec::new();
+        let size = self.scenario.chunk_size;
+        for &(chunk_q, chunk_r) in &self.generated_chunks {
+            for (q, r) in hexes_in_chunk(chunk_q, chunk_r, size) {
+                if let Some(snapshot) = self.resource_snapshot((q, r)) {
+                    if snapshot.quantity > 0 || self.tiles.contains_key(&(q, r)) {
+                        resources.push(snapshot);
+                    }
+                }
+            }
+        }
+        resources
     }
 
     fn delivered_by_item_snapshot(&self) -> Vec<Ingredient64> {
@@ -2511,17 +2496,6 @@ impl Core {
         for tile in self.tiles.values() {
             hash_i32(&mut hash, tile.q);
             hash_i32(&mut hash, tile.r);
-            hash_i32(&mut hash, tile.x);
-            hash_i32(&mut hash, tile.y);
-            hash_u32(&mut hash, tile.radius);
-            hash_u32(
-                &mut hash,
-                match tile.terrain {
-                    Terrain::Ground => 0,
-                    Terrain::Water => 1,
-                    Terrain::Rock => 2,
-                },
-            );
             if let Some(resource) = &tile.resource {
                 hash_u32(&mut hash, u32::from(resource.item_id));
                 hash_u32(&mut hash, resource.quantity);
@@ -3380,8 +3354,10 @@ fn validate_saved_state(
         return Err("save contains invalid player or research state".into());
     }
     let unique_tiles: BTreeSet<_> = state.tiles.iter().map(|tile| (tile.q, tile.r)).collect();
-    if unique_tiles.len() != state.tiles.len() || state.tiles.iter().any(|tile| tile.radius == 0) {
-        return Err("save contains duplicate tiles".into());
+    if unique_tiles.len() != state.tiles.len()
+        || state.tiles.iter().any(|tile| tile.resource.is_none())
+    {
+        return Err("save contains duplicate or empty overlay tiles".into());
     }
     Ok(())
 }
@@ -3497,27 +3473,226 @@ fn circles_overlap(ax: i32, ay: i32, ar: i32, bx: i32, by: i32, br: i32) -> bool
     squared_distance(ax, ay, bx, by) < i64::from(ar + br).pow(2)
 }
 
-/// The one overlap rule placement uses, for deposits and obstacles alike. `depth` is how far the
-/// two circles must interpenetrate before the answer flips: zero is ordinary contact, and a larger
-/// depth ignores a graze. See `DEPOSIT_COVERAGE_DEPTH` and `OBSTACLE_INTRUSION_DEPTH` — the two
-/// checks previously disagreed about the question itself, not merely about a threshold, which made
-/// a deposit between two hex centres unminable while a rock between two hex centres blocked both.
-fn placement_overlap(ax: i32, ay: i32, ar: i32, bx: i32, by: i32, br: i32, depth: i32) -> bool {
-    let reach = (ar + br - depth).max(0);
-    squared_distance(ax, ay, bx, by) < i64::from(reach).pow(2)
+fn resource_snapshot_of(
+    key: (i32, i32),
+    item_id: ItemId,
+    quantity: u32,
+    initial_quantity: u32,
+) -> ResourceSnapshot {
+    let (x, y) = axial_world(key.0, key.1);
+    ResourceSnapshot {
+        id: feature_id(key.0, key.1),
+        q: key.0,
+        r: key.1,
+        x,
+        y,
+        radius: HEX_RADIUS as u32,
+        item_id,
+        quantity,
+        initial_quantity,
+    }
 }
 
-fn resource_snapshot_of(key: (i32, i32), tile: &TileState) -> Option<ResourceSnapshot> {
-    let resource = tile.resource.as_ref()?;
-    Some(ResourceSnapshot {
-        id: feature_id(key.0, key.1),
-        x: tile.x,
-        y: tile.y,
-        radius: tile.radius,
-        item_id: resource.item_id,
-        quantity: resource.quantity,
-        initial_quantity: resource.initial_quantity,
+fn hexes_in_radius(origin: (i32, i32), radius: i32) -> Vec<(i32, i32)> {
+    let mut cells = Vec::new();
+    for dq in -radius..=radius {
+        for dr in -radius..=radius {
+            let cell = (origin.0 + dq, origin.1 + dr);
+            if axial_distance(origin, cell) <= radius {
+                cells.push(cell);
+            }
+        }
+    }
+    cells
+}
+
+fn hexes_in_chunk(chunk_q: i32, chunk_r: i32, size: i32) -> impl Iterator<Item = (i32, i32)> {
+    (0..size).flat_map(move |local_r| {
+        (0..size).map(move |local_q| (chunk_q * size + local_q, chunk_r * size + local_r))
     })
+}
+
+fn chunk_world_bounds(chunk_q: i32, chunk_r: i32, size: i32) -> (i32, i32, i32) {
+    let mut min_x = i32::MAX;
+    let mut min_y = i32::MAX;
+    let mut max_x = i32::MIN;
+    let mut max_y = i32::MIN;
+    for (q, r) in [
+        (chunk_q * size, chunk_r * size),
+        (chunk_q * size + size - 1, chunk_r * size),
+        (chunk_q * size, chunk_r * size + size - 1),
+        (chunk_q * size + size - 1, chunk_r * size + size - 1),
+    ] {
+        let (x, y) = axial_world(q, r);
+        min_x = min_x.min(x);
+        min_y = min_y.min(y);
+        max_x = max_x.max(x);
+        max_y = max_y.max(y);
+    }
+    let origin_x = min_x - HEX_RADIUS;
+    let origin_y = min_y - HEX_RADIUS;
+    let width = (max_x + HEX_RADIUS) - origin_x;
+    let height = (max_y + HEX_RADIUS) - origin_y;
+    (origin_x, origin_y, width.max(height))
+}
+
+/// Inverse of `axial_world` with cube rounding, so a world point maps to the hex whose centre is
+/// nearest. Integer-only: numerators stay in `HEX_X * HEX_Y` space and rounding picks the cube
+/// axis with the largest residual.
+fn world_to_axial(x: i32, y: i32) -> (i32, i32) {
+    let den = i64::from(HEX_X) * i64::from(HEX_Y);
+    let q_num = i64::from(x) * i64::from(HEX_Y) - i64::from(y) * i64::from(HEX_X / 2);
+    let r_num = i64::from(y) * i64::from(HEX_X);
+    cube_round_num(q_num, r_num, -q_num - r_num, den)
+}
+
+fn cube_round_num(q: i64, r: i64, s: i64, den: i64) -> (i32, i32) {
+    let rq = div_round(q, den);
+    let rr = div_round(r, den);
+    let rs = div_round(s, den);
+    let dq = (rq * den - q).abs();
+    let dr = (rr * den - r).abs();
+    let ds = (rs * den - s).abs();
+    if dq >= dr && dq >= ds {
+        ((-rr - rs) as i32, rr as i32)
+    } else if dr >= ds {
+        (rq as i32, (-rq - rs) as i32)
+    } else {
+        (rq as i32, rr as i32)
+    }
+}
+
+fn div_round(num: i64, den: i64) -> i64 {
+    if den == 0 {
+        return 0;
+    }
+    if num >= 0 {
+        (num + den / 2) / den
+    } else {
+        -((-num + den / 2) / den)
+    }
+}
+
+/// Integer value noise on the axial lattice. Samples a `cell`-sized grid and bilinearly
+/// interpolates, so a hex still needs no stored neighbors.
+fn value_noise(seed: u32, q: i32, r: i32, cell: i32, octave: u32) -> i32 {
+    let cell = cell.max(1);
+    let cq = floor_div(q, cell);
+    let cr = floor_div(r, cell);
+    let fq = q - cq * cell;
+    let fr = r - cr * cell;
+    let n00 = i32::from((coordinate_hash(seed ^ octave, cq, cr) >> 16) as u16);
+    let n10 = i32::from((coordinate_hash(seed ^ octave, cq + 1, cr) >> 16) as u16);
+    let n01 = i32::from((coordinate_hash(seed ^ octave, cq, cr + 1) >> 16) as u16);
+    let n11 = i32::from((coordinate_hash(seed ^ octave, cq + 1, cr + 1) >> 16) as u16);
+    let nx0 = lerp_i32(n00, n10, fq, cell);
+    let nx1 = lerp_i32(n01, n11, fq, cell);
+    lerp_i32(nx0, nx1, fr, cell)
+}
+
+fn lerp_i32(a: i32, b: i32, t: i32, span: i32) -> i32 {
+    a + (b - a) * t / span.max(1)
+}
+
+fn elevation_at(seed: u32, q: i32, r: i32) -> i32 {
+    value_noise(seed, q, r, 8, 0xA11CE) / 2 + value_noise(seed, q, r, 3, 0xB0A7) / 2
+}
+
+fn moisture_at(seed: u32, q: i32, r: i32) -> i32 {
+    value_noise(seed, q, r, 7, 0xC0A5)
+}
+
+fn terrain_at(seed: u32, q: i32, r: i32, generated_environment: bool) -> Terrain {
+    if !generated_environment {
+        return Terrain::Lowland;
+    }
+    if axial_distance((0, 0), (q, r)) <= LANDING_CLEAR_RADIUS {
+        return match (q, r) {
+            (2, 1) | (2, 2) | (1, 2) => Terrain::ShallowWater,
+            (1, -1) | (2, -1) => Terrain::Cliff,
+            _ => Terrain::Lowland,
+        };
+    }
+    let elevation = elevation_at(seed, q, r);
+    let moisture = moisture_at(seed, q, r);
+    if elevation < 18_000 {
+        return if moisture > 40_000 {
+            Terrain::DeepWater
+        } else {
+            Terrain::ShallowWater
+        };
+    }
+    if elevation < 24_000 {
+        return Terrain::Shore;
+    }
+    let mut max_step = 0;
+    for &(dq, dr) in &DIRECTIONS {
+        max_step = max_step.max((elevation - elevation_at(seed, q + dq, r + dr)).abs());
+    }
+    if max_step > 14_000 {
+        return Terrain::Cliff;
+    }
+    if elevation > 42_000 {
+        Terrain::Highland
+    } else {
+        Terrain::Lowland
+    }
+}
+
+fn field_at(seed: u32, q: i32, r: i32, generated_environment: bool) -> Option<ResourceState> {
+    match (q, r) {
+        (3, 0) => {
+            return Some(ResourceState {
+                item_id: 1,
+                quantity: 48,
+                initial_quantity: 48,
+            })
+        }
+        (4, -2) => {
+            return Some(ResourceState {
+                item_id: 1,
+                quantity: 36,
+                initial_quantity: 36,
+            })
+        }
+        (-2, 2) => {
+            return Some(ResourceState {
+                item_id: 3,
+                quantity: 32,
+                initial_quantity: 32,
+            })
+        }
+        _ => {}
+    }
+    if !generated_environment {
+        return None;
+    }
+    if axial_distance((0, 0), (q, r)) <= LANDING_CLEAR_RADIUS {
+        return None;
+    }
+    let terrain = terrain_at(seed, q, r, true);
+    let richness = value_noise(seed, q, r, 5, 0x0E55);
+    match terrain {
+        Terrain::Highland if richness > 38_000 => {
+            let quantity = 16 + (coordinate_hash(seed, q, r) % 21);
+            Some(ResourceState {
+                item_id: 1,
+                quantity,
+                initial_quantity: quantity,
+            })
+        }
+        Terrain::Highland | Terrain::Lowland
+            if moisture_at(seed, q, r) > 44_000 && richness > 46_000 =>
+        {
+            let quantity = 10 + (coordinate_hash(seed, q, r) % 15);
+            Some(ResourceState {
+                item_id: 3,
+                quantity,
+                initial_quantity: quantity,
+            })
+        }
+        _ => None,
+    }
 }
 
 fn feature_id(q: i32, r: i32) -> u64 {
@@ -3927,7 +4102,7 @@ pub mod capacity {
             version: 1,
             seed: 2_071_003_907,
             chunk_size: 8,
-            // Terrain is uniform ground so a tier measures transport and machines, not the
+            // Terrain is uniform lowland so a tier measures transport and machines, not the
             // incidental obstacle layout of a generated seed.
             generated_environment: false,
             // Away from every line, so the idle player never blocks a footprint.
@@ -4510,44 +4685,88 @@ mod tests {
     }
 
     #[test]
+    fn world_to_axial_inverts_axial_world_and_rounds_to_the_nearest_hex() {
+        for q in -12..=12 {
+            for r in -12..=12 {
+                let (x, y) = axial_world(q, r);
+                assert_eq!(world_to_axial(x, y), (q, r));
+            }
+        }
+        let (x, y) = axial_world(3, -2);
+        assert_eq!(world_to_axial(x + 200, y - 150), (3, -2));
+    }
+
+    #[test]
+    fn generated_fields_follow_terrain_and_only_the_overlay_is_state() {
+        let mut core = game("new-game");
+        assert_eq!(core.terrain_at(0, 0), Terrain::Lowland);
+        assert_eq!(core.terrain_at(2, 1), Terrain::ShallowWater);
+        assert_eq!(core.terrain_at(1, -1), Terrain::Cliff);
+        assert_eq!(core.deposit_quantity((3, 0)), 48);
+        assert_eq!(core.field_at(3, 0).unwrap().item_id, 1);
+        // Unmined field is derived: the overlay is empty until something is taken, but the
+        // snapshot still reports the cell so the host can draw it.
+        assert!(core.tiles.is_empty());
+        assert!(core
+            .resource_snapshots()
+            .iter()
+            .any(|resource| resource.q == 3 && resource.r == 0 && resource.quantity == 48));
+        let before = core.checksum();
+        set_player_hex(&mut core, 3, 0);
+        core.gather().unwrap();
+        assert_eq!(core.deposit_quantity((3, 0)), 47);
+        assert_eq!(core.tiles[&(3, 0)].resource.as_ref().unwrap().quantity, 47);
+        assert_ne!(core.checksum(), before);
+    }
+
+    #[test]
+    fn an_extractor_harvests_every_field_cell_inside_its_radius() {
+        let mut core = game("new-game");
+        core.researched.insert(2);
+        core.player.inventory.insert(1, 8);
+        core.player.inventory.insert(3, 2);
+        set_player_hex(&mut core, 3, 1);
+        // A neighbour of the guaranteed ore cell, still inside EXTRACT_RADIUS.
+        core.write_overlay(4, 0, 1, 3, 3);
+        core.place(3, 0, 1, 0, None).unwrap();
+        let index = core.entity_at(3, 0).unwrap();
+        let candidates = core.deposit_candidates(3, 0);
+        assert_eq!(candidates[0], (3, 0));
+        assert!(candidates.contains(&(4, 0)));
+        assert_eq!(core.extractor_deposit(index), Some((3, 0)));
+        core.write_overlay(3, 0, 1, 0, 48);
+        assert_eq!(core.extractor_deposit(index), Some((4, 0)));
+    }
+
+    #[test]
     fn continuous_movement_intent_and_collision_are_native() {
         let mut core = game("new-game");
-        set_player_hex(&mut core, 10, 10);
-        core.tiles
-            .values_mut()
-            .for_each(|feature| feature.terrain = Terrain::Ground);
+        // Stay inside the landing clearing so derived water and cliffs cannot interrupt the walk.
+        set_player_hex(&mut core, 0, 3);
         let start = (core.player.x, core.player.y);
         core.set_move_intent(707, -707).unwrap();
         core.advance_player_steps(3);
-        assert_eq!(core.player.x, start.0 + 318);
-        assert_eq!(core.player.y, start.1 - 318);
+        let step = 707 * PLAYER_SPEED / 1000;
+        assert_eq!(core.player.x, start.0 + 3 * step);
+        assert_eq!(core.player.y, start.1 - 3 * step);
         assert_eq!((core.player.facing_x, core.player.facing_y), (707, -707));
         core.set_move_intent(0, 0).unwrap();
         core.advance_player_steps(3);
         assert_eq!(
             (core.player.x, core.player.y),
-            (start.0 + 318, start.1 - 318)
+            (start.0 + 3 * step, start.1 - 3 * step)
         );
         assert!(core.set_move_intent(1001, 0).is_err());
 
-        let rock_x = core.player.x + PLAYER_SPEED + PLAYER_RADIUS;
-        let key = (999, 999);
-        core.tiles.insert(
-            key,
-            TileState {
-                q: key.0,
-                r: key.1,
-                x: rock_x,
-                y: core.player.y,
-                radius: 300,
-                terrain: Terrain::Rock,
-                resource: None,
-            },
-        );
+        // A guaranteed landing cliff still blocks: stand just west of (1, -1) and walk east.
+        let (cliff_x, cliff_y) = axial_world(1, -1);
+        core.player.x = cliff_x - HEX_X / 2 - 20;
+        core.player.y = cliff_y;
         let blocked_x = core.player.x;
         core.set_move_intent(1000, 0).unwrap();
         core.advance_player_steps(1);
         assert_eq!(core.player.x, blocked_x);
+        assert_eq!(core.terrain_at(1, -1), Terrain::Cliff);
     }
 
     #[test]
@@ -4555,10 +4774,7 @@ mod tests {
         // The complaint this answers: the player stopped when the factory paused and crawled at a
         // low speed multiplier, because walking ran inside the simulation tick.
         let mut core = game("new-game");
-        set_player_hex(&mut core, 10, 10);
-        core.tiles
-            .values_mut()
-            .for_each(|feature| feature.terrain = Terrain::Ground);
+        set_player_hex(&mut core, 0, 3);
         let start = (core.player.x, core.player.y);
         core.set_move_intent(1000, 0).unwrap();
 
@@ -4578,10 +4794,7 @@ mod tests {
         let mut slow = game("new-game");
         let mut fast = game("new-game");
         for core in [&mut slow, &mut fast] {
-            set_player_hex(core, 10, 10);
-            core.tiles
-                .values_mut()
-                .for_each(|feature| feature.terrain = Terrain::Ground);
+            set_player_hex(core, 0, 3);
         }
         for _ in 0..4 {
             slow.advance(IDLE_MOVE_EAST, 1, 8).unwrap();
@@ -4596,13 +4809,13 @@ mod tests {
     fn gathering_depletes_finite_resources_and_conserves_items() {
         let mut core = game("new-game");
         set_player_hex(&mut core, 3, 0);
-        let before = core.tiles[&(3, 0)].resource.as_ref().unwrap().quantity;
+        let before = core.deposit_quantity((3, 0));
         for _ in 0..before {
             core.gather().unwrap();
             cooldown(&mut core);
         }
         assert_eq!(core.player.inventory.get(&1), Some(&before));
-        assert_eq!(core.tiles[&(3, 0)].resource.as_ref().unwrap().quantity, 0);
+        assert_eq!(core.deposit_quantity((3, 0)), 0);
         assert!(core.gather().is_err());
     }
 
@@ -4864,58 +5077,37 @@ mod tests {
 
     #[test]
     fn one_overlap_rule_answers_both_placement_questions() {
-        // The defect this pins: a deposit was tested by whether the hex centre fell inside it, an
-        // obstacle by whether two circles touched at all. A hex step is 1774 world units, so the
-        // first test made a deposit sitting between two hex centres unminable from either, while
-        // the second let one rock between two hex centres block both.
+        // Fields are hex cells. Placement and the extractor's cached candidates share
+        // `field_covered_at`, so a resolved reference cannot drift from the rule that allowed
+        // the building. Cliffs occupy their own hex and do not make the neighbour unbuildable.
         let mut core = game("new-game");
         core.researched.extend([1, 2, 3, 4]);
         core.player.inventory.insert(1, 20);
         core.player.inventory.insert(3, 10);
 
-        // A deposit displaced most of the way to the next hex is still minable from a hex.
         let (hex_x, hex_y) = axial_world(3, 0);
-        let displaced = core.tiles.get_mut(&(3, 0)).unwrap();
-        displaced.x = hex_x + 900;
-        displaced.radius = 520;
-        core.deposit_links.clear();
         set_player_hex(&mut core, 3, 1);
         assert!(
             core.resource_at_world(hex_x, hex_y).is_some(),
-            "a deposit within one hex step must be reachable from that hex"
+            "a field cell must be reachable from its own hex"
         );
         core.place(3, 0, 1, 0, None).unwrap();
 
-        // The extractor's cached candidate list resolves the same deposit the placement rule used;
-        // the two are the same predicate, so they cannot drift apart.
         let index = core.entity_at(3, 0).unwrap();
         assert_eq!(core.extractor_deposit(index), Some((3, 0)));
+        assert_eq!(
+            core.deposit_candidates(3, 0),
+            core.deposit_links[&core.entities[index].id]
+        );
 
-        // An obstacle that merely grazes a hex no longer makes it unbuildable, and one that
-        // genuinely intrudes still does.
         let mut ground = game("new-game");
         ground.researched.extend([1, 2, 3, 4]);
         ground.player.inventory.insert(1, 20);
-        let (cell_x, cell_y) = axial_world(2, 0);
-        let grazing = (777, 777);
-        ground.tiles.insert(
-            grazing,
-            TileState {
-                q: grazing.0,
-                r: grazing.1,
-                x: cell_x + BUILDING_RADIUS + 660 - OBSTACLE_INTRUSION_DEPTH + 1,
-                y: cell_y,
-                radius: 660,
-                terrain: Terrain::Rock,
-                resource: None,
-            },
-        );
-        ground.place(2, 0, 2, 0, None).unwrap();
-        ground.erase(2, 0).unwrap();
-        ground.tiles.get_mut(&grazing).unwrap().x =
-            cell_x + BUILDING_RADIUS + 660 - OBSTACLE_INTRUSION_DEPTH - 1;
+        // The landing cliff sits on (1, -1); the neighbouring lowland hex stays buildable.
+        assert_eq!(ground.terrain_at(1, -1), Terrain::Cliff);
+        ground.place(0, -1, 2, 0, None).unwrap();
         assert!(ground
-            .place(2, 0, 2, 0, None)
+            .place(1, -1, 2, 0, None)
             .unwrap_err()
             .contains("environment"));
     }
@@ -5073,13 +5265,7 @@ mod tests {
         core.player.inventory.insert(1, 4);
         core.player.inventory.insert(3, 1);
         set_player_hex(&mut core, 3, 1);
-        core.tiles
-            .get_mut(&(3, 0))
-            .unwrap()
-            .resource
-            .as_mut()
-            .unwrap()
-            .quantity = 2;
+        core.write_overlay(3, 0, 1, 2, 48);
         core.place(3, 0, 1, 0, None).unwrap();
         for _ in 0..2 {
             core.tick_many(5);
@@ -5097,7 +5283,7 @@ mod tests {
             .iter()
             .find(|entity| entity.placed.q == 3)
             .unwrap();
-        assert_eq!(core.tiles[&(3, 0)].resource.as_ref().unwrap().quantity, 0);
+        assert_eq!(core.deposit_quantity((3, 0)), 0);
         assert_eq!(core.produced.get(&1), Some(&2));
         assert_eq!(entity.progress, 0);
     }
@@ -5132,14 +5318,8 @@ mod tests {
         assert!(core.deposit_links.is_empty());
         assert_eq!(core.extractor_deposit(index), scan(&core));
 
-        // A drained deposit falls through to the scan's next choice without re-resolving.
-        core.tiles
-            .get_mut(&(3, 0))
-            .unwrap()
-            .resource
-            .as_mut()
-            .unwrap()
-            .quantity = 0;
+        // A drained field cell falls through to the scan's next choice without re-resolving.
+        core.write_overlay(3, 0, 1, 0, 48);
         assert_eq!(core.extractor_deposit(index), scan(&core));
         assert_eq!(core.extractor_deposit(index), None);
 
@@ -5352,13 +5532,10 @@ mod tests {
             .position(|entity| entity.kind == BuildingKind::Extractor)
             .unwrap();
         core.graph[extractor] = None;
-        let resource_before = core.tiles[&(-4, 0)].resource.as_ref().unwrap().quantity;
+        let resource_before = core.deposit_quantity((-4, 0));
         core.tick_many(100);
         assert_eq!(core.entities[extractor].cargo.unwrap().quantity, 1);
-        assert_eq!(
-            core.tiles[&(-4, 0)].resource.as_ref().unwrap().quantity,
-            resource_before - 1
-        );
+        assert_eq!(core.deposit_quantity((-4, 0)), resource_before - 1);
         let container = core
             .entities
             .iter()
@@ -5418,6 +5595,12 @@ mod tests {
         let incompatible =
             save.replacen("\"definition_version\":4", "\"definition_version\":999", 1);
         assert!(Core::from_save(&definitions, &technologies, &scenarios, &incompatible).is_err());
+        let old_world = save.replacen(
+            "\"world_generator_version\":3",
+            "\"world_generator_version\":2",
+            1,
+        );
+        assert!(Core::from_save(&definitions, &technologies, &scenarios, &old_world).is_err());
     }
 
     #[test]
@@ -5465,12 +5648,13 @@ mod tests {
     fn generated_chunk_bounds_report_the_surveyed_world_area() {
         let mut core = game("new-game");
         let snapshot = core.snapshot();
-        let span = 8 * FEATURE_SPACING;
+        let size = core.scenario.chunk_size;
         assert!(!snapshot.chunks.is_empty());
         for chunk in &snapshot.chunks {
+            let (x, y, span) = chunk_world_bounds(chunk.chunk_q, chunk.chunk_r, size);
+            assert_eq!(chunk.x, x);
+            assert_eq!(chunk.y, y);
             assert_eq!(chunk.span, span);
-            assert_eq!(chunk.x, chunk.chunk_q * span);
-            assert_eq!(chunk.y, chunk.chunk_r * span);
         }
         let contains = |chunk: &ChunkSnapshot, x: i32, y: i32| {
             (chunk.x..chunk.x + chunk.span).contains(&x)
@@ -5482,7 +5666,8 @@ mod tests {
             .iter()
             .any(|chunk| contains(chunk, core.player.x, core.player.y)));
         // Distant world stays unreported, which is what the host renders as fog.
-        let (far_x, far_y) = (span * 4, span * 4);
+        let (far_q, far_r) = (size * 4, size * 4);
+        let (far_x, far_y) = axial_world(far_q, far_r);
         assert!(!snapshot
             .chunks
             .iter()
@@ -5557,15 +5742,7 @@ mod tests {
         factory.core.player.inventory.insert(1, 40);
         factory.core.player.inventory.insert(3, 20);
         set_player_hex(&mut factory.core, 4, -2);
-        factory
-            .core
-            .tiles
-            .get_mut(&(4, -2))
-            .unwrap()
-            .resource
-            .as_mut()
-            .unwrap()
-            .quantity = 2;
+        factory.core.write_overlay(4, -2, 1, 2, 36);
         let surveyed_at_start = factory.core.generated_chunks.len();
 
         // Establish the baseline exactly as the worker does on its first frame.
@@ -5588,14 +5765,7 @@ mod tests {
                 .unwrap();
             check(&mut factory, &format!("gather attempt {round}"));
         }
-        assert_eq!(
-            factory.core.tiles[&(4, -2)]
-                .resource
-                .as_ref()
-                .unwrap()
-                .quantity,
-            0
-        );
+        assert_eq!(factory.core.deposit_quantity((4, -2)), 0);
 
         // Delivery and research: insight, delivered totals, the objective, and unlocks.
         set_player_hex(&mut factory.core, 1, 0);
@@ -5652,13 +5822,11 @@ mod tests {
         check(&mut factory, "replacing the belt");
 
         // Travel into unsurveyed world: terrain, deposits, chunk bounds, and every extractor's
-        // resolved deposit reference at once.
-        for (label, command) in [
-            ("east", r#"[{"type":"move_intent","x":1000,"y":0}]"#),
-            ("south", r#"[{"type":"move_intent","x":0,"y":1000}]"#),
-        ] {
-            // Distance now comes from the player's own cadence rather than from the tick count.
-            factory.core.advance(command, 60, 120).unwrap();
+        // resolved deposit reference at once. The neighborhood generator is the same one walking
+        // uses; a far hex is used so derived water or cliffs cannot stall the survey.
+        for (label, (q, r)) in [("east", (24, 0)), ("south", (24, 16))] {
+            set_player_hex(&mut factory.core, q, r);
+            factory.core.advance(IDLE, 1, 1).unwrap();
             check(
                 &mut factory,
                 &format!("travelling {label} into unsurveyed world"),
@@ -5739,9 +5907,7 @@ mod tests {
         let scanned = |core: &Core| {
             let (x, y) = axial_world(core.entities[index].placed.q, core.entities[index].placed.r);
             core.resource_at_world(x, y)
-                .and_then(|key| core.tiles.get(&key))
-                .and_then(|tile| tile.resource.as_ref())
-                .map(|resource| resource.quantity)
+                .map(|key| core.deposit_quantity(key))
                 .unwrap_or(0)
                 > 0
         };
@@ -5757,14 +5923,8 @@ mod tests {
             core.tick_many(20);
         }
 
-        // Draining the deposit must flip both the scan and the cached reference together.
-        core.tiles
-            .get_mut(&(3, 0))
-            .unwrap()
-            .resource
-            .as_mut()
-            .unwrap()
-            .quantity = 0;
+        // Draining the field must flip both the scan and the cached reference together.
+        core.write_overlay(3, 0, 1, 0, 48);
         assert!(!scanned(&core));
         assert!(core.extractor_deposit(index).is_none());
         core.entities[index].cargo = None;
@@ -5816,7 +5976,7 @@ mod tests {
         assert_eq!(first.checksum(), second.checksum());
         // Pinned so a change to definitions, the workload, or the simulation cannot silently
         // invalidate comparisons against previously recorded tier numbers.
-        assert_eq!(first.checksum(), 1_693_021_923);
+        assert_eq!(first.checksum(), 1_987_448_481);
         assert_eq!(first.entities.len(), spec.entities() as usize);
         // Every line must be running end to end, or the tiers would measure an idle blueprint.
         assert_eq!(first.delivered, u64::from(spec.lines) * 14);

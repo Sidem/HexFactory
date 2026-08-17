@@ -15,8 +15,10 @@ import type {
   FactorySnapshot,
   LinePreviewCell,
   PlacementPreview,
+  Terrain,
   WorldPoint,
 } from "../core/types";
+import { drawItemIcon } from "./icons";
 
 const BASE_HEX_SIZE = 31;
 const WORLD_SCALE = 1024;
@@ -242,9 +244,9 @@ export class CanvasFactoryRenderer {
       height * 0.5,
       Math.max(width, height),
     );
-    gradient.addColorStop(0, "#173128");
-    gradient.addColorStop(0.55, "#0c1d19");
-    gradient.addColorStop(1, "#06100f");
+    gradient.addColorStop(0, "#1a3a32");
+    gradient.addColorStop(0.55, "#10261f");
+    gradient.addColorStop(1, "#081410");
     ctx.fillStyle = gradient;
     ctx.fillRect(0, 0, width, height);
     if (!this.snapshot) return;
@@ -323,55 +325,42 @@ export class CanvasFactoryRenderer {
   private drawEnvironment(width: number, height: number, size: number): void {
     if (!this.snapshot) return;
     const ctx = this.context;
-    const scale = size / WORLD_SCALE;
     for (const region of this.snapshot.terrain) {
-      const center = this.camera.projectWorld(region, width, height);
-      const radius = region.radius * scale;
-      if (!visible(center, radius, width, height)) continue;
-      const water = region.terrain === "water";
-      ctx.fillStyle = water ? "#163c57cc" : "#464a4dcc";
-      ctx.strokeStyle = water ? "#39789c" : "#777d80";
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.arc(center.x, center.y, radius, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.stroke();
+      const center = this.camera.project(
+        { q: region.q, r: region.r },
+        width,
+        height,
+      );
+      if (!visible(center, size, width, height)) continue;
+      const paint = terrainPaint(region.terrain);
+      drawHex(ctx, center, size * 0.97, paint.fill, paint.stroke, 1.2);
     }
     for (const resource of this.snapshot.resources) {
       if (resource.quantity === 0) continue;
-      const center = this.camera.projectWorld(resource, width, height);
-      const radius = resource.radius * scale;
-      if (!visible(center, radius, width, height)) continue;
+      const center = this.camera.project(
+        { q: resource.q, r: resource.r },
+        width,
+        height,
+      );
+      if (!visible(center, size, width, height)) continue;
       const item = this.definitions.items.find(
         ({ id }) => id === resource.item_id,
       );
-      const pulse = this.reducedMotion ? 0 : Math.sin(this.now / 450) * 2;
-      ctx.fillStyle = `${item?.color ?? "#ffffff"}55`;
-      ctx.strokeStyle = item?.color ?? "#fff";
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.arc(center.x, center.y, radius + pulse, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.stroke();
-      ctx.beginPath();
-      ctx.arc(center.x, center.y, Math.max(4, size * 0.13), 0, Math.PI * 2);
-      ctx.fillStyle = item?.color ?? "#fff";
-      ctx.fill();
-      const label = `${item?.name ?? "Resource"} · ${resource.quantity}`;
-      const fontSize = Math.max(10, size * 0.27);
+      const color = item?.color ?? "#fff";
+      const pulse = this.reducedMotion ? 0 : Math.sin(this.now / 450) * 0.03;
+      drawHex(ctx, center, size * (0.82 + pulse), `${color}55`, color, 1.6);
+      drawItemIcon(ctx, item?.icon ?? "ore", color, center.x, center.y, size);
+      if (size < 22) continue;
+      const label = String(resource.quantity);
+      const fontSize = Math.max(9, size * 0.22);
       ctx.font = `700 ${fontSize}px system-ui`;
-      const labelWidth = ctx.measureText(label).width + 16;
-      const labelY = center.y - radius - 24;
-      ctx.fillStyle = "#081411e8";
-      ctx.strokeStyle = `${item?.color ?? "#ffffff"}99`;
-      ctx.lineWidth = 1;
-      ctx.beginPath();
-      ctx.roundRect(center.x - labelWidth / 2, labelY, labelWidth, 22, 8);
-      ctx.fill();
-      ctx.stroke();
-      ctx.fillStyle = "#f4f7f5";
       ctx.textAlign = "center";
-      ctx.fillText(label, center.x, labelY + 15);
+      ctx.fillStyle = "#07110ee8";
+      ctx.beginPath();
+      ctx.roundRect(center.x - 12, center.y + size * 0.28, 24, 14, 6);
+      ctx.fill();
+      ctx.fillStyle = "#f4f7f5";
+      ctx.fillText(label, center.x, center.y + size * 0.28 + 11);
     }
   }
 
@@ -629,14 +618,16 @@ export class CanvasFactoryRenderer {
     if (!this.snapshot) return;
     const player = this.snapshot.player;
     const center = this.camera.projectWorld(player, width, height);
-    const length = size * 0.53;
+    const scale = size / WORLD_SCALE;
+    const radius = player.radius * scale;
+    const length = radius * 1.15;
     const tip = {
       x: center.x + (player.facing_x / 1000) * length,
       y: center.y + (player.facing_y / 1000) * length,
     };
     const ctx = this.context;
     ctx.beginPath();
-    ctx.arc(center.x, center.y, size * 0.48, 0, Math.PI * 2);
+    ctx.arc(center.x, center.y, radius, 0, Math.PI * 2);
     ctx.strokeStyle = "#72e2b477";
     ctx.lineWidth = 2;
     ctx.stroke();
@@ -644,7 +635,7 @@ export class CanvasFactoryRenderer {
     ctx.strokeStyle = "#142028";
     ctx.lineWidth = 3;
     ctx.beginPath();
-    ctx.arc(center.x, center.y, size * 0.3, 0, Math.PI * 2);
+    ctx.arc(center.x, center.y, radius * 0.62, 0, Math.PI * 2);
     ctx.fill();
     ctx.stroke();
     ctx.beginPath();
@@ -673,6 +664,23 @@ function visible(
     point.x <= width + margin &&
     point.y <= height + margin
   );
+}
+
+function terrainPaint(terrain: Terrain): { fill: string; stroke: string } {
+  switch (terrain) {
+    case "deep_water":
+      return { fill: "#0f3550ee", stroke: "#1f5f86" };
+    case "shallow_water":
+      return { fill: "#1a5474dd", stroke: "#3d8aaa" };
+    case "shore":
+      return { fill: "#c4a56add", stroke: "#e0c88a" };
+    case "highland":
+      return { fill: "#5c6b58dd", stroke: "#8a9a84" };
+    case "cliff":
+      return { fill: "#4a4541ee", stroke: "#7a736c" };
+    default:
+      return { fill: "#2a4a3ccc", stroke: "#4d7a62" };
+  }
 }
 
 function drawHex(

@@ -10,9 +10,11 @@ exact.
 
 What is playable today is deliberately small. Its full-viewport command surface keeps the current directive, next useful action, cargo, research,
 and construction costs close to the world on desktop and touch layouts. A
-new game starts beside a landing hub inside a small surveyed area, with the rest of the world under
-fog: explore to lift it, gather finite ore and crystal, deliver items for insight, unlock a short
-technology tree, build a compiled transport line, compose three components, and win. The founding prebuilt architecture proof remains available as the **Factory demo** scenario.
+new game starts beside a landing hub inside a small surveyed clearing, with the rest of the world
+under fog: explore to lift it, walk across basins and highlands, gather finite ore and crystal
+fields, deliver items for insight, unlock a short technology tree, build a compiled transport
+line, compose three components, and win. The founding prebuilt architecture proof remains
+available as the **Factory demo** scenario.
 
 Rust/Wasm runs inside a dedicated module worker and owns environment features, resources, collision,
 continuous player movement, inventories, costs, research, objectives, saves, transport, machines,
@@ -65,8 +67,9 @@ which builds the measurement-only wasm artifact and serves `/HexFactory/bench.ht
 
 ## Architecture
 
-- The versioned native seed generates continuous environment chunks independently of traversal order. Obstacles,
-  finite resources, placement legality, collision, and player state are native checksum inputs.
+- The versioned native seed generates axial environment chunks independently of traversal order.
+  Terrain bands and resource fields are derived; only the depletion overlay, the surveyed chunk
+  set, and ordinary simulation state are native checksum inputs.
 - Data files define dynamic items, recipes, buildings, costs, descriptions, icons, unlock
   requirements, and the acyclic technology graph. Native code validates and enforces them against
   forged host commands.

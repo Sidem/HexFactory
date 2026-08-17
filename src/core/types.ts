@@ -7,7 +7,13 @@ export type BuildingKind =
   | "container"
   | "consumer"
   | "hub";
-export type Terrain = "ground" | "water" | "rock";
+export type Terrain =
+  | "deep_water"
+  | "shallow_water"
+  | "shore"
+  | "lowland"
+  | "highland"
+  | "cliff";
 export type PlacementRule = "ground" | "resource";
 
 export interface Ingredient {
@@ -115,6 +121,8 @@ export interface WorldPoint {
 
 export interface ResourceSnapshot extends WorldPoint {
   id: number;
+  q: number;
+  r: number;
   radius: number;
   item_id: number;
   quantity: number;
@@ -122,6 +130,8 @@ export interface ResourceSnapshot extends WorldPoint {
 }
 
 export interface TerrainSnapshot extends WorldPoint {
+  q: number;
+  r: number;
   radius: number;
   terrain: Terrain;
 }
@@ -152,6 +162,8 @@ export interface PlayerSnapshot extends WorldPoint {
    * these and pads to `carry_slots`; it never re-derives the stacking rule for itself.
    */
   carry_stacks: Ingredient[];
+  /** Collision and drawing radius in native world units. */
+  radius: number;
 }
 
 export interface FactorySnapshot {

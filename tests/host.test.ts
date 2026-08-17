@@ -45,7 +45,7 @@ import { HexCamera, isSurveyed } from "../src/rendering/CanvasFactoryRenderer";
 const snapshot: FactorySnapshot = {
   scenario: "new-game",
   scenario_name: "New game",
-  world_version: 2,
+  world_version: 3,
   seed: 1213486160,
   tick: 12,
   checksum: 123,
@@ -66,18 +66,30 @@ const snapshot: FactorySnapshot = {
     build_range: 8870,
     carry_slots: 6,
     carry_stacks: [{ item_id: 1, quantity: 3 }],
+    radius: 580,
   },
   researched: [1],
   chunks: [
     { chunk_q: 0, chunk_r: 0, entity_count: 1, x: 0, y: 0, span: 16384 },
   ],
-  terrain: [{ x: 3550, y: 1500, radius: 660, terrain: "water" }],
+  terrain: [
+    {
+      q: 2,
+      r: 1,
+      x: 3550,
+      y: 1500,
+      radius: 1024,
+      terrain: "shallow_water",
+    },
+  ],
   resources: [
     {
       id: 1,
+      q: 3,
+      r: 0,
       x: 5322,
       y: 0,
-      radius: 720,
+      radius: 1024,
       item_id: 1,
       quantity: 47,
       initial_quantity: 48,
@@ -282,7 +294,7 @@ describe("availability and expanded snapshot adapter", () => {
     expect(buildingAvailability(belt, snapshot, definitions.items)).toEqual({
       locked: false,
       affordable: true,
-      costLabel: "1 ORE",
+      costLabel: "1 Iron ore",
     });
     expect(
       buildingAvailability(extractor, snapshot, definitions.items),
@@ -391,9 +403,11 @@ describe("availability and expanded snapshot adapter", () => {
   it("patches individual deposits without resending the surveyed world's resources", () => {
     const second: ResourceSnapshot = {
       id: 2,
+      q: 4,
+      r: -2,
       x: 7096,
       y: -3072,
-      radius: 720,
+      radius: 1024,
       item_id: 3,
       quantity: 32,
       initial_quantity: 32,
@@ -493,6 +507,7 @@ describe("availability and expanded snapshot adapter", () => {
     expect(renderer).toContain("this.drawFog(");
     expect(renderer).toContain("destination-out");
     expect(renderer).not.toMatch(/span\s*=\s*\d/);
+    expect(renderer).toContain("player.radius");
     expect(main).toContain("isSurveyed(snapshot.chunks");
   });
 

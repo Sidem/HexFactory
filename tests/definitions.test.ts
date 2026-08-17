@@ -26,6 +26,11 @@ describe("data-defined content", () => {
     expect(
       definitions.buildings.find(({ key }) => key === "composer")?.footprint,
     ).toHaveLength(2);
+    expect(definitions.items.map(({ icon }) => icon)).toEqual([
+      "ore",
+      "component",
+      "crystal",
+    ]);
     expect(technologies.technologies.map(({ key }) => key)).toEqual([
       "field-logistics",
       "automated-extraction",

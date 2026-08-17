@@ -354,9 +354,16 @@ canvas {
   box-shadow: 0 0 10px var(--item-color);
 }
 .inventory-slot small {
-  color: var(--muted);
-  font-size: 0.54rem;
-  letter-spacing: 0.06em;
+  color: var(--item-color, var(--muted));
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+}
+.inventory-slot small svg {
+  width: 20px;
+  height: 20px;
+  display: block;
 }
 .inventory-slot strong {
   font-size: 0.9rem;

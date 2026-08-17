@@ -14,7 +14,7 @@
       "id": 2,
       "key": "automated-extraction",
       "name": "Automated Extraction",
-      "description": "Unlock finite-deposit extractors.",
+      "description": "Unlock extractors that harvest a field within one hex.",
       "prerequisites": [1],
       "cost": 5,
       "unlocks": [1]

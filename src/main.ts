@@ -20,11 +20,12 @@ import {
   CanvasFactoryRenderer,
   isSurveyed,
 } from "./rendering/CanvasFactoryRenderer";
+import { itemIconSvg } from "./rendering/icons";
 import "./styles.css";
 
 type Tool = "inspect" | "erase" | "rotate" | number;
 
-const SAVE_KEY = "hexfactory:hxf1:v3";
+const SAVE_KEY = "hexfactory:hxf1:v4";
 const DIRECTION_NAMES = [
   "East",
   "Southeast",
@@ -195,7 +196,8 @@ function renderInventory(): void {
       : undefined;
     cell.classList.toggle("filled", Boolean(stack));
     cell.style.setProperty("--item-color", item?.color ?? "transparent");
-    part(cell, "small").textContent = item?.icon ?? "";
+    const icon = part(cell, "small");
+    icon.innerHTML = item && stack ? itemIconSvg(item.icon, item.color) : "";
     part(cell, "strong").textContent = stack ? String(stack.quantity) : "";
     cell.setAttribute(
       "aria-label",
@@ -330,7 +332,7 @@ function renderInspectorActions(building: EntitySnapshot | undefined): void {
     button.dataset.quantity = String(entry.quantity);
     button.dataset.q = String(building?.q ?? 0);
     button.dataset.r = String(building?.r ?? 0);
-    button.textContent = `Take ${entry.quantity} ${item?.icon ?? ""}`.trim();
+    button.textContent = `Take ${entry.quantity} ${item?.name ?? ""}`.trim();
     button.setAttribute("aria-label", `Take ${entry.quantity} ${name}`);
   });
 }
@@ -407,7 +409,7 @@ function renderNextAction(): void {
   const researched = new Set(snapshot.researched);
   let title = "Survey the landing zone";
   let detail =
-    "The hatched fog is unsurveyed world. Walk toward it to reveal terrain, then gather from a glowing deposit.";
+    "The hatched fog is unsurveyed world. Walk toward it to reveal terrain, then gather from an ore or crystal field.";
   if (snapshot.victory) {
     title = "Factory online";
     detail =
@@ -430,7 +432,7 @@ function renderNextAction(): void {
   } else if (!researched.has(1) && ore + crystals === 0) {
     title = "Gather your first material";
     detail =
-      "Walk beside a glowing deposit, then gather. Resource circles show their remaining amount.";
+      "Walk onto an ore or crystal field, then gather. Field hexes show their remaining amount.";
   } else if (!researched.has(1)) {
     title = "Deliver materials for insight";
     detail =
@@ -438,7 +440,7 @@ function renderNextAction(): void {
   } else if (!researched.has(2) && snapshot.insight >= 5) {
     title = "Automate extraction";
     detail =
-      "Research Automated Extraction, then place an extractor directly on a resource deposit.";
+      "Research Automated Extraction, then place an extractor on a field hex. It harvests every cell within one step.";
   } else if (!researched.has(2)) {
     title = "Fund Automated Extraction";
     detail =

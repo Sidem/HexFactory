@@ -6,7 +6,7 @@
       "key": "ore",
       "name": "Iron ore",
       "color": "#e2a85f",
-      "icon": "ORE",
+      "icon": "ore",
       "description": "A common construction metal.",
       "insight_value": 1,
       "stack_size": 20
@@ -16,7 +16,7 @@
       "key": "component",
       "name": "Component",
       "color": "#6fddd0",
-      "icon": "CMP",
+      "icon": "component",
       "description": "A composed part required by the landing objective.",
       "insight_value": 5,
       "stack_size": 10
@@ -26,7 +26,7 @@
       "key": "crystal",
       "name": "Signal crystal",
       "color": "#b78cff",
-      "icon": "CRY",
+      "icon": "crystal",
       "description": "A finite secondary resource used by advanced machines.",
       "insight_value": 2,
       "stack_size": 10
@@ -49,7 +49,7 @@
       "key": "extractor",
       "name": "Extractor",
       "kind": "extractor",
-      "description": "Consumes the finite deposit beneath it and emits one item at a time.",
+      "description": "Harvests every field cell within one hex and emits one item at a time.",
       "icon": "EXT",
       "cadence": 5,
       "construction_cost": [

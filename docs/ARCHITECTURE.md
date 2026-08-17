@@ -20,10 +20,10 @@ direction fixture and never reads HexLife source or `node_modules`. No package r
 
 The Rust `Core` owns all state that can change a game result:
 
-1. A versioned seed and coordinate hash generate fixed-size continuous environment chunks without
-   shared traversal state. Ordered feature maps hold circular water/rock obstacles and finite
-   resource regions; their world coordinates, radii, quantities, collision, and placement legality
-   are native state and checksum inputs.
+1. A versioned seed and integer value noise generate fixed-size axial environment chunks without
+   shared traversal state. Terrain bands and resource fields are derived from seed and hex; only
+   the sparse depletion overlay, the generated chunk set, and ordinary simulation state are
+   checksum inputs. Collision and placement read the hex under the point.
 2. The player has native integer `x/y`, facing and bounded movement intent vectors, action cooldown,
    world-unit build range, a carrying slot count, and an ordered `item_id → quantity` inventory.
    Gathering, delivery, construction costs, erasing, withdrawal, and research are native.
@@ -40,10 +40,9 @@ The Rust `Core` owns all state that can change a game result:
    once there is room; a withdrawal moves what fits and leaves the rest in the container. Like
    `build_range`, the slot count is a scenario property validated on load rather than a checksum
    input, so the save format and every existing checksum are untouched by it.
-5. Placement asks one overlap question of a deposit and of an obstacle alike, at two tuned
-   interpenetration depths. The two used to be different tests — a hex centre inside the deposit
-   circle, against two circles merely touching — which, against a 1774-unit hex step, made a deposit
-   between two hex centres unminable while a rock between two hex centres blocked both.
+5. Placement asks whether the hex is a field cell (for extractors) or blocking terrain (for
+   everything). `deposit_candidates` and `resource_at_world` share that field predicate. Extractors
+   harvest every field cell within hex radius 1.
 6. Placed entities keep definition, axial anchor, orientation, cargo, inventory, reserved recipe
    inputs, progress, and scenario ownership separate. Definitions include a bounded axial footprint;
    occupancy, collision, edit targeting, scenario validation, and snapshots rotate the same data.
