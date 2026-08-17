@@ -14,9 +14,12 @@ Read that as the engine's internal ordering. The project goal was restated on 20
 is a game first, and the architecture is the means that makes the game possible at scale. See
 **Product decision** below for the pillars that now govern milestone selection — engineering work is
 chosen for the play it unlocks, and a milestone that improves nothing the player can feel needs a
-reason to come before one that does. **Game Feel v0.9** shipped under that ordering; the binary
-delta encoding is the next engine milestone, and the drag's per-cell transport recompile is a new
-entry on the engine list.
+reason to come before one that does. **Game Feel v0.9** and **Playability v0.10** both shipped under
+that ordering. Next is the four-milestone arc in **Roadmap after v0.10**: World Shape v0.11,
+Material Base v0.12, Power v0.13, and Upgrades and Tiers v0.14. The binary delta encoding stays the
+next engine milestone and should land between v0.12 and v0.13, before those milestones grow the
+snapshot it compacts; the renderer measurement gates animation; and the drag's per-cell transport
+recompile is unblocked and can land anywhere.
 
 Target repository: `https://github.com/Sidem/HexFactory`
 
@@ -31,6 +34,42 @@ not a source dependency: HexFactory imports only the published package. Treat th
 read-only unless a future task explicitly authorizes a separately released generic package change.
 
 ## Shipped implementation record
+
+- Playability v0.10 is the milestone playtesting asked for, and it is the first to change what the
+  player may carry. Placement stopped asking the same question two ways: a deposit was tested by
+  whether a hex centre fell inside it and an obstacle by whether two circles touched at all, which
+  against a 1774-unit hex step made a deposit between two hex centres unminable while a rock between
+  two hex centres blocked both. Both now use `placement_overlap` at two tuned interpenetration
+  depths — zero for a deposit, so the smallest generated deposit stays reachable from some hex
+  against the lattice's 1024-unit covering radius, and 400 for an obstacle, so a rock that grazes a
+  hex no longer makes it unbuildable. `deposit_candidates` and `resource_at_world` share that one
+  predicate, so a resolved extractor reference cannot drift from the placement rule.
+  Research clicks are no longer dropped: `renderTechnologies` rebuilt every button on every snapshot
+  update, so a rebuild landing between pointer-down and pointer-up destroyed the pressed button and
+  the delegated `click` resolved to nothing. Every host list carrying a control is now patched in
+  place through one reconciler, and the hotbar stopped rewriting its buttons' inner nodes for the
+  same reason. Verified in a real browser: the pressed control survives a re-render and the
+  delegated handler still finds it.
+  The player walks on its own cadence. `advance_player` left the simulation tick, `advance` takes a
+  player-step count beside the tick count, and the host derives that count from elapsed real time
+  and a rate native publishes — so walking is unaffected by pause and by the speed multiplier while
+  staying integer, native, and deterministic. Frame-coupled movement stayed refused; the host sends
+  a count, never a position.
+  Carrying capacity arrived as a rule over the existing inventory rather than as a stored slot
+  array: `ceil(quantity / stack_size)` slots against a scenario slot count, so the save format, the
+  checksum inputs, and every ordering guarantee are untouched, and the slot grid is presentation
+  over stacks native resolves. The three paths that add to the player each answer for themselves —
+  gathering into a full pack is refused, a withdrawal moves what fits, and an erase whose refund
+  would not fit is refused whole. That last one was the open gameplay decision, and refusal is the
+  only one of the three candidates that keeps conservation exact and leaves the recovery available
+  once there is room; the removal preview reports it, so a drag cannot promise a recovery it will
+  refuse. `withdraw` joins `place` and `erase` as a bounded, range-checked command, with the
+  requested quantity as a ceiling rather than a demand. The research panel now states what each
+  technology unlocks, what it costs, and which of the two reasons makes it unavailable.
+  Save version 3 and definition version 4 reject v0.9 saves, which is correct: a pack that could not
+  hold what a v0.9 save recorded is not the same game. The capacity ladder reproduces its v0.8
+  checksums — the workload's player carries nothing and never walks — so the recorded ladder still
+  compares directly.
 
 - Game Feel v0.9 is the first milestone chosen by the restated game-first goal rather than by the
   capacity ladder, and it attacks the friction between intent and result. A belt run is now one
@@ -133,6 +172,415 @@ read-only unless a future task explicitly authorizes a separately released gener
   collision and gathering, proximity-limited construction, definition-driven rotated footprints,
   and a construction-only/toggled grid. Its HXF1 save and generator versions are intentionally
   incompatible with v0.2. The exact public geometry dependency remains unchanged.
+
+## Shipped milestone — Playability v0.10
+
+Sourced from playtesting on 2026-08-17, not from the capacity ladder. Two of these were defects with
+arithmetic behind them, one collided with a determinism invariant and needed the resolution recorded
+below, and the rest were the systems the game was missing. All six shipped; the diagnoses are kept
+here because they are what the code now has to keep being true of.
+
+### 1. Placement geometry — one bug with opposite signs
+
+Both complaints come from `placement_legality` using two different tests for the same question:
+
+| Check                      | Test                                 | Effective distance     |
+| -------------------------- | ------------------------------------ | ---------------------- |
+| Deposit under an extractor | point-in-circle, `resource_at_world` | hex centre within 720  |
+| Rock or water blocking     | sum of radii, `circles_overlap`      | centres within 690+660 |
+
+Hex spacing is 1774 world units. A deposit of radius ~720 is therefore narrower than a single hex
+step, so a deposit sitting between two hex centres can host no extractor at all — while an obstacle
+blocks anything within 1350 and one rock between two hexes blocks both. Adopt one overlap rule for
+both and tune the thresholds by feel: an extractor should be legal when its hex meaningfully covers
+the deposit, and an obstacle should block only when it meaningfully intrudes, not when it grazes.
+
+`deposit_candidates` deliberately mirrors `resource_at_world`, and
+`resolved_deposit_references_match_a_full_tile_scan_and_survive_generation` pins the two equal. They
+move together, or the cached extractor reference silently stops matching the placement rule.
+
+### 2. Research clicks that go nowhere
+
+`renderTechnologies` calls `replaceChildren` and rebuilds every button on every snapshot update —
+about once a second at speed 1 and more above it. The click listener is delegated on the container,
+so a rebuild landing between pointer-down and pointer-up destroys the pressed button, the browser
+retargets `click` to the container, `closest("button[data-technology-id]")` returns null, and the
+research is silently dropped. Patch the buttons in place instead of recreating them, and treat the
+same pattern in `renderHotbar` and `renderInventory` as suspect. This is a diagnosis from the code,
+not a reproduction: the hidden-pane rAF block that stops the frame loop also stops the re-render, so
+confirm it with a real click before and after.
+
+### 3. Player movement on its own cadence
+
+`advance_player` runs inside the simulation tick, so the player stops when the factory pauses and
+walks at a quarter speed at 0.25× — which is the actual complaint. The literal fix, driving movement
+from the render loop, is not available: player position is a checksum input and browser frame rate
+may not change a deterministic result.
+
+**Resolution:** give the player a fixed native cadence of its own that always advances at one rate,
+independent of pause state and of the speed multiplier. Movement stays integer, native, and
+deterministic; it stops being a slave to factory time. That satisfies walking while paused and
+walking at full speed at any sim speed. Frame-coupled movement stays refused, and any proposal for
+it has to price what it does to saves and checksums first.
+
+### 4. A carrying inventory with stacks
+
+Decided by playtest: the player gets a slot grid with per-stack limits, so carrying capacity becomes
+a real constraint and containers exist to solve it.
+
+**Recommended model:** keep `item_id → quantity` as the truth and express capacity as a _rule over_
+it — each item occupies `ceil(quantity / stack_size)` slots, and a fixed slot count is enforced on
+every path that adds to the inventory. This gives real carrying pressure and a grid UI without
+changing the save format, the checksum inputs, or the ordering guarantees, and without a slot array
+that has to be serialized and validated. Only adopt real per-slot state if players must rearrange slots
+by hand, which is a much larger change and is not what was asked for.
+
+Every path that _adds_ to the inventory now needs a full-inventory answer, and these are gameplay
+decisions, not implementation details: gathering when full, withdrawing when full, and — the one
+that is easy to miss — `erase`, which today refunds construction cost plus the building's entire
+contents straight into the player. Refusing the erase, partially refunding, or spilling to the
+ground are all defensible; pick one, state it, and test it.
+
+**Decided and shipped:** gathering into a full pack is refused; a withdrawal moves what fits and
+leaves the rest in the container; an erase whose full refund will not fit is refused whole. Refusal
+is the only one of the three erase candidates that keeps item conservation exact and leaves the
+recovery available once the player has made room, and it keeps the refund policy exactly 100% rather
+than turning it into "as much as fits". The removal preview reports it, so a drag cannot promise a
+recovery it will refuse. Slot sizes shipped as ore 20, crystal 10, component 10, against 6 carried
+slots in the new game and 10 in the factory demo.
+
+### 5. Withdraw from containers
+
+A new bounded native command beside `place` and `erase`, range-checked the same way, moving a
+requested quantity from a container's inventory into the player's under the capacity rule above.
+Straightforward once 4 has answered what happens when the player is full.
+
+### 6. Research that explains itself
+
+The separate half of the research complaint. The tree does not communicate what a technology
+unlocks, what it costs, or why it is unavailable, and the panel is disconnected from the buildings
+it gates. Design work, not a bug fix.
+
+### Deliberately not in v0.10
+
+- Slots are a rule over `item_id → quantity`, not real per-slot state. Rearranging slots by hand
+  would mean a serialized, validated slot array and a new ordering guarantee, which is a much larger
+  change than anything playtesting asked for.
+- Withdrawal is by hand from containers only, and is not an inserter. Moving items between buildings
+  automatically is transport, and transport is the belt's job until a milestone says otherwise.
+- Composers cannot be unloaded. A composer's reserved inputs and progress are mid-recipe state, and
+  taking from them means deciding what happens to a part-finished job — a question worth its own
+  pass, not an aside in this one.
+- The action cooldown still runs on simulation time. Only movement moved to the player's cadence,
+  because only movement was the complaint; a paused factory therefore still stops repeat gathering,
+  which is the defensible reading of a paused world.
+
+### Deferred past v0.10 — upgrades and tiers
+
+Larger containers and upgraded buildings are the largest item raised and deserve their own
+milestone: tiered definitions, an upgrade command that preserves contents and connections, and the
+progression to earn them. Keeping it out of v0.10 keeps v0.10 shippable. It was originally slotted
+as v0.11; the roadmap below moves it to **v0.14**, because tiers need better materials to be built
+from and a power budget to improve, and both arrive first.
+
+## Roadmap after v0.10 — the world, its materials, and its power
+
+Sourced from a design conversation on 2026-08-17. Four milestones with a real dependency chain: the
+world has to produce more kinds of matter before recipes can combine them, recipes have to exist
+before generators are worth building, and all three have to exist before tiers have anything to
+spend or improve. Each entry states the play it unlocks, per the design pillars.
+
+| Milestone                | Unlocks                                                    | Depends on      |
+| ------------------------ | ---------------------------------------------------------- | --------------- |
+| v0.11 World Shape        | A world worth walking across and choosing a site on        | v0.10 item 1    |
+| v0.12 Material Base      | A production tree instead of one recipe                    | v0.11 fields    |
+| v0.13 Power              | A second constraint that reshapes layout                   | v0.12 materials |
+| v0.14 Upgrades and Tiers | Growth in place; extraction radius as the flagship upgrade | v0.12 and v0.13 |
+
+**Where the engine milestones slot.** The compact binary delta encoding should land no later than
+between v0.12 and v0.13. Every milestone here grows the snapshot — more item IDs in more
+inventories, terrain with more bands, then a power network with a per-entity satisfaction figure —
+and `docs/BENCHMARKS.md` already priced the worker boundary at roughly 10 µs/KB. Growing the payload
+before compacting it spends the measured headroom on the wrong thing. The renderer measurement is
+the gate for animation (see **Art direction and sprites** below), so it wants to happen during
+v0.12. The drag's per-cell transport recompile has no dependency here and can land anywhere.
+
+### v0.11 — World Shape
+
+#### What generation does today
+
+`generated_tile` hashes each `(q, r)` independently and reads three unrelated moduli off it:
+`hash % 31 == 0` is water, `hash % 23 == 0` is rock, `hash % 67 == 1` is an iron deposit,
+`hash % 149 == 2` is a crystal deposit. Independent primes over independent hashes cannot cluster —
+the output is salt-and-pepper by construction, and no amount of tuning those constants produces a
+lake or a ridge. A radius-7 circle around the landing site is cleared by `near_landing`.
+
+Two lattices are also in play, and this matters for the rewrite. Feature circles are placed at
+`q * FEATURE_SPACING` with ±512 jitter — a rectangular 2048 grid — while hexes are placed by
+`axial_world` at `(q * 1774 + r * 887, r * 1536)`. Both are keyed by the same `(q, r)`, and they
+coincide only near the origin. Generation driven by player position (`ensure_neighborhood`) uses the
+feature lattice and is self-consistent; the scenario's `ensure_tile(placed.q, placed.r)` feeds axial
+coordinates into it and gets away with it only because the prebuilt factory sits near the origin.
+The guaranteed scenario tiles overwrite `x, y` with `axial_world`, which is why the demo start looks
+aligned and the open world does not. Collapse these to one lattice as part of this milestone.
+
+This is diagnosed from reading `factory-wasm/src/lib.rs`, not from a reproduction.
+
+#### Resource fields
+
+Replace point deposits with continuous fields. A field is a deterministic function of seed and world
+position returning `(item_id, richness)`, sampled per hex cell. Cells with richness above a
+threshold hold extractable quantity; everything else is barren and costs nothing to store, which is
+the existing sparsity invariant applied to terrain rather than to entities.
+
+Depletion is the only mutable part. Keep the existing tile map as a **sparse depletion overlay**:
+generation yields the initial quantity as a pure function, and only cells an extractor has actually
+drawn from get a stored remainder. Unmined field area stays free. The overlay is real state — it is
+saved, hashed, and checksummed — while the generated field underneath it is derived and must not be.
+That split is the same rule the resolved deposit references already follow.
+
+#### Extraction radius
+
+An extractor harvests every field cell within radius R of itself, draining them in a stable order
+(distance, then cell key — the ordering `deposit_candidates` already establishes). Yield per cycle
+falls as the nearby cells empty, so an extractor slowly starves in place instead of stopping dead,
+and the player feels the field thin out. Base R in v0.11 is fixed; **v0.14 makes R the flagship
+upgrade**, which is the most legible possible demonstration of what an upgrade is for.
+
+Two consequences to design deliberately: overlapping extractors compete for the same cells and must
+resolve by stable entity ID like every other arbitration, and a large R means one placement decision
+covers many cells, so the cost of a wrong site should be real but not punishing.
+
+#### Natural terrain — basins, hills, and cliffs
+
+Layer two integer noise fields, elevation and moisture, and read terrain out of bands rather than
+out of moduli. Value noise with integer interpolation keeps it deterministic and keeps sampling
+pure, so a tile still needs no neighbors outside its chunk.
+
+- **Deep water / shallow water** below the sea-level band, which produces basins and lakes with
+  actual shorelines instead of scattered puddles.
+- **Shore** — the transition band, and the natural home for sand and clay.
+- **Lowland** — buildable, the default.
+- **Highland / hills** — buildable, gates wind generation later.
+- **Cliff** — where the elevation gradient between adjacent cells is steep. Impassable and
+  unbuildable until mined. Deriving cliffs from the gradient rather than from a band is what makes
+  them read as edges of a landform rather than as another kind of rock.
+
+Correlate the resource fields with the terrain so that geography is information: iron and coal in
+highlands, copper in hills, stone at cliffs, sand and clay along shores, wood in moist lowlands,
+water in basins. This is what makes the fog frontier worth pushing and gives the surveyed world
+something to say.
+
+#### Hex scale relative to the player
+
+Two independent knobs, currently conflated:
+
+- **`PLAYER_RADIUS` (360) against `HEX_X` (1774)** is the only thing that sets how large the player
+  is relative to a hex. The player currently spans about 41% of one hex step. Raising
+  `PLAYER_RADIUS` toward 540–620 (with `PLAYER_SPEED` raised proportionally so the walk keeps its
+  feel) makes the grid read smaller against the player without touching the world lattice.
+- **`BASE_HEX_SIZE` (31 px)** sets how many hexes fit on screen. It is pure presentation and free to
+  change.
+
+The renderer does not currently derive the drawn player from `PLAYER_RADIUS` at all — `drawPlayer`
+hardcodes `size * 0.3` and `size * 0.48` against the pixel hex size, so the drawn body and the
+collision circle are only coincidentally similar and would visibly desync the moment the ratio
+changes. Publish `PLAYER_RADIUS` in the snapshot (or pin it in `fixtures/`) and derive the drawing
+from it, then change the ratio once, natively. Do the derivation first; it is a correctness fix that
+happens to be the prerequisite.
+
+If the hex constants themselves should change, this is the milestone to do it in: v0.11 bumps
+`WORLD_GENERATOR_VERSION` regardless, so a lattice change rides along at no extra compatibility cost.
+
+#### Cost and compatibility
+
+This milestone invalidates every existing save. `WORLD_GENERATOR_VERSION` goes to 3 and `load` will
+reject version-2 envelopes, which is the behavior already in place and is correct — a save whose
+world regenerates differently is not the same world. Say so in the release notes rather than
+attempting a migration; there is no honest migration from salt-and-pepper to fields.
+
+`resolved_deposit_references_match_a_full_tile_scan_and_survive_generation` has to be rewritten
+against fields rather than merely updated, and the v0.10 placement-legality fix has to be re-tuned
+here. That argues for v0.10 item 1 fixing the **inconsistency** — one overlap rule for both tests —
+and deliberately not over-investing in threshold tuning that this milestone will redo.
+
+### v0.12 — Material Base
+
+Eight raw resources and a first processing tier. The point is not quantity; it is that a material
+should arrive from somewhere specific and become something the player wanted.
+
+#### Raw resources
+
+| Resource   | Source                  | Terrain              |
+| ---------- | ----------------------- | -------------------- |
+| Iron ore   | field                   | highland             |
+| Copper ore | field                   | hills                |
+| Coal       | field                   | highland, near rock  |
+| Stone      | field, and mined cliffs | cliffs, rock         |
+| Sand       | field                   | shore, dry basin     |
+| Clay       | field                   | shore, moist lowland |
+| Wood       | flora, regrowing        | moist lowland        |
+| Water      | pumped                  | basins               |
+
+Regrowing flora is the one genuinely new source behavior: a harvested cell refills on an integer
+cadence, which makes wood renewable while ore is finite and gives the two categories different
+strategic weight.
+
+Biomatter and waste are deliberately **not** here. They arrive later with animals, where a living
+population gives biomatter a source that behaves unlike a field and gives waste somewhere to go
+besides a void. Pulling them forward would mean designing that economy twice.
+
+#### First recipes
+
+Tier 1, each a single machine, each cheap enough to build early:
+
+| Output       | Recipe              | Machine |
+| ------------ | ------------------- | ------- |
+| Iron plate   | 2 iron ore + fuel   | Smelter |
+| Copper plate | 2 copper ore + fuel | Smelter |
+| Glass        | 2 sand + fuel       | Smelter |
+| Brick ×3     | 2 clay + fuel       | Kiln    |
+| Charcoal     | 2 wood              | Kiln    |
+| Timber ×2    | 1 wood              | Cutter  |
+| Gravel ×2    | 1 stone             | Crusher |
+
+Tier 2, the first recipes that combine across sources:
+
+| Output         | Recipe                      |
+| -------------- | --------------------------- |
+| Copper wire ×2 | 1 copper plate              |
+| Gear           | 2 iron plate                |
+| Frame          | 2 timber + 1 iron plate     |
+| Concrete ×2    | 2 gravel + 1 sand + 1 water |
+| Circuit        | 1 glass + 3 copper wire     |
+| Steel          | 2 iron plate + 2 coal       |
+
+Charcoal is deliberately reachable without coal, so a player who lands away from a coal field can
+still bootstrap smelting from trees. Concrete is the first recipe that needs water, which is what
+makes basins worth building near rather than merely worth looking at.
+
+#### What the engine actually needs
+
+Most of this is data, which is the point of "definitions, not callbacks". Two real changes:
+
+1. **Fuel as an item property, not a recipe input.** Give `ItemDefinition` an optional `fuel_value`
+   and `BuildingDefinition` an optional fuel slot. Then a smelter recipe never names coal, and coal
+   and charcoal are interchangeable at different values — as is every fuel added later. Putting fuel
+   in `inputs` would force one recipe per fuel and hardcode the bootstrap path.
+2. **Machine categories.** Smelter, kiln, cutter, and crusher are all the existing `Composer` kind
+   with different recipes — no new `BuildingKind` for any of them. What is missing is a category tag
+   on recipes and buildings so a kiln cannot run a circuit recipe. One field, one check at recipe
+   assignment.
+
+`BuildingKind` gains only **Pump** in this milestone (draws from water terrain rather than from a
+deposit, so it is genuinely not an extractor).
+
+**Multi-output recipes are not needed here.** `RecipeDefinition.output` is a single `Ingredient`,
+and with byproducts deferred alongside waste, nothing in this tree produces two different items.
+Quantities above one (`Brick ×3`, `Timber ×2`) are already covered by `Ingredient.quantity`.
+`outputs: Vec<Ingredient>` arrives with the byproduct economy that needs it — a definition-format
+version bump plus the composer's output path, with outputs emitting in declared order. Adding it
+early would be a format change with no consumer.
+
+Note also that the shipped `component` recipe's description names a crystal its `inputs` never
+list — worth reconciling while the definitions are open.
+
+### v0.13 — Power
+
+Electricity is the second constraint. Transport is about where things go; power is about what a
+region can afford to run, and it reshapes layout in a way nothing else in the game currently does.
+
+#### The network model
+
+A third compiled representation beside the transport graph, exactly as the **Long-term model**
+section anticipates. Poles connect; connected components compile into networks; each network holds
+integer supply and demand per tick. Consumers declare a draw, generators declare an output, and both
+recompile on edit like the transport graph does.
+
+**Determinism rule:** no floats, and no dependence on iteration order. Compute
+`satisfied = min(supply, demand)` per network, then advance each consumer's progress by
+`base * satisfied / demand` in integer arithmetic, accumulating the per-entity remainder so total
+work is exact and brownouts slow machines smoothly rather than stalling an arbitrary subset. Where a
+tie must be broken, break it by stable entity ID like every other arbitration.
+
+#### Generation
+
+| Source           | Input         | Terrain gate     | Role                |
+| ---------------- | ------------- | ---------------- | ------------------- |
+| Burner generator | any fuel item | none             | Bootstrap           |
+| Boiler + turbine | water + fuel  | near water       | Mid-game workhorse  |
+| Wind turbine     | none          | highland / hills | Fuel-free, sited    |
+| Hydro            | none          | basin edge       | Scarce, high output |
+
+The boiler-and-turbine pair is deliberately two buildings: it is the first thing the player builds
+that is a _system_ rather than a machine. Wind and hydro are where v0.11's terrain pays off — a good
+power site becomes a reason to have explored. Keep wind at a fixed output for this milestone;
+intermittency has to be a deterministic function of tick and position, never a runtime roll, and
+that is a design problem worth its own pass. Solar needs a day cycle and is deferred with it.
+
+#### Water: an item first, a fluid network later
+
+Water is wanted by concrete and by boilers, and the tempting move is a fluid network. Do not build
+two network models in one milestone. Have the pump output a water item that rides ordinary belts;
+basins become worth building near immediately, and the fluid network can arrive later as a genuine
+improvement rather than as scope that sank the milestone. Say plainly in the notes that belted water
+is an interim model.
+
+#### Accumulators
+
+Deferred. They are the natural answer to intermittent generation, and intermittent generation is
+itself deferred; they arrive together.
+
+### v0.14 — Upgrades and Tiers
+
+The originally-deferred milestone, now with something to spend and something to improve. Tiered
+building definitions, an upgrade command that preserves contents, orientation, and connections, and
+the progression that earns them. **Extraction radius is the flagship upgrade** — it is visible on
+the map, it changes a decision the player already made, and it demonstrates what tiers are for
+better than a bigger box does. Larger containers, faster smelters, and more efficient generators
+follow the same pattern.
+
+### Deferred beyond this arc
+
+Named here so they are decisions rather than omissions, each with the thing it is waiting for:
+
+- **Animals, biomatter, and waste.** One milestone, not three. A living population is what gives
+  biomatter a source that behaves unlike a field — it grows, it can be depleted past recovery, it
+  moves — and it is what gives waste somewhere to go besides a void. Designing the byproduct economy
+  before its consumer exists would mean designing it twice. This is also what brings
+  `outputs: Vec<Ingredient>` into `RecipeDefinition`.
+- **Fluid networks.** Water ships as a belted item in v0.13; the real network is an improvement on a
+  working game rather than a second network model built in the same milestone as the first.
+- **Intermittent generation and accumulators.** They arrive together. Intermittency has to be a
+  deterministic function of tick and position, never a runtime roll, and that is its own design
+  pass.
+- **A day cycle, and solar with it.** A day cycle is a presentation and simulation change at once
+  and should be chosen for what it does to the game's feel, not smuggled in as a power source.
+- **Terraforming.** Cliffs are unbuildable until mined in v0.11; whether the player may reshape
+  elevation, and what that costs, is a question the world has to exist before anyone can answer.
+
+### Art direction and sprites — when
+
+Three stages, gated on what would otherwise be redrawn or unaffordable.
+
+**Stage A — art direction, during v0.11.** No engine change. The terrain bands need a palette
+before they can be drawn at all, so the direction pass is not optional work that happens to be
+early; it is a v0.11 dependency. Deliverables: palette for the elevation and moisture bands, shape
+language for buildings, the rule for how a sprite fits a hex cell, and one still mockup of a running
+factory to argue about. Also define the item icon system here and apply it to the current three
+items — v0.10's inventory grid will be displaying `"icon": "ORE"` string codes, and that is the
+cheapest visible improvement available.
+
+**Stage B — static sprite set, after v0.12.** The building and item roster is not stable until the
+material base lands; drawing sprites before that guarantees redrawing them. Once it is stable, do
+the full item icon set and static building sprites as an atlas, still on Canvas 2D.
+
+**Stage C — animation, gated on the renderer measurement.** Belt motion, machine work cycles,
+extractor pulses, and water shimmer are per-frame per-entity draws, and rendering is the half of the
+frame `docs/BENCHMARKS.md` has never measured. AGENTS.md forbids claiming anything about it, so
+animation stays behind the renderer measurement that is already on the follow-up list — measure
+first, then decide whether the animated frame wants a different renderer, then animate. This is the
+one place where the schedule is set by an invariant rather than by preference.
 
 ## Shipped milestone — Game Feel v0.9
 

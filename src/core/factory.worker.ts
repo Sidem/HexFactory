@@ -56,6 +56,9 @@ async function handle(request: WorkerRequest): Promise<unknown> {
     return {
       snapshot: JSON.parse(native.snapshot_json()) as FactorySnapshot,
       revision: 0,
+      // The player's walking cadence is native truth; the host only converts elapsed real time
+      // into a step count with it.
+      playerTicksPerSecond: Factory.playerTicksPerSecond(),
     };
   }
 
@@ -64,7 +67,8 @@ async function handle(request: WorkerRequest): Promise<unknown> {
     case "advance": {
       const commands = (payload.commands ?? []) as NativeInputCommand[];
       const ticks = Number(payload.ticks ?? 0);
-      factory.advance_json(JSON.stringify(commands), ticks);
+      const playerSteps = Number(payload.playerSteps ?? 0);
+      factory.advance_json(JSON.stringify(commands), ticks, playerSteps);
       return delta(factory);
     }
     case "reset":

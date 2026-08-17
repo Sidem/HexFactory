@@ -26,7 +26,11 @@ presentation.
   cells. Travelling past the dashed survey frontier generates new world and permanently lifts its
   fog.
 - Hold `F` to keep gathering a nearby deposit; deliver the complete player inventory while beside
-  the hub with `X`.
+  the hub with `X`. Your pack holds a fixed number of stacks, so gathering — and recovering a
+  building with something inside it — stops when no slot is free. Select a container and use the
+  inspector's **Take** buttons to move stock back into your pack.
+- Walking runs on its own cadence: it is unaffected by the simulation speed and continues while the
+  factory is paused.
 - Select build tools with the hotbar or number keys `1`–`9`, and click to place on the construction
   grid. With a belt or other single-hex building selected, **drag across the map to lay a whole run
   at once** — it routes itself, turning where the drag turns, and the preview shows exactly which

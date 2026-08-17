@@ -13,6 +13,7 @@
       "player_spawn": { "q": 1, "r": 0 },
       "player_facing": 0,
       "build_range": 5,
+      "carry_slots": 6,
       "objective_item_id": 2,
       "objective_quantity": 3,
       "resources": [],
@@ -38,6 +39,7 @@
       "player_spawn": { "q": 0, "r": -2 },
       "player_facing": 1,
       "build_range": 8,
+      "carry_slots": 10,
       "objective_item_id": 2,
       "objective_quantity": 999,
       "initial_inventory": [

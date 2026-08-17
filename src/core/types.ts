@@ -23,6 +23,8 @@ export interface ItemDefinition {
   icon: string;
   description: string;
   insight_value: number;
+  /** How many of this item fill one carried slot. The rule itself lives in Rust. */
+  stack_size: number;
 }
 
 export interface RecipeDefinition {
@@ -143,6 +145,13 @@ export interface PlayerSnapshot extends WorldPoint {
   inventory: Record<string, number>;
   action_cooldown: number;
   build_range: number;
+  /** How many stacks the player can carry at once. */
+  carry_slots: number;
+  /**
+   * The carried inventory laid out one entry per occupied slot, resolved natively. The host draws
+   * these and pads to `carry_slots`; it never re-derives the stacking rule for itself.
+   */
+  carry_stacks: Ingredient[];
 }
 
 export interface FactorySnapshot {
@@ -246,6 +255,17 @@ export type NativeInputCommand =
   | { type: "erase"; q: number; r: number }
   | { type: "erase_line"; q: number; r: number; to_q: number; to_r: number }
   | { type: "rotate"; q: number; r: number }
+  /**
+   * Take stock out of a container by hand. `quantity` is a ceiling: native moves what the
+   * container holds and what the player can still carry, and reports how much actually moved.
+   */
+  | {
+      type: "withdraw";
+      q: number;
+      r: number;
+      item_id: number;
+      quantity: number;
+    }
   | { type: "undo" }
   | { type: "research"; technology_id: number };
 
@@ -254,7 +274,7 @@ export interface NativeFactory {
   reset(): void;
   new_game(scenarioKey: string, seedOverride?: number): void;
   apply_commands_json(commands: string): void;
-  advance_json(commands: string, count: number): void;
+  advance_json(commands: string, count: number, playerSteps: number): void;
   placement_preview_json(
     q: number,
     r: number,

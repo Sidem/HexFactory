@@ -32,6 +32,7 @@ export interface FactoryTransport {
 interface InitialSnapshot {
   snapshot: FactorySnapshot;
   revision: number;
+  playerTicksPerSecond: number;
 }
 
 interface WorkerResponse {
@@ -93,14 +94,21 @@ export class FactoryHost {
   readonly definitions: Definitions;
   readonly technologies: Technologies;
   readonly scenarios: Scenarios;
+  /**
+   * The player's fixed walking cadence in steps per real second, reported by the native core. The
+   * host converts elapsed real time into a step count with it and invents no rate of its own.
+   */
+  readonly playerTicksPerSecond: number;
   private revision: number;
 
   private constructor(
     private readonly transport: FactoryTransport,
     private currentSnapshot: FactorySnapshot,
     revision: number,
+    playerTicksPerSecond: number,
   ) {
     this.revision = revision;
+    this.playerTicksPerSecond = playerTicksPerSecond;
     this.definitions = definitionsJson as Definitions;
     this.technologies = technologiesJson as Technologies;
     this.scenarios = scenariosJson as Scenarios;
@@ -118,7 +126,12 @@ export class FactoryHost {
       const initial = await transport.request<InitialSnapshot>("create", {
         scenario,
       });
-      return new FactoryHost(transport, initial.snapshot, initial.revision);
+      return new FactoryHost(
+        transport,
+        initial.snapshot,
+        initial.revision,
+        initial.playerTicksPerSecond,
+      );
     } catch (error) {
       transport.dispose();
       throw error;
@@ -129,18 +142,25 @@ export class FactoryHost {
     transport: FactoryTransport,
     initial: FactorySnapshot,
     revision = 0,
+    playerTicksPerSecond = 30,
   ): FactoryHost {
-    return new FactoryHost(transport, initial, revision);
+    return new FactoryHost(transport, initial, revision, playerTicksPerSecond);
   }
 
+  /**
+   * One frame of native work. `ticks` is what the simulation speed is worth and `playerSteps` what
+   * the frame's real time is worth, because the player walks on its own cadence.
+   */
   async advance(
     commands: NativeInputCommand[],
     ticks: number,
+    playerSteps = 0,
   ): Promise<FactorySnapshot> {
     return this.applyDelta(
       await this.transport.request<FactorySnapshotDelta>("advance", {
         commands,
         ticks,
+        playerSteps,
       }),
     );
   }

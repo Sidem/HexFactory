@@ -1,12 +1,36 @@
-# Browser Capacity v0.8 scope and acceptance
+# Playability v0.10 scope and acceptance
 
-Status: Browser Capacity v0.8 is shipped on the Sparse Snapshot v0.7 delta, the Sparse Cost v0.6
-transport, the Worker Boundary v0.5 RPC, and the Command Surface v0.4 experience. v0.7 built the
-snapshot delta from dirty marks made where state is mutated, rather than by diffing two complete
-snapshots; v0.8 adds no simulation behaviour at all and instead measures the shipped artifact for
-the first time. World, transport, save, checksum, and progression contracts are unchanged, and
-every tier reproduces its v0.5.1 checksum through all three releases. Continuous Exploration v0.3
-and Playable Game v0.2 remain the simulation and historical baselines.
+Status: Playability v0.10 is shipped on the Game Feel v0.9 controls, the Browser Capacity v0.8
+measurement, the Sparse Snapshot v0.7 delta, the Sparse Cost v0.6 transport, the Worker Boundary
+v0.5 RPC, and the Command Surface v0.4 experience. v0.10 is the first release since v0.3 to change
+what the player may do rather than how fast or how comfortably they may do it: placement geometry is
+one rule instead of two, the player walks on its own cadence, the pack has a slot limit, containers
+can be unloaded by hand, and the research panel explains itself. World generation, transport,
+arbitration, and checksum contracts are unchanged, and the capacity ladder still reproduces its
+v0.8 checksums. Continuous Exploration v0.3 and Playable Game v0.2 remain the simulation and
+historical baselines.
+
+## Playability contract
+
+- Placement asks one overlap question of deposits and of obstacles, at two tuned interpenetration
+  depths. `deposit_candidates` and `resource_at_world` share that predicate, so a cached extractor
+  reference cannot drift from the rule that allowed the placement.
+- Walking runs on a native cadence of its own, independent of pause and of the speed multiplier. The
+  host converts elapsed real time into a step count using a rate native publishes, and sends that
+  count beside the tick count. It never sends a position or a delta, so browser frame rate still
+  cannot change a deterministic result.
+- Carrying capacity is a rule over `item_id → quantity`: `ceil(quantity / stack_size)` slots against
+  a scenario slot count. No slot array is stored, so the save format, the checksum inputs, and every
+  ordering guarantee are unchanged. The slot grid draws stacks native resolved.
+- Gathering into a full pack is refused, a withdrawal moves what fits, and an erase whose full
+  refund will not fit is refused whole — so the refund policy stays exactly 100% and nothing is ever
+  destroyed. The removal preview reports the refusal.
+- `withdraw` is a bounded, range-checked command beside `place` and `erase`. Its quantity is a
+  ceiling, not a demand.
+- Host lists that carry a control are patched in place. Rebuilding one between pointerdown and
+  pointerup detaches the pressed control and loses the click; that was the research-panel defect.
+- `HXF1` save version 3 and definition version 4 reject earlier saves. A pack that cannot hold what
+  an older save recorded is not the same game, so there is no migration.
 
 ## Browser capacity contract
 
@@ -61,8 +85,8 @@ and Playable Game v0.2 remain the simulation and historical baselines.
   rather than a group. The host rejects revision gaps before applying presentation patches.
 - Reset, new game, load, save, and placement legality all cross the same worker boundary. Placement
   previews are coalesced so pointer movement cannot create an unbounded request queue.
-- `HXF1` version 2 and deterministic checksums are unchanged. Save strings remain opaque to the
-  browser host.
+- Deterministic checksums are unchanged and save strings remain opaque to the browser host. `HXF1`
+  moved to version 3 in v0.10 because the player state it records gained a carrying slot count.
 
 ## Player-facing command surface
 
@@ -87,17 +111,20 @@ The loop remains intentionally compact:
 
 `explore freely → identify/gather finite resources → deliver for insight → research → construct nearby → automate → win`
 
-The player carries exact native inventory quantities. Field Logistics unlocks belts, Automated
-Extraction unlocks extractors, Composition unlocks the composer, and Storage Planning unlocks
-containers. Construction spends that inventory atomically. Extractors consume finite continuous
+The player carries exact native inventory quantities, up to a fixed number of stacks. Field Logistics
+unlocks belts, Automated Extraction unlocks extractors, Composition unlocks the composer, and Storage
+Planning unlocks containers — which since v0.10 are a real answer to a full pack, because stock can
+be taken back out of them by hand. Construction spends that inventory atomically. Extractors consume finite continuous
 resource regions, transport runs on compiled edges, and delivering three components sets persistent
 native victory while leaving free play enabled.
 
 ## World and interaction contract
 
 - Player and environment positions are integer fixed-point `x/y` owned by Rust. The host sends only
-  bounded held-key intent from `W/A/S/D`; each native tick owns movement, facing, sliding collision,
-  continuous chunk generation, and checksums.
+  bounded held-key intent from `W/A/S/D` plus the number of player steps the frame's real time is
+  worth; native owns movement, facing, sliding collision, continuous chunk generation, and checksums.
+  Movement runs on the player's own cadence rather than inside the simulation tick, so pause and the
+  speed multiplier do not change how fast the player walks.
 - Water, rock, and resource regions are continuous circular features. Resources show kind and
   remaining quantity in the world and can be identified while exploring. `F` gathers within native
   reach; `X` delivers within native hub distance.
@@ -118,11 +145,12 @@ Continuous features are generated into lazy ordered chunks from the versioned se
 hash, without traversal-order state. Stable native entity IDs still arbitrate transfers. Blocked
 transfers and machines leave their sources unchanged.
 
-`HXF1` save version 2 and world-generator version 2 serialize continuous player/feature truth,
+`HXF1` save version 3 and world-generator version 2 serialize continuous player/feature truth,
 footprints, inventories, research, machines, cargo, objective, and checksum. The loader validates
-versions, references, feature uniqueness/radii, entity IDs, footprint overlap, input bounds, and
-checksum. Held movement intent is neutralized after a successful restore. v0.2 saves are rejected
-with an explicit incompatible-version error; browser storage treats the native string as opaque.
+versions, references, feature uniqueness/radii, entity IDs, footprint overlap, input bounds, the
+carrying slot count against its scenario, and the checksum. Held movement intent is neutralized after
+a successful restore. Earlier saves are rejected with an explicit incompatible-version error; browser
+storage treats the native string as opaque.
 
 ## Verification coverage
 
@@ -160,6 +188,16 @@ to tiers by key, rendering an unmeasured tier as absent rather than free, the 60
 entity-count check on the applied snapshot, and a clock-resolution probe against both a clamped and
 a fine-grained clock.
 
+v0.10 adds native coverage for the single placement overlap rule — a deposit displaced most of a hex
+step is still minable, the extractor's cached reference resolves the same deposit the placement rule
+allowed, and an obstacle blocks only past the intrusion depth; for the carrying rule, its stack
+arithmetic, a refused gather, and the stacks the host draws; for an erase refused rather than losing
+items, with the removal preview agreeing; for withdrawal clamped by stock and by space; and for the
+player's cadence advancing while the factory is paused, not advancing when only ticks are spent, and
+covering the same ground at any simulation speed. Host tests add the withdraw opcode, the separate
+player-step count on the wire, the cadence coming from native rather than from a frame delta, and
+that every list carrying a control is patched in place rather than rebuilt.
+
 The local release gate is npm audit, Prettier/Rust formatting, ESLint, strict TypeScript, Vitest,
 Rust tests, Wasm build, and production Vite build. Deployment and live verification are separate
 release actions and must not be implied by local success.
@@ -172,6 +210,8 @@ release actions and must not be implied by local success.
    compact binary encoding over a transferable buffer. Measuring the Canvas renderer against the
    same tiers follows it — no complete browser frame-rate claim is supported until that exists — and
    a renderer decision still waits on both.
-2. Richer biomes/resource identification, inventory capacity/equipment, footprint-aware demolition
-   previews, inserters, splitters, lanes, power, fluids, circuits, trains, enemies, multiplayer, mod
-   scripting, and evolutionary systems remain beyond this deliberately basic milestone.
+2. Richer biomes and resource identification, per-slot inventory rearrangement, equipment,
+   footprint-aware demolition previews, inserters, splitters, lanes, power, fluids, circuits, trains,
+   enemies, multiplayer, mod scripting, and evolutionary systems remain beyond this milestone. The
+   world, material, power, and tier arc that takes several of them on is in
+   `docs/HEXFACTORY-PLAN.md`.

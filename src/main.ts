@@ -11,6 +11,7 @@ import {
 import { FactoryHost } from "./core/FactoryHost";
 import { BoundedInputQueue, MOVEMENT_KEYS, movementIntent } from "./core/input";
 import type {
+  EntitySnapshot,
   FactorySnapshot,
   NativeInputCommand,
   PlacementPreview,
@@ -23,7 +24,7 @@ import "./styles.css";
 
 type Tool = "inspect" | "erase" | "rotate" | number;
 
-const SAVE_KEY = "hexfactory:hxf1:v2";
+const SAVE_KEY = "hexfactory:hxf1:v3";
 const DIRECTION_NAMES = [
   "East",
   "Southeast",
@@ -51,6 +52,13 @@ let selected: { q: number; r: number } | null = null;
 let hover: { q: number; r: number } | null = null;
 let hoverPreview: PlacementPreview | null = null;
 let accumulator = 0;
+/**
+ * Real time owed to the player's own cadence. The factory's accumulator is scaled by the speed
+ * setting and stops while paused; this one is not and does not, because the player walks at one
+ * rate whatever the factory is doing. A standing player accrues nothing, so an idle frame still
+ * costs no worker round trip.
+ */
+let playerAccumulator = 0;
 let previousTime = performance.now();
 let feedbackTimer = 0;
 let lastEvent = "";
@@ -122,16 +130,82 @@ function update(next: FactorySnapshot): void {
     showFeedback("Landing objective complete — free play continues");
 }
 
+/**
+ * Reconcile a keyed list of children in place, reusing the element already rendered for each key.
+ *
+ * Rebuilding a list with `replaceChildren` on every snapshot update destroys the element the
+ * pointer is on between pointerdown and pointerup. The browser then retargets the click to the
+ * container, a delegated `closest()` finds nothing, and the action is silently dropped — which is
+ * exactly why research clicks went nowhere. Any list that carries a control must be patched, not
+ * rebuilt.
+ */
+function syncChildren(
+  container: HTMLElement,
+  keys: string[],
+  create: (key: string) => HTMLElement,
+): HTMLElement[] {
+  const existing = new Map<string, HTMLElement>();
+  for (const child of Array.from(container.children)) {
+    const element = child as HTMLElement;
+    const key = element.dataset.key;
+    if (key !== undefined && !existing.has(key)) existing.set(key, element);
+    else element.remove();
+  }
+  const ordered = keys.map((key) => {
+    const reused = existing.get(key);
+    if (reused) {
+      existing.delete(key);
+      return reused;
+    }
+    const created = create(key);
+    created.dataset.key = key;
+    return created;
+  });
+  for (const stale of existing.values()) stale.remove();
+  ordered.forEach((element, index) => {
+    if (container.children[index] !== element)
+      container.insertBefore(element, container.children[index] ?? null);
+  });
+  return ordered;
+}
+
+/**
+ * The cargo pack as a slot grid. Native resolves which stacks the player is carrying — the host
+ * lays them out and pads the remainder with empty slots, so the stacking rule is not written twice.
+ */
 function renderInventory(): void {
   const element = required<HTMLDivElement>("inventory");
-  element.replaceChildren();
-  for (const item of host.definitions.items) {
-    const quantity = snapshot.player.inventory[String(item.id)] ?? 0;
-    const row = document.createElement("div");
-    row.className = "inventory-item";
-    row.innerHTML = `<span class="swatch" style="--item-color:${item.color}"></span><span>${item.name}</span><strong>${quantity}</strong>`;
-    element.append(row);
-  }
+  const stacks = snapshot.player.carry_stacks;
+  const slots = Math.max(snapshot.player.carry_slots, stacks.length);
+  const cells = syncChildren(
+    element,
+    Array.from({ length: slots }, (_, index) => `slot-${index}`),
+    () => {
+      const cell = document.createElement("div");
+      cell.className = "inventory-slot";
+      cell.setAttribute("role", "listitem");
+      cell.innerHTML = `<span class="swatch"></span><small></small><strong></strong>`;
+      return cell;
+    },
+  );
+  cells.forEach((cell, index) => {
+    const stack = stacks[index];
+    const item = stack
+      ? host.definitions.items.find(({ id }) => id === stack.item_id)
+      : undefined;
+    cell.classList.toggle("filled", Boolean(stack));
+    cell.style.setProperty("--item-color", item?.color ?? "transparent");
+    part(cell, "small").textContent = item?.icon ?? "";
+    part(cell, "strong").textContent = stack ? String(stack.quantity) : "";
+    cell.setAttribute(
+      "aria-label",
+      item && stack
+        ? `${item.name}: ${stack.quantity} of ${item.stack_size}`
+        : "Empty carrying slot",
+    );
+  });
+  required<HTMLElement>("carry-value").textContent =
+    `${stacks.length} / ${snapshot.player.carry_slots} slots`;
 }
 
 function renderHotbar(): void {
@@ -153,18 +227,61 @@ function renderHotbar(): void {
     button.disabled = availability.locked;
     button.classList.toggle("unaffordable", !availability.affordable);
     button.classList.toggle("locked", availability.locked);
-    button.innerHTML = `<span>${availability.locked ? "◇" : definition.icon}</span><small>${availability.locked ? definition.name : `${definition.name} · ${availability.costLabel}`}</small>`;
+    // Text, not `innerHTML`: replacing the inner nodes on every snapshot detaches whichever one
+    // the pointer went down on, and the delegated click then resolves to nothing.
+    part(button, "span").textContent = availability.locked
+      ? "◇"
+      : definition.icon;
+    part(button, "small").textContent = availability.locked
+      ? definition.name
+      : `${definition.name} · ${availability.costLabel}`;
     button.title = `${definition.description} ${availability.costLabel}`;
   }
 }
 
+/**
+ * The research tree, patched in place — see {@link syncChildren} for why rebuilding it lost clicks.
+ *
+ * Every entry now says what it unlocks, what it costs, and, when it is unavailable, which of the
+ * two reasons applies and how far off it is. A locked technology that explains nothing is the same
+ * defect as a control that needs explaining.
+ */
 function renderTechnologies(): void {
   const list = required<HTMLDivElement>("technology-list");
-  list.replaceChildren();
-  for (const technology of host.technologies.technologies) {
+  const technologies = host.technologies.technologies;
+  const buttons = syncChildren(
+    list,
+    technologies.map(({ id }) => String(id)),
+    () => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.innerHTML =
+        '<strong></strong><span class="technology-detail"></span><span class="technology-unlocks"></span><small></small>';
+      return button;
+    },
+  );
+  technologies.forEach((technology, index) => {
+    const button = buttons[index] as HTMLButtonElement;
     const state = technologyAvailability(technology, snapshot);
-    const button = document.createElement("button");
-    button.type = "button";
+    const missing = technology.prerequisites
+      .filter((id) => !snapshot.researched.includes(id))
+      .map(
+        (id) => technologies.find((value) => value.id === id)?.name ?? `#${id}`,
+      );
+    const unlocks = technology.unlocks
+      .map(
+        (id) =>
+          host.definitions.buildings.find((value) => value.id === id)?.name ??
+          `#${id}`,
+      )
+      .join(", ");
+    const status = state.complete
+      ? "Researched"
+      : missing.length
+        ? `Needs ${missing.join(" and ")}`
+        : state.affordable
+          ? `Research for ${technology.cost} insight`
+          : `${technology.cost} insight · you have ${snapshot.insight}`;
     button.dataset.technologyId = String(technology.id);
     button.disabled =
       state.complete || !state.prerequisitesMet || !state.affordable;
@@ -173,19 +290,56 @@ function renderTechnologies(): void {
       : state.prerequisitesMet && state.affordable
         ? "available"
         : "";
-    button.setAttribute(
-      "aria-label",
-      `Research ${technology.name} for ${technology.cost} insight`,
-    );
-    button.innerHTML = `<strong>${technology.name}</strong><span>${technology.description}</span><small>${state.complete ? "Complete" : !state.prerequisitesMet ? "Prerequisite locked" : `${technology.cost} insight`}</small>`;
-    list.append(button);
-  }
+    part(button, "strong").textContent = technology.name;
+    part(button, ".technology-detail").textContent = technology.description;
+    part(button, ".technology-unlocks").textContent = unlocks
+      ? `Unlocks ${unlocks}`
+      : "";
+    part(button, "small").textContent = status;
+    button.setAttribute("aria-label", `${technology.name}. ${status}.`);
+    button.title = unlocks
+      ? `${technology.description} Unlocks ${unlocks}.`
+      : technology.description;
+  });
+}
+
+/**
+ * The take-from-container controls for the inspected hex, patched in place for the same reason the
+ * research list is. `quantity` is the whole stored amount: native clamps it to what the container
+ * holds and to what the player can still carry, and reports how much actually moved.
+ */
+function renderInspectorActions(building: EntitySnapshot | undefined): void {
+  const element = required<HTMLDivElement>("inspector-actions");
+  const stored = building?.kind === "container" ? building.inventory : [];
+  element.hidden = stored.length === 0;
+  const buttons = syncChildren(
+    element,
+    stored.map(({ item_id }) => String(item_id)),
+    () => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "withdraw-button";
+      return button;
+    },
+  );
+  stored.forEach((entry, index) => {
+    const button = buttons[index] as HTMLButtonElement;
+    const item = host.definitions.items.find(({ id }) => id === entry.item_id);
+    const name = item?.name ?? `Item ${entry.item_id}`;
+    button.dataset.itemId = String(entry.item_id);
+    button.dataset.quantity = String(entry.quantity);
+    button.dataset.q = String(building?.q ?? 0);
+    button.dataset.r = String(building?.r ?? 0);
+    button.textContent = `Take ${entry.quantity} ${item?.icon ?? ""}`.trim();
+    button.setAttribute("aria-label", `Take ${entry.quantity} ${name}`);
+  });
 }
 
 function renderInspector(): void {
   const element = required<HTMLDivElement>("selection-value");
   if (!selected) {
     element.textContent = "Select a hex on the map.";
+    renderInspectorActions(undefined);
     return;
   }
   const building = snapshot.buildings.find(({ footprint }) =>
@@ -222,6 +376,7 @@ function renderInspector(): void {
     if (building.scenario_owned) lines.push("Protected scenario object");
   }
   element.textContent = lines.join("\n");
+  renderInspectorActions(building);
 }
 
 function renderObjective(): void {
@@ -261,6 +416,13 @@ function renderNextAction(): void {
     title = "Trace the material flow";
     detail =
       "Follow cargo from extractor to receiver. Pause or single-step to inspect arbitration.";
+  } else if (
+    snapshot.player.carry_stacks.length >= snapshot.player.carry_slots
+  ) {
+    // A full pack blocks gathering and recovery both, so it outranks whatever came next.
+    title = "Your pack is full";
+    detail =
+      "Deliver at the landing hub, or build a container and take stacks back out of it from the inspector.";
   } else if (!researched.has(1) && snapshot.insight >= 3) {
     title = "Unlock Field Logistics";
     detail =
@@ -506,6 +668,22 @@ required<HTMLDivElement>("technology-list").addEventListener(
     enqueue({
       type: "research",
       technology_id: Number(button.dataset.technologyId),
+    });
+  },
+);
+required<HTMLDivElement>("inspector-actions").addEventListener(
+  "click",
+  (event) => {
+    const button = (event.target as Element).closest<HTMLButtonElement>(
+      "button[data-item-id]",
+    );
+    if (!button) return;
+    enqueue({
+      type: "withdraw",
+      q: Number(button.dataset.q),
+      r: Number(button.dataset.r),
+      item_id: Number(button.dataset.itemId),
+      quantity: Number(button.dataset.quantity),
     });
   },
 );
@@ -822,17 +1000,24 @@ function frame(now: number): void {
   const elapsed = Math.min(250, now - previousTime);
   previousTime = now;
   if (playing) accumulator += elapsed * Number(speedInput.value);
+  // Walking is paced by native's cadence against elapsed real time, not by the tick the factory
+  // happens to be running, so a paused or slowed factory no longer pins the player in place.
+  if (pressedMovement.size)
+    playerAccumulator += elapsed * host.playerTicksPerSecond;
+  else playerAccumulator = 0;
   if (!advancePending) {
     // A held gather repeats at frame rate and is paced natively by the action cooldown, so the
     // player holds the key instead of tapping it once per unit.
     if (gatherHeld && !input.size) input.enqueue({ type: "gather" });
     const commands = input.drain();
     const ticks = playing ? Math.min(20, Math.floor(accumulator / 1000)) : 0;
-    if (commands.length || ticks > 0) {
+    const playerSteps = Math.min(20, Math.floor(playerAccumulator / 1000));
+    if (commands.length || ticks > 0 || playerSteps > 0) {
       accumulator -= ticks * 1000;
+      playerAccumulator -= playerSteps * 1000;
       advancePending = true;
       void host
-        .advance(commands, ticks)
+        .advance(commands, ticks, playerSteps)
         .then(update)
         .catch(reportWorkerError)
         .finally(() => {
@@ -936,6 +1121,12 @@ function required<T extends HTMLElement>(id: string): T {
   const element = document.getElementById(id);
   if (!element) throw new Error(`Missing #${id}`);
   return element as T;
+}
+
+function part<T extends HTMLElement>(root: HTMLElement, selector: string): T {
+  const element = root.querySelector<T>(selector);
+  if (!element) throw new Error(`Missing ${selector}`);
+  return element;
 }
 
 update(snapshot);

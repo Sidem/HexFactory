@@ -57,5 +57,10 @@ export function encodeCommand(command: NativeInputCommand): EncodedCommand {
       };
     case "undo":
       return { opcode: 9, args: [] };
+    case "withdraw":
+      return {
+        opcode: 10,
+        args: [command.q, command.r, command.item_id, command.quantity],
+      };
   }
 }

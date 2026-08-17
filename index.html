@@ -99,9 +99,14 @@
           </div>
           <div class="inventory-heading">
             <span class="section-kicker">Cargo pack</span
-            ><small>Construction materials</small>
+            ><small id="carry-value" aria-live="polite">0 / 6 slots</small>
           </div>
-          <div id="inventory" class="inventory" aria-live="polite"></div>
+          <div
+            id="inventory"
+            class="inventory"
+            role="list"
+            aria-label="Carried stacks"
+          ></div>
           <details class="controls-help">
             <summary>Controls &amp; camera</summary>
             <p>
@@ -117,6 +122,12 @@
               one under the cursor when no build tool is held.
               <kbd>Q</kbd> copies whatever is under the cursor, and
               <kbd>Ctrl</kbd>+<kbd>Z</kbd> takes back the last thing you built.
+            </p>
+            <p>
+              Your pack holds a fixed number of stacks, so gathering, and
+              recovering a building with something inside it, both stop when
+              there is no slot free. Build a container, select it, and use the
+              inspector to take stock back out a stack at a time.
             </p>
             <p>
               The hatched veil past the dashed survey frontier is world the
@@ -156,6 +167,12 @@
           <div id="selection-value" class="inspector">
             Select a hex, resource, or machine.
           </div>
+          <div
+            id="inspector-actions"
+            class="inspector-actions"
+            aria-label="Container contents"
+            hidden
+          ></div>
           <p id="placement-value" class="placement-readout"></p>
         </aside>
 

@@ -38,7 +38,8 @@ export function validateDefinitions(
       !item.color ||
       !item.icon ||
       !item.description ||
-      !positiveInteger(item.insight_value)
+      !positiveInteger(item.insight_value) ||
+      !positiveInteger(item.stack_size)
     )
       throw new TypeError(`item ${item.id} is incomplete`);
   }

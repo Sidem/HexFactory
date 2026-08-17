@@ -25,16 +25,33 @@ The Rust `Core` owns all state that can change a game result:
    resource regions; their world coordinates, radii, quantities, collision, and placement legality
    are native state and checksum inputs.
 2. The player has native integer `x/y`, facing and bounded movement intent vectors, action cooldown,
-   world-unit build range, and an ordered `item_id → quantity` inventory. Every native tick applies
-   motion and collision. Gathering, delivery, construction costs, erasing, and research are native.
-3. Placed entities keep definition, axial anchor, orientation, cargo, inventory, reserved recipe
+   world-unit build range, a carrying slot count, and an ordered `item_id → quantity` inventory.
+   Gathering, delivery, construction costs, erasing, withdrawal, and research are native.
+3. Walking runs on the player's own native cadence rather than inside the simulation tick, so a
+   paused or slowed factory does not pin the player in place. The host converts elapsed real time
+   into a step count using a rate native publishes, and sends that count beside the tick count; it
+   never turns a frame delta into a position, so the same commands and counts still reproduce the
+   same position and the same checksum.
+4. Carrying capacity is a rule over the ordinary inventory, not a stored array of slots: each item
+   occupies `ceil(quantity / stack_size)` slots and a scenario fixes the slot count. Every path that
+   adds to the player — gathering, erasing, withdrawing — asks first. Gathering into a full pack is
+   refused; an erase whose refund would not fit is refused whole, which is the only one of refuse,
+   partially refund, and spill that keeps item conservation exact and leaves the recovery available
+   once there is room; a withdrawal moves what fits and leaves the rest in the container. Like
+   `build_range`, the slot count is a scenario property validated on load rather than a checksum
+   input, so the save format and every existing checksum are untouched by it.
+5. Placement asks one overlap question of a deposit and of an obstacle alike, at two tuned
+   interpenetration depths. The two used to be different tests — a hex centre inside the deposit
+   circle, against two circles merely touching — which, against a 1774-unit hex step, made a deposit
+   between two hex centres unminable while a rock between two hex centres blocked both.
+6. Placed entities keep definition, axial anchor, orientation, cargo, inventory, reserved recipe
    inputs, progress, and scenario ownership separate. Definitions include a bounded axial footprint;
    occupancy, collision, edit targeting, scenario validation, and snapshots rotate the same data.
    Initial entity IDs derive from sorted anchors; later IDs are monotonic.
-4. `compile_graph` resolves each entity output into one directed transport edge after edits. Runtime
+7. `compile_graph` resolves each entity output into one directed transport edge after edits. Runtime
    transfers use this compiled graph. Proposals sort by stable entity ID and a rejected transfer
    never changes its source.
-5. A construction or removal drag arrives as one bounded command holding two endpoints. `hex_line`
+8. A construction or removal drag arrives as one bounded command holding two endpoints. `hex_line`
    walks between them by taking the lowest-numbered direction that closes the distance, so a run
    uses at most two directions and turns once, and each cell then goes through the same `place` or
    `erase` a single-cell command uses. Belts are oriented at their successor, so the drag routes the
@@ -42,18 +59,18 @@ The Rust `Core` owns all state that can change a game result:
    inventory, so what is drawn during a drag is what the drag will build. Undo is a stack of
    constructed entity ids replayed through `erase`; like `deposit_links` it is derived state and is
    never saved, hashed, or checksummed.
-6. Extractors resolve their deposit by reference rather than by search. Each extractor's covering
+9. Extractors resolve their deposit by reference rather than by search. Each extractor's covering
    deposits are resolved once into a candidate list ordered exactly as a full scan would resolve it,
    cached against its stable entity id, and dropped whenever chunk generation adds tiles. Remaining
    quantity is never part of that ordering, so a drained deposit falls through to the next candidate
    without re-resolving. Reported extractor status resolves through the same cache rather than a
    second scan. The cache is derived state: it is never saved, never hashed, and tests pin both the
    reference and the status against the scans they replace.
-7. Extractors consume one unit from the finite deposit only when an output can be created. Composers
-   reserve exact recipe inputs, run for integer ticks, and emit only on completion. Containers store
-   exact quantities; hubs and demo consumers count exact deliveries.
-8. The landing hub awards integer insight from data-defined item values. Research prerequisites,
-   costs, atomic spending, unlocks, objective progress, and persistent victory all live in Rust.
+10. Extractors consume one unit from the finite deposit only when an output can be created.
+    Composers reserve exact recipe inputs, run for integer ticks, and emit only on completion.
+    Containers store exact quantities; hubs and demo consumers count exact deliveries.
+11. The landing hub awards integer insight from data-defined item values. Research prerequisites,
+    costs, atomic spending, unlocks, objective progress, and persistent victory all live in Rust.
 
 Blueprint edits retain the previous graph by stable entity ID, invalidate output rays crossing the
 changed footprint, and recompile only the affected weak transport components. Component closure
@@ -72,15 +89,25 @@ costs, descriptions, and definition unlocks; both host and core validate the DAG
 guaranteed nearby finite ore and crystal plus deterministic generated terrain. The hub and all demo
 objects are scenario-owned and cannot be erased.
 
+Items carry a `stack_size`, and scenarios carry a `carry_slots` count; together they are the whole
+of the carrying rule.
+
 Erasing a player-built entity uses one fixed refund policy: return 100% of its construction cost,
 plus its cargo, inventory, and reserved recipe inputs. This is native and covered by conservation
-tests.
+tests. Since v0.10 the whole refund is resolved before the removal and refused if it will not fit
+in the player's pack, so the policy stays exactly 100% rather than becoming "as much as fits".
 
 ## Command and presentation boundary
 
 `FactoryHost` sends at most one JSON command array per rendered frame, capped at eight commands by
-both host and core. Native ticks are a separate bounded call. TypeScript does not update player
+both host and core. Simulation ticks and player steps travel beside it as two separate bounded
+counts, because the factory and the player run on separate clocks. TypeScript does not update player
 coordinates, quantities, insight, research, machines, cargo, or victory.
+
+Lists that carry a control are patched in place rather than rebuilt. Rebuilding one on every
+snapshot destroys the element the pointer went down on, the browser retargets the click to the
+container, and a delegated handler resolves nothing — which is how research clicks were being
+silently dropped about once a second.
 
 The replaceable Canvas 2D renderer consumes snapshots and draws continuous regions/resources,
 multi-cell buildings, player, hover, selection, build radius, legality, definition labels, cargo

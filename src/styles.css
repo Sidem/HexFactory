@@ -324,36 +324,42 @@ canvas {
 }
 .inventory {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(auto-fill, minmax(52px, 1fr));
   gap: 6px;
   margin-top: 8px;
 }
-.inventory-item {
+.inventory-slot {
   display: grid;
   justify-items: center;
-  gap: 4px;
-  padding: 8px 4px;
+  gap: 3px;
+  min-height: 52px;
+  padding: 7px 4px;
+  border: 1px dashed #2b423c;
   border-radius: 8px;
+  background: #08130fa8;
+}
+.inventory-slot.filled {
+  border-style: solid;
+  border-color: color-mix(in srgb, var(--item-color) 55%, transparent);
   background: #091714c7;
 }
-.inventory-item .swatch {
+.inventory-slot .swatch {
   width: 9px;
   height: 9px;
   border-radius: 50%;
+  background: transparent;
+}
+.inventory-slot.filled .swatch {
   background: var(--item-color);
   box-shadow: 0 0 10px var(--item-color);
 }
-.inventory-item span:nth-child(2) {
-  overflow: hidden;
-  width: 100%;
+.inventory-slot small {
   color: var(--muted);
-  font-size: 0.58rem;
-  text-align: center;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  font-size: 0.54rem;
+  letter-spacing: 0.06em;
 }
-.inventory-item strong {
-  font-size: 0.95rem;
+.inventory-slot strong {
+  font-size: 0.9rem;
   font-variant-numeric: tabular-nums;
 }
 .controls-help {
@@ -406,6 +412,32 @@ canvas {
   color: var(--muted);
   font-size: 0.65rem;
   line-height: 1.35;
+}
+.technology-list button .technology-unlocks:empty {
+  display: none;
+}
+.technology-list button .technology-unlocks {
+  color: #9fd8c4;
+}
+.technology-list button small {
+  color: #d7e5df;
+  font-weight: 700;
+}
+.technology-list button.available small {
+  color: var(--gold);
+}
+.inspector-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+.inspector-actions[hidden] {
+  display: none;
+}
+.withdraw-button {
+  padding: 5px 9px;
+  font-size: 0.66rem;
 }
 .inspector-heading strong {
   font-size: 0.7rem;

@@ -42,6 +42,21 @@ Keep this file concise; the durable roadmap, design pillars, and implementation 
   and `erase` paths — and the drag preview comes from that same resolver, so it cannot promise a run
   the drag will not build. Never expand a drag into per-cell commands on the host, and never give
   the host a line traversal of its own.
+- The player walks on its own native cadence, not inside the simulation tick, so a paused or slowed
+  factory never pins it in place. The host converts elapsed real time into a step count using the
+  rate native publishes and sends it beside the tick count. Frame-coupled movement stays refused:
+  the host may send a count, never a position or a delta.
+- Placement asks one overlap question of deposits and obstacles alike, at two tuned depths. Two
+  different tests for the same question is the defect v0.10 fixed. `deposit_candidates` and
+  `resource_at_world` share that predicate and must keep sharing it, or a resolved extractor
+  reference stops matching the placement rule.
+- Carrying capacity is a rule over the ordinary `item_id → quantity` inventory, never a stored slot
+  array: each item takes one slot per part-filled stack of its own `stack_size`, against a slot
+  count the scenario fixes. Every path that adds to the player asks first. An erase whose full
+  refund will not fit is refused rather than partially paid, so the policy stays exactly 100%.
+- Any host list carrying a control is patched in place, never rebuilt. A `replaceChildren` between
+  pointerdown and pointerup detaches the pressed control and the delegated click resolves to
+  nothing.
 - Arbitration is stable by native entity ID. Initial entity IDs derive from sorted coordinates, so
   JSON insertion order cannot change a run.
 - Derived caches never become truth. Resolved extractor deposit references are rebuilt from tiles,

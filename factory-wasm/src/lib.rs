@@ -10,7 +10,7 @@ type DefinitionId = u16;
 type TechnologyId = u16;
 
 const SAVE_PREFIX: &str = "HXF1\n";
-const SAVE_VERSION: u16 = 2;
+const SAVE_VERSION: u16 = 3;
 const WORLD_GENERATOR_VERSION: u16 = 2;
 const MAX_COMMANDS_PER_BATCH: usize = 8;
 /// A drag is one bounded command, so the run it expands into has to be bounded too. This is the
@@ -23,11 +23,29 @@ const DIRECTIONS: [(i32, i32); 6] = [(1, 0), (0, 1), (-1, 1), (-1, 0), (0, -1), 
 const HEX_X: i32 = 1774;
 const HEX_Y: i32 = 1536;
 const FEATURE_SPACING: i32 = 2048;
-const PLAYER_SPEED: i32 = 300;
+/// World units the player covers per player step. Paced by `PLAYER_TICKS_PER_SECOND`, not by the
+/// simulation tick, so the walk keeps one speed at every simulation speed.
+const PLAYER_SPEED: i32 = 150;
+/// The player's own cadence, in steps per real second. Walking used to run inside the simulation
+/// tick, which made it stop when the factory paused and crawl at a low speed multiplier. It is
+/// still integer, still native, and still deterministic — a given step count always produces the
+/// same position — it is simply no longer measured in factory time.
+const PLAYER_TICKS_PER_SECOND: u32 = 30;
 const PLAYER_RADIUS: i32 = 360;
 const BUILDING_RADIUS: i32 = 690;
 const GATHER_RANGE: i32 = 1450;
 const HUB_RANGE: i32 = 1900;
+/// Placement asks one question of a deposit and of an obstacle alike: does the hex a building would
+/// occupy overlap the feature's circle, and by enough to matter? `placement_overlap` is that single
+/// rule, and these two depths are the only difference between the two answers.
+///
+/// A hex step is 1774 world units, so the hex lattice's covering radius — the furthest any world
+/// point can sit from the nearest hex centre — is 1774/√3 ≈ 1024. A deposit is therefore reachable
+/// from some hex only while `deposit radius + BUILDING_RADIUS - depth` stays above that, and zero
+/// keeps the smallest generated deposit (radius 520, so a reach of 1210) minable from somewhere.
+/// The obstacle depth is what stops a rock that merely grazes a hex from making it unbuildable.
+const DEPOSIT_COVERAGE_DEPTH: i32 = 0;
+const OBSTACLE_INTRUSION_DEPTH: i32 = 400;
 
 fn default_footprint() -> Vec<Coordinate> {
     vec![Coordinate { q: 0, r: 0 }]
@@ -50,6 +68,10 @@ struct ItemDefinition {
     icon: String,
     description: String,
     insight_value: u32,
+    /// How many of this item occupy one carried slot. Carrying capacity is a rule over the
+    /// player's ordinary `item_id → quantity` map rather than a stored array of slots, so the save
+    /// format, the checksum inputs, and every ordering guarantee are unchanged by it.
+    stack_size: u32,
 }
 
 #[derive(Clone, Deserialize)]
@@ -145,6 +167,8 @@ struct ScenarioDefinition {
     player_spawn: Coordinate,
     player_facing: u8,
     build_range: u32,
+    /// How many stacks the player can carry at once. Containers exist to solve this.
+    carry_slots: u32,
     objective_item_id: ItemId,
     objective_quantity: u32,
     #[serde(default)]
@@ -225,6 +249,10 @@ struct PlayerState {
     inventory: BTreeMap<ItemId, u32>,
     action_cooldown: u32,
     build_range: u32,
+    /// Slots the player can carry, from the scenario. Like `build_range` it is a fixed scenario
+    /// property rather than a simulation result, so it is validated against the scenario on load
+    /// instead of being hashed into the checksum.
+    carry_slots: u32,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -251,13 +279,23 @@ struct Snapshot {
     insight: u64,
     victory: bool,
     objective: ObjectiveSnapshot,
-    player: PlayerState,
+    player: PlayerSnapshot,
     researched: Vec<TechnologyId>,
     chunks: Vec<ChunkSnapshot>,
     terrain: Vec<TileSnapshot>,
     resources: Vec<ResourceSnapshot>,
     buildings: Vec<EntitySnapshot>,
     events: Vec<String>,
+}
+
+/// The player as the host sees it: the saved state plus the carried stacks resolved against the
+/// native stack rule. The host draws `carry_stacks` one slot at a time and pads to `carry_slots`,
+/// so the grid is presentation over a native answer rather than the same arithmetic written twice.
+#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
+struct PlayerSnapshot {
+    #[serde(flatten)]
+    state: PlayerState,
+    carry_stacks: Vec<Ingredient>,
 }
 
 #[derive(Clone, Copy, Debug, Serialize, PartialEq, Eq)]
@@ -417,7 +455,7 @@ struct SnapshotDelta {
     #[serde(skip_serializing_if = "Option::is_none")]
     objective: Option<ObjectiveSnapshot>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    player: Option<PlayerState>,
+    player: Option<PlayerSnapshot>,
     #[serde(skip_serializing_if = "Option::is_none")]
     researched: Option<Vec<TechnologyId>>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -644,6 +682,13 @@ enum InputCommand {
         q: i32,
         r: i32,
     },
+    /// Take stock out of a container by hand. Bounded and range-checked like every other edit.
+    Withdraw {
+        q: i32,
+        r: i32,
+        item_id: ItemId,
+        quantity: u32,
+    },
     Undo,
     Research {
         technology_id: TechnologyId,
@@ -712,6 +757,7 @@ impl Core {
                 inventory,
                 action_cooldown: 0,
                 build_range: scenario.build_range.saturating_mul(HEX_X as u32),
+                carry_slots: scenario.carry_slots,
             },
             researched: scenario.initial_researched.iter().copied().collect(),
             next_entity_id: 1,
@@ -778,6 +824,76 @@ impl Core {
         self.definitions.recipes.iter().find(|value| value.id == id)
     }
 
+    fn stack_size(&self, item: ItemId) -> u32 {
+        self.item_definition(item)
+            .map(|definition| definition.stack_size)
+            .unwrap_or(1)
+            .max(1)
+    }
+
+    /// How many slots an inventory occupies: one per part-filled stack of each item. This is the
+    /// whole of the carrying rule — the inventory itself stays an `item_id → quantity` map, so
+    /// nothing about the save format, the checksum, or transfer ordering changes with it.
+    fn slots_used(&self, inventory: &BTreeMap<ItemId, u32>) -> u32 {
+        inventory
+            .iter()
+            .map(|(&item, &quantity)| {
+                let stack = self.stack_size(item);
+                quantity.div_ceil(stack)
+            })
+            .sum()
+    }
+
+    fn player_snapshot(&self) -> PlayerSnapshot {
+        PlayerSnapshot {
+            state: self.player.clone(),
+            carry_stacks: self.carry_stacks(),
+        }
+    }
+
+    /// The carried inventory laid out one slot at a time, in item id order and full stacks first.
+    fn carry_stacks(&self) -> Vec<Ingredient> {
+        let mut stacks = Vec::new();
+        for (&item_id, &quantity) in &self.player.inventory {
+            let stack = self.stack_size(item_id);
+            let mut remaining = quantity;
+            while remaining > 0 {
+                let taken = remaining.min(stack);
+                stacks.push(Ingredient {
+                    item_id,
+                    quantity: taken,
+                });
+                remaining -= taken;
+            }
+        }
+        stacks
+    }
+
+    /// Whether the player could carry these items in addition to what they already hold. Every path
+    /// that adds to the player's inventory has to ask, which is what makes capacity a real
+    /// constraint rather than a number on the interface.
+    fn player_can_carry(&self, additions: &BTreeMap<ItemId, u32>) -> bool {
+        let mut prospective = self.player.inventory.clone();
+        add_inventory(&mut prospective, additions);
+        self.slots_used(&prospective) <= self.player.carry_slots
+    }
+
+    /// How many more of one item the player can take. A part-filled stack absorbs its remainder for
+    /// free; past that, each free slot is worth a whole stack.
+    fn player_room_for(&self, item_id: ItemId) -> u32 {
+        let stack = self.stack_size(item_id);
+        let held = self.player.inventory.get(&item_id).copied().unwrap_or(0);
+        let free_slots = self
+            .player
+            .carry_slots
+            .saturating_sub(self.slots_used(&self.player.inventory));
+        let partial = match held % stack {
+            0 => 0,
+            filled => stack - filled,
+        };
+        partial.saturating_add(free_slots.saturating_mul(stack))
+    }
+
     fn footprint_for(&self, placed: PlacedBuilding, orientation: u8) -> Vec<Coordinate> {
         self.building_definition(placed.definition_id)
             .map(|definition| {
@@ -822,6 +938,20 @@ impl Core {
         })
     }
 
+    /// Whether a building occupying the hex at this world point covers `feature`'s deposit well
+    /// enough to draw from it — the same overlap rule an obstacle is tested with, at its own depth.
+    fn deposit_covered_at(&self, x: i32, y: i32, feature: &TileState) -> bool {
+        placement_overlap(
+            x,
+            y,
+            BUILDING_RADIUS,
+            feature.x,
+            feature.y,
+            feature.radius as i32,
+            DEPOSIT_COVERAGE_DEPTH,
+        )
+    }
+
     fn resource_at_world(&self, x: i32, y: i32) -> Option<(i32, i32)> {
         self.tiles
             .iter()
@@ -831,8 +961,7 @@ impl Core {
                     .as_ref()
                     .map(|resource| resource.quantity > 0)
                     .unwrap_or(false)
-                    && squared_distance(x, y, feature.x, feature.y)
-                        <= i64::from(feature.radius).pow(2)
+                    && self.deposit_covered_at(x, y, feature)
             })
             .min_by_key(|(_, feature)| squared_distance(x, y, feature.x, feature.y))
             .map(|(key, _)| *key)
@@ -847,8 +976,8 @@ impl Core {
             .iter()
             .filter(|(_, feature)| feature.resource.is_some())
             .filter_map(|(key, feature)| {
-                let distance = squared_distance(x, y, feature.x, feature.y);
-                (distance <= i64::from(feature.radius).pow(2)).then_some((distance, *key))
+                self.deposit_covered_at(x, y, feature)
+                    .then(|| (squared_distance(x, y, feature.x, feature.y), *key))
             })
             .collect();
         candidates.sort_unstable();
@@ -1188,10 +1317,20 @@ impl Core {
     fn advance_ticks(&mut self, count: u32) {
         for _ in 0..count {
             self.player.action_cooldown = self.player.action_cooldown.saturating_sub(1);
-            self.advance_player();
             self.advance_machines();
             self.transfer_cargo();
             self.tick += 1;
+        }
+    }
+
+    /// Walk the player on its own cadence. Movement deliberately no longer rides the simulation
+    /// tick: a paused factory should not pin the player in place, and a 0.25× factory should not
+    /// make walking feel broken. Frame-coupled movement stays refused — the host sends a step
+    /// count, not a delta — so the same command sequence still reproduces the same position and the
+    /// same checksum.
+    fn advance_player_steps(&mut self, count: u32) {
+        for _ in 0..count {
+            self.advance_player();
         }
     }
 
@@ -1512,6 +1651,14 @@ impl Core {
             .min_by_key(|(_, feature)| squared_distance(target_x, target_y, feature.x, feature.y))
             .map(|(key, _)| *key)
             .ok_or("no finite resource within gathering reach")?;
+        let gathered = self.tiles[&key]
+            .resource
+            .as_ref()
+            .expect("selected resource exists")
+            .item_id;
+        if self.player_room_for(gathered) == 0 {
+            return Err("carrying capacity is full".into());
+        }
         let feature = self.tiles.get_mut(&key).expect("selected resource exists");
         let resource = feature.resource.as_mut().expect("selected resource exists");
         resource.quantity -= 1;
@@ -1642,13 +1789,14 @@ impl Core {
             }
             if self.tiles.values().any(|feature| {
                 feature.terrain != Terrain::Ground
-                    && circles_overlap(
+                    && placement_overlap(
                         cell_x,
                         cell_y,
                         BUILDING_RADIUS,
                         feature.x,
                         feature.y,
                         feature.radius as i32,
+                        OBSTACLE_INTRUSION_DEPTH,
                     )
             }) {
                 return Err("environment blocks construction".into());
@@ -1848,17 +1996,35 @@ impl Core {
             .collect()
     }
 
-    /// What a removal drag between these endpoints would take back.
+    /// What a removal drag between these endpoints would take back. Refunds accumulate against a
+    /// copy of the player's inventory as the run is walked, for the same reason the construction
+    /// preview spends materials against one: the cell a run stops at has to be visible before the
+    /// drag is released, whether it stops for cost or for carrying space.
     fn erase_line_preview(&self, from: (i32, i32), to: (i32, i32)) -> Vec<LinePreviewCell> {
+        let mut carried = self.player.inventory.clone();
+        let mut taken = BTreeSet::new();
         hex_line(from, to)
             .into_iter()
             .map(|(q, r)| {
                 let (x, y) = axial_world(q, r);
-                let legal = squared_distance(self.player.x, self.player.y, x, y)
-                    <= i64::from(self.player.build_range).pow(2)
-                    && self
-                        .entity_at(q, r)
-                        .is_some_and(|index| !self.entities[index].placed.scenario_owned);
+                let in_range = squared_distance(self.player.x, self.player.y, x, y)
+                    <= i64::from(self.player.build_range).pow(2);
+                let removable = self.entity_at(q, r).filter(|&index| {
+                    !self.entities[index].placed.scenario_owned
+                        && !taken.contains(&self.entities[index].id)
+                });
+                let legal = in_range
+                    && removable.is_some_and(|index| {
+                        let refund = self.erase_refund(index);
+                        let mut prospective = carried.clone();
+                        add_inventory(&mut prospective, &refund);
+                        let fits = self.slots_used(&prospective) <= self.player.carry_slots;
+                        if fits {
+                            carried = prospective;
+                            taken.insert(self.entities[index].id);
+                        }
+                        fits
+                    });
                 LinePreviewCell {
                     q,
                     r,
@@ -1932,6 +2098,15 @@ impl Core {
         if self.entities[index].placed.scenario_owned {
             return Err("scenario-owned objects are protected".into());
         }
+        // Erase refunds the construction cost plus everything the building held, so it is the
+        // largest single addition to the player's inventory in the game. Of the three defensible
+        // answers to a refund that will not fit — refuse, refund partially, or spill on the ground
+        // — this picks refusal, because it is the only one that keeps item conservation exact and
+        // leaves the recovery available once the player has made room.
+        let refund = self.erase_refund(index);
+        if !self.player_can_carry(&refund) {
+            return Err("no room to carry what this would recover".into());
+        }
         let old_links = self.graph_links_by_id();
         let changed_cells = self
             .entity_footprint(&self.entities[index])
@@ -1942,18 +2117,69 @@ impl Core {
         self.deposit_links.remove(&entity.id);
         self.dirty.removed.insert(entity.id);
         self.dirty.chunks = true;
-        let definition = self
+        let name = self
             .building_definition(entity.placed.definition_id)
-            .unwrap()
-            .clone();
-        add_ingredients(&mut self.player.inventory, &definition.construction_cost);
-        add_inventory(&mut self.player.inventory, &entity.inventory);
-        add_inventory(&mut self.player.inventory, &entity.reserved_inputs);
-        if let Some(cargo) = entity.cargo {
-            *self.player.inventory.entry(cargo.item_id).or_default() += cargo.quantity;
-        }
+            .map(|definition| definition.name.clone())
+            .unwrap_or_else(|| "building".into());
+        add_inventory(&mut self.player.inventory, &refund);
         self.recompile_graph_components(&old_links, &changed_cells, &BTreeSet::from([entity.id]));
-        self.events.push(format!("Recovered {}", definition.name));
+        self.events.push(format!("Recovered {name}"));
+        Ok(())
+    }
+
+    /// Everything erasing this entity hands back: its construction cost, its stored inventory, its
+    /// reserved recipe inputs, and any cargo in transit through it. Resolved before the removal so
+    /// the carrying check and the refund cannot describe different things.
+    fn erase_refund(&self, index: usize) -> BTreeMap<ItemId, u32> {
+        let entity = &self.entities[index];
+        let mut refund = BTreeMap::new();
+        if let Some(definition) = self.building_definition(entity.placed.definition_id) {
+            add_ingredients(&mut refund, &definition.construction_cost);
+        }
+        add_inventory(&mut refund, &entity.inventory);
+        add_inventory(&mut refund, &entity.reserved_inputs);
+        if let Some(cargo) = entity.cargo {
+            *refund.entry(cargo.item_id).or_default() += cargo.quantity;
+        }
+        refund
+    }
+
+    /// Move stock out of a container and into the player's pack. A new bounded command beside
+    /// `place` and `erase`, range-checked exactly as they are. The requested quantity is a ceiling,
+    /// not a demand: what actually moves is limited by what the container holds and by what the
+    /// player can still carry, so a partial withdrawal succeeds and destroys nothing.
+    fn withdraw(&mut self, q: i32, r: i32, item_id: ItemId, quantity: u32) -> Result<(), String> {
+        let (target_x, target_y) = axial_world(q, r);
+        if squared_distance(self.player.x, self.player.y, target_x, target_y)
+            > i64::from(self.player.build_range).pow(2)
+        {
+            return Err("withdraw target is outside build range".into());
+        }
+        let index = self.entity_at(q, r).ok_or("no building to unload")?;
+        if self.entities[index].kind != BuildingKind::Container {
+            return Err("only containers can be unloaded by hand".into());
+        }
+        let stored = self.entities[index]
+            .inventory
+            .get(&item_id)
+            .copied()
+            .unwrap_or(0);
+        if stored == 0 {
+            return Err("this container holds none of that item".into());
+        }
+        let moved = quantity.min(stored).min(self.player_room_for(item_id));
+        if moved == 0 {
+            return Err("carrying capacity is full".into());
+        }
+        subtract_item(&mut self.entities[index].inventory, item_id, moved);
+        *self.player.inventory.entry(item_id).or_default() += moved;
+        let id = self.entities[index].id;
+        self.dirty.entities.push(id);
+        let name = self
+            .item_definition(item_id)
+            .map(|definition| definition.name.clone())
+            .unwrap_or_else(|| format!("item {item_id}"));
+        self.events.push(format!("Withdrew {moved} × {name}"));
         Ok(())
     }
 
@@ -2002,11 +2228,20 @@ impl Core {
         self.apply_command_batch(commands, true)
     }
 
-    fn advance(&mut self, commands_json: &str, count: u32) -> Result<(), String> {
+    /// One frame of native work: the host's bounded command batch, the player steps that frame's
+    /// real time is worth, and the simulation ticks its speed setting is worth. The two counts are
+    /// separate because the player and the factory now run on separate clocks.
+    fn advance(
+        &mut self,
+        commands_json: &str,
+        count: u32,
+        player_steps: u32,
+    ) -> Result<(), String> {
         let commands: Vec<InputCommand> =
             serde_json::from_str(commands_json).map_err(|error| error.to_string())?;
-        let should_clear_events = !commands.is_empty() || count > 0;
+        let should_clear_events = !commands.is_empty() || count > 0 || player_steps > 0;
         self.apply_command_batch(commands, should_clear_events)?;
+        self.advance_player_steps(player_steps.min(240));
         self.advance_ticks(count.min(240));
         Ok(())
     }
@@ -2050,6 +2285,12 @@ impl Core {
                     self.erase_line((q, r), (to_q, to_r))
                 }
                 InputCommand::Rotate { q, r } => self.rotate(q, r),
+                InputCommand::Withdraw {
+                    q,
+                    r,
+                    item_id,
+                    quantity,
+                } => self.withdraw(q, r, item_id, quantity),
                 InputCommand::Undo => self.undo(),
                 InputCommand::Research { technology_id } => self.research(technology_id),
             };
@@ -2228,7 +2469,7 @@ impl Core {
             insight: self.insight,
             victory: self.victory,
             objective: self.objective_snapshot(),
-            player: self.player.clone(),
+            player: self.player_snapshot(),
             researched: self.researched.iter().copied().collect(),
             chunks,
             terrain,
@@ -2479,7 +2720,7 @@ struct SnapshotBaseline {
     insight: u64,
     victory: bool,
     objective: ObjectiveSnapshot,
-    player: PlayerState,
+    player: PlayerSnapshot,
     researched: Vec<TechnologyId>,
     chunks: Vec<ChunkSnapshot>,
     buildings: BTreeMap<u32, EntitySnapshot>,
@@ -2623,7 +2864,7 @@ impl Factory {
             insight: take_changed_copy(&mut baseline.insight, core.insight),
             victory: take_changed_copy(&mut baseline.victory, core.victory),
             objective: take_changed_copy(&mut baseline.objective, core.objective_snapshot()),
-            player: take_changed(&mut baseline.player, core.player.clone()),
+            player: take_changed(&mut baseline.player, core.player_snapshot()),
             researched: take_changed(
                 &mut baseline.researched,
                 core.researched.iter().copied().collect(),
@@ -2716,8 +2957,26 @@ impl Factory {
         self.core.apply_commands(commands_json).map_err(js_error)
     }
 
-    pub fn advance_json(&mut self, commands_json: &str, count: u32) -> Result<(), JsValue> {
-        self.core.advance(commands_json, count).map_err(js_error)
+    /// One frame: the bounded command batch, `count` simulation ticks, and `player_steps` steps of
+    /// player movement. The two counts are separate because the player runs on its own cadence —
+    /// see `PLAYER_TICKS_PER_SECOND`, which the host reads to decide how many steps a frame is
+    /// worth rather than inventing a rate of its own.
+    pub fn advance_json(
+        &mut self,
+        commands_json: &str,
+        count: u32,
+        player_steps: u32,
+    ) -> Result<(), JsValue> {
+        self.core
+            .advance(commands_json, count, player_steps)
+            .map_err(js_error)
+    }
+
+    /// The player's fixed walking cadence in steps per real second. Native owns the rate; the host
+    /// only converts elapsed real time into a step count with it.
+    #[wasm_bindgen(js_name = playerTicksPerSecond)]
+    pub fn player_ticks_per_second() -> u32 {
+        PLAYER_TICKS_PER_SECOND
     }
 
     pub fn placement_preview_json(
@@ -2835,6 +3094,7 @@ fn validate_definitions(definitions: &DefinitionsInput) -> Result<(), String> {
             || item.icon.trim().is_empty()
             || item.description.trim().is_empty()
             || item.insight_value == 0
+            || item.stack_size == 0
         {
             return Err(format!(
                 "item {} has incomplete display/value data",
@@ -2995,6 +3255,7 @@ fn validate_scenarios(
             || scenario.chunk_size <= 0
             || scenario.player_facing >= 6
             || scenario.build_range == 0
+            || scenario.carry_slots == 0
             || scenario.objective_quantity == 0
             || !item_ids.contains(&scenario.objective_item_id)
             || !keys.insert(scenario.key.clone())
@@ -3041,6 +3302,29 @@ fn validate_scenarios(
                 scenario.id
             ));
         }
+        // A scenario that hands the player more than they can carry would start unplayable, so the
+        // carrying rule is checked against the starting pack rather than discovered during play.
+        let mut initial = BTreeMap::new();
+        add_ingredients(&mut initial, &scenario.initial_inventory);
+        let initial_slots: u32 = initial
+            .iter()
+            .map(|(item_id, &quantity)| {
+                let stack = definitions
+                    .items
+                    .iter()
+                    .find(|item| item.id == *item_id)
+                    .map(|item| item.stack_size)
+                    .unwrap_or(1)
+                    .max(1);
+                quantity.div_ceil(stack)
+            })
+            .sum();
+        if initial_slots > scenario.carry_slots {
+            return Err(format!(
+                "scenario {} starts the player over their carrying capacity",
+                scenario.id
+            ));
+        }
     }
     Ok(())
 }
@@ -3082,6 +3366,7 @@ fn validate_saved_state(
         || !(-1000..=1000).contains(&state.player.move_x)
         || !(-1000..=1000).contains(&state.player.move_y)
         || state.player.build_range != scenario.build_range.saturating_mul(HEX_X as u32)
+        || state.player.carry_slots != scenario.carry_slots
         || state
             .player
             .inventory
@@ -3210,6 +3495,16 @@ fn squared_distance(ax: i32, ay: i32, bx: i32, by: i32) -> i64 {
 
 fn circles_overlap(ax: i32, ay: i32, ar: i32, bx: i32, by: i32, br: i32) -> bool {
     squared_distance(ax, ay, bx, by) < i64::from(ar + br).pow(2)
+}
+
+/// The one overlap rule placement uses, for deposits and obstacles alike. `depth` is how far the
+/// two circles must interpenetrate before the answer flips: zero is ordinary contact, and a larger
+/// depth ignores a graze. See `DEPOSIT_COVERAGE_DEPTH` and `OBSTACLE_INTRUSION_DEPTH` — the two
+/// checks previously disagreed about the question itself, not merely about a threshold, which made
+/// a deposit between two hex centres unminable while a rock between two hex centres blocked both.
+fn placement_overlap(ax: i32, ay: i32, ar: i32, bx: i32, by: i32, br: i32, depth: i32) -> bool {
+    let reach = (ar + br - depth).max(0);
+    squared_distance(ax, ay, bx, by) < i64::from(reach).pow(2)
 }
 
 fn resource_snapshot_of(key: (i32, i32), tile: &TileState) -> Option<ResourceSnapshot> {
@@ -3639,6 +3934,8 @@ pub mod capacity {
             player_spawn: Coordinate { q: -6, r: -6 },
             player_facing: 0,
             build_range: BUILD_RANGE_HEXES,
+            // The workload's player never picks anything up, so this only has to be valid.
+            carry_slots: 12,
             objective_item_id: 2,
             // Never reached, so victory cannot change the measured workload partway through.
             objective_quantity: u32::MAX,
@@ -3763,7 +4060,9 @@ pub mod capacity {
         let mut bytes = 0usize;
         let (frame_us, frames) = phase(clock, budget, spec.frames, || {
             for _ in 0..spec.frames {
-                if factory.advance_json(IDLE_COMMANDS, 1).is_err() {
+                // No player steps: the capacity workload measures the factory, and the idle player
+                // has no movement intent to spend them on anyway.
+                if factory.advance_json(IDLE_COMMANDS, 1, 0).is_err() {
                     panic!("capacity frame commands must be accepted");
                 }
                 bytes += factory.snapshot_delta_json().len();
@@ -4100,6 +4399,8 @@ mod tests {
 
     /// The bounded idle batch the host sends on a frame with no held key.
     const IDLE: &str = r#"[{"type":"move_intent","x":0,"y":0}]"#;
+    /// The bounded batch the host sends on a frame with the east movement key held.
+    const IDLE_MOVE_EAST: &str = r#"[{"type":"move_intent","x":1000,"y":0}]"#;
 
     fn test_factory(key: &str) -> Factory {
         let (definitions, technologies, scenarios) = catalogs();
@@ -4217,15 +4518,15 @@ mod tests {
             .for_each(|feature| feature.terrain = Terrain::Ground);
         let start = (core.player.x, core.player.y);
         core.set_move_intent(707, -707).unwrap();
-        core.tick_many(3);
-        assert_eq!(core.player.x, start.0 + 636);
-        assert_eq!(core.player.y, start.1 - 636);
+        core.advance_player_steps(3);
+        assert_eq!(core.player.x, start.0 + 318);
+        assert_eq!(core.player.y, start.1 - 318);
         assert_eq!((core.player.facing_x, core.player.facing_y), (707, -707));
         core.set_move_intent(0, 0).unwrap();
-        core.tick_many(3);
+        core.advance_player_steps(3);
         assert_eq!(
             (core.player.x, core.player.y),
-            (start.0 + 636, start.1 - 636)
+            (start.0 + 318, start.1 - 318)
         );
         assert!(core.set_move_intent(1001, 0).is_err());
 
@@ -4245,8 +4546,50 @@ mod tests {
         );
         let blocked_x = core.player.x;
         core.set_move_intent(1000, 0).unwrap();
-        core.tick_many(1);
+        core.advance_player_steps(1);
         assert_eq!(core.player.x, blocked_x);
+    }
+
+    #[test]
+    fn the_player_walks_on_its_own_cadence_not_the_factorys() {
+        // The complaint this answers: the player stopped when the factory paused and crawled at a
+        // low speed multiplier, because walking ran inside the simulation tick.
+        let mut core = game("new-game");
+        set_player_hex(&mut core, 10, 10);
+        core.tiles
+            .values_mut()
+            .for_each(|feature| feature.terrain = Terrain::Ground);
+        let start = (core.player.x, core.player.y);
+        core.set_move_intent(1000, 0).unwrap();
+
+        // A paused factory advances no ticks at all, and the player still walks.
+        core.advance(IDLE_MOVE_EAST, 0, 10).unwrap();
+        assert_eq!(core.tick, 0);
+        assert_eq!(core.player.x, start.0 + 10 * PLAYER_SPEED);
+
+        // Ticking the factory without spending player steps moves nothing.
+        let held = core.player.x;
+        core.advance("[]", 30, 0).unwrap();
+        assert_eq!(core.tick, 30);
+        assert_eq!(core.player.x, held);
+
+        // The same step count always covers the same ground, whatever the factory is doing, so a
+        // replay of the same commands and counts still reproduces the same position.
+        let mut slow = game("new-game");
+        let mut fast = game("new-game");
+        for core in [&mut slow, &mut fast] {
+            set_player_hex(core, 10, 10);
+            core.tiles
+                .values_mut()
+                .for_each(|feature| feature.terrain = Terrain::Ground);
+        }
+        for _ in 0..4 {
+            slow.advance(IDLE_MOVE_EAST, 1, 8).unwrap();
+            fast.advance(IDLE_MOVE_EAST, 16, 8).unwrap();
+        }
+        assert_eq!(slow.player.x, fast.player.x);
+        assert_eq!(slow.player.y, fast.player.y);
+        assert_eq!(Factory::player_ticks_per_second(), PLAYER_TICKS_PER_SECOND);
     }
 
     #[test]
@@ -4517,6 +4860,185 @@ mod tests {
         assert_eq!(core.player.inventory.get(&1), Some(&2));
         assert_eq!(core.player.inventory.get(&3), Some(&1));
         assert!(core.erase(0, 0).unwrap_err().contains("protected"));
+    }
+
+    #[test]
+    fn one_overlap_rule_answers_both_placement_questions() {
+        // The defect this pins: a deposit was tested by whether the hex centre fell inside it, an
+        // obstacle by whether two circles touched at all. A hex step is 1774 world units, so the
+        // first test made a deposit sitting between two hex centres unminable from either, while
+        // the second let one rock between two hex centres block both.
+        let mut core = game("new-game");
+        core.researched.extend([1, 2, 3, 4]);
+        core.player.inventory.insert(1, 20);
+        core.player.inventory.insert(3, 10);
+
+        // A deposit displaced most of the way to the next hex is still minable from a hex.
+        let (hex_x, hex_y) = axial_world(3, 0);
+        let displaced = core.tiles.get_mut(&(3, 0)).unwrap();
+        displaced.x = hex_x + 900;
+        displaced.radius = 520;
+        core.deposit_links.clear();
+        set_player_hex(&mut core, 3, 1);
+        assert!(
+            core.resource_at_world(hex_x, hex_y).is_some(),
+            "a deposit within one hex step must be reachable from that hex"
+        );
+        core.place(3, 0, 1, 0, None).unwrap();
+
+        // The extractor's cached candidate list resolves the same deposit the placement rule used;
+        // the two are the same predicate, so they cannot drift apart.
+        let index = core.entity_at(3, 0).unwrap();
+        assert_eq!(core.extractor_deposit(index), Some((3, 0)));
+
+        // An obstacle that merely grazes a hex no longer makes it unbuildable, and one that
+        // genuinely intrudes still does.
+        let mut ground = game("new-game");
+        ground.researched.extend([1, 2, 3, 4]);
+        ground.player.inventory.insert(1, 20);
+        let (cell_x, cell_y) = axial_world(2, 0);
+        let grazing = (777, 777);
+        ground.tiles.insert(
+            grazing,
+            TileState {
+                q: grazing.0,
+                r: grazing.1,
+                x: cell_x + BUILDING_RADIUS + 660 - OBSTACLE_INTRUSION_DEPTH + 1,
+                y: cell_y,
+                radius: 660,
+                terrain: Terrain::Rock,
+                resource: None,
+            },
+        );
+        ground.place(2, 0, 2, 0, None).unwrap();
+        ground.erase(2, 0).unwrap();
+        ground.tiles.get_mut(&grazing).unwrap().x =
+            cell_x + BUILDING_RADIUS + 660 - OBSTACLE_INTRUSION_DEPTH - 1;
+        assert!(ground
+            .place(2, 0, 2, 0, None)
+            .unwrap_err()
+            .contains("environment"));
+    }
+
+    #[test]
+    fn carrying_capacity_is_a_slot_rule_over_the_ordinary_inventory() {
+        let mut core = game("new-game");
+        let slots = core.player.carry_slots;
+        assert!(slots > 0);
+        let stack = core.stack_size(1);
+
+        // Capacity is expressed in stacks of the item's own size, not in item count.
+        core.player.inventory.insert(1, stack);
+        assert_eq!(core.slots_used(&core.player.inventory), 1);
+        core.player.inventory.insert(1, stack + 1);
+        assert_eq!(core.slots_used(&core.player.inventory), 2);
+        assert_eq!(core.player_room_for(1), (slots - 2) * stack + stack - 1);
+
+        // Filling the pack refuses further gathering rather than silently overflowing it.
+        core.player.inventory.insert(1, slots * stack);
+        assert_eq!(core.player_room_for(1), 0);
+        set_player_hex(&mut core, 3, 0);
+        assert!(core.gather().unwrap_err().contains("capacity"));
+        // A different item has no room either, because every slot is spoken for.
+        assert_eq!(core.player_room_for(3), 0);
+
+        // The stacks the host draws come from native, one entry per occupied slot.
+        core.player.inventory.insert(1, stack + 3);
+        core.player.inventory.insert(3, 1);
+        assert_eq!(
+            core.carry_stacks(),
+            vec![
+                Ingredient {
+                    item_id: 1,
+                    quantity: stack
+                },
+                Ingredient {
+                    item_id: 1,
+                    quantity: 3
+                },
+                Ingredient {
+                    item_id: 3,
+                    quantity: 1
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn an_erase_that_cannot_be_carried_is_refused_rather_than_losing_items() {
+        let mut core = game("new-game");
+        core.researched.extend([1, 2, 3, 4]);
+        core.player.inventory.insert(1, 4);
+        set_player_hex(&mut core, 1, 0);
+        core.place(2, 0, 4, 0, None).unwrap();
+        let index = core.entity_at(2, 0).unwrap();
+        core.entities[index].inventory.insert(3, 9);
+
+        // A full pack refuses the recovery: the container and its contents stay exactly as they
+        // were, so nothing is destroyed and the erase is available again once there is room.
+        let stack = core.stack_size(1);
+        core.player
+            .inventory
+            .insert(1, core.player.carry_slots * stack);
+        let before = core.checksum();
+        assert!(core.erase(2, 0).unwrap_err().contains("no room"));
+        assert_eq!(core.checksum(), before);
+        // The removal preview says the same thing, so a drag cannot promise a recovery it will
+        // refuse on release.
+        assert!(core
+            .erase_line_preview((2, 0), (2, 0))
+            .iter()
+            .all(|cell| !cell.legal));
+
+        // With room, the same erase returns the cost and every stored item.
+        core.player.inventory.clear();
+        core.erase(2, 0).unwrap();
+        assert_eq!(core.player.inventory.get(&1), Some(&3));
+        assert_eq!(core.player.inventory.get(&3), Some(&9));
+    }
+
+    #[test]
+    fn withdrawing_moves_what_fits_and_leaves_the_rest_in_the_container() {
+        let mut core = game("new-game");
+        core.researched.extend([1, 2, 3, 4]);
+        core.player.inventory.insert(1, 3);
+        set_player_hex(&mut core, 1, 0);
+        core.place(2, 0, 4, 0, None).unwrap();
+        let index = core.entity_at(2, 0).unwrap();
+        core.entities[index].inventory.insert(2, 12);
+
+        // Out of range, wrong building, and an item the container does not hold are all refused.
+        assert!(core.withdraw(2, 0, 1, 1).unwrap_err().contains("none"));
+        assert!(core.withdraw(9, 9, 2, 1).unwrap_err().contains("range"));
+        assert!(core
+            .withdraw(0, 0, 2, 1)
+            .unwrap_err()
+            .contains("only containers"));
+
+        // The request is a ceiling: what moves is limited by the stock and by carrying space.
+        core.withdraw(2, 0, 2, 5).unwrap();
+        assert_eq!(core.player.inventory.get(&2), Some(&5));
+        assert_eq!(core.entities[index].inventory.get(&2), Some(&7));
+
+        // Filling the pack stops the transfer without destroying what stayed behind.
+        let stack = core.stack_size(1);
+        core.player
+            .inventory
+            .insert(1, core.player.carry_slots * stack);
+        core.player.inventory.remove(&2);
+        assert!(core.withdraw(2, 0, 2, 7).unwrap_err().contains("capacity"));
+        assert_eq!(core.entities[index].inventory.get(&2), Some(&7));
+
+        // A partial withdrawal takes exactly what the part-filled stack still has room for, and
+        // says how much moved rather than pretending the request was met.
+        core.player
+            .inventory
+            .insert(1, (core.player.carry_slots - 1) * stack);
+        core.player.inventory.insert(2, 6);
+        core.withdraw(2, 0, 2, 99).unwrap();
+        assert_eq!(core.player.inventory.get(&2), Some(&core.stack_size(2)));
+        assert_eq!(core.entities[index].inventory.get(&2), Some(&3));
+        assert_eq!(core.events.last().unwrap(), "Withdrew 4 × Component");
     }
 
     #[test]
@@ -4894,7 +5416,7 @@ mod tests {
         assert_eq!(uninterrupted.delivered, resumed.delivered);
         assert!(Core::from_save(&definitions, &technologies, &scenarios, "bad").is_err());
         let incompatible =
-            save.replacen("\"definition_version\":3", "\"definition_version\":999", 1);
+            save.replacen("\"definition_version\":4", "\"definition_version\":999", 1);
         assert!(Core::from_save(&definitions, &technologies, &scenarios, &incompatible).is_err());
     }
 
@@ -5030,9 +5552,10 @@ mod tests {
     fn dirty_tracked_deltas_match_a_full_snapshot_diff() {
         let mut factory = test_factory("new-game");
         // Setup pokes happen before the baseline is taken, so the checked run only exercises real
-        // native paths. Shrinking a guaranteed deposit lets the run reach depletion.
-        factory.core.player.inventory.insert(1, 200);
-        factory.core.player.inventory.insert(3, 100);
+        // native paths. Shrinking a guaranteed deposit lets the run reach depletion. The starting
+        // pack stays inside the carrying rule, or the gathering steps below would be refused.
+        factory.core.player.inventory.insert(1, 40);
+        factory.core.player.inventory.insert(3, 20);
         set_player_hex(&mut factory.core, 4, -2);
         factory
             .core
@@ -5052,14 +5575,17 @@ mod tests {
             assert_delta_matches_full_diff(factory, &mut previous, step);
         };
 
-        factory.core.advance("[]", 0).unwrap();
+        factory.core.advance("[]", 0, 0).unwrap();
         check(&mut factory, "an empty frame");
-        factory.core.advance(IDLE, 1).unwrap();
+        factory.core.advance(IDLE, 1, 1).unwrap();
         check(&mut factory, "one idle tick");
 
         // Gathering, through the tick the deposit runs dry and one rejected attempt after it.
         for round in 0..3 {
-            factory.core.advance(r#"[{"type":"gather"}]"#, 2).unwrap();
+            factory
+                .core
+                .advance(r#"[{"type":"gather"}]"#, 2, 0)
+                .unwrap();
             check(&mut factory, &format!("gather attempt {round}"));
         }
         assert_eq!(
@@ -5074,11 +5600,14 @@ mod tests {
         // Delivery and research: insight, delivered totals, the objective, and unlocks.
         set_player_hex(&mut factory.core, 1, 0);
         check(&mut factory, "walking to the landing hub");
-        factory.core.advance(r#"[{"type":"deposit"}]"#, 1).unwrap();
+        factory
+            .core
+            .advance(r#"[{"type":"deposit"}]"#, 1, 0)
+            .unwrap();
         check(&mut factory, "delivering inventory to the hub");
         for technology in [1, 2, 3, 4] {
             let command = format!(r#"[{{"type":"research","technology_id":{technology}}}]"#);
-            factory.core.advance(&command, 1).unwrap();
+            factory.core.advance(&command, 1, 0).unwrap();
             check(
                 &mut factory,
                 &format!("researching technology {technology}"),
@@ -5088,8 +5617,9 @@ mod tests {
 
         // Player state is compared against the baseline rather than marked, so restocking directly
         // is exactly what the host would see from any native path that changes inventory.
-        factory.core.player.inventory.insert(1, 200);
-        factory.core.player.inventory.insert(3, 100);
+        // Kept inside the carrying rule, so the erase further down still has somewhere to refund to.
+        factory.core.player.inventory.insert(1, 60);
+        factory.core.player.inventory.insert(3, 10);
         check(&mut factory, "restocking the player");
 
         // Construction: inserted entities, recompiled transport, and per-chunk entity counts.
@@ -5104,7 +5634,7 @@ mod tests {
 
         // The factory running: machine progress, cargo transfer, hub deliveries, and victory.
         for round in 0..8 {
-            factory.core.advance(IDLE, 20).unwrap();
+            factory.core.advance(IDLE, 20, 0).unwrap();
             check(&mut factory, &format!("running the factory, round {round}"));
         }
         assert!(factory.core.delivered > 0, "the scripted run must produce");
@@ -5116,7 +5646,7 @@ mod tests {
         }
         factory.core.erase(2, 0).unwrap();
         check(&mut factory, "erasing a belt");
-        factory.core.advance(IDLE, 5).unwrap();
+        factory.core.advance(IDLE, 5, 0).unwrap();
         check(&mut factory, "ticking with the belt gone");
         factory.core.place(2, 0, 2, 3, None).unwrap();
         check(&mut factory, "replacing the belt");
@@ -5127,13 +5657,14 @@ mod tests {
             ("east", r#"[{"type":"move_intent","x":1000,"y":0}]"#),
             ("south", r#"[{"type":"move_intent","x":0,"y":1000}]"#),
         ] {
-            factory.core.advance(command, 60).unwrap();
+            // Distance now comes from the player's own cadence rather than from the tick count.
+            factory.core.advance(command, 60, 120).unwrap();
             check(
                 &mut factory,
                 &format!("travelling {label} into unsurveyed world"),
             );
         }
-        factory.core.advance(IDLE, 1).unwrap();
+        factory.core.advance(IDLE, 1, 1).unwrap();
         check(&mut factory, "standing still again");
         assert!(
             factory.core.generated_chunks.len() > surveyed_at_start,
@@ -5246,7 +5777,7 @@ mod tests {
         core.player.inventory.insert(1, 8);
         core.player.inventory.insert(3, 4);
         set_player_hex(&mut core, 1, 0);
-        core.advance(r#"[{"type":"deposit"}]"#, 1).unwrap();
+        core.advance(r#"[{"type":"deposit"}]"#, 1, 0).unwrap();
         assert_eq!(core.tick, 1);
         assert!(core
             .events
@@ -5415,7 +5946,7 @@ mod tests {
         );
 
         factory
-            .advance_json("[{\"type\":\"move_intent\",\"x\":0,\"y\":0}]", 1)
+            .advance_json("[{\"type\":\"move_intent\",\"x\":0,\"y\":0}]", 1, 0)
             .expect("idle batch is accepted");
         let next: serde_json::Value =
             serde_json::from_str(&factory.snapshot_delta_json()).expect("delta parses");

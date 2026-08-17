@@ -43,6 +43,11 @@ describe("data-defined content", () => {
     badCost.buildings[0]!.construction_cost[0]!.item_id = 999;
     expect(() => validateDefinitions(badCost)).toThrow(/invalid cost/);
 
+    // Every item needs a stack size, because carrying capacity is measured in stacks.
+    const unstackable = structuredClone(definitions);
+    unstackable.items[0]!.stack_size = 0;
+    expect(() => validateDefinitions(unstackable)).toThrow(/incomplete/);
+
     const badUnlock = structuredClone(technologies);
     badUnlock.technologies[0]!.unlocks = [999];
     expect(() => validateTechnologies(badUnlock, typedDefinitions)).toThrow(

@@ -98,7 +98,8 @@ async function handle(request: WorkerRequest): Promise<unknown> {
       const factory = requireRoundTrip();
       // Exactly the game worker's advance: stringify the bounded batch, advance one tick, parse
       // the delta, and let the structured clone carry it back.
-      factory.advance_json(IDLE_COMMANDS, 1);
+      // No player steps: the capacity workload measures the factory, not the walk.
+      factory.advance_json(IDLE_COMMANDS, 1, 0);
       return JSON.parse(factory.snapshot_delta_json()) as FactorySnapshotDelta;
     }
     case "roundTripEnd":

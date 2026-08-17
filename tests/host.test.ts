@@ -64,6 +64,8 @@ const snapshot: FactorySnapshot = {
     inventory: { "1": 3 },
     action_cooldown: 0,
     build_range: 8870,
+    carry_slots: 6,
+    carry_stacks: [{ item_id: 1, quantity: 3 }],
   },
   researched: [1],
   chunks: [
@@ -185,6 +187,9 @@ describe("bounded host input", () => {
       encodeCommand({ type: "erase_line", q: 2, r: 0, to_q: 4, to_r: 1 }),
     ).toEqual({ opcode: 8, args: [2, 0, 4, 1] });
     expect(encodeCommand({ type: "undo" })).toEqual({ opcode: 9, args: [] });
+    expect(
+      encodeCommand({ type: "withdraw", q: 1, r: 1, item_id: 2, quantity: 7 }),
+    ).toEqual({ opcode: 10, args: [1, 1, 2, 7] });
 
     const main = readFileSync(
       new URL("../src/main.ts", import.meta.url),
@@ -211,10 +216,58 @@ describe("bounded host input", () => {
     expect(main).not.toMatch(
       /player\.(x|y|inventory|action_cooldown)\s*[+\-=]/,
     );
-    expect(main.match(/\.advance\(commands, ticks\)/g)).toHaveLength(1);
+    expect(
+      main.match(/\.advance\(commands, ticks, playerSteps\)/g),
+    ).toHaveLength(1);
     expect(main).not.toContain("snapshot.insight =");
     expect(main).not.toContain("scenarioInput.value = snapshot.scenario");
     expect(main).not.toContain("seedInput.value = String(snapshot.seed)");
+  });
+
+  it("paces the player from the native cadence and never from the frame delta", () => {
+    const main = readFileSync(
+      new URL("../src/main.ts", import.meta.url),
+      "utf8",
+    );
+    // The rate is native truth. The host converts elapsed real time into a step count with it and
+    // never turns a frame delta into a position.
+    expect(main).toContain("elapsed * host.playerTicksPerSecond");
+    expect(main).not.toMatch(/player\.(x|y)\s*\+/);
+    // Player steps are unscaled by the speed setting and unaffected by the pause state, which is
+    // the whole point: the factory's accumulator is the only one that reads either.
+    expect(main).not.toMatch(
+      /playerAccumulator \+= [^;]*speedInput|playing\s*&&[^;]*playerAccumulator/,
+    );
+  });
+
+  it("patches keyed lists in place so a rebuild cannot swallow a click", () => {
+    const main = readFileSync(
+      new URL("../src/main.ts", import.meta.url),
+      "utf8",
+    );
+    // A `replaceChildren` between pointerdown and pointerup destroys the pressed control, the
+    // click retargets to the container, and the delegated handler finds nothing. Every list that
+    // carries a control goes through the reconciler instead.
+    expect(main).toContain("function syncChildren(");
+    expect(main).not.toContain("replaceChildren()");
+    // The hotbar's buttons are built once, so it needs no reconciler — but rewriting their inner
+    // nodes on every snapshot loses a click the same way, so it patches text instead.
+    const hotbar = main.slice(
+      main.indexOf("function renderHotbar("),
+      main.indexOf("\n}", main.indexOf("function renderHotbar(")),
+    );
+    expect(hotbar).not.toMatch(/innerHTML\s*=/);
+    for (const renderer of [
+      "renderTechnologies",
+      "renderInventory",
+      "renderInspectorActions",
+    ]) {
+      const body = main.slice(
+        main.indexOf(`function ${renderer}(`),
+        main.indexOf("\n}", main.indexOf(`function ${renderer}(`)),
+      );
+      expect(body).toContain("syncChildren(");
+    }
   });
 });
 
@@ -258,13 +311,15 @@ describe("availability and expanded snapshot adapter", () => {
     expect((await host.load("HXF1\nrestored")).events).toEqual([
       "HXF1 save restored",
     ]);
-    expect((await host.advance([{ type: "gather" }], 2)).tick).toBe(14);
+    expect((await host.advance([{ type: "gather" }], 2, 5)).tick).toBe(14);
     expect(requests).toEqual([
       { method: "save", payload: undefined },
       { method: "load", payload: { save: "HXF1\nrestored" } },
       {
         method: "advance",
-        payload: { commands: [{ type: "gather" }], ticks: 2 },
+        // Simulation ticks and player steps travel as separate counts, because the player walks
+        // on its own cadence rather than on factory time.
+        payload: { commands: [{ type: "gather" }], ticks: 2, playerSteps: 5 },
       },
     ]);
   });
