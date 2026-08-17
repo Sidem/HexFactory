@@ -43,7 +43,12 @@ roadmap and implementation handoffs live in `docs/HEXFACTORY-PLAN.md`, architect
 - Time and quantities are integers. Any blocked transfer leaves its source unchanged.
 - Canvas 2D is replaceable presentation. Simulation truth comes only from native snapshots.
 - Every performance or scale claim must cite a measured tier in `docs/BENCHMARKS.md`. Claims beyond
-  the recorded ladder, and browser-side claims of any kind, are not yet supported.
+  the recorded ladder are not supported. Browser claims are supported only for the simulation half
+  of a frame — advancing a tick, crossing the worker boundary, and merging the delta — because
+  rendering is still unmeasured. One Chromium version on one desktop is the whole browser evidence.
+- The capacity harness is measurement code, not shipped code. It compiles into wasm only under the
+  `bench` cargo feature, and `bench.html` is served in development only. Neither may become a
+  dependency of the game, the production build, or the CI gate.
 
 ## Commands
 
@@ -54,7 +59,10 @@ roadmap and implementation handoffs live in `docs/HEXFACTORY-PLAN.md`, architect
 - `npm run test:run` / `npm run test:rust`
 - `npm run bench` — native capacity ladder; deliberately outside the gate, since shared runners do
   not produce comparable timings
+- `npm run bench:browser` — build the `--features bench` wasm artifact and serve it; the same ladder
+  plus worker round-trip cost runs at `/HexFactory/bench.html`. Also outside the gate
 - `npm run quality` — complete local gate
 
 Commit both `package-lock.json` and `factory-wasm/Cargo.lock`. Do not commit `node_modules`, Rust
-`target`, the generated wasm-pack `pkg`, or `dist`; CI builds them from the locked sources.
+`target`, the generated wasm-pack `pkg` or `pkg-bench`, or `dist`; CI builds them from the locked
+sources.

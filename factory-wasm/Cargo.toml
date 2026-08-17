@@ -1,6 +1,6 @@
 [package]
 name = "factory-wasm"
-version = "0.7.0"
+version = "0.8.0"
 edition = "2021"
 license = "MIT"
 description = "Deterministic native simulation core for HexFactory"
@@ -8,6 +8,11 @@ repository = "https://github.com/Sidem/HexFactory"
 
 [lib]
 crate-type = ["cdylib", "rlib"]
+
+[features]
+# Compiles the capacity ladder into the wasm artifact, for the browser harness only. The shipped
+# game build never enables it, so the deployed artifact still carries no measurement code.
+bench = []
 
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }

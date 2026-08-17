@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="robots" content="noindex" />
+    <title>HexFactory — browser capacity ladder</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --ink: #dcefe9;
+        --dim: #8fa9a3;
+        --edge: #1d3733;
+        --panel: #0c1917;
+      }
+      body {
+        margin: 0;
+        padding: 2rem clamp(1rem, 4vw, 3rem);
+        background: #071110;
+        color: var(--ink);
+        font:
+          15px/1.5 ui-sans-serif,
+          system-ui,
+          sans-serif;
+      }
+      h1 {
+        font-size: 1.4rem;
+        margin: 0 0 0.35rem;
+      }
+      p {
+        max-width: 68ch;
+        color: var(--dim);
+      }
+      .controls {
+        display: flex;
+        gap: 0.6rem;
+        align-items: center;
+        flex-wrap: wrap;
+        margin: 1.4rem 0 0.8rem;
+      }
+      button {
+        font: inherit;
+        color: var(--ink);
+        background: #122522;
+        border: 1px solid var(--edge);
+        border-radius: 0.4rem;
+        padding: 0.45rem 0.9rem;
+        cursor: pointer;
+      }
+      button:hover:not(:disabled) {
+        border-color: #2f6f63;
+      }
+      button:disabled {
+        opacity: 0.45;
+        cursor: default;
+      }
+      #status {
+        margin: 0;
+      }
+      #status[data-state="failed"] {
+        color: #ff9c8a;
+      }
+      .scroll {
+        overflow-x: auto;
+        border: 1px solid var(--edge);
+        border-radius: 0.5rem;
+        background: var(--panel);
+      }
+      table {
+        border-collapse: collapse;
+        width: 100%;
+        font-variant-numeric: tabular-nums;
+        white-space: nowrap;
+      }
+      th,
+      td {
+        padding: 0.4rem 0.7rem;
+        text-align: right;
+        border-bottom: 1px solid var(--edge);
+      }
+      th:first-child,
+      td:first-child {
+        text-align: left;
+      }
+      th {
+        color: var(--dim);
+        font-weight: 500;
+        position: sticky;
+        top: 0;
+        background: var(--panel);
+      }
+      pre {
+        max-height: 24rem;
+        overflow: auto;
+        padding: 1rem;
+        border: 1px solid var(--edge);
+        border-radius: 0.5rem;
+        background: var(--panel);
+        font-size: 12px;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>HexFactory browser capacity ladder</h1>
+    <p>
+      The same deterministic ladder <code>npm run bench</code> runs natively,
+      measured here as wasm inside a module worker, plus the worker RPC round
+      trip and main-thread delta merge that a native run cannot see. Build the
+      harness artifact with <code>npm run build:wasm:bench</code> first. Record
+      results in <code>docs/BENCHMARKS.md</code>.
+    </p>
+    <div class="controls">
+      <button id="run-full" type="button">Run full ladder</button>
+      <button id="run-quick" type="button">Run quick ladder</button>
+      <button id="copy-json" type="button" disabled>Copy JSON</button>
+    </div>
+    <p id="status">Idle.</p>
+    <div class="scroll">
+      <table>
+        <thead>
+          <tr id="table-head"></tr>
+        </thead>
+        <tbody id="table-body"></tbody>
+      </table>
+    </div>
+    <h2>Report</h2>
+    <pre id="json"></pre>
+    <script type="module" src="/src/bench/main.ts"></script>
+  </body>
+</html>

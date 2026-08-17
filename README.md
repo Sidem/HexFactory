@@ -45,6 +45,10 @@ The complete release gate is:
 npm run quality
 ```
 
+The capacity ladders sit outside that gate, because shared runners cannot produce comparable
+timings. Run the native one with `npm run bench`, and the browser one with `npm run bench:browser`,
+which builds the measurement-only wasm artifact and serves `/HexFactory/bench.html`.
+
 ## Architecture
 
 - The versioned native seed generates continuous environment chunks independently of traversal order. Obstacles,
@@ -70,18 +74,23 @@ See the [roadmap and implementation handoff](docs/HEXFACTORY-PLAN.md),
 
 ## Measured capacity
 
-Capacity is measured rather than asserted, and the measurement orders the work. On the recorded
-native host, a worker frame now stays within a 60 Hz budget through 3,072 simultaneous buildings —
-up from 1,536 — after v0.6 gave extractors a resolved deposit reference instead of a per-tick scan
-over every generated tile (233× cheaper ticks at the largest tier) and made the buildings delta
-per-entity instead of per-group (2.3× less payload at every tier). Every tier reproduces its
-previous checksum, so the two records compare directly. The new measurement names its own next
-target: a complete snapshot is still materialized every frame purely to diff it, which is now most
-of the frame.
+Capacity is measured rather than asserted, and the measurement orders the work. The same
+deterministic ladder now runs natively and as wasm in the browser worker — the measurement lives in
+Rust and only the clock differs — so the record finally describes the artifact that ships. In the
+browser, every tier from 12 to 6,144 simultaneous buildings advances a tick and merges the result
+inside a 60 Hz frame, with the largest using 62% of one. Every browser tier reproduces its native
+checksum, so the two records compare directly.
 
-These are native figures. No browser performance claim is made, and no claim is made beyond the
-recorded ladder. Run the ladder with `npm run bench`; see [docs/BENCHMARKS.md](docs/BENCHMARKS.md)
-for method, results, and limits.
+The measurement answered the question three releases had deferred. The wasm engine is not the
+limit: it costs about 1.2× native, so the earlier native work transferred intact. The worker
+boundary is — it accounts for roughly 60% of what a frame costs the host and scales with payload at
+about 10 µs per kilobyte, which is why a compact binary delta encoding is the next milestone rather
+than another simulation optimization.
+
+Rendering is not included in any of this, and one Chromium version on one desktop is the whole
+browser evidence. No claim is made beyond the recorded ladder. Run the ladders with `npm run bench`
+and `npm run bench:browser`; see [docs/BENCHMARKS.md](docs/BENCHMARKS.md) for method, results, and
+limits.
 
 ## License
 

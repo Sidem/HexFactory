@@ -3,7 +3,14 @@ import globals from "globals";
 import tseslint from "typescript-eslint";
 
 export default tseslint.config(
-  { ignores: ["dist/**", "factory-wasm/pkg/**", "factory-wasm/target/**"] },
+  {
+    ignores: [
+      "dist/**",
+      "factory-wasm/pkg/**",
+      "factory-wasm/pkg-bench/**",
+      "factory-wasm/target/**",
+    ],
+  },
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {

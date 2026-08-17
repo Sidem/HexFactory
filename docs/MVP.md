@@ -1,11 +1,31 @@
-# Sparse Cost v0.6 scope and acceptance
+# Browser Capacity v0.8 scope and acceptance
 
-Status: Sparse Cost v0.6 is shipped on the Worker Boundary v0.5 transport and the Command Surface
-v0.4 experience. It closes the two follow-ups the Capacity Tiers v0.5.1 measurement identified —
-extractor deposits resolved by reference, and a per-entity buildings delta — and makes unexplored
-world visible as fog. World, transport, save, checksum, and progression contracts are unchanged, and
-every tier reproduces its v0.5.1 checksum. Continuous Exploration v0.3 and Playable Game v0.2 remain
-the simulation and historical baselines.
+Status: Browser Capacity v0.8 is shipped on the Sparse Snapshot v0.7 delta, the Sparse Cost v0.6
+transport, the Worker Boundary v0.5 RPC, and the Command Surface v0.4 experience. v0.7 built the
+snapshot delta from dirty marks made where state is mutated, rather than by diffing two complete
+snapshots; v0.8 adds no simulation behaviour at all and instead measures the shipped artifact for
+the first time. World, transport, save, checksum, and progression contracts are unchanged, and
+every tier reproduces its v0.5.1 checksum through all three releases. Continuous Exploration v0.3
+and Playable Game v0.2 remain the simulation and historical baselines.
+
+## Browser capacity contract
+
+- The capacity ladder is one implementation, in Rust, run on two platforms. A `Clock` supplies the
+  time: `Instant` natively, `performance.now` in wasm. Nothing else about a measurement differs
+  between them, so a browser record and a native record are comparable by construction.
+- The harness enters the wasm artifact only through the `bench` cargo feature. The shipped build
+  never enables it, `bench.html` is not part of the production Vite build, and neither is a
+  dependency of the game or of the CI gate. Measurement code never becomes shipped code.
+- A phase repeats its sample block until it has run a minimum duration, so a browser's clamped
+  100 µs clock buys precision with samples rather than accuracy. Sample counts may differ between
+  records; the workload may not. Each tier's checksum comes from a core advanced exactly once
+  through its tick budget, so it cannot move with the sample count.
+- The browser harness additionally measures the worker RPC round trip and the main-thread delta
+  merge through the game's own code paths — the same bounded command batch, the same
+  `snapshot_delta_json`, the same `applySnapshotDelta`. Rendering is not measured and no complete
+  browser frame-rate claim is made.
+- Results are recorded in `docs/BENCHMARKS.md` with the machine, browser, clock resolution, and
+  limits that produced them. A performance claim without a recorded tier behind it is a defect.
 
 ## Sparse cost contract
 
@@ -131,17 +151,27 @@ world and growing as the player travels. Host tests add per-entity patch merging
 ordered inserts, removals, replacement, and untouched groups — and pin the fog to native chunk
 bounds rather than host-side geometry.
 
+v0.8 adds native coverage for the ladder's platform independence: phases reported per sample against
+an injected clock, a phase budget that adds samples without moving the tier's checksum, delivered
+total, or entity count, a resumable ladder that reports only the tiers it measured and re-measures a
+tier in place, and the round-trip factory arriving warm and sending a complete first delta followed
+by patches. Host tests cover the report assembly the browser page contributes — pairing host results
+to tiers by key, rendering an unmeasured tier as absent rather than free, the 60 Hz share, the
+entity-count check on the applied snapshot, and a clock-resolution probe against both a clamped and
+a fine-grained clock.
+
 The local release gate is npm audit, Prettier/Rust formatting, ESLint, strict TypeScript, Vitest,
 Rust tests, Wasm build, and production Vite build. Deployment and live verification are separate
 release actions and must not be implied by local success.
 
 ## Explicit follow-ups
 
-1. Both v0.5.1 follow-ups are closed and re-measured in `docs/BENCHMARKS.md`. The new measurement
-   names the next one: Rust still materializes a complete snapshot every frame only to diff it, and
-   that materialization is 55–91% of the measured frame. Track dirty entities at mutation time
-   instead. A renderer decision and any scale claim still wait on that, and on a browser-side
-   measurement.
+1. Every native follow-up is closed, and the browser measurement that was deferred since v0.5.1 is
+   now recorded in `docs/BENCHMARKS.md`. It names the next one: the worker boundary is 57–61% of a
+   host frame and scales with the JSON delta at about 10 µs per kilobyte, so the delta becomes a
+   compact binary encoding over a transferable buffer. Measuring the Canvas renderer against the
+   same tiers follows it — no complete browser frame-rate claim is supported until that exists — and
+   a renderer decision still waits on both.
 2. Richer biomes/resource identification, inventory capacity/equipment, footprint-aware demolition
    previews, inserters, splitters, lanes, power, fluids, circuits, trains, enemies, multiplayer, mod
    scripting, and evolutionary systems remain beyond this deliberately basic milestone.

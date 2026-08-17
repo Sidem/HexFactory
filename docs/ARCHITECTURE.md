@@ -139,8 +139,30 @@ through the same cached deposit reference the tick path uses instead of searchin
 tile, and per-chunk entity counts come from one pass over the blueprint instead of one filter per
 chunk. That path still runs for the host's first frame and after every reset, new game, and load.
 
-A renderer decision remains gated on a browser-side measurement — the recorded ladder is native, and
-`docs/BENCHMARKS.md` now names that measurement as the first follow-up.
+## Capacity measurement
+
+The ladder that orders this work is one implementation running on two platforms. It lives in the
+Rust crate, builds its synthetic tiers from the shipped definitions, and drives them through the
+same entry points the worker uses. A `Clock` supplies time — `Instant` natively, `performance.now`
+in wasm — and nothing else differs, so a browser record and a native record are comparable by
+construction rather than by re-implementation. Because a browser clamps `performance.now` to 100 µs
+unless the page is cross-origin isolated, a phase repeats its sample block until it has run long
+enough for that step to be a rounding error; only the sample count changes, and each tier's
+checksum comes from a core advanced exactly once through its tick budget so extra samples cannot
+move the workload's identity.
+
+The harness is measurement code and never becomes shipped code. It enters the wasm artifact only
+under the `bench` cargo feature, and the dev-only `/bench.html` page is not part of the production
+build, so the deployed artifact carries none of it. That page adds the two costs a native run
+cannot see, measured through the game's own paths: the worker RPC round trip, and
+`applySnapshotDelta` merging the patch on the main thread.
+
+v0.8 recorded the first browser tiers, and they moved the roadmap. The wasm engine costs about 1.2×
+native, so the native work of v0.6 and v0.7 transferred intact. The worker boundary costs roughly
+60% of a host frame and scales with the JSON delta at about 10 µs per kilobyte, which makes a
+compact binary encoding over a transferable buffer the next change worth making. The per-entity
+merge costs about 1% of a frame and needs nothing. A renderer decision remains gated on measuring
+the renderer, which `docs/BENCHMARKS.md` now names as the second follow-up.
 
 ## Fog of war
 

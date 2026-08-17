@@ -2990,12 +2990,116 @@ fn hash_u64(hash: &mut u32, value: u64) {
 /// The roadmap gates finer dirty tracking, any renderer decision, and every scale claim behind
 /// measured tiers. This module builds synthetic steady-state factories from the shipped
 /// definitions, drives them through the same entry points the worker uses, and reports per-phase
-/// cost so capacity is measured instead of asserted. It is excluded from the wasm target, so the
-/// deployed artifact never carries it.
-#[cfg(not(target_arch = "wasm32"))]
+/// cost so capacity is measured instead of asserted.
+///
+/// The same measurement code runs natively and in the browser worker: only the clock differs, so
+/// the two records are comparable by construction rather than by re-implementation. The wasm build
+/// is behind the `bench` feature, so the deployed game artifact still never carries it.
+#[cfg(any(not(target_arch = "wasm32"), feature = "bench"))]
 pub mod capacity {
     use super::*;
-    use std::time::Instant;
+
+    /// Monotonic microseconds. Only differences between readings are meaningful, and a platform's
+    /// reading may be quantized — the browser clamps `performance.now` unless the page is
+    /// cross-origin isolated — so every phase below times many samples at once.
+    pub trait Clock {
+        fn now_us(&self) -> f64;
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    pub struct SystemClock(std::time::Instant);
+
+    #[cfg(not(target_arch = "wasm32"))]
+    impl SystemClock {
+        pub fn new() -> Self {
+            Self(std::time::Instant::now())
+        }
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    impl Default for SystemClock {
+        fn default() -> Self {
+            Self::new()
+        }
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    impl Clock for SystemClock {
+        fn now_us(&self) -> f64 {
+            self.0.elapsed().as_secs_f64() * 1e6
+        }
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    #[wasm_bindgen]
+    extern "C" {
+        #[wasm_bindgen(js_namespace = performance, js_name = now)]
+        fn performance_now() -> f64;
+    }
+
+    /// `performance.now` in both a window and a worker global scope, converted to microseconds.
+    #[cfg(target_arch = "wasm32")]
+    pub struct PerformanceClock;
+
+    #[cfg(target_arch = "wasm32")]
+    impl Clock for PerformanceClock {
+        fn now_us(&self) -> f64 {
+            performance_now() * 1e3
+        }
+    }
+
+    /// How long a phase must run before its mean is trusted.
+    ///
+    /// A native clock resolves nanoseconds, so a fixed sample count is enough and the budget is
+    /// zero. A browser clamps `performance.now` to 100 µs unless the page is cross-origin
+    /// isolated, which is coarser than most of the phases below; there, a phase repeats its sample
+    /// block until it has run long enough for that step to be a rounding error. Only the sample
+    /// count changes, never the workload, so both records stay per-unit comparable.
+    #[derive(Clone, Copy, Debug)]
+    pub struct Budget {
+        pub min_phase_us: f64,
+    }
+
+    impl Budget {
+        /// Run each phase exactly once through its sample block.
+        pub const FIXED: Budget = Budget { min_phase_us: 0.0 };
+
+        /// 20 ms, which holds a 100 µs clock step to 0.5% of a phase.
+        pub const CLAMPED_CLOCK: Budget = Budget {
+            min_phase_us: 20_000.0,
+        };
+    }
+
+    /// Time one phase, repeating its sample block until the budget is met, and report the mean
+    /// cost per sample together with the number of samples that produced it.
+    fn phase(
+        clock: &dyn Clock,
+        budget: Budget,
+        samples_per_block: u32,
+        mut block: impl FnMut(),
+    ) -> (f64, u32) {
+        let start = clock.now_us();
+        let mut samples = 0u32;
+        loop {
+            block();
+            samples = samples.saturating_add(samples_per_block);
+            let elapsed = (clock.now_us() - start).max(0.0);
+            if elapsed >= budget.min_phase_us || samples_per_block == 0 {
+                return (mean(elapsed, samples), samples);
+            }
+        }
+    }
+
+    pub fn default_clock() -> Box<dyn Clock> {
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            Box::new(SystemClock::new())
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            Box::new(PerformanceClock)
+        }
+    }
 
     const DEFINITIONS: &str = include_str!("../../src/data/definitions.json");
     const TECHNOLOGIES: &str = include_str!("../../src/data/technologies.json");
@@ -3009,8 +3113,10 @@ pub mod capacity {
     const ORE: ItemId = 1;
 
     /// Report format version, so recorded JSON stays interpretable as the metric set changes.
-    /// Version 2 adds `checksum_us`, which the sparse-snapshot release needed to see.
-    pub const REPORT_SCHEMA: u32 = 2;
+    /// Version 2 adds `checksum_us`, which the sparse-snapshot release needed to see. Version 3
+    /// adds `platform`, because the same ladder now runs natively and as wasm in a browser worker
+    /// and a record must say which one it is.
+    pub const REPORT_SCHEMA: u32 = 3;
     /// Lines sit three rows apart so one line's two-cell composer cannot touch the next.
     const ROW_PITCH: i32 = 3;
     /// Large enough that no deposit empties inside a measured run, so every tier measures the same
@@ -3061,6 +3167,8 @@ pub mod capacity {
         pub entities: usize,
         pub tiles: usize,
         pub chunks: usize,
+        /// Ticks actually timed. Equal to the tier's tick budget under `Budget::FIXED`, and a
+        /// multiple of it when a coarse clock made the phase repeat.
         pub measured_ticks: u32,
         /// Mean cost of one simulation tick with no snapshot or serialization.
         pub tick_us: f64,
@@ -3096,7 +3204,18 @@ pub mod capacity {
         pub schema: u32,
         pub crate_version: String,
         pub profile: String,
+        /// `native` or `wasm32`. The build reports it rather than the caller, so a record cannot
+        /// claim a platform it was not measured on.
+        pub platform: String,
         pub tiers: Vec<TierResult>,
+    }
+
+    fn platform() -> String {
+        if cfg!(target_arch = "wasm32") {
+            "wasm32".into()
+        } else {
+            "native".into()
+        }
     }
 
     /// The recorded tier ladder. It spans one line to a blueprint far past anything the current
@@ -3232,7 +3351,10 @@ pub mod capacity {
         core
     }
 
-    fn warm_factory(spec: &TierSpec) -> Factory {
+    /// A warmed `Factory` for a tier, ready for the host to drive over the ordinary worker RPC.
+    /// The browser harness measures its round trip through exactly this object, so the boundary
+    /// cost is measured against the same steady state the in-wasm phases are.
+    pub(crate) fn warm_factory(spec: &TierSpec) -> Factory {
         let (definitions, technologies) = catalogs();
         let scenario = tier_scenario(spec);
         Factory {
@@ -3249,34 +3371,41 @@ pub mod capacity {
     }
 
     pub fn measure_tier(spec: &TierSpec) -> TierResult {
+        measure_tier_with(spec, default_clock().as_ref(), Budget::FIXED)
+    }
+
+    pub fn measure_tier_with(spec: &TierSpec, clock: &dyn Clock, budget: Budget) -> TierResult {
         let mut core = warm_core(spec);
         let entities = core.entities.len();
         let tiles = core.tiles.len();
         let chunks = core.generated_chunks.len();
 
-        let start = Instant::now();
-        core.advance_ticks(spec.measured_ticks);
-        let tick_us = per(start, spec.measured_ticks);
-        let checksum = core.checksum();
-        let delivered = core.delivered;
+        let (tick_us, measured_ticks) = phase(clock, budget, spec.measured_ticks, || {
+            core.advance_ticks(spec.measured_ticks)
+        });
 
-        let start = Instant::now();
-        for _ in 0..spec.snapshots {
-            let snapshot = core.snapshot();
-            std::hint::black_box(&snapshot);
-        }
-        let snapshot_us = per(start, spec.snapshots);
+        let (snapshot_us, _) = phase(clock, budget, spec.snapshots, || {
+            for _ in 0..spec.snapshots {
+                let snapshot = core.snapshot();
+                std::hint::black_box(&snapshot);
+            }
+        });
 
-        let start = Instant::now();
-        for _ in 0..spec.snapshots {
-            std::hint::black_box(core.checksum());
-        }
-        let checksum_us = per(start, spec.snapshots);
+        let (checksum_us, _) = phase(clock, budget, spec.snapshots, || {
+            for _ in 0..spec.snapshots {
+                std::hint::black_box(core.checksum());
+            }
+        });
 
-        let (frame_us, delta_bytes) = measure_frames(spec);
-        let full_compile_us = measure_full_compile(spec);
-        let incremental_recompile_us = measure_recompiles(spec);
-        let edit_us = measure_edits(spec);
+        // Pinned on its own core, advanced exactly once through the tier's tick budget. A browser
+        // run repeats the timed phase and therefore ends somewhere else entirely; taking the
+        // workload's identity from here is what keeps its checksum comparable to a native record.
+        let (checksum, delivered) = pinned_state(spec);
+
+        let (frame_us, delta_bytes) = measure_frames(spec, clock, budget);
+        let full_compile_us = measure_full_compile(spec, clock, budget);
+        let incremental_recompile_us = measure_recompiles(spec, clock, budget);
+        let edit_us = measure_edits(spec, clock, budget);
 
         TierResult {
             key: spec.key.into(),
@@ -3284,7 +3413,7 @@ pub mod capacity {
             entities,
             tiles,
             chunks,
-            measured_ticks: spec.measured_ticks,
+            measured_ticks,
             tick_us,
             ticks_per_second: rate(tick_us),
             snapshot_us,
@@ -3300,55 +3429,65 @@ pub mod capacity {
         }
     }
 
+    /// The tier's identity: the checksum and delivered total after exactly one tick budget from a
+    /// warm core. Recorded rather than timed, so it cannot move with the sample count.
+    fn pinned_state(spec: &TierSpec) -> (u32, u64) {
+        let mut core = warm_core(spec);
+        core.advance_ticks(spec.measured_ticks);
+        (core.checksum(), core.delivered)
+    }
+
     /// One worker frame, measured through the exact entry points the host RPC calls.
-    fn measure_frames(spec: &TierSpec) -> (f64, f64) {
+    fn measure_frames(spec: &TierSpec, clock: &dyn Clock, budget: Budget) -> (f64, f64) {
         let mut factory = warm_factory(spec);
         // The first delta is a complete snapshot; take it outside the measurement so the reported
         // payload is the steady-state per-frame cost.
         let _ = factory.snapshot_delta_json();
         let mut bytes = 0usize;
-        let start = Instant::now();
-        for _ in 0..spec.frames {
-            if factory.advance_json(IDLE_COMMANDS, 1).is_err() {
-                panic!("capacity frame commands must be accepted");
+        let (frame_us, frames) = phase(clock, budget, spec.frames, || {
+            for _ in 0..spec.frames {
+                if factory.advance_json(IDLE_COMMANDS, 1).is_err() {
+                    panic!("capacity frame commands must be accepted");
+                }
+                bytes += factory.snapshot_delta_json().len();
             }
-            bytes += factory.snapshot_delta_json().len();
-        }
-        let frame_us = per(start, spec.frames);
-        (frame_us, mean(bytes as f64, spec.frames))
+        });
+        (frame_us, mean(bytes as f64, frames))
     }
 
     /// The full deterministic compile used on load and restore, as the incremental baseline.
-    fn measure_full_compile(spec: &TierSpec) -> f64 {
+    fn measure_full_compile(spec: &TierSpec, clock: &dyn Clock, budget: Budget) -> f64 {
         let mut core = warm_core(spec);
         let samples = spec.edits.max(1);
-        let start = Instant::now();
-        for _ in 0..samples {
-            core.compile_graph();
-        }
-        per(start, samples)
+        phase(clock, budget, samples, || {
+            for _ in 0..samples {
+                core.compile_graph();
+            }
+        })
+        .0
     }
 
     /// The complete public rotate path. Rotating a belt through all six orientations covers edits
     /// that merge and split neighbouring components, not only the cheap self-contained case.
-    fn measure_edits(spec: &TierSpec) -> f64 {
+    fn measure_edits(spec: &TierSpec, clock: &dyn Clock, budget: Budget) -> f64 {
         let mut core = warm_core(spec);
         let edits = rotation_edits(spec);
         if edits == 0 {
             return 0.0;
         }
-        let start = Instant::now();
-        for edit in 0..edits {
-            // Spread edits across lines so no single component stays warm in cache.
-            core.rotate(1, edit_row(spec, edit))
-                .expect("capacity belt rotates");
-        }
-        per(start, edits)
+        phase(clock, budget, edits, || {
+            for edit in 0..edits {
+                // Spread edits across lines so no single component stays warm in cache.
+                core.rotate(1, edit_row(spec, edit))
+                    .expect("capacity belt rotates");
+            }
+        })
+        .0
     }
 
     /// The incremental transport machinery alone, driving the same rotations. Isolating it from
     /// the edit path's legality checks is what makes the comparison against a full compile fair.
-    fn measure_recompiles(spec: &TierSpec) -> f64 {
+    fn measure_recompiles(spec: &TierSpec, clock: &dyn Clock, budget: Budget) -> f64 {
         let mut core = warm_core(spec);
         let edits = rotation_edits(spec);
         if edits == 0 {
@@ -3365,21 +3504,22 @@ pub mod capacity {
             })
             .collect();
 
-        let start = Instant::now();
-        for &(index, id) in &targets {
-            let old_links = core.graph_links_by_id();
-            let old_footprint = core.entity_footprint(&core.entities[index]);
-            let orientation = (core.entities[index].placed.orientation + 1) % 6;
-            let next_footprint = core.footprint_for(core.entities[index].placed, orientation);
-            core.entities[index].placed.orientation = orientation;
-            let changed_cells = old_footprint
-                .into_iter()
-                .chain(next_footprint)
-                .map(|cell| (cell.q, cell.r))
-                .collect();
-            core.recompile_graph_components(&old_links, &changed_cells, &BTreeSet::from([id]));
-        }
-        per(start, edits)
+        phase(clock, budget, edits, || {
+            for &(index, id) in &targets {
+                let old_links = core.graph_links_by_id();
+                let old_footprint = core.entity_footprint(&core.entities[index]);
+                let orientation = (core.entities[index].placed.orientation + 1) % 6;
+                let next_footprint = core.footprint_for(core.entities[index].placed, orientation);
+                core.entities[index].placed.orientation = orientation;
+                let changed_cells = old_footprint
+                    .into_iter()
+                    .chain(next_footprint)
+                    .map(|cell| (cell.q, cell.r))
+                    .collect();
+                core.recompile_graph_components(&old_links, &changed_cells, &BTreeSet::from([id]));
+            }
+        })
+        .0
     }
 
     fn rotation_edits(spec: &TierSpec) -> u32 {
@@ -3396,21 +3536,85 @@ pub mod capacity {
 
     /// Run the ladder, reporting each tier as it completes so a long run shows progress.
     pub fn run_with(specs: &[TierSpec], mut observe: impl FnMut(&TierResult)) -> Report {
-        let mut tiers = Vec::new();
-        for spec in specs {
-            let result = measure_tier(spec);
+        let clock = default_clock();
+        let mut ladder = Ladder::new(specs.to_vec());
+        for index in 0..ladder.len() {
+            let result = ladder
+                .measure(index, clock.as_ref())
+                .expect("ladder index is in range");
             observe(&result);
-            tiers.push(result);
         }
-        Report {
-            schema: REPORT_SCHEMA,
-            crate_version: env!("CARGO_PKG_VERSION").into(),
-            profile: if cfg!(debug_assertions) {
-                "debug".into()
-            } else {
-                "release".into()
-            },
-            tiers,
+        ladder.report()
+    }
+
+    /// The ladder as resumable state: one tier is measured per call, and the report is assembled
+    /// from whatever has been measured so far.
+    ///
+    /// A native run has no reason to stop between tiers, but a browser one does — the harness
+    /// reports each tier as it lands and yields to the event loop in between — so both drive the
+    /// ladder through this one type instead of two loops that could drift apart.
+    pub struct Ladder {
+        specs: Vec<TierSpec>,
+        tiers: Vec<TierResult>,
+        budget: Budget,
+    }
+
+    impl Ladder {
+        pub fn new(specs: Vec<TierSpec>) -> Self {
+            Self {
+                specs,
+                tiers: Vec::new(),
+                budget: Budget::FIXED,
+            }
+        }
+
+        /// Give every phase a minimum duration, for a platform whose clock is too coarse to time
+        /// a fixed sample block.
+        pub fn with_budget(mut self, budget: Budget) -> Self {
+            self.budget = budget;
+            self
+        }
+
+        pub fn len(&self) -> usize {
+            self.specs.len()
+        }
+
+        pub fn is_empty(&self) -> bool {
+            self.specs.is_empty()
+        }
+
+        pub fn spec(&self, index: usize) -> Option<&TierSpec> {
+            self.specs.get(index)
+        }
+
+        pub fn specs(&self) -> &[TierSpec] {
+            &self.specs
+        }
+
+        /// Measure one tier and retain it for the report. Measuring the same index twice replaces
+        /// the earlier result rather than recording the tier twice.
+        pub fn measure(&mut self, index: usize, clock: &dyn Clock) -> Option<TierResult> {
+            let spec = *self.specs.get(index)?;
+            let result = measure_tier_with(&spec, clock, self.budget);
+            match self.tiers.iter_mut().find(|tier| tier.key == spec.key) {
+                Some(existing) => *existing = result.clone(),
+                None => self.tiers.push(result.clone()),
+            }
+            Some(result)
+        }
+
+        pub fn report(&self) -> Report {
+            Report {
+                schema: REPORT_SCHEMA,
+                crate_version: env!("CARGO_PKG_VERSION").into(),
+                profile: if cfg!(debug_assertions) {
+                    "debug".into()
+                } else {
+                    "release".into()
+                },
+                platform: platform(),
+                tiers: self.tiers.clone(),
+            }
         }
     }
 
@@ -3459,17 +3663,13 @@ pub mod capacity {
     pub fn format_table(report: &Report) -> String {
         let mut lines = vec![
             format!(
-                "HexFactory capacity tiers — factory-wasm {} ({} profile)",
-                report.crate_version, report.profile
+                "HexFactory capacity tiers — factory-wasm {} ({} {} profile)",
+                report.crate_version, report.platform, report.profile
             ),
             table_header(),
         ];
         lines.extend(report.tiers.iter().map(table_row));
         lines.join("\n")
-    }
-
-    fn per(start: Instant, samples: u32) -> f64 {
-        mean(start.elapsed().as_secs_f64() * 1e6, samples)
     }
 
     fn mean(total: f64, samples: u32) -> f64 {
@@ -3485,6 +3685,82 @@ pub mod capacity {
             0.0
         } else {
             1e6 / microseconds
+        }
+    }
+
+    /// The browser entry point for the same ladder, built only by `--features bench`.
+    ///
+    /// The harness drives one tier per call so the page can report progress, and can hand back a
+    /// warmed `Factory` for the tier so the host can measure what the game actually pays per
+    /// frame: the worker RPC round trip around these same native phases.
+    #[cfg(all(target_arch = "wasm32", feature = "bench"))]
+    #[wasm_bindgen]
+    pub struct CapacityBench {
+        ladder: Ladder,
+        clock: PerformanceClock,
+    }
+
+    #[cfg(all(target_arch = "wasm32", feature = "bench"))]
+    #[wasm_bindgen]
+    impl CapacityBench {
+        #[wasm_bindgen(constructor)]
+        pub fn new(quick: bool) -> CapacityBench {
+            CapacityBench {
+                ladder: Ladder::new(if quick {
+                    quick_tiers()
+                } else {
+                    default_tiers()
+                })
+                .with_budget(Budget::CLAMPED_CLOCK),
+                clock: PerformanceClock,
+            }
+        }
+
+        pub fn tier_count(&self) -> usize {
+            self.ladder.len()
+        }
+
+        /// `{ key, lines, entities }` for every tier, so the page can list the run before it
+        /// starts instead of discovering its shape as results arrive.
+        pub fn tiers_json(&self) -> String {
+            let tiers: Vec<serde_json::Value> = self
+                .ladder
+                .specs()
+                .iter()
+                .map(|spec| {
+                    serde_json::json!({
+                        "key": spec.key,
+                        "lines": spec.lines,
+                        "entities": spec.entities(),
+                        // The host times its round trip over the same frame budget the in-wasm
+                        // frame phase uses, so the two costs describe the same amount of work.
+                        "frames": spec.frames,
+                    })
+                })
+                .collect();
+            serde_json::Value::Array(tiers).to_string()
+        }
+
+        /// Measure one tier, returning its `TierResult` as JSON.
+        pub fn measure(&mut self, index: usize) -> Result<String, JsValue> {
+            let result = self
+                .ladder
+                .measure(index, &self.clock)
+                .ok_or_else(|| js_error(format!("no capacity tier at index {index}")))?;
+            serde_json::to_string(&result).map_err(|error| js_error(error.to_string()))
+        }
+
+        /// A warmed factory for the tier, in the same steady state the in-wasm phases measure.
+        pub fn factory(&self, index: usize) -> Result<Factory, JsValue> {
+            let spec = self
+                .ladder
+                .spec(index)
+                .ok_or_else(|| js_error(format!("no capacity tier at index {index}")))?;
+            Ok(warm_factory(spec))
+        }
+
+        pub fn report_json(&self) -> String {
+            format_json(&self.ladder.report())
         }
     }
 }
@@ -4499,6 +4775,145 @@ mod tests {
         assert_eq!(first.entities.len(), spec.entities() as usize);
         // Every line must be running end to end, or the tiers would measure an idle blueprint.
         assert_eq!(first.delivered, u64::from(spec.lines) * 14);
+    }
+
+    /// A clock that advances a fixed amount per reading, so the ladder's arithmetic can be pinned
+    /// without depending on how long a machine actually takes.
+    struct StepClock {
+        step_us: f64,
+        readings: std::cell::Cell<u32>,
+    }
+
+    impl capacity::Clock for StepClock {
+        fn now_us(&self) -> f64 {
+            let reading = self.readings.get();
+            self.readings.set(reading + 1);
+            f64::from(reading) * self.step_us
+        }
+    }
+
+    #[test]
+    fn capacity_phases_are_reported_per_sample_against_the_supplied_clock() {
+        let spec = capacity::quick_tiers()[0];
+        let clock = StepClock {
+            // Each phase reads the clock exactly twice, so one phase always spans one step.
+            step_us: 1_000.0,
+            readings: std::cell::Cell::new(0),
+        };
+        let tier = capacity::measure_tier_with(&spec, &clock, capacity::Budget::FIXED);
+        // The tick phase spans one 1,000 µs step across `measured_ticks` samples.
+        assert_eq!(tier.measured_ticks, spec.measured_ticks);
+        assert_eq!(tier.tick_us, 1_000.0 / f64::from(spec.measured_ticks));
+        assert_eq!(tier.frame_us, 1_000.0 / f64::from(spec.frames));
+        assert_eq!(tier.snapshot_us, 1_000.0 / f64::from(spec.snapshots));
+        assert_eq!(tier.ticks_per_second, 1e6 / tier.tick_us);
+        // Every phase read the clock, and the workload itself is unchanged by the clock swap.
+        assert_eq!(tier.entities, spec.entities() as usize);
+        // Seven phases, each spanning exactly one pair of readings.
+        assert_eq!(clock.readings.get(), 14);
+    }
+
+    /// A coarse clock must buy precision with more samples and nothing else: the tier's identity
+    /// has to survive, or a browser record could not be compared against a native one.
+    #[test]
+    fn a_phase_budget_adds_samples_without_moving_the_workload() {
+        let spec = capacity::quick_tiers()[1];
+        let fixed = capacity::measure_tier_with(
+            &spec,
+            capacity::default_clock().as_ref(),
+            capacity::Budget::FIXED,
+        );
+        // A step clock that only ever reports 500 µs per reading forces four repeats to reach a
+        // 2,000 µs budget, without depending on how fast this machine is.
+        let clock = StepClock {
+            step_us: 500.0,
+            readings: std::cell::Cell::new(0),
+        };
+        let budgeted = capacity::measure_tier_with(
+            &spec,
+            &clock,
+            capacity::Budget {
+                min_phase_us: 2_000.0,
+            },
+        );
+        assert_eq!(budgeted.measured_ticks, spec.measured_ticks * 4);
+        assert_eq!(
+            budgeted.tick_us,
+            2_000.0 / f64::from(budgeted.measured_ticks)
+        );
+        // The recorded identity of the tier is untouched by the extra samples.
+        assert_eq!(budgeted.checksum, fixed.checksum);
+        assert_eq!(budgeted.delivered, fixed.delivered);
+        assert_eq!(budgeted.entities, fixed.entities);
+        assert_eq!(budgeted.tiles, fixed.tiles);
+    }
+
+    #[test]
+    fn capacity_ladder_measures_tiers_independently_and_reports_its_platform() {
+        let specs = capacity::quick_tiers();
+        let mut ladder = capacity::Ladder::new(specs.clone());
+        let clock = capacity::default_clock();
+        assert_eq!(ladder.len(), specs.len());
+        assert!(ladder.measure(specs.len(), clock.as_ref()).is_none());
+        // A partial run reports only what it measured, so an interrupted browser run still yields
+        // an honest record rather than empty tiers.
+        let first = ladder
+            .measure(0, clock.as_ref())
+            .expect("first tier measures");
+        assert_eq!(ladder.report().tiers.len(), 1);
+        // Re-measuring a tier replaces it instead of recording the same tier twice.
+        let again = ladder
+            .measure(0, clock.as_ref())
+            .expect("first tier re-measures");
+        assert_eq!(again.checksum, first.checksum);
+        assert_eq!(ladder.report().tiers.len(), 1);
+
+        ladder.measure(1, clock.as_ref()).expect("second tier");
+        let report = ladder.report();
+        assert_eq!(report.tiers.len(), 2);
+        assert_eq!(report.platform, "native");
+        assert_eq!(report.schema, capacity::REPORT_SCHEMA);
+        assert!(capacity::format_table(&report).contains("native"));
+    }
+
+    /// The browser harness drives this factory over the ordinary worker RPC, so it must arrive in
+    /// the same steady state the in-wasm phases measure, and its first delta must be a complete
+    /// snapshot the host can adopt.
+    #[test]
+    fn capacity_round_trip_factory_starts_warm_and_sends_a_full_first_delta() {
+        let spec = capacity::quick_tiers()[1];
+        let mut factory = capacity::warm_factory(&spec);
+        let warm = capacity::warm_core(&spec);
+        assert_eq!(factory.checksum(), warm.checksum());
+        assert!(warm.delivered > 0);
+
+        let first: serde_json::Value =
+            serde_json::from_str(&factory.snapshot_delta_json()).expect("delta parses");
+        assert_eq!(first["base_revision"], 0);
+        assert_eq!(first["revision"], 1);
+        assert_eq!(first["buildings"]["replace"], true);
+        assert_eq!(
+            first["buildings"]["changed"]
+                .as_array()
+                .expect("a first delta carries the complete blueprint")
+                .len(),
+            spec.entities() as usize
+        );
+
+        factory
+            .advance_json("[{\"type\":\"move_intent\",\"x\":0,\"y\":0}]", 1)
+            .expect("idle batch is accepted");
+        let next: serde_json::Value =
+            serde_json::from_str(&factory.snapshot_delta_json()).expect("delta parses");
+        assert_eq!(next["base_revision"], 1);
+        assert_eq!(next["revision"], 2);
+        // The steady-state delta is a patch, not another complete blueprint: `replace` is skipped
+        // when false, and only the entities that moved travel.
+        assert!(next["buildings"]["replace"].is_null());
+        let changed = next["buildings"]["changed"]
+            .as_array()
+            .expect("a steady-state frame changes entities");
+        assert!(!changed.is_empty() && changed.len() < spec.entities() as usize);
     }
 
     #[test]

@@ -1,14 +1,14 @@
 # HexFactory — architecture, roadmap, and implementation handoffs
 
-Status: Sparse Snapshot v0.7 is shipped on Sparse Cost v0.6, Capacity Tiers v0.5.1, Worker Boundary
-v0.5, Command Surface v0.4, Continuous Exploration v0.3, and the v0.3.1 incremental transport
-follow-up. Every native follow-up the capacity measurement has identified is now closed and
-re-measured in `docs/BENCHMARKS.md`, and that re-measurement, not intuition, orders what comes next.
-The ladder no longer contains a tier that misses 60 Hz, so it no longer locates the native ceiling —
-which makes a browser-side measurement the next milestone rather than a further native one. Nothing
-here predicts browser frame rate, and every remaining native cost is now small enough that the wasm
-and postMessage boundary is plausibly the real limit. A renderer decision stays gated behind that
-measurement.
+Status: Browser Capacity v0.8 is shipped on Sparse Snapshot v0.7, Sparse Cost v0.6, Capacity Tiers
+v0.5.1, Worker Boundary v0.5, Command Surface v0.4, Continuous Exploration v0.3, and the v0.3.1
+incremental transport follow-up. The capacity ladder now runs in the browser worker as well as
+natively, so `docs/BENCHMARKS.md` finally measures the artifact that ships instead of a proxy for
+it, and that measurement — not intuition — orders what comes next. It settled the open question:
+the wasm engine costs about 1.2× native, and the worker boundary costs roughly 60% of what a frame
+costs the host, tracking payload bytes at about 10 µs/KB. The next milestone is therefore the
+compact binary delta encoding over a transferable buffer, not a further native optimization. A
+renderer decision stays gated behind a renderer measurement, which is now the second follow-up.
 
 Target repository: `https://github.com/Sidem/HexFactory`
 
@@ -23,6 +23,28 @@ not a source dependency: HexFactory imports only the published package. Treat th
 read-only unless a future task explicitly authorizes a separately released generic package change.
 
 ## Shipped implementation record
+
+- Browser Capacity v0.8 closes the follow-up every record since v0.5.1 has deferred: the ladder is
+  measured in the browser worker, so a wasm capacity record now sits beside the native one. The
+  measurement itself stays in Rust and is shared by both platforms — only the clock differs, a
+  native `Instant` or `performance.now` — so the two records are comparable by construction rather
+  than by re-implementation, and every browser tier reproduces its native checksum and delivered
+  total. The harness compiles into wasm only under a `bench` cargo feature and is driven by a
+  dev-only `/bench.html` page, so the deployed game artifact is unchanged at 464 KB and the
+  production build does not include the page. Because a browser clamps `performance.now` to 100 µs
+  unless cross-origin isolated, each phase repeats its sample block until it has run 20 ms; only
+  the sample count changes, and each tier's checksum is taken from a separate core advanced exactly
+  once through its tick budget so extra samples cannot move it. The harness also measures what no
+  native run can see: the worker RPC round trip and the main-thread delta merge. It changes no
+  simulation, save, determinism, or dependency contract, and the native ladder reproduces every
+  v0.7 checksum and timing. Its findings reorder the roadmap. Wasm costs 1.19–1.23× native at the
+  four largest tiers, so three releases of native work transferred intact and the engine is not the
+  problem. The worker boundary is 57–61% of a host frame and scales with payload at about
+  10 µs/KB — 6,085 µs of the largest tier's 10,345 µs frame — which prices the 644 KB JSON delta
+  v0.7 named and makes a compact binary encoding over a transferable buffer the next milestone. The
+  per-entity merge from v0.6 costs 0.7–1.5% of a frame and needs no work. The largest measured tier
+  now uses 62.1% of a 60 Hz frame rather than the native record's 23.1%, with rendering still
+  unmeasured, so the ceiling is above 6,144 entities but not far above it.
 
 - Sparse Snapshot v0.7 closes the follow-up v0.6 named for itself: the frame no longer materializes
   a complete snapshot purely to diff it. The core marks dirty entities, deposits, terrain, and the
