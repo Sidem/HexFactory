@@ -5,3 +5,5 @@ factory-wasm/pkg-bench/
 factory-wasm/target/
 *.log
 .claude/
+.playwright-mcp/
+/v0121-*.png

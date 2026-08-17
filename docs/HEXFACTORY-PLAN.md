@@ -1,14 +1,28 @@
 # HexFactory — architecture, roadmap, and implementation handoffs
 
-Status: Material Base v0.12 is shipped on World Shape v0.11, Playability v0.10, Game Feel v0.9,
-Browser Capacity v0.8, Sparse Snapshot v0.7, Sparse Cost v0.6, Capacity Tiers v0.5.1, Worker
-Boundary v0.5, Command Surface v0.4, Continuous Exploration v0.3, and the v0.3.1 incremental
-transport follow-up. The world now produces eight raw materials, each where its geography says it
-should be, and fourteen recipes across five machine categories turn them into something the player
-wanted. Next play milestone is Power v0.13. **The compact binary delta encoding is now the next
-thing that should land**: the roadmap named the v0.12/v0.13 boundary as its deadline and v0.12 grew
-the item roster it prices. The renderer measurement gates animation, and the drag's per-cell
-transport recompile is unblocked and can land anywhere.
+Status: Playtest Feel v0.12.1 is shipped on Material Base v0.12, World Shape v0.11, Playability
+v0.10, Game Feel v0.9, Browser Capacity v0.8, Sparse Snapshot v0.7, Sparse Cost v0.6, Capacity
+Tiers v0.5.1, Worker Boundary v0.5, Command Surface v0.4, Continuous Exploration v0.3, and the
+v0.3.1 incremental transport follow-up. The world now produces eight raw materials, each where
+its geography says it should be, and fourteen recipes across five machine categories turn them
+into something the player wanted. Next play milestone is Power v0.13. **The compact binary
+delta encoding is now the next thing that should land**: the roadmap named the v0.12/v0.13
+boundary as its deadline and v0.12 grew the item roster it prices. The renderer measurement
+gates animation, and the drag's per-cell transport recompile is unblocked and can land anywhere.
+
+## Remaining playtest diagnoses (after v0.12.1)
+
+v0.12.1 took the three player directions from the 2026-08-17 first-minutes playtest. These are
+what that session should not lose, still open:
+
+- Dual glass panels (mission + research) leave a corridor of world at 1440×900. The dock
+  shows every locked building from minute zero. Cargo slots are icon + count with no name.
+- Gather and deliver copy is honest (`stand on or beside a field hex to gather`, `Gathered
+Iron ore`). The guide loop (gather → gold hub → research) is the one thing that already
+  coaches. The header `Establish component production 0 / 3` never explains the 3.
+- Walking overshoots a single hex easily at hold-to-move speed.
+- Console was clean except `favicon.ico` 404.
+- Belts-on-fields may stay legal; paving the rare landing crystal without a read should not.
 
 Target repository: `https://github.com/Sidem/HexFactory`
 
@@ -23,6 +37,20 @@ not a source dependency: HexFactory imports only the published package. Treat th
 read-only unless a future task explicitly authorizes a separately released generic package change.
 
 ## Shipped implementation record
+
+- Playtest Feel v0.12.1 is the first-minutes follow-up v0.12 asked for, not a play milestone.
+  Fields are sparser so barren ground is the common case: richness and vein gates sit around
+  `50_000`–`56_000` instead of `22_000`–`46_000`, and the landing clearing stamps one cell of
+  each material rather than nine including a second iron. `BASE_HEX_SIZE` is 22 px, so more of
+  the lattice fits on screen; `PLAYER_RADIUS` stays 580. Resource counts are no longer written
+  on every field hex — remaining amount is on the hovered cell (with the item name), on a cell
+  that has been drawn from, and in the inspector, which now leads with the actual field rather
+  than the band's potentials. A refused place names the missing item (`need 1 Signal crystal
+(have 0)`) instead of `construction cost is not available`. Belt cargo is drawn larger so a
+  shrinking hex does not make a running line look idle. `WORLD_GENERATOR_VERSION` is 5; the
+  HXF1 save envelope is still version 5, and a v0.12 world is rejected because the generator
+  changed, not because the bytes did. Checksum comparisons are invalidated; timing ones are
+  not.
 
 - Material Base v0.12 gives the world more than one thing to be made of. Eight raw resources —
   iron ore, copper ore, coal, stone, sand, clay, wood, and water — are generated where their
@@ -213,9 +241,9 @@ construction agree.
   shore, lowland, highland, and cliffs from the elevation gradient. A radius-7 landing stays
   lowland except for a small pond and two cliffs that keep the tutorial readable.
 - **Resource fields.** A pure function of seed and hex. Iron ore clusters in highlands, crystal in
-  moist highland and lowland. Guaranteed cells at `(3,0)`, `(4,-2)`, and `(-2,2)` keep the first
-  loop stable. The tile map is a sparse depletion overlay: unmined field is not stored, saved, or
-  checksummed.
+  moist highland and lowland. Guaranteed landing cells keep the first loop stable (v0.12.1 thinned
+  them to one of each material). The tile map is a sparse depletion overlay: unmined field is not
+  stored, saved, or checksummed.
 - **Extraction radius.** An extractor harvests every field cell within hex distance 1, nearest
   first, then by cell key. Yield continues from farther cells as nearby ones empty. Overlap still
   arbitrates by stable entity ID.

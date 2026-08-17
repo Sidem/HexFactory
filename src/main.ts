@@ -397,24 +397,31 @@ function renderInspector(): void {
     ({ q, r }) => q === selected?.q && r === selected?.r,
   );
   const lines = [`Build hex ${selected.q}, ${selected.r}`];
+  if (resource) {
+    const item = host.definitions.items.find(
+      ({ id }) => id === resource.item_id,
+    );
+    const renewable = item?.regrowth_ticks ? " · regrows" : "";
+    // The actual field is what a new player needs first. Band potentials belong on empty
+    // ground; listing them above an iron cell is how the purple hex stayed anonymous.
+    lines.push(
+      `${item?.name ?? "Resource"}: ${resource.quantity} / ${resource.initial_quantity}${renewable}`,
+    );
+  }
   if (isSurveyed(snapshot.chunks, selectedWorld)) {
     const terrain =
       snapshot.terrain.find(
         ({ q, r }) => q === selected?.q && r === selected?.r,
       )?.terrain ?? "lowland";
     const label = TERRAIN_LABELS[terrain];
-    lines.push(`${label.name} · ${label.note}`);
+    if (resource) {
+      const buildable = label.note.split("·")[0]?.trim() ?? label.note;
+      lines.push(`${label.name} · ${buildable}`);
+    } else {
+      lines.push(`${label.name} · ${label.note}`);
+    }
   } else {
     lines.push("Unsurveyed — travel here to lift the fog");
-  }
-  if (resource) {
-    const item = host.definitions.items.find(
-      ({ id }) => id === resource.item_id,
-    );
-    const renewable = item?.regrowth_ticks ? " · regrows" : "";
-    lines.push(
-      `${item?.name ?? "Resource"}: ${resource.quantity} / ${resource.initial_quantity}${renewable}`,
-    );
   }
   if (building) {
     const definition = host.definitions.buildings.find(
@@ -564,7 +571,7 @@ function renderNextAction(): void {
   } else if (!researched.has(1) && ore + crystals === 0) {
     title = "Gather your first material";
     detail =
-      "Walk onto an ore or crystal field, then gather. Field hexes show their remaining amount.";
+      "Walk onto an ore or crystal field, then gather. Hover a field to read its name and remaining amount.";
   } else if (!researched.has(1)) {
     title = "Deliver materials for insight";
     detail =

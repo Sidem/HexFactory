@@ -1,17 +1,17 @@
 # HexFactory capacity benchmarks
 
 Status: Browser Capacity v0.8 is the fourth measured record and the first that is not native, and
-**Material Base v0.12 adds a native re-measurement on top of it**. The roadmap gates any renderer
-decision and every scale claim behind this measurement. Nothing here is an extrapolation: each
-number below was produced by the committed harness, and the raw reports are stored beside this
-document.
+**Playtest Feel v0.12.1 adds a native re-measurement** on top of Material Base v0.12. The roadmap
+gates any renderer decision and every scale claim behind this measurement. Nothing here is an
+extrapolation: each number below was produced by the committed harness, and the raw reports are
+stored beside this document.
 
 **The v0.8 tables below are a historical record, not the current cost.** v0.11 changed the world
-generator and v0.12 changed the item roster, so the workload's pinned checksum moved twice and the
-v0.8 numbers no longer describe the shipped core. The [v0.12 native
-re-measurement](#native--v012-re-measurement) is what currently holds. There is no v0.12 browser
-record; the v0.8 browser table is the only browser evidence that exists, and the ratios it
-established should be re-derived before being relied on again.
+generator, v0.12 changed the item roster, and v0.12.1 bumped `WORLD_GENERATOR_VERSION` again, so
+the workload's pinned checksum moved and the v0.8 numbers no longer describe the shipped core. The
+[v0.12.1 native re-measurement](#native--v0121-re-measurement) is what currently holds. There is
+no v0.12 or v0.12.1 browser record; the v0.8 browser table is the only browser evidence that
+exists, and the ratios it established should be re-derived before being relied on again.
 
 The same ladder now runs in both places. Rust owns the measurement; only the clock differs — a
 native `Instant`, or `performance.now` inside the browser worker — so the two records are
@@ -154,6 +154,27 @@ here because they are what re-measuring a milestone is for:
 
 Everything else sits within the harness's stated noise. `compile` and `edit` read 4–10% higher and
 `tick` within 7%; treat differences under roughly 20% as noise, as the limits below say.
+
+### Native — v0.12.1 re-measurement
+
+Same host and harness, `factory-wasm` at v0.12.1, recorded 2026-08-17. Raw report:
+[`benchmarks/capacity-v0.12.1-native.json`](benchmarks/capacity-v0.12.1-native.json). The
+workload's shape, entity counts, delivered totals, and delta sizes are unchanged; its checksum is
+not, because `WORLD_GENERATOR_VERSION` is a checksum input. **Tier checksums are therefore not
+comparable to the v0.12 record — the timings are, and that is what this run is for.**
+
+| tier   | entities | tiles | tick µs | snapshot µs | checksum µs | frame µs | delta bytes | compile µs | recompile µs | edit µs |
+| ------ | -------: | ----: | ------: | ----------: | ----------: | -------: | ----------: | ---------: | -----------: | ------: |
+| line   |       12 |     1 |     0.5 |        11.8 |         0.8 |      6.7 |       1,319 |        1.2 |          5.8 |     6.2 |
+| small  |      192 |    16 |     6.1 |        60.8 |         9.7 |     95.2 |      19,764 |       17.2 |         55.0 |    62.6 |
+| medium |      768 |    64 |    24.1 |       279.7 |        36.9 |    370.0 |      79,477 |       83.0 |        256.6 |   284.4 |
+| wide   |    1,536 |   128 |    50.9 |       597.9 |        74.3 |    773.0 |     159,709 |      182.2 |        591.4 |   668.3 |
+| large  |    3,072 |   256 |   132.6 |     1,222.2 |       148.6 |  1,511.4 |     320,754 |      389.6 |      1,224.0 | 1,335.5 |
+| xlarge |    6,144 |   512 |   264.1 |     2,421.7 |       294.6 |  3,032.6 |     644,759 |      814.1 |      2,767.8 | 2,593.8 |
+
+No new regression. Every timing sits within the harness's stated noise of the v0.12 record — the
+generator bump changed which cells exist in the world, not how the synthetic ladder is built, and
+the delta payload is the same 644 KB at the largest tier.
 
 ### Browser worker
 

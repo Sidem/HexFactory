@@ -11,7 +11,7 @@ type TechnologyId = u16;
 
 const SAVE_PREFIX: &str = "HXF1\n";
 const SAVE_VERSION: u16 = 5;
-const WORLD_GENERATOR_VERSION: u16 = 4;
+const WORLD_GENERATOR_VERSION: u16 = 5;
 const MAX_COMMANDS_PER_BATCH: usize = 8;
 /// A drag is one bounded command, so the run it expands into has to be bounded too. This is the
 /// native cap on cells a single `place_line` or `erase_line` may touch.
@@ -2071,8 +2071,30 @@ impl Core {
                 ));
             }
         }
-        if check_cost && !has_ingredients(&self.player.inventory, &definition.construction_cost) {
-            return Err("construction cost is not available".into());
+        if check_cost {
+            let missing: Vec<String> = definition
+                .construction_cost
+                .iter()
+                .filter_map(|ingredient| {
+                    let have = self
+                        .player
+                        .inventory
+                        .get(&ingredient.item_id)
+                        .copied()
+                        .unwrap_or(0);
+                    if have >= ingredient.quantity {
+                        return None;
+                    }
+                    let name = self
+                        .item_definition(ingredient.item_id)
+                        .map(|item| item.name.as_str())
+                        .unwrap_or("item");
+                    Some(format!("{} {name} (have {have})", ingredient.quantity))
+                })
+                .collect();
+            if !missing.is_empty() {
+                return Err(format!("need {}", missing.join(" · ")));
+            }
         }
         Ok(())
     }
@@ -4086,11 +4108,11 @@ const CLAY: ItemId = 8;
 const WOOD: ItemId = 9;
 
 /// The cells the landing clearing is guaranteed to hold, so the first hour of any seed can reach
-/// every tier-1 recipe on foot. Stone sits on a cliff the player cannot stand on — it is taken from
-/// the hex beside it, which is the cheapest possible lesson in what the extraction radius means.
-const LANDING_FIELD: [(i32, i32, ItemId, u32); 9] = [
+/// every tier-1 recipe on foot. One cell of each material — a site, not a supermarket. Stone sits
+/// on a cliff the player cannot stand on — it is taken from the hex beside it, which is the
+/// cheapest possible lesson in what the extraction radius means.
+const LANDING_FIELD: [(i32, i32, ItemId, u32); 8] = [
     (3, 0, IRON_ORE, 48),
-    (4, -2, IRON_ORE, 36),
     (-2, 2, CRYSTAL, 32),
     (0, -3, COPPER_ORE, 40),
     (2, -3, COAL, 28),
@@ -4136,18 +4158,20 @@ fn field_at(seed: u32, q: i32, r: i32, generated_environment: bool) -> Option<Re
     };
     match terrain {
         // Cliffs are the exposed rock of a landform, so they are where stone is quarried from.
-        Terrain::Cliff if richness > 30_000 => field(STONE, 24, 25),
-        Terrain::Highland if moisture > 44_000 && richness > 46_000 => field(CRYSTAL, 10, 15),
-        Terrain::Highland if richness > 38_000 => field(IRON_ORE, 16, 21),
-        Terrain::Highland if vein > 44_000 => field(COAL, 14, 19),
-        Terrain::Hills if richness > 36_000 => field(COPPER_ORE, 16, 21),
-        Terrain::Hills if vein > 47_000 => field(COAL, 12, 15),
-        Terrain::Shore if moisture > 38_000 && richness > 30_000 => field(CLAY, 14, 19),
-        Terrain::Shore if richness > 26_000 => field(SAND, 18, 23),
-        Terrain::Lowland if moisture > 46_000 && richness > 44_000 => field(CRYSTAL, 10, 15),
+        Terrain::Cliff if richness > 50_000 => field(STONE, 24, 25),
+        Terrain::Highland if moisture > 46_000 && richness > 56_000 => field(CRYSTAL, 10, 15),
+        Terrain::Highland if richness > 54_000 => field(IRON_ORE, 16, 21),
+        Terrain::Highland if vein > 56_000 => field(COAL, 14, 19),
+        Terrain::Hills if richness > 54_000 => field(COPPER_ORE, 16, 21),
+        Terrain::Hills if vein > 56_000 => field(COAL, 12, 15),
+        Terrain::Shore if moisture > 40_000 && richness > 52_000 => field(CLAY, 14, 19),
+        Terrain::Shore if richness > 50_000 => field(SAND, 18, 23),
+        Terrain::Lowland if moisture > 48_000 && richness > 56_000 => field(CRYSTAL, 10, 15),
         // Flora, not a deposit: `regrowth_ticks` on the item is what makes this one renewable.
-        Terrain::Lowland if moisture > 40_000 && richness > 30_000 => field(WOOD, 10, 13),
-        Terrain::Lowland if moisture > 44_000 && richness > 22_000 => field(CLAY, 12, 15),
+        Terrain::Lowland if moisture > 42_000 && richness > 52_000 => field(WOOD, 10, 13),
+        // Wetter than the forest band, but not rich enough to grow one — clay is the leftover,
+        // so its richness gate has to sit below wood's or wood always wins the cell.
+        Terrain::Lowland if moisture > 46_000 && richness > 40_000 => field(CLAY, 12, 15),
         _ => None,
     }
 }
@@ -5211,20 +5235,37 @@ mod tests {
         assert!(core.deposit_candidates(1, 0).contains(&(1, -1)));
 
         let mut seen: BTreeMap<Terrain, BTreeSet<ItemId>> = BTreeMap::new();
-        for q in -60..60 {
-            for r in -60..60 {
+        let mut land = 0u32;
+        let mut fields = 0u32;
+        for q in -80..80 {
+            for r in -80..80 {
                 // The guaranteed clearing is deliberately not geography, so it is not evidence
                 // about which band holds what.
                 if axial_distance((0, 0), (q, r)) <= LANDING_CLEAR_RADIUS {
                     continue;
                 }
+                let terrain = terrain_at(core.seed, q, r, true);
+                if !terrain.is_water() {
+                    land += 1;
+                }
                 if let Some(field) = field_at(core.seed, q, r, true) {
-                    seen.entry(terrain_at(core.seed, q, r, true))
-                        .or_default()
-                        .insert(field.item_id);
+                    fields += 1;
+                    seen.entry(terrain).or_default().insert(field.item_id);
                 }
             }
         }
+        // A field is a place. Barren ground has to be the common case, or the landscape is a
+        // carpet and a site is stumbled over rather than chosen. The floor keeps a threshold
+        // raise from emptying a band by accident.
+        assert!(land > 0);
+        assert!(
+            fields * 100 < land * 22,
+            "fields too dense: {fields} of {land} land hexes"
+        );
+        assert!(
+            fields * 100 > land * 3,
+            "fields too sparse: {fields} of {land} land hexes"
+        );
         assert_eq!(seen.get(&Terrain::Cliff), Some(&BTreeSet::from([STONE])));
         assert_eq!(
             seen.get(&Terrain::Shore),
@@ -5593,7 +5634,19 @@ mod tests {
             .unwrap_err()
             .contains("range"));
         core.player.inventory.clear();
-        assert!(core.place(2, 0, 2, 0, None).unwrap_err().contains("cost"));
+        assert!(core
+            .place(2, 0, 2, 0, None)
+            .unwrap_err()
+            .contains("Iron ore"));
+        core.player.inventory.insert(1, 8);
+        core.player.inventory.insert(8, 7);
+        // Extractor wants iron, clay, and one crystal. Naming the missing item is the message;
+        // "construction cost is not available" did not say which.
+        assert!(core
+            .place(3, 0, 1, 0, None)
+            .unwrap_err()
+            .contains("Signal crystal"));
+        core.player.inventory.clear();
         core.player.inventory.insert(1, 3);
         core.place(2, 0, 2, 0, None).unwrap();
         assert!(core
@@ -5694,7 +5747,7 @@ mod tests {
         );
         assert_eq!(core.player.inventory.get(&1).copied().unwrap_or(0), 0);
         // Running out of materials part-way is reported, and what was affordable still stands.
-        assert!(core.events.iter().any(|event| event.contains("cost")));
+        assert!(core.events.iter().any(|event| event.contains("Iron ore")));
 
         // A drag that can place nothing at all fails as the single placement would have.
         let mut empty = game("new-game");
@@ -5702,7 +5755,7 @@ mod tests {
         assert!(empty
             .place_line((2, 0), (4, 1), 2, 0, None)
             .unwrap_err()
-            .contains("cost"));
+            .contains("Iron ore"));
         assert!(empty
             .entities
             .iter()
@@ -6354,8 +6407,8 @@ mod tests {
             save.replacen("\"definition_version\":5", "\"definition_version\":999", 1);
         assert!(Core::from_save(&definitions, &technologies, &scenarios, &incompatible).is_err());
         let old_world = save.replacen(
+            "\"world_generator_version\":5",
             "\"world_generator_version\":4",
-            "\"world_generator_version\":3",
             1,
         );
         assert!(Core::from_save(&definitions, &technologies, &scenarios, &old_world).is_err());
@@ -6757,11 +6810,10 @@ mod tests {
         second.advance_ticks(120);
         assert_eq!(first.checksum(), second.checksum());
         // Pinned so a change to definitions, the workload, or the simulation cannot silently
-        // invalidate comparisons against previously recorded tier numbers. v0.12 moved it
-        // deliberately: `WORLD_GENERATOR_VERSION` and every machine's fuel charge are checksum
-        // inputs, so the number changed while the workload did not — which is why the delivered
-        // total and the entity count below are the assertions that say the run is the same run.
-        assert_eq!(first.checksum(), 99_485_578);
+        // invalidate comparisons against previously recorded tier numbers. A generator-version
+        // bump moves this number while the workload does not — which is why the delivered total
+        // and the entity count below are the assertions that say the run is the same run.
+        assert_eq!(first.checksum(), 1_813_963_751);
         assert_eq!(first.entities.len(), spec.entities() as usize);
         // Every line must be running end to end, or the tiers would measure an idle blueprint.
         assert_eq!(first.delivered, u64::from(spec.lines) * 14);

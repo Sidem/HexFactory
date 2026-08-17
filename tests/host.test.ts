@@ -641,6 +641,24 @@ describe("availability and expanded snapshot adapter", () => {
       "cliff",
     ])
       expect(labels, band).toContain(band);
+    // A field hex leads with what is on it. Band potentials stay on empty ground.
+    const inspectorStart = main.indexOf("function renderInspector(");
+    expect(main.indexOf("if (resource)", inspectorStart)).toBeLessThan(
+      main.indexOf('?.terrain ?? "lowland"', inspectorStart),
+    );
+  });
+
+  it("shrinks the hex lattice on screen and keeps counts off untouched fields", () => {
+    const renderer = readFileSync(
+      new URL("../src/rendering/CanvasFactoryRenderer.ts", import.meta.url),
+      "utf8",
+    );
+    // More hexes in the viewport is a presentation knob, not another PLAYER_RADIUS bump.
+    expect(renderer).toContain("const BASE_HEX_SIZE = 22");
+    expect(renderer).toContain("const drawnFrom");
+    expect(renderer).toContain("drawFieldLabel(");
+    // The old always-on count is what turned the landscape into a spreadsheet.
+    expect(renderer).not.toContain("String(resource.quantity)");
   });
 });
 

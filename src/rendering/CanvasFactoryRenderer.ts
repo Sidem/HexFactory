@@ -20,7 +20,7 @@ import type {
 } from "../core/types";
 import { drawItemIcon } from "./icons";
 
-const BASE_HEX_SIZE = 31;
+const BASE_HEX_SIZE = 22;
 const WORLD_SCALE = 1024;
 
 /**
@@ -350,18 +350,56 @@ export class CanvasFactoryRenderer {
       const pulse = this.reducedMotion ? 0 : Math.sin(this.now / 450) * 0.03;
       drawHex(ctx, center, size * (0.82 + pulse), `${color}55`, color, 1.6);
       drawItemIcon(ctx, item?.icon ?? "ore", color, center.x, center.y, size);
-      if (size < 22) continue;
-      const label = String(resource.quantity);
-      const fontSize = Math.max(9, size * 0.22);
-      ctx.font = `700 ${fontSize}px system-ui`;
-      ctx.textAlign = "center";
-      ctx.fillStyle = "#07110ee8";
-      ctx.beginPath();
-      ctx.roundRect(center.x - 12, center.y + size * 0.28, 24, 14, 6);
-      ctx.fill();
-      ctx.fillStyle = "#f4f7f5";
-      ctx.fillText(label, center.x, center.y + size * 0.28 + 11);
+      // Remaining amount is not a label on every ore hex. It belongs on the cell under the
+      // cursor, or on a cell that has already been drawn from — the glyph already names the
+      // material, and the inspector has the exact count.
+      const hovered =
+        this.hover !== null &&
+        this.hover.q === resource.q &&
+        this.hover.r === resource.r;
+      const drawnFrom = resource.quantity < resource.initial_quantity;
+      if (hovered) {
+        this.drawFieldLabel(
+          center,
+          size,
+          item?.name ?? "Resource",
+          resource.quantity,
+          true,
+        );
+      } else if (drawnFrom && size >= 16) {
+        this.drawFieldLabel(center, size, null, resource.quantity, false);
+      }
     }
+  }
+
+  /**
+   * A single field's remaining amount. Hover includes the item name because the glyph alone
+   * does not say "Signal crystal"; depleted cells keep the count so a draw is visible.
+   */
+  private drawFieldLabel(
+    center: PixelPoint,
+    size: number,
+    name: string | null,
+    quantity: number,
+    prominent: boolean,
+  ): void {
+    const ctx = this.context;
+    const text = name ? `${name}  ${quantity}` : String(quantity);
+    const fontSize = prominent
+      ? Math.max(10, size * 0.28)
+      : Math.max(9, size * 0.22);
+    ctx.font = `700 ${fontSize}px system-ui`;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "alphabetic";
+    const width = Math.max(24, ctx.measureText(text).width + 12);
+    const height = prominent ? 16 : 14;
+    const y = center.y + size * (prominent ? 0.42 : 0.28);
+    ctx.fillStyle = prominent ? "#07110ef2" : "#07110ee8";
+    ctx.beginPath();
+    ctx.roundRect(center.x - width / 2, y, width, height, 6);
+    ctx.fill();
+    ctx.fillStyle = "#f4f7f5";
+    ctx.fillText(text, center.x, y + height - 4);
   }
 
   /**
@@ -603,7 +641,7 @@ export class CanvasFactoryRenderer {
       ctx.arc(
         cargoPoint.x,
         cargoPoint.y,
-        Math.max(4, size * 0.11),
+        Math.max(7, size * 0.22),
         0,
         Math.PI * 2,
       );

@@ -1,12 +1,14 @@
 # Material Base v0.12 scope and acceptance
 
-Status: Material Base v0.12 is shipped on World Shape v0.11, Playability v0.10, Game Feel v0.9,
-Browser Capacity v0.8, Sparse Snapshot v0.7, Sparse Cost v0.6, Worker Boundary v0.5, and Command
-Surface v0.4. v0.11 changed what the world looks like; v0.12 changes what it is made of — eight raw
-resources correlated with terrain, fourteen recipes across five machine categories, fuel as a
-property of items, renewable flora, and a pump that draws from a basin.
-`WORLD_GENERATOR_VERSION` 4 and `HXF1` save version 5 reject earlier envelopes. The capacity ladder
-is re-pinned and, for the first time since v0.8, re-measured.
+Status: Playtest Feel v0.12.1 is shipped on Material Base v0.12, World Shape v0.11, Playability
+v0.10, Game Feel v0.9, Browser Capacity v0.8, Sparse Snapshot v0.7, Sparse Cost v0.6, Worker
+Boundary v0.5, and Command Surface v0.4. v0.11 changed what the world looks like; v0.12 changes
+what it is made of — eight raw resources correlated with terrain, fourteen recipes across five
+machine categories, fuel as a property of items, renewable flora, and a pump that draws from a
+basin. v0.12.1 thins generation and quiets the first-minutes presentation: sparser fields,
+smaller hexes on screen, counts off untouched field hexes.
+`WORLD_GENERATOR_VERSION` 5 and `HXF1` save version 5 reject earlier envelopes. The capacity
+ladder is re-pinned; a generator bump invalidates checksum comparisons, not timing ones.
 
 ## Material base contract
 
