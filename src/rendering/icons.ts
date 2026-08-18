@@ -4,7 +4,7 @@
  *
  * The set names material *forms*, not individual items — iron and copper ore share `ore` and
  * differ by their identity colour, as do every plate and every kind of grit. That keeps twenty-odd
- * items legible on a twelve-glyph vocabulary, and it is the rule Stage B's sprite atlas inherits.
+ * items legible on a twelve-glyph vocabulary, and it is the rule Stage B's generator inherits.
  */
 export const ITEM_ICON_KEYS = [
   "ore",

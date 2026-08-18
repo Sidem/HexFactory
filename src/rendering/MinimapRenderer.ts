@@ -100,11 +100,14 @@ export class MinimapRenderer {
     }
 
     for (const resource of snapshot.resources) {
-      if (resource.quantity === 0) continue;
       const point = project(resource);
       if (!onMap(point, cell)) continue;
-      ctx.fillStyle = this.itemsById.get(resource.item_id)?.color ?? "#fff";
+      const color = this.itemsById.get(resource.item_id)?.color ?? "#fff";
+      // A worked-out cell stays on the map as a dim scar so a depleted vein is still a place.
+      ctx.globalAlpha = resource.quantity === 0 ? 0.35 : 1;
+      ctx.fillStyle = resource.quantity === 0 ? "#6a6560" : color;
       ctx.fillRect(point.x - cell / 4, point.y - cell / 4, cell / 2, cell / 2);
+      ctx.globalAlpha = 1;
     }
 
     const mark = Math.max(3, cell);

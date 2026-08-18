@@ -776,6 +776,8 @@ describe("availability and expanded snapshot adapter", () => {
     );
     // Per-entity .find() inside the draw loops is the thing the renderer measurement should
     // not have to answer. Lookups are built once from the roster.
+    expect(renderer).toContain('from "./terrainLook"');
+    expect(renderer).toContain('from "./buildingLook"');
     expect(renderer).toContain("this.itemsById = new Map(");
     expect(renderer).toContain("this.buildingsById = new Map(");
     expect(renderer).not.toContain("definitions.items.find(");

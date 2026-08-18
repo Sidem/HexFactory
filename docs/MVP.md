@@ -1,15 +1,13 @@
 # Material Base v0.12 scope and acceptance
 
-Status: Renderer Measure v0.12.4 is shipped on Sightlines v0.12.3, Binary Delta v0.12.2, Playtest
-Feel v0.12.1, Material Base v0.12, World Shape v0.11, Playability v0.10, Game Feel v0.9, Browser
-Capacity v0.8, Sparse Snapshot v0.7, Sparse Cost v0.6, Worker Boundary v0.5, and Command Surface
-v0.4. v0.11 changed what the world looks like; v0.12 changes what it is made of — eight raw
-resources correlated with terrain, fourteen recipes across five machine categories, fuel as a
-property of items, renewable flora, and a pump that draws from a basin. v0.12.1 thins generation
-and quiets the first-minutes presentation. v0.12.2 changes nothing the player can name and
-everything about what a frame costs: the snapshot delta crosses as a compact binary buffer.
-v0.12.4 times the two canvases the game draws, so a browser frame is accounted for end to end.
-`WORLD_GENERATOR_VERSION` 5 and `HXF1` save version 5 reject earlier envelopes. The capacity
+Status: Look Systems v0.13.1 is shipped on Power v0.13, Renderer Measure v0.12.4, Sightlines
+v0.12.3, Binary Delta v0.12.2, Playtest Feel v0.12.1, Material Base v0.12, World Shape v0.11,
+Playability v0.10, Game Feel v0.9, Browser Capacity v0.8, Sparse Snapshot v0.7, Sparse Cost v0.6,
+Worker Boundary v0.5, and Command Surface v0.4. v0.11 changed what the world looks like; v0.12
+changes what it is made of; v0.13 adds a power network; Look Systems turns the mosaic into
+generated terrain and building silhouettes without moving a checksum. v0.12.4 times the two
+canvases the game draws; v0.13.1 re-measures them after Stage B and the first Stage C motion.
+`WORLD_GENERATOR_VERSION` 5 and `HXF1` save version 6 reject earlier envelopes. The capacity
 ladder is re-pinned; a generator bump invalidates checksum comparisons, not timing ones.
 
 ## Binary delta contract
@@ -314,10 +312,12 @@ release actions and must not be implied by local success.
 1. ~~Measuring the Canvas renderer against the capacity tiers.~~ **Done in v0.12.4.** A complete
    browser frame at 6,144 entities is 18.2% of 60 Hz; rendering is 1,069 µs of that. Both canvases
    now resolve definitions through maps built once, so the linear `find` the previous note named
-   is not something a later measurement has to answer. Stage C is unblocked; Stage B's per-hex
-   work should still not run far ahead of a re-measure.
+   is not something a later measurement has to answer. Stage C is unblocked.
 2. ~~Power v0.13.~~ **Shipped.** Poles compile a network; brownouts are integer; water stays
-   belted. Next play milestone is Upgrades and Tiers v0.14.
+   belted.
+   2b. ~~Look Systems.~~ **Shipped as v0.13.1.** Stage B generator and the first Stage C motion,
+   then a re-measure: 19.0% of 60 Hz at 6,144 entities. Next play milestone is Upgrades and
+   Tiers v0.14. The session brief is at the top of `docs/HEXFACTORY-PLAN.md`.
 3. New, from v0.12.2's measurement: the main-thread merge is 6.3% of the largest tier's host frame,
    against 0.7% when the boundary dominated. The code did not change and did not get slower;
    everything around it got faster. At 115 µs against a 100 µs clock step it needs a measurement

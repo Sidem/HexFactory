@@ -1,20 +1,41 @@
 # HexFactory — architecture, roadmap, and implementation handoffs
 
-Status: Power v0.13 is shipped on Renderer Measure v0.12.4, Sightlines v0.12.3, Binary Delta
-v0.12.2, Playtest Feel v0.12.1, Material Base v0.12, World Shape v0.11, Playability v0.10, Game Feel
-v0.9, Browser Capacity v0.8, Sparse Snapshot v0.7, Sparse Cost v0.6, Capacity Tiers v0.5.1, Worker
-Boundary v0.5, Command Surface v0.4, Continuous Exploration v0.3, and the v0.3.1 incremental
-transport follow-up.
+Status: Look Systems v0.13.1 is shipped on Power v0.13, Renderer Measure v0.12.4, Sightlines
+v0.12.3, Binary Delta v0.12.2, Playtest Feel v0.12.1, Material Base v0.12, World Shape v0.11,
+Playability v0.10, Game Feel v0.9, Browser Capacity v0.8, Sparse Snapshot v0.7, Sparse Cost v0.6,
+Capacity Tiers v0.5.1, Worker Boundary v0.5, Command Surface v0.4, Continuous Exploration v0.3,
+and the v0.3.1 incremental transport follow-up.
 The world now produces eight raw materials, each where its geography says it should be, and fourteen
 recipes across five machine categories turn them into something the player wanted. The compact
 binary delta encoding landed on the v0.12/v0.13 boundary the roadmap named as its deadline: the
-per-frame payload is 13.6× smaller. **A complete browser frame is now a measured number**: 18.2% of
-60 Hz at the largest tier, of which rendering is 6.4%. The world is the view: the panels are behind
-keys, the player points where the cursor does, impassable ground says so, and a minimap and a
-bearing home mean walking away from the landing site is a decision rather than a risk.
+per-frame payload is 13.6× smaller. **A complete browser frame is a measured number**: 19.0% of
+60 Hz at the largest tier after Look Systems, of which the world draw is 991 µs against the
+v0.12.4 baseline of 909 µs. The world is the view: shorelines come from neighbours, buildings
+from `recipe_category`, and a worked-out field is a scar rather than a missing glyph.
 
-Next play milestone is Upgrades and Tiers v0.14. The drag's per-cell transport recompile is
-unblocked and can land anywhere.
+**Next session is Upgrades and Tiers v0.14.** Look Systems shipped the generator that makes a
+tier a data row. The drag's per-cell transport recompile is unblocked and can land anywhere.
+
+## Next session — Upgrades and Tiers v0.14
+
+The originally-deferred play milestone, now with materials to spend, a power budget to improve,
+and a generator that can paint a new tier without a new drawing. Begin in
+`X:\Programming\Projects\HexFactory`. Read this section and the v0.14 write-up below before
+editing definitions or commands.
+
+- **Tiered building definitions.** A later tier is a data row: same `recipe_category`, trim from
+  `tier`. Do not add a drawing, a `BuildingKind`, or a tick path.
+- **An upgrade command** that preserves contents, orientation, and connections. Bounded and
+  range-checked beside `place`, `erase`, `withdraw`, and `set_recipe`.
+- **Extraction radius is the flagship upgrade.** It is visible on the map, it changes a
+  decision the player already made, and it demonstrates what tiers are for better than a bigger
+  box does. Larger containers, faster smelters, and more efficient generators follow the same
+  pattern.
+- A save / definition version bump is expected; say which, and reject the previous envelope.
+- Re-measure the native ladder if the entity snapshot changes. The Look Systems browser record
+  (`docs/BENCHMARKS.md`, v0.13.1) stays the render baseline unless the draw itself moves.
+
+Out of scope: 3D, north-south belts, a hand-drawn atlas, fluid networks.
 
 ## Remaining playtest diagnoses (after v0.12.1)
 
@@ -44,6 +65,13 @@ not a source dependency: HexFactory imports only the published package. Treat th
 read-only unless a future task explicitly authorizes a separately released generic package change.
 
 ## Shipped implementation record
+
+- Look Systems v0.13.1 is presentation over published snapshot facts. Neighbour fringes, baked
+  terrain tiles, a host-side hex hash, depletion scars, silhouettes from `recipe_category`, and
+  one Stage C motion pass (belt cargo, machine cycles, extractor pulses, water shimmer). Trim is
+  reserved for `tier` so v0.14 is a data row. No save, generator, definition, or wire version
+  moves. A complete browser frame at 6,144 entities is 3,170 µs, 19.0% of 60 Hz; the world is
+  991 µs of that against the v0.12.4 baseline of 909 µs. Cite `docs/BENCHMARKS.md`.
 
 - Power v0.13 is the second constraint. Poles compile connected components; each network holds
   integer supply and demand; brownouts advance `base * satisfied / demand` with a per-entity
@@ -522,15 +550,16 @@ world has to produce more kinds of matter before recipes can combine them, recip
 before generators are worth building, and all three have to exist before tiers have anything to
 spend or improve. Each entry states the play it unlocks, per the design pillars.
 
-| Milestone                | Unlocks                                                    | Depends on      |
-| ------------------------ | ---------------------------------------------------------- | --------------- |
-| v0.11 World Shape        | A world worth walking across and choosing a site on        | v0.10 item 1    |
-| v0.12 Material Base      | A production tree instead of one recipe                    | v0.11 fields    |
-| v0.13 Power              | A second constraint that reshapes layout                   | v0.12 materials |
-| v0.14 Upgrades and Tiers | Growth in place; extraction radius as the flagship upgrade | v0.12 and v0.13 |
+| Milestone                  | Unlocks                                                    | Depends on                        |
+| -------------------------- | ---------------------------------------------------------- | --------------------------------- |
+| v0.11 World Shape          | A world worth walking across and choosing a site on        | v0.10 item 1                      |
+| v0.12 Material Base        | A production tree instead of one recipe                    | v0.11 fields                      |
+| v0.13 Power                | A second constraint that reshapes layout                   | v0.12 materials                   |
+| Look Systems (Stage B + C) | A world that rewards looking at it; tiers stay a data row  | v0.12 roster and v0.12.4 measure  |
+| v0.14 Upgrades and Tiers   | Growth in place; extraction radius as the flagship upgrade | v0.13; cheaper after Look Systems |
 
-v0.11 and v0.12 have shipped. What follows records what v0.12 actually decided where it differed
-from the plan it was written against.
+v0.11, v0.12, v0.13, and Look Systems have shipped. Next play milestone is v0.14. What follows
+records what v0.12 actually decided where it differed from the plan it was written against.
 
 **Where the engine milestones slot.** The compact binary delta encoding landed as v0.12.2, on the
 boundary this paragraph set for it and for the reason it gave: every milestone here grows the
@@ -541,8 +570,10 @@ payload that is 13.6× smaller than the one that priced the worry.
 
 The renderer measurement that paragraph moved to the front of the queue landed as v0.12.4: a
 complete browser frame at the largest tier is 18.2% of 60 Hz, rendering is 6.4% of it, and Stage
-C is no longer gated on ignorance. The drag's per-cell transport recompile has no dependency
-here and can land anywhere.
+C is no longer gated on ignorance. On 2026-08-18 the look systems were pulled in front of
+v0.14: the roster is stable, the frame is a number, and a generator now is what keeps a later
+tier from costing a drawing. The drag's per-cell transport recompile has no dependency here
+and can land anywhere.
 
 ### v0.11 — World Shape
 
@@ -797,14 +828,23 @@ is an interim model.
 Deferred. They are the natural answer to intermittent generation, and intermittent generation is
 itself deferred; they arrive together.
 
+### Look Systems — Stage B generator, then first Stage C motion
+
+Shipped 2026-08-18 as v0.13.1. Not a play-systems milestone: no new recipe, no new building
+kind, no save bump. The five rules live in `docs/ART.md`. The 2D start of the organic-generation
+horizon landed here, plus one motion pass, then a re-measure: 19.0% of 60 Hz at 6,144 entities,
+world 991 µs. 3D, north-south belts, and the later tileable-texture systems stay on the longer
+horizon.
+
 ### v0.14 — Upgrades and Tiers
 
-The originally-deferred milestone, now with something to spend and something to improve. Tiered
-building definitions, an upgrade command that preserves contents, orientation, and connections, and
-the progression that earns them. **Extraction radius is the flagship upgrade** — it is visible on
-the map, it changes a decision the player already made, and it demonstrates what tiers are for
-better than a bigger box does. Larger containers, faster smelters, and more efficient generators
-follow the same pattern.
+The next session. The originally-deferred milestone, now with something to spend
+and something to improve, and with a generator that can paint a new tier without a new drawing.
+Tiered building definitions, an upgrade command that preserves contents, orientation, and
+connections, and the progression that earns them. **Extraction radius is the flagship upgrade**
+— it is visible on the map, it changes a decision the player already made, and it demonstrates
+what tiers are for better than a bigger box does. Larger containers, faster smelters, and more
+efficient generators follow the same pattern.
 
 ### Deferred beyond this arc
 
@@ -827,9 +867,11 @@ Named here so they are decisions rather than omissions, each with the thing it i
 
 ### Longer horizon — 3D, north-south belts, organic generation
 
-Named 2026-08-18 from three directions given in one sitting. They are not the next session and they
-do not reorder Power or the renderer measurement. They are the destination the current architecture
-has to stay pointed at, so a 2D choice that would make them expensive later is the thing to refuse.
+Named 2026-08-18 from three directions given in one sitting. Power and the renderer measurement
+have since shipped, and Look Systems (the 2D start of the organic-generation item) has shipped.
+3D presentation and north-south belts are still not the next session. They are the
+destination the current architecture has to stay pointed at, so a 2D choice that would make
+them expensive later is the thing to refuse.
 
 #### 3D presentation
 
@@ -877,10 +919,10 @@ that makes a hex world stop looking like a hex world: systems that procedurally 
 textures and shapes**, so rigid hexagonal tiling reads as organic terrain and organic objects.
 
 Stage B's neighbour fringes, host-side hash variation, and depletion scarring are the 2D start of
-that. They stay 2D and they stay behind or beside the renderer measurement. The later systems
-inherit the same invariants: generated, presentation-only, derived from published snapshot facts
-(band, neighbours, richness, remaining quantity, `recipe_category`, tier), never a checksum input,
-and a new building or a new terrain band costs a data row rather than a drawing.
+that, and they shipped as Look Systems. They stay 2D. The later systems inherit the same
+invariants: generated, presentation-only, derived from published snapshot facts (band, neighbours,
+richness, remaining quantity, `recipe_category`, tier), never a checksum input, and a new
+building or a new terrain band costs a data row rather than a drawing.
 
 That is also why 3D shape and this generator are the same programme. A 3D building mesh that is
 hand-authored per definition is the atlas again. A 3D building mesh derived from `recipe_category`
@@ -898,27 +940,21 @@ factory to argue about. Also define the item icon system here and apply it to th
 items — v0.10's inventory grid will be displaying `"icon": "ORE"` string codes, and that is the
 cheapest visible improvement available.
 
-**Stage B — a sprite generator, after v0.12.** The building and item roster is not stable until the
-material base lands; drawing sprites before that guarantees redrawing them. It is now stable, and the
-thing to build is the generator rather than the atlas. This entry originally read "the full item icon
-set and static building sprites as an atlas", which is N drawings arriving immediately before v0.14
-multiplies the building roster — an atlas makes a tier cost a drawing, a generator makes a tier cost
-a data row. The item glyphs already work this way, with twelve glyphs carrying twenty-three items;
-Stage B extends that rule to buildings instead of abandoning it. Five rules, stated in full in
-`docs/ART.md`: terrain transitions derived from neighbouring bands, per-hex variation from a
-host-side hash, tiles baked at startup rather than shipped as PNGs, building silhouettes derived from
-`recipe_category` and tier, and depletion drawn from `quantity` against `initial_quantity` so a
-worked-out region reads as one. Simulation truth is never involved — rendering consumes snapshots and
-owns nothing, so generated art cannot reach a checksum by construction, and that invariant is what
-makes this free here rather than risky. Three of the five rules add per-hex renderer work, so they
-should not run far ahead of the renderer measurement below even though they are not gated on it.
-Still Canvas 2D.
+**Stage B — a sprite generator, shipped as Look Systems v0.13.1, before v0.14.** The building
+and item roster is not stable until the material base lands; drawing sprites before that
+guarantees redrawing them. It was stable, Power had shipped, the frame was measured, and the
+thing to build was the generator rather than the atlas. Pulled in front of v0.14 on 2026-08-18
+so a later tier costs a data row rather than a drawing. This entry originally read "the full
+item icon set and static building sprites as an atlas". The item glyphs already work the
+generator's way, with twelve glyphs carrying twenty-three items; Stage B extends that rule to
+buildings instead of abandoning it. Five rules, stated in full in `docs/ART.md`. Simulation
+truth is never involved — rendering consumes snapshots and owns nothing. Three of the five
+rules add per-hex renderer work; they shipped with a re-measure. Still Canvas 2D.
 
-**Stage C — animation, unblocked by v0.12.4.** Belt motion, machine work cycles, extractor pulses,
-and water shimmer are per-frame per-entity draws. The renderer measurement that gated them has
-landed: a complete frame at 6,144 entities is 18.2% of 60 Hz and the world draw is 909 µs, so
-there is a number to decide against rather than a prohibition. Measure-then-decide still applies
-to any renderer replacement; the 2D animated frame is now a choice, not a guess.
+**Stage C — animation, in the same session after Stage B's stills.** Belt motion, machine work
+cycles, extractor pulses, and water shimmer are per-frame per-entity draws. The first motion
+pass shipped with Look Systems. A complete frame at 6,144 entities is 19.0% of 60 Hz and the
+world draw is 991 µs. A renderer replacement still waits on a later measure.
 
 ## Shipped milestone — Game Feel v0.9
 

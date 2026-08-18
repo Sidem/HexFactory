@@ -1,9 +1,11 @@
 # HexFactory art direction — Stage A
 
 Stage A is the palette and shape language the World Shape renderer needs, extended by v0.12 to the
-material roster. Buildings stay geometric hexes. The roster is now stable, so Stage B is unblocked —
-but Stage B is **a generator that emits the art, not an atlas somebody drew**. The rule and what it
-buys are in "Stage B is a generator" below.
+material roster. Buildings stay geometric hexes. The roster is now stable, Power has shipped, and
+**Stage B shipped as Look Systems v0.13.1** — a generator that emits the art, not an atlas
+somebody drew. The rule and what it buys are in "Stage B is a generator" below. Next play
+milestone is Upgrades and Tiers v0.14; the session brief is at the top of
+`docs/HEXFACTORY-PLAN.md`.
 
 ## Palette
 
@@ -38,7 +40,7 @@ grey means cliff.
 
 Items keep their identity colours, and the glyph set names material _forms_ rather than individual
 items — iron and copper ore share the faceted-hex `ore` glyph and differ by colour, as do every
-plate and every kind of grit. Twelve glyphs carry twenty-three items, and Stage B's sprite atlas
+plate and every kind of grit. Twelve glyphs carry twenty-three items, and Stage B's generator
 inherits the same rule.
 
 | Glyph       | Items                                                   |
@@ -70,10 +72,12 @@ inherits the same rule.
 ## Stage B is a generator
 
 Stage B was originally written as "the full item icon set and static building sprites as an atlas".
-That is N drawings, and it arrives immediately before v0.14 Upgrades and Tiers — the milestone whose
-whole job is multiplying the building roster. An atlas makes a tier cost a drawing; a generator makes
-a tier cost a data row. The item glyphs already follow the generator's logic — twelve glyphs carry
-twenty-three items — so Stage B extends that rule to buildings rather than abandoning it.
+That is N drawings, and it used to sit immediately before v0.14 Upgrades and Tiers — the milestone
+whose whole job is multiplying the building roster. An atlas makes a tier cost a drawing; a
+generator makes a tier cost a data row. Pulled in front of v0.14 on 2026-08-18 so the generator
+exists before the roster multiplies, and so the colored mosaic is not what the next play session
+stares at. The item glyphs already follow the generator's logic — twelve glyphs carry twenty-three
+items — so Stage B extends that rule to buildings rather than abandoning it.
 
 Rendering consumes snapshots and never owns simulation truth, so none of this can reach a checksum by
 construction. That invariant is what makes generated art free here rather than risky: a host-side
@@ -105,25 +109,29 @@ bands, its richness, and how much has been taken from it, because native already
 
 ### Sequencing
 
-Rules 1, 2, and 5 add per-hex renderer work. v0.12.4 measured the current frame: the world is
-909 µs at the largest tier and a complete browser frame is 18.2% of 60 Hz. Stage C is no longer
-gated on ignorance. Stage B's per-hex work should still not run far ahead of a re-measure, for
-the same reason the binary delta encoding preceded the milestones that grew the payload: adding
-a terrain fringe without timing the frame it lands in is guessing.
+Shipped as Look Systems v0.13.1, before v0.14. Order of work was in `docs/HEXFACTORY-PLAN.md`
+under **Next session — Look Systems**: fringes, baked tiles, hash variation, depletion, building
+silhouettes, one Stage C motion pass, then `npm run bench:browser`.
+
+Rules 1, 2, and 5 add per-hex renderer work. v0.12.4 measured the frame this pass started from:
+the world was 909 µs at the largest tier and a complete browser frame was 18.2% of 60 Hz. The
+Look Systems re-measure is 991 µs for the world and 19.0% of 60 Hz. Stage B's per-hex work
+shipped with that number, not ahead of one.
 
 ## Longer horizon
 
-Named 2026-08-18. The destination, not the next session. Full write-up is in
-`docs/HEXFACTORY-PLAN.md` under **Longer horizon**.
+Named 2026-08-18. Stage B's five rules — the 2D start of the organic item — shipped as Look
+Systems. 3D presentation and the later tileable-texture systems are still the destination, not
+v0.14. Full write-up is in `docs/HEXFACTORY-PLAN.md` under **Longer horizon**.
 
-- **Organic tileables.** Stage B's five rules are the 2D start. The later systems produce tileable
-  textures and shapes so a hex lattice reads as organic terrain and organic objects, still generated
-  from published snapshot facts, still never a checksum input.
+- **Organic tileables.** Stage B's five rules are the 2D start and have shipped. The later systems
+  produce tileable textures and shapes so a hex lattice reads as organic terrain and organic
+  objects, still generated from published snapshot facts, still never a checksum input.
 - **3D presentation.** The camera tilts and orbits the player; the player, terrain, and buildings
   gain 3D shape. Canvas 2D stays replaceable presentation. A 3D mesh hand-authored per definition is
   the atlas again; a mesh derived from `recipe_category` and tier is this generator in another
   dimension. A renderer replacement is still a measured decision; v0.12.4 is the baseline it is
-  measured against.
+  measured against. Not this session.
 
 ## Still
 

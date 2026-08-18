@@ -1,5 +1,4 @@
 import {
-  HEX_DIRECTIONS,
   axialNeighbor,
   axialToPixel,
   pixelToAxial,
@@ -20,8 +19,19 @@ import type {
   PlacementPreview,
   WorldPoint,
 } from "../core/types";
+import { cargoTravel, drawBuildingLook, facingTip } from "./buildingLook";
+import { drawHex, hexPath } from "./hexDraw";
 import { drawItemIcon } from "./icons";
 import { WORLD_SCALE, homeBearing } from "./landmarks";
+import {
+  drawDepletion,
+  drawTerrainCell,
+  drawWaterShimmer,
+  hexLook,
+  indexTerrain,
+  surveyedBand,
+  TerrainTiles,
+} from "./terrainLook";
 
 export const BASE_HEX_SIZE = 22;
 
@@ -164,6 +174,9 @@ export class CanvasFactoryRenderer {
   private buildFootprint: AxialCoordinate[] = [{ q: 0, r: 0 }];
   private dragPath: LinePreviewCell[] = [];
   private veil: HTMLCanvasElement | null = null;
+  private terrainLayer: HTMLCanvasElement | null = null;
+  private terrainLayerKey = "";
+  private readonly tiles = new TerrainTiles();
   private now = 0;
 
   constructor(
@@ -380,33 +393,43 @@ export class CanvasFactoryRenderer {
   private drawEnvironment(width: number, height: number, size: number): void {
     if (!this.snapshot) return;
     const ctx = this.context;
+    this.blitTerrain(width, height, size);
     for (const region of this.snapshot.terrain) {
+      if (region.terrain !== "deep_water" && region.terrain !== "shallow_water")
+        continue;
       const center = this.camera.project(
         { q: region.q, r: region.r },
         width,
         height,
       );
       if (!visible(center, size, width, height)) continue;
-      const band = TERRAIN_INFO[region.terrain];
-      drawHex(ctx, center, size * 0.97, band.fill, band.stroke, 1.2);
-      // Impassable ground is drawn as a category before it is drawn as a material. Cliff against
-      // highland was two greys a step apart and the only way to tell them apart was to walk into
-      // one; the hatch says "you cannot stand here" whatever the band underneath it happens to be.
-      if (!band.passable) this.drawImpassable(center, size, band.stroke);
+      drawWaterShimmer(
+        ctx,
+        center,
+        size,
+        hexLook(region.q, region.r),
+        this.now,
+        this.reducedMotion,
+      );
     }
     for (const resource of this.snapshot.resources) {
-      if (resource.quantity === 0) continue;
       const center = this.camera.project(
         { q: resource.q, r: resource.r },
         width,
         height,
       );
       if (!visible(center, size, width, height)) continue;
+      const look = hexLook(resource.q, resource.r);
+      drawDepletion(
+        ctx,
+        center,
+        size,
+        look,
+        resource.quantity,
+        resource.initial_quantity,
+      );
       const item = this.itemsById.get(resource.item_id);
       const color = item?.color ?? "#fff";
-      const pulse = this.reducedMotion ? 0 : Math.sin(this.now / 450) * 0.03;
-      drawHex(ctx, center, size * (0.82 + pulse), `${color}55`, color, 1.6);
-      drawItemIcon(ctx, item?.icon ?? "ore", color, center.x, center.y, size);
       // Remaining amount is not a label on every ore hex. It belongs on the cell under the
       // cursor, or on a cell that has already been drawn from — the glyph already names the
       // material, and the inspector has the exact count.
@@ -415,6 +438,11 @@ export class CanvasFactoryRenderer {
         this.hover.q === resource.q &&
         this.hover.r === resource.r;
       const drawnFrom = resource.quantity < resource.initial_quantity;
+      if (resource.quantity > 0) {
+        const pulse = this.reducedMotion ? 0 : Math.sin(this.now / 450) * 0.03;
+        drawHex(ctx, center, size * (0.62 + pulse), `${color}40`, color, 1.4);
+        drawItemIcon(ctx, item?.icon ?? "ore", color, center.x, center.y, size);
+      }
       if (hovered) {
         this.drawFieldLabel(
           center,
@@ -430,6 +458,110 @@ export class CanvasFactoryRenderer {
   }
 
   /**
+   * Static terrain is painted once per camera/survey change and blitted every frame. Water shimmer
+   * and field marks stay outside the layer so motion does not rebuild the mosaic.
+   */
+  private blitTerrain(width: number, height: number, size: number): void {
+    if (!this.snapshot) return;
+    const origin = this.camera.origin(width, height);
+    const key = [
+      width,
+      height,
+      this.camera.zoom.toFixed(3),
+      origin.x.toFixed(1),
+      origin.y.toFixed(1),
+      this.snapshot.terrain.length,
+      this.snapshot.chunks.length,
+    ].join(":");
+    if (!this.terrainLayer)
+      this.terrainLayer = document.createElement("canvas");
+    const layer = this.terrainLayer;
+    const ratio = window.devicePixelRatio || 1;
+    if (
+      layer.width !== Math.floor(width * ratio) ||
+      layer.height !== Math.floor(height * ratio)
+    ) {
+      layer.width = Math.floor(width * ratio);
+      layer.height = Math.floor(height * ratio);
+      this.terrainLayerKey = "";
+    }
+    if (this.terrainLayerKey !== key) {
+      const fog = layer.getContext("2d");
+      if (!fog) return;
+      fog.setTransform(ratio, 0, 0, ratio, 0, 0);
+      fog.clearRect(0, 0, width, height);
+      this.paintTerrainLayer(fog, width, height, size);
+      this.terrainLayerKey = key;
+    }
+    this.context.drawImage(layer, 0, 0, width, height);
+  }
+
+  private paintTerrainLayer(
+    ctx: CanvasRenderingContext2D,
+    width: number,
+    height: number,
+    size: number,
+  ): void {
+    if (!this.snapshot) return;
+    const terrain = indexTerrain(this.snapshot.terrain);
+    const chunks = this.snapshot.chunks;
+    const worldOrigin = { x: 0, y: 0 };
+    ctx.beginPath();
+    for (const chunk of chunks) {
+      const origin = this.camera.projectWorld(chunk, width, height);
+      const span =
+        chunk.span * ((BASE_HEX_SIZE * this.camera.zoom) / WORLD_SCALE);
+      if (
+        origin.x > width + span ||
+        origin.y > height + span ||
+        origin.x + span < -span ||
+        origin.y + span < -span
+      )
+        continue;
+      ctx.rect(origin.x, origin.y, span, span);
+    }
+    ctx.fillStyle = TERRAIN_INFO.lowland.fill;
+    ctx.fill();
+    ctx.save();
+    ctx.clip();
+    ctx.globalAlpha = 0.28;
+    ctx.drawImage(this.tiles.field("lowland"), 0, 0, width, height);
+    ctx.restore();
+    const bandAt = (q: number, r: number) => {
+      const world = axialToPixel({ q, r }, WORLD_SCALE, worldOrigin);
+      if (!isSurveyed(chunks, world)) return undefined;
+      return surveyedBand(terrain, q, r);
+    };
+    for (const region of this.snapshot.terrain) {
+      const center = this.camera.project(
+        { q: region.q, r: region.r },
+        width,
+        height,
+      );
+      if (!visible(center, size, width, height)) continue;
+      const neighbors: Array<ReturnType<typeof bandAt>> = [];
+      for (let direction = 0; direction < 6; direction += 1) {
+        const next = axialNeighbor({ q: region.q, r: region.r }, direction);
+        neighbors.push(bandAt(next.q, next.r));
+      }
+      drawTerrainCell(
+        ctx,
+        center,
+        size,
+        region.terrain,
+        hexLook(region.q, region.r),
+        this.tiles,
+        neighbors,
+      );
+      // Impassable ground is drawn as a category before it is drawn as a material. Cliff against
+      // highland was two greys a step apart and the only way to tell them apart was to walk into
+      // one; the hatch says "you cannot stand here" whatever the band underneath it happens to be.
+      const band = TERRAIN_INFO[region.terrain];
+      if (!band.passable) this.drawImpassable(center, size, band.stroke, ctx);
+    }
+  }
+
+  /**
    * The shared mark for ground the player cannot stand on: a hatch inside the hex and a brighter,
    * heavier rim around it. Which bands get it is native's rule, read from the passability table
    * `fixtures/terrain-passability.json` pins — the renderer never decides that a grey means cliff.
@@ -438,8 +570,8 @@ export class CanvasFactoryRenderer {
     center: PixelPoint,
     size: number,
     stroke: string,
+    ctx: CanvasRenderingContext2D = this.context,
   ): void {
-    const ctx = this.context;
     const radius = size * 0.97;
     ctx.save();
     hexPath(ctx, center, radius);
@@ -686,29 +818,32 @@ export class CanvasFactoryRenderer {
     size: number,
   ): void {
     const ctx = this.context;
+    const color = BUILDING_COLORS[building.kind];
+    const definition = this.buildingsById.get(building.definition_id);
     for (const cell of building.footprint) {
       const cellCenter = this.camera.project(cell, width, height);
-      if (visible(cellCenter, size, width, height))
-        drawHex(
-          ctx,
-          cellCenter,
-          size * 0.78,
-          BUILDING_COLORS[building.kind],
-          "#dce7ef",
-          1.4,
-        );
+      if (!visible(cellCenter, size, width, height)) continue;
+      if (cell.q === building.q && cell.r === building.r) continue;
+      drawHex(ctx, cellCenter, size * 0.78, color, "#dce7ef", 1.4);
     }
     const center = this.camera.project(building, width, height);
     if (!visible(center, size, width, height)) return;
-    const direction = axialNeighbor({ q: 0, r: 0 }, building.orientation);
-    const tip = axialToPixel(direction, size * 0.39, center);
+    drawBuildingLook(ctx, {
+      building,
+      definition,
+      center,
+      size,
+      color,
+      now: this.now,
+      reducedMotion: this.reducedMotion,
+    });
+    const tip = facingTip(center, size, building.orientation);
     ctx.strokeStyle = "#f3f7fa";
     ctx.lineWidth = Math.max(2, size * 0.08);
     ctx.beginPath();
     ctx.moveTo(center.x, center.y);
     ctx.lineTo(tip.x, tip.y);
     ctx.stroke();
-    const definition = this.buildingsById.get(building.definition_id);
     ctx.fillStyle = "#f5fbf8";
     ctx.font = `900 ${Math.max(8, size * 0.23)}px system-ui`;
     ctx.textAlign = "center";
@@ -757,9 +892,7 @@ export class CanvasFactoryRenderer {
     }
     if (building.cargo) {
       const item = this.itemsById.get(building.cargo.item_id);
-      const travel = this.reducedMotion
-        ? 0.72
-        : 0.3 + ((this.now / 900) % 0.55);
+      const travel = cargoTravel(this.now, this.reducedMotion, building.id);
       const cargoPoint = {
         x: center.x + (tip.x - center.x) * travel,
         y: center.y + (tip.y - center.y) * travel,
@@ -768,7 +901,7 @@ export class CanvasFactoryRenderer {
       ctx.arc(
         cargoPoint.x,
         cargoPoint.y,
-        Math.max(7, size * 0.22),
+        Math.max(6, size * 0.2),
         0,
         Math.PI * 2,
       );
@@ -777,6 +910,15 @@ export class CanvasFactoryRenderer {
       ctx.shadowBlur = 10;
       ctx.fill();
       ctx.shadowBlur = 0;
+      if (item)
+        drawItemIcon(
+          ctx,
+          item.icon,
+          item.color,
+          cargoPoint.x,
+          cargoPoint.y,
+          size * 0.55,
+        );
     }
   }
 
@@ -869,36 +1011,4 @@ function visible(
     point.x <= width + margin &&
     point.y <= height + margin
   );
-}
-
-function hexPath(
-  context: CanvasRenderingContext2D,
-  center: PixelPoint,
-  size: number,
-): void {
-  context.beginPath();
-  for (let corner = 0; corner < HEX_DIRECTIONS.length; corner += 1) {
-    const angle = ((60 * corner - 30) * Math.PI) / 180;
-    const x = center.x + size * Math.cos(angle);
-    const y = center.y + size * Math.sin(angle);
-    if (corner === 0) context.moveTo(x, y);
-    else context.lineTo(x, y);
-  }
-  context.closePath();
-}
-
-function drawHex(
-  context: CanvasRenderingContext2D,
-  center: PixelPoint,
-  size: number,
-  fill: string,
-  stroke: string,
-  lineWidth = 1,
-): void {
-  hexPath(context, center, size);
-  context.fillStyle = fill;
-  context.fill();
-  context.strokeStyle = stroke;
-  context.lineWidth = lineWidth;
-  context.stroke();
 }

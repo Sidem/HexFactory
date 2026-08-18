@@ -1,10 +1,10 @@
 # HexFactory capacity benchmarks
 
-Status: **Power v0.13 re-measured the native ladder**; Renderer Measure v0.12.4 remains the
-current browser record (rendering did not change). Checksums moved because the entity snapshot
-gained a power remainder; delivered totals and entity counts did not. Nothing here is an
-extrapolation: each number below was produced by the committed harness, and the raw reports are
-stored beside this document.
+Status: **Look Systems v0.13.1 re-measured the browser ladder** against the v0.12.4 renderer
+record; Power v0.13 remains the current native record. Rendering moved because Stage B and the
+first Stage C motion added per-hex work; checksums did not, because presentation owns nothing.
+Nothing here is an extrapolation: each number below was produced by the committed harness, and
+the raw reports are stored beside this document.
 
 **The v0.8 tables below are a historical record, not the current cost**, and so is everything the
 v0.8 browser record concluded about the worker boundary. v0.11 changed the world generator, v0.12
@@ -424,23 +424,67 @@ maps in the constructor and stop doing a linear `find` inside the per-entity dra
 - Everything in **Limits of this measurement** below still applies, except that rendering is
   no longer excluded.
 
+## Look Systems v0.13.1 — Stage B and the first Stage C motion
+
+Same host, `factory-wasm` at 0.13.0, recorded 2026-08-18. Raw report:
+[`benchmarks/capacity-v0.13.1-browser.json`](benchmarks/capacity-v0.13.1-browser.json).
+This run answers the Look Systems re-measure the session brief named. No save, generator,
+definition, or wire version moved; presentation owns the draw and nothing above `FactoryHost`
+changed. Native checksums and delivered totals match the v0.13 record. Viewport still pinned
+at 1440×900 world, 178 px minimap, `BASE_HEX_SIZE` 22, `devicePixelRatio` 1. Chromium 151,
+16 hardware threads, `performance.now` observed at a 100 µs step, page not cross-origin
+isolated.
+
+### Browser frame — v0.13.1
+
+| tier   | entities | host frame µs | world µs | minimap µs | render µs | browser frame µs | sim share | frame share |
+| ------ | -------: | ------------: | -------: | ---------: | --------: | ---------------: | --------: | ----------: |
+| line   |       12 |          60.0 |    254.4 |       15.4 |     269.9 |            329.9 |      0.4% |        2.0% |
+| small  |      192 |         126.0 |    295.6 |       43.9 |     339.4 |            465.4 |      0.8% |        2.8% |
+| medium |      768 |         349.0 |    418.7 |       53.3 |     472.1 |            821.1 |      2.1% |        4.9% |
+| wide   |    1,536 |         561.7 |    495.1 |       76.9 |     572.0 |          1,133.7 |      3.4% |        6.8% |
+| large  |    3,072 |       1,025.0 |    648.4 |      120.5 |     768.9 |          1,793.9 |      6.1% |       10.8% |
+| xlarge |    6,144 |       1,980.0 |    990.5 |      200.0 |   1,190.5 |          3,170.5 |     11.9% |       19.0% |
+
+### What this run says
+
+**1. Stage B and the first Stage C motion fit in the headroom v0.12.4 measured.** A complete
+browser frame at the largest tier is 19.0% of 60 Hz, against 18.2% before this pass. The world
+is 991 µs, against 909 µs. That is a 9% world-draw increase and 0.8 percentage points of a
+60 Hz frame, not a new renderer question.
+
+**2. The environment is still the floor.** Twelve entities cost 254 µs of world draw; 6,144
+cost 991 µs. Neighbour fringes, baked tiles, and silhouettes ride on the listed terrain and
+entity sets, not on a walk of every surveyed hex.
+
+**3. The simulation half did not move.** Host frame at the largest tier is 1,980 µs against
+v0.12.4's 1,970 µs. Checksums match the v0.13 native record's delivered totals. Timing
+comparisons to v0.12.4 still hold; checksum comparisons do not, and they already did not
+after v0.13.
+
+### Limits specific to this run
+
+The v0.12.4 limits still apply: one Chrome 151, device pixel ratio 1, camera on the player.
+A first walk of every surveyed hex was measured at about 8 ms and refused; the shipped draw
+fills implicit lowland as a surveyed field and paints only the bands native actually sends.
+
 ## Measured capacity tiers
 
 Against a 16,667 µs frame at 60 Hz. `sim share` is `host frame` — the cost of advancing a tick
 and merging the result. `frame share` is the complete browser frame, render included, and
 exists only from v0.12.4:
 
-| tier   | entities | sim share v0.8 | sim share v0.12.2 | sim share v0.12.4 | frame share v0.12.4 | verdict     |
-| ------ | -------: | -------------: | ----------------: | ----------------: | ------------------: | ----------- |
-| line   |       12 |           0.6% |              0.4% |              0.5% |                2.2% | comfortable |
-| small  |      192 |           2.5% |              0.8% |              0.9% |                3.3% | comfortable |
-| medium |      768 |           8.3% |              1.9% |              2.3% |                5.8% | comfortable |
-| wide   |    1,536 |          15.8% |              3.3% |              3.5% |                6.4% | comfortable |
-| large  |    3,072 |          30.1% |              6.0% |              7.0% |               11.6% | comfortable |
-| xlarge |    6,144 |          62.1% |             11.0% |             11.8% |               18.2% | comfortable |
+| tier   | entities | sim share v0.8 | sim share v0.12.2 | sim share v0.12.4 | frame share v0.12.4 | frame share v0.13.1 | verdict     |
+| ------ | -------: | -------------: | ----------------: | ----------------: | ------------------: | ------------------: | ----------- |
+| line   |       12 |           0.6% |              0.4% |              0.5% |                2.2% |                2.0% | comfortable |
+| small  |      192 |           2.5% |              0.8% |              0.9% |                3.3% |                2.8% | comfortable |
+| medium |      768 |           8.3% |              1.9% |              2.3% |                5.8% |                4.9% | comfortable |
+| wide   |    1,536 |          15.8% |              3.3% |              3.5% |                6.4% |                6.8% | comfortable |
+| large  |    3,072 |          30.1% |              6.0% |              7.0% |               11.6% |               10.8% | comfortable |
+| xlarge |    6,144 |          62.1% |             11.0% |             11.8% |               18.2% |               19.0% | comfortable |
 
 **The first complete browser frame still has headroom.** The largest tier used 62.1% of a
-frame for simulation alone in v0.8, 11.0% in v0.12.2, and 18.2% end to end here.
+frame for simulation alone in v0.8, 18.2% end to end in v0.12.4, and 19.0% after Look Systems.
 
 **Neither record locates a ceiling.** What the ladder now says about the limit is only that a
 complete frame at 6,144 entities fits, and extending it (follow-up 3 below) is what would say
@@ -555,8 +599,9 @@ records that the browser half of this document is now stale. v0.12.4 closes entr
    the incremental path costing about three times a full compile; do not remove it on that alone,
    because its tested behaviour under component splits and merges is a correctness asset.
 6. Revisit the renderer itself. v0.12.4 allows this and does not demand it: Canvas 2D at 6,144
-   entities is 909 µs for the world and 160 µs for the minimap. A 2× pixel-ratio viewport, Stage
-   B's per-hex work, and Stage C animation are the things that would change the question.
+   entities is 909 µs for the world and 160 µs for the minimap. Look Systems v0.13.1 re-measured
+   against this record: the world is 991 µs and a complete frame is 19.0% of 60 Hz. A 2×
+   pixel-ratio viewport is still the other thing that would change the question.
 7. Batch the transport recompile inside a construction drag. v0.9 routes a drag through the tested
    per-cell `place`, so a 32-cell run recompiles 32 times. It happens once when the pointer is
    released rather than every frame, and no tier in the ladder measures it, so this is a known cost

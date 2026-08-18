@@ -7,7 +7,8 @@ architecture are the means that make that game possible at scale, not the point 
 
 Keep this file concise; the durable roadmap, design pillars, and implementation handoffs live in
 `docs/HEXFACTORY-PLAN.md`, architecture decisions in `docs/ARCHITECTURE.md`, shipped MVP status in
-`docs/MVP.md`, and measured capacity in `docs/BENCHMARKS.md`.
+`docs/MVP.md`, and measured capacity in `docs/BENCHMARKS.md`. Next development session is
+Upgrades and Tiers v0.14 — brief at the top of the plan.
 
 ## Workspace boundary
 
