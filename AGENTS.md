@@ -13,13 +13,21 @@ upgrade, north and south in the transport direction table as the riser, a right-
 harvests one named hex, and two-way hand transfer with containers. `HXF1` save version is 7,
 definition version 7, technology version 4; v0.13 saves are rejected.
 
-The next three milestones are **v0.15 Generated Shapes → v0.16 World Parameters → v0.17 Balance**,
-in that order because it is the dependency order. None is a new play system; each replaces a
-hardcoded thing with a generated one, so the play systems that follow cost data rows. v0.15 is
-presentation and moves no version. v0.16 puts `WorldParams` in the save and the checksum and takes
-`WORLD_GENERATOR_VERSION` to 6. v0.17 moves definition data and adds `fixtures/balance.json`. Read
-the three briefs at the top of `docs/HEXFACTORY-PLAN.md`, and `docs/ART.md` Stage D before touching
-`src/rendering/buildingLook.ts`.
+Generated Shapes shipped as **v0.15**: a building's drawing is a part list from an eight-part
+vocabulary in `src/rendering/shapeGrammar.ts`, `BUILDING_SHAPES` in `src/rendering/buildingLook.ts`
+is that table and is total over `SilhouetteKey`, and a tier is a modifier on the list through
+`TIER_LADDER` rather than a stroke colour. Still parts bake behind `BUILDING_SHAPE_VERSION`; only
+parts carrying a `phase` are walked per frame. The player draws from the same vocabulary. The
+contact sheet is `contact.html`, a dev entry point beside `bench.html` — dev-only, and like
+`bench.html` it must not become a dependency of the game, the production build, or the CI gate.
+Presentation only: no save, definition, generator, wire, or checksum movement.
+
+The next two milestones are **v0.16 World Parameters → v0.17 Balance**, in that order because it is
+the dependency order. Neither is a new play system; each replaces a hardcoded thing with a
+generated one, so the play systems that follow cost data rows. v0.16 puts `WorldParams` in the save
+and the checksum and takes `WORLD_GENERATOR_VERSION` to 6. v0.17 moves definition data and adds
+`fixtures/balance.json`. Read the briefs at the top of `docs/HEXFACTORY-PLAN.md`, and `docs/ART.md`
+Stage D before touching `src/rendering/buildingLook.ts` or the grammar.
 
 ## Workspace boundary
 

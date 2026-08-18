@@ -120,11 +120,18 @@ the world was 909 µs at the largest tier and a complete browser frame was 18.2%
 Look Systems re-measure is 991 µs for the world and 19.0% of 60 Hz. Stage B's per-hex work
 shipped with that number, not ahead of one.
 
-## Stage D — the shape grammar, as Generated Shapes v0.15
+## Stage D — the shape grammar, shipped as Generated Shapes v0.15
 
-Directed 2026-08-18. Stage B established that a look is _derived_ and shipped that rule for
-terrain, for depletion, and for the choice of which building silhouette to draw. Stage D applies it
-to the drawing itself, which is the one place Stage B left imperative.
+**Shipped 2026-08-18.** Directed 2026-08-18. Stage B established that a look is _derived_ and
+shipped that rule for terrain, for depletion, and for the choice of which building silhouette to
+draw. Stage D applies it to the drawing itself, which is the one place Stage B left imperative.
+
+The vocabulary lives in `src/rendering/shapeGrammar.ts` and the building table in
+`src/rendering/buildingLook.ts`. `BUILDING_SHAPES` is total over `SilhouetteKey`, so a new
+silhouette is a compile error at its data row rather than a machine that draws nothing, and
+`TIER_LADDER` carries two named steps. Still parts bake behind `BUILDING_SHAPE_VERSION` and only
+parts with a `phase` are walked per frame. The player draws from the same vocabulary; terrain keeps
+the baked-tile system it shipped with under rules 1–3.
 
 ### What Stage B left behind
 
@@ -171,6 +178,14 @@ A tier-1 definition must be distinguishable from its tier-0 parent **by silhouet
 removed**, at normal zoom. A new definition must render as a distinct readable machine with no new
 drawing code. And the grammar adds an indirection to a per-entity draw, so it ships with a
 `npm run bench:browser` re-measure against the v0.13.1 record — the same rule Stage B shipped under.
+
+**Met.** The silhouette criterion was measured rather than eyeballed: with colour off, the contact
+sheet's cells were read back pixel by pixel inside a disc that excludes the hex body's own
+tier-coloured stroke, and every shaped definition both gains ink and lifts its topmost drawn row at
+each tier step — the extractor from row 34 to 30 to 25, the smelter from 30 to 26 to 21. The belt
+and the riser measure zero at every tier, which is the deliberate blank the sheet flags on the card.
+A first pass at that measurement did **not** exclude the body stroke and reported the belt changing
+by 32%; the isolation is what makes the number mean the silhouette.
 
 ## Longer horizon
 

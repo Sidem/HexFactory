@@ -39,14 +39,56 @@ already a ray-cast that never assumed a unit step. So the fix is a direction-tab
 occupancy, and it rides v0.14's version bump. The write-up below supersedes the half-covered-tile
 proposal.
 
-## Next session — Generated Shapes v0.15
+## Shipped milestone — Generated Shapes v0.15
+
+Shipped 2026-08-18. The brief below is kept as written; this section records what it became.
+
+**The vocabulary is eight parts and the walker is the only place they become canvas calls.**
+`src/rendering/shapeGrammar.ts` carries `vessel, chamber, stack, rotor, aperture, mast, band,
+mouth`, each with anchor, scale, rotation, and phase, in units of the hex size rather than pixels.
+`drawSilhouette`'s two-hundred-line `switch` is gone; what replaced it is `BUILDING_SHAPES`, a
+`Record<SilhouetteKey, ShapePart[]>` in `buildingLook.ts`. The table is **total over the key type**,
+so a new silhouette is a compile error at the data row rather than a machine that silently draws
+nothing — the property that makes "a new building costs a data row" enforced instead of intended.
+`silhouetteOf` and `trimOf` are unchanged; they were the half of rule 4 that was already right.
+
+**A tier is a modifier on the part list, so an upgrade changes the machine.** `TIER_LADDER` is two
+named steps — `reinforced` (plating band, vent, wider mouth) and `overbuilt` (segmented vessel,
+another rotor blade, a second vent) — applied cumulatively, which is the drawing's version of the
+rule `upgrade` already follows: it adds to what the player recognises rather than replacing it.
+`addStack` anchors off `profileTop`, and that is deliberate: every other modifier needs a part of a
+particular kind to act on, so a step built only from those could find no target and produce a tier
+the map cannot show. Anchoring one modifier to the profile makes every non-empty shape grow.
+
+**Motion moved inside the grammar.** `phase` (`spin`, `pulse`, `rise`, `grind`) is a property of a
+part, so a rotor turns because it is a rotor rather than because a `switch` arm reached for
+`Math.cos`. That is also what makes the bake safe to split: still parts are stamped from an
+offscreen canvas behind `BUILDING_SHAPE_VERSION` (ART.md rule 3, and `TERRAIN_TILE_VERSION`'s
+pattern), and only the parts that actually move are walked per entity per frame. The grammar's
+indirection is therefore paid at startup, not at 60 Hz. The bake is sized at a hex of 128 px
+against a camera that can reach 96.8 device pixels, so a stamp is always scaled down, never up.
+
+**The player draws from the same vocabulary.** Its ring and body are part lists now, in units of
+the player radius — the walker takes whatever unit its caller works in. The heading tick stays
+outside the grammar for the same reason a building's does: it is an indicator, not anatomy.
+Terrain's baked-tile system is untouched. It shipped in v0.13.1 against rules 1–3 and rewriting it
+would have bought no visible gain in a milestone that must not move the frame.
+
+**The contact sheet is `contact.html`, a dev entry point beside `bench.html`.** Twenty definitions
+by three tiers by four statuses, 240 cells, drawn by the shipped renderer rather than by a second
+illustration of it. It carries a **colour toggle**, because the acceptance is a silhouette
+judgement and a gold stroke over an identical body would pass any test that kept the palette. It
+also names two failures on the card itself: a definition whose silhouette has no base shape, and
+definitions that draw identically to each other. Both fire today on the belt and the riser, which
+is correct — a belt's look is its heading tick and the cargo riding it — and is exactly the kind of
+thing that is invisible from the table and expensive to find by playing.
+
+Presentation only. No command, no save, definition, generator, wire, or checksum movement. This is
+Stage B's rule 4 finished rather than a new direction: the rule shipped, the mechanism did not.
 
 Directed 2026-08-18: "actual assets, ideally generated in some way — we generate base shapes for
 each building/terrain/player and then have some system to upgrade them show change in them. It's
 important that everything can be maintained systematically."
-
-Presentation only. No command, no save, definition, generator, wire, or checksum movement. This is
-Stage B's rule 4 finished rather than a new direction: the rule shipped, the mechanism did not.
 
 ### The defect, named
 
@@ -106,6 +148,36 @@ unchanged.
 - The contact sheet renders the full roster and is committed as a dev entry point.
 - `npm run bench:browser` re-measured against the v0.13.1 record. The grammar adds an indirection to
   a per-entity draw; the frame is a number in this project and stays one.
+
+**How each was met.** The first is structural and asserted: `BUILDING_SHAPES` is total over
+`SilhouetteKey`, and a test pins that no `switch` over silhouettes survives in `buildingLook.ts`
+while the only two left in `shapeGrammar.ts` are over the fixed part vocabulary, which does not
+grow per definition. The second was **measured, not eyeballed** — the contact sheet's cells were
+read back pixel by pixel with colour off, inside a disc that excludes the hex body's own
+tier-coloured stroke, and every shaped definition gains ink and lifts its topmost drawn row at each
+step (extractor 34 → 30 → 25, smelter 30 → 26 → 21, belt and riser zero throughout by design). The
+first attempt at that measurement did not exclude the body stroke and reported the shapeless belt
+changing by 32%; isolating the silhouette is what makes the figure mean anything. Seven tests were
+added, taking the TypeScript suite to 71.
+
+**The fourth acceptance criterion is met with a caveat that has to travel with it.** The re-measure
+ran, and it is **not comparable to the v0.13.1 record**: every pinned condition matches, but the
+browser does not — v0.13.1 was `Chrome/151`, this run is `Chrome/148` inside `Electron/42.9.2` in a
+non-compositing pane, and the absolute figures are about twice v0.13.1's _including the host frame
+and the minimap, neither of which this milestone can touch_. So the useful measurement is a
+same-machine A/B against the `switch` it replaced: world draw at the largest tier averaged 1,767 µs
+for the grammar against 2,057 µs for the `switch`, with the ranges overlapping. **No regression is
+detectable; the grammar is not demonstrably faster either.** The minimap, which never imports the
+grammar, held at 428 µs ± 2.6% across all five runs and is what makes the A/B trustworthy. All six
+tier checksums are identical to the v0.13.1 record, which is the presentation-only claim
+demonstrated rather than asserted. v0.13.1 stays the current browser-frame record, and a comparable
+re-measure on `Chrome/151` in a composited window is owed. Full write-up in `docs/BENCHMARKS.md`.
+
+One thing worth naming for whoever picks this up: the tier ladder is cumulative and unbounded in
+principle but has two steps, so a definition at tier 3 would wear the same shape as one at tier 2
+while its trim kept climbing. That is deliberate — a visibly odd machine beats a silent duplicate —
+but the roster ships no tier above 1 today, and the day it does, the ladder needs a third row
+rather than a wider `trimOf`.
 
 ## Next session — World Parameters v0.16
 

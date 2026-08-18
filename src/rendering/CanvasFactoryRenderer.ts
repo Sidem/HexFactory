@@ -24,8 +24,11 @@ import {
   drawBuildingLook,
   facingTip,
   NORTH,
+  PLAYER_BODY,
+  PLAYER_RING,
   spanEnd,
 } from "./buildingLook";
+import { drawParts } from "./shapeGrammar";
 import { drawHex, hexPath } from "./hexDraw";
 import { drawItemIcon } from "./icons";
 import { WORLD_SCALE, homeBearing } from "./landmarks";
@@ -949,18 +952,11 @@ export class CanvasFactoryRenderer {
       y: center.y + (player.facing_y / 1000) * length,
     };
     const ctx = this.context;
-    ctx.beginPath();
-    ctx.arc(center.x, center.y, radius, 0, Math.PI * 2);
-    ctx.strokeStyle = "#72e2b477";
-    ctx.lineWidth = 2;
-    ctx.stroke();
-    ctx.fillStyle = "#f4f7f2";
-    ctx.strokeStyle = "#142028";
-    ctx.lineWidth = 3;
-    ctx.beginPath();
-    ctx.arc(center.x, center.y, radius * 0.62, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.stroke();
+    // The player is a part list like every machine is, so the world reads as one visual system
+    // rather than three that happen to share a palette. The heading tick below stays outside the
+    // grammar for the same reason a building's does: it is an indicator, not anatomy.
+    drawParts(ctx, PLAYER_RING, center, radius, "#72e2b477", 0);
+    drawParts(ctx, PLAYER_BODY, center, radius, "#142028", 0);
     ctx.beginPath();
     ctx.arc(tip.x, tip.y, Math.max(3, size * 0.08), 0, Math.PI * 2);
     ctx.fillStyle = "#ef6f61";

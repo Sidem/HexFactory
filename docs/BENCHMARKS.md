@@ -468,6 +468,73 @@ The v0.12.4 limits still apply: one Chrome 151, device pixel ratio 1, camera on 
 A first walk of every surveyed hex was measured at about 8 ms and refused; the shipped draw
 fills implicit lowland as a surveyed field and paints only the bands native actually sends.
 
+## Generated Shapes v0.15 — an A/B, not a comparable record
+
+Recorded 2026-08-18, `factory-wasm` at 0.14.0. Raw report:
+[`benchmarks/capacity-v0.15-browser.json`](benchmarks/capacity-v0.15-browser.json).
+
+**Read this section before quoting a number from it.** Every pinned condition matches the v0.13.1
+record — 1440×900 world, 178 px minimap, `BASE_HEX_SIZE` 22, `devicePixelRatio` 1, 16 hardware
+threads, `performance.now` at a 100 µs step, page not cross-origin isolated. One thing does not:
+the browser. v0.13.1 was recorded on `Chrome/151.0.0.0`; this run is `Chrome/148.0.7778.280` inside
+`Electron/42.9.2`, in a pane that was not compositing. Absolute figures here are roughly twice the
+v0.13.1 ones **including the parts of the frame this milestone cannot touch**, so they are not a
+re-measurement of the ladder and must not be quoted as one. AGENTS.md's rule that one Chromium
+version on one desktop is the whole browser evidence is what makes this a different measurement
+rather than a worse one.
+
+What the run is good for is a **same-machine A/B**, which is the question the milestone actually
+had to answer: does walking a part list cost more than the `switch` it replaced?
+
+| xlarge, world draw µs | run 1   | run 2   | run 3   | mean    |
+| --------------------- | ------- | ------- | ------- | ------- |
+| v0.14.1 `switch`      | 2,355.6 | 1,758.3 | —       | 2,057.0 |
+| v0.15 grammar         | 1,981.8 | 1,863.6 | 1,457.1 | 1,767.5 |
+
+The grammar's mean is 14% below the `switch`'s, but the two ranges overlap and the spread within
+each is larger than the gap between them. **The honest claim is that no regression is detectable,
+not that the grammar is faster.** The bake is the reason it is at worst neutral: still parts are
+stamped, so what the indirection costs per entity per frame is only the parts that move.
+
+The control that makes the A/B trustworthy is the minimap, which never imports the grammar and
+draws buildings as flat colour from `BUILDING_COLORS`. Across all five runs it measured 416.7,
+429.8, 439.1, 425.5, and 429.8 µs — 428 µs ± 2.6%. The renderer measurement is therefore steady;
+the world-draw spread is real variance in that path, and the host frame's own spread (2,385 to
+3,330 µs across the same runs, on a simulation neither version touches) is what moved the complete
+browser frame between runs.
+
+### Browser frame — v0.15, third grammar run
+
+| tier   | entities | host frame µs | world µs | minimap µs | render µs | browser frame µs | sim share | frame share |
+| ------ | -------: | ------------: | -------: | ---------: | --------: | ---------------: | --------: | ----------: |
+| line   |       12 |          74.5 |    398.0 |       22.7 |     420.8 |            495.3 |      0.4% |        3.0% |
+| small  |      192 |         164.0 |    670.0 |       78.1 |     748.1 |            912.1 |      1.0% |        5.5% |
+| medium |      768 |         361.0 |    820.0 |      117.6 |     937.6 |          1,298.6 |      2.2% |        7.8% |
+| wide   |    1,536 |         731.7 |    895.7 |      160.0 |   1,055.7 |          1,787.3 |      4.4% |       10.7% |
+| large  |    3,072 |       1,487.5 |  1,312.5 |      270.3 |   1,582.8 |          3,070.3 |      8.9% |       18.4% |
+| xlarge |    6,144 |       2,635.0 |  1,457.1 |      429.8 |   1,886.9 |          4,521.9 |     15.8% |       27.1% |
+
+### What this run says
+
+**1. Nothing simulated moved, and the checksums prove it.** All six tier checksums are identical to
+the v0.13.1 record — 2161174144, 1459965991, 539603397, 1469325466, 1548543730, 452398649 — even
+though the crate went 0.13.0 to 0.14.0 between them, because the ladder's scenario builds no tiered
+definition. For v0.15 that is the presentation-only claim demonstrated rather than asserted: the
+grammar consumes snapshots and owns nothing, so it cannot reach a checksum by construction.
+
+**2. The A/B is the finding; the absolutes are not.** See the table above and the browser note.
+
+**3. The ladder still needs a clean re-measure.** A record comparable to v0.12.4 and v0.13.1 has to
+be taken on `Chrome/151` in a composited window. Until one is, **v0.13.1 remains the current
+browser-frame record** and the frame-share figures in this section describe this Electron build
+only.
+
+### Limits specific to this run
+
+Different browser engine from every prior browser record, a non-compositing pane, and a machine
+that had just run a wasm build and the full quality gate. Three samples on one side of the A/B and
+two on the other. No native ladder was run: `npm run bench` is unaffected by a renderer change.
+
 ## Measured capacity tiers
 
 Against a 16,667 µs frame at 60 Hz. `sim share` is `host frame` — the cost of advancing a tick

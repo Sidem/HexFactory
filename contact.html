@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="robots" content="noindex" />
+    <title>HexFactory — shape contact sheet</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --ink: #dcefe9;
+        --dim: #8fa9a3;
+        --edge: #1d3733;
+        --panel: #0c1917;
+      }
+      body {
+        margin: 0;
+        padding: 2rem clamp(1rem, 4vw, 3rem);
+        background: #071110;
+        color: var(--ink);
+        font:
+          15px/1.5 ui-sans-serif,
+          system-ui,
+          sans-serif;
+      }
+      h1 {
+        font-size: 1.4rem;
+        margin: 0 0 0.35rem;
+      }
+      p.lede {
+        max-width: 74ch;
+        color: var(--dim);
+      }
+      .controls {
+        display: flex;
+        gap: 1.2rem;
+        align-items: center;
+        flex-wrap: wrap;
+        margin: 1.4rem 0;
+        padding: 0.8rem 1rem;
+        background: var(--panel);
+        border: 1px solid var(--edge);
+        border-radius: 10px;
+      }
+      label {
+        display: flex;
+        gap: 0.45rem;
+        align-items: center;
+        cursor: pointer;
+      }
+      #summary {
+        color: var(--dim);
+        margin-left: auto;
+        font-variant-numeric: tabular-nums;
+      }
+      #sheet {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(430px, 1fr));
+        gap: 1rem;
+      }
+      .card {
+        background: var(--panel);
+        border: 1px solid var(--edge);
+        border-radius: 10px;
+        padding: 0.9rem 1rem 1rem;
+      }
+      .card h2 {
+        font-size: 1.05rem;
+        margin: 0;
+      }
+      .meta {
+        margin: 0.15rem 0 0.7rem;
+        color: var(--dim);
+        font-size: 0.82rem;
+      }
+      .grid {
+        display: grid;
+        grid-template-columns: 7.5rem repeat(4, auto);
+        gap: 0.3rem;
+        align-items: center;
+        justify-items: center;
+      }
+      .col {
+        font-size: 0.75rem;
+        color: var(--dim);
+      }
+      .row {
+        justify-self: start;
+        display: flex;
+        flex-direction: column;
+        font-size: 0.78rem;
+        color: var(--dim);
+        line-height: 1.25;
+      }
+      .row strong {
+        color: var(--ink);
+      }
+      .row.shipped strong::after {
+        content: " ●";
+        color: #7fe0c0;
+      }
+      .cell {
+        background: #0a1513;
+        border: 1px solid #14201e;
+        border-radius: 6px;
+        line-height: 0;
+      }
+      .notes {
+        margin: 0.8rem 0 0;
+        padding-left: 1.1rem;
+        font-size: 0.78rem;
+      }
+      .notes .ok {
+        color: var(--dim);
+      }
+      .warn {
+        color: #f0b45a;
+        font-size: 0.8rem;
+        margin: 0.2rem 0 0;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Shape contact sheet</h1>
+    <p class="lede">
+      Every building definition, at every tier the ladder can produce, in every
+      status that reaches the drawing. The cells use the shipped renderer, so
+      this is what the game draws and not a second illustration of it. Turn
+      colour off to check the milestone's acceptance directly: a tier has to be
+      distinguishable from the tier below it by silhouette alone.
+    </p>
+    <div class="controls">
+      <label><input id="colour" type="checkbox" checked /> Colour</label>
+      <label
+        ><input id="animate" type="checkbox" /> Animate the work cycle</label
+      >
+      <span id="summary"></span>
+    </div>
+    <div id="sheet"></div>
+    <script type="module" src="/src/contact/main.ts"></script>
+  </body>
+</html>

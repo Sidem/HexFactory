@@ -11,6 +11,7 @@ import type {
   PowerSource,
 } from "../core/types";
 import { hexPath } from "./hexDraw";
+import { applyTier, drawParts, isStill, type ShapePart } from "./shapeGrammar";
 
 export type SilhouetteKey =
   | BuildingKind
@@ -25,6 +26,13 @@ export interface BuildingTrim {
   stroke: string;
   width: number;
 }
+
+/**
+ * Changing this constant regenerates every baked building shape, the same way
+ * `TERRAIN_TILE_VERSION` regenerates the terrain set. The bakes are presentation, so the version
+ * is not a save, definition, generator, or wire number.
+ */
+export const BUILDING_SHAPE_VERSION = 1;
 
 /**
  * Look from the definition, not from a drawing per id. Composer-kind machines split on
@@ -47,13 +55,202 @@ export function silhouetteOf(
 }
 
 /**
- * Trim carries `tier`. A taller tier is brighter and heavier edging on the same silhouette, which
- * is what makes a tier a data row: the upgrade is legible on the map without a second drawing.
+ * Trim carries `tier` as colour and weight. It is no longer what makes a tier legible — the part
+ * list is, through `TIER_LADDER` — so this is the accent on a machine that has already changed
+ * shape rather than the whole of the upgrade.
  */
 export function trimOf(tier = 0): BuildingTrim {
   if (tier <= 0) return { stroke: "#dce7ef", width: 1.4 };
   if (tier === 1) return { stroke: "#e2c15a", width: 1.85 };
   return { stroke: "#8fd4ff", width: 2.2 };
+}
+
+const FURNACE = "#ff9440";
+const HEARTH = "#ff6030";
+const STEAM = "#dfeaf2";
+const WATER = "#7fd8ff";
+const EXHAUST = "#b4dcff";
+
+/**
+ * The base part list per silhouette. This is the data row a new building costs, and it is the
+ * whole of what used to be a two-hundred-line `switch`: the table is total over `SilhouetteKey`,
+ * so a new key is a compile error here rather than a machine that silently draws nothing.
+ *
+ * `belt` is deliberately empty. A belt's look is its heading tick and the cargo riding it, both
+ * drawn by the renderer, and a body would only obscure them.
+ */
+export const BUILDING_SHAPES: Record<SilhouetteKey, readonly ShapePart[]> = {
+  extractor: [
+    { part: "vessel", x: 0, y: -0.06, scale: 0.19 },
+    {
+      part: "stack",
+      x: 0,
+      y: 0.06,
+      scale: 0.11,
+      rotation: Math.PI,
+      phase: "rise",
+    },
+  ],
+  belt: [],
+  composer: [
+    { part: "chamber", x: 0, y: 0, scale: 0.2 },
+    { part: "rotor", x: 0, y: 0, scale: 0.12, count: 1, phase: "spin" },
+  ],
+  assembly: [
+    { part: "chamber", x: 0, y: 0, scale: 0.2 },
+    { part: "rotor", x: 0, y: 0, scale: 0.12, count: 1, phase: "spin" },
+  ],
+  smelting: [
+    { part: "vessel", x: 0, y: 0.05, scale: 0.2 },
+    {
+      part: "aperture",
+      x: 0,
+      y: 0.06,
+      scale: 0.19,
+      phase: "pulse",
+      glow: FURNACE,
+    },
+    { part: "stack", x: 0, y: -0.13, scale: 0.085 },
+  ],
+  firing: [
+    { part: "vessel", x: 0, y: 0.08, scale: 0.26 },
+    {
+      part: "aperture",
+      x: 0,
+      y: 0.1,
+      scale: 0.13,
+      phase: "pulse",
+      glow: HEARTH,
+    },
+  ],
+  cutting: [
+    { part: "rotor", x: 0, y: -0.02, scale: 0.21, count: 1, phase: "spin" },
+    { part: "band", x: 0, y: 0.24, scale: 0.2, count: 2 },
+  ],
+  crushing: [{ part: "mouth", x: 0, y: 0, scale: 0.26, phase: "grind" }],
+  container: [
+    { part: "vessel", x: 0, y: 0, scale: 0.22 },
+    { part: "band", x: 0, y: -0.04, scale: 0.2, count: 2 },
+  ],
+  consumer: [{ part: "mouth", x: 0, y: 0, scale: 0.2, rotation: -Math.PI / 2 }],
+  hub: [
+    { part: "vessel", x: 0, y: 0.02, scale: 0.3 },
+    { part: "mast", x: 0, y: -0.14, scale: 0.14 },
+    { part: "band", x: 0, y: 0.16, scale: 0.26, count: 3 },
+  ],
+  pump: [
+    { part: "vessel", x: 0, y: -0.05, scale: 0.16 },
+    { part: "stack", x: 0, y: 0.08, scale: 0.1, rotation: Math.PI },
+    { part: "aperture", x: 0, y: 0.2, scale: 0.06, phase: "rise", glow: WATER },
+  ],
+  pole: [{ part: "mast", x: 0, y: 0.1, scale: 0.2 }],
+  generator: [{ part: "chamber", x: 0, y: 0, scale: 0.18 }],
+  burner: [
+    { part: "vessel", x: 0, y: 0.08, scale: 0.18 },
+    { part: "stack", x: 0, y: -0.05, scale: 0.09 },
+    {
+      part: "aperture",
+      x: 0,
+      y: -0.2,
+      scale: 0.075,
+      phase: "pulse",
+      glow: FURNACE,
+    },
+  ],
+  wind: [
+    { part: "mast", x: 0, y: 0.14, scale: 0.19 },
+    { part: "rotor", x: 0, y: -0.08, scale: 0.27, count: 3, phase: "spin" },
+  ],
+  hydro: [{ part: "rotor", x: 0, y: 0, scale: 0.22, count: 4, phase: "spin" }],
+  turbine: [
+    { part: "rotor", x: 0, y: 0.02, scale: 0.19, count: 6, phase: "spin" },
+    { part: "stack", x: 0, y: -0.16, scale: 0.085 },
+    {
+      part: "aperture",
+      x: 0,
+      y: -0.3,
+      scale: 0.05,
+      phase: "rise",
+      glow: EXHAUST,
+    },
+  ],
+  boiler: [
+    { part: "vessel", x: 0, y: 0.02, scale: 0.24 },
+    {
+      part: "aperture",
+      x: -0.08,
+      y: -0.24,
+      scale: 0.055,
+      phase: "rise",
+      glow: STEAM,
+    },
+    {
+      part: "aperture",
+      x: 0.1,
+      y: -0.3,
+      scale: 0.042,
+      phase: "rise",
+      glow: STEAM,
+    },
+  ],
+};
+
+/**
+ * The player, in the same vocabulary the machines use, so the world reads as one visual system.
+ * Drawn in two passes because the reading is a fill inside a dark hull: the awareness ring first,
+ * then the body. Scales are in player radii rather than hex sizes — the walker takes whatever
+ * unit its caller works in.
+ */
+export const PLAYER_RING: readonly ShapePart[] = [
+  { part: "rotor", x: 0, y: 0, scale: 1, count: 0 },
+];
+export const PLAYER_BODY: readonly ShapePart[] = [
+  { part: "aperture", x: 0, y: 0, scale: 0.62, glow: "#f4f7f2" },
+  { part: "rotor", x: 0, y: 0, scale: 0.62, count: 0 },
+];
+
+/** The shape a definition draws at: its base list, wearing every tier step it has earned. */
+export function partsFor(key: SilhouetteKey, tier = 0): readonly ShapePart[] {
+  return applyTier(BUILDING_SHAPES[key], tier);
+}
+
+/* --------------------------------------------------------------- baked stills */
+
+/**
+ * Baked at a hex size larger than the camera can reach (`BASE_HEX_SIZE` 22 x max zoom 2.2 x a
+ * 2x display is 96.8 device pixels), so a stamp is always scaled down and never up.
+ */
+const BAKE_HEX = 128;
+const BAKE_HALF = 118;
+
+const bakes = new Map<string, HTMLCanvasElement>();
+
+/**
+ * The still parts of a shape, drawn once into an offscreen canvas — ART.md rule 3, applied to
+ * buildings. What is left to draw per entity per frame is only the parts that actually move, so
+ * the grammar's indirection is paid at startup instead of at 60 Hz.
+ */
+function bakedStills(key: SilhouetteKey, tier: number): HTMLCanvasElement {
+  const cacheKey = `${BUILDING_SHAPE_VERSION}|${key}|${tier}`;
+  const cached = bakes.get(cacheKey);
+  if (cached) return cached;
+  const canvas = document.createElement("canvas");
+  canvas.width = BAKE_HALF * 2;
+  canvas.height = BAKE_HALF * 2;
+  const ctx = canvas.getContext("2d");
+  if (ctx) {
+    const still = partsFor(key, tier).filter(isStill);
+    drawParts(
+      ctx,
+      still,
+      { x: BAKE_HALF, y: BAKE_HALF },
+      BAKE_HEX,
+      trimOf(tier).stroke,
+      0,
+    );
+  }
+  bakes.set(cacheKey, canvas);
+  return canvas;
 }
 
 export interface BuildingLookInput {
@@ -74,7 +271,8 @@ export function drawBuildingLook(
 ): void {
   const { building, definition, center, size, color, now, reducedMotion } =
     input;
-  const trim = trimOf(input.tier ?? 0);
+  const tier = input.tier ?? 0;
+  const trim = trimOf(tier);
   const key = silhouetteOf(
     building.kind,
     definition?.recipe_category,
@@ -90,8 +288,40 @@ export function drawBuildingLook(
   ctx.strokeStyle = trim.stroke;
   ctx.lineWidth = trim.width;
   ctx.stroke();
-  drawSilhouette(ctx, key, center, size, trim, cycle);
+  drawShape(ctx, key, center, size, tier, cycle);
   ctx.restore();
+}
+
+/**
+ * Stamp the stills, then walk only what moves. Both halves come from the same part list, so a
+ * part cannot appear in one and not the other.
+ */
+function drawShape(
+  ctx: CanvasRenderingContext2D,
+  key: SilhouetteKey,
+  center: PixelPoint,
+  size: number,
+  tier: number,
+  cycle: number,
+): void {
+  const parts = partsFor(key, tier);
+  if (parts.length === 0) return;
+  const dim = BAKE_HALF * 2 * (size / BAKE_HEX);
+  ctx.drawImage(
+    bakedStills(key, tier),
+    center.x - dim / 2,
+    center.y - dim / 2,
+    dim,
+    dim,
+  );
+  drawParts(
+    ctx,
+    parts.filter((part) => !isStill(part)),
+    center,
+    size,
+    trimOf(tier).stroke,
+    cycle,
+  );
 }
 
 export function cargoTravel(
@@ -118,241 +348,6 @@ export function workCycle(
   )
     return (now / 700 + building.id * 0.13) % 1;
   return 0;
-}
-
-function drawSilhouette(
-  ctx: CanvasRenderingContext2D,
-  key: SilhouetteKey,
-  center: PixelPoint,
-  size: number,
-  trim: BuildingTrim,
-  cycle: number,
-): void {
-  const x = center.x;
-  const y = center.y;
-  ctx.strokeStyle = trim.stroke;
-  ctx.fillStyle = trim.stroke;
-  ctx.lineWidth = Math.max(1.4, size * 0.06);
-  ctx.lineCap = "round";
-  ctx.lineJoin = "round";
-  switch (key) {
-    case "smelting":
-      ctx.fillStyle = `rgba(255, 148, 64, ${0.18 + cycle * 0.45})`;
-      ctx.beginPath();
-      ctx.arc(x, y + size * 0.06, size * 0.22, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.strokeStyle = trim.stroke;
-      ctx.strokeRect(
-        x - size * 0.08,
-        y - size * 0.42,
-        size * 0.16,
-        size * 0.28,
-      );
-      break;
-    case "firing":
-      ctx.beginPath();
-      ctx.arc(x, y + size * 0.08, size * 0.28, Math.PI, 0);
-      ctx.stroke();
-      ctx.fillStyle = `rgba(255, 96, 48, ${0.12 + cycle * 0.4})`;
-      ctx.beginPath();
-      ctx.arc(x, y + size * 0.1, size * 0.14, 0, Math.PI * 2);
-      ctx.fill();
-      break;
-    case "cutting": {
-      const angle = -Math.PI / 2 + cycle * Math.PI * 2;
-      ctx.beginPath();
-      ctx.arc(x, y, size * 0.22, 0, Math.PI * 2);
-      ctx.stroke();
-      ctx.beginPath();
-      ctx.moveTo(x, y);
-      ctx.lineTo(
-        x + Math.cos(angle) * size * 0.26,
-        y + Math.sin(angle) * size * 0.26,
-      );
-      ctx.stroke();
-      break;
-    }
-    case "crushing": {
-      const gap = 0.08 + Math.sin(cycle * Math.PI) * 0.07;
-      ctx.beginPath();
-      ctx.moveTo(x - size * 0.28, y - size * 0.18);
-      ctx.lineTo(x - size * gap, y + size * 0.22);
-      ctx.moveTo(x + size * 0.28, y - size * 0.18);
-      ctx.lineTo(x + size * gap, y + size * 0.22);
-      ctx.stroke();
-      break;
-    }
-    case "assembly":
-      ctx.strokeRect(x - size * 0.2, y - size * 0.2, size * 0.4, size * 0.4);
-      if (cycle > 0) {
-        const spin = cycle * Math.PI * 2;
-        ctx.beginPath();
-        ctx.arc(
-          x + Math.cos(spin) * size * 0.12,
-          y + Math.sin(spin) * size * 0.12,
-          size * 0.05,
-          0,
-          Math.PI * 2,
-        );
-        ctx.fill();
-      }
-      break;
-    case "extractor": {
-      const pulse = 1 + cycle * 0.12;
-      ctx.beginPath();
-      ctx.arc(x, y, size * 0.16 * pulse, 0, Math.PI * 2);
-      ctx.stroke();
-      ctx.beginPath();
-      ctx.moveTo(x, y - size * 0.08);
-      ctx.lineTo(x, y + size * 0.28 * pulse);
-      ctx.stroke();
-      break;
-    }
-    case "belt":
-      break;
-    case "container":
-      ctx.strokeRect(
-        x - size * 0.22,
-        y - size * 0.18,
-        size * 0.44,
-        size * 0.36,
-      );
-      ctx.beginPath();
-      ctx.moveTo(x - size * 0.22, y - size * 0.04);
-      ctx.lineTo(x + size * 0.22, y - size * 0.04);
-      ctx.stroke();
-      break;
-    case "consumer":
-      ctx.beginPath();
-      ctx.moveTo(x - size * 0.22, y - size * 0.16);
-      ctx.lineTo(x + size * 0.22, y);
-      ctx.lineTo(x - size * 0.22, y + size * 0.16);
-      ctx.stroke();
-      break;
-    case "hub":
-      hexPath(ctx, center, size * 0.42);
-      ctx.stroke();
-      break;
-    case "pump":
-      ctx.beginPath();
-      ctx.arc(x, y - size * 0.04, size * 0.16, 0, Math.PI * 2);
-      ctx.stroke();
-      ctx.beginPath();
-      ctx.moveTo(x, y + size * 0.12);
-      ctx.lineTo(x, y + size * 0.3);
-      ctx.stroke();
-      if (cycle > 0) {
-        ctx.globalAlpha = 0.35 + cycle * 0.4;
-        ctx.beginPath();
-        ctx.arc(
-          x,
-          y + size * (0.18 + cycle * 0.08),
-          size * 0.06,
-          0,
-          Math.PI * 2,
-        );
-        ctx.fill();
-        ctx.globalAlpha = 1;
-      }
-      break;
-    case "pole":
-      ctx.beginPath();
-      ctx.moveTo(x, y + size * 0.28);
-      ctx.lineTo(x, y - size * 0.32);
-      ctx.moveTo(x - size * 0.16, y - size * 0.2);
-      ctx.lineTo(x + size * 0.16, y - size * 0.2);
-      ctx.stroke();
-      break;
-    case "burner":
-      ctx.strokeRect(
-        x - size * 0.18,
-        y - size * 0.08,
-        size * 0.36,
-        size * 0.28,
-      );
-      ctx.fillStyle = `rgba(255, 160, 48, ${0.15 + cycle * 0.4})`;
-      ctx.fillRect(x - size * 0.1, y - size * 0.32, size * 0.2, size * 0.22);
-      break;
-    case "wind": {
-      const spin = cycle * Math.PI * 2;
-      ctx.beginPath();
-      ctx.moveTo(x, y + size * 0.28);
-      ctx.lineTo(x, y - size * 0.08);
-      ctx.stroke();
-      for (let blade = 0; blade < 3; blade += 1) {
-        const angle = spin + (blade * Math.PI * 2) / 3;
-        ctx.beginPath();
-        ctx.moveTo(x, y - size * 0.08);
-        ctx.lineTo(
-          x + Math.cos(angle) * size * 0.28,
-          y - size * 0.08 + Math.sin(angle) * size * 0.28,
-        );
-        ctx.stroke();
-      }
-      break;
-    }
-    case "hydro": {
-      const spin = cycle * Math.PI * 2;
-      ctx.beginPath();
-      ctx.arc(x, y, size * 0.22, 0, Math.PI * 2);
-      ctx.stroke();
-      for (let vane = 0; vane < 4; vane += 1) {
-        const angle = spin + (vane * Math.PI) / 2;
-        ctx.beginPath();
-        ctx.moveTo(x, y);
-        ctx.lineTo(
-          x + Math.cos(angle) * size * 0.22,
-          y + Math.sin(angle) * size * 0.22,
-        );
-        ctx.stroke();
-      }
-      break;
-    }
-    case "turbine":
-      ctx.beginPath();
-      ctx.arc(x, y, size * 0.2, 0, Math.PI * 2);
-      ctx.stroke();
-      ctx.strokeRect(
-        x - size * 0.08,
-        y - size * 0.36,
-        size * 0.16,
-        size * 0.16,
-      );
-      if (cycle > 0) {
-        ctx.fillStyle = `rgba(180, 220, 255, ${0.2 + cycle * 0.35})`;
-        ctx.fill();
-      }
-      break;
-    case "boiler":
-      ctx.strokeRect(x - size * 0.24, y - size * 0.14, size * 0.48, size * 0.3);
-      ctx.beginPath();
-      ctx.arc(
-        x - size * 0.08,
-        y - size * 0.28 - cycle * size * 0.06,
-        size * 0.06,
-        0,
-        Math.PI * 2,
-      );
-      ctx.arc(
-        x + size * 0.1,
-        y - size * 0.34 - cycle * size * 0.04,
-        size * 0.045,
-        0,
-        Math.PI * 2,
-      );
-      ctx.stroke();
-      break;
-    case "generator":
-      ctx.strokeRect(
-        x - size * 0.18,
-        y - size * 0.18,
-        size * 0.36,
-        size * 0.36,
-      );
-      break;
-    default:
-      break;
-  }
 }
 
 /** The first orientation index off the six-edge table. Matches `NORTH` in the core. */

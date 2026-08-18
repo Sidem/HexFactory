@@ -2,14 +2,27 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 import { TERRAIN_ORDER } from "../src/core/terrain";
+import definitionData from "../src/data/definitions.json";
 import {
+  BUILDING_SHAPE_VERSION,
+  BUILDING_SHAPES,
   facingTip,
   NORTH,
+  partsFor,
+  PLAYER_BODY,
+  PLAYER_RING,
   silhouetteOf,
   spanEnd,
   trimOf,
   workCycle,
+  type SilhouetteKey,
 } from "../src/rendering/buildingLook";
+import {
+  isStill,
+  profileTop,
+  silhouetteSignature,
+  TIER_LADDER,
+} from "../src/rendering/shapeGrammar";
 import {
   BAND_RANK,
   depletionLook,
@@ -21,7 +34,25 @@ import {
   TERRAIN_TILE_VERSION,
   tileKey,
 } from "../src/rendering/terrainLook";
-import type { EntitySnapshot } from "../src/core/types";
+import type {
+  BuildingDefinition,
+  Definitions,
+  EntitySnapshot,
+} from "../src/core/types";
+
+const definitions = definitionData as unknown as Definitions;
+
+function keyOf(definition: BuildingDefinition): SilhouetteKey {
+  return silhouetteOf(
+    definition.kind,
+    definition.recipe_category,
+    definition.power_source,
+  );
+}
+
+const SHAPED_KEYS = (Object.keys(BUILDING_SHAPES) as SilhouetteKey[]).filter(
+  (key) => BUILDING_SHAPES[key].length > 0,
+);
 
 describe("Stage B look generator", () => {
   it("hashes hexes deterministically and only on the host", () => {
@@ -148,5 +179,112 @@ describe("Stage B look generator", () => {
       id: 1,
     } as EntitySnapshot;
     expect(workCycle(idle, 12_000, false)).toBe(0);
+  });
+});
+
+describe("Stage D shape grammar", () => {
+  it("gives every silhouette a part list, and every definition a silhouette", () => {
+    for (const definition of definitions.buildings) {
+      const key = keyOf(definition);
+      expect(BUILDING_SHAPES[key]).toBeDefined();
+    }
+    // The belt is the one deliberate empty: its look is the heading tick and the cargo riding it.
+    expect(BUILDING_SHAPES.belt).toHaveLength(0);
+    expect(SHAPED_KEYS.length).toBeGreaterThan(10);
+    expect(BUILDING_SHAPE_VERSION).toBeGreaterThan(0);
+  });
+
+  it("makes a tier legible as a silhouette, with colour removed", () => {
+    // The acceptance this milestone was written against. `silhouetteSignature` excludes `glow`,
+    // and `profileTop` is pure outline, so neither can be satisfied by a stroke colour — which is
+    // exactly how v0.14 shipped a tier that was invisible on the map.
+    for (const key of SHAPED_KEYS) {
+      for (let tier = 1; tier <= TIER_LADDER.length; tier += 1) {
+        const below = partsFor(key, tier - 1);
+        const at = partsFor(key, tier);
+        expect(silhouetteSignature(at)).not.toBe(silhouetteSignature(below));
+        expect(profileTop(at)).toBeLessThan(profileTop(below));
+        expect(at.length).toBeGreaterThan(below.length);
+      }
+    }
+  });
+
+  it("refuses a tiered definition that has no shape to grow", () => {
+    // A tier on a definition whose silhouette is empty would be an upgrade the map cannot show.
+    // Naming it here is what stops the belt's deliberate blank from quietly becoming a defect the
+    // day somebody adds a belt II.
+    for (const definition of definitions.buildings) {
+      if ((definition.tier ?? 0) === 0) continue;
+      expect(BUILDING_SHAPES[keyOf(definition)].length).toBeGreaterThan(0);
+    }
+  });
+
+  it("costs a new building a data row and not a drawing", () => {
+    const look = readFileSync(
+      new URL("../src/rendering/buildingLook.ts", import.meta.url),
+      "utf8",
+    );
+    const grammar = readFileSync(
+      new URL("../src/rendering/shapeGrammar.ts", import.meta.url),
+      "utf8",
+    );
+    // No `switch` over silhouettes survives in the look module: what used to be two hundred lines
+    // of hand-written canvas per building is a table there now.
+    expect(look).not.toContain("switch (key)");
+    expect(look).not.toContain("drawSilhouette");
+    // The only switches left are over the fixed part vocabulary, which does not grow per
+    // definition. Two of them: one for extents, one for drawing.
+    expect(grammar.match(/switch \(part\.part\)/g)).toHaveLength(2);
+    expect(grammar.match(/switch \(/g)).toHaveLength(2);
+  });
+
+  it("keeps modifiers pure, so a bake cannot poison the table", () => {
+    // The bake caches per key and tier for the life of the page. A modifier that mutated the base
+    // row would make the second building of a kind wear the first one's tier.
+    for (const key of SHAPED_KEYS) {
+      const before = silhouetteSignature(BUILDING_SHAPES[key]);
+      partsFor(key, 1);
+      partsFor(key, 2);
+      expect(silhouetteSignature(BUILDING_SHAPES[key])).toBe(before);
+      expect(silhouetteSignature(partsFor(key, 1))).toBe(
+        silhouetteSignature(partsFor(key, 1)),
+      );
+    }
+  });
+
+  it("splits every part into exactly one of the baked and the live pass", () => {
+    // `drawShape` stamps the stills and walks the movers. A part counted by neither would vanish;
+    // a part counted by both would be drawn twice.
+    for (const key of SHAPED_KEYS) {
+      for (let tier = 0; tier <= TIER_LADDER.length; tier += 1) {
+        const parts = partsFor(key, tier);
+        const still = parts.filter(isStill).length;
+        const moving = parts.filter((part) => !isStill(part)).length;
+        expect(still + moving).toBe(parts.length);
+      }
+    }
+  });
+
+  it("draws the player from the same vocabulary the machines use", () => {
+    const kinds = [...PLAYER_RING, ...PLAYER_BODY].map((part) => part.part);
+    expect(kinds.length).toBeGreaterThan(0);
+    for (const kind of kinds) {
+      expect(
+        SHAPED_KEYS.some((key) =>
+          BUILDING_SHAPES[key].some((part) => part.part === kind),
+        ),
+      ).toBe(true);
+    }
+  });
+
+  it("names every tier step it applies", () => {
+    for (const step of TIER_LADDER) {
+      expect(step.name).not.toBe("");
+      expect(step.reads).not.toBe("");
+      expect(step.modifiers.length).toBeGreaterThan(0);
+    }
+    // Trim still climbs beside the shape, so the two agree rather than competing.
+    expect(trimOf(1).width).toBeGreaterThan(trimOf(0).width);
+    expect(trimOf(2).width).toBeGreaterThan(trimOf(1).width);
   });
 });
