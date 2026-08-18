@@ -3,6 +3,7 @@ import scenariosJson from "../data/scenarios.json";
 import technologiesJson from "../data/technologies.json";
 import { validateDefinitions, validateTechnologies } from "./definitions";
 import { applySnapshotDelta } from "./snapshotDelta";
+import { decodeSnapshotDelta } from "./snapshotWire";
 import type {
   Definitions,
   FactorySnapshot,
@@ -56,8 +57,19 @@ class WorkerTransport implements FactoryTransport {
         const request = this.pending.get(event.data.id);
         if (!request) return;
         this.pending.delete(event.data.id);
-        if (event.data.ok) request.resolve(event.data.result);
-        else
+        if (event.data.ok) {
+          // A result that arrives as a buffer is a snapshot delta: it is the only thing the worker
+          // sends in the binary wire format, and it is transferred rather than cloned. Decoding it
+          // here keeps the encoding a property of the transport — {@link FactoryHost} is about
+          // revisions and merging, and the tests drive it through a transport that hands over the
+          // delta directly.
+          const { result } = event.data;
+          request.resolve(
+            result instanceof ArrayBuffer
+              ? decodeSnapshotDelta(result)
+              : result,
+          );
+        } else
           request.reject(
             new Error(event.data.error ?? "Factory worker failed"),
           );

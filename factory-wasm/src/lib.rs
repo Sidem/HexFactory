@@ -4,6 +4,9 @@ use std::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet};
 use wasm_bindgen::prelude::*;
 
+/// The binary encoding the snapshot delta crosses the worker boundary in.
+mod wire;
+
 type ItemId = u16;
 type RecipeId = u16;
 type DefinitionId = u16;
@@ -423,6 +426,43 @@ struct ResourceSnapshot {
     initial_quantity: u32,
 }
 
+/// Why a machine is doing what it is doing, as the inspector says it.
+///
+/// This is a closed set, and naming it as one is what lets the binary wire carry a byte where JSON
+/// carried up to nineteen characters per entity per delta. The serialized spelling is the contract:
+/// these strings are what the host renders, so a variant may not be renamed without changing what
+/// the player reads. Wire codes are the declaration order and are pinned by
+/// `fixtures/snapshot-delta-wire.json`.
+#[derive(Clone, Copy, Debug, Serialize, PartialEq, Eq)]
+enum EntityStatus {
+    #[serde(rename = "output blocked")]
+    OutputBlocked,
+    #[serde(rename = "deposit depleted")]
+    DepositDepleted,
+    #[serde(rename = "extracting")]
+    Extracting,
+    #[serde(rename = "no water in reach")]
+    NoWaterInReach,
+    #[serde(rename = "pumping")]
+    Pumping,
+    #[serde(rename = "composing")]
+    Composing,
+    #[serde(rename = "out of fuel")]
+    OutOfFuel,
+    #[serde(rename = "waiting for inputs")]
+    WaitingForInputs,
+    #[serde(rename = "buffered")]
+    Buffered,
+    #[serde(rename = "carrying")]
+    Carrying,
+    #[serde(rename = "receiving")]
+    Receiving,
+    #[serde(rename = "landing hub")]
+    LandingHub,
+    #[serde(rename = "idle")]
+    Idle,
+}
+
 #[derive(Clone, Debug, Serialize, PartialEq, Eq)]
 struct EntitySnapshot {
     id: u32,
@@ -449,7 +489,7 @@ struct EntitySnapshot {
     fuel_charge: u32,
     #[serde(skip_serializing_if = "is_zero")]
     fuel_required: u32,
-    status: String,
+    status: EntityStatus,
     next_id: Option<u32>,
     footprint: Vec<Coordinate>,
 }
@@ -526,7 +566,7 @@ fn drain_marks<T: Ord>(marks: &mut Vec<T>) -> Vec<T> {
     marks
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, PartialEq, Eq)]
 struct SnapshotDelta {
     base_revision: u64,
     revision: u64,
@@ -2651,23 +2691,30 @@ impl Core {
     /// a covering deposit for an extractor, open water for a pump. It is passed in rather than
     /// searched for: resolving it through the cached candidate list keeps a snapshot linear in
     /// entity count, where the equivalent tile scan made it quadratic.
-    fn status_of(&self, entity: &Entity, deposit_available: bool, fuel_ready: bool) -> String {
+    fn status_of(
+        &self,
+        entity: &Entity,
+        deposit_available: bool,
+        fuel_ready: bool,
+    ) -> EntityStatus {
         match entity.kind {
-            BuildingKind::Extractor if entity.cargo.is_some() => "output blocked".into(),
-            BuildingKind::Extractor if !deposit_available => "deposit depleted".into(),
-            BuildingKind::Extractor if entity.progress > 0 => "extracting".into(),
-            BuildingKind::Pump if entity.cargo.is_some() => "output blocked".into(),
-            BuildingKind::Pump if !deposit_available => "no water in reach".into(),
-            BuildingKind::Pump => "pumping".into(),
-            BuildingKind::Composer if entity.cargo.is_some() => "output blocked".into(),
-            BuildingKind::Composer if entity.progress > 0 => "composing".into(),
-            BuildingKind::Composer if !fuel_ready => "out of fuel".into(),
-            BuildingKind::Composer => "waiting for inputs".into(),
-            BuildingKind::Container if inventory_total(&entity.inventory) > 0 => "buffered".into(),
-            BuildingKind::Belt if entity.cargo.is_some() => "carrying".into(),
-            BuildingKind::Consumer => "receiving".into(),
-            BuildingKind::Hub => "landing hub".into(),
-            _ => "idle".into(),
+            BuildingKind::Extractor if entity.cargo.is_some() => EntityStatus::OutputBlocked,
+            BuildingKind::Extractor if !deposit_available => EntityStatus::DepositDepleted,
+            BuildingKind::Extractor if entity.progress > 0 => EntityStatus::Extracting,
+            BuildingKind::Pump if entity.cargo.is_some() => EntityStatus::OutputBlocked,
+            BuildingKind::Pump if !deposit_available => EntityStatus::NoWaterInReach,
+            BuildingKind::Pump => EntityStatus::Pumping,
+            BuildingKind::Composer if entity.cargo.is_some() => EntityStatus::OutputBlocked,
+            BuildingKind::Composer if entity.progress > 0 => EntityStatus::Composing,
+            BuildingKind::Composer if !fuel_ready => EntityStatus::OutOfFuel,
+            BuildingKind::Composer => EntityStatus::WaitingForInputs,
+            BuildingKind::Container if inventory_total(&entity.inventory) > 0 => {
+                EntityStatus::Buffered
+            }
+            BuildingKind::Belt if entity.cargo.is_some() => EntityStatus::Carrying,
+            BuildingKind::Consumer => EntityStatus::Receiving,
+            BuildingKind::Hub => EntityStatus::LandingHub,
+            _ => EntityStatus::Idle,
         }
     }
 
@@ -3421,6 +3468,22 @@ impl Factory {
         serde_json::to_string(&snapshot).expect("snapshot is serializable")
     }
 
+    /// The delta the game actually ships, in the binary wire format.
+    ///
+    /// wasm-bindgen hands this to the worker as a `Uint8Array`, which the worker then transfers to
+    /// the main thread rather than letting the structured clone copy it. `docs/BENCHMARKS.md`
+    /// finding 3 is what this exists for: the boundary tracked payload bytes at about 10 µs/KB and
+    /// cost more than the simulation it carried.
+    pub fn snapshot_delta_bytes(&mut self) -> Vec<u8> {
+        let delta = self.build_delta();
+        wire::encode_delta(&delta)
+    }
+
+    /// The same delta as JSON.
+    ///
+    /// This is no longer the shipped path. It is retained as the oracle `snapshot_delta_bytes` is
+    /// pinned against — the binary buffer must decode to exactly this object — and as the
+    /// comparison the capacity ladder reports the encoding's saving against.
     pub fn snapshot_delta_json(&mut self) -> String {
         let delta = self.build_delta();
         serde_json::to_string(&delta).expect("snapshot delta is serializable")
@@ -4379,8 +4442,10 @@ pub mod capacity {
     /// Report format version, so recorded JSON stays interpretable as the metric set changes.
     /// Version 2 adds `checksum_us`, which the sparse-snapshot release needed to see. Version 3
     /// adds `platform`, because the same ladder now runs natively and as wasm in a browser worker
-    /// and a record must say which one it is.
-    pub const REPORT_SCHEMA: u32 = 3;
+    /// and a record must say which one it is. Version 4 adds `delta_json_bytes`, and changes what
+    /// `delta_bytes` means: it is now the binary wire payload the game ships rather than the JSON
+    /// one, so the two figures are not comparable across the boundary between schema 3 and 4.
+    pub const REPORT_SCHEMA: u32 = 4;
     /// Lines sit three rows apart so one line's two-cell composer cannot touch the next.
     const ROW_PITCH: i32 = 3;
     /// Large enough that no deposit empties inside a measured run, so every tier measures the same
@@ -4447,8 +4512,13 @@ pub mod capacity {
         /// Mean cost of one worker frame: bounded command batch, one tick, and a serialized delta.
         pub frame_us: f64,
         pub frames_per_second: f64,
-        /// Mean serialized delta payload crossing the worker boundary per frame.
+        /// Mean encoded delta payload crossing the worker boundary per frame, in the binary wire
+        /// format the game ships.
         pub delta_bytes: f64,
+        /// What the same frames would have cost as JSON, which is what they did cost until the
+        /// binary wire replaced it. Recorded beside `delta_bytes` so the encoding's saving is a
+        /// measured ratio in the record rather than an inference from two different runs.
+        pub delta_json_bytes: f64,
         /// Mean cost of one full deterministic transport compile.
         pub full_compile_us: f64,
         /// Mean cost of the incremental transport machinery alone, for the same edit: stable-ID
@@ -4669,6 +4739,7 @@ pub mod capacity {
         let (checksum, delivered) = pinned_state(spec);
 
         let (frame_us, delta_bytes) = measure_frames(spec, clock, budget);
+        let delta_json_bytes = measure_json_payload(spec);
         let full_compile_us = measure_full_compile(spec, clock, budget);
         let incremental_recompile_us = measure_recompiles(spec, clock, budget);
         let edit_us = measure_edits(spec, clock, budget);
@@ -4687,6 +4758,7 @@ pub mod capacity {
             frame_us,
             frames_per_second: rate(frame_us),
             delta_bytes,
+            delta_json_bytes,
             full_compile_us,
             incremental_recompile_us,
             edit_us,
@@ -4708,7 +4780,7 @@ pub mod capacity {
         let mut factory = warm_factory(spec);
         // The first delta is a complete snapshot; take it outside the measurement so the reported
         // payload is the steady-state per-frame cost.
-        let _ = factory.snapshot_delta_json();
+        let _ = factory.snapshot_delta_bytes();
         let mut bytes = 0usize;
         let (frame_us, frames) = phase(clock, budget, spec.frames, || {
             for _ in 0..spec.frames {
@@ -4717,10 +4789,31 @@ pub mod capacity {
                 if factory.advance_json(IDLE_COMMANDS, 1, 0).is_err() {
                     panic!("capacity frame commands must be accepted");
                 }
-                bytes += factory.snapshot_delta_json().len();
+                bytes += factory.snapshot_delta_bytes().len();
             }
         });
         (frame_us, mean(bytes as f64, frames))
+    }
+
+    /// The same frames' payload had they been encoded as JSON, which is what they were until the
+    /// binary wire landed.
+    ///
+    /// A second factory rather than a second call, because building a delta consumes the dirty
+    /// marks and advances the baseline, so one frame cannot be asked for both encodings. The
+    /// workload is deterministic, so this run produces the identical sequence of deltas — and it is
+    /// untimed, because what is wanted from it is the byte count the shipped encoding is measured
+    /// against, not the cost of an encoding the game no longer performs.
+    fn measure_json_payload(spec: &TierSpec) -> f64 {
+        let mut factory = warm_factory(spec);
+        let _ = factory.snapshot_delta_json();
+        let mut bytes = 0usize;
+        for _ in 0..spec.frames {
+            if factory.advance_json(IDLE_COMMANDS, 1, 0).is_err() {
+                panic!("capacity frame commands must be accepted");
+            }
+            bytes += factory.snapshot_delta_json().len();
+        }
+        mean(bytes as f64, spec.frames)
     }
 
     /// The full deterministic compile used on load and restore, as the incremental baseline.
@@ -4892,7 +4985,7 @@ pub mod capacity {
 
     pub fn table_header() -> String {
         format!(
-            "{:<8}{:>7}{:>10}{:>11}{:>10}{:>12}{:>12}{:>11}{:>10}{:>13}{:>12}{:>13}{:>10}",
+            "{:<8}{:>7}{:>10}{:>11}{:>10}{:>12}{:>12}{:>11}{:>10}{:>13}{:>13}{:>12}{:>13}{:>10}",
             "tier",
             "lines",
             "entities",
@@ -4903,6 +4996,7 @@ pub mod capacity {
             "frame us",
             "frames/s",
             "delta bytes",
+            "json bytes",
             "compile us",
             "recompile us",
             "edit us",
@@ -4911,7 +5005,7 @@ pub mod capacity {
 
     pub fn table_row(tier: &TierResult) -> String {
         format!(
-            "{:<8}{:>7}{:>10}{:>11.1}{:>10.0}{:>12.1}{:>12.1}{:>11.1}{:>10.0}{:>13.0}{:>12.1}{:>13.1}{:>10.1}",
+            "{:<8}{:>7}{:>10}{:>11.1}{:>10.0}{:>12.1}{:>12.1}{:>11.1}{:>10.0}{:>13.0}{:>13.0}{:>12.1}{:>13.1}{:>10.1}",
             tier.key,
             tier.lines,
             tier.entities,
@@ -4922,6 +5016,7 @@ pub mod capacity {
             tier.frame_us,
             tier.frames_per_second,
             tier.delta_bytes,
+            tier.delta_json_bytes,
             tier.full_compile_us,
             tier.incremental_recompile_us,
             tier.edit_us,
@@ -5084,6 +5179,17 @@ mod tests {
             serde_json::to_string(&actual).unwrap(),
             serde_json::to_string(&oracle).unwrap(),
             "dirty-tracked delta diverged from the full snapshot diff after {step}"
+        );
+        // The binary wire has to carry exactly this object and nothing less. Round-tripping here
+        // rather than in a test of its own means every delta this run produces is covered — a full
+        // replace, an incremental patch, a removal list, terrain arriving, a deposit running dry,
+        // a fuelled machine mid-craft — which is the entity and group variety a hand-written
+        // fixture cannot enumerate. `fixtures/snapshot-delta-wire.json` pins the other half: that
+        // the TypeScript decoder reads the same bytes the same way.
+        assert_eq!(
+            wire::decode::decode_delta(&wire::encode_delta(&actual)),
+            actual,
+            "binary wire round trip lost part of the delta after {step}"
         );
         *previous = current;
     }
@@ -5306,7 +5412,10 @@ mod tests {
         core.entities[smelter].inventory.insert(1, 4);
         core.tick_many(30);
         assert_eq!(core.entities[smelter].progress, 0);
-        assert_eq!(core.entity_snapshot(smelter).status, "out of fuel");
+        assert_eq!(
+            core.entity_snapshot(smelter).status,
+            EntityStatus::OutOfFuel
+        );
         assert_eq!(core.entities[smelter].inventory.get(&1), Some(&4));
 
         // One coal is eight energy against a four-energy craft, so the change is banked.
@@ -5332,7 +5441,7 @@ mod tests {
         core.entities[steel].inventory.insert(5, 2);
         core.tick_many(30);
         assert_eq!(core.entities[steel].progress, 0);
-        assert_eq!(core.entity_snapshot(steel).status, "out of fuel");
+        assert_eq!(core.entity_snapshot(steel).status, EntityStatus::OutOfFuel);
         assert_eq!(core.entities[steel].inventory.get(&5), Some(&2));
 
         // A third coal is surplus, and surplus is what burns.
@@ -5405,7 +5514,10 @@ mod tests {
                 quantity: 1
             })
         );
-        assert_eq!(core.entity_snapshot(index).status, "output blocked");
+        assert_eq!(
+            core.entity_snapshot(index).status,
+            EntityStatus::OutputBlocked
+        );
         assert!(core.tiles.get(&(2, 1)).is_none());
         assert!(core
             .place(3, -1, 11, 0, None)
@@ -6435,6 +6547,379 @@ mod tests {
         assert_eq!(replay.checksum(), expected);
     }
 
+    /// Every status spelling the host can render. The wire carries the index, so a reordering here
+    /// is a wire break; the fixture is what makes that break visible in both languages at once.
+    const WIRE_STATUSES: [(EntityStatus, &str); 13] = [
+        (EntityStatus::OutputBlocked, "output blocked"),
+        (EntityStatus::DepositDepleted, "deposit depleted"),
+        (EntityStatus::Extracting, "extracting"),
+        (EntityStatus::NoWaterInReach, "no water in reach"),
+        (EntityStatus::Pumping, "pumping"),
+        (EntityStatus::Composing, "composing"),
+        (EntityStatus::OutOfFuel, "out of fuel"),
+        (EntityStatus::WaitingForInputs, "waiting for inputs"),
+        (EntityStatus::Buffered, "buffered"),
+        (EntityStatus::Carrying, "carrying"),
+        (EntityStatus::Receiving, "receiving"),
+        (EntityStatus::LandingHub, "landing hub"),
+        (EntityStatus::Idle, "idle"),
+    ];
+
+    const WIRE_KINDS: [(BuildingKind, &str); 7] = [
+        (BuildingKind::Extractor, "extractor"),
+        (BuildingKind::Belt, "belt"),
+        (BuildingKind::Composer, "composer"),
+        (BuildingKind::Container, "container"),
+        (BuildingKind::Consumer, "consumer"),
+        (BuildingKind::Hub, "hub"),
+        (BuildingKind::Pump, "pump"),
+    ];
+
+    const WIRE_TERRAIN: [(Terrain, &str); 7] = [
+        (Terrain::DeepWater, "deep_water"),
+        (Terrain::ShallowWater, "shallow_water"),
+        (Terrain::Shore, "shore"),
+        (Terrain::Lowland, "lowland"),
+        (Terrain::Hills, "hills"),
+        (Terrain::Highland, "highland"),
+        (Terrain::Cliff, "cliff"),
+    ];
+
+    #[test]
+    fn entity_status_spellings_are_what_the_host_renders() {
+        // The enum exists so the wire can carry a byte, but what reaches the player is still the
+        // string. Renaming a variant is allowed; changing its spelling changes the game's text.
+        for (status, spelling) in WIRE_STATUSES {
+            assert_eq!(
+                serde_json::to_value(status).unwrap(),
+                serde_json::Value::String(spelling.to_owned()),
+                "status spelling changed"
+            );
+        }
+    }
+
+    fn hex_encode(bytes: &[u8]) -> String {
+        bytes.iter().map(|byte| format!("{byte:02x}")).collect()
+    }
+
+    /// Deltas chosen to walk the whole surface of the encoding rather than to look like a frame:
+    /// an empty group mask, every scalar group at once, both patch kinds carrying entries, and the
+    /// replace form with nothing in it.
+    fn wire_fixture_cases() -> Vec<(&'static str, SnapshotDelta)> {
+        // A closure rather than a value: every case below fills a different handful of groups in
+        // and leaves the rest absent, and `..` moves what it spreads from.
+        let empty = || SnapshotDelta {
+            base_revision: 0,
+            revision: 1,
+            tick: 0,
+            checksum: 0,
+            scenario: None,
+            scenario_name: None,
+            world_version: None,
+            seed: None,
+            delivered: None,
+            delivered_by_item: None,
+            insight: None,
+            victory: None,
+            objective: None,
+            player: None,
+            researched: None,
+            chunks: None,
+            terrain: None,
+            resources: None,
+            buildings: None,
+            events: None,
+        };
+
+        // A frame that changed nothing but the clock. The mask is zero and the body is empty, which
+        // is the case a quiet factory spends most of its frames in.
+        let quiet = SnapshotDelta {
+            base_revision: 41,
+            revision: 42,
+            tick: 1_000_000,
+            checksum: 0xdead_beef,
+            ..empty()
+        };
+
+        // Every scalar group, with negative coordinates and multi-byte varints, so a decoder that
+        // reads a field in the wrong order or forgets to zigzag cannot pass.
+        let scalars = SnapshotDelta {
+            base_revision: 2,
+            revision: 3,
+            tick: 300,
+            checksum: 7,
+            scenario: Some("new-game".to_owned()),
+            scenario_name: Some("New game".to_owned()),
+            world_version: Some(5),
+            seed: Some(4_294_967_295),
+            // Exactly 2^53 - 1. The invariant is that nothing wider than that travels as a number,
+            // and the host still receives these as JavaScript numbers, so the boundary itself is
+            // the largest value worth pinning — a fixture above it would pin rounding, not the
+            // encoding.
+            delivered: Some(9_007_199_254_740_991),
+            delivered_by_item: Some(vec![
+                Ingredient64 {
+                    item_id: 1,
+                    quantity: 1_000_000_000_000,
+                },
+                Ingredient64 {
+                    item_id: 300,
+                    quantity: 0,
+                },
+            ]),
+            insight: Some(64_000),
+            victory: Some(true),
+            objective: Some(ObjectiveSnapshot {
+                item_id: 9,
+                delivered: 4,
+                required: 3,
+            }),
+            player: Some(PlayerSnapshot {
+                state: PlayerState {
+                    x: -123_456,
+                    y: 654_321,
+                    facing_x: -1000,
+                    facing_y: 866,
+                    move_x: 0,
+                    move_y: -1,
+                    inventory: BTreeMap::from([(1, 40), (3, 20), (65_535, 1)]),
+                    action_cooldown: 5,
+                    build_range: 4096,
+                    carry_slots: 12,
+                },
+                carry_stacks: vec![
+                    Ingredient {
+                        item_id: 1,
+                        quantity: 40,
+                    },
+                    Ingredient {
+                        item_id: 3,
+                        quantity: 20,
+                    },
+                ],
+                radius: 580,
+                action_cooldown_total: 6,
+            }),
+            researched: Some(vec![1, 2, 3, 4]),
+            chunks: Some(vec![
+                ChunkSnapshot {
+                    chunk_q: 0,
+                    chunk_r: 0,
+                    entity_count: 3,
+                    x: -8192,
+                    y: -8192,
+                    span: 16_384,
+                },
+                ChunkSnapshot {
+                    chunk_q: -2,
+                    chunk_r: 1,
+                    entity_count: 0,
+                    x: -40_960,
+                    y: 8192,
+                    span: 16_384,
+                },
+            ]),
+            events: Some(vec![
+                "Gathered Iron ore".to_owned(),
+                // Multi-byte UTF-8, because the string length is written in bytes and a decoder
+                // that reads it as characters would desynchronise the rest of the buffer.
+                "Delivered 3 × Steel — objective met".to_owned(),
+            ]),
+            ..empty()
+        };
+
+        // Both patches carrying entries: a bare belt beside a machine with every option set, a
+        // removal list, a deposit patch over negative coordinates, and terrain.
+        let patches = SnapshotDelta {
+            base_revision: 10,
+            revision: 11,
+            tick: 512,
+            checksum: 0x0102_0304,
+            terrain: Some(vec![
+                TileSnapshot {
+                    q: -3,
+                    r: -4,
+                    x: -8_870,
+                    y: -6_144,
+                    radius: 1024,
+                    terrain: Terrain::Cliff,
+                },
+                TileSnapshot {
+                    q: -2,
+                    r: -4,
+                    x: -7_096,
+                    y: -6_144,
+                    radius: 1024,
+                    terrain: Terrain::DeepWater,
+                },
+            ]),
+            resources: Some(ResourcesDelta {
+                replace: false,
+                changed: vec![
+                    ResourceSnapshot {
+                        q: -32,
+                        r: 0,
+                        x: -56_768,
+                        y: 0,
+                        radius: 1024,
+                        item_id: 1,
+                        quantity: 0,
+                        initial_quantity: 48,
+                    },
+                    ResourceSnapshot {
+                        q: -32,
+                        r: 3,
+                        x: -54_107,
+                        y: 4_608,
+                        radius: 1024,
+                        item_id: 2,
+                        quantity: 17,
+                        initial_quantity: 60,
+                    },
+                ],
+            }),
+            buildings: Some(BuildingsDelta {
+                replace: false,
+                changed: vec![
+                    EntitySnapshot {
+                        id: 7,
+                        q: 2,
+                        r: 0,
+                        definition_id: 2,
+                        kind: BuildingKind::Belt,
+                        orientation: 3,
+                        recipe_id: None,
+                        scenario_owned: false,
+                        cargo: None,
+                        inventory: Vec::new(),
+                        progress: 0,
+                        progress_total: 0,
+                        fuel_charge: 0,
+                        fuel_required: 0,
+                        status: EntityStatus::Idle,
+                        next_id: None,
+                        footprint: vec![Coordinate { q: 2, r: 0 }],
+                    },
+                    EntitySnapshot {
+                        id: 4_294_967_295,
+                        q: -1,
+                        r: 6,
+                        definition_id: 3,
+                        kind: BuildingKind::Composer,
+                        orientation: 5,
+                        recipe_id: Some(11),
+                        scenario_owned: true,
+                        cargo: Some(Cargo {
+                            item_id: 4,
+                            quantity: 2,
+                        }),
+                        inventory: vec![
+                            Ingredient {
+                                item_id: 1,
+                                quantity: 6,
+                            },
+                            Ingredient {
+                                item_id: 5,
+                                quantity: 300,
+                            },
+                        ],
+                        progress: 17,
+                        progress_total: 40,
+                        fuel_charge: 250,
+                        fuel_required: 100,
+                        status: EntityStatus::Composing,
+                        next_id: Some(9),
+                        // A multi-cell footprint, coded against the entity's own hex.
+                        footprint: vec![
+                            Coordinate { q: -1, r: 6 },
+                            Coordinate { q: 0, r: 6 },
+                            Coordinate { q: -1, r: 7 },
+                        ],
+                    },
+                ],
+                removed: vec![1, 2, 900],
+            }),
+            ..empty()
+        };
+
+        // The full-replace form both patches take on the first frame, a reset, a new game, and a
+        // load — here with nothing in it, so the replace flag is what is being read rather than
+        // the entries after it.
+        let replace = SnapshotDelta {
+            base_revision: 0,
+            revision: 1,
+            tick: 0,
+            checksum: 1,
+            resources: Some(ResourcesDelta {
+                replace: true,
+                changed: Vec::new(),
+            }),
+            buildings: Some(BuildingsDelta {
+                replace: true,
+                changed: Vec::new(),
+                removed: Vec::new(),
+            }),
+            events: Some(Vec::new()),
+            ..empty()
+        };
+
+        vec![
+            ("a quiet frame", quiet),
+            ("every scalar group", scalars),
+            ("both patches with entries", patches),
+            ("the empty full replace", replace),
+        ]
+    }
+
+    /// The one artifact both languages are pinned to, in the same role
+    /// `fixtures/hex-directions.json` plays for the direction table.
+    ///
+    /// Rust asserts it encodes these deltas to exactly these bytes and serializes them to exactly
+    /// this JSON. `tests/snapshotWire.test.ts` asserts the shipped TypeScript decoder turns those
+    /// same bytes back into that same JSON. Together they say the binary path delivers what the
+    /// JSON path delivered, which is the whole claim of the encoding.
+    ///
+    /// Regenerate with `UPDATE_WIRE_FIXTURE=1 cargo test wire_fixture` and read the diff: a change
+    /// here is a wire break, and the decoder on the other side has to move with it.
+    #[test]
+    fn wire_fixture_pins_the_format_for_both_languages() {
+        let cases: Vec<serde_json::Value> = wire_fixture_cases()
+            .into_iter()
+            .map(|(name, delta)| {
+                serde_json::json!({
+                    "name": name,
+                    "bytes": hex_encode(&wire::encode_delta(&delta)),
+                    "delta": serde_json::to_value(&delta).unwrap(),
+                })
+            })
+            .collect();
+        let generated = serde_json::json!({
+            "magic": std::str::from_utf8(&wire::WIRE_MAGIC).unwrap(),
+            "version": wire::WIRE_VERSION,
+            "kinds": WIRE_KINDS.map(|(_, name)| name).to_vec(),
+            "terrain": WIRE_TERRAIN.map(|(_, name)| name).to_vec(),
+            "statuses": WIRE_STATUSES.map(|(_, name)| name).to_vec(),
+            "cases": cases,
+        });
+
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../fixtures/snapshot-delta-wire.json");
+        if std::env::var("UPDATE_WIRE_FIXTURE").is_ok() {
+            let mut text = serde_json::to_string_pretty(&generated).unwrap();
+            text.push('\n');
+            std::fs::write(&path, text).unwrap();
+        }
+        let recorded: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&path).expect(
+                "fixtures/snapshot-delta-wire.json exists — regenerate with UPDATE_WIRE_FIXTURE=1",
+            ))
+            .unwrap();
+        assert_eq!(
+            generated, recorded,
+            "the wire format moved; the TypeScript decoder has to move with it"
+        );
+    }
+
     #[test]
     fn snapshot_delta_omits_unchanged_world_groups_and_pins_revisions() {
         let mut core = game("new-game");
@@ -6763,7 +7248,10 @@ mod tests {
         assert!(!scanned(&core));
         assert!(core.extractor_deposit(index).is_none());
         core.entities[index].cargo = None;
-        assert_eq!(core.entity_snapshot(index).status, "deposit depleted");
+        assert_eq!(
+            core.entity_snapshot(index).status,
+            EntityStatus::DepositDepleted
+        );
     }
 
     #[test]

@@ -7,6 +7,7 @@
  */
 
 import { applySnapshotDelta } from "../core/snapshotDelta";
+import { decodeSnapshotDelta } from "../core/snapshotWire";
 import type { FactorySnapshot, FactorySnapshotDelta } from "../core/types";
 import {
   TIER_COLUMNS,
@@ -49,8 +50,18 @@ class BenchTransport {
         const request = this.pending.get(event.data.id);
         if (!request) return;
         this.pending.delete(event.data.id);
-        if (event.data.ok) request.resolve(event.data.result);
-        else
+        if (event.data.ok) {
+          // The game's transport decodes an arriving delta buffer here, so this one does too. It
+          // puts the decode inside the awaited request and therefore inside the round-trip phase,
+          // which is where the cost it replaced used to sit: the worker parsed the JSON before the
+          // structured clone copied the object graph across.
+          const { result } = event.data;
+          request.resolve(
+            result instanceof ArrayBuffer
+              ? decodeSnapshotDelta(result)
+              : result,
+          );
+        } else
           request.reject(
             new Error(event.data.error ?? "Capacity worker failed"),
           );

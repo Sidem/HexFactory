@@ -512,7 +512,13 @@ describe("availability and expanded snapshot adapter", () => {
       'from "../../factory-wasm/pkg/factory_wasm.js"',
     );
     expect(workerSource).toContain("factory.advance_json(");
-    expect(workerSource).toContain("factory.snapshot_delta_json()");
+    // The delta leaves native already encoded and is handed over rather than copied. A worker that
+    // parsed it here would rebuild the object graph only for the structured clone to copy it
+    // again, which is the cost `docs/BENCHMARKS.md` finding 3 priced at about 10 µs per kilobyte.
+    expect(workerSource).toContain("factory.snapshot_delta_bytes()");
+    expect(workerSource).not.toContain("factory.snapshot_delta_json()");
+    expect(workerSource).toContain("result instanceof ArrayBuffer ? [result]");
+    expect(hostSource).toContain("decodeSnapshotDelta(result)");
   });
 
   it("derives the fog of war from native chunk bounds only", () => {

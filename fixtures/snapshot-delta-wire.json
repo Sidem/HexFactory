@@ -1,0 +1,269 @@
+{
+  "cases": [
+    {
+      "bytes": "4858464401292ac0843defbeadde00",
+      "delta": {
+        "base_revision": 41,
+        "checksum": 3735928559,
+        "revision": 42,
+        "tick": 1000000
+      },
+      "name": "a quiet frame"
+    },
+    {
+      "bytes": "48584644010203ac0207000000ff9f02086e65772d67616d65084e65772067616d6505ffffffff0fffffffffffffff0f020180a094a58d1dac020080f40301090403ff880fe2ef4fcf0fc40d00010301280314ffff03010580200c0201280314880906040102030402000003ff7fff7f808002030200ffff04808001808002021147617468657265642049726f6e206f72652644656c697665726564203320c39720537465656c20e28094206f626a656374697665206d6574",
+      "delta": {
+        "base_revision": 2,
+        "checksum": 7,
+        "chunks": [
+          {
+            "chunk_q": 0,
+            "chunk_r": 0,
+            "entity_count": 3,
+            "span": 16384,
+            "x": -8192,
+            "y": -8192
+          },
+          {
+            "chunk_q": -2,
+            "chunk_r": 1,
+            "entity_count": 0,
+            "span": 16384,
+            "x": -40960,
+            "y": 8192
+          }
+        ],
+        "delivered": 9007199254740991,
+        "delivered_by_item": [
+          {
+            "item_id": 1,
+            "quantity": 1000000000000
+          },
+          {
+            "item_id": 300,
+            "quantity": 0
+          }
+        ],
+        "events": ["Gathered Iron ore", "Delivered 3 × Steel — objective met"],
+        "insight": 64000,
+        "objective": {
+          "delivered": 4,
+          "item_id": 9,
+          "required": 3
+        },
+        "player": {
+          "action_cooldown": 5,
+          "action_cooldown_total": 6,
+          "build_range": 4096,
+          "carry_slots": 12,
+          "carry_stacks": [
+            {
+              "item_id": 1,
+              "quantity": 40
+            },
+            {
+              "item_id": 3,
+              "quantity": 20
+            }
+          ],
+          "facing_x": -1000,
+          "facing_y": 866,
+          "inventory": {
+            "1": 40,
+            "3": 20,
+            "65535": 1
+          },
+          "move_x": 0,
+          "move_y": -1,
+          "radius": 580,
+          "x": -123456,
+          "y": 654321
+        },
+        "researched": [1, 2, 3, 4],
+        "revision": 3,
+        "scenario": "new-game",
+        "scenario_name": "New game",
+        "seed": 4294967295,
+        "tick": 300,
+        "victory": true,
+        "world_version": 5
+      },
+      "name": "every scalar group"
+    },
+    {
+      "bytes": "48584644010a0b80040403020180e001020507cb8a01ff5f8008060200dc1b0080080000023f00fff6060080080100300006ca298048800802113c0002070400020103000000000c010000f8ffffff0f010c0302053f0b040202010605ac021128fa01640509030000020000020301018207",
+      "delta": {
+        "base_revision": 10,
+        "buildings": {
+          "changed": [
+            {
+              "cargo": null,
+              "definition_id": 2,
+              "footprint": [
+                {
+                  "q": 2,
+                  "r": 0
+                }
+              ],
+              "id": 7,
+              "inventory": [],
+              "kind": "belt",
+              "next_id": null,
+              "orientation": 3,
+              "progress": 0,
+              "progress_total": 0,
+              "q": 2,
+              "r": 0,
+              "recipe_id": null,
+              "scenario_owned": false,
+              "status": "idle"
+            },
+            {
+              "cargo": {
+                "item_id": 4,
+                "quantity": 2
+              },
+              "definition_id": 3,
+              "footprint": [
+                {
+                  "q": -1,
+                  "r": 6
+                },
+                {
+                  "q": 0,
+                  "r": 6
+                },
+                {
+                  "q": -1,
+                  "r": 7
+                }
+              ],
+              "fuel_charge": 250,
+              "fuel_required": 100,
+              "id": 4294967295,
+              "inventory": [
+                {
+                  "item_id": 1,
+                  "quantity": 6
+                },
+                {
+                  "item_id": 5,
+                  "quantity": 300
+                }
+              ],
+              "kind": "composer",
+              "next_id": 9,
+              "orientation": 5,
+              "progress": 17,
+              "progress_total": 40,
+              "q": -1,
+              "r": 6,
+              "recipe_id": 11,
+              "scenario_owned": true,
+              "status": "composing"
+            }
+          ],
+          "removed": [1, 2, 900]
+        },
+        "checksum": 16909060,
+        "resources": {
+          "changed": [
+            {
+              "initial_quantity": 48,
+              "item_id": 1,
+              "q": -32,
+              "quantity": 0,
+              "r": 0,
+              "radius": 1024,
+              "x": -56768,
+              "y": 0
+            },
+            {
+              "initial_quantity": 60,
+              "item_id": 2,
+              "q": -32,
+              "quantity": 17,
+              "r": 3,
+              "radius": 1024,
+              "x": -54107,
+              "y": 4608
+            }
+          ]
+        },
+        "revision": 11,
+        "terrain": [
+          {
+            "q": -3,
+            "r": -4,
+            "radius": 1024,
+            "terrain": "cliff",
+            "x": -8870,
+            "y": -6144
+          },
+          {
+            "q": -2,
+            "r": -4,
+            "radius": 1024,
+            "terrain": "deep_water",
+            "x": -7096,
+            "y": -6144
+          }
+        ],
+        "tick": 512
+      },
+      "name": "both patches with entries"
+    },
+    {
+      "bytes": "48584644010001000100000080c003010001000000",
+      "delta": {
+        "base_revision": 0,
+        "buildings": {
+          "replace": true
+        },
+        "checksum": 1,
+        "events": [],
+        "resources": {
+          "replace": true
+        },
+        "revision": 1,
+        "tick": 0
+      },
+      "name": "the empty full replace"
+    }
+  ],
+  "kinds": [
+    "extractor",
+    "belt",
+    "composer",
+    "container",
+    "consumer",
+    "hub",
+    "pump"
+  ],
+  "magic": "HXFD",
+  "statuses": [
+    "output blocked",
+    "deposit depleted",
+    "extracting",
+    "no water in reach",
+    "pumping",
+    "composing",
+    "out of fuel",
+    "waiting for inputs",
+    "buffered",
+    "carrying",
+    "receiving",
+    "landing hub",
+    "idle"
+  ],
+  "terrain": [
+    "deep_water",
+    "shallow_water",
+    "shore",
+    "lowland",
+    "hills",
+    "highland",
+    "cliff"
+  ],
+  "version": 1
+}

@@ -117,9 +117,15 @@ export interface EntitySnapshot extends AxialCoordinate {
   definition_id: number;
   kind: BuildingKind;
   orientation: number;
-  recipe_id?: number;
+  /**
+   * Absent as `null`, not as a missing key: native sends these three as `Option` without skipping
+   * the empty case, so the JSON path has always delivered an explicit `null` and the binary
+   * decoder reproduces it. Every reader treats the two the same — `?? 0`, or a truthiness test —
+   * but the declaration should say what actually arrives.
+   */
+  recipe_id?: number | null;
   scenario_owned: boolean;
-  cargo?: Cargo;
+  cargo?: Cargo | null;
   inventory: Ingredient[];
   progress: number;
   progress_total: number;
@@ -130,7 +136,7 @@ export interface EntitySnapshot extends AxialCoordinate {
   fuel_charge?: number;
   fuel_required?: number;
   status: string;
-  next_id?: number;
+  next_id?: number | null;
   footprint: AxialCoordinate[];
 }
 
@@ -344,6 +350,12 @@ export interface NativeFactory {
     toR: number,
   ): string;
   snapshot_json(): string;
+  /**
+   * The shipped delta path: a compact binary buffer the worker transfers rather than clones. See
+   * `src/core/snapshotWire.ts` for the format and why it replaced the JSON one.
+   */
+  snapshot_delta_bytes(): Uint8Array;
+  /** The same delta as JSON. Retained as the encoder's oracle and for the capacity ladder. */
   snapshot_delta_json(): string;
   save_string(): string;
   load_string(save: string): void;

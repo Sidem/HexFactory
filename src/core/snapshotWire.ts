@@ -1,0 +1,462 @@
+import type {
+  BuildingKind,
+  BuildingsPatch,
+  ChunkSnapshot,
+  EntitySnapshot,
+  FactorySnapshotDelta,
+  Ingredient,
+  ResourceSnapshot,
+  ResourcesPatch,
+  Terrain,
+  TerrainSnapshot,
+} from "./types";
+
+/**
+ * The decoder for the binary snapshot delta.
+ *
+ * `docs/BENCHMARKS.md` finding 3 priced the worker boundary at about 10 µs per kilobyte and found
+ * it costing more than the simulation it carried. The encoder is `factory-wasm/src/wire.rs`; this
+ * reads what it writes.
+ *
+ * It produces exactly the object `JSON.parse(snapshot_delta_json())` produced — the same fields in
+ * the same shapes, `null` where the JSON path sent `null` — so nothing downstream of
+ * {@link FactoryHost} can tell which encoding delivered the frame. That equivalence is not a claim,
+ * it is pinned: `fixtures/snapshot-delta-wire.json` carries encoded payloads beside the exact JSON
+ * they must decode to, Rust asserts it writes those bytes, and `tests/snapshotWire.test.ts` asserts
+ * this reads them back into that JSON.
+ *
+ * Numbers are LEB128 varints, signed ones zigzagged. They are accumulated by multiplication rather
+ * than by `<<`, because JavaScript's bitwise operators truncate to 32 bits and `tick`, `delivered`,
+ * and `insight` are all wider than that.
+ */
+
+const MAGIC = 0x48584644; // "HXFD"
+const VERSION = 1;
+
+/** Wire code is the index. Pinned against Rust by `fixtures/snapshot-delta-wire.json`. */
+const KINDS: BuildingKind[] = [
+  "extractor",
+  "belt",
+  "composer",
+  "container",
+  "consumer",
+  "hub",
+  "pump",
+];
+
+const TERRAIN: Terrain[] = [
+  "deep_water",
+  "shallow_water",
+  "shore",
+  "lowland",
+  "hills",
+  "highland",
+  "cliff",
+];
+
+const STATUSES: string[] = [
+  "output blocked",
+  "deposit depleted",
+  "extracting",
+  "no water in reach",
+  "pumping",
+  "composing",
+  "out of fuel",
+  "waiting for inputs",
+  "buffered",
+  "carrying",
+  "receiving",
+  "landing hub",
+  "idle",
+];
+
+const GROUP = {
+  scenario: 1 << 0,
+  scenarioName: 1 << 1,
+  worldVersion: 1 << 2,
+  seed: 1 << 3,
+  delivered: 1 << 4,
+  deliveredByItem: 1 << 5,
+  insight: 1 << 6,
+  victory: 1 << 7,
+  objective: 1 << 8,
+  player: 1 << 9,
+  researched: 1 << 10,
+  chunks: 1 << 11,
+  terrain: 1 << 12,
+  resources: 1 << 13,
+  buildings: 1 << 14,
+  events: 1 << 15,
+} as const;
+
+const ENTITY_FLAG = {
+  recipeId: 1 << 0,
+  scenarioOwned: 1 << 1,
+  cargo: 1 << 2,
+  fuelCharge: 1 << 3,
+  fuelRequired: 1 << 4,
+  nextId: 1 << 5,
+} as const;
+
+const PATCH_REPLACE = 1 << 0;
+
+class Reader {
+  private offset = 0;
+  private readonly view: DataView;
+  private readonly bytes: Uint8Array;
+  private readonly text = new TextDecoder();
+
+  constructor(buffer: ArrayBuffer) {
+    this.bytes = new Uint8Array(buffer);
+    this.view = new DataView(buffer);
+  }
+
+  u8(): number {
+    const value = this.bytes[this.offset];
+    if (value === undefined)
+      throw new Error("Snapshot delta buffer ended mid-frame");
+    this.offset += 1;
+    return value;
+  }
+
+  bool(): boolean {
+    return this.u8() === 1;
+  }
+
+  u32Fixed(): number {
+    const value = this.view.getUint32(this.offset, true);
+    this.offset += 4;
+    return value;
+  }
+
+  uvarint(): number {
+    let value = 0;
+    let scale = 1;
+    for (;;) {
+      const byte = this.u8();
+      value += (byte & 0x7f) * scale;
+      if ((byte & 0x80) === 0) return value;
+      scale *= 128;
+    }
+  }
+
+  svarint(): number {
+    const raw = this.uvarint();
+    // Zigzag, undone without bitwise operators so it survives past 32 bits.
+    const magnitude = Math.floor(raw / 2);
+    return raw % 2 === 0 ? magnitude : -magnitude - 1;
+  }
+
+  string(): string {
+    const length = this.uvarint();
+    const text = this.text.decode(
+      this.bytes.subarray(this.offset, this.offset + length),
+    );
+    this.offset += length;
+    return text;
+  }
+
+  ingredients(): Ingredient[] {
+    const count = this.uvarint();
+    const items: Ingredient[] = new Array<Ingredient>(count);
+    for (let index = 0; index < count; index += 1) {
+      items[index] = { item_id: this.uvarint(), quantity: this.uvarint() };
+    }
+    return items;
+  }
+
+  atEnd(): boolean {
+    return this.offset === this.bytes.length;
+  }
+}
+
+/**
+ * Read one delta out of the buffer the worker transferred.
+ *
+ * A buffer whose magic or version is not recognised is refused rather than decoded: a host reading
+ * a frame from a core it does not match would produce a plausible-looking wrong world, which is
+ * worse than a thrown error.
+ */
+export function decodeSnapshotDelta(buffer: ArrayBuffer): FactorySnapshotDelta {
+  const reader = new Reader(buffer);
+  const magic =
+    (reader.u8() << 24) |
+    (reader.u8() << 16) |
+    (reader.u8() << 8) |
+    reader.u8();
+  if (magic !== MAGIC)
+    throw new Error("Snapshot delta buffer is not a HexFactory wire payload");
+  const version = reader.u8();
+  if (version !== VERSION)
+    throw new Error(
+      `Unsupported snapshot delta wire version ${version}; this host reads ${VERSION}`,
+    );
+
+  const delta: FactorySnapshotDelta = {
+    base_revision: reader.uvarint(),
+    revision: reader.uvarint(),
+    tick: reader.uvarint(),
+    checksum: reader.u32Fixed(),
+  };
+  const mask = reader.uvarint();
+  const has = (bit: number): boolean => (mask & bit) !== 0;
+
+  if (has(GROUP.scenario)) delta.scenario = reader.string();
+  if (has(GROUP.scenarioName)) delta.scenario_name = reader.string();
+  if (has(GROUP.worldVersion)) delta.world_version = reader.uvarint();
+  if (has(GROUP.seed)) delta.seed = reader.uvarint();
+  if (has(GROUP.delivered)) delta.delivered = reader.uvarint();
+  if (has(GROUP.deliveredByItem)) {
+    const count = reader.uvarint();
+    const items: Ingredient[] = new Array<Ingredient>(count);
+    for (let index = 0; index < count; index += 1) {
+      items[index] = { item_id: reader.uvarint(), quantity: reader.uvarint() };
+    }
+    delta.delivered_by_item = items;
+  }
+  if (has(GROUP.insight)) delta.insight = reader.uvarint();
+  if (has(GROUP.victory)) delta.victory = reader.bool();
+  if (has(GROUP.objective))
+    delta.objective = {
+      item_id: reader.uvarint(),
+      delivered: reader.uvarint(),
+      required: reader.uvarint(),
+    };
+  if (has(GROUP.player)) delta.player = readPlayer(reader);
+  if (has(GROUP.researched)) {
+    const count = reader.uvarint();
+    const researched: number[] = new Array<number>(count);
+    for (let index = 0; index < count; index += 1)
+      researched[index] = reader.uvarint();
+    delta.researched = researched;
+  }
+  if (has(GROUP.chunks)) delta.chunks = readChunks(reader);
+  if (has(GROUP.terrain)) delta.terrain = readTerrain(reader);
+  if (has(GROUP.resources)) delta.resources = readResources(reader);
+  if (has(GROUP.buildings)) delta.buildings = readBuildings(reader);
+  if (has(GROUP.events)) {
+    const count = reader.uvarint();
+    const events: string[] = new Array<string>(count);
+    for (let index = 0; index < count; index += 1)
+      events[index] = reader.string();
+    delta.events = events;
+  }
+
+  // A buffer with bytes left over means the two sides disagree about the layout, which would
+  // otherwise surface as a subtly wrong frame somewhere downstream.
+  if (!reader.atEnd())
+    throw new Error("Snapshot delta buffer has trailing bytes");
+  return delta;
+}
+
+function readPlayer(reader: Reader): FactorySnapshotDelta["player"] {
+  const x = reader.svarint();
+  const y = reader.svarint();
+  const facing_x = reader.svarint();
+  const facing_y = reader.svarint();
+  const move_x = reader.svarint();
+  const move_y = reader.svarint();
+  const entries = reader.uvarint();
+  // Native holds this keyed by item id and JSON delivered it as an object with string keys, so
+  // that is what the host has always seen.
+  const inventory: Record<string, number> = {};
+  for (let index = 0; index < entries; index += 1) {
+    const itemId = reader.uvarint();
+    inventory[String(itemId)] = reader.uvarint();
+  }
+  const action_cooldown = reader.uvarint();
+  const build_range = reader.uvarint();
+  const carry_slots = reader.uvarint();
+  const carry_stacks = reader.ingredients();
+  const radius = reader.svarint();
+  const action_cooldown_total = reader.uvarint();
+  return {
+    x,
+    y,
+    facing_x,
+    facing_y,
+    move_x,
+    move_y,
+    inventory,
+    action_cooldown,
+    build_range,
+    carry_slots,
+    carry_stacks,
+    radius,
+    action_cooldown_total,
+  };
+}
+
+function readChunks(reader: Reader): ChunkSnapshot[] {
+  const count = reader.uvarint();
+  const chunks: ChunkSnapshot[] = new Array<ChunkSnapshot>(count);
+  for (let index = 0; index < count; index += 1) {
+    chunks[index] = {
+      chunk_q: reader.svarint(),
+      chunk_r: reader.svarint(),
+      entity_count: reader.uvarint(),
+      x: reader.svarint(),
+      y: reader.svarint(),
+      span: reader.svarint(),
+    };
+  }
+  return chunks;
+}
+
+/**
+ * The running cell the tile lists are coded against. Both are built chunk by chunk, so each entry
+ * is a short hop from the one before it and travels as that hop rather than as four coordinates.
+ */
+interface Cell {
+  q: number;
+  r: number;
+  x: number;
+  y: number;
+}
+
+function stepCell(reader: Reader, cell: Cell): void {
+  cell.q += reader.svarint();
+  cell.r += reader.svarint();
+  cell.x += reader.svarint();
+  cell.y += reader.svarint();
+}
+
+function readTerrain(reader: Reader): TerrainSnapshot[] {
+  const count = reader.uvarint();
+  const tiles: TerrainSnapshot[] = new Array<TerrainSnapshot>(count);
+  const cell: Cell = { q: 0, r: 0, x: 0, y: 0 };
+  for (let index = 0; index < count; index += 1) {
+    stepCell(reader, cell);
+    tiles[index] = {
+      q: cell.q,
+      r: cell.r,
+      x: cell.x,
+      y: cell.y,
+      radius: reader.uvarint(),
+      terrain: terrainOf(reader.u8()),
+    };
+  }
+  return tiles;
+}
+
+function readResources(reader: Reader): ResourcesPatch {
+  const replace = (reader.u8() & PATCH_REPLACE) !== 0;
+  const count = reader.uvarint();
+  const changed: ResourceSnapshot[] = new Array<ResourceSnapshot>(count);
+  const cell: Cell = { q: 0, r: 0, x: 0, y: 0 };
+  for (let index = 0; index < count; index += 1) {
+    stepCell(reader, cell);
+    changed[index] = {
+      q: cell.q,
+      r: cell.r,
+      x: cell.x,
+      y: cell.y,
+      radius: reader.uvarint(),
+      item_id: reader.uvarint(),
+      quantity: reader.uvarint(),
+      initial_quantity: reader.uvarint(),
+    };
+  }
+  const patch: ResourcesPatch = {};
+  // Native skips a false flag and an empty list rather than sending them, so neither key was ever
+  // present in the JSON the host received. Every reader takes them as `?? []` and `?? false`, but
+  // reproducing the omission is what keeps the two encodings exactly interchangeable.
+  if (replace) patch.replace = true;
+  if (changed.length > 0) patch.changed = changed;
+  return patch;
+}
+
+function readBuildings(reader: Reader): BuildingsPatch {
+  const replace = (reader.u8() & PATCH_REPLACE) !== 0;
+  const count = reader.uvarint();
+  const changed: EntitySnapshot[] = new Array<EntitySnapshot>(count);
+  let id = 0;
+  for (let index = 0; index < count; index += 1) {
+    // Ascending stable id, so each entity costs the gap rather than the value.
+    id += reader.uvarint();
+    const q = reader.svarint();
+    const r = reader.svarint();
+    const definition_id = reader.uvarint();
+    const kind = kindOf(reader.u8());
+    const orientation = reader.u8();
+    const flags = reader.u8();
+    const recipe_id =
+      (flags & ENTITY_FLAG.recipeId) !== 0 ? reader.uvarint() : null;
+    const cargo =
+      (flags & ENTITY_FLAG.cargo) !== 0
+        ? { item_id: reader.uvarint(), quantity: reader.uvarint() }
+        : null;
+    const inventory = reader.ingredients();
+    const progress = reader.uvarint();
+    const progress_total = reader.uvarint();
+    const fuel_charge =
+      (flags & ENTITY_FLAG.fuelCharge) !== 0 ? reader.uvarint() : 0;
+    const fuel_required =
+      (flags & ENTITY_FLAG.fuelRequired) !== 0 ? reader.uvarint() : 0;
+    const status = statusOf(reader.u8());
+    const next_id =
+      (flags & ENTITY_FLAG.nextId) !== 0 ? reader.uvarint() : null;
+    const cells = reader.uvarint();
+    const footprint = new Array<{ q: number; r: number }>(cells);
+    for (let cell = 0; cell < cells; cell += 1) {
+      footprint[cell] = { q: q + reader.svarint(), r: r + reader.svarint() };
+    }
+    const entity: EntitySnapshot = {
+      id,
+      q,
+      r,
+      definition_id,
+      kind,
+      orientation,
+      recipe_id,
+      scenario_owned: (flags & ENTITY_FLAG.scenarioOwned) !== 0,
+      cargo,
+      inventory,
+      progress,
+      progress_total,
+      status,
+      next_id,
+      footprint,
+    };
+    // Absent rather than zero, because that is what native sends: two numbers per entity per delta
+    // saying "this is not a furnace" cost 86 KB at the largest measured tier, which is why they are
+    // skipped in the first place. The flag bit already carried the distinction.
+    if (fuel_charge !== 0) entity.fuel_charge = fuel_charge;
+    if (fuel_required !== 0) entity.fuel_required = fuel_required;
+    changed[index] = entity;
+  }
+  const removedCount = reader.uvarint();
+  const removed: number[] = new Array<number>(removedCount);
+  let removedId = 0;
+  for (let index = 0; index < removedCount; index += 1) {
+    removedId += reader.uvarint();
+    removed[index] = removedId;
+  }
+  const patch: BuildingsPatch = {};
+  // Omitted exactly where native omits them — see the note in `readResources`.
+  if (replace) patch.replace = true;
+  if (changed.length > 0) patch.changed = changed;
+  if (removed.length > 0) patch.removed = removed;
+  return patch;
+}
+
+function kindOf(code: number): BuildingKind {
+  const kind = KINDS[code];
+  if (kind === undefined)
+    throw new Error(`Unknown building kind code ${code} on the wire`);
+  return kind;
+}
+
+function terrainOf(code: number): Terrain {
+  const terrain = TERRAIN[code];
+  if (terrain === undefined)
+    throw new Error(`Unknown terrain code ${code} on the wire`);
+  return terrain;
+}
+
+function statusOf(code: number): string {
+  const status = STATUSES[code];
+  if (status === undefined)
+    throw new Error(`Unknown entity status code ${code} on the wire`);
+  return status;
+}

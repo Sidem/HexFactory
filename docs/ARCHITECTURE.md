@@ -54,9 +54,11 @@ The Rust `Core` owns all state that can change a game result:
    not an input to it: nothing on screen shows which way the player points, so a facing-weighted
    target drained a neighbouring cell's amount while the hex underfoot stayed full.
 6. A field cell's identity on the wire is its tile key, and nothing derived from it travels beside
-   it. Snapshots reach the host as JSON, whose numbers are IEEE-754 doubles, so a 64-bit id packed
-   from two coordinates arrived rounded past 2^53 and a whole column of the field shared one value.
-   Patching by it rewrote cells the player never touched with a copy of the harvested one.
+   it. Snapshot numbers reach the host as JavaScript numbers, which are IEEE-754 doubles, so a
+   64-bit id packed from two coordinates arrived rounded past 2^53 and a whole column of the field
+   shared one value. Patching by it rewrote cells the player never touched with a copy of the
+   harvested one. The binary wire of v0.12.2 does not change this: it carries a varint of full
+   width, but the host still holds the result as a double.
 7. Fuel is a property of `ItemDefinition`, never an entry in a recipe's `inputs`. A smelting recipe
    therefore names no fuel at all, and coal, charcoal, wood, and every fuel added later are
    interchangeable at different values; naming one would force a separate recipe per fuel and
@@ -165,6 +167,16 @@ progression, player, chunks, terrain, resources, and events. The host rejects mi
 out-of-order revisions before merging a delta. Pointer-driven placement preview requests are
 coalesced to one in flight plus the latest pending position.
 
+v0.12.2 changes how that delta travels, not what it says. It is encoded by
+`factory-wasm/src/wire.rs` into a compact binary buffer — varints, one byte per closed-set enum,
+ascending ids and neighbouring tile coordinates coded as differences — and the worker transfers the
+buffer instead of letting the structured clone copy it. `src/core/snapshotWire.ts` decodes it inside
+the host's transport, so `FactoryHost` and everything above it still receive exactly the object the
+JSON path delivered, down to which keys are absent. `snapshot_delta_json` remains as the oracle the
+encoder is pinned against and as the capacity ladder's comparison; the game never ships on it. The
+format is pinned in both languages by `fixtures/snapshot-delta-wire.json`, and in Rust by round
+tripping every delta the dirty-tracking test produces.
+
 Buildings and resources are the exceptions to group granularity. Buildings travel as a per-entity
 patch: `changed` carries inserted and modified entities, `removed` carries dropped ids, and both
 arrive in ascending stable entity id order so one linear host pass merges them without re-sorting.
@@ -224,11 +236,17 @@ cannot see, measured through the game's own paths: the worker RPC round trip, an
 `applySnapshotDelta` merging the patch on the main thread.
 
 v0.8 recorded the first browser tiers, and they moved the roadmap. The wasm engine costs about 1.2×
-native, so the native work of v0.6 and v0.7 transferred intact. The worker boundary costs roughly
-60% of a host frame and scales with the JSON delta at about 10 µs per kilobyte, which makes a
-compact binary encoding over a transferable buffer the next change worth making. The per-entity
-merge costs about 1% of a frame and needs nothing. A renderer decision remains gated on measuring
-the renderer, which `docs/BENCHMARKS.md` now names as the second follow-up.
+native, so the native work of v0.6 and v0.7 transferred intact. The worker boundary cost roughly
+60% of a host frame and scaled with the JSON delta at about 10 µs per kilobyte, which made a compact
+binary encoding over a transferable buffer the next change worth making. The per-entity merge cost
+about 1% of a frame and needed nothing.
+
+v0.12.2 made that change and re-measured both platforms. The payload is 13.6× smaller at the largest
+tier, the boundary 21.7× cheaper, and a host frame there is 11.0% of 60 Hz rather than 62.1%. The
+boundary is no longer what a frame is mostly made of — the wasm frame is 78% of it — so the engine
+is the cost again, and the merge, unchanged, is now 6.3% of a much smaller frame. A renderer
+decision is still gated on measuring the renderer, which `docs/BENCHMARKS.md` now names as the
+**first** follow-up: the measured half of a browser frame is 11% and rendering is the other 89%.
 
 ## Fog of war
 

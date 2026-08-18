@@ -1,14 +1,42 @@
 # Material Base v0.12 scope and acceptance
 
-Status: Playtest Feel v0.12.1 is shipped on Material Base v0.12, World Shape v0.11, Playability
-v0.10, Game Feel v0.9, Browser Capacity v0.8, Sparse Snapshot v0.7, Sparse Cost v0.6, Worker
-Boundary v0.5, and Command Surface v0.4. v0.11 changed what the world looks like; v0.12 changes
-what it is made of — eight raw resources correlated with terrain, fourteen recipes across five
-machine categories, fuel as a property of items, renewable flora, and a pump that draws from a
-basin. v0.12.1 thins generation and quiets the first-minutes presentation: sparser fields,
-smaller hexes on screen, counts off untouched field hexes.
+Status: Binary Delta v0.12.2 is shipped on Playtest Feel v0.12.1, Material Base v0.12, World Shape
+v0.11, Playability v0.10, Game Feel v0.9, Browser Capacity v0.8, Sparse Snapshot v0.7, Sparse Cost
+v0.6, Worker Boundary v0.5, and Command Surface v0.4. v0.11 changed what the world looks like;
+v0.12 changes what it is made of — eight raw resources correlated with terrain, fourteen recipes
+across five machine categories, fuel as a property of items, renewable flora, and a pump that draws
+from a basin. v0.12.1 thins generation and quiets the first-minutes presentation: sparser fields,
+smaller hexes on screen, counts off untouched field hexes. v0.12.2 changes nothing the player can
+name and everything about what a frame costs: the snapshot delta crosses the worker boundary as a
+compact binary buffer that is transferred rather than copied.
 `WORLD_GENERATOR_VERSION` 5 and `HXF1` save version 5 reject earlier envelopes. The capacity
 ladder is re-pinned; a generator bump invalidates checksum comparisons, not timing ones.
+
+## Binary delta contract
+
+- The delta the game ships is `snapshot_delta_bytes`, encoded by `factory-wasm/src/wire.rs`. LEB128
+  varints, zigzagged where signed; one byte for each closed-set enum; entity ids, removal ids, and
+  tile coordinates coded as deltas against what precedes them; a footprint cell coded against its
+  own entity's hex; a bit per absent option in place of a field name and a `null`.
+- **The decoder produces exactly what `JSON.parse(snapshot_delta_json())` produced.** Same keys,
+  same omissions, `null` where native sends `null`, `fuel_charge` absent rather than zero. That is
+  the whole safety argument for the milestone: the host, the renderer, and every test above them
+  were written against the JSON shape and none of them changed. Three shape divergences were caught
+  by the fixture during development and fixed in the decoder rather than papered over.
+- The buffer is transferred, not structured-cloned, and the worker checks it owns the buffer whole
+  before handing it over — a view into wasm memory would detach the module's heap.
+- `snapshot_delta_json` is retained as the encoder's oracle and as the capacity ladder's comparison.
+  It is not a fallback: nothing in the game may ship on it.
+- Entity status is an `EntityStatus` enum whose serialized spelling is what the player reads. It
+  exists so the wire carries a byte where JSON carried up to nineteen characters per entity per
+  delta; renaming a variant is free, respelling one changes the game's text.
+- Both languages are pinned to `fixtures/snapshot-delta-wire.json`, in the role
+  `fixtures/hex-directions.json` plays for the direction table. Rust also round trips every delta a
+  running factory produces, which reaches the entity and group combinations a fixture cannot
+  enumerate.
+- Measured, not asserted: per-frame payload 13.6× smaller at the largest tier (644,759 → 47,531
+  bytes), the worker boundary 21.7× cheaper (6,085 → 280 µs), and a host frame down from 62.1% of
+  60 Hz to 11.0%. The shipped wasm grew 3.7 KiB. See `docs/BENCHMARKS.md`.
 
 ## Material base contract
 
@@ -273,19 +301,29 @@ release actions and must not be implied by local success.
 
 ## Explicit follow-ups
 
-1. Next play milestone is Power v0.13. The compact binary delta encoding is now overdue by its own
-   deadline — the roadmap set it at the v0.12/v0.13 boundary — and v0.12 grew exactly the payload
-   it prices. Measuring the Canvas renderer against the same tiers follows it; no complete browser
-   frame-rate claim is supported until that exists, and a renderer decision waits on both.
-2. The browser half of `docs/BENCHMARKS.md` has not been re-measured since v0.8 and now describes a
-   core two milestones old. v0.12 re-measured the native ladder and found the checksum 3.0× cheaper
-   than v0.8 recorded, which retires the incremental-checksum follow-up; the browser ratios that
-   depended on the old figure need re-earning before they are quoted again.
-3. Power, upgrades and tiers, multi-output recipes and byproducts, per-slot inventory
+1. **Measuring the Canvas renderer against the capacity tiers is now the first engine follow-up**,
+   promoted by v0.12.2 rather than merely inherited from it. No complete browser frame-rate claim is
+   supported until it exists, and now the gap is most of the frame: the measured simulation half is
+   11.0% of 60 Hz at the largest tier and rendering is the unmeasured 89%. It also gates animation
+   (Stage C) and should not run far behind Stage B art generation (`docs/ART.md`), three of whose
+   five rules add per-hex renderer work. One structural item to fold in when it happens, offered as
+   a reading of the code and not as a measurement: `CanvasFactoryRenderer` resolves item and
+   building definitions with a linear `find` inside its per-entity draw loops, once per resource
+   hex, per building, and per cargo, every frame. The rosters are small enough that this may cost
+   nothing; building the lookup once is cheap enough that the measurement should not have to answer
+   the question.
+2. Next play milestone is Power v0.13, and the payload worry that used to sit in front of it is
+   settled — a per-entity satisfaction figure now lands on a wire 13.6× more compact than the one
+   that priced the concern.
+3. New, from v0.12.2's measurement: the main-thread merge is 6.3% of the largest tier's host frame,
+   against 0.7% when the boundary dominated. The code did not change and did not get slower;
+   everything around it got faster. At 115 µs against a 100 µs clock step it needs a measurement
+   that can resolve it before it needs an optimization.
+4. Power, upgrades and tiers, multi-output recipes and byproducts, per-slot inventory
    rearrangement, equipment, inserters, splitters, lanes, fluid networks, trains, enemies,
    multiplayer, mod scripting, and evolutionary systems remain beyond this milestone. The material,
    power, and tier arc is in `docs/HEXFACTORY-PLAN.md`.
-4. Deliberately not in v0.12: intermittent generation, accumulators, and a day cycle (they belong
+5. Deliberately not in v0.12: intermittent generation, accumulators, and a day cycle (they belong
    with power); terraforming a cliff into buildable ground; unloading a composer, which is still the
    mid-recipe-state question `set_recipe` sidesteps by refusing rather than answering; and
    `outputs: Vec<Ingredient>`, which arrives with the byproduct economy that needs it rather than as

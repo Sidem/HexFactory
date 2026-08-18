@@ -1,17 +1,18 @@
 # HexFactory capacity benchmarks
 
-Status: Browser Capacity v0.8 is the fourth measured record and the first that is not native, and
-**Playtest Feel v0.12.1 adds a native re-measurement** on top of Material Base v0.12. The roadmap
-gates any renderer decision and every scale claim behind this measurement. Nothing here is an
-extrapolation: each number below was produced by the committed harness, and the raw reports are
-stored beside this document.
+Status: **Binary Delta v0.12.2 is the fifth measured record and the current one**, native and
+browser both. The roadmap gates any renderer decision and every scale claim behind this
+measurement. Nothing here is an extrapolation: each number below was produced by the committed
+harness, and the raw reports are stored beside this document.
 
-**The v0.8 tables below are a historical record, not the current cost.** v0.11 changed the world
-generator, v0.12 changed the item roster, and v0.12.1 bumped `WORLD_GENERATOR_VERSION` again, so
-the workload's pinned checksum moved and the v0.8 numbers no longer describe the shipped core. The
-[v0.12.1 native re-measurement](#native--v0121-re-measurement) is what currently holds. There is
-no v0.12 or v0.12.1 browser record; the v0.8 browser table is the only browser evidence that
-exists, and the ratios it established should be re-derived before being relied on again.
+**The v0.8 tables below are a historical record, not the current cost**, and so is everything the
+v0.8 browser record concluded about the worker boundary. v0.11 changed the world generator, v0.12
+changed the item roster, v0.12.1 bumped `WORLD_GENERATOR_VERSION` again, and v0.12.2 replaced the
+JSON delta with a binary one — so both the workload's pinned checksum and the shape of a host frame
+have moved.
+[Binary Delta v0.12.2](#binary-delta-v0122--the-fifth-record-and-the-first-browser-re-measurement-since-v08)
+is what currently holds for both platforms. The v0.8 browser tables are retained because the
+current record's central comparison is drawn against them.
 
 The same ladder now runs in both places. Rust owns the measurement; only the clock differs — a
 native `Instant`, or `performance.now` inside the browser worker — so the two records are
@@ -34,8 +35,10 @@ npm run bench:browser
 That builds the harness artifact and starts the dev server; open `/HexFactory/bench.html` and press
 **Run full ladder**. The harness is compiled into wasm only by `--features bench`, so the deployed
 game artifact never carries it: at v0.8 the shipped wasm was 464 KB and the harness build 496 KB,
-and the harness has never been part of the shipped one. (v0.12's shipped wasm is 527 KB — the
-material base's definitions and generation, not the harness.) Neither benchmark is part of
+and the harness has never been part of the shipped one. (v0.12.2's shipped wasm is 520.0 KiB and
+its harness build 563.8 KiB. The binary encoder accounts for 3.7 KiB of the shipped figure,
+measured by building v0.12.1 and v0.12.2 the same way; the rest of the growth since v0.8 is the
+material base's definitions and generation.) Neither benchmark is part of
 `npm run quality`: shared CI runners do not produce comparable
 timings. The test gate instead pins the workload's checksum and asserts the harness still runs, so
 recorded numbers cannot silently stop being comparable.
@@ -59,8 +62,9 @@ runs on its own freshly warmed core, so no measurement inherits a state the prev
 | `tick`        | one simulation tick, with no snapshot and no serialization                  |
 | `snapshot`    | building one complete native snapshot, before serialization                 |
 | `checksum`    | one native checksum, which every delta carries                              |
-| `frame`       | one worker frame: bounded command batch, one tick, and one serialized delta |
-| `delta bytes` | the serialized delta payload that frame sends across the worker boundary    |
+| `frame`       | one worker frame: bounded command batch, one tick, and one encoded delta    |
+| `delta bytes` | the encoded delta payload that frame sends across the worker boundary       |
+| `json bytes`  | what the same frames would have cost as JSON, the encoding's own comparison |
 | `compile`     | one full deterministic transport compile, as used on load and restore       |
 | `recompile`   | the incremental transport machinery alone, for one edit                     |
 | `edit`        | one complete public rotate edit, legality checks included                   |
@@ -75,9 +79,15 @@ path's legality work, so the comparison is not confounded by it.
 first frame, and it is kept in the ladder as the baseline the incremental delta is measured against.
 
 The three browser metrics are what a native run cannot see. `frame` stops at the edge of wasm;
-`round trip` is the same work as the game asks for it — `postMessage` out, the worker's own
-`JSON.parse`, the structured clone of the delta, and both scheduling hops — and `apply` is
+`round trip` is the same work as the game asks for it — `postMessage` out, the transfer of the
+delta buffer, the main thread's decode of it, and both scheduling hops — and `apply` is
 `applySnapshotDelta` merging the per-entity patch on the main thread. Neither includes rendering.
+
+Before v0.12.2 the delta crossed as JSON, so `round trip` covered the worker's own `JSON.parse` and
+a structured clone of the resulting object graph instead of a transfer and a decode. The phase
+boundary is the same in both: `round trip` ends when the main thread holds a usable delta object.
+Where the decoding work sits inside it moved from one side of the boundary to the other, which is
+why the harness decodes in its transport rather than in the timed loop — the game does the same.
 
 **Sample budgets differ between the two records, and only the sample budgets.** A native clock
 resolves nanoseconds, so each phase runs its tier's fixed sample block once. A browser clamps
@@ -218,25 +228,129 @@ And the part only the browser can measure — what one frame costs the host, out
 Every browser tier reproduces the native checksum and delivered total for its tier, so the two
 records measure the same simulation and can be compared directly.
 
+## Binary Delta v0.12.2 — the fifth record, and the first browser re-measurement since v0.8
+
+Same host, `factory-wasm` at 0.12.2, recorded 2026-08-18. Raw reports:
+[`benchmarks/capacity-v0.12.2-native.json`](benchmarks/capacity-v0.12.2-native.json) and
+[`benchmarks/capacity-v0.12.2-browser.json`](benchmarks/capacity-v0.12.2-browser.json). This run
+answers follow-up 1, and by existing at all it also answers follow-up 8.
+
+**What changed between the records is the encoding, not the simulation.** The delta crosses the
+worker boundary as a compact binary buffer that is transferred rather than structured-cloned, and
+the workload is untouched: every tier reproduces its v0.12.1 checksum and delivered total. Report
+schema 4 adds `delta_json_bytes` and redefines `delta_bytes` as the binary payload, so the two
+columns below are the same frames measured both ways rather than two runs compared.
+
+### Native — v0.12.2
+
+| tier   | entities | tick µs | snapshot µs | checksum µs | frame µs | delta bytes | json bytes | ratio | compile µs | recompile µs | edit µs |
+| ------ | -------: | ------: | ----------: | ----------: | -------: | ----------: | ---------: | ----: | ---------: | -----------: | ------: |
+| line   |       12 |     0.5 |        11.3 |         0.8 |      3.1 |         104 |      1,319 | 12.7× |        1.1 |          6.3 |     6.4 |
+| small  |      192 |     5.6 |        54.5 |         9.5 |     35.1 |       1,376 |     19,764 | 14.4× |       16.4 |         56.3 |    62.9 |
+| medium |      768 |    22.9 |       235.5 |        36.9 |    143.5 |       5,803 |     79,477 | 13.7× |       82.6 |        250.5 |   274.3 |
+| wide   |    1,536 |    49.3 |       524.1 |        75.2 |    298.0 |      11,819 |    159,709 | 13.5× |      181.7 |        575.0 |   642.8 |
+| large  |    3,072 |   108.7 |     1,007.0 |       149.2 |    626.5 |      23,723 |    320,754 | 13.5× |      384.7 |      1,140.5 | 1,238.9 |
+| xlarge |    6,144 |   255.3 |     2,056.3 |       307.3 |  1,239.4 |      47,531 |    644,759 | 13.6× |      770.9 |      2,136.7 | 2,366.0 |
+
+The `json bytes` column reproduces the v0.12.1 record's `delta bytes` exactly at every tier, which
+is the control: the workload is byte-for-byte the one that record measured. `tick`, `checksum`, and
+`compile` all sit within a few percent of it. `frame` — a tick plus one encoded delta — falls from
+3,032.6 µs to 1,239.4 µs at the largest tier, **2.4× cheaper, because building a 630 KB JSON string
+was most of what a frame did.**
+
+### Browser worker — v0.12.2
+
+Chromium 148 in an Electron 42 shell
+(`Mozilla/5.0 … Claude/1.32352.1 Chrome/148.0.7778.280 Electron/42.9.2 …`), 16 hardware threads,
+`performance.now` observed at a 100 µs step, page not cross-origin isolated.
+
+| tier   | entities | frame µs | round trip µs | apply µs | host frame µs | boundary µs | share of a 60 Hz frame |
+| ------ | -------: | -------: | ------------: | -------: | ------------: | ----------: | ---------------------: |
+| line   |       12 |      6.6 |          68.8 |      3.5 |          72.3 |        62.2 |                   0.4% |
+| small  |      192 |     46.5 |         126.5 |      3.0 |         129.5 |        80.0 |                   0.8% |
+| medium |      768 |    176.5 |         305.0 |     10.0 |         315.0 |       128.5 |                   1.9% |
+| wide   |    1,536 |    355.0 |         533.3 |     21.7 |         555.0 |       178.3 |                   3.3% |
+| large  |    3,072 |    767.5 |         962.5 |     42.5 |       1,005.0 |       195.0 |                   6.0% |
+| xlarge |    6,144 |  1,440.0 |       1,720.0 |    115.0 |       1,835.0 |       280.0 |                  11.0% |
+
+Every tier reproduced its native checksum and delivered total, and every applied snapshot kept its
+full entity count — which is also the end-to-end proof that the binary buffer decodes to the delta
+the merge expects, over six tiers of real frames rather than a fixture.
+
+### What this run says
+
+**1. The payload is 13.5–14.4× smaller, and that is a measured ratio rather than two runs
+compared.** The largest tier's per-frame delta falls from 644,759 bytes to 47,531. The saving comes
+from varints instead of decimal text, one byte for each closed-set enum, delta-coded entity ids and
+tile coordinates, and a bit per absent option instead of a field name and a `null`.
+
+**2. The boundary is no longer the frame's dominant cost.** At the largest tier it falls from
+6,085 µs to 280 µs, and from 59% of a host frame to 15%. Finding 3 of the v0.8 record — that the
+crossing cost more than the simulation it carried — no longer holds: the wasm frame is now 78% of
+the host frame, and the engine is the cost again.
+
+This comparison is against the v0.8 browser record, which is two core milestones old, so it needs
+saying why it is admissible. `boundary` is `round trip − frame`, which subtracts the wasm work out;
+both records carry essentially the same JSON payload at the largest tier (644,144 then, 644,759
+now); and both ran on the same host and the same Chromium major. What differs for the boundary
+between them is the encoding. The 21.7× is larger than the payload's 13.6× because two other costs
+went with it: the worker's own `JSON.parse` and the structured clone of the resulting object graph.
+
+**3. The 10 µs/KB law has been replaced by a fixed floor.** v0.8 measured the crossing at a flat
+9.1–12.8 µs per kilobyte from `small` to `xlarge`. It is no longer flat, because the payload no
+longer dominates: the `line` tier's 62 µs over 105 bytes is a round-trip floor, and it is still
+62–80 µs at `small`. Only at the two largest tiers does payload cost overtake it, at roughly
+5–6 µs/KB marginal. **Below `wide`, sending less would now buy almost nothing.**
+
+**4. The 60 Hz share collapses, and the ladder stops bracketing a ceiling in the browser too.** The
+largest tier goes from 62.1% of a frame to 11.0%. The v0.8 record's closing line — that the ceiling
+is above 6,144 entities but not far above it — is retired. Rendering is still unmeasured and still
+has to fit in what is left, but there is now 89% of a frame for it rather than 38%.
+
+**5. The shipped artifact grew by 3.7 KiB.** 516.3 KiB at v0.12.1 against 520.0 KiB here, both
+`wasm-opt -Oz`, measured by building both. `snapshot_delta_json` is retained as the encoder's test
+oracle and is part of that figure.
+
+### Limits specific to this run
+
+- **Three full browser runs were taken; one is recorded.** The largest tier's host frame read
+  2,015, 1,770, and 1,835 µs across them — about ±7% around 1,873 µs. Earlier records state a
+  noise floor without evidence for it; this is the first with any repetition behind it, and it
+  supports the existing "treat differences under roughly 20% as noise" rule rather than replacing
+  it. Only the third run is recorded, so the table is a single run like every other here.
+- **`apply` is now a larger share of a much smaller frame,** at 6.3% of the largest tier's host
+  frame against 0.7% in v0.8. It has not become expensive — 115 µs against a 100 µs clock step is
+  one or two ticks of that clock — but it is no longer negligible, and it is the next thing to
+  measure properly if the host frame keeps falling.
+- **The comparison in finding 2 spans two core milestones.** The argument for why it is still
+  attributable to the encoding is given there; it is an argument, not a controlled experiment. The
+  controlled measurement is the native one, where both encodings were measured in the same run.
+- Everything in **Limits of this measurement** below still applies: one browser, one shell, one
+  machine, one workload shape, rendering excluded.
+
 ## Measured capacity tiers
 
 Against a 16,667 µs frame at 60 Hz, using the browser's measured `host frame` — the whole cost of
 advancing the simulation one tick and merging the result, excluding rendering:
 
-| tier   | entities | share of a 60 Hz frame | verdict     |
-| ------ | -------: | ---------------------: | ----------- |
-| line   |       12 |                   0.6% | comfortable |
-| small  |      192 |                   2.5% | comfortable |
-| medium |      768 |                   8.3% | comfortable |
-| wide   |    1,536 |                  15.8% | comfortable |
-| large  |    3,072 |                  30.1% | workable    |
-| xlarge |    6,144 |                  62.1% | tight       |
+| tier   | entities | share at v0.8 | share at v0.12.2 | verdict     |
+| ------ | -------: | ------------: | ---------------: | ----------- |
+| line   |       12 |          0.6% |             0.4% | comfortable |
+| small  |      192 |          2.5% |             0.8% | comfortable |
+| medium |      768 |          8.3% |             1.9% | comfortable |
+| wide   |    1,536 |         15.8% |             3.3% | comfortable |
+| large  |    3,072 |         30.1% |             6.0% | comfortable |
+| xlarge |    6,144 |         62.1% |            11.0% | comfortable |
 
-**The browser ladder still does not miss 60 Hz, but it no longer has the headroom the native one
-showed.** The largest tier used 23.1% of a frame in the v0.7 native record and uses 62.1% here,
-with rendering still to pay for out of the remaining 38%. The ceiling is above 6,144 entities in
-both records; this one says it is not far above, and — for the first time — says so about the
-artifact that actually ships.
+**The binary delta encoding took the browser ladder back to having headroom.** The largest tier
+used 23.1% of a frame in the v0.7 native record, 62.1% in the v0.8 browser record, and 11.0% here.
+Rendering is still unmeasured and still has to fit in what is left; the difference is that it is
+now being offered 89% of a frame rather than 38%.
+
+**Neither record locates a ceiling any more.** v0.8's closing claim — above 6,144 entities, but not
+far above it — rested on the boundary cost this milestone removed, and is retired. What the ladder
+now says about the limit is only that it is above 6,144 entities, and extending it (follow-up 2
+below) is what would say more.
 
 ## What the numbers say
 
@@ -252,6 +366,11 @@ smallest, the crossing is 57–61% of what a frame costs the host: 6,085 µs of 
 has no way to see this, which is why it read 23.1% of a frame where the shipped artifact reads
 62.1%.
 
+> **Retired by the v0.12.2 binary delta encoding.** This finding is why that encoding was built,
+> and it no longer describes the shipped artifact: the crossing is 15% of a host frame at the
+> largest tier and the wasm frame is 78%. See
+> [Binary Delta v0.12.2](#binary-delta-v0122--the-fifth-record-and-the-first-browser-re-measurement-since-v08).
+
 **3. The boundary cost is the payload, at about 10 µs per kilobyte.** Dividing the boundary by the
 delta it carried gives 12.8, 10.8, 9.9, 9.1, and 9.7 µs/KB from `small` to `xlarge` — flat, and
 tracking bytes rather than entities. (The `line` tier's 48.9 µs/KB is its ~60 µs fixed round-trip
@@ -260,10 +379,19 @@ the browser measurement now prices it. A compact binary encoding over a transfer
 serialization, the parse, and the copy at once, and it is the only identified cost large enough to
 change the ladder.
 
+> **Acted on, and superseded, by v0.12.2.** The encoding was built and it did change the ladder:
+> the payload fell 13.6× and the boundary 21.7× at the largest tier. The per-kilobyte figure this
+> finding rests on no longer holds — the crossing is now dominated by a fixed round-trip floor of
+> roughly 62 µs below the `wide` tier, not by bytes.
+
 **4. The main-thread merge is not a problem.** Applying the per-entity patch costs 3–70 µs, which
 is 0.7–1.5% of a host frame above the smallest tier. The per-entity buildings delta from v0.6 is
 doing its job: the host touches only what changed, and the cost of merging 6,144 entities' worth of
 frames is smaller than the cost of one native checksum. Nothing here argues for changing the merge.
+
+> **Still true in absolute terms after v0.12.2, but no longer negligible as a share.** The merge is
+> unchanged code and still costs about 115 µs at the largest tier; the host frame around it fell
+> 5.6×, so the same work is now 6.3% of a frame rather than 0.7%. See follow-up 9.
 
 **5. The checksum is still the largest single cost inside wasm, and now has a cheaper rival.**
 It remains 23–26% of the in-wasm frame, linear, and unchanged in character from v0.7. But it is now
@@ -314,15 +442,18 @@ among them is unchanged, and v0.9 added one new entry at the end.
 v0.12's re-measurement changes two of them: entry 4 loses most of its case, and a new entry 8
 records that the browser half of this document is now stale.
 
-1. Replace the JSON delta with a compact binary encoding over a transferable buffer. Finding 3 is
-   the evidence: the boundary is 60% of a host frame and tracks payload bytes at about 10 µs/KB, so
-   this is the only identified change that can move the browser ladder. It attacks serialization,
-   the parse, and the copy together.
-2. Measure the Canvas renderer against the same tiers, so a browser frame is accounted for end to
-   end rather than up to the point rendering begins. Until then no complete browser frame-rate claim
-   is supported, only the simulation half of one.
+1. ~~Replace the JSON delta with a compact binary encoding over a transferable buffer.~~ **Done in
+   v0.12.2.** It did what finding 3 predicted and slightly more: payload 13.6× smaller, boundary
+   21.7× cheaper, the largest tier's host frame down from 62.1% of a 60 Hz frame to 11.0%.
+2. **Measure the Canvas renderer against the same tiers**, so a browser frame is accounted for end
+   to end rather than up to the point rendering begins. Until then no complete browser frame-rate
+   claim is supported, only the simulation half of one. **This is now first by a wide margin.** It
+   was already the gate on animation and on any renderer decision; v0.12.2 makes it the gate on the
+   whole question, because the simulation half of the largest tier's frame is now 11% and the
+   unmeasured half is the other 89%. Every remaining entry below is an optimization of the 11%.
 3. Extend the ladder past 6,144 entities, so the record brackets a ceiling again instead of only
-   showing headroom.
+   showing headroom. v0.12.2 makes this more urgent, not less: it removed the cost that made 6,144
+   look close to a limit, so the ladder no longer locates one at all.
 4. ~~An incremental checksum, after the encoding.~~ **Dropped to the bottom by the v0.12
    re-measurement.** v0.11's sparse tile overlay already took 3.0× off it; it is now about a tenth
    of the in-wasm frame and a much smaller share of a host one. Determinism-critical work for a
@@ -337,10 +468,14 @@ records that the browser half of this document is now stale.
    per-cell `place`, so a 32-cell run recompiles 32 times. It happens once when the pointer is
    released rather than every frame, and no tier in the ladder measures it, so this is a known cost
    and not yet a measured one — measure it before optimizing it, like everything else on this list.
-8. Re-run the browser ladder. v0.11 and v0.12 both moved the native record, and the browser half of
-   this document has not been re-measured since v0.8. Every wasm-versus-native ratio above describes
-   a core two milestones old, and the 62.1%-of-a-60-Hz-frame figure is the one that most needs
-   re-earning before it is quoted again.
+8. ~~Re-run the browser ladder.~~ **Done in v0.12.2**, which had to measure the browser to make any
+   claim about the encoding at all. The v0.8 browser tables are kept as the historical record the
+   comparison is drawn against; the current browser cost is the v0.12.2 one.
+9. New, from v0.12.2: **measure `apply` properly.** The main-thread merge was 0.7–1.5% of a host
+   frame when the boundary dominated, and finding 4 concluded it needed no work. It is 6.3% of the
+   largest tier's frame now — not because it grew, but because everything around it shrank. At
+   115 µs against a 100 µs clock step it is barely above the resolution it is measured with, so
+   what it needs first is a measurement that can resolve it, not an optimization.
 
 Record new runs by adding a dated report under `docs/benchmarks/` and updating the tables above.
 **Checksum comparisons are only valid while the pinned workload checksum in the Rust test gate is

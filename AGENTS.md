@@ -53,9 +53,25 @@ Keep this file concise; the durable roadmap, design pillars, and implementation 
   facing is not part of it. Nothing in the presentation shows which way the player points, so a
   target weighted by facing counted down a neighbouring hex while the one underfoot stayed full —
   a change with no visible cause.
-- Snapshots cross to the host as JSON, whose numbers are IEEE-754 doubles. Nothing wider than 2^53
-  may travel as a number, and nothing whose identity matters may be re-derived into one: field
-  cells are addressed by their tile key, never by an id packed from the same two coordinates.
+- Snapshot deltas cross to the host in the binary wire format, encoded by `factory-wasm/src/wire.rs`
+  and decoded by `src/core/snapshotWire.ts`. The decoder's contract is that it produces exactly what
+  `JSON.parse(snapshot_delta_json())` produced — the same keys, the same omissions, `null` where
+  native sends `null` — so the encoding is transport and nothing above `FactoryHost` knows which one
+  delivered a frame. Every value still becomes a JavaScript number on arrival, so the 2^53 rule
+  below is unchanged by the format. `snapshot_delta_json` stays as the oracle the encoder is pinned
+  against; it is not a fallback path and the game must not ship on it.
+- The wire format is pinned in two places at once and both must move together. Rust round trips
+  every delta a running factory produces inside
+  `dirty_tracked_deltas_match_a_full_snapshot_diff`; `fixtures/snapshot-delta-wire.json` carries
+  encoded payloads beside the exact JSON they decode to, Rust asserts it writes those bytes, and
+  `tests/snapshotWire.test.ts` asserts TypeScript reads them back. Regenerate it with
+  `UPDATE_WIRE_FIXTURE=1 cargo test wire_fixture` and read the diff — a change there is a wire
+  break. `BuildingKind`, `Terrain`, and `EntityStatus` travel as their declaration index, so
+  reordering a variant is a mistranslation rather than a decode failure, which is what the fixture's
+  enum tables exist to catch.
+- Snapshot numbers reach the host as IEEE-754 doubles. Nothing wider than 2^53 may travel as a
+  number, and nothing whose identity matters may be re-derived into one: field cells are addressed
+  by their tile key, never by an id packed from the same two coordinates.
 - Fuel is a property of the item, never an entry in a recipe's `inputs`. A recipe that named its
   fuel would need one variant per fuel and would hardcode the bootstrap path. A machine burns from
   its own stock and never from the quantity a recipe input reserves — steel names coal as carbon,

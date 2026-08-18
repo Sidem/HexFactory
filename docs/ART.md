@@ -1,8 +1,9 @@
 # HexFactory art direction — Stage A
 
 Stage A is the palette and shape language the World Shape renderer needs, extended by v0.12 to the
-material roster. No sprite atlas yet; buildings stay geometric hexes. The roster is now stable, so
-Stage B — the full item icon set and static building sprites as an atlas — is unblocked.
+material roster. Buildings stay geometric hexes. The roster is now stable, so Stage B is unblocked —
+but Stage B is **a generator that emits the art, not an atlas somebody drew**. The rule and what it
+buys are in "Stage B is a generator" below.
 
 ## Palette
 
@@ -56,6 +57,51 @@ inherits the same rule.
 - State that the player has to react to is drawn where it happens rather than written in the message
   strip: a machine's progress arc, and the ring that closes around the player while a field action
   is cooling down.
+
+## Stage B is a generator
+
+Stage B was originally written as "the full item icon set and static building sprites as an atlas".
+That is N drawings, and it arrives immediately before v0.14 Upgrades and Tiers — the milestone whose
+whole job is multiplying the building roster. An atlas makes a tier cost a drawing; a generator makes
+a tier cost a data row. The item glyphs already follow the generator's logic — twelve glyphs carry
+twenty-three items — so Stage B extends that rule to buildings rather than abandoning it.
+
+Rendering consumes snapshots and never owns simulation truth, so none of this can reach a checksum by
+construction. That invariant is what makes generated art free here rather than risky: a host-side
+hash, a noise field, and a baked tile are all presentation, and presentation may vary however it
+likes. The available input is also better than geometry — a hex knows its band, its neighbours'
+bands, its richness, and how much has been taken from it, because native already publishes all of it.
+
+### The rules
+
+1. **Transitions come from neighbours.** A hex is currently a flat fill and a stroke, which reads as
+   a colour-block mosaic. Where a hex's band differs from a neighbour's, draw a fringe toward the
+   lower band. Shore becomes a shoreline and a cliff becomes the edge of a landform. No new art and
+   no new native data. This is the largest readability return available, and it is what makes
+   "terrain is the material map" true on screen rather than only in the generator.
+2. **Variation comes from a hash.** Rotation, in-band value jitter, and a few scattered detail marks
+   keyed off `hash(q, r)` in the host, so a band stops reading as one repeated tile. The hash is
+   presentation-only and must never become an input to anything native.
+3. **Tiles are baked, not shipped.** Value noise, threshold, and edge darkening, run once at startup
+   into offscreen canvases behind a version constant, rather than PNGs in the bundle. `veilCanvas()`
+   in the renderer is already this pattern. Changing a constant regenerates the whole set.
+4. **A building's look is derived from its definition.** Silhouette from `recipe_category`, which
+   already distinguishes smelter, kiln, cutter, crusher, and composer; trim from tier; the facing
+   tick that is already drawn. This is the rule that makes v0.14 cheap.
+5. **Depletion is visible history.** `quantity` against `initial_quantity` is already stored, saved,
+   and read by the renderer — today only to decide whether to draw a number. Let it desaturate and
+   scar the ground as well, so a worked-out region is legible from across the map. Flora regrowth
+   runs the same system in the other direction: a cut forest visibly recovering is already simulated,
+   and needs only to be drawn.
+
+### Sequencing
+
+Rules 1, 2, and 5 add per-hex renderer work, and the renderer is the half of the frame
+`docs/BENCHMARKS.md` has never measured. Stage C is gated on that measurement and Stage B is not, so
+this work is legal before it. It should still not run far ahead of it, for the same reason the binary
+delta encoding should precede the milestones that grow the payload: tuning the cost of a terrain
+fringe with no measurement of the frame it lands in is guessing. Measure the renderer first, or
+alongside.
 
 ## Still
 

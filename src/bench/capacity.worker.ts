@@ -7,11 +7,7 @@
  * game worker's `advance` exactly, because their cost is the thing being measured.
  */
 
-import type {
-  FactorySnapshot,
-  FactorySnapshotDelta,
-  NativeFactory,
-} from "../core/types";
+import type { FactorySnapshot, NativeFactory } from "../core/types";
 import { probeClockResolutionUs } from "./report";
 import type { TierSpecSummary } from "./report";
 
@@ -49,7 +45,7 @@ interface WorkerRequest {
 
 interface WorkerScope {
   onmessage: ((event: MessageEvent<WorkerRequest>) => void) | null;
-  postMessage(message: unknown): void;
+  postMessage(message: unknown, transfer?: Transferable[]): void;
 }
 
 const scope = self as unknown as WorkerScope;
@@ -61,7 +57,12 @@ scope.onmessage = (event) => {
   operations = operations.then(async () => {
     try {
       const result = await handle(event.data);
-      scope.postMessage({ id: event.data.id, ok: true, result });
+      // Transferred exactly as the game worker transfers it, because the crossing is the thing
+      // being measured.
+      scope.postMessage(
+        { id: event.data.id, ok: true, result },
+        result instanceof ArrayBuffer ? [result] : [],
+      );
     } catch (error) {
       scope.postMessage({
         id: event.data.id,
@@ -96,11 +97,17 @@ async function handle(request: WorkerRequest): Promise<unknown> {
     }
     case "roundTripFrame": {
       const factory = requireRoundTrip();
-      // Exactly the game worker's advance: stringify the bounded batch, advance one tick, parse
-      // the delta, and let the structured clone carry it back.
+      // Exactly the game worker's advance: stringify the bounded batch, advance one tick, encode
+      // the delta, and hand the buffer over. It parsed the delta and let the structured clone copy
+      // it until the binary wire landed; the point of this method is to cost what the game costs,
+      // so it moved with it.
       // No player steps: the capacity workload measures the factory, not the walk.
       factory.advance_json(IDLE_COMMANDS, 1, 0);
-      return JSON.parse(factory.snapshot_delta_json()) as FactorySnapshotDelta;
+      const bytes = factory.snapshot_delta_bytes();
+      return bytes.byteOffset === 0 &&
+        bytes.byteLength === bytes.buffer.byteLength
+        ? (bytes.buffer as ArrayBuffer)
+        : (bytes.slice().buffer as ArrayBuffer);
     }
     case "roundTripEnd":
       roundTrip?.free();

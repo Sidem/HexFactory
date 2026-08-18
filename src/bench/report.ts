@@ -28,7 +28,10 @@ export interface NativeTierResult {
   checksum_us: number;
   frame_us: number;
   frames_per_second: number;
+  /** The binary wire payload the game ships, per frame. */
   delta_bytes: number;
+  /** What the same frames would have cost as JSON, so the encoding's saving is measured here. */
+  delta_json_bytes: number;
   full_compile_us: number;
   incremental_recompile_us: number;
   edit_us: number;
@@ -140,6 +143,7 @@ export const TIER_COLUMNS = [
   "checksum µs",
   "frame µs",
   "delta bytes",
+  "json bytes",
   "compile µs",
   "recompile µs",
   "edit µs",
@@ -159,6 +163,7 @@ export function tierRow(tier: MergedTierResult): string[] {
     micros(tier.checksum_us),
     micros(tier.frame_us),
     integer(Math.round(tier.delta_bytes)),
+    integer(Math.round(tier.delta_json_bytes)),
     micros(tier.full_compile_us),
     micros(tier.incremental_recompile_us),
     micros(tier.edit_us),

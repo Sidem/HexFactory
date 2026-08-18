@@ -30,6 +30,7 @@ const nativeTier: NativeTierResult = {
   frame_us: 122.8,
   frames_per_second: 8143,
   delta_bytes: 19_745,
+  delta_json_bytes: 61_284,
   full_compile_us: 17.8,
   incremental_recompile_us: 57.8,
   edit_us: 67.1,

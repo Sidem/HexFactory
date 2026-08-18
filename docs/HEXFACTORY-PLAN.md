@@ -1,14 +1,19 @@
 # HexFactory — architecture, roadmap, and implementation handoffs
 
-Status: Playtest Feel v0.12.1 is shipped on Material Base v0.12, World Shape v0.11, Playability
-v0.10, Game Feel v0.9, Browser Capacity v0.8, Sparse Snapshot v0.7, Sparse Cost v0.6, Capacity
-Tiers v0.5.1, Worker Boundary v0.5, Command Surface v0.4, Continuous Exploration v0.3, and the
-v0.3.1 incremental transport follow-up. The world now produces eight raw materials, each where
-its geography says it should be, and fourteen recipes across five machine categories turn them
-into something the player wanted. Next play milestone is Power v0.13. **The compact binary
-delta encoding is now the next thing that should land**: the roadmap named the v0.12/v0.13
-boundary as its deadline and v0.12 grew the item roster it prices. The renderer measurement
-gates animation, and the drag's per-cell transport recompile is unblocked and can land anywhere.
+Status: Binary Delta v0.12.2 is shipped on Playtest Feel v0.12.1, Material Base v0.12, World Shape
+v0.11, Playability v0.10, Game Feel v0.9, Browser Capacity v0.8, Sparse Snapshot v0.7, Sparse Cost
+v0.6, Capacity Tiers v0.5.1, Worker Boundary v0.5, Command Surface v0.4, Continuous Exploration
+v0.3, and the v0.3.1 incremental transport follow-up. The world now produces eight raw materials,
+each where its geography says it should be, and fourteen recipes across five machine categories turn
+them into something the player wanted. **The compact binary delta encoding has landed**, on the
+v0.12/v0.13 boundary the roadmap named as its deadline: the per-frame payload is 13.6× smaller and
+the largest measured tier now uses 11.0% of a 60 Hz frame rather than 62.1%.
+
+Next play milestone is Power v0.13. **The renderer measurement is now the first thing that should
+land**, ahead of it if the two compete for a session. It already gated animation and any renderer
+decision; v0.12.2 makes it the gate on the whole performance question, because the half of a browser
+frame that `docs/BENCHMARKS.md` measures is down to 11% and the unmeasured half is the other 89%.
+The drag's per-cell transport recompile is unblocked and can land anywhere.
 
 ## Remaining playtest diagnoses (after v0.12.1)
 
@@ -384,13 +389,18 @@ spend or improve. Each entry states the play it unlocks, per the design pillars.
 v0.11 and v0.12 have shipped. What follows records what v0.12 actually decided where it differed
 from the plan it was written against.
 
-**Where the engine milestones slot.** The compact binary delta encoding should land no later than
-between v0.12 and v0.13. Every milestone here grows the snapshot — more item IDs in more
-inventories, terrain with more bands, then a power network with a per-entity satisfaction figure —
-and `docs/BENCHMARKS.md` already priced the worker boundary at roughly 10 µs/KB. Growing the payload
-before compacting it spends the measured headroom on the wrong thing. The renderer measurement is
-the gate for animation (see **Art direction and sprites** below), so it wants to happen during
-v0.12. The drag's per-cell transport recompile has no dependency here and can land anywhere.
+**Where the engine milestones slot.** The compact binary delta encoding landed as v0.12.2, on the
+boundary this paragraph set for it and for the reason it gave: every milestone here grows the
+snapshot — more item IDs in more inventories, terrain with more bands, then a power network with a
+per-entity satisfaction figure — and growing the payload before compacting it would have spent the
+measured headroom on the wrong thing. Power can now add a per-entity figure to the wire against a
+payload that is 13.6× smaller than the one that priced the worry.
+
+What that milestone also did is move the renderer measurement to the front of the queue. It was
+already the gate for animation (see **Art direction and sprites** below) and for Stage B's per-hex
+work; it is now the gate on any performance claim at all, because the simulation half of a browser
+frame is 11% of 60 Hz at the largest measured tier and rendering is the unmeasured 89%. The drag's
+per-cell transport recompile has no dependency here and can land anywhere.
 
 ### v0.11 — World Shape
 
@@ -622,7 +632,13 @@ tie must be broken, break it by stable entity ID like every other arbitration.
 
 The boiler-and-turbine pair is deliberately two buildings: it is the first thing the player builds
 that is a _system_ rather than a machine. Wind and hydro are where v0.11's terrain pays off — a good
-power site becomes a reason to have explored. Keep wind at a fixed output for this milestone;
+power site becomes a reason to have explored.
+
+Site the terrain gates so that power and extraction **compete for the same ground**. Wind wants
+highland and hills; iron, coal, and copper are already there. A player who takes the ridge for
+turbines gives up the ore under them, and that is a real decision that neither system authored —
+which is the whole argument for a second constraint. Tune the gates for that collision deliberately
+rather than letting the two roster tables land on disjoint bands by accident. Keep wind at a fixed output for this milestone;
 intermittency has to be a deterministic function of tick and position, never a runtime roll, and
 that is a design problem worth its own pass. Solar needs a day cycle and is deferred with it.
 
@@ -679,9 +695,21 @@ factory to argue about. Also define the item icon system here and apply it to th
 items — v0.10's inventory grid will be displaying `"icon": "ORE"` string codes, and that is the
 cheapest visible improvement available.
 
-**Stage B — static sprite set, after v0.12.** The building and item roster is not stable until the
-material base lands; drawing sprites before that guarantees redrawing them. Once it is stable, do
-the full item icon set and static building sprites as an atlas, still on Canvas 2D.
+**Stage B — a sprite generator, after v0.12.** The building and item roster is not stable until the
+material base lands; drawing sprites before that guarantees redrawing them. It is now stable, and the
+thing to build is the generator rather than the atlas. This entry originally read "the full item icon
+set and static building sprites as an atlas", which is N drawings arriving immediately before v0.14
+multiplies the building roster — an atlas makes a tier cost a drawing, a generator makes a tier cost
+a data row. The item glyphs already work this way, with twelve glyphs carrying twenty-three items;
+Stage B extends that rule to buildings instead of abandoning it. Five rules, stated in full in
+`docs/ART.md`: terrain transitions derived from neighbouring bands, per-hex variation from a
+host-side hash, tiles baked at startup rather than shipped as PNGs, building silhouettes derived from
+`recipe_category` and tier, and depletion drawn from `quantity` against `initial_quantity` so a
+worked-out region reads as one. Simulation truth is never involved — rendering consumes snapshots and
+owns nothing, so generated art cannot reach a checksum by construction, and that invariant is what
+makes this free here rather than risky. Three of the five rules add per-hex renderer work, so they
+should not run far ahead of the renderer measurement below even though they are not gated on it.
+Still Canvas 2D.
 
 **Stage C — animation, gated on the renderer measurement.** Belt motion, machine work cycles,
 extractor pulses, and water shimmer are per-frame per-entity draws, and rendering is the half of the
@@ -699,7 +727,9 @@ here changes what the game means — it changes how much friction sits between i
 
 The measured engine follow-ups in `docs/BENCHMARKS.md` are not cancelled and not reordered among
 themselves; they are deferred behind this one. The binary delta encoding remains the next _engine_
-milestone and the renderer measurement still gates any renderer decision.
+milestone and the renderer measurement still gates any renderer decision. (Both have since moved:
+the encoding shipped as v0.12.2, and the renderer measurement it promoted is now the first engine
+follow-up rather than the second.)
 
 ### The friction this milestone removes
 
