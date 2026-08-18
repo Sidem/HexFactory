@@ -19,16 +19,231 @@ direction table as the riser, a right-click that harvests one named hex, and two
 with containers. Save version 7, definition version 7, technology version 4. The shipped record is
 the section below; the brief it was built from is kept beneath it.
 
-**The next play milestone is not yet named.** The nearest candidates are the deferred list below —
-animals/biomatter/waste as one milestone, fluid networks, intermittent generation with
-accumulators — plus tunnels, which v0.14 deliberately left out and which now cost one match arm in
-the trace loop that already routes eight directions.
+**The next three milestones are named, and none of them is a new play system.** Directed on
+2026-08-18: generated assets that a tier visibly changes, worlds generated from parameters, and a
+first real balance pass. They run **v0.15 Generated Shapes → v0.16 World Parameters → v0.17
+Balance**, in that order because it is the dependency order — balance is tuned against resource
+density, and v0.16 is what makes density a parameter. The briefs are the three sections below.
+
+The play candidates the deferred list already holds — animals/biomatter/waste as one milestone,
+fluid networks, intermittent generation with accumulators, plus tunnels, which v0.14 left out and
+which now cost one match arm in the trace loop that already routes eight directions — are unchanged
+and follow this arc. The argument for taking the generators first is the one Look Systems already
+made and won: the roster multiplies in every one of those milestones, and a generator makes the
+next building a data row while an atlas makes it a drawing. The same is now true of the world
+itself, and of the numbers.
 
 **North-south belts are resolved and have left the longer horizon.** Due north is a lattice vector
 on this grid — `(q + 1, r - 2)` shares a world-x with `(q, r)` — and `compile_graph_target` is
 already a ray-cast that never assumed a unit step. So the fix is a direction-table row, not sub-hex
 occupancy, and it rides v0.14's version bump. The write-up below supersedes the half-covered-tile
 proposal.
+
+## Next session — Generated Shapes v0.15
+
+Directed 2026-08-18: "actual assets, ideally generated in some way — we generate base shapes for
+each building/terrain/player and then have some system to upgrade them show change in them. It's
+important that everything can be maintained systematically."
+
+Presentation only. No command, no save, definition, generator, wire, or checksum movement. This is
+Stage B's rule 4 finished rather than a new direction: the rule shipped, the mechanism did not.
+
+### The defect, named
+
+`silhouetteOf` genuinely derives look from the definition — `recipe_category` splits the composer
+kinds, `power_source` splits the generators — and that part is right and stays. What sits under it
+does not. `drawSilhouette` is a two-hundred-line `switch` whose every arm is hand-written canvas
+calls, so **a new building costs a new arm**, which is the atlas again with the drawings written in
+TypeScript instead of painted in a PNG. And `trimOf` renders a tier as nothing but a stroke colour
+and width, so an upgraded extractor is the same machine with a gold outline. The milestone whose
+whole purpose was growth in place produced no visible growth.
+
+Neither is a bug. Both are the point at which "derived from the definition" stopped being applied
+to the drawing itself.
+
+### A shape is a part list, not a function
+
+One renderer walks a declarative list of parts; the list is data. The primitive vocabulary is
+deliberately small and names machine anatomy rather than geometry — **vessel, chamber, stack,
+rotor, aperture, mast, band, mouth** — each carrying anchor, scale, rotation, and animation phase.
+The phase field is what keeps Stage C's motion in the same system instead of beside it: a rotor
+already spins by `workCycle`, and in the grammar that is a property of the part rather than a
+bespoke arm.
+
+Then the composition rule is three lookups and no cases:
+
+- `kind` / `recipe_category` / `power_source` selects the **base part list** — a data row, exactly
+  as `silhouetteOf` already selects a key today.
+- `tier` applies **shape modifiers** from a named, documented set — add a stack, add a rotor blade,
+  segment the vessel, add a plating band, widen the mouth. A tier changes the silhouette, not the
+  stroke. This is the half of "growth in place" the map never showed.
+- Terrain and the player draw from the same vocabulary, so the world reads as one visual system
+  rather than three that happen to share a palette.
+
+Baked to offscreen canvases behind a version constant, which `TERRAIN_TILE_VERSION` in
+`src/rendering/terrainLook.ts` already establishes as the pattern. Changing a constant regenerates
+the set.
+
+### The contact sheet is what makes it maintainable
+
+A dev page that renders **every definition × every tier × every status** on one grid. It reuses the
+renderer, so it is cheap, and it is the only way to see that two buildings read alike or that a
+tier modifier changed nothing visible — without playing the game and happening to build both.
+"Maintained systematically" is this artifact; the grammar alone is only half of it.
+
+### What this is not
+
+Not an atlas, not hand-authored per definition, not 3D, and not a renderer replacement. Still
+Canvas 2D. Rendering consumes snapshots and owns nothing, so none of this can reach a checksum by
+construction — that invariant is what makes generated art free here rather than risky, and it is
+unchanged.
+
+### Acceptance
+
+- A new building definition with no new drawing code renders as a distinct, readable machine.
+- A tier-1 definition is distinguishable from its tier-0 parent **by silhouette**, at normal zoom,
+  with colour removed.
+- The contact sheet renders the full roster and is committed as a dev entry point.
+- `npm run bench:browser` re-measured against the v0.13.1 record. The grammar adds an indirection to
+  a per-entity draw; the frame is a number in this project and stays one.
+
+## Next session — World Parameters v0.16
+
+Directed 2026-08-18: "generate new worlds with parameters, like how common certain resources and
+terrain types are, how water and other biomes show up, in large lakes/seas/oceans or just ponds."
+
+Unlike v0.15, this is **simulation truth**. That is the line to hold across both milestones: art
+parameters are free to vary because presentation owns nothing, while world parameters are part of a
+run's identity and therefore saved, checksummed, and covered by the envelope.
+
+### What generation does today
+
+Every number is a literal. `terrain_at` reads bands off hardcoded thresholds — `elevation < 18_000`
+is water, `< 24_000` is shore, `> 42_000` is highland, `> 33_000` is hills, and a gradient
+`> 14_000` is cliff. `elevation_at` is frozen at `value_noise(cell 8) / 2 + value_noise(cell 3) / 2`
+and `moisture_at` at `cell 7`. `field_at` is a `match` of hardcoded richness, moisture, and vein
+gates with literal quantity ranges. The seed is the only thing a world can differ by.
+
+### Feature size and threshold are two knobs, and today they are one
+
+The most important thing this milestone gets right, because it is the thing that is easy to get
+wrong: **raising sea level makes more water, not bigger water.** It produces more ponds. Large
+lakes, seas, and oceans come from a **larger elevation feature size** — the `cell` argument to
+`value_noise` and its weight in the blend — which is exactly what is frozen at `8 / 2 + 3 / 2`
+today.
+
+So the parameter set separates them, for every band and not only for water:
+
+- **Feature scale** — the low-frequency octave's cell size and its share of the blend. This is
+  "ponds or oceans", "hillocks or ranges".
+- **Thresholds** — where the bands cut. This is "how much".
+
+Both are integers, both feed the existing pure `value_noise`, and neither changes the sampling
+contract: a hex still needs no neighbour outside its chunk.
+
+### Resource commonness becomes a table
+
+Lift the `field_at` match arms into a `FieldRule` table — `terrain`, `item`, `moisture_min`,
+`richness_min`, `vein_min`, `base`, `spread` — evaluated in declared order. This is what makes
+"how common is copper" a parameter instead of an edit. It also makes an existing hazard explicit
+rather than a comment: clay's richness gate **must** sit below wood's or wood takes every cell, and
+right now that ordering is load-bearing and documented only in prose at `field_at`.
+
+### Presets are what a player picks; parameters are what makes a preset a data row
+
+Ship named presets — Archipelago, Continental, Highlands, Basin — as rows, with the raw parameters
+exposed behind them in the new-world flow. A preset is the usable surface; the parameter set is the
+maintainable one. Same relationship the shape grammar has to a building definition.
+
+### Tune against a measurement, not a guess
+
+Value noise is not uniformly distributed, so **a threshold is not a proportion**. A tool that
+samples N hexes for a parameter set and reports the actual band histogram, field density per item,
+and mean distance from the landing site to each material is a requirement of this milestone, not a
+nicety — it is the only way a preset can claim to be what it says it is. This is the same
+measured-before-claimed rule the frame budget and the capacity ladder already live under, applied
+to the generator.
+
+### Biomes — what is in, and what is deferred
+
+What the direction asks for — water and the other bands appearing at chosen scales and
+frequencies — is delivered by feature scale plus thresholds above, and applies to every band.
+
+What is **not** in this milestone: a third low-frequency channel (temperature, or a categorical
+region noise) that would let the same elevation band read and yield differently in different parts
+of the world — a dry highland here and a forested highland there. Today elevation × moisture
+produces bands, and bands are the same everywhere they occur. That is a genuine design pass with
+its own questions about how a region announces itself to a player who is walking into it, and it is
+added to the deferred list below with its trigger named rather than smuggled in beside a
+parameterization.
+
+### Costs named
+
+- **`WORLD_GENERATOR_VERSION` goes 5 → 6, and `WorldParams` enters the save envelope and the
+  checksum.** A world whose parameters differ is not the same world, so version-5 envelopes are
+  rejected. That is the behaviour already in place and it is correct; say so in the notes.
+- **The landing clearing has to survive every parameter set.** `LANDING_FIELD` guarantees one cell
+  of each of eight materials so the first hour of any seed reaches every tier-1 recipe on foot.
+  Under a parameter set that makes a material rare, that guarantee is doing more work than it does
+  today and must be asserted, not assumed.
+- **A parameter set that generates an unplayable world is a real failure mode** — no reachable
+  coal, or a landing site in the middle of an ocean. The histogram tool is what makes it detectable;
+  the presets are what make the default safe.
+
+### Acceptance
+
+- Two worlds on the same seed and different parameter sets are visibly different landforms.
+- `water_scale` low produces ponds and high produces contiguous seas, **at a fixed sea level** —
+  the claim this milestone rests on, asserted directly.
+- The band histogram for each shipped preset is recorded in the notes, not estimated.
+- Every preset reaches all eight raw materials from the landing site, asserted.
+- Save round-trip and checksum cover `WorldParams`; a version-5 envelope is rejected.
+
+## Next session — Balance v0.17
+
+The first deliberate pass at the numbers, and the reason it is third: balance is tuned against
+resource density, and v0.16 is what turns density into a parameter. Tuning before that would be
+tuning against a constant that is about to move.
+
+### Balance is the one system with no representation
+
+Everything else in this project is pinned in two languages — hex directions, terrain passability,
+the wire format, the upgrade ladders. The economy is twenty buildings, fourteen recipes, and
+twenty-three items in `src/data/definitions.json`, correctly data-driven, with **nothing anywhere
+that states or tests what the curve is meant to be**. A steam turbine outputs 48 and a smelter draws
+10, so one turbine runs nearly five smelters. That may be exactly right. Nothing says.
+
+### Compute the deciding numbers; do not tune by feel
+
+The fixture is not a table of costs — those already exist. It is the **derived** figures that
+actually decide whether an economy works, none of which anything currently computes:
+
+- Items per minute per machine at its cadence and recipe duration.
+- Power output per generator against draw per consumer, and the machine count each generator carries.
+- **The full raw-material cost of every building expanded through its entire recipe tree.** This is
+  the number that exposes a broken curve, because a building's own cost row hides everything its
+  inputs cost to make.
+- Extraction yield per site — cells in reach × quantity per cell — under each v0.16 preset.
+- Time to first smelter, first power, first circuit, from a standing start.
+
+Pin them in `fixtures/balance.json`. Tuning then becomes editing a data row and reading the diff of
+what it did to the whole tree, which is the same systematic maintenance v0.15 gives shapes and v0.16
+gives worlds, applied to numbers.
+
+### One thing the fixture already surfaces
+
+The deep extractor goes reach 1 → 2, which is **7 cells → 19 cells**, and cadence 5 → 4 at the same
+time. That is roughly **3.4× the throughput** for a cost that merely contains the base cost. It may
+be the intended flagship feel. It is currently invisible, and after this milestone it is a number in
+a file that moves when someone changes it.
+
+### Acceptance
+
+- `fixtures/balance.json` exists, is generated from the shipped definitions, and is asserted in test.
+- A deliberate tuning pass has been made **with reasons recorded** — this milestone is not the
+  fixture alone.
+- Every recipe's inputs are reachable from the landing site under the default preset.
+- No building's tree-expanded cost is cheaper than a building it is meant to follow.
 
 ## Presentation pass — Construction Catalogue v0.14.1
 
@@ -808,8 +1023,34 @@ spend or improve. Each entry states the play it unlocks, per the design pillars.
 | Look Systems (Stage B + C) | A world that rewards looking at it; tiers stay a data row  | v0.12 roster and v0.12.4 measure  |
 | v0.14 Upgrades and Tiers   | Growth in place; extraction radius as the flagship upgrade | v0.13; cheaper after Look Systems |
 
-v0.11, v0.12, v0.13, and Look Systems have shipped. Next play milestone is v0.14. What follows
-records what v0.12 actually decided where it differed from the plan it was written against.
+All five have shipped. What follows records what v0.12 actually decided where it differed from the
+plan it was written against.
+
+### The generator arc — v0.15, v0.16, v0.17
+
+Sourced from a design conversation on 2026-08-18. Three milestones that are not play systems: they
+are what the next play systems get built on. The dependency chain is as real as the last one —
+shapes are presentation and independent, world parameters change what a world contains, and balance
+is tuned against what a world contains, so it goes last. Full briefs are at the top of this file.
+
+| Milestone              | Unlocks                                                          | Depends on                  |
+| ---------------------- | ---------------------------------------------------------------- | --------------------------- |
+| v0.15 Generated Shapes | A tier that is visible as a machine, not as a stroke colour      | v0.14 roster; nothing else  |
+| v0.16 World Parameters | Worlds chosen by shape and abundance, not only by seed           | nothing; bumps the envelope |
+| v0.17 Balance          | An economy with a stated curve that a change can be read against | v0.16 density parameters    |
+
+**Why generators before play systems, again.** This is the argument Look Systems already made and
+won, applied twice more. Every deferred play milestone multiplies a roster: animals add creatures
+and byproducts, fluid networks add pipes and pumps, intermittency adds accumulators. Against a
+switch statement each of those costs drawings; against a grammar each costs a data row. The same
+holds for the world — a biome milestone against hardcoded thresholds is a rewrite, and against a
+parameter table is a preset. Taking the three cheap-forever passes now is what keeps the expensive
+ones cheap.
+
+**What each one costs on the version axis.** v0.15 moves nothing: presentation owns no truth.
+v0.16 bumps `WORLD_GENERATOR_VERSION` to 6 and puts `WorldParams` in the envelope and the checksum.
+v0.17 moves definition data, so it bumps the definition version and nothing else — the fixture it
+adds is a test artifact, not a wire or save concern.
 
 **Where the engine milestones slot.** The compact binary delta encoding landed as v0.12.2, on the
 boundary this paragraph set for it and for the reason it gave: every milestone here grows the
@@ -1088,8 +1329,9 @@ horizon.
 
 ### v0.14 — Upgrades and Tiers
 
-The next session. The originally-deferred milestone, now with something to spend
-and something to improve, and with a generator that can paint a new tier without a new drawing.
+Shipped 2026-08-18; the record is at the top of this file. The originally-deferred milestone, with
+something to spend and something to improve, and with a generator that can paint a new tier without
+a new drawing — the half of that promise the map did not show is what v0.15 finishes.
 Tiered building definitions, an upgrade command that preserves contents, orientation, and
 connections, and the progression that earns them. **Extraction radius is the flagship upgrade**
 — it is visible on the map, it changes a decision the player already made, and it demonstrates
@@ -1114,6 +1356,14 @@ Named here so they are decisions rather than omissions, each with the thing it i
   and should be chosen for what it does to the game's feel, not smuggled in as a power source.
 - **Terraforming.** Cliffs are unbuildable until mined in v0.11; whether the player may reshape
   elevation, and what that costs, is a question the world has to exist before anyone can answer.
+- **Regional biomes — a third generation channel.** v0.16 parameterizes how large and how common
+  each band is, which is what the direction that named it asked for. What it does not do is let the
+  _same_ band differ by region: a dry highland here and a forested highland there. That needs a
+  third low-frequency channel — temperature, or a categorical region noise — layered under
+  elevation and moisture, and it is its own design pass rather than another parameter, because the
+  open question is not how to generate it. It is how a region announces itself to a player walking
+  into one, and what changes about the materials when it does. Waiting on v0.16, whose parameter
+  table and histogram tool are what a region would be expressed and measured in.
 
 ### Longer horizon — 3D, north-south belts, organic generation
 

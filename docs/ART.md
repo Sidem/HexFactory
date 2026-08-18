@@ -3,8 +3,10 @@
 Stage A is the palette and shape language the World Shape renderer needs, extended by v0.12 to the
 material roster. Buildings stay geometric hexes. The roster is now stable, Power has shipped, and
 **Stage B shipped as Look Systems v0.13.1** — a generator that emits the art, not an atlas
-somebody drew. The rule and what it buys are in "Stage B is a generator" below. Next play
-milestone is Upgrades and Tiers v0.14; the session brief is at the top of
+somebody drew. The rule and what it buys are in "Stage B is a generator" below. Upgrades and Tiers
+shipped as v0.14, and **the next milestone is Generated Shapes v0.15** — Stage D below, which
+finishes Stage B's rule 4 by making the drawing itself a data row and making a tier visible as a
+machine rather than as a stroke colour. The session brief is at the top of
 `docs/HEXFACTORY-PLAN.md`.
 
 ## Palette
@@ -118,11 +120,64 @@ the world was 909 µs at the largest tier and a complete browser frame was 18.2%
 Look Systems re-measure is 991 µs for the world and 19.0% of 60 Hz. Stage B's per-hex work
 shipped with that number, not ahead of one.
 
+## Stage D — the shape grammar, as Generated Shapes v0.15
+
+Directed 2026-08-18. Stage B established that a look is _derived_ and shipped that rule for
+terrain, for depletion, and for the choice of which building silhouette to draw. Stage D applies it
+to the drawing itself, which is the one place Stage B left imperative.
+
+### What Stage B left behind
+
+`silhouetteOf` in `src/rendering/buildingLook.ts` is correct and stays: `recipe_category` splits the
+composer kinds and `power_source` splits the generators, from the definition, with no per-id case.
+Two things under it are not finished.
+
+- **`drawSilhouette` is a two-hundred-line `switch` of hand-written canvas calls.** A new building
+  costs a new arm. That is an atlas whose drawings happen to be written in TypeScript, and it fails
+  the same test Stage B was created to pass: a new definition should cost a data row.
+- **`trimOf` renders a tier as stroke colour and width only.** So a deep extractor is an extractor
+  with a gold outline. The milestone whose subject was growth in place produced no visible growth,
+  which makes rule 4 half-true: the look is derived from the definition, but not from the part of
+  the definition that changed.
+
+### The rule
+
+**6. A shape is a part list, and a tier is a modifier on it.** One renderer walks a declarative list
+of parts. The vocabulary is small and names machine anatomy rather than geometry — vessel, chamber,
+stack, rotor, aperture, mast, band, mouth — and each part carries anchor, scale, rotation, and
+animation phase. Phase is what keeps Stage C's motion inside the grammar instead of beside it: a
+rotor already turns on `workCycle`, and in a part list that is a property rather than a bespoke arm.
+
+Composition is three lookups and no cases. `kind` / `recipe_category` / `power_source` selects the
+base part list. `tier` applies modifiers from a named, documented set — add a stack, add a rotor
+blade, segment the vessel, add a plating band, widen the mouth — so **an upgrade changes the
+silhouette**. Terrain and the player draw from the same vocabulary, so the world reads as one system
+rather than three sharing a palette.
+
+The rules Stage B already set all still hold and are what make this safe: baked behind a version
+constant (rule 3), varied by host hash (rule 2), and presentation-only, so nothing here can reach a
+checksum by construction.
+
+### The contact sheet
+
+A dev page rendering **every definition × every tier × every status** on one grid, committed as an
+entry point. It reuses the renderer, so it costs little, and it is the only way to notice that two
+buildings read alike or that a tier modifier changed nothing visible without playing the game and
+happening to build both. The grammar is half of "maintained systematically"; this is the other half.
+
+### Acceptance
+
+A tier-1 definition must be distinguishable from its tier-0 parent **by silhouette, with colour
+removed**, at normal zoom. A new definition must render as a distinct readable machine with no new
+drawing code. And the grammar adds an indirection to a per-entity draw, so it ships with a
+`npm run bench:browser` re-measure against the v0.13.1 record — the same rule Stage B shipped under.
+
 ## Longer horizon
 
 Named 2026-08-18. Stage B's five rules — the 2D start of the organic item — shipped as Look
-Systems. 3D presentation and the later tileable-texture systems are still the destination, not
-v0.14. Full write-up is in `docs/HEXFACTORY-PLAN.md` under **Longer horizon**.
+Systems, and Stage D is the next step in the same programme rather than a detour from it. 3D
+presentation and the later tileable-texture systems are still the destination, not v0.15. Full
+write-up is in `docs/HEXFACTORY-PLAN.md` under **Longer horizon**.
 
 - **Organic tileables.** Stage B's five rules are the 2D start and have shipped. The later systems
   produce tileable textures and shapes so a hex lattice reads as organic terrain and organic
@@ -130,7 +185,10 @@ v0.14. Full write-up is in `docs/HEXFACTORY-PLAN.md` under **Longer horizon**.
 - **3D presentation.** The camera tilts and orbits the player; the player, terrain, and buildings
   gain 3D shape. Canvas 2D stays replaceable presentation. A 3D mesh hand-authored per definition is
   the atlas again; a mesh derived from `recipe_category` and tier is this generator in another
-  dimension. A renderer replacement is still a measured decision; v0.12.4 is the baseline it is
+  dimension. **Stage D is the cheapest available preparation for it**: a part list with anchors and
+  scales is a description of a machine rather than a sequence of canvas calls, and that description
+  is what a mesh generator would consume. The 2D walker is one consumer of the grammar, not the
+  grammar itself. A renderer replacement is still a measured decision; v0.12.4 is the baseline it is
   measured against. Not this session.
 
 ## Still
