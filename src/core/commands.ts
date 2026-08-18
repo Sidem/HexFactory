@@ -5,6 +5,13 @@ export interface EncodedCommand {
   args: number[];
 }
 
+/**
+ * How far from the origin an aim target may sit, matching `MAX_AIM_DISTANCE` in the core. Native
+ * measures it from the player and this measures it from the origin, which is the stricter of the
+ * two and needs no snapshot to check.
+ */
+export const MAX_AIM_COORDINATE = 2 ** 30;
+
 export function encodeCommand(command: NativeInputCommand): EncodedCommand {
   switch (command.type) {
     case "move_intent":
@@ -16,6 +23,17 @@ export function encodeCommand(command: NativeInputCommand): EncodedCommand {
       )
         throw new RangeError("movement intent must be in -1000..1000");
       return { opcode: 0, args: [command.x, command.y] };
+    case "aim":
+      // World coordinates, bounded the way native bounds them. The magnitude carries no meaning —
+      // native normalizes the delta to the player — so this only refuses what native would refuse.
+      if (
+        !Number.isInteger(command.x) ||
+        !Number.isInteger(command.y) ||
+        Math.abs(command.x) > MAX_AIM_COORDINATE ||
+        Math.abs(command.y) > MAX_AIM_COORDINATE
+      )
+        throw new RangeError("aim target must be an integer world position");
+      return { opcode: 12, args: [command.x, command.y] };
     case "gather":
       return { opcode: 1, args: [] };
     case "deposit":

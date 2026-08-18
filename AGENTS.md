@@ -50,9 +50,20 @@ Keep this file concise; the durable roadmap, design pillars, and implementation 
   gathering outright while paused and otherwise scaled the harvest rate with the speed setting. So
   the host keeps the player's clock running while a cooldown is outstanding, not only while walking.
 - A gather asks the same question an extractor on that hex asks, through `resource_at_world`, and
-  facing is not part of it. Nothing in the presentation shows which way the player points, so a
-  target weighted by facing counted down a neighbouring hex while the one underfoot stayed full —
-  a change with no visible cause.
+  facing is not part of it. A target weighted by facing counted down a neighbouring hex while the one
+  underfoot stayed full — a change with no visible cause. Facing became visible in v0.12.3, which
+  retires half of that reason and not the other half: where the mouse happens to rest is still not
+  something a player reads as aiming at a hex. Facing-weighted targeting has to be argued for on its
+  own, with a target the player can see, and not smuggled in as a consequence of drawing the pointer.
+- Facing is native, checksummed state, so the host may send the world position it wants the player to
+  face and never a heading. `aim` carries the point under the cursor; native resolves the unit vector
+  in integer arithmetic. `move_intent` still sets facing, and an aim wins by arriving later in the
+  same batch, which is why a touch layout that sends no `aim` keeps facing the way it walks.
+- Which terrain bands are impassable is native's rule and is pinned in both languages by
+  `fixtures/terrain-passability.json`, against `Terrain::blocks_movement` and
+  `Terrain::blocks_construction` in Rust and against `src/core/terrain.ts` in TypeScript. The host
+  draws impassable ground as one category before it draws it as a material; that treatment reads the
+  pinned table and never a palette-side guess about which grey means cliff.
 - Snapshot deltas cross to the host in the binary wire format, encoded by `factory-wasm/src/wire.rs`
   and decoded by `src/core/snapshotWire.ts`. The decoder's contract is that it produces exactly what
   `JSON.parse(snapshot_delta_json())` produced — the same keys, the same omissions, `null` where

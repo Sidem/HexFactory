@@ -12,18 +12,27 @@ cell with its own fill and edge.
 
 | Band          | Fill      | Edge      | Role                                     |
 | ------------- | --------- | --------- | ---------------------------------------- |
-| Deep water    | `#0f3550` | `#1f5f86` | Impassable basin; pumped from the shore  |
-| Shallow water | `#1a5474` | `#3d8aaa` | Impassable shore water                   |
+| Deep water    | `#0f3550` | `#3f9ad0` | Impassable basin; pumped from the shore  |
+| Shallow water | `#1a5474` | `#5cb6d8` | Impassable shore water                   |
 | Shore         | `#c4a56a` | `#e0c88a` | Walkable, buildable; sand and clay       |
 | Lowland       | `#1a3a32` | —         | Default surveyed ground; flora and clay  |
 | Hills         | `#48604d` | `#6f8a6c` | Walkable, buildable; copper ore and coal |
 | Highland      | `#5c6b58` | `#8a9a84` | Walkable, buildable; iron ore and coal   |
-| Cliff         | `#4a4541` | `#7a736c` | Impassable landform edge; stone          |
+| Cliff         | `#57493e` | `#c19a72` | Impassable landform edge; stone          |
 | Fog           | `#18242f` | `#7fe0c0` | Unsurveyed world                         |
 
 Hills sits between lowland and highland and is deliberately close to both: the bands read as one
 rising landform, not as three unrelated colours. v0.12 added it because copper belongs to rolling
 ground and iron to the tops, and a player who cannot see the difference cannot choose a site.
+
+**Impassability outranks the band.** Deep water, shallow water, and cliff each keep the fill above,
+but all three carry one shared treatment — a diagonal hatch and a bright rim — so a player reads
+"cannot stand here" before they read which material it is. That is deliberately not a fourth colour:
+cliff against highland was two greys a step apart and the only way to tell them apart was to walk
+into one, and tuning those greys would have kept the answer in the palette when the question is a
+category. Which bands are in that category is native's rule, pinned by
+`fixtures/terrain-passability.json`; the renderer reads the table and never decides for itself which
+grey means cliff.
 
 ## Item colours and glyphs
 

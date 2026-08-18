@@ -8,6 +8,7 @@ import {
   type PixelPoint,
 } from "@hexlife/embed/hex";
 
+import { TERRAIN_INFO } from "../core/terrain";
 import type {
   ChunkSnapshot,
   Definitions,
@@ -15,13 +16,23 @@ import type {
   FactorySnapshot,
   LinePreviewCell,
   PlacementPreview,
-  Terrain,
   WorldPoint,
 } from "../core/types";
 import { drawItemIcon } from "./icons";
+import { WORLD_SCALE, homeBearing } from "./landmarks";
 
 const BASE_HEX_SIZE = 22;
-const WORLD_SCALE = 1024;
+
+/** One colour per building kind, shared with the minimap so a machine reads the same on both. */
+export const BUILDING_COLORS: Record<EntitySnapshot["kind"], string> = {
+  extractor: "#b75e45",
+  belt: "#415b78",
+  composer: "#765bae",
+  container: "#a07c3e",
+  consumer: "#3c806a",
+  hub: "#d1a945",
+  pump: "#2f7d9c",
+};
 
 /**
  * True when a world point lies inside a chunk the native simulation has generated. Chunks are the
@@ -80,6 +91,19 @@ export class HexCamera {
     return { x: origin.x + point.x * scale, y: origin.y + point.y * scale };
   }
 
+  /**
+   * The world position under a viewport point — {@link projectWorld} inverted. It is what an aim
+   * carries: the host names the point the cursor is over and native turns it into a facing.
+   */
+  worldAt(point: PixelPoint, width: number, height: number): WorldPoint {
+    const origin = this.origin(width, height);
+    const scale = (BASE_HEX_SIZE * this.zoom) / WORLD_SCALE;
+    return {
+      x: Math.round((point.x - origin.x) / scale),
+      y: Math.round((point.y - origin.y) / scale),
+    };
+  }
+
   follow(point: WorldPoint): void {
     if (!this.following) return;
     this.center = { ...point };
@@ -120,6 +144,11 @@ export class CanvasFactoryRenderer {
     "(prefers-reduced-motion: reduce)",
   ).matches;
   private snapshot: FactorySnapshot | null = null;
+  /**
+   * Where the landing hub stands, so the view can always say which way home is. Resolved by the
+   * host from the snapshot rather than scanned for here every frame — the hub does not move.
+   */
+  private home: WorldPoint | null = null;
   private hover: AxialCoordinate | null = null;
   private selection: AxialCoordinate | null = null;
   private placement: PlacementPreview | null = null;
@@ -144,6 +173,10 @@ export class CanvasFactoryRenderer {
     this.snapshot = snapshot;
     this.camera.follow(snapshot.player);
     this.draw();
+  }
+
+  setHome(point: WorldPoint | null): void {
+    this.home = point;
   }
 
   setHover(
@@ -190,6 +223,16 @@ export class CanvasFactoryRenderer {
   pick(clientX: number, clientY: number): AxialCoordinate {
     const rect = this.canvas.getBoundingClientRect();
     return this.camera.pick(
+      { x: clientX - rect.left, y: clientY - rect.top },
+      this.canvas.clientWidth,
+      this.canvas.clientHeight,
+    );
+  }
+
+  /** The world position a pointer is over, for the `aim` the host sends from it. */
+  pickWorld(clientX: number, clientY: number): WorldPoint {
+    const rect = this.canvas.getBoundingClientRect();
+    return this.camera.worldAt(
       { x: clientX - rect.left, y: clientY - rect.top },
       this.canvas.clientWidth,
       this.canvas.clientHeight,
@@ -258,6 +301,7 @@ export class CanvasFactoryRenderer {
       this.drawBuilding(building, width, height, size);
     this.drawFog(width, height, ratio);
     this.drawPlayer(width, height, size);
+    this.drawHomeMarker(width, height);
     if (this.selection)
       drawHex(
         ctx,
@@ -332,8 +376,12 @@ export class CanvasFactoryRenderer {
         height,
       );
       if (!visible(center, size, width, height)) continue;
-      const paint = terrainPaint(region.terrain);
-      drawHex(ctx, center, size * 0.97, paint.fill, paint.stroke, 1.2);
+      const band = TERRAIN_INFO[region.terrain];
+      drawHex(ctx, center, size * 0.97, band.fill, band.stroke, 1.2);
+      // Impassable ground is drawn as a category before it is drawn as a material. Cliff against
+      // highland was two greys a step apart and the only way to tell them apart was to walk into
+      // one; the hatch says "you cannot stand here" whatever the band underneath it happens to be.
+      if (!band.passable) this.drawImpassable(center, size, band.stroke);
     }
     for (const resource of this.snapshot.resources) {
       if (resource.quantity === 0) continue;
@@ -370,6 +418,89 @@ export class CanvasFactoryRenderer {
         this.drawFieldLabel(center, size, null, resource.quantity, false);
       }
     }
+  }
+
+  /**
+   * The shared mark for ground the player cannot stand on: a hatch inside the hex and a brighter,
+   * heavier rim around it. Which bands get it is native's rule, read from the passability table
+   * `fixtures/terrain-passability.json` pins — the renderer never decides that a grey means cliff.
+   */
+  private drawImpassable(
+    center: PixelPoint,
+    size: number,
+    stroke: string,
+  ): void {
+    const ctx = this.context;
+    const radius = size * 0.97;
+    ctx.save();
+    hexPath(ctx, center, radius);
+    ctx.clip();
+    ctx.strokeStyle = `${stroke}59`;
+    ctx.lineWidth = Math.max(1, size * 0.075);
+    ctx.beginPath();
+    const step = Math.max(4, size * 0.34);
+    for (let offset = -radius; offset <= radius * 3; offset += step) {
+      ctx.moveTo(center.x - radius + offset, center.y - radius);
+      ctx.lineTo(center.x - radius + offset - 2 * radius, center.y + radius);
+    }
+    ctx.stroke();
+    ctx.restore();
+    hexPath(ctx, center, radius);
+    ctx.strokeStyle = stroke;
+    ctx.lineWidth = Math.max(1.5, size * 0.085);
+    ctx.stroke();
+  }
+
+  /**
+   * Which way the landing hub is, whenever it is not on screen. A minimap answers this only while
+   * home is still on the minimap; this answers it at any distance, which is what turns walking to
+   * the survey frontier into a decision rather than a risk.
+   */
+  private drawHomeMarker(width: number, height: number): void {
+    if (!this.snapshot || !this.home) return;
+    const target = this.camera.projectWorld(this.home, width, height);
+    const margin = 44;
+    if (
+      target.x >= margin &&
+      target.y >= margin &&
+      target.x <= width - margin &&
+      target.y <= height - margin
+    )
+      return;
+    const bearing = homeBearing(this.snapshot.player, this.home);
+    if (!bearing) return;
+    const x = Math.min(width - margin, Math.max(margin, target.x));
+    const y = Math.min(height - margin, Math.max(margin, target.y));
+    const angle = Math.atan2(bearing.y, bearing.x);
+    const ctx = this.context;
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(angle);
+    ctx.fillStyle = "#f6c85f";
+    ctx.strokeStyle = "#2a2208";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(17, 0);
+    ctx.lineTo(-9, 11);
+    ctx.lineTo(-4, 0);
+    ctx.lineTo(-9, -11);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    ctx.restore();
+    const label = `⌂ ${bearing.hexes} hex`;
+    ctx.font = "700 11px system-ui";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    const labelWidth = ctx.measureText(label).width + 12;
+    const labelX = x - bearing.x * 26;
+    const labelY = y - bearing.y * 26;
+    ctx.fillStyle = "#07110ef2";
+    ctx.beginPath();
+    ctx.roundRect(labelX - labelWidth / 2, labelY - 9, labelWidth, 18, 7);
+    ctx.fill();
+    ctx.fillStyle = "#f6c85f";
+    ctx.fillText(label, labelX, labelY);
   }
 
   /**
@@ -546,15 +677,6 @@ export class CanvasFactoryRenderer {
     size: number,
   ): void {
     const ctx = this.context;
-    const colors: Record<EntitySnapshot["kind"], string> = {
-      extractor: "#b75e45",
-      belt: "#415b78",
-      composer: "#765bae",
-      container: "#a07c3e",
-      consumer: "#3c806a",
-      hub: "#d1a945",
-      pump: "#2f7d9c",
-    };
     for (const cell of building.footprint) {
       const cellCenter = this.camera.project(cell, width, height);
       if (visible(cellCenter, size, width, height))
@@ -562,7 +684,7 @@ export class CanvasFactoryRenderer {
           ctx,
           cellCenter,
           size * 0.78,
-          colors[building.kind],
+          BUILDING_COLORS[building.kind],
           "#dce7ef",
           1.4,
         );
@@ -744,32 +866,10 @@ function visible(
   );
 }
 
-function terrainPaint(terrain: Terrain): { fill: string; stroke: string } {
-  switch (terrain) {
-    case "deep_water":
-      return { fill: "#0f3550ee", stroke: "#1f5f86" };
-    case "shallow_water":
-      return { fill: "#1a5474dd", stroke: "#3d8aaa" };
-    case "shore":
-      return { fill: "#c4a56add", stroke: "#e0c88a" };
-    case "hills":
-      return { fill: "#48604ddd", stroke: "#6f8a6c" };
-    case "highland":
-      return { fill: "#5c6b58dd", stroke: "#8a9a84" };
-    case "cliff":
-      return { fill: "#4a4541ee", stroke: "#7a736c" };
-    default:
-      return { fill: "#2a4a3ccc", stroke: "#4d7a62" };
-  }
-}
-
-function drawHex(
+function hexPath(
   context: CanvasRenderingContext2D,
   center: PixelPoint,
   size: number,
-  fill: string,
-  stroke: string,
-  lineWidth = 1,
 ): void {
   context.beginPath();
   for (let corner = 0; corner < HEX_DIRECTIONS.length; corner += 1) {
@@ -780,6 +880,17 @@ function drawHex(
     else context.lineTo(x, y);
   }
   context.closePath();
+}
+
+function drawHex(
+  context: CanvasRenderingContext2D,
+  center: PixelPoint,
+  size: number,
+  fill: string,
+  stroke: string,
+  lineWidth = 1,
+): void {
+  hexPath(context, center, size);
   context.fillStyle = fill;
   context.fill();
   context.strokeStyle = stroke;

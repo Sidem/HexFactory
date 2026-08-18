@@ -37,11 +37,23 @@
             ><strong id="insight-value">0</strong></span
           >
           <button
+            id="carry-chip"
+            class="resource-chip panel-toggle"
+            type="button"
+            data-panel-target="inventory-panel"
+            aria-controls="inventory-panel"
+            aria-expanded="false"
+            title="Cargo pack (I)"
+          >
+            <span aria-hidden="true">▤</span
+            ><strong id="carry-value">0 / 6</strong>
+          </button>
+          <button
             id="play"
             class="icon-button"
             type="button"
             aria-pressed="true"
-            title="Pause simulation"
+            title="Pause simulation (T)"
             aria-label="Pause simulation"
           >
             Ⅱ
@@ -64,117 +76,26 @@
         <canvas
           id="factory-canvas"
           tabindex="0"
-          aria-label="Interactive HexFactory world map. Use WASD or the on-screen movement pad to explore, then choose a construction tool and select a hex to build."
+          aria-label="Interactive HexFactory world map. Use WASD or the on-screen movement pad to explore, then choose a construction tool and select a hex to build. The player faces wherever the pointer is."
         ></canvas>
 
         <aside
-          id="guide-panel"
-          class="glass-panel guide-panel"
-          aria-label="Mission guide and inventory"
+          id="inspector-panel"
+          class="glass-panel inspector-panel"
+          aria-label="World inspector"
         >
           <div class="panel-heading">
             <div>
-              <span class="section-kicker">Next move</span>
-              <h2 id="next-action-title">Survey the landing zone</h2>
+              <span class="section-kicker">World inspector</span>
+              <h2 id="selected-tool-value">Inspect</h2>
             </div>
             <button
               class="panel-close"
               type="button"
-              aria-label="Close mission guide"
+              aria-label="Close world inspector"
             >
               ×
             </button>
-          </div>
-          <p id="next-action-detail" class="next-action-detail">
-            The hatched fog is unsurveyed world. Walk toward it to reveal
-            terrain, then gather from an ore or crystal field.
-          </p>
-          <div class="primary-actions">
-            <button id="gather" class="primary-action" type="button">
-              <span aria-hidden="true">✦</span> Gather <kbd>F</kbd>
-            </button>
-            <button id="deposit" type="button">
-              <span aria-hidden="true">⌂</span> Deliver <kbd>X</kbd>
-            </button>
-          </div>
-          <div class="inventory-heading">
-            <span class="section-kicker">Cargo pack</span
-            ><small id="carry-value" aria-live="polite">0 / 8 slots</small>
-          </div>
-          <div
-            id="inventory"
-            class="inventory"
-            role="list"
-            aria-label="Carried stacks"
-          ></div>
-          <details class="controls-help">
-            <summary>Controls &amp; camera</summary>
-            <p>
-              Move with <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> and
-              hold <kbd>F</kbd> to keep gathering. Drag with the right or middle
-              button to pan, and use the wheel to zoom.
-            </p>
-            <p>
-              With a belt or single-hex building selected, drag across the map
-              to lay a whole run at once — it routes itself, turning where the
-              drag turns. <kbd>E</kbd> selects erase, and dragging with it
-              removes a run. <kbd>R</kbd> rotates the pending building, or the
-              one under the cursor when no build tool is held.
-              <kbd>Q</kbd> copies whatever is under the cursor, and
-              <kbd>Ctrl</kbd>+<kbd>Z</kbd> takes back the last thing you built.
-            </p>
-            <p>
-              Your pack holds a fixed number of stacks, so gathering, and
-              recovering a building with something inside it, both stop when
-              there is no slot free. Build a container, select it, and use the
-              inspector to take stock back out a stack at a time.
-            </p>
-            <p>
-              Each machine runs one category of recipe: choose it in the build
-              dock before placing, or select a built machine and change it in
-              the inspector between crafts. Smelters and kilns also need fuel —
-              belt them coal, charcoal, or wood, and they burn whatever arrives.
-            </p>
-            <p>
-              Terrain is the material map. Iron and coal come from highland,
-              copper from hills, sand and clay from shores, stone from cliffs,
-              and wood from moist lowland — where it grows back. Water is pumped
-              from a basin rather than mined.
-            </p>
-            <p>
-              The hatched veil past the dashed survey frontier is world the
-              simulation has not generated yet. Travelling toward it surveys new
-              sectors and lifts the fog for good.
-            </p>
-          </details>
-        </aside>
-
-        <aside
-          id="research-panel"
-          class="glass-panel research-panel"
-          aria-label="Research and inspector"
-        >
-          <div class="panel-heading">
-            <div>
-              <span class="section-kicker">Development</span>
-              <h2>Research</h2>
-            </div>
-            <button
-              class="panel-close"
-              type="button"
-              aria-label="Close research panel"
-            >
-              ×
-            </button>
-          </div>
-          <p class="panel-copy">
-            Deliver raw materials to earn insight. Each breakthrough expands the
-            build dock.
-          </p>
-          <div id="technology-list" class="technology-list"></div>
-          <div class="inspector-heading">
-            <span class="section-kicker">World inspector</span
-            ><strong id="selected-tool-value">Inspect</strong>
           </div>
           <div id="selection-value" class="inspector">
             Select a hex, resource, or machine.
@@ -193,6 +114,148 @@
             ></select>
           </label>
           <p id="placement-value" class="placement-readout"></p>
+        </aside>
+
+        <aside
+          id="inventory-panel"
+          class="glass-panel inventory-panel"
+          aria-label="Cargo pack"
+        >
+          <div class="panel-heading">
+            <div>
+              <span class="section-kicker">Carried stacks · I</span>
+              <h2>Cargo pack</h2>
+            </div>
+            <button
+              class="panel-close"
+              type="button"
+              aria-label="Close cargo pack"
+            >
+              ×
+            </button>
+          </div>
+          <p class="panel-copy">
+            Each material fills slots one stack at a time. A full pack refuses
+            both gathering and the refund from a demolition, so deliver at the
+            landing hub or take stacks out of a container to make room.
+          </p>
+          <div
+            id="inventory"
+            class="inventory"
+            role="list"
+            aria-label="Carried stacks"
+          ></div>
+          <p id="carry-detail" class="panel-copy" aria-live="polite">
+            0 of 6 slots carried.
+          </p>
+        </aside>
+
+        <aside
+          id="research-panel"
+          class="glass-panel research-panel"
+          aria-label="Research"
+        >
+          <div class="panel-heading">
+            <div>
+              <span class="section-kicker">Development · O</span>
+              <h2>Research</h2>
+            </div>
+            <button
+              class="panel-close"
+              type="button"
+              aria-label="Close research panel"
+            >
+              ×
+            </button>
+          </div>
+          <p class="panel-copy">
+            Deliver raw materials to earn insight. Each breakthrough expands the
+            build dock.
+          </p>
+          <div id="technology-list" class="technology-list"></div>
+        </aside>
+
+        <aside
+          id="quest-panel"
+          class="glass-panel quest-panel"
+          aria-label="Objective and controls"
+        >
+          <div class="panel-heading">
+            <div>
+              <span class="section-kicker">Next move · P</span>
+              <h2 id="next-action-title">Survey the landing zone</h2>
+            </div>
+            <button
+              class="panel-close"
+              type="button"
+              aria-label="Close objective and controls"
+            >
+              ×
+            </button>
+          </div>
+          <p id="next-action-detail" class="next-action-detail">
+            The hatched fog is unsurveyed world. Walk toward it to reveal
+            terrain, then gather from an ore or crystal field.
+          </p>
+          <div class="quest-objective">
+            <span class="section-kicker">Landing directive</span>
+            <p id="quest-detail">
+              Deliver 3 components to the landing hub. Progress: 0.
+            </p>
+          </div>
+
+          <div class="control-block">
+            <span class="section-kicker">Moving and looking</span>
+            <p>
+              Move with <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd>. The
+              player always faces the pointer. <kbd>Space</kbd> centres the
+              camera back on the player, <kbd>T</kbd> pauses and resumes the
+              factory, and dragging with the right or middle button pans while
+              the wheel zooms.
+            </p>
+          </div>
+          <div class="control-block">
+            <span class="section-kicker">Panels</span>
+            <p>
+              <kbd>I</kbd> opens the cargo pack, <kbd>O</kbd> research, and
+              <kbd>P</kbd> this panel. <kbd>Esc</kbd> closes whatever is open
+              and returns to the inspect tool, which is the one panel that stays
+              on the world.
+            </p>
+          </div>
+          <div class="control-block">
+            <span class="section-kicker">Field actions</span>
+            <p>
+              Hold <kbd>F</kbd> to keep gathering from the field you are
+              standing on or beside, and <kbd>X</kbd> to deliver at the landing
+              hub. The ring that closes around you is the wait until the next
+              action.
+            </p>
+          </div>
+          <div class="control-block">
+            <span class="section-kicker">Building</span>
+            <p>
+              With a belt or single-hex building selected, drag across the map
+              to lay a whole run at once — it routes itself, turning where the
+              drag turns. <kbd>E</kbd> selects erase, and dragging with it
+              removes a run. <kbd>R</kbd> rotates the pending building, or the
+              one under the cursor when no build tool is held.
+              <kbd>Q</kbd> copies whatever is under the cursor, and
+              <kbd>Ctrl</kbd>+<kbd>Z</kbd> takes back the last thing you built.
+              Machines run one category of recipe each; smelters and kilns also
+              need fuel, and burn whatever arrives.
+            </p>
+          </div>
+          <div class="control-block">
+            <span class="section-kicker">Reading the ground</span>
+            <p>
+              Terrain is the material map, and hatched ground is ground you
+              cannot stand on. Travelling toward the dashed survey frontier
+              lifts the fog for good; the minimap and the gold marker on the
+              edge of the view both point back to the landing hub.
+            </p>
+            <div id="terrain-legend" class="terrain-legend" role="list"></div>
+          </div>
         </aside>
 
         <aside
@@ -274,13 +337,13 @@
           </dl>
         </aside>
 
-        <nav class="view-actions" aria-label="Map view controls">
+        <nav class="view-actions" aria-label="View and panel controls">
           <button
             id="recenter"
             class="icon-button"
             type="button"
-            title="Follow player"
-            aria-label="Follow player"
+            title="Centre on the player (Space)"
+            aria-label="Centre the camera on the player"
           >
             ◎
           </button>
@@ -294,27 +357,64 @@
           >
             ⌗
           </button>
-        </nav>
-        <nav class="mobile-panel-actions" aria-label="Game panels">
           <button
-            class="panel-toggle"
+            id="inspector-toggle"
+            class="icon-button panel-toggle"
             type="button"
-            data-panel-target="guide-panel"
-            aria-controls="guide-panel"
+            data-panel-target="inspector-panel"
+            aria-controls="inspector-panel"
             aria-expanded="false"
+            title="World inspector"
+            aria-label="Open world inspector"
           >
-            Mission
+            ⌖
           </button>
           <button
-            class="panel-toggle"
+            class="icon-button panel-toggle"
+            type="button"
+            data-panel-target="inventory-panel"
+            aria-controls="inventory-panel"
+            aria-expanded="false"
+            title="Cargo pack (I)"
+            aria-label="Open cargo pack"
+          >
+            ▤
+          </button>
+          <button
+            class="icon-button panel-toggle"
             type="button"
             data-panel-target="research-panel"
             aria-controls="research-panel"
             aria-expanded="false"
+            title="Research (O)"
+            aria-label="Open research panel"
           >
-            Research
+            ◈
+          </button>
+          <button
+            class="icon-button panel-toggle"
+            type="button"
+            data-panel-target="quest-panel"
+            aria-controls="quest-panel"
+            aria-expanded="false"
+            title="Objective and controls (P)"
+            aria-label="Open objective and controls"
+          >
+            ✧
           </button>
         </nav>
+
+        <section class="minimap-frame" aria-label="Minimap">
+          <canvas
+            id="minimap"
+            role="img"
+            aria-label="Minimap of the surveyed world"
+          ></canvas>
+          <p id="home-readout" class="home-readout" aria-live="polite">
+            Landing hub · here
+          </p>
+        </section>
+
         <div class="touch-controls" aria-label="Touch movement controls">
           <button type="button" data-move-key="KeyW" aria-label="Move up">
             ▲
@@ -329,12 +429,27 @@
             ▶
           </button>
         </div>
-        <div class="touch-actions" aria-label="Touch field actions">
-          <button type="button" data-native-action="gather">✦ Gather</button>
-          <button type="button" data-native-action="deposit">⌂ Deliver</button>
-        </div>
 
         <section class="build-dock" aria-label="Construction dock">
+          <div class="field-actions">
+            <button
+              id="gather"
+              class="primary-action"
+              type="button"
+              data-native-action="gather"
+              title="Gather from the field under or beside you (F)"
+            >
+              <span aria-hidden="true">✦</span><small>Gather · F</small>
+            </button>
+            <button
+              id="deposit"
+              type="button"
+              data-native-action="deposit"
+              title="Deliver your cargo at the landing hub (X)"
+            >
+              <span aria-hidden="true">⌂</span><small>Deliver · X</small>
+            </button>
+          </div>
           <div
             id="tool-shelf"
             class="tool-shelf"

@@ -1,18 +1,22 @@
 # HexFactory — architecture, roadmap, and implementation handoffs
 
-Status: Binary Delta v0.12.2 is shipped on Playtest Feel v0.12.1, Material Base v0.12, World Shape
-v0.11, Playability v0.10, Game Feel v0.9, Browser Capacity v0.8, Sparse Snapshot v0.7, Sparse Cost
-v0.6, Capacity Tiers v0.5.1, Worker Boundary v0.5, Command Surface v0.4, Continuous Exploration
-v0.3, and the v0.3.1 incremental transport follow-up. The world now produces eight raw materials,
-each where its geography says it should be, and fourteen recipes across five machine categories turn
-them into something the player wanted. **The compact binary delta encoding has landed**, on the
-v0.12/v0.13 boundary the roadmap named as its deadline: the per-frame payload is 13.6× smaller and
-the largest measured tier now uses 11.0% of a 60 Hz frame rather than 62.1%.
+Status: Sightlines v0.12.3 is shipped on Binary Delta v0.12.2, Playtest Feel v0.12.1, Material Base
+v0.12, World Shape v0.11, Playability v0.10, Game Feel v0.9, Browser Capacity v0.8, Sparse Snapshot
+v0.7, Sparse Cost v0.6, Capacity Tiers v0.5.1, Worker Boundary v0.5, Command Surface v0.4,
+Continuous Exploration v0.3, and the v0.3.1 incremental transport follow-up. The world now produces
+eight raw materials, each where its geography says it should be, and fourteen recipes across five
+machine categories turn them into something the player wanted. The compact binary delta encoding
+landed on the v0.12/v0.13 boundary the roadmap named as its deadline: the per-frame payload is 13.6×
+smaller and the largest measured tier now uses 11.0% of a 60 Hz frame rather than 62.1%. **The world
+is now the view**: the panels are behind keys, the player points where the cursor does, impassable
+ground says so, and a minimap and a bearing home mean walking away from the landing site is a
+decision rather than a risk.
 
 Next play milestone is Power v0.13. **The renderer measurement is now the first thing that should
 land**, ahead of it if the two compete for a session. It already gated animation and any renderer
 decision; v0.12.2 makes it the gate on the whole performance question, because the half of a browser
-frame that `docs/BENCHMARKS.md` measures is down to 11% and the unmeasured half is the other 89%.
+frame that `docs/BENCHMARKS.md` measures is down to 11% and the unmeasured half is the other 89% —
+and v0.12.3 has now put a second canvas and a per-hex impassability pass into that unmeasured half.
 The drag's per-cell transport recompile is unblocked and can land anywhere.
 
 ## Remaining playtest diagnoses (after v0.12.1)
@@ -20,8 +24,9 @@ The drag's per-cell transport recompile is unblocked and can land anywhere.
 v0.12.1 took the three player directions from the 2026-08-17 first-minutes playtest. These are
 what that session should not lose, still open:
 
-- Dual glass panels (mission + research) leave a corridor of world at 1440×900. The dock
-  shows every locked building from minute zero. Cargo slots are icon + count with no name.
+- ~~Dual glass panels (mission + research) leave a corridor of world at 1440×900.~~ Closed by
+  v0.12.3: the inspector is the only panel left over the world. The dock still shows every locked
+  building from minute zero. Cargo slots are icon + count with no name.
 - Gather and deliver copy is honest (`stand on or beside a field hex to gather`, `Gathered
 Iron ore`). The guide loop (gather → gold hub → research) is the one thing that already
   coaches. The header `Establish component production 0 / 3` never explains the 3.
@@ -42,6 +47,24 @@ not a source dependency: HexFactory imports only the published package. Treat th
 read-only unless a future task explicitly authorizes a separately released generic package change.
 
 ## Shipped implementation record
+
+- Sightlines v0.12.3 is a control and legibility release: it changes what the player can see and
+  where their attention is allowed to go, and it changes no simulation result. The player points
+  where the cursor points, through a new bounded `aim` command that carries the world position under
+  the cursor and lets native resolve the facing vector in integer arithmetic — the host sends a
+  target, never a heading. Facing is still not an input to gathering, and the reason has only
+  half-changed: it is visible now, but a gather that took from a neighbouring hex because of where
+  the mouse sat would still be a change with no cause the player can see. `Space` centres the camera
+  on the player, so pause moved to `T`. Inventory, research, and the objective-and-controls guide are
+  behind `I`, `O`, and `P`, leaving the inspector as the only panel on the world; gather, deliver,
+  and the carried-slot count moved into permanent chrome rather than behind a key, because they are
+  the loop rather than a reference. A minimap draws the surveyed world, the landing hub, and the
+  player, and a gold bearing marker on the world edge names the distance home whenever the hub is off
+  screen. Every impassable band — deep water, shallow water, cliff — now carries one shared hatched
+  treatment, driven by `fixtures/terrain-passability.json`, which pins the band-to-passability rule
+  in Rust and TypeScript at once so a decorative choice can never disagree with what
+  `Terrain::blocks_movement` actually does. No save, generator, definition, or wire version moves,
+  so v0.12.2 saves load and the recorded capacity ladder still compares directly.
 
 - Playtest Feel v0.12.1 is the first-minutes follow-up v0.12 asked for, not a play milestone.
   Fields are sparser so barren ground is the common case: richness and vein gates sit around
@@ -230,6 +253,112 @@ read-only unless a future task explicitly authorizes a separately released gener
   collision and gathering, proximity-limited construction, definition-driven rotated footprints,
   and a construction-only/toggled grid. Its HXF1 save and generator versions are intentionally
   incompatible with v0.2. The exact public geometry dependency remains unchanged.
+
+## Shipped milestone — Sightlines v0.12.3
+
+Sourced from seven directions given on 2026-08-18, recorded here as they were given:
+
+- player should always face towards the cursor (will add weapons and shooting later)
+- space key should center the player in the camera
+- inventory and research should be behind menus to open/close by pressing "I" and "O"
+- only the inspector should remain in the main view
+- we need a minimap and way to find back to the base
+- "p" hotkey should open the quest/objective and controls menu
+- impassible and passable terrain needs to be clearly apparent, right now its hard to distinguish
+
+They are one milestone because they are one complaint. The design pillars ask that the world reward
+looking at it and that the player always know what just happened; six of these seven say that the
+screen is currently spending itself on panels and flat colour instead. The seventh — facing the
+cursor — is the aiming half of a control scheme whose other half arrives with weapons, and it is
+worth landing early because it costs a bounded command and it is what makes the player read as
+something with a front.
+
+### Facing the cursor
+
+Facing is native state and a checksum input, so this is not a renderer change. The host sends
+`aim`, carrying the **world position under the cursor**, and native resolves the facing unit vector
+from the delta to the player in integer arithmetic. The host sends a target and never a heading:
+normalizing a continuous pointer angle in host floating point would be TypeScript computing a
+checksummed value, which is a different thing from the fixed eight-entry table `move_intent` picks
+from.
+
+Three consequences worth stating rather than discovering:
+
+- **Movement still sets facing, and aim simply wins.** No flag, no stored aiming mode, no save
+  change: an aim is enqueued last in the frame it belongs to, so with a pointer over the world the
+  cursor decides, and on the touch layout — where nothing sends `aim` — the walk direction still
+  decides, exactly as before.
+- **The aim is re-sent as the player walks.** A stationary cursor and a moving player is a changing
+  angle, so the host recomputes the bearing every frame from the pointer's last position and sends
+  an `aim` only when the whole-degree bearing changes. That threshold is a host decision about when
+  to speak, not about what facing is.
+- **Gathering still ignores facing.** The invariant that recorded this said facing was not an input
+  _because nothing showed it_. Half of that reason has now expired, and the other half has not: a
+  harvest that drained a neighbouring hex because of where the mouse was resting is still an effect
+  whose cause the player cannot see. If a future milestone wants facing-weighted targeting it has to
+  argue for it on its own, with a visible target.
+
+### The camera, and where pause went
+
+`Space` recentres the camera on the player and restores following after a pan — the existing
+`recenter` path, now on the key the direction asked for. Pause moves to `T`. There is no free
+mnemonic left once `I`, `O`, and `P` are spoken for, and pause keeps its on-screen button, its
+`aria-pressed` state, and its place in the controls panel.
+
+### Panels behind keys
+
+`I` opens the cargo pack, `O` opens research, `P` opens the objective and the controls reference,
+and `Escape` closes whatever is open. They are mutually exclusive through the same `closePanels`
+path the game menu already used, so at most one panel is ever over the world and the inspector is
+the only thing pinned there.
+
+Two things deliberately did **not** go behind a key. Gather and deliver moved into the build dock,
+and the carried-slot count into the command bar, because they are the minute-to-minute loop rather
+than a reference the player consults: putting the first action a new player needs behind a keypress
+they have not learned yet would trade one legibility defect for another. The dock widened to take
+them, which the corridor complaint from the v0.12.1 playtest had made room for.
+
+### The minimap and the way home
+
+A second canvas, drawn only when a snapshot arrives, showing a fixed-radius window on the world:
+surveyed chunks against unsurveyed fill, terrain by band, buildings by kind, the landing hub in gold,
+and the player with a facing tick. It derives nothing the snapshot does not already carry.
+
+Finding the base again is the harder half, because a minimap only answers it while the base is on
+the minimap. So the hub also gets a **bearing marker on the world edge**: whenever the landing hub is
+off screen, a gold chevron sits at the edge of the viewport in its direction, labelled with the
+distance in hexes. The player is never more than one glance from knowing which way home is, at any
+distance, which is what makes walking to the fog frontier a decision rather than a risk.
+
+### Impassable ground
+
+Cliff against highland was two greys a step apart, and the player learned the difference by walking
+into it. The fix is not a better pair of greys — it is one shared treatment that says _impassable_
+regardless of which band it is: a hatched fill and a bright rim on deep water, shallow water, and
+cliff alike, so the category is legible before the material is.
+
+What decides that category is native's, not the renderer's. `fixtures/terrain-passability.json`
+lists every band with whether it blocks movement and whether it blocks construction; Rust asserts
+the file against `Terrain::blocks_movement` and `Terrain::blocks_construction` over an exhaustive
+match, and TypeScript asserts it against the host's terrain table, which is now one module feeding
+the renderer, the inspector, and the new legend. That is the `fixtures/hex-directions.json` idiom
+applied to a second cross-language rule, and it costs the wire nothing: no byte was added to the
+terrain group to carry a fact both sides can be pinned to instead.
+
+### Acceptance and release gate
+
+- The player's facing tracks the cursor in a real browser, keeps tracking it while walking, and
+  falls back to the walk direction on the touch layout where no pointer aims.
+- `Space` recentres; `I`, `O`, `P` open and close their panels; `Escape` closes them; `T` pauses.
+  Every one of them is reachable by keyboard, has an accessible name, and is listed in the controls
+  panel.
+- The inspector is the only panel over the world at 1440×900, and the narrow layout still plays.
+- The minimap shows the hub and the player, and the bearing marker names the distance home whenever
+  the hub is off screen.
+- Impassable ground is distinguishable from passable ground at a glance, and the rule that decides
+  which is which is pinned in both languages.
+- Determinism, save, wire, definition, and dependency contracts are unchanged. `aim` is bounded and
+  range-checked like every other command, and a forged one is rejected the same way.
 
 ## Shipped milestone — World Shape v0.11
 

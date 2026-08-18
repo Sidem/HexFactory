@@ -167,9 +167,18 @@ ladder is re-pinned; a generator bump invalidates checksum comparisons, not timi
 - Snapshot-derived guidance names the next useful action across gathering, delivery, research,
   automation, composition, victory, and the Factory demo. It is explanatory host presentation; it
   does not mutate or reconstruct native state.
-- Inventory and exact carried quantities sit with Gather and Deliver. Research shows prerequisite,
-  affordability, and completion states. The bottom construction dock keeps inspect/edit/build,
-  locks, exact costs, and orientation in one spatial workflow.
+- The inspector is the only panel that sits over the world. The cargo pack (`I`), research (`O`), and
+  the objective-and-controls guide (`P`) open one at a time and close on `Escape`; Gather, Deliver,
+  and the carried-slot count stay in permanent chrome because they are the loop rather than a
+  reference. Research shows prerequisite, affordability, and completion states. The bottom
+  construction dock keeps inspect/edit/build, locks, exact costs, and orientation in one spatial
+  workflow.
+- A minimap draws the surveyed world, the landing hub, and the player; when the hub is off screen a
+  gold bearing marker on the edge of the view names the direction and the distance home. `Space`
+  centres the camera on the player, which is also what restores following after a pan.
+- Impassable ground — deep water, shallow water, cliff — is drawn as one hatched category before it
+  is drawn as a material, from the same passability table `fixtures/terrain-passability.json` pins
+  against native.
 - Resource labels expose identity and remaining quantity; machines expose definition identity,
   direction, progress, inventory, and snapshot-backed cargo animation in the world.
 - At 390 px the map remains the primary surface. Mission, research, and session controls become

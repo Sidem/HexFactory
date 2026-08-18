@@ -10,11 +10,12 @@ import {
 import { describe, expect, it, vi } from "vitest";
 
 import directionFixture from "../fixtures/hex-directions.json";
+import passabilityFixture from "../fixtures/terrain-passability.json";
 import {
   buildingAvailability,
   technologyAvailability,
 } from "../src/core/availability";
-import { encodeCommand } from "../src/core/commands";
+import { encodeCommand, MAX_AIM_COORDINATE } from "../src/core/commands";
 import {
   FactoryHost,
   type FactoryTransport,
@@ -31,16 +32,23 @@ import {
   applyResourcesPatch,
   applySnapshotDelta,
 } from "../src/core/snapshotDelta";
+import {
+  TERRAIN_INFO,
+  TERRAIN_ORDER,
+  terrainAccess,
+} from "../src/core/terrain";
 import type {
   BuildingDefinition,
   EntitySnapshot,
   FactorySnapshot,
   FactorySnapshotDelta,
   ResourceSnapshot,
+  Terrain,
 } from "../src/core/types";
 import definitions from "../src/data/definitions.json";
 import technologies from "../src/data/technologies.json";
 import { HexCamera, isSurveyed } from "../src/rendering/CanvasFactoryRenderer";
+import { findLandingHub, homeBearing } from "../src/rendering/landmarks";
 
 const snapshot: FactorySnapshot = {
   scenario: "new-game",
@@ -207,6 +215,18 @@ describe("bounded host input", () => {
     expect(
       encodeCommand({ type: "set_recipe", q: 1, r: 1, recipe_id: 6 }),
     ).toEqual({ opcode: 11, args: [1, 1, 6] });
+    // An aim carries the world point under the cursor, not a heading: native resolves the facing
+    // vector, because facing is a checksum input and normalizing it here would decide one.
+    expect(encodeCommand({ type: "aim", x: -4200, y: 1774 })).toEqual({
+      opcode: 12,
+      args: [-4200, 1774],
+    });
+    expect(() => encodeCommand({ type: "aim", x: 0.5, y: 0 })).toThrow(
+      RangeError,
+    );
+    expect(() =>
+      encodeCommand({ type: "aim", x: MAX_AIM_COORDINATE + 1, y: 0 }),
+    ).toThrow(RangeError);
 
     const main = readFileSync(
       new URL("../src/main.ts", import.meta.url),
@@ -577,6 +597,86 @@ describe("availability and expanded snapshot adapter", () => {
     expect(html).toContain('aria-label="Recipe for the inspected machine"');
   });
 
+  it("pins the terrain passability table to the Rust rule it copies", () => {
+    // The host draws impassable ground as one category, so it holds a copy of a rule native owns.
+    // A copy drifts; this is what stops it. Rust asserts the same file against
+    // `Terrain::blocks_movement` and `Terrain::blocks_construction`.
+    const entries = passabilityFixture as {
+      terrain: Terrain;
+      passable: boolean;
+      buildable: boolean;
+    }[];
+    expect(entries.map(({ terrain }) => terrain)).toEqual(TERRAIN_ORDER);
+    for (const entry of entries) {
+      const band = TERRAIN_INFO[entry.terrain];
+      expect(band.passable, entry.terrain).toBe(entry.passable);
+      expect(band.buildable, entry.terrain).toBe(entry.buildable);
+      expect(terrainAccess(band), entry.terrain).toBe(
+        entry.passable ? "Buildable" : "Impassable",
+      );
+    }
+    // The three the player keeps walking into, named rather than counted.
+    expect(
+      entries.filter(({ passable }) => !passable).map((e) => e.terrain),
+    ).toEqual(["deep_water", "shallow_water", "cliff"]);
+
+    const renderer = readFileSync(
+      new URL("../src/rendering/CanvasFactoryRenderer.ts", import.meta.url),
+      "utf8",
+    );
+    // Impassability is drawn from the table, not from a second opinion about which grey is cliff.
+    expect(renderer).toContain("if (!band.passable) this.drawImpassable(");
+    expect(renderer).not.toContain('case "cliff"');
+  });
+
+  it("always knows which way the landing hub is", () => {
+    const hub = findLandingHub(snapshot);
+    // The hub's world position comes from its axial coordinate at the native lattice scale.
+    expect(hub).toEqual({ x: 0, y: 0 });
+    expect(findLandingHub({ ...snapshot, buildings: [] })).toBeNull();
+
+    // Due west of the hub, eight hexes out: the bearing points east and says how far in hexes.
+    const away = { ...snapshot.player, x: -8 * 1774, y: 0 };
+    const bearing = homeBearing(away, hub as { x: number; y: number });
+    expect(bearing?.x).toBeCloseTo(1, 6);
+    expect(bearing?.y).toBeCloseTo(0, 6);
+    expect(bearing?.hexes).toBe(8);
+    expect(bearing?.direction).toBe(0);
+    // Standing on it names no direction rather than an arbitrary one.
+    expect(homeBearing({ x: 0, y: 0 }, { x: 0, y: 0 })).toBeNull();
+    // Southeast is direction 1, the same numbering the rest of the game uses.
+    expect(homeBearing({ x: 0, y: 0 }, { x: 500, y: 866 })?.direction).toBe(1);
+    expect(homeBearing({ x: 0, y: 0 }, { x: -500, y: -866 })?.direction).toBe(
+      4,
+    );
+  });
+
+  it("keeps the world in view and every panel behind its own key", () => {
+    const html = readFileSync(
+      new URL("../index.html", import.meta.url),
+      "utf8",
+    );
+    const main = readFileSync(
+      new URL("../src/main.ts", import.meta.url),
+      "utf8",
+    );
+    // Pack, research, and the objective guide wait behind I, O, and P.
+    expect(main).toContain('KeyI: "inventory-panel"');
+    expect(main).toContain('KeyO: "research-panel"');
+    expect(main).toContain('KeyP: "quest-panel"');
+    // The inspector is the exception: it has no key because it never leaves the world.
+    expect(main).not.toContain('"inspector-panel"');
+    // Space centres the camera and pause moved off it.
+    expect(main).toContain('event.code === "Space") renderer.recenter()');
+    expect(main).toContain('event.code === "KeyT") setPlaying(!playing)');
+    // Gather and deliver are permanent chrome in the dock, not a panel a new player has to find.
+    expect(html).toContain('class="field-actions"');
+    expect(html).toContain('id="minimap"');
+    expect(html).toContain('id="home-readout"');
+    expect(html).toContain("<kbd>Space</kbd>");
+    expect(html).toContain("<kbd>I</kbd>");
+  });
+
   it("offers each machine only the recipes of its own category", () => {
     // The host must not hand a machine "the first recipe in the catalog": native would refuse it,
     // and a build tool that cannot place anything is a defect the player has to diagnose.
@@ -633,20 +733,10 @@ describe("availability and expanded snapshot adapter", () => {
     // Lowland is the default surveyed fill and is deliberately omitted from the terrain group, so
     // a surveyed hex with no entry is lowland — not an unknown tile and not a hole in the world.
     expect(main).toContain('?.terrain ?? "lowland"');
-    const labels = main.slice(
-      main.indexOf("const TERRAIN_LABELS"),
-      main.indexOf("};", main.indexOf("const TERRAIN_LABELS")),
-    );
-    for (const band of [
-      "deep_water",
-      "shallow_water",
-      "shore",
-      "lowland",
-      "hills",
-      "highland",
-      "cliff",
-    ])
-      expect(labels, band).toContain(band);
+    for (const band of TERRAIN_ORDER) {
+      expect(TERRAIN_INFO[band].name, band).toBeTruthy();
+      expect(TERRAIN_INFO[band].note, band).toBeTruthy();
+    }
     // A field hex leads with what is on it. Band potentials stay on empty ground.
     const inspectorStart = main.indexOf("function renderInspector(");
     expect(main.indexOf("if (resource)", inspectorStart)).toBeLessThan(

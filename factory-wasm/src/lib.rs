@@ -48,6 +48,11 @@ const BUILDING_RADIUS: i32 = 690;
 /// default simulation speed, which is the pace the action was tuned at.
 const GATHER_COOLDOWN_STEPS: u32 = 6;
 const HUB_RANGE: i32 = 1900;
+/// How far from the player an `aim` target may sit, in world units — about 600,000 hexes, which is
+/// far past anything a viewport can be showing. It is a bound on a command, not a play rule: the
+/// squared distance an aim resolves through has to stay inside an `i64`, and a forged aim is
+/// refused for the same reason a forged movement intent is.
+const MAX_AIM_DISTANCE: i64 = 1 << 30;
 /// How far a pump reaches for open water. One hex, like every other radius in the game, so a pump
 /// stands on buildable ground at the edge of a basin rather than in it.
 const PUMP_RADIUS: i32 = 1;
@@ -782,6 +787,13 @@ enum InputCommand {
     MoveIntent {
         x: i16,
         y: i16,
+    },
+    /// Point the player at a world position — the point under the host's cursor. The host sends a
+    /// target and never a heading: facing is a checksum input, so normalizing a continuous pointer
+    /// angle in host floating point would be TypeScript deciding a value the simulation hashes.
+    Aim {
+        x: i32,
+        y: i32,
     },
     Gather,
     Deposit,
@@ -1888,6 +1900,28 @@ impl Core {
         Ok(())
     }
 
+    /// Face the world position the host is pointing at, resolved here in integer arithmetic so the
+    /// checksummed facing vector is native's answer rather than the host's.
+    ///
+    /// [`Core::set_move_intent`] still sets facing, and an aim wins by arriving later in the same
+    /// batch — which is what lets a touch layout that sends no aim keep facing the way it walks,
+    /// without a stored aiming mode that the save format and the checksum would then have to carry.
+    fn set_aim(&mut self, x: i32, y: i32) -> Result<(), String> {
+        let dx = i64::from(x) - i64::from(self.player.x);
+        let dy = i64::from(y) - i64::from(self.player.y);
+        if dx.abs() > MAX_AIM_DISTANCE || dy.abs() > MAX_AIM_DISTANCE {
+            return Err("aim target is out of range".into());
+        }
+        // The cursor resting exactly on the player names no direction, so the last one stands.
+        let length = integer_sqrt(dx * dx + dy * dy);
+        if length == 0 {
+            return Ok(());
+        }
+        self.player.facing_x = (dx * 1000 / length) as i16;
+        self.player.facing_y = (dy * 1000 / length) as i16;
+        Ok(())
+    }
+
     fn advance_player(&mut self) {
         let dx = i32::from(self.player.move_x) * PLAYER_SPEED / 1000;
         let dy = i32::from(self.player.move_y) * PLAYER_SPEED / 1000;
@@ -2634,6 +2668,7 @@ impl Core {
         for command in commands {
             let result = match command {
                 InputCommand::MoveIntent { x, y } => self.set_move_intent(x, y),
+                InputCommand::Aim { x, y } => self.set_aim(x, y),
                 InputCommand::Gather => self.gather(),
                 InputCommand::Deposit => self.deposit_inventory(),
                 InputCommand::Place {
@@ -3992,6 +4027,23 @@ fn circles_overlap(ax: i32, ay: i32, ar: i32, bx: i32, by: i32, br: i32) -> bool
     squared_distance(ax, ay, bx, by) < i64::from(ar + br).pow(2)
 }
 
+/// Newton's method, in integers. `aim` resolves to a checksum input, so the float square root the
+/// same job would normally use is not available: the same aim has to produce the same facing on
+/// every platform that runs this core, and `f64::sqrt` is only required to be correctly rounded,
+/// not to be the same instruction everywhere.
+fn integer_sqrt(value: i64) -> i64 {
+    if value <= 0 {
+        return 0;
+    }
+    let mut guess = value;
+    let mut next = (guess + 1) / 2;
+    while next < guess {
+        guess = next;
+        next = (guess + value / guess) / 2;
+    }
+    guess
+}
+
 fn resource_snapshot_of(
     key: (i32, i32),
     item_id: ItemId,
@@ -5254,6 +5306,61 @@ mod tests {
         assert_eq!(actual, DIRECTIONS);
     }
 
+    /// Which bands the player cannot stand on is native's rule, and since v0.12.3 the renderer
+    /// draws that category before it draws the material — so the host holds a copy of the rule and
+    /// a copy is a thing that drifts. This is the `fixtures/hex-directions.json` idiom applied to
+    /// it: Rust asserts the file against the predicates, `tests/host.test.ts` asserts it against
+    /// `src/core/terrain.ts`, and neither side may move without the other.
+    #[test]
+    fn terrain_passability_matches_the_cross_language_fixture() {
+        #[derive(Deserialize)]
+        struct PassabilityEntry {
+            terrain: Terrain,
+            passable: bool,
+            buildable: bool,
+        }
+
+        const BANDS: [Terrain; 7] = [
+            Terrain::DeepWater,
+            Terrain::ShallowWater,
+            Terrain::Shore,
+            Terrain::Lowland,
+            Terrain::Hills,
+            Terrain::Highland,
+            Terrain::Cliff,
+        ];
+        // A band added to the enum makes this match non-exhaustive, which is what sends whoever
+        // added it to `BANDS` above and to the fixture beside it.
+        for band in BANDS {
+            match band {
+                Terrain::DeepWater
+                | Terrain::ShallowWater
+                | Terrain::Shore
+                | Terrain::Lowland
+                | Terrain::Hills
+                | Terrain::Highland
+                | Terrain::Cliff => {}
+            }
+        }
+
+        let fixture: Vec<PassabilityEntry> =
+            serde_json::from_str(include_str!("../../fixtures/terrain-passability.json")).unwrap();
+        assert_eq!(fixture.len(), BANDS.len(), "a band has no fixture entry");
+        for (entry, band) in fixture.iter().zip(BANDS) {
+            assert_eq!(entry.terrain, band, "fixture is in declaration order");
+            assert_eq!(
+                entry.passable,
+                !band.blocks_movement(),
+                "{band:?} passability disagrees with the fixture"
+            );
+            assert_eq!(
+                entry.buildable,
+                !band.blocks_construction(),
+                "{band:?} buildability disagrees with the fixture"
+            );
+        }
+    }
+
     #[test]
     fn chunk_generation_is_order_independent_and_seeded() {
         let mut a = game("new-game");
@@ -5587,6 +5694,73 @@ mod tests {
         core.advance_player_steps(1);
         assert_eq!(core.player.x, blocked_x);
         assert_eq!(core.terrain_at(1, -1), Terrain::Cliff);
+    }
+
+    /// Facing became something the player aims rather than a side effect of walking, so the command
+    /// that sets it has to resolve as natively as the movement it sits beside: the host names a
+    /// world point and this turns it into the vector the checksum hashes.
+    #[test]
+    fn aiming_faces_the_world_position_the_host_names() {
+        let mut core = game("new-game");
+        set_player_hex(&mut core, 0, 3);
+        let (x, y) = (core.player.x, core.player.y);
+
+        core.set_aim(x + 5_000, y).unwrap();
+        assert_eq!((core.player.facing_x, core.player.facing_y), (1000, 0));
+        core.set_aim(x, y - 5_000).unwrap();
+        assert_eq!((core.player.facing_x, core.player.facing_y), (0, -1000));
+
+        // A diagonal resolves to a unit vector, not to whatever delta the host happened to send,
+        // and pushing the same direction ten times further does not change the answer.
+        core.set_aim(x - 3_000, y + 3_000).unwrap();
+        assert_eq!((core.player.facing_x, core.player.facing_y), (-707, 707));
+        core.set_aim(x - 30_000, y + 30_000).unwrap();
+        assert_eq!((core.player.facing_x, core.player.facing_y), (-707, 707));
+
+        // A cursor resting exactly on the player names no direction, so the last one stands.
+        core.set_aim(x, y).unwrap();
+        assert_eq!((core.player.facing_x, core.player.facing_y), (-707, 707));
+        assert!(core.set_aim(x + (MAX_AIM_DISTANCE as i32) + 1, y).is_err());
+
+        // What an aim resolves to is ordinary player state: it is saved, and the save validator
+        // that bounds facing accepts it, because native produced it rather than the host.
+        let (definitions, technologies, scenarios) = catalogs();
+        let save = core.save_string().unwrap();
+        let restored = Core::from_save(&definitions, &technologies, &scenarios, &save).unwrap();
+        assert_eq!(
+            (restored.player.facing_x, restored.player.facing_y),
+            (-707, 707)
+        );
+    }
+
+    /// What keeps a pointer aiming and a touch layout facing the way it walks, with no stored
+    /// aiming mode for the save format and the checksum to carry: both commands write facing, and
+    /// whichever the host sent last in the batch is the one that stands.
+    #[test]
+    fn an_aim_later_in_the_batch_outranks_the_walk_direction() {
+        let mut core = game("new-game");
+        set_player_hex(&mut core, 0, 3);
+        let (x, y) = (core.player.x, core.player.y);
+        let batch = format!(
+            r#"[{{"type":"move_intent","x":1000,"y":0}},{{"type":"aim","x":{x},"y":{}}}]"#,
+            y - 4_000
+        );
+        core.advance(&batch, 0, 0).unwrap();
+        assert_eq!((core.player.facing_x, core.player.facing_y), (0, -1000));
+
+        // A frame with no aim in it — every frame of the touch layout — still faces the walk.
+        core.advance(IDLE_MOVE_EAST, 0, 0).unwrap();
+        assert_eq!((core.player.facing_x, core.player.facing_y), (1000, 0));
+    }
+
+    #[test]
+    fn integer_square_root_is_exact_on_squares_and_truncates_between_them() {
+        assert_eq!(integer_sqrt(0), 0);
+        assert_eq!(integer_sqrt(-9), 0);
+        for root in [1_i64, 2, 3, 1_000, 46_341, 3_037_000_499] {
+            assert_eq!(integer_sqrt(root * root), root);
+            assert_eq!(integer_sqrt(root * root - 1), root - 1);
+        }
     }
 
     #[test]

@@ -51,8 +51,11 @@ The Rust `Core` owns all state that can change a game result:
    everything). `deposit_candidates` and `resource_at_world` share that field predicate. Extractors
    harvest every field cell within hex radius 1, and a player's gather goes through the same
    `resource_at_world`, so an action reaches exactly what an extractor on that hex would. Facing is
-   not an input to it: nothing on screen shows which way the player points, so a facing-weighted
-   target drained a neighbouring cell's amount while the hex underfoot stayed full.
+   not an input to it: a facing-weighted target drained a neighbouring cell's amount while the hex
+   underfoot stayed full. Since v0.12.3 the player does point somewhere the player chose — `aim`
+   carries the world position under the cursor and native resolves the facing vector from it in
+   integer arithmetic — but where a pointer rests is not a hex the player has aimed at, so the
+   harvest still asks only which field the player is standing on or beside.
 6. A field cell's identity on the wire is its tile key, and nothing derived from it travels beside
    it. Snapshot numbers reach the host as JavaScript numbers, which are IEEE-754 doubles, so a
    64-bit id packed from two coordinates arrived rounded past 2^53 and a whole column of the field

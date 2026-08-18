@@ -274,6 +274,13 @@ export interface LinePreviewCell {
 
 export type NativeInputCommand =
   | { type: "move_intent"; x: number; y: number }
+  /**
+   * Point the player at a world position — the point under the cursor. The host sends the target
+   * and never the heading: facing is native, checksummed state, so the unit vector is resolved in
+   * Rust from the delta to the player rather than in host floating point. A frame that sends no
+   * aim leaves facing to the walk direction, which is what the touch layout relies on.
+   */
+  | { type: "aim"; x: number; y: number }
   | { type: "gather" }
   | { type: "deposit" }
   | {

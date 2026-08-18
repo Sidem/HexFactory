@@ -10,6 +10,7 @@ import {
 } from "./core/availability";
 import { FactoryHost } from "./core/FactoryHost";
 import { BoundedInputQueue, MOVEMENT_KEYS, movementIntent } from "./core/input";
+import { TERRAIN_INFO, TERRAIN_ORDER, terrainAccess } from "./core/terrain";
 import type {
   BuildingDefinition,
   EntitySnapshot,
@@ -17,13 +18,15 @@ import type {
   NativeInputCommand,
   PlacementPreview,
   RecipeDefinition,
-  Terrain,
+  WorldPoint,
 } from "./core/types";
 import {
   CanvasFactoryRenderer,
   isSurveyed,
 } from "./rendering/CanvasFactoryRenderer";
 import { itemIconSvg } from "./rendering/icons";
+import { findLandingHub, homeBearing } from "./rendering/landmarks";
+import { MinimapRenderer } from "./rendering/MinimapRenderer";
 import "./styles.css";
 
 type Tool = "inspect" | "erase" | "rotate" | number;
@@ -38,27 +41,14 @@ const DIRECTION_NAMES = [
   "Northeast",
 ];
 /**
- * What each terrain band is and what it means for play. Terrain is the material map now, so the
- * inspector naming a hex is the difference between a coloured tile and a reason to build there.
- *
- * Lowland is deliberately absent from the native terrain group — it is the default surveyed fill
- * and sending every cell of it would be most of the world — so a surveyed hex with no entry is
- * lowland. Anything outside the surveyed chunks is named as unsurveyed instead.
+ * Which key opens which panel. `I` and `O` are the pack and the research tree, `P` is the objective
+ * and the controls reference, and the inspector is deliberately absent: it is the one panel that
+ * stays on the world rather than waiting behind a key.
  */
-const TERRAIN_LABELS: Record<Terrain, { name: string; note: string }> = {
-  deep_water: { name: "Deep water", note: "Impassable · pump from the shore" },
-  shallow_water: {
-    name: "Shallow water",
-    note: "Impassable · pump from the shore",
-  },
-  shore: { name: "Shore", note: "Buildable · sand and clay" },
-  lowland: { name: "Lowland", note: "Buildable · wood, clay, crystal" },
-  hills: { name: "Hills", note: "Buildable · copper ore and coal" },
-  highland: { name: "Highland", note: "Buildable · iron ore, coal, crystal" },
-  cliff: {
-    name: "Cliff",
-    note: "Impassable · stone, quarried from the hex beside it",
-  },
+const PANEL_KEYS: Record<string, string> = {
+  KeyI: "inventory-panel",
+  KeyO: "research-panel",
+  KeyP: "quest-panel",
 };
 /**
  * A refusal the world itself already shows. The cooldown ring around the player says the wait is
@@ -75,6 +65,10 @@ const feedback = required<HTMLDivElement>("feedback");
 const input = new BoundedInputQueue();
 const host = await FactoryHost.create();
 const renderer = new CanvasFactoryRenderer(canvas, host.definitions);
+const minimap = new MinimapRenderer(
+  required<HTMLCanvasElement>("minimap"),
+  host.definitions,
+);
 
 let snapshot = host.snapshot();
 let playing = true;
@@ -117,6 +111,21 @@ const selectedRecipes = new Map<number, number>();
 /** The inspected machine and assignment the recipe select was last built for. */
 let inspectorRecipeKey = "";
 const pressedMovement = new Set<string>();
+/**
+ * Where the pointer last was, in client coordinates, while it was over the world. The aim is
+ * recomputed from it every frame rather than only on pointer movement, because a stationary cursor
+ * and a walking player is a changing bearing. A touch layout leaves this null and never aims, so
+ * there the walk direction still decides which way the player faces.
+ */
+let aimPointer: { x: number; y: number } | null = null;
+/** The whole-degree bearing the last aim was sent for, so a frame that changes nothing sends nothing. */
+let aimDegrees: number | null = null;
+/**
+ * Where the landing hub stands, cached per world rather than rescanned every frame: the hub does
+ * not move, and the scan is over every entity in the factory.
+ */
+let landingHub: WorldPoint | null = null;
+let landingHubWorld = "";
 let advancePending = false;
 let previewPending = false;
 let previewRequested = false;
@@ -136,7 +145,11 @@ for (const definition of host.definitions.buildings.filter(
 function update(next: FactorySnapshot): void {
   const previousVictory = snapshot.victory;
   snapshot = next;
+  refreshLandingHub();
+  renderer.setHome(landingHub);
   renderer.setSnapshot(snapshot);
+  minimap.setSnapshot(snapshot, landingHub);
+  renderHomeReadout();
   required<HTMLElement>("scenario-value").textContent = snapshot.scenario_name;
   required<HTMLElement>("tick-value").textContent =
     snapshot.tick.toLocaleString();
@@ -172,6 +185,34 @@ function update(next: FactorySnapshot): void {
   victory.hidden = !snapshot.victory;
   if (!previousVictory && snapshot.victory)
     showFeedback("Landing objective complete — free play continues");
+}
+
+/**
+ * The landing hub's world position, recomputed only when the world itself changes. A new game with
+ * a different seed is a different world even under the same scenario key, so both are in the key.
+ */
+function refreshLandingHub(): void {
+  const key = `${snapshot.scenario}:${snapshot.seed}`;
+  if (key === landingHubWorld) return;
+  landingHubWorld = key;
+  landingHub = findLandingHub(snapshot);
+}
+
+/**
+ * The way home, in words. The minimap answers this while home is on it and the marker on the edge
+ * of the view answers it at any distance; this is the same answer for a screen reader, and it is
+ * the reason the minimap is allowed to be a picture.
+ */
+function renderHomeReadout(): void {
+  const element = required<HTMLElement>("home-readout");
+  if (!landingHub) {
+    element.textContent = "No landing hub in this world";
+    return;
+  }
+  const bearing = homeBearing(snapshot.player, landingHub);
+  element.textContent = bearing
+    ? `Landing hub · ${bearing.hexes} hex ${DIRECTION_NAMES[bearing.direction]}`
+    : "Landing hub · you are here";
 }
 
 /**
@@ -250,7 +291,9 @@ function renderInventory(): void {
     );
   });
   required<HTMLElement>("carry-value").textContent =
-    `${stacks.length} / ${snapshot.player.carry_slots} slots`;
+    `${stacks.length} / ${snapshot.player.carry_slots}`;
+  required<HTMLElement>("carry-detail").textContent =
+    `${stacks.length} of ${snapshot.player.carry_slots} slots carried.`;
 }
 
 function renderHotbar(): void {
@@ -413,13 +456,14 @@ function renderInspector(): void {
       snapshot.terrain.find(
         ({ q, r }) => q === selected?.q && r === selected?.r,
       )?.terrain ?? "lowland";
-    const label = TERRAIN_LABELS[terrain];
-    if (resource) {
-      const buildable = label.note.split("·")[0]?.trim() ?? label.note;
-      lines.push(`${label.name} · ${buildable}`);
-    } else {
-      lines.push(`${label.name} · ${label.note}`);
-    }
+    const band = TERRAIN_INFO[terrain];
+    // What the player may do with the hex comes first, from the passability native decides. On a
+    // field cell the band's other materials are noise — the cell already says what it holds.
+    lines.push(
+      resource
+        ? `${band.name} · ${terrainAccess(band)}`
+        : `${band.name} · ${terrainAccess(band)} · ${band.note}`,
+    );
   } else {
     lines.push("Unsurveyed — travel here to lift the fog");
   }
@@ -524,9 +568,12 @@ function renderObjective(): void {
   const item = host.definitions.items.find(
     ({ id }) => id === snapshot.objective.item_id,
   );
-  required<HTMLElement>("objective-detail").textContent = snapshot.victory
+  const detail = snapshot.victory
     ? `Complete: ${snapshot.objective.delivered} ${item?.name ?? "items"} delivered. Continue building freely.`
     : `Deliver ${snapshot.objective.required} ${item?.name ?? "items"} to the landing hub. Progress: ${snapshot.objective.delivered}.`;
+  // The same sentence in both places it belongs: the completion banner and the objective panel.
+  required<HTMLElement>("objective-detail").textContent = detail;
+  required<HTMLElement>("quest-detail").textContent = detail;
   const progress = Math.min(
     100,
     (snapshot.objective.delivered / Math.max(1, snapshot.objective.required)) *
@@ -632,7 +679,7 @@ function setPlaying(value: boolean): void {
     "aria-label",
     playing ? "Pause simulation" : "Play simulation",
   );
-  playButton.title = playing ? "Pause simulation" : "Play simulation";
+  playButton.title = playing ? "Pause simulation (T)" : "Play simulation (T)";
 }
 
 function syncSessionInputs(next: FactorySnapshot): void {
@@ -724,12 +771,8 @@ required<HTMLButtonElement>("turn").addEventListener(
   "click",
   rotateNewBuilding,
 );
-required<HTMLButtonElement>("gather").addEventListener("click", () =>
-  enqueue({ type: "gather" }),
-);
-required<HTMLButtonElement>("deposit").addEventListener("click", () =>
-  enqueue({ type: "deposit" }),
-);
+// The dock's gather and deliver carry `data-native-action`, so they are wired here and only here:
+// a second listener bound to the same button by id sent the command twice.
 for (const button of document.querySelectorAll<HTMLButtonElement>(
   "[data-native-action]",
 )) {
@@ -877,7 +920,13 @@ window.addEventListener("keydown", (event) => {
   if (event.code === "Escape") {
     selectTool("inspect");
     closePanels();
-  } else if (event.code === "Space") setPlaying(!playing);
+  }
+  // Space centres the camera, which is what the button beside it does and what a player who has
+  // panned away needs most. Pause moved to T rather than fighting it for the key.
+  else if (event.code === "Space") renderer.recenter();
+  else if (event.code === "KeyT") setPlaying(!playing);
+  else if (event.code in PANEL_KEYS)
+    togglePanel(PANEL_KEYS[event.code] as string);
   else if (event.code === "KeyF") {
     // Held rather than tapped. The native action cooldown already paces this, so the repeat
     // cannot outrun the simulation.
@@ -908,12 +957,17 @@ window.addEventListener("keyup", (event) => {
 
 window.addEventListener("blur", () => {
   gatherHeld = false;
+  stopAiming();
   if (!pressedMovement.size) return;
   pressedMovement.clear();
   enqueue(movementIntent(pressedMovement));
 });
 
 canvas.addEventListener("pointermove", (event) => {
+  // Aiming survives panning and dragging: the player keeps facing the pointer whatever else the
+  // pointer is doing. Touch never aims, because a finger that is not on the glass points nowhere.
+  if (event.pointerType !== "touch")
+    aimPointer = { x: event.clientX, y: event.clientY };
   if (panPointer?.id === event.pointerId) {
     const dx = event.clientX - panPointer.x;
     const dy = event.clientY - panPointer.y;
@@ -989,6 +1043,7 @@ canvas.addEventListener("pointerup", (event) => {
 });
 canvas.addEventListener("pointercancel", (event) => endDrag(event.pointerId));
 canvas.addEventListener("pointerleave", () => {
+  stopAiming();
   if (!panPointer && !dragBuild) {
     hover = null;
     refreshHoverPreview();
@@ -1170,6 +1225,83 @@ function rotateNewBuilding(): void {
   setOrientation(rotateHexDirection(orientation, 1));
 }
 
+function stopAiming(): void {
+  aimPointer = null;
+  aimDegrees = null;
+}
+
+/**
+ * At most one aim per frame, and only when the bearing has actually moved.
+ *
+ * The command carries the world point under the cursor and native resolves the facing vector from
+ * it, so the host names a target and never a heading — facing is a checksum input. It is recomputed
+ * every frame rather than only on pointer movement because a stationary cursor and a walking player
+ * is a changing bearing, and the whole-degree threshold is what stops that costing a worker round
+ * trip per frame while the player stands still.
+ *
+ * It is enqueued last, immediately before the batch is drained, which is what makes an aim outrank
+ * the walk direction that `move_intent` also writes.
+ */
+function sendAim(): void {
+  if (!aimPointer) return;
+  const target = renderer.pickWorld(aimPointer.x, aimPointer.y);
+  const dx = target.x - snapshot.player.x;
+  const dy = target.y - snapshot.player.y;
+  if (dx === 0 && dy === 0) return;
+  const degrees = Math.round((Math.atan2(dy, dx) * 180) / Math.PI);
+  if (degrees === aimDegrees) return;
+  // A full queue leaves the bearing unrecorded, so the next frame tries again.
+  if (input.enqueue({ type: "aim", x: target.x, y: target.y }))
+    aimDegrees = degrees;
+}
+
+/** Open one panel, closing whichever other one was open, or close it if it already was. */
+function togglePanel(id: string): void {
+  const target = document.getElementById(id);
+  if (!target) return;
+  const opening = !target.classList.contains("open");
+  closePanels(target);
+  target.classList.toggle("open", opening);
+  syncPanelToggles();
+}
+
+function syncPanelToggles(): void {
+  for (const toggle of document.querySelectorAll<HTMLButtonElement>(
+    ".panel-toggle",
+  )) {
+    const target = document.getElementById(toggle.dataset.panelTarget ?? "");
+    toggle.setAttribute(
+      "aria-expanded",
+      String(target?.classList.contains("open") ?? false),
+    );
+  }
+}
+
+/**
+ * The band legend. It leads with the category rather than the colour — hatched swatches are the
+ * ground the player cannot stand on — and both halves come from the same table the renderer draws
+ * from, so the legend cannot describe a world the map is not drawing.
+ */
+function renderTerrainLegend(): void {
+  const element = required<HTMLDivElement>("terrain-legend");
+  for (const terrain of TERRAIN_ORDER) {
+    const band = TERRAIN_INFO[terrain];
+    const row = document.createElement("div");
+    row.setAttribute("role", "listitem");
+    const swatch = document.createElement("i");
+    swatch.style.setProperty("--band-fill", band.fill);
+    swatch.style.setProperty("--band-stroke", band.stroke);
+    if (!band.passable) swatch.className = "impassable";
+    const name = document.createElement("span");
+    name.textContent = band.name;
+    const access = document.createElement("small");
+    access.textContent = terrainAccess(band);
+    if (!band.passable) access.className = "impassable-label";
+    row.append(swatch, name, access);
+    element.append(row);
+  }
+}
+
 function frame(now: number): void {
   const elapsed = Math.min(250, now - previousTime);
   previousTime = now;
@@ -1185,6 +1317,8 @@ function frame(now: number): void {
     // A held gather repeats at frame rate and is paced natively by the action cooldown, so the
     // player holds the key instead of tapping it once per unit.
     if (gatherHeld && !input.size) input.enqueue({ type: "gather" });
+    // Last into the batch, so the cursor outranks the walk direction for this frame's facing.
+    sendAim();
     const commands = input.drain();
     const ticks = playing ? Math.min(20, Math.floor(accumulator / 1000)) : 0;
     const playerSteps = Math.min(20, Math.floor(playerAccumulator / 1000));
@@ -1239,28 +1373,15 @@ function closePanels(except?: HTMLElement): void {
     if (panel === except) continue;
     panel.classList.remove("open");
   }
-  for (const toggle of document.querySelectorAll<HTMLButtonElement>(
-    ".panel-toggle",
-  )) {
-    const target = document.getElementById(toggle.dataset.panelTarget ?? "");
-    toggle.setAttribute(
-      "aria-expanded",
-      String(target?.classList.contains("open") ?? false),
-    );
-  }
+  syncPanelToggles();
 }
 
 for (const toggle of document.querySelectorAll<HTMLButtonElement>(
   ".panel-toggle",
 )) {
-  toggle.addEventListener("click", () => {
-    const target = document.getElementById(toggle.dataset.panelTarget ?? "");
-    if (!target) return;
-    const opening = !target.classList.contains("open");
-    closePanels(target);
-    target.classList.toggle("open", opening);
-    toggle.setAttribute("aria-expanded", String(opening));
-  });
+  toggle.addEventListener("click", () =>
+    togglePanel(toggle.dataset.panelTarget ?? ""),
+  );
 }
 
 for (const close of document.querySelectorAll<HTMLButtonElement>(
@@ -1305,6 +1426,7 @@ function part<T extends HTMLElement>(root: HTMLElement, selector: string): T {
   return element;
 }
 
+renderTerrainLegend();
 update(snapshot);
 syncSessionInputs(snapshot);
 updateContinueState();
