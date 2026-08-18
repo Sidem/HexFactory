@@ -13,7 +13,7 @@ type DefinitionId = u16;
 type TechnologyId = u16;
 
 const SAVE_PREFIX: &str = "HXF1\n";
-const SAVE_VERSION: u16 = 5;
+const SAVE_VERSION: u16 = 6;
 const WORLD_GENERATOR_VERSION: u16 = 5;
 const MAX_COMMANDS_PER_BATCH: usize = 8;
 /// A drag is one bounded command, so the run it expands into has to be bounded too. This is the
@@ -56,6 +56,11 @@ const MAX_AIM_DISTANCE: i64 = 1 << 30;
 /// How far a pump reaches for open water. One hex, like every other radius in the game, so a pump
 /// stands on buildable ground at the edge of a basin rather than in it.
 const PUMP_RADIUS: i32 = 1;
+/// Default hex reach from a machine to a pole, and from a pole to another pole.
+const DEFAULT_POWER_REACH: i32 = 2;
+const DEFAULT_POLE_REACH: i32 = 4;
+/// Water as a belted item. Boilers drink it; a fluid network is not this milestone.
+const WATER_ITEM: ItemId = 10;
 
 fn default_footprint() -> Vec<Coordinate> {
     vec![Coordinate { q: 0, r: 0 }]
@@ -141,6 +146,18 @@ struct BuildingDefinition {
     /// output is content, not a branch in the tick.
     #[serde(default)]
     output_item_id: Option<ItemId>,
+    /// Electricity drawn every tick while this machine is on a network. Zero or absent: no draw.
+    #[serde(default)]
+    power_draw: Option<u32>,
+    /// Electricity offered every tick this generator is live.
+    #[serde(default)]
+    power_output: Option<u32>,
+    #[serde(default)]
+    power_reach: Option<u32>,
+    #[serde(default)]
+    pole_reach: Option<u32>,
+    #[serde(default)]
+    power_source: Option<PowerSource>,
     construction_cost: Vec<Ingredient>,
     #[serde(default)]
     unlock_technology_id: Option<TechnologyId>,
@@ -164,6 +181,18 @@ enum BuildingKind {
     /// it is a kind of its own and the smelter, kiln, cutter, and crusher are not: they are all a
     /// composer running a recipe, and a pump is a different source.
     Pump,
+    Pole,
+    Generator,
+    Boiler,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+enum PowerSource {
+    Burner,
+    Wind,
+    Hydro,
+    Turbine,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
@@ -173,6 +202,8 @@ enum PlacementRule {
     Resource,
     /// Buildable ground with open water inside `PUMP_RADIUS`.
     Water,
+    /// Hills or highland — the same bands iron, coal, and copper already occupy.
+    Elevated,
 }
 
 #[derive(Clone, Deserialize)]
@@ -337,6 +368,9 @@ struct Entity {
     /// not the same machine as one that has just been fed.
     #[serde(default)]
     fuel_charge: u32,
+    /// Remainder of `base * satisfied / demand` so brownouts pay exact work over time.
+    #[serde(default)]
+    power_remainder: u32,
 }
 
 #[derive(Clone, Debug, Serialize, PartialEq, Eq)]
@@ -466,6 +500,14 @@ enum EntityStatus {
     LandingHub,
     #[serde(rename = "idle")]
     Idle,
+    #[serde(rename = "no power")]
+    NoPower,
+    #[serde(rename = "generating")]
+    Generating,
+    #[serde(rename = "brownout")]
+    Brownout,
+    #[serde(rename = "no boiler")]
+    NoBoiler,
 }
 
 #[derive(Clone, Debug, Serialize, PartialEq, Eq)]
@@ -494,6 +536,11 @@ struct EntitySnapshot {
     fuel_charge: u32,
     #[serde(skip_serializing_if = "is_zero")]
     fuel_required: u32,
+    /// Network supply and demand, both sent so the host draws a proportion it was given.
+    #[serde(skip_serializing_if = "is_zero")]
+    power_satisfied: u32,
+    #[serde(skip_serializing_if = "is_zero")]
+    power_demand: u32,
     status: EntityStatus,
     next_id: Option<u32>,
     footprint: Vec<Coordinate>,
@@ -876,6 +923,13 @@ struct Core {
     flora_regrowth: BTreeSet<(i32, i32)>,
     entities: Vec<Entity>,
     graph: Vec<Option<usize>>,
+    /// Per-entity power network id (`None` = not on a network). Derived like `graph`.
+    power_of: Vec<Option<u32>>,
+    /// Last tick's supply and demand per network id.
+    power_supply: BTreeMap<u32, u32>,
+    power_demand: BTreeMap<u32, u32>,
+    /// Capacity harness only: consumers run at full speed so the ladder still measures transport.
+    power_unmetered: bool,
     player: PlayerState,
     researched: BTreeSet<TechnologyId>,
     next_entity_id: u32,
@@ -931,6 +985,10 @@ impl Core {
             flora_regrowth: BTreeSet::new(),
             entities: Vec::new(),
             graph: Vec::new(),
+            power_of: Vec::new(),
+            power_supply: BTreeMap::new(),
+            power_demand: BTreeMap::new(),
+            power_unmetered: false,
             player: PlayerState {
                 x: axial_world(scenario.player_spawn.q, scenario.player_spawn.r).0,
                 y: axial_world(scenario.player_spawn.q, scenario.player_spawn.r).1,
@@ -983,6 +1041,7 @@ impl Core {
                 reserved_inputs: BTreeMap::new(),
                 progress: 0,
                 fuel_charge: 0,
+                power_remainder: 0,
             });
             core.next_entity_id += 1;
         }
@@ -1376,6 +1435,7 @@ impl Core {
             .enumerate()
             .map(|(index, _)| self.compile_graph_target(index, &occupied))
             .collect();
+        self.compile_power();
         // A full compile can move any entity's outgoing link, and `next_id` is part of its snapshot.
         self.mark_all_entities_dirty();
     }
@@ -1409,6 +1469,339 @@ impl Core {
             }
         }
         None
+    }
+
+    fn compile_power(&mut self) {
+        let n = self.entities.len();
+        self.power_of = vec![None; n];
+        self.power_supply.clear();
+        self.power_demand.clear();
+        if n == 0 {
+            return;
+        }
+        let mut parent: Vec<usize> = (0..n).collect();
+        let find = |parent: &mut [usize], mut index: usize| -> usize {
+            while parent[index] != index {
+                parent[index] = parent[parent[index]];
+                index = parent[index];
+            }
+            index
+        };
+        let union = |parent: &mut [usize], a: usize, b: usize, ids: &[u32]| {
+            let pa = find(parent, a);
+            let pb = find(parent, b);
+            if pa == pb {
+                return;
+            }
+            if ids[pa] < ids[pb] {
+                parent[pb] = pa;
+            } else {
+                parent[pa] = pb;
+            }
+        };
+        let ids: Vec<u32> = self.entities.iter().map(|entity| entity.id).collect();
+        let poles: Vec<usize> = (0..n)
+            .filter(|&index| {
+                self.building_definition(self.entities[index].placed.definition_id)
+                    .is_some_and(|definition| definition.kind == BuildingKind::Pole)
+            })
+            .collect();
+        let machines: Vec<usize> = (0..n)
+            .filter(|&index| {
+                let Some(definition) =
+                    self.building_definition(self.entities[index].placed.definition_id)
+                else {
+                    return false;
+                };
+                definition.kind != BuildingKind::Pole
+                    && (definition.power_output.unwrap_or(0) > 0
+                        || definition.power_draw.unwrap_or(0) > 0)
+            })
+            .collect();
+        // Poles form the long-range graph. Machines attach only to poles, so a plant of
+        // extractors with no poles is linear rather than quadratic.
+        for (offset, &left) in poles.iter().enumerate() {
+            for &right in &poles[offset + 1..] {
+                if self.power_linked(left, right) {
+                    union(&mut parent, left, right, &ids);
+                }
+            }
+        }
+        for &machine in &machines {
+            for &pole in &poles {
+                if self.power_linked(machine, pole) {
+                    union(&mut parent, machine, pole, &ids);
+                }
+            }
+        }
+        for index in poles.into_iter().chain(machines) {
+            let root = find(&mut parent, index);
+            self.power_of[index] = Some(ids[root]);
+        }
+        self.refresh_power();
+    }
+
+    fn power_linked(&self, left: usize, right: usize) -> bool {
+        let Some(a) = self.building_definition(self.entities[left].placed.definition_id) else {
+            return false;
+        };
+        let Some(b) = self.building_definition(self.entities[right].placed.definition_id) else {
+            return false;
+        };
+        let distance = self.power_distance(left, right);
+        let a_pole = a.kind == BuildingKind::Pole;
+        let b_pole = b.kind == BuildingKind::Pole;
+        if a_pole && b_pole {
+            let reach = i32::max(
+                a.pole_reach.unwrap_or(DEFAULT_POLE_REACH as u32) as i32,
+                b.pole_reach.unwrap_or(DEFAULT_POLE_REACH as u32) as i32,
+            );
+            return distance <= reach;
+        }
+        if a_pole || b_pole {
+            let machine = if a_pole { b } else { a };
+            let reach = machine.power_reach.unwrap_or(DEFAULT_POWER_REACH as u32) as i32;
+            return distance <= reach;
+        }
+        false
+    }
+
+    fn power_distance(&self, left: usize, right: usize) -> i32 {
+        let mut best = i32::MAX;
+        for a in self.entity_footprint(&self.entities[left]) {
+            for b in self.entity_footprint(&self.entities[right]) {
+                best = best.min(axial_distance((a.q, a.r), (b.q, b.r)));
+            }
+        }
+        best
+    }
+
+    fn refresh_power(&mut self) {
+        let previous_supply = self.power_supply.clone();
+        let previous_demand = self.power_demand.clone();
+        self.power_supply.clear();
+        self.power_demand.clear();
+        for index in 0..self.entities.len() {
+            let Some(net) = self.power_of.get(index).copied().flatten() else {
+                continue;
+            };
+            let definition_id = self.entities[index].placed.definition_id;
+            let draw = self
+                .building_definition(definition_id)
+                .and_then(|definition| definition.power_draw)
+                .filter(|&value| value > 0);
+            let output = self
+                .building_definition(definition_id)
+                .and_then(|definition| definition.power_output)
+                .unwrap_or(0);
+            if let Some(draw) = draw {
+                *self.power_demand.entry(net).or_default() += draw;
+            }
+            if output > 0 {
+                *self.power_supply.entry(net).or_default() += self.generator_output_now(index);
+            }
+        }
+        if self.power_unmetered {
+            self.power_supply = self.power_demand.clone();
+        }
+        if self.power_supply != previous_supply || self.power_demand != previous_demand {
+            for index in 0..self.entities.len() {
+                if self.power_of.get(index).copied().flatten().is_some() {
+                    self.dirty.entities.push(self.entities[index].id);
+                }
+            }
+        }
+    }
+
+    fn generator_output_now(&self, index: usize) -> u32 {
+        let Some(definition) = self.building_definition(self.entities[index].placed.definition_id)
+        else {
+            return 0;
+        };
+        let output = definition.power_output.unwrap_or(0);
+        if output == 0 {
+            return 0;
+        }
+        match definition.power_source {
+            Some(PowerSource::Burner) => {
+                if self.generator_has_fuel(index) {
+                    output
+                } else {
+                    0
+                }
+            }
+            Some(PowerSource::Wind) => output,
+            Some(PowerSource::Hydro) => {
+                let placed = self.entities[index].placed;
+                if self.water_within_reach(placed.q, placed.r) {
+                    output
+                } else {
+                    0
+                }
+            }
+            Some(PowerSource::Turbine) => {
+                if self.adjacent_live_boiler(index) {
+                    output
+                } else {
+                    0
+                }
+            }
+            None => 0,
+        }
+    }
+
+    fn generator_has_fuel(&self, index: usize) -> bool {
+        let entity = &self.entities[index];
+        entity.fuel_charge > 0 || self.burnable_item(&entity.inventory, &[]).is_some()
+    }
+
+    fn boiler_live(&self, index: usize) -> bool {
+        let entity = &self.entities[index];
+        entity.inventory.get(&WATER_ITEM).copied().unwrap_or(0) >= 1
+            && (entity.fuel_charge > 0 || self.burnable_item(&entity.inventory, &[]).is_some())
+    }
+
+    fn adjacent_live_boiler(&self, index: usize) -> bool {
+        for cell in self.entity_footprint(&self.entities[index]) {
+            for &(dq, dr) in &DIRECTIONS {
+                if let Some(other) = self.entity_at(cell.q + dq, cell.r + dr) {
+                    if self.entities[other].kind == BuildingKind::Boiler && self.boiler_live(other)
+                    {
+                        return true;
+                    }
+                }
+            }
+        }
+        false
+    }
+
+    fn power_progress(&mut self, index: usize, base: u32) -> u32 {
+        if self.power_unmetered || base == 0 {
+            return base;
+        }
+        let draw = self
+            .building_definition(self.entities[index].placed.definition_id)
+            .and_then(|definition| definition.power_draw)
+            .unwrap_or(0);
+        if draw == 0 {
+            return base;
+        }
+        let Some(net) = self.power_of.get(index).copied().flatten() else {
+            return 0;
+        };
+        let demand = self.power_demand.get(&net).copied().unwrap_or(0);
+        if demand == 0 {
+            return base;
+        }
+        let supply = self.power_supply.get(&net).copied().unwrap_or(0);
+        let satisfied = supply.min(demand);
+        if satisfied == 0 {
+            return 0;
+        }
+        let remainder = self.entities[index].power_remainder;
+        let combined = u64::from(base) * u64::from(satisfied) + u64::from(remainder);
+        let add = combined / u64::from(demand);
+        self.entities[index].power_remainder = (combined % u64::from(demand)) as u32;
+        add as u32
+    }
+
+    fn entity_powered(&self, index: usize) -> bool {
+        if self.power_unmetered {
+            return true;
+        }
+        let draw = self
+            .building_definition(self.entities[index].placed.definition_id)
+            .and_then(|definition| definition.power_draw)
+            .unwrap_or(0);
+        if draw == 0 {
+            return true;
+        }
+        let Some(net) = self.power_of.get(index).copied().flatten() else {
+            return false;
+        };
+        self.power_supply.get(&net).copied().unwrap_or(0) > 0
+    }
+
+    fn network_of(&self, index: usize) -> (u32, u32) {
+        let Some(net) = self.power_of.get(index).copied().flatten() else {
+            return (0, 0);
+        };
+        (
+            self.power_supply.get(&net).copied().unwrap_or(0),
+            self.power_demand.get(&net).copied().unwrap_or(0),
+        )
+    }
+
+    fn advance_power_plants(&mut self) {
+        let mut order: Vec<usize> = (0..self.entities.len()).collect();
+        order.sort_by_key(|&index| self.entities[index].id);
+        for index in order {
+            match self.entities[index].kind {
+                BuildingKind::Generator => self.advance_generator(index),
+                BuildingKind::Boiler => self.advance_boiler(index),
+                _ => {}
+            }
+        }
+    }
+
+    fn advance_generator(&mut self, index: usize) {
+        let Some(definition) = self.building_definition(self.entities[index].placed.definition_id)
+        else {
+            return;
+        };
+        if definition.power_source != Some(PowerSource::Burner) {
+            return;
+        }
+        let Some(net) = self.power_of.get(index).copied().flatten() else {
+            return;
+        };
+        if self.power_demand.get(&net).copied().unwrap_or(0) == 0 {
+            return;
+        }
+        if !self.charge_fuel(index, 1, &[]) {
+            return;
+        }
+        self.entities[index].fuel_charge -= 1;
+        let id = self.entities[index].id;
+        self.dirty.entities.push(id);
+    }
+
+    fn advance_boiler(&mut self, index: usize) {
+        if !self.adjacent_turbine(index) || !self.boiler_live(index) {
+            return;
+        }
+        if !self.charge_fuel(index, 1, &[]) {
+            return;
+        }
+        if self.entities[index]
+            .inventory
+            .get(&WATER_ITEM)
+            .copied()
+            .unwrap_or(0)
+            < 1
+        {
+            return;
+        }
+        subtract_item(&mut self.entities[index].inventory, WATER_ITEM, 1);
+        self.entities[index].fuel_charge -= 1;
+        let id = self.entities[index].id;
+        self.dirty.entities.push(id);
+    }
+
+    fn adjacent_turbine(&self, index: usize) -> bool {
+        for cell in self.entity_footprint(&self.entities[index]) {
+            for &(dq, dr) in &DIRECTIONS {
+                if let Some(other) = self.entity_at(cell.q + dq, cell.r + dr) {
+                    let source = self
+                        .building_definition(self.entities[other].placed.definition_id)
+                        .and_then(|definition| definition.power_source);
+                    if source == Some(PowerSource::Turbine) {
+                        return true;
+                    }
+                }
+            }
+        }
+        false
     }
 
     fn graph_links_by_id(&self) -> BTreeMap<u32, Option<u32>> {
@@ -1511,6 +1904,7 @@ impl Core {
             .filter(|id| indices_by_id.contains_key(id))
             .count();
         self.graph = graph;
+        self.compile_power();
         // Exactly the entities whose outgoing link was recomputed, so their `next_id` may differ.
         self.dirty.entities.extend(
             affected
@@ -1530,7 +1924,9 @@ impl Core {
 
     fn advance_ticks(&mut self, count: u32) {
         for _ in 0..count {
+            self.refresh_power();
             self.advance_machines();
+            self.advance_power_plants();
             self.transfer_cargo();
             self.tick += 1;
             self.regrow_flora();
@@ -1583,11 +1979,15 @@ impl Core {
             self.entities[index].progress = 0;
             return;
         }
+        let add = self.power_progress(index, 1);
+        if add == 0 {
+            return;
+        }
         let cadence = self
             .building_definition(definition_id)
             .and_then(|definition| definition.cadence)
             .unwrap_or(1);
-        self.entities[index].progress += 1;
+        self.entities[index].progress += add;
         if self.entities[index].progress < cadence {
             return;
         }
@@ -1643,7 +2043,11 @@ impl Core {
             self.entities[index].progress = 0;
             return;
         }
-        self.entities[index].progress += 1;
+        let add = self.power_progress(index, 1);
+        if add == 0 {
+            return;
+        }
+        self.entities[index].progress += add;
         if self.entities[index].progress < cadence {
             return;
         }
@@ -1713,7 +2117,7 @@ impl Core {
         if self.entities[index].progress > 0 {
             let id = self.entities[index].id;
             self.dirty.entities.push(id);
-            self.entities[index].progress += 1;
+            self.entities[index].progress += self.power_progress(index, 1);
             if self.entities[index].progress >= recipe.duration {
                 self.entities[index].cargo = Some(Cargo {
                     item_id: recipe.output.item_id,
@@ -1734,7 +2138,10 @@ impl Core {
         });
         // Fuel is charged at the moment a craft starts, beside the inputs it reserves, so a
         // half-finished job can never be holding energy it has not paid for.
-        if can_start && self.charge_fuel(index, recipe.fuel, &recipe.inputs) {
+        if can_start
+            && self.entity_powered(index)
+            && self.charge_fuel(index, recipe.fuel, &recipe.inputs)
+        {
             let id = self.entities[index].id;
             self.dirty.entities.push(id);
             self.entities[index].fuel_charge -= recipe.fuel;
@@ -1837,14 +2244,30 @@ impl Core {
                 inventory_total(&entity.inventory) + cargo.quantity <= capacity
             }
             BuildingKind::Consumer | BuildingKind::Hub => true,
-            BuildingKind::Extractor | BuildingKind::Pump => false,
+            BuildingKind::Extractor | BuildingKind::Pump | BuildingKind::Pole => false,
+            BuildingKind::Generator | BuildingKind::Boiler => {
+                let burns = self
+                    .item_definition(cargo.item_id)
+                    .and_then(|item| item.fuel_value)
+                    .unwrap_or(0)
+                    > 0;
+                let water = entity.kind == BuildingKind::Boiler && cargo.item_id == WATER_ITEM;
+                let capacity = self
+                    .building_definition(entity.placed.definition_id)
+                    .and_then(|definition| definition.capacity)
+                    .unwrap_or(u32::MAX);
+                (burns || water) && inventory_total(&entity.inventory) + cargo.quantity <= capacity
+            }
         }
     }
 
     fn accept(&mut self, target: usize, cargo: Cargo) {
         match self.entities[target].kind {
             BuildingKind::Belt => self.entities[target].cargo = Some(cargo),
-            BuildingKind::Composer | BuildingKind::Container => {
+            BuildingKind::Composer
+            | BuildingKind::Container
+            | BuildingKind::Generator
+            | BuildingKind::Boiler => {
                 *self.entities[target]
                     .inventory
                     .entry(cargo.item_id)
@@ -1857,7 +2280,7 @@ impl Core {
                 self.check_victory();
             }
             BuildingKind::Hub => self.deliver_to_hub(cargo.item_id, cargo.quantity),
-            BuildingKind::Extractor | BuildingKind::Pump => {
+            BuildingKind::Extractor | BuildingKind::Pump | BuildingKind::Pole => {
                 unreachable!("sources reject cargo")
             }
         }
@@ -2129,7 +2552,13 @@ impl Core {
             return Err("extractors require a non-empty deposit".into());
         }
         if definition.placement_rule == PlacementRule::Water && !self.water_within_reach(q, r) {
-            return Err("pumps must be placed beside open water".into());
+            return Err("must be placed beside open water".into());
+        }
+        if definition.placement_rule == PlacementRule::Elevated {
+            let terrain = self.terrain_at(q, r);
+            if !matches!(terrain, Terrain::Hills | Terrain::Highland) {
+                return Err("wind turbines must stand on hills or highland".into());
+            }
         }
         if definition.kind == BuildingKind::Composer {
             let id = recipe_id.ok_or("this machine requires a recipe")?;
@@ -2211,6 +2640,7 @@ impl Core {
             reserved_inputs: BTreeMap::new(),
             progress: 0,
             fuel_charge: 0,
+            power_remainder: 0,
         });
         self.next_entity_id += 1;
         self.undo_stack.push(id);
@@ -2728,19 +3158,28 @@ impl Core {
     /// entity count, where the equivalent tile scan made it quadratic.
     fn status_of(
         &self,
-        entity: &Entity,
+        index: usize,
         deposit_available: bool,
         fuel_ready: bool,
+        powered: bool,
+        brownout: bool,
     ) -> EntityStatus {
+        let entity = &self.entities[index];
         match entity.kind {
             BuildingKind::Extractor if entity.cargo.is_some() => EntityStatus::OutputBlocked,
             BuildingKind::Extractor if !deposit_available => EntityStatus::DepositDepleted,
+            BuildingKind::Extractor if !powered => EntityStatus::NoPower,
+            BuildingKind::Extractor if brownout => EntityStatus::Brownout,
             BuildingKind::Extractor if entity.progress > 0 => EntityStatus::Extracting,
             BuildingKind::Pump if entity.cargo.is_some() => EntityStatus::OutputBlocked,
             BuildingKind::Pump if !deposit_available => EntityStatus::NoWaterInReach,
+            BuildingKind::Pump if !powered => EntityStatus::NoPower,
+            BuildingKind::Pump if brownout => EntityStatus::Brownout,
             BuildingKind::Pump => EntityStatus::Pumping,
             BuildingKind::Composer if entity.cargo.is_some() => EntityStatus::OutputBlocked,
+            BuildingKind::Composer if entity.progress > 0 && brownout => EntityStatus::Brownout,
             BuildingKind::Composer if entity.progress > 0 => EntityStatus::Composing,
+            BuildingKind::Composer if !powered => EntityStatus::NoPower,
             BuildingKind::Composer if !fuel_ready => EntityStatus::OutOfFuel,
             BuildingKind::Composer => EntityStatus::WaitingForInputs,
             BuildingKind::Container if inventory_total(&entity.inventory) > 0 => {
@@ -2749,6 +3188,28 @@ impl Core {
             BuildingKind::Belt if entity.cargo.is_some() => EntityStatus::Carrying,
             BuildingKind::Consumer => EntityStatus::Receiving,
             BuildingKind::Hub => EntityStatus::LandingHub,
+            BuildingKind::Generator => self.generator_status(index),
+            BuildingKind::Boiler if self.boiler_live(index) => EntityStatus::Generating,
+            BuildingKind::Boiler
+                if entity.inventory.get(&WATER_ITEM).copied().unwrap_or(0) == 0 =>
+            {
+                EntityStatus::WaitingForInputs
+            }
+            BuildingKind::Boiler => EntityStatus::OutOfFuel,
+            _ => EntityStatus::Idle,
+        }
+    }
+
+    fn generator_status(&self, index: usize) -> EntityStatus {
+        let source = self
+            .building_definition(self.entities[index].placed.definition_id)
+            .and_then(|definition| definition.power_source);
+        match source {
+            Some(PowerSource::Burner) if !self.generator_has_fuel(index) => EntityStatus::OutOfFuel,
+            Some(PowerSource::Turbine) if !self.adjacent_live_boiler(index) => {
+                EntityStatus::NoBoiler
+            }
+            _ if self.generator_output_now(index) > 0 => EntityStatus::Generating,
             _ => EntityStatus::Idle,
         }
     }
@@ -2776,6 +3237,9 @@ impl Core {
             .and_then(|id| self.recipe(id))
             .map_or(0, |recipe| recipe.fuel);
         let fuel_ready = self.fuel_ready(entity);
+        let powered = self.entity_powered(index);
+        let (power_satisfied, power_demand) = self.network_of(index);
+        let brownout = powered && power_demand > 0 && power_satisfied < power_demand;
         let progress_total = match entity.kind {
             BuildingKind::Extractor | BuildingKind::Pump => self
                 .building_definition(entity.placed.definition_id)
@@ -2789,7 +3253,9 @@ impl Core {
                 .unwrap_or(0),
             _ => 0,
         };
-        EntitySnapshot {
+        let footprint = self.entity_footprint(entity);
+        let next_id = self.graph[index].map(|target| self.entities[target].id);
+        let snapshot = EntitySnapshot {
             id: entity.id,
             q: entity.placed.q,
             r: entity.placed.r,
@@ -2808,10 +3274,15 @@ impl Core {
             progress_total,
             fuel_charge: entity.fuel_charge,
             fuel_required,
-            status: self.status_of(entity, deposit_available, fuel_ready),
-            next_id: self.graph[index].map(|target| self.entities[target].id),
-            footprint: self.entity_footprint(entity),
-        }
+            power_satisfied,
+            power_demand,
+            status: EntityStatus::Idle,
+            next_id,
+            footprint,
+        };
+        let mut snapshot = snapshot;
+        snapshot.status = self.status_of(index, deposit_available, fuel_ready, powered, brownout);
+        snapshot
     }
 
     /// Every entity, in ascending stable id order.
@@ -3007,6 +3478,7 @@ impl Core {
             hash_u32(&mut hash, u32::from(entity.placed.scenario_owned));
             hash_u32(&mut hash, entity.progress);
             hash_u32(&mut hash, entity.fuel_charge);
+            hash_u32(&mut hash, entity.power_remainder);
             hash_inventory(&mut hash, &entity.inventory);
             hash_inventory(&mut hash, &entity.reserved_inputs);
             if let Some(cargo) = entity.cargo {
@@ -3651,9 +4123,22 @@ fn validate_definitions(definitions: &DefinitionsInput) -> Result<(), String> {
                 building.id
             ));
         }
-        if building.placement_rule == PlacementRule::Water && building.kind != BuildingKind::Pump {
+        if building.placement_rule == PlacementRule::Water
+            && !matches!(
+                building.kind,
+                BuildingKind::Pump | BuildingKind::Boiler | BuildingKind::Generator
+            )
+        {
             return Err(format!(
-                "building {} places on water but is not a pump",
+                "building {} places on water but cannot draw from a basin",
+                building.id
+            ));
+        }
+        if building.kind == BuildingKind::Generator
+            && (building.power_source.is_none() || building.power_output.unwrap_or(0) == 0)
+        {
+            return Err(format!(
+                "generator {} needs a power source and an output",
                 building.id
             ));
         }
@@ -4735,6 +5220,9 @@ pub mod capacity {
         .expect("capacity scenario is valid");
         let mut core =
             Core::new(&definitions, &technologies, &scenario, None).expect("capacity core builds");
+        // The ladder measures transport, not the power constraint. Unmetered supply keeps
+        // delivered totals and the tick path honest without adding a pole per line.
+        core.power_unmetered = true;
         core.advance_ticks(spec.warmup_ticks);
         core
     }
@@ -5246,6 +5734,65 @@ mod tests {
         *previous = current;
     }
 
+    #[test]
+    fn a_pole_and_burner_run_an_extractor_and_a_dark_one_does_not() {
+        let mut dark = game("new-game");
+        dark.power_unmetered = false;
+        dark.researched.extend([1, 2, 8]);
+        dark.player.inventory.insert(1, 20);
+        dark.player.inventory.insert(3, 4);
+        dark.player.inventory.insert(6, 8);
+        dark.player.inventory.insert(5, 8);
+        set_player_hex(&mut dark, 1, 0);
+        dark.place(3, 0, 1, 0, None).unwrap();
+        dark.tick_many(20);
+        let extractor = dark
+            .entities
+            .iter()
+            .find(|entity| entity.kind == BuildingKind::Extractor)
+            .unwrap();
+        assert!(extractor.cargo.is_none());
+        assert_eq!(
+            dark.entity_snapshot(
+                dark.entities
+                    .iter()
+                    .position(|entity| entity.kind == BuildingKind::Extractor)
+                    .unwrap()
+            )
+            .status,
+            EntityStatus::NoPower
+        );
+
+        let mut lit = game("new-game");
+        lit.power_unmetered = false;
+        lit.researched.extend([1, 2, 8]);
+        lit.player.inventory.insert(1, 20);
+        lit.player.inventory.insert(3, 4);
+        lit.player.inventory.insert(6, 8);
+        lit.player.inventory.insert(5, 8);
+        set_player_hex(&mut lit, 1, 0);
+        lit.place(3, 0, 1, 0, None).unwrap();
+        let pole = try_place_near(&mut lit, (3, 0), 12);
+        try_place_near(&mut lit, pole, 13);
+        let burner = lit
+            .entities
+            .iter()
+            .position(|entity| entity.kind == BuildingKind::Generator)
+            .unwrap();
+        lit.entities[burner].inventory.insert(5, 8);
+        lit.tick_many(20);
+        let extractor = lit
+            .entities
+            .iter()
+            .find(|entity| entity.kind == BuildingKind::Extractor)
+            .unwrap();
+        assert!(extractor.cargo.is_some() || extractor.progress > 0);
+        let snapshot = lit.entity_snapshot(burner);
+        assert_eq!(snapshot.status, EntityStatus::Generating);
+        assert!(snapshot.power_demand > 0);
+        assert!(snapshot.power_satisfied > 0);
+    }
+
     fn game(key: &str) -> Core {
         let (definitions, technologies, scenarios) = catalogs();
         let scenario = scenarios
@@ -5253,7 +5800,10 @@ mod tests {
             .iter()
             .find(|value| value.key == key)
             .unwrap();
-        Core::new(&definitions, &technologies, scenario, None).unwrap()
+        let mut core = Core::new(&definitions, &technologies, scenario, None).unwrap();
+        // Isolated machine tests are not the power suite. They opt into the constraint.
+        core.power_unmetered = true;
+        core
     }
 
     /// Wait out a gather cooldown the way a player does — on their own clock, with the factory
@@ -5265,6 +5815,28 @@ mod tests {
     fn set_player_hex(core: &mut Core, q: i32, r: i32) {
         (core.player.x, core.player.y) = axial_world(q, r);
         core.ensure_neighborhood(core.player.x, core.player.y);
+    }
+
+    fn try_place_near(
+        core: &mut Core,
+        origin: (i32, i32),
+        definition_id: DefinitionId,
+    ) -> (i32, i32) {
+        for radius in 1..=6 {
+            for dq in -radius..=radius {
+                for dr in -radius..=radius {
+                    if axial_distance((0, 0), (dq, dr)) != radius {
+                        continue;
+                    }
+                    let q = origin.0 + dq;
+                    let r = origin.1 + dr;
+                    if core.place(q, r, definition_id, 0, None).is_ok() {
+                        return (q, r);
+                    }
+                }
+            }
+        }
+        panic!("no legal site for definition {definition_id} near {origin:?}");
     }
 
     fn add_test_belt(core: &mut Core, q: i32, r: i32, orientation: u8) -> u32 {
@@ -5286,6 +5858,7 @@ mod tests {
             reserved_inputs: BTreeMap::new(),
             progress: 0,
             fuel_charge: 0,
+            power_remainder: 0,
         });
         id
     }
@@ -6655,19 +7228,35 @@ mod tests {
     #[test]
     fn complete_native_progression_reaches_persistent_victory() {
         let mut core = game("new-game");
-        core.player.inventory.insert(1, 8);
+        core.power_unmetered = false;
+        core.player.inventory.insert(1, 12);
         core.player.inventory.insert(3, 4);
         set_player_hex(&mut core, 1, 0);
         core.deposit_inventory().unwrap();
         core.research(1).unwrap();
+        core.research(8).unwrap();
         core.research(2).unwrap();
         core.research(3).unwrap();
         core.player.inventory.insert(1, 30);
         core.player.inventory.insert(3, 8);
+        core.player.inventory.insert(5, 16);
+        core.player.inventory.insert(6, 8);
         set_player_hex(&mut core, 3, 1);
         core.place(3, 0, 1, 3, None).unwrap();
         core.place(2, 0, 2, 3, None).unwrap();
         core.place(1, 0, 3, 3, Some(1)).unwrap();
+        set_player_hex(&mut core, 6, 0);
+        let pole = try_place_near(&mut core, (3, 0), 12);
+        let burner = try_place_near(&mut core, pole, 13);
+        try_place_near(&mut core, (1, 0), 12);
+        let _ = burner;
+        if let Some(burner) = core
+            .entities
+            .iter_mut()
+            .find(|entity| entity.kind == BuildingKind::Generator)
+        {
+            burner.inventory.insert(5, 16);
+        }
         core.tick_many(500);
         assert!(core.victory);
         let checksum = core.checksum();
@@ -6690,7 +7279,7 @@ mod tests {
         assert_eq!(uninterrupted.delivered, resumed.delivered);
         assert!(Core::from_save(&definitions, &technologies, &scenarios, "bad").is_err());
         let incompatible =
-            save.replacen("\"definition_version\":5", "\"definition_version\":999", 1);
+            save.replacen("\"definition_version\":6", "\"definition_version\":999", 1);
         assert!(Core::from_save(&definitions, &technologies, &scenarios, &incompatible).is_err());
         let old_world = save.replacen(
             "\"world_generator_version\":5",
@@ -6723,7 +7312,7 @@ mod tests {
 
     /// Every status spelling the host can render. The wire carries the index, so a reordering here
     /// is a wire break; the fixture is what makes that break visible in both languages at once.
-    const WIRE_STATUSES: [(EntityStatus, &str); 13] = [
+    const WIRE_STATUSES: [(EntityStatus, &str); 17] = [
         (EntityStatus::OutputBlocked, "output blocked"),
         (EntityStatus::DepositDepleted, "deposit depleted"),
         (EntityStatus::Extracting, "extracting"),
@@ -6737,9 +7326,13 @@ mod tests {
         (EntityStatus::Receiving, "receiving"),
         (EntityStatus::LandingHub, "landing hub"),
         (EntityStatus::Idle, "idle"),
+        (EntityStatus::NoPower, "no power"),
+        (EntityStatus::Generating, "generating"),
+        (EntityStatus::Brownout, "brownout"),
+        (EntityStatus::NoBoiler, "no boiler"),
     ];
 
-    const WIRE_KINDS: [(BuildingKind, &str); 7] = [
+    const WIRE_KINDS: [(BuildingKind, &str); 10] = [
         (BuildingKind::Extractor, "extractor"),
         (BuildingKind::Belt, "belt"),
         (BuildingKind::Composer, "composer"),
@@ -6747,6 +7340,9 @@ mod tests {
         (BuildingKind::Consumer, "consumer"),
         (BuildingKind::Hub, "hub"),
         (BuildingKind::Pump, "pump"),
+        (BuildingKind::Pole, "pole"),
+        (BuildingKind::Generator, "generator"),
+        (BuildingKind::Boiler, "boiler"),
     ];
 
     const WIRE_TERRAIN: [(Terrain, &str); 7] = [
@@ -6970,6 +7566,8 @@ mod tests {
                         progress_total: 0,
                         fuel_charge: 0,
                         fuel_required: 0,
+                        power_satisfied: 0,
+                        power_demand: 0,
                         status: EntityStatus::Idle,
                         next_id: None,
                         footprint: vec![Coordinate { q: 2, r: 0 }],
@@ -7001,6 +7599,8 @@ mod tests {
                         progress_total: 40,
                         fuel_charge: 250,
                         fuel_required: 100,
+                        power_satisfied: 8,
+                        power_demand: 12,
                         status: EntityStatus::Composing,
                         next_id: Some(9),
                         // A multi-cell footprint, coded against the entity's own hex.
@@ -7409,9 +8009,8 @@ mod tests {
         for _ in 0..3 {
             let expected = scanned(&core);
             assert_eq!(core.extractor_deposit(index).is_some(), expected);
-            let entity = core.entities[index].clone();
             assert_eq!(
-                core.status_of(&entity, expected, core.fuel_ready(&entity)),
+                core.status_of(index, expected, true, true, false),
                 core.entity_snapshot(index).status
             );
             core.tick_many(20);
@@ -7475,7 +8074,7 @@ mod tests {
         // invalidate comparisons against previously recorded tier numbers. A generator-version
         // bump moves this number while the workload does not — which is why the delivered total
         // and the entity count below are the assertions that say the run is the same run.
-        assert_eq!(first.checksum(), 1_813_963_751);
+        assert_eq!(first.checksum(), 632_192_423);
         assert_eq!(first.entities.len(), spec.entities() as usize);
         // Every line must be running end to end, or the tiers would measure an idle blueprint.
         assert_eq!(first.delivered, u64::from(spec.lines) * 14);

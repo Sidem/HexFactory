@@ -34,6 +34,9 @@ export const BUILDING_COLORS: Record<EntitySnapshot["kind"], string> = {
   consumer: "#3c806a",
   hub: "#d1a945",
   pump: "#2f7d9c",
+  pole: "#c8b56b",
+  generator: "#d4a017",
+  boiler: "#a85c32",
 };
 
 /**

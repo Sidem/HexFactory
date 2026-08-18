@@ -1,9 +1,10 @@
 # HexFactory — architecture, roadmap, and implementation handoffs
 
-Status: Renderer Measure v0.12.4 is shipped on Sightlines v0.12.3, Binary Delta v0.12.2, Playtest
-Feel v0.12.1, Material Base v0.12, World Shape v0.11, Playability v0.10, Game Feel v0.9, Browser
-Capacity v0.8, Sparse Snapshot v0.7, Sparse Cost v0.6, Capacity Tiers v0.5.1, Worker Boundary v0.5,
-Command Surface v0.4, Continuous Exploration v0.3, and the v0.3.1 incremental transport follow-up.
+Status: Power v0.13 is shipped on Renderer Measure v0.12.4, Sightlines v0.12.3, Binary Delta
+v0.12.2, Playtest Feel v0.12.1, Material Base v0.12, World Shape v0.11, Playability v0.10, Game Feel
+v0.9, Browser Capacity v0.8, Sparse Snapshot v0.7, Sparse Cost v0.6, Capacity Tiers v0.5.1, Worker
+Boundary v0.5, Command Surface v0.4, Continuous Exploration v0.3, and the v0.3.1 incremental
+transport follow-up.
 The world now produces eight raw materials, each where its geography says it should be, and fourteen
 recipes across five machine categories turn them into something the player wanted. The compact
 binary delta encoding landed on the v0.12/v0.13 boundary the roadmap named as its deadline: the
@@ -12,8 +13,7 @@ per-frame payload is 13.6× smaller. **A complete browser frame is now a measure
 keys, the player points where the cursor does, impassable ground says so, and a minimap and a
 bearing home mean walking away from the landing site is a decision rather than a risk.
 
-Next play milestone is Power v0.13. The renderer measurement that sat in front of it has landed;
-Stage C animation is no longer gated on ignorance. The drag's per-cell transport recompile is
+Next play milestone is Upgrades and Tiers v0.14. The drag's per-cell transport recompile is
 unblocked and can land anywhere.
 
 ## Remaining playtest diagnoses (after v0.12.1)
@@ -44,6 +44,15 @@ not a source dependency: HexFactory imports only the published package. Treat th
 read-only unless a future task explicitly authorizes a separately released generic package change.
 
 ## Shipped implementation record
+
+- Power v0.13 is the second constraint. Poles compile connected components; each network holds
+  integer supply and demand; brownouts advance `base * satisfied / demand` with a per-entity
+  remainder so total work is exact. Extractors, composers, and pumps draw; belts, boxes, and the
+  hub do not. Burner generators bootstrap from any fuel item; wind stands on hills and highland
+  (the same ground as the ore); hydro and the boiler sit at a basin edge; the turbine is a
+  generator that is live only beside a firing boiler. Water is still a belted item — say so in
+  the notes, this is not a fluid network. `HXF1` save version is 6; definition version is 6;
+  technology version is 3. v0.12.4 saves are rejected.
 
 - Renderer Measure v0.12.4 is an engine record, not a play milestone. The browser harness now
   times the two canvases the game draws — `CanvasFactoryRenderer.draw` at a pinned 1440×900

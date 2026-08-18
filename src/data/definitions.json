@@ -1,5 +1,5 @@
 {
-  "version": 5,
+  "version": 6,
   "items": [
     {
       "id": 1,
@@ -405,6 +405,7 @@
       "description": "Harvests every field cell within one hex and emits one item at a time.",
       "icon": "EXT",
       "cadence": 5,
+      "power_draw": 4,
       "construction_cost": [
         { "item_id": 1, "quantity": 4 },
         { "item_id": 3, "quantity": 1 }
@@ -437,6 +438,7 @@
       "description": "Assembles parts from finished materials. Needs no fuel.",
       "icon": "COM",
       "capacity": 12,
+      "power_draw": 8,
       "recipe_category": "assembly",
       "construction_cost": [
         { "item_id": 1, "quantity": 5 },
@@ -504,6 +506,7 @@
       "description": "Melts ore and sand. Burns any fuel item fed to it.",
       "icon": "SML",
       "capacity": 16,
+      "power_draw": 10,
       "recipe_category": "smelting",
       "construction_cost": [
         { "item_id": 6, "quantity": 8 },
@@ -523,6 +526,7 @@
       "description": "Fires clay and chars wood. Burns any fuel item fed to it.",
       "icon": "KLN",
       "capacity": 16,
+      "power_draw": 10,
       "recipe_category": "firing",
       "construction_cost": [
         { "item_id": 6, "quantity": 6 },
@@ -542,6 +546,7 @@
       "description": "Cuts wood to length. Needs no fuel.",
       "icon": "CUT",
       "capacity": 12,
+      "power_draw": 8,
       "recipe_category": "cutting",
       "construction_cost": [
         { "item_id": 11, "quantity": 3 },
@@ -561,6 +566,7 @@
       "description": "Crushes stone into aggregate. Needs no fuel.",
       "icon": "CRU",
       "capacity": 12,
+      "power_draw": 8,
       "recipe_category": "crushing",
       "construction_cost": [
         { "item_id": 11, "quantity": 4 },
@@ -580,6 +586,7 @@
       "description": "Draws water from a basin it stands beside. The basin never runs dry.",
       "icon": "PMP",
       "cadence": 6,
+      "power_draw": 4,
       "output_item_id": 10,
       "construction_cost": [
         { "item_id": 11, "quantity": 4 },
@@ -587,6 +594,118 @@
       ],
       "unlock_technology_id": 7,
       "placement_rule": "water",
+      "buildable": true,
+      "blocks_movement": true,
+      "footprint": [{ "q": 0, "r": 0 }]
+    },
+    {
+      "id": 12,
+      "key": "pole",
+      "name": "Pole",
+      "kind": "pole",
+      "description": "Connects machines and generators into one power network.",
+      "icon": "POL",
+      "pole_reach": 4,
+      "construction_cost": [{ "item_id": 1, "quantity": 1 }],
+      "unlock_technology_id": 8,
+      "placement_rule": "ground",
+      "buildable": true,
+      "blocks_movement": false,
+      "footprint": [{ "q": 0, "r": 0 }]
+    },
+    {
+      "id": 13,
+      "key": "burner-generator",
+      "name": "Burner generator",
+      "kind": "generator",
+      "description": "Burns any fuel item into electricity. The first way a factory keeps running.",
+      "icon": "BRN",
+      "power_output": 20,
+      "power_reach": 2,
+      "power_source": "burner",
+      "construction_cost": [
+        { "item_id": 1, "quantity": 4 },
+        { "item_id": 6, "quantity": 4 }
+      ],
+      "unlock_technology_id": 8,
+      "placement_rule": "ground",
+      "buildable": true,
+      "blocks_movement": true,
+      "footprint": [{ "q": 0, "r": 0 }]
+    },
+    {
+      "id": 14,
+      "key": "wind-turbine",
+      "name": "Wind turbine",
+      "kind": "generator",
+      "description": "Fuel-free power on hills and highland — the same ground the ore sits on.",
+      "icon": "WND",
+      "power_output": 12,
+      "power_reach": 2,
+      "power_source": "wind",
+      "construction_cost": [
+        { "item_id": 11, "quantity": 4 },
+        { "item_id": 19, "quantity": 2 }
+      ],
+      "unlock_technology_id": 9,
+      "placement_rule": "elevated",
+      "buildable": true,
+      "blocks_movement": true,
+      "footprint": [{ "q": 0, "r": 0 }]
+    },
+    {
+      "id": 15,
+      "key": "hydro-generator",
+      "name": "Hydro generator",
+      "kind": "generator",
+      "description": "High output at a basin edge. Scarce, because the shore is scarce.",
+      "icon": "HYD",
+      "power_output": 36,
+      "power_reach": 2,
+      "power_source": "hydro",
+      "construction_cost": [
+        { "item_id": 11, "quantity": 6 },
+        { "item_id": 14, "quantity": 4 }
+      ],
+      "unlock_technology_id": 9,
+      "placement_rule": "water",
+      "buildable": true,
+      "blocks_movement": true,
+      "footprint": [{ "q": 0, "r": 0 }]
+    },
+    {
+      "id": 16,
+      "key": "boiler",
+      "name": "Boiler",
+      "kind": "boiler",
+      "description": "Burns fuel and water into steam for an adjacent turbine. Belt water in; this is not a fluid network.",
+      "icon": "BLR",
+      "construction_cost": [
+        { "item_id": 11, "quantity": 6 },
+        { "item_id": 14, "quantity": 4 }
+      ],
+      "unlock_technology_id": 10,
+      "placement_rule": "water",
+      "buildable": true,
+      "blocks_movement": true,
+      "footprint": [{ "q": 0, "r": 0 }]
+    },
+    {
+      "id": 17,
+      "key": "steam-turbine",
+      "name": "Steam turbine",
+      "kind": "generator",
+      "description": "Turns an adjacent boiler into the mid-game workhorse. Place it beside the boiler.",
+      "icon": "TRB",
+      "power_output": 48,
+      "power_reach": 2,
+      "power_source": "turbine",
+      "construction_cost": [
+        { "item_id": 11, "quantity": 6 },
+        { "item_id": 19, "quantity": 2 }
+      ],
+      "unlock_technology_id": 10,
+      "placement_rule": "ground",
       "buildable": true,
       "blocks_movement": true,
       "footprint": [{ "q": 0, "r": 0 }]

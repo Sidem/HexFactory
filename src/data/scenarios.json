@@ -6,7 +6,7 @@
       "key": "new-game",
       "name": "New game",
       "description": "Explore, gather, research, automate, and deliver three components.",
-      "version": 3,
+      "version": 4,
       "seed": 1213486160,
       "chunk_size": 8,
       "generated_environment": true,
@@ -32,7 +32,7 @@
       "key": "factory-demo",
       "name": "Factory demo",
       "description": "The founding prebuilt turning-belt architecture proof.",
-      "version": 3,
+      "version": 4,
       "seed": 404112911,
       "chunk_size": 8,
       "generated_environment": false,
@@ -50,7 +50,7 @@
         { "item_id": 11, "quantity": 20 },
         { "item_id": 14, "quantity": 10 }
       ],
-      "initial_researched": [1, 2, 3, 4, 5, 6, 7],
+      "initial_researched": [1, 2, 3, 4, 5, 6, 7, 8, 9],
       "resources": [
         { "q": -4, "r": 0, "item_id": 1, "quantity": 240 },
         { "q": -4, "r": 3, "item_id": 4, "quantity": 180 },
@@ -111,6 +111,27 @@
           "q": 2,
           "r": 1,
           "definition_id": 5,
+          "orientation": 0,
+          "scenario_owned": true
+        },
+        {
+          "q": -3,
+          "r": -1,
+          "definition_id": 12,
+          "orientation": 0,
+          "scenario_owned": true
+        },
+        {
+          "q": -2,
+          "r": 2,
+          "definition_id": 12,
+          "orientation": 0,
+          "scenario_owned": true
+        },
+        {
+          "q": -4,
+          "r": -1,
+          "definition_id": 14,
           "orientation": 0,
           "scenario_owned": true
         }

@@ -31,7 +31,7 @@ import "./styles.css";
 
 type Tool = "inspect" | "erase" | "rotate" | number;
 
-const SAVE_KEY = "hexfactory:hxf1:v5";
+const SAVE_KEY = "hexfactory:hxf1:v6";
 const DIRECTION_NAMES = [
   "East",
   "Southeast",
@@ -483,6 +483,10 @@ function renderInspector(): void {
     if (building.fuel_required)
       lines.push(
         `Fuel: ${building.fuel_charge ?? 0} stored · ${building.fuel_required} per craft`,
+      );
+    if (building.power_demand)
+      lines.push(
+        `Power: ${building.power_satisfied ?? 0} / ${building.power_demand}`,
       );
     lines.push(
       `Direction ${building.orientation} · stored ${stored}${building.cargo ? ` · cargo ${building.cargo.quantity}` : ""}`,

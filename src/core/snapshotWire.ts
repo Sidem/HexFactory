@@ -31,7 +31,7 @@ import type {
  */
 
 const MAGIC = 0x48584644; // "HXFD"
-const VERSION = 1;
+const VERSION = 2;
 
 /** Wire code is the index. Pinned against Rust by `fixtures/snapshot-delta-wire.json`. */
 const KINDS: BuildingKind[] = [
@@ -42,6 +42,9 @@ const KINDS: BuildingKind[] = [
   "consumer",
   "hub",
   "pump",
+  "pole",
+  "generator",
+  "boiler",
 ];
 
 const TERRAIN: Terrain[] = [
@@ -68,6 +71,10 @@ const STATUSES: string[] = [
   "receiving",
   "landing hub",
   "idle",
+  "no power",
+  "generating",
+  "brownout",
+  "no boiler",
 ];
 
 const GROUP = {
@@ -96,6 +103,8 @@ const ENTITY_FLAG = {
   fuelCharge: 1 << 3,
   fuelRequired: 1 << 4,
   nextId: 1 << 5,
+  powerSatisfied: 1 << 6,
+  powerDemand: 1 << 7,
 } as const;
 
 const PATCH_REPLACE = 1 << 0;
@@ -396,6 +405,10 @@ function readBuildings(reader: Reader): BuildingsPatch {
     const status = statusOf(reader.u8());
     const next_id =
       (flags & ENTITY_FLAG.nextId) !== 0 ? reader.uvarint() : null;
+    const power_satisfied =
+      (flags & ENTITY_FLAG.powerSatisfied) !== 0 ? reader.uvarint() : 0;
+    const power_demand =
+      (flags & ENTITY_FLAG.powerDemand) !== 0 ? reader.uvarint() : 0;
     const cells = reader.uvarint();
     const footprint = new Array<{ q: number; r: number }>(cells);
     for (let cell = 0; cell < cells; cell += 1) {
@@ -423,6 +436,8 @@ function readBuildings(reader: Reader): BuildingsPatch {
     // skipped in the first place. The flag bit already carried the distinction.
     if (fuel_charge !== 0) entity.fuel_charge = fuel_charge;
     if (fuel_required !== 0) entity.fuel_required = fuel_required;
+    if (power_satisfied !== 0) entity.power_satisfied = power_satisfied;
+    if (power_demand !== 0) entity.power_demand = power_demand;
     changed[index] = entity;
   }
   const removedCount = reader.uvarint();

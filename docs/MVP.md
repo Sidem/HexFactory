@@ -316,9 +316,8 @@ release actions and must not be implied by local success.
    now resolve definitions through maps built once, so the linear `find` the previous note named
    is not something a later measurement has to answer. Stage C is unblocked; Stage B's per-hex
    work should still not run far ahead of a re-measure.
-2. Next play milestone is Power v0.13, and the payload worry that used to sit in front of it is
-   settled — a per-entity satisfaction figure now lands on a wire 13.6× more compact than the one
-   that priced the concern. The renderer measurement that sat in front of it has landed too.
+2. ~~Power v0.13.~~ **Shipped.** Poles compile a network; brownouts are integer; water stays
+   belted. Next play milestone is Upgrades and Tiers v0.14.
 3. New, from v0.12.2's measurement: the main-thread merge is 6.3% of the largest tier's host frame,
    against 0.7% when the boundary dominated. The code did not change and did not get slower;
    everything around it got faster. At 115 µs against a 100 µs clock step it needs a measurement

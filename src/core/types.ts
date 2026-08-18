@@ -7,7 +7,10 @@ export type BuildingKind =
   | "container"
   | "consumer"
   | "hub"
-  | "pump";
+  | "pump"
+  | "pole"
+  | "generator"
+  | "boiler";
 export type Terrain =
   | "deep_water"
   | "shallow_water"
@@ -16,7 +19,8 @@ export type Terrain =
   | "hills"
   | "highland"
   | "cliff";
-export type PlacementRule = "ground" | "resource" | "water";
+export type PlacementRule = "ground" | "resource" | "water" | "elevated";
+export type PowerSource = "burner" | "wind" | "hydro" | "turbine";
 
 export interface Ingredient {
   item_id: number;
@@ -66,6 +70,16 @@ export interface BuildingDefinition {
   recipe_category?: string;
   /** What a source building produces, for a pump. */
   output_item_id?: number;
+  /** Electricity this machine draws every tick while it is on a network. */
+  power_draw?: number;
+  /** Electricity this generator offers every tick it is live. */
+  power_output?: number;
+  /** Hex reach from this machine to a pole. */
+  power_reach?: number;
+  /** Hex reach from this pole to another pole. */
+  pole_reach?: number;
+  /** How a generator makes electricity. */
+  power_source?: PowerSource;
   construction_cost: Ingredient[];
   unlock_technology_id?: number;
   placement_rule: PlacementRule;
@@ -135,6 +149,12 @@ export interface EntitySnapshot extends AxialCoordinate {
    */
   fuel_charge?: number;
   fuel_required?: number;
+  /**
+   * Network supply and demand this entity is on, both published so the host can draw a
+   * proportion. Omitted when the entity is not on a power network.
+   */
+  power_satisfied?: number;
+  power_demand?: number;
   status: string;
   next_id?: number | null;
   footprint: AxialCoordinate[];

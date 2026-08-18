@@ -8,8 +8,12 @@ const KINDS = new Set([
   "consumer",
   "hub",
   "pump",
+  "pole",
+  "generator",
+  "boiler",
 ]);
-const PLACEMENT_RULES = new Set(["ground", "resource", "water"]);
+const PLACEMENT_RULES = new Set(["ground", "resource", "water", "elevated"]);
+const POWER_SOURCES = new Set(["burner", "wind", "hydro", "turbine"]);
 
 export function validateDefinitions(
   value: unknown,
@@ -115,6 +119,16 @@ export function validateDefinitions(
       )
     )
       throw new TypeError(`pump ${building.id} requires a known output item`);
+    if (
+      building.kind === "generator" &&
+      !(
+        building.power_source !== undefined &&
+        POWER_SOURCES.has(building.power_source) &&
+        building.power_output !== undefined &&
+        building.power_output > 0
+      )
+    )
+      throw new TypeError(`generator ${building.id} needs a source and output`);
     for (const ingredient of building.construction_cost) {
       if (
         !itemIds.has(ingredient.item_id) ||

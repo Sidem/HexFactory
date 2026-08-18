@@ -38,6 +38,9 @@ describe("data-defined content", () => {
       "material-processing",
       "mechanical-shaping",
       "hydrology",
+      "on-site-power",
+      "sited-generation",
+      "steam-works",
     ]);
   });
 

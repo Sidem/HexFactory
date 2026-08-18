@@ -41,7 +41,7 @@ use super::*;
 /// Head of every buffer, so a stale or foreign payload is rejected rather than misread.
 pub(crate) const WIRE_MAGIC: [u8; 4] = *b"HXFD";
 /// Bumped whenever the layout below changes in a way an old decoder would misread.
-pub(crate) const WIRE_VERSION: u8 = 1;
+pub(crate) const WIRE_VERSION: u8 = 2;
 
 /// Which optional groups the buffer carries, in the order they are written.
 mod group {
@@ -72,6 +72,8 @@ mod entity_flag {
     pub(super) const FUEL_CHARGE: u8 = 1 << 3;
     pub(super) const FUEL_REQUIRED: u8 = 1 << 4;
     pub(super) const NEXT_ID: u8 = 1 << 5;
+    pub(super) const POWER_SATISFIED: u8 = 1 << 6;
+    pub(super) const POWER_DEMAND: u8 = 1 << 7;
 }
 
 /// Set on a group whose list replaces the host's rather than patching it.
@@ -86,6 +88,9 @@ fn kind_code(kind: BuildingKind) -> u8 {
         BuildingKind::Consumer => 4,
         BuildingKind::Hub => 5,
         BuildingKind::Pump => 6,
+        BuildingKind::Pole => 7,
+        BuildingKind::Generator => 8,
+        BuildingKind::Boiler => 9,
     }
 }
 
@@ -116,6 +121,10 @@ fn status_code(status: EntityStatus) -> u8 {
         EntityStatus::Receiving => 10,
         EntityStatus::LandingHub => 11,
         EntityStatus::Idle => 12,
+        EntityStatus::NoPower => 13,
+        EntityStatus::Generating => 14,
+        EntityStatus::Brownout => 15,
+        EntityStatus::NoBoiler => 16,
     }
 }
 
@@ -397,6 +406,12 @@ fn write_entities(writer: &mut Writer, entities: &[EntitySnapshot]) {
         if entity.next_id.is_some() {
             flags |= entity_flag::NEXT_ID;
         }
+        if entity.power_satisfied != 0 {
+            flags |= entity_flag::POWER_SATISFIED;
+        }
+        if entity.power_demand != 0 {
+            flags |= entity_flag::POWER_DEMAND;
+        }
         writer.u8(flags);
 
         if let Some(recipe_id) = entity.recipe_id {
@@ -418,6 +433,12 @@ fn write_entities(writer: &mut Writer, entities: &[EntitySnapshot]) {
         writer.u8(status_code(entity.status));
         if let Some(next_id) = entity.next_id {
             writer.uvarint(u64::from(next_id));
+        }
+        if entity.power_satisfied != 0 {
+            writer.uvarint(u64::from(entity.power_satisfied));
+        }
+        if entity.power_demand != 0 {
+            writer.uvarint(u64::from(entity.power_demand));
         }
         // Against the entity's own hex, so the single-cell footprint every belt and machine has
         // costs two bytes rather than two full coordinates.
@@ -511,6 +532,9 @@ pub(crate) mod decode {
             BuildingKind::Consumer,
             BuildingKind::Hub,
             BuildingKind::Pump,
+            BuildingKind::Pole,
+            BuildingKind::Generator,
+            BuildingKind::Boiler,
         ][usize::from(code)]
     }
 
@@ -541,6 +565,10 @@ pub(crate) mod decode {
             EntityStatus::Receiving,
             EntityStatus::LandingHub,
             EntityStatus::Idle,
+            EntityStatus::NoPower,
+            EntityStatus::Generating,
+            EntityStatus::Brownout,
+            EntityStatus::NoBoiler,
         ][usize::from(code)]
     }
 
@@ -760,6 +788,16 @@ pub(crate) mod decode {
             };
             let status = status_of(reader.u8());
             let next_id = (flags & entity_flag::NEXT_ID != 0).then(|| reader.uvarint() as u32);
+            let power_satisfied = if flags & entity_flag::POWER_SATISFIED != 0 {
+                reader.uvarint() as u32
+            } else {
+                0
+            };
+            let power_demand = if flags & entity_flag::POWER_DEMAND != 0 {
+                reader.uvarint() as u32
+            } else {
+                0
+            };
             let cells = reader.count();
             let footprint = (0..cells)
                 .map(|_| Coordinate {
@@ -782,6 +820,8 @@ pub(crate) mod decode {
                 progress_total,
                 fuel_charge,
                 fuel_required,
+                power_satisfied,
+                power_demand,
                 status,
                 next_id,
                 footprint,

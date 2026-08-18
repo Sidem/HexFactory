@@ -1,5 +1,5 @@
 {
-  "version": 2,
+  "version": 3,
   "technologies": [
     {
       "id": 1,
@@ -63,6 +63,33 @@
       "prerequisites": [5],
       "cost": 12,
       "unlocks": [11]
+    },
+    {
+      "id": 8,
+      "key": "on-site-power",
+      "name": "On-site Power",
+      "description": "Unlock poles and the burner generator, so a region can afford to run.",
+      "prerequisites": [1],
+      "cost": 4,
+      "unlocks": [12, 13]
+    },
+    {
+      "id": 9,
+      "key": "sited-generation",
+      "name": "Sited Generation",
+      "description": "Unlock wind on the ridges and hydro at the basin edge.",
+      "prerequisites": [8],
+      "cost": 8,
+      "unlocks": [14, 15]
+    },
+    {
+      "id": 10,
+      "key": "steam-works",
+      "name": "Steam Works",
+      "description": "Unlock the boiler and turbine pair. Water rides belts; this is not a fluid network.",
+      "prerequisites": [7, 8],
+      "cost": 10,
+      "unlocks": [16, 17]
     }
   ]
 }

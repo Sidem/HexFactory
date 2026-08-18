@@ -1,8 +1,8 @@
 # HexFactory capacity benchmarks
 
-Status: **Renderer Measure v0.12.4 is the current browser record**; Binary Delta v0.12.2 remains
-the current native one. The Canvas renderer and the minimap are now timed against the same tiers
-as the simulation, so a browser frame is accounted for end to end. Nothing here is an
+Status: **Power v0.13 re-measured the native ladder**; Renderer Measure v0.12.4 remains the
+current browser record (rendering did not change). Checksums moved because the entity snapshot
+gained a power remainder; delivered totals and entity counts did not. Nothing here is an
 extrapolation: each number below was produced by the committed harness, and the raw reports are
 stored beside this document.
 
@@ -336,6 +336,29 @@ oracle and is part of that figure.
   controlled measurement is the native one, where both encodings were measured in the same run.
 - Everything in **Limits of this measurement** below still applies: one browser, one shell, one
   machine, one workload shape, rendering excluded.
+
+## Power v0.13 — native re-measurement
+
+Same host, `factory-wasm` 0.13.0, recorded 2026-08-18. Raw report:
+[`benchmarks/capacity-v0.13-native.json`](benchmarks/capacity-v0.13-native.json).
+
+Checksums moved: each entity now hashes a power remainder. Delivered totals and entity counts
+match v0.12.2. An all-pairs compile over every powered machine was caught and replaced by
+pole-to-pole plus machine-to-pole before this record; the first draft made `xlarge` compile 61×
+slower, which is why the re-measure exists.
+
+| tier   | entities | tick µs | snapshot µs | checksum µs | frame µs | compile µs | recompile µs |
+| ------ | -------: | ------: | ----------: | ----------: | -------: | ---------: | -----------: |
+| line   |       12 |     0.9 |        10.8 |         1.0 |      3.4 |        1.5 |          5.5 |
+| small  |      192 |     7.9 |        55.5 |        10.1 |     38.8 |       19.2 |         59.9 |
+| medium |      768 |    34.2 |       256.9 |        42.3 |    163.1 |       92.9 |        254.3 |
+| wide   |    1,536 |    71.4 |       563.8 |        79.5 |    347.9 |      238.8 |        604.0 |
+| large  |    3,072 |   159.3 |     1,116.1 |       172.2 |    716.9 |      425.5 |      1,220.2 |
+| xlarge |    6,144 |   361.2 |     2,200.7 |       322.6 |  1,455.5 |      912.8 |      2,290.1 |
+
+Tick is about 1.4× the v0.12.2 native figure at the largest tier (refreshing supply and demand
+once per tick). Compile is within noise of that record. The browser renderer numbers from
+v0.12.4 still hold: this milestone did not change a draw.
 
 ## Renderer Measure v0.12.4 — the first complete browser frame
 
