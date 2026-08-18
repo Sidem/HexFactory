@@ -42,6 +42,20 @@ describe("Stage B look generator", () => {
     expect(TERRAIN_TILE_VERSION).toBeGreaterThan(0);
   });
 
+  it("clips a terrain stamp to the hex instead of drawing an oversized square", () => {
+    const src = readFileSync(
+      new URL("../src/rendering/terrainLook.ts", import.meta.url),
+      "utf8",
+    );
+    expect(src).not.toMatch(/const radius = size \* 1\.02/);
+    expect(src).toMatch(/hexPath\(ctx, center, size\);\s*ctx\.clip\(\);/);
+    const stamp = src.indexOf("export function drawTerrainCell");
+    const clip = src.indexOf("ctx.clip()", stamp);
+    const image = src.indexOf("ctx.drawImage", stamp);
+    expect(clip).toBeGreaterThan(stamp);
+    expect(image).toBeGreaterThan(clip);
+  });
+
   it("draws a fringe only toward the lower band", () => {
     expect(BAND_RANK.deep_water).toBeLessThan(BAND_RANK.shallow_water);
     expect(BAND_RANK.shallow_water).toBeLessThan(BAND_RANK.shore);

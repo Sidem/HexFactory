@@ -148,17 +148,21 @@ export function drawTerrainCell(
   neighbors: Array<Terrain | undefined>,
 ): void {
   const info = TERRAIN_INFO[band];
-  const radius = size * 1.02;
+  // Clip first, then stamp. The bake is a square (and putImageData ignores clip), so an
+  // unclipped drawImage paints the corners over neighbouring hexes.
   ctx.save();
+  hexPath(ctx, center, size);
+  ctx.clip();
+  ctx.fillStyle = info.fill;
+  ctx.fill();
   ctx.translate(center.x, center.y);
   ctx.rotate((look.rotation * Math.PI) / 3);
-  const tile = tiles.tile(band);
-  const dim = radius * 2;
-  ctx.drawImage(tile, -dim / 2, -dim / 2, dim, dim);
+  const dim = size * 2;
+  ctx.drawImage(tiles.tile(band), -dim / 2, -dim / 2, dim, dim);
   ctx.restore();
 
   if (look.jitter !== 0) {
-    hexPath(ctx, center, radius);
+    hexPath(ctx, center, size);
     ctx.fillStyle =
       look.jitter > 0
         ? `rgba(255,255,255,${look.jitter * 0.07})`
@@ -172,12 +176,12 @@ export function drawTerrainCell(
     const neighbor = neighbors[direction];
     if (neighbor === undefined) continue;
     if (fringeToward(band, neighbor))
-      drawFringe(ctx, center, radius, direction, band, neighbor, look);
+      drawFringe(ctx, center, size, direction, band, neighbor, look);
     else if (neighbor === "lowland" && fringeToward("lowland", band))
-      drawFringe(ctx, center, radius, direction, "lowland", band, look);
+      drawFringe(ctx, center, size, direction, "lowland", band, look);
   }
 
-  hexPath(ctx, center, radius);
+  hexPath(ctx, center, size);
   ctx.strokeStyle = info.stroke;
   ctx.lineWidth = 1.1;
   ctx.stroke();
@@ -346,10 +350,6 @@ function bakeBand(band: Terrain, clipHex: boolean): HTMLCanvasElement {
   if (!ctx) return canvas;
   const center = { x: TILE_SIZE / 2, y: TILE_SIZE / 2 };
   const radius = TILE_SIZE / 2;
-  if (clipHex) {
-    hexPath(ctx, center, radius);
-    ctx.clip();
-  }
   const rgb = rgbOf(TERRAIN_INFO[band].fill);
   const seed =
     (TERRAIN_TILE_VERSION * 9176 + TERRAIN_ORDER.indexOf(band) * 7919) | 0;
@@ -376,7 +376,18 @@ function bakeBand(band: Terrain, clipHex: boolean): HTMLCanvasElement {
     }
   }
   ctx.putImageData(image, 0, 0);
-  return canvas;
+  // putImageData ignores clip, so a hex mask has to be a second pass: stamp the square
+  // through hexPath so the canvas corners stay transparent.
+  if (!clipHex) return canvas;
+  const stamped = document.createElement("canvas");
+  stamped.width = TILE_SIZE;
+  stamped.height = TILE_SIZE;
+  const stamp = stamped.getContext("2d");
+  if (!stamp) return canvas;
+  hexPath(stamp, center, radius);
+  stamp.clip();
+  stamp.drawImage(canvas, 0, 0);
+  return stamped;
 }
 
 function valueNoise(x: number, y: number, seed: number): number {
