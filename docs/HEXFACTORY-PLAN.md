@@ -13,8 +13,17 @@ per-frame payload is 13.6× smaller. **A complete browser frame is a measured nu
 v0.12.4 baseline of 909 µs. The world is the view: shorelines come from neighbours, buildings
 from `recipe_category`, and a worked-out field is a scar rather than a missing glyph.
 
-**Next session is Upgrades and Tiers v0.14.** Look Systems shipped the generator that makes a
+**Next play milestone is Upgrades and Tiers v0.14.** Look Systems shipped the generator that makes a
 tier a data row. The drag's per-cell transport recompile is unblocked and can land anywhere.
+Inspector Readability shipped as **v0.13.2**, a presentation pass on the Look Systems world: a
+clicked hex is cards — identity, coordinates, band swatch, field meter, facing compass, machine
+meters — not a `textContent` dump.
+
+**North-south belts are resolved and have left the longer horizon.** Due north is a lattice vector
+on this grid — `(q + 1, r - 2)` shares a world-x with `(q, r)` — and `compile_graph_target` is
+already a ray-cast that never assumed a unit step. So the fix is a direction-table row, not sub-hex
+occupancy, and it rides v0.14's version bump. The write-up below supersedes the half-covered-tile
+proposal.
 
 ## Next session — Upgrades and Tiers v0.14
 
@@ -31,11 +40,21 @@ editing definitions or commands.
   decision the player already made, and it demonstrates what tiers are for better than a bigger
   box does. Larger containers, faster smelters, and more efficient generators follow the same
   pattern.
-- A save / definition version bump is expected; say which, and reject the previous envelope.
+- **North and south enter the transport direction table**, riding the version bump this milestone
+  already pays for. `TRANSPORT_DIRECTIONS` becomes eight — the six unit steps plus `(1, -2)` north
+  and `(-1, 2)` south — while `DIRECTIONS` stays six for adjacency and power. `compile_graph_target`
+  is unchanged; `hex_line` gains an explicit vertical rule; risers are single-cell and cost 2× a
+  belt. See the resolved write-up below before touching either table. Tunnels are a later pass and
+  are not in this milestone.
+- A save / definition version bump is expected; say which, and reject the previous envelope. It
+  covers both the tier definitions and `orientation % 6` becoming `% 8`.
+- **Upgrade must conserve items.** The erase path already refuses a refund that will not fit,
+  because that is the only rule that keeps conservation exact. An upgrade in place needs the same
+  care, or an upgrade / downgrade round trip becomes a duplication exploit. Test it explicitly.
 - Re-measure the native ladder if the entity snapshot changes. The Look Systems browser record
   (`docs/BENCHMARKS.md`, v0.13.1) stays the render baseline unless the draw itself moves.
 
-Out of scope: 3D, north-south belts, a hand-drawn atlas, fluid networks.
+Out of scope: 3D, tunnels, a hand-drawn atlas, fluid networks.
 
 ## Remaining playtest diagnoses (after v0.12.1)
 
@@ -51,6 +70,125 @@ Iron ore`). The guide loop (gather → gold hub → research) is the one thing t
 - Walking overshoots a single hex easily at hold-to-move speed.
 - Console was clean except `favicon.ico` 404.
 - Belts-on-fields may stay legal; paving the rare landing crystal without a read should not.
+- ~~**The inspector is a wall of text.**~~ Closed by Inspector Readability: a clicked hex is
+  cards, not a `textContent` dump. Coordinates are a chip, facing is a compass plus
+  `DIRECTION_NAMES`, and every meter writes both published numbers.
+
+## Presentation pass — Inspector Readability v0.13.2
+
+The inspector is the one panel Sightlines left on the world, and the reason it stayed is that it
+answers the hex the player just clicked. That answer is currently a preformatted paragraph.
+Coordinates lead. Status, heading, stock, and cargo share one line. Direction is an integer.
+Terrain is a clause. Nothing has a shape the eye can pre-attentively group. A player who already
+knows the factory still has to parse; a player who does not cannot learn from it.
+
+This is presentation over published snapshot facts. No save, definition, generator, or wire
+version moves. No new native field. Any proportion still takes both numbers native already
+publishes. Lists that carry a control are still patched in place. The host still does not
+re-derive a maximum by watching a value count down.
+
+### The defect, named
+
+`renderInspector` joins an array of strings and assigns `textContent`. The stylesheet then
+honours the newlines with `white-space: pre-line`. That is a log, not a readout. It also steals
+the panel heading for the active tool (`Inspect`, `Extractor`, `Erase`), so the largest type on
+the panel is often not even about the hex.
+
+What a click has to answer, in the order a player actually asks:
+
+1. **What is this?** A building, a field, a band, or fog.
+2. **What state is it in?** Working, waiting, starved, protected.
+3. **Where is it?** Axial `q, r` as a reference, not as the title.
+4. **What ground is it?** Band, and whether the player may stand or build.
+5. **What is on it?** Remaining field, stored stacks, belt cargo, craft, fuel, power.
+6. **Which way does it face?** A heading a player can match to the world, not `Direction 0`.
+
+The dock already names the active tool. The inspector heading is the hex.
+
+### Visual language — reuse, do not invent a second one
+
+The world already has a vocabulary. The inspector uses it rather than translating back into
+prose.
+
+| Fact                 | Visual                                                                                      | Source                                                                                                       |
+| -------------------- | ------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| Terrain band         | Pointy-top hex swatch, fill and edge from `TERRAIN_INFO`                                    | Same table as the map and the legend                                                                         |
+| Impassable           | The shared diagonal hatch and the coral access label                                        | `fixtures/terrain-passability.json`, same treatment as the world                                             |
+| Unsurveyed           | Fog fill `#18242f` and mint rim `#7fe0c8`, no band name invented                            | `docs/ART.md` fog row                                                                                        |
+| Item                 | The twelve-glyph set at the item's identity colour, plus the name                           | `itemIconSvg`, same glyph as the pack and the field                                                          |
+| Field remaining      | A meter of `quantity` against `initial_quantity`, both numbers written                      | Resource snapshot; host draws a proportion it was given                                                      |
+| Flora                | A small `Regrows` chip, not a mid-dot clause                                                | `regrowth_ticks` on the item                                                                                 |
+| Building             | Pointy-top hex in `BUILDING_COLORS[kind]`, three-letter stamp from `definition.icon`        | The same stamp the dock and the silhouette already use                                                       |
+| Building status      | A coloured pill, not `Name · status`                                                        | Native spelling, grouped only for colour                                                                     |
+| Facing               | A six-tick pointy-top compass with the live spoke lit, plus the word from `DIRECTION_NAMES` | Direction 0 is still east; the integer never reaches the player                                              |
+| Craft / fuel / power | One meter each, both published numbers on the right                                         | `progress`/`progress_total`, `fuel_charge`/`fuel_required`, `power_satisfied`/`power_demand`                 |
+| Belt cargo           | Glyph + name + count, labelled `On the belt`                                                | `building.cargo`                                                                                             |
+| Container stock      | The pack's slot grid (glyph + count), each row a `Take`                                     | Patched in place; `quantity` is still the whole stored amount                                                |
+| Protected hub        | A gold `Protected` chip                                                                     | `scenario_owned`                                                                                             |
+| Empty ground note    | The band's `note` (`iron ore, coal, crystal`)                                               | Only when the cell is not already a field or a building — potentials on an iron cell were the v0.12.1 defect |
+
+Status colour is a grouping, not a new spelling. Live (mint): `extracting`, `composing`,
+`pumping`, `generating`, `carrying`, `receiving`. Waiting (muted): `idle`, `waiting for inputs`,
+`buffered`. Stopped (coral): `output blocked`, `deposit depleted`, `out of fuel`, `no power`,
+`brownout`, `no water in reach`, `no boiler`. Hub (gold): `landing hub`. The string the player
+reads is still the native one.
+
+### Layout
+
+A static skeleton, patched every snapshot, never rebuilt. The panel heading is the identity; the
+body is cards that hide when they have nothing to say. Nothing that is absent leaves a blank
+ruled box.
+
+```
+┌─────────────────────────────────┐
+│ BUILDING                    [×] │  kicker = Building / Field / Ground / Unsurveyed
+│ Extractor          extracting   │  title = definition, item, or band name
+├─────────────────────────────────┤
+│  [EXT]          q  3            │  portrait is a hex, not a square
+│   hex           r  0            │  coords are a chip, tabular, labelled
+├─────────────────────────────────┤
+│ [swatch] Highland    BUILDABLE  │  hatch on the swatch if impassable
+│          (note only if empty)   │
+├─────────────────────────────────┤
+│ [ore] Iron ore        Regrows   │  field card, only when a resource is here
+│ ████████░░  35 / 48             │
+├─────────────────────────────────┤
+│ Craft  ██████░░░░  12 / 20      │  machine meters, each omitted when zero
+│ Fuel   ███░░░░░░░   8 / 12      │
+│ Power  ██████████   4 /  4      │
+│  [*]   Facing East   Protected  │  compass, not "Direction 0"
+│ On the belt  [plate] Iron  1    │
+│ Stored  [slot] [slot]  Take     │
+└─────────────────────────────────┘
+```
+
+Empty selection: the sheet hides and the heading returns to `World inspector` / `Select a hex`.
+Unsurveyed: fog portrait, title `Fog`, one line `Travel here to lift the fog`, no invented band.
+A building on a field is still one hex: the heading is the building, the field card stays, the
+band note does not — the cell already says what it holds.
+
+The recipe `<select>` stays a patched control under the sheet, shown only when the machine has
+two or more recipes and is not scenario-owned. Placement legality stays the gold line under
+that, because it is about the pending tool, not about the hex.
+
+### What this is not
+
+Not a second panel. Not a tooltip that replaces the inspector. Not a native change. Not a
+heading that still says `Inspect` while the body describes an extractor. Not a meter whose
+maximum the host inferred. Not a `replaceChildren` of the Take rows. Not 3D, not a hand-drawn
+atlas, not a new `BuildingKind`.
+
+### Acceptance
+
+- A clicked hex is readable in one glance: identity, status, band, and the fact that matters
+  (remaining field, facing, starvation) each have a shape, not only a sentence.
+- Coordinates are present and never the lead.
+- Facing is a compass plus `East` / `Southeast` / … — `Direction 0` does not appear.
+- Impassable ground in the inspector is the same hatch as impassable ground on the map.
+- A field hex still leads with the field; band potentials stay on empty ground.
+- Every meter writes both numbers. Every Take row is patched, not rebuilt.
+- Desktop keeps the inspector pinned; the narrow layout still toggles it. No save, wire,
+  definition, or checksum movement.
 
 Target repository: `https://github.com/Sidem/HexFactory`
 
@@ -65,6 +203,12 @@ not a source dependency: HexFactory imports only the published package. Treat th
 read-only unless a future task explicitly authorizes a separately released generic package change.
 
 ## Shipped implementation record
+
+- Inspector Readability v0.13.2 is presentation over published snapshot facts. The inspector heading is
+  the hex, not the active tool. Identity, axial `q, r`, terrain swatch (hatched when impassable),
+  field meter, facing compass, craft/fuel/power meters, belt cargo, and container Take rows are
+  each a shape. No save, generator, definition, or wire version moves. Take rows are still
+  patched in place.
 
 - Look Systems v0.13.1 is presentation over published snapshot facts. Neighbour fringes, baked
   terrain tiles, a host-side hex hash, depletion scars, silhouettes from `recipe_category`, and
@@ -869,7 +1013,9 @@ Named here so they are decisions rather than omissions, each with the thing it i
 
 Named 2026-08-18 from three directions given in one sitting. Power and the renderer measurement
 have since shipped, and Look Systems (the 2D start of the organic-generation item) has shipped.
-3D presentation and north-south belts are still not the next session. They are the
+**North-south belts have since left this horizon**: the design resolved to a direction-table row
+and moved into v0.14, and its write-up below is kept here because that is where the reasoning
+lives. 3D presentation is still not the next session. It is the
 destination the current architecture has to stay pointed at, so a 2D choice that would make
 them expensive later is the thing to refuse.
 
@@ -888,27 +1034,93 @@ The renderer measurement still gates any renderer decision. Stage C already says
 then decide whether the animated frame wants a different renderer. A 3D renderer is that decision,
 made later, with a number in hand.
 
-#### North-south belts — every second tile is the anchor
+#### North-south belts — resolved, and no longer a longer-horizon item
 
-Pointy-top hex has no due-north or due-south neighbour. Direction 0 is east; the six steps are
-E/SE/SW/W/NW/NE. A screen-vertical drag therefore zigzags NE and NW, and today's `hex_line` places
-a full belt on every cell of that zigzag. That is the workaround.
+Superseded 2026-08-18. This section previously proposed a two-row anchor period whose offset tiles
+were _half-covered_ by the belt footprint, and named the open question as what a half-covered hex
+_is_ — blocked, shareable left-half / right-half, or presentation-only. **That question is
+withdrawn.** Sub-hex occupancy is the most expensive answer available: it would change the
+placement predicate, the compiled transport graph, and the checksum at once. It is not needed,
+because the lattice already contains the direction.
 
-The intended run along the axis that is not a hex edge uses a two-row period instead:
+**Due north is a lattice vector.** Pointy-top world-x is proportional to `q + r/2`, so `(q + 1,
+r - 2)` has exactly the same world-x as `(q, r)`, two rows up. `(+1, -2)` is due north and
+`(-1, +2)` is due south. They are lattice vectors; they are simply not _unit_ vectors, which is the
+only reason they were never in the direction table.
 
-- **Anchors** are the hexes whose centres share a world-x. On this lattice those are two rows
-  apart: `(q, r)` and `(q + 1, r - 2)` (and the southbound pair). The belt entity lives on those
-  cells.
-- **Offset tiles** are the two staggered hexes in the row between, `(q, r - 1)` and
-  `(q + 1, r - 1)`. Each is half-covered by the belt's footprint, so the run reads as one straight
-  ribbon rather than a staircase of full tiles.
+**The transport graph is already a ray-cast.** `compile_graph_target` steps `(dq, dr)` up to
+`GRAPH_TRACE_LIMIT`, skipping the entity's own footprint cells, and returns the first other
+occupied cell. Nothing in that loop assumes a unit step. Given a non-unit step it is already
+correct, unchanged.
 
-`hex_line` as it stands cannot produce this: it visits every cell and each cell is a whole
-occupancy. The milestone that lands it has to decide what a half-covered offset hex _is_ —
-blocked, shareable by two parallel north-south runs (left half / right half), or
-presentation-only — and it has to decide it in native occupancy, not as a draw trick the drag
-preview cannot keep. The preview still comes from the same resolver as the place. Until then, the
-current one-cell-one-building zigzag stays.
+So north-south is a **direction-table change, not a geometry change**:
+
+```rust
+const TRANSPORT_DIRECTIONS: [(i32, i32); 8] = [
+    (1, 0), (0, 1), (-1, 1), (-1, 0), (0, -1), (1, -1),  // the six, unchanged
+    (1, -2),                                              // 6 = North
+    (-1, 2),                                              // 7 = South
+];
+```
+
+A riser at `(q, r)` facing north links to whatever occupies `(q + 1, r - 2)`. The two straddling
+hexes `(q, r - 1)` and `(q + 1, r - 1)` are **never occupied** — they stay free, buildable, and
+walkable. The belt spans the seam where those two hexes meet, which is what it looks like: a short
+gantry over the crack, not a tile that is half of something.
+
+##### What this costs, named
+
+- **`orientation % 6` becomes `% 8`, and that is checksum-affecting.** It needs a save and
+  definition version bump. v0.14 already pays for one, so landing this in or beside v0.14 is nearly
+  free on that axis and expensive outside it.
+- **Two tables, not one.** `DIRECTIONS` (six) stays the _adjacency_ table — `adjacent_live_boiler`,
+  `adjacent_turbine`, power. Only _routing_ gets eight. Conflating them would silently let a boiler
+  reach two rows.
+- **Risers are single-cell only.** `@hexlife/embed` rotates footprints by 60°; orientations 6 and 7
+  have no 60° equivalent. `place` validation rejects a north or south orientation on any multi-cell
+  definition. Belts and pipes are what need this, so it is not a practical limit.
+- **`hex_line` needs an explicit vertical rule** — the one genuinely fiddly part. Its greedy
+  "lowest-numbered direction that strictly closes the distance" would never select north or south,
+  because a unit step almost always closes too and a north step is `axial_distance` 2. The drag
+  resolver needs a real rule: within some angle of vertical, use the two-row period. Integer-only
+  and deterministic, like everything else on a state-affecting path. Appending north and south at
+  indices 6 and 7 means **every existing drag resolves identically**, which is the property that
+  keeps the existing tests meaningful.
+- **Balance is a data row, not a mechanism.** A north step covers `3 · size` of world distance
+  against `√3 · size ≈ 1.73 · size` for a unit step, so an unpriced riser is strictly dominant.
+  Cost 2× a belt at the same throughput. The alternative — a two-cell footprint `{(q, r),
+(q + 1, r - 2)}`, which the trace loop already handles because it skips own-footprint cells —
+  is only available if non-contiguous footprints survive picking and silhouette drawing. Check
+  that before choosing it.
+
+##### Tunnels and bridges — the second axis, and one match arm
+
+Span is a separate question from direction, and the same loop answers it:
+
+```rust
+Some(target) if target == index => { q += dq; r += dr; }
+None if entity.is_tunnel() && steps < span => { q += dq; r += dr; }
+target => return target,
+```
+
+A tunnel entrance rays through empty ground and binds to the first entity it reaches. Belts can
+cross; the covered cells stay free and walkable; the surface is undisturbed, which suits a game
+with a walking player and collision. It composes with all eight directions, and because it lives in
+the graph trace rather than in the belt, **pipes inherit it for free** when fluid networks land.
+That is the argument for solving both of these at the direction and graph level rather than as a
+belt special case.
+
+##### Why this is the answer to "people love square grids"
+
+What a square grid actually offers is not squareness — it is that **both screen axes are
+available**, so builds are axis-aligned, compose into rectangles, and can be read and copied. Six
+hex directions give a horizontal axis and four diagonals, and no vertical. Eight give a full
+compass with true axis alignment, the same expressive set a square grid offers, while terrain,
+adjacency, and world generation stay hex. Players think in rows and columns; the lattice stays what
+it is.
+
+A 30° camera rotation is explicitly **not** the answer: aligning a hex edge to screen-up only swaps
+which axis is awkward, and rotates the terrain with it.
 
 The six hex-edge directions already run straight and do not change.
 

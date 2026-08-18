@@ -744,6 +744,35 @@ describe("availability and expanded snapshot adapter", () => {
     );
   });
 
+  it("reads a clicked hex as cards, not as a text dump", () => {
+    const main = readFileSync(
+      new URL("../src/main.ts", import.meta.url),
+      "utf8",
+    );
+    const html = readFileSync(
+      new URL("../index.html", import.meta.url),
+      "utf8",
+    );
+    const css = readFileSync(
+      new URL("../src/styles.css", import.meta.url),
+      "utf8",
+    );
+    // The heading is the hex, not the active tool. Coordinates are a labelled chip.
+    expect(html).toContain('id="inspect-title"');
+    expect(html).toContain('id="inspect-q"');
+    expect(html).toContain('id="inspect-compass"');
+    expect(html).toContain('id="inspect-field-meter"');
+    expect(html).not.toContain('id="selected-tool-value"');
+    // Direction 0 never reaches the player; the six names and a compass do.
+    expect(main).toContain("DIRECTION_NAMES[building.orientation]");
+    expect(main).not.toContain("Direction ${building.orientation}");
+    expect(main).not.toContain("lines.join");
+    // A proportion is both published numbers, same rule as the cooldown ring.
+    expect(main).toContain("resource.quantity");
+    expect(main).toContain("resource.initial_quantity");
+    expect(css).not.toMatch(/\.inspector\s*\{[^}]*white-space:\s*pre-line/);
+  });
+
   it("shrinks the hex lattice on screen and keeps counts off untouched fields", () => {
     const renderer = readFileSync(
       new URL("../src/rendering/CanvasFactoryRenderer.ts", import.meta.url),

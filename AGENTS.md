@@ -7,8 +7,10 @@ architecture are the means that make that game possible at scale, not the point 
 
 Keep this file concise; the durable roadmap, design pillars, and implementation handoffs live in
 `docs/HEXFACTORY-PLAN.md`, architecture decisions in `docs/ARCHITECTURE.md`, shipped MVP status in
-`docs/MVP.md`, and measured capacity in `docs/BENCHMARKS.md`. Next development session is
-Upgrades and Tiers v0.14 — brief at the top of the plan.
+`docs/MVP.md`, and measured capacity in `docs/BENCHMARKS.md`. Next play milestone is
+Upgrades and Tiers v0.14 — brief at the top of the plan. Inspector Readability shipped as
+v0.13.2, a presentation pass (cards, not a text dump). North-south belts are resolved to a
+transport direction-table row and folded into v0.14; sub-hex occupancy is withdrawn.
 
 ## Workspace boundary
 

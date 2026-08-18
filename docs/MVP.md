@@ -61,7 +61,10 @@ ladder is re-pinned; a generator bump invalidates checksum comparisons, not timi
 - The wait between two field actions is drawn where the action happens, from `action_cooldown`
   against a published `action_cooldown_total`. The host draws a proportion it was given.
 - The inspector names every surveyed hex. Lowland is the default fill and is deliberately not sent,
-  so a surveyed hex with no terrain entry is lowland — not an unknown tile.
+  so a surveyed hex with no terrain entry is lowland — not an unknown tile. A clicked hex is a
+  structured readout — identity, coordinates, band swatch, field meter, facing compass, and
+  machine meters — not a `textContent` dump. Facing is a compass plus `DIRECTION_NAMES`;
+  `Direction 0` does not appear. Every meter writes both published numbers.
 
 ## World Shape contract
 
@@ -166,7 +169,8 @@ ladder is re-pinned; a generator bump invalidates checksum comparisons, not timi
 - Snapshot-derived guidance names the next useful action across gathering, delivery, research,
   automation, composition, victory, and the Factory demo. It is explanatory host presentation; it
   does not mutate or reconstruct native state.
-- The inspector is the only panel that sits over the world. The cargo pack (`I`), research (`O`), and
+- The inspector is the only panel that sits over the world. It answers a clicked hex as cards
+  (identity, ground, field, machine) rather than as a paragraph. The cargo pack (`I`), research (`O`), and
   the objective-and-controls guide (`P`) open one at a time and close on `Escape`; Gather, Deliver,
   and the carried-slot count stay in permanent chrome because they are the loop rather than a
   reference. Research shows prerequisite, affordability, and completion states. The bottom

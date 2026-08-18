@@ -21,6 +21,7 @@ import type {
   WorldPoint,
 } from "./core/types";
 import {
+  BUILDING_COLORS,
   CanvasFactoryRenderer,
   isSurveyed,
 } from "./rendering/CanvasFactoryRenderer";
@@ -40,6 +41,27 @@ const DIRECTION_NAMES = [
   "Northwest",
   "Northeast",
 ];
+const FOG_FILL = "#18242f";
+const FOG_STROKE = "#7fe0c0";
+const STATUS_TONE: Record<string, "live" | "wait" | "stop" | "hub"> = {
+  extracting: "live",
+  composing: "live",
+  pumping: "live",
+  generating: "live",
+  carrying: "live",
+  receiving: "live",
+  idle: "wait",
+  "waiting for inputs": "wait",
+  buffered: "wait",
+  "output blocked": "stop",
+  "deposit depleted": "stop",
+  "out of fuel": "stop",
+  "no power": "stop",
+  brownout: "stop",
+  "no water in reach": "stop",
+  "no boiler": "stop",
+  "landing hub": "hub",
+};
 /**
  * Which key opens which panel. `I` and `O` are the pack and the research tree, `P` is the objective
  * and the controls reference, and the inspector is deliberately absent: it is the one panel that
@@ -396,37 +418,101 @@ function renderTechnologies(): void {
  * research list is. `quantity` is the whole stored amount: native clamps it to what the container
  * holds and to what the player can still carry, and reports how much actually moved.
  */
+function paintHexFace(
+  hex: HTMLElement,
+  fill: string,
+  stroke: string,
+  impassable: boolean,
+): void {
+  hex.style.setProperty("--band-fill", fill);
+  hex.style.setProperty("--band-stroke", stroke);
+  hex.classList.toggle("impassable", impassable);
+}
+
+function setMeter(
+  row: HTMLElement,
+  fill: HTMLElement,
+  amount: HTMLElement,
+  current: number,
+  total: number,
+  visible: boolean,
+): void {
+  row.hidden = !visible;
+  if (!visible) return;
+  const ratio = total > 0 ? Math.min(1, Math.max(0, current / total)) : 0;
+  fill.style.width = `${ratio * 100}%`;
+  amount.textContent = `${current} / ${total}`;
+}
+
+function setItemGlyph(
+  element: HTMLElement,
+  icon: string | undefined,
+  color: string | undefined,
+): void {
+  element.style.setProperty("--item-color", color ?? "transparent");
+  element.innerHTML = icon && color ? itemIconSvg(icon, color) : "";
+}
+
+/**
+ * The take-from-container controls for the inspected hex, patched in place for the same reason the
+ * research list is. `quantity` is the whole stored amount: native clamps it to what the container
+ * holds and to what the player can still carry, and reports how much actually moved. A composer
+ * still shows its reserved inputs, but only a container grows a Take — reserved inputs belong to
+ * the job that reserved them.
+ */
 function renderInspectorActions(building: EntitySnapshot | undefined): void {
-  const element = required<HTMLDivElement>("inspector-actions");
-  const stored = building?.kind === "container" ? building.inventory : [];
-  element.hidden = stored.length === 0;
-  const buttons = syncChildren(
-    element,
+  const list = required<HTMLDivElement>("inspector-actions");
+  const stock = required<HTMLElement>("inspect-stock");
+  const stored = building?.inventory ?? [];
+  const canTake = building?.kind === "container";
+  stock.hidden = stored.length === 0;
+  const rows = syncChildren(
+    list,
     stored.map(({ item_id }) => String(item_id)),
     () => {
+      const row = document.createElement("div");
+      row.className = "inspect-stock-row";
+      row.innerHTML = `<div class="inspect-stock-item"><span class="inspect-item-glyph"></span><strong></strong><span></span></div>`;
       const button = document.createElement("button");
       button.type = "button";
       button.className = "withdraw-button";
-      return button;
+      row.append(button);
+      return row;
     },
   );
   stored.forEach((entry, index) => {
-    const button = buttons[index] as HTMLButtonElement;
+    const row = rows[index];
+    if (!row) return;
     const item = host.definitions.items.find(({ id }) => id === entry.item_id);
     const name = item?.name ?? `Item ${entry.item_id}`;
+    setItemGlyph(part(row, ".inspect-item-glyph"), item?.icon, item?.color);
+    part(row, "strong").textContent = name;
+    part(row, ".inspect-stock-item > span:last-child").textContent = String(
+      entry.quantity,
+    );
+    const button = part<HTMLButtonElement>(row, "button");
+    button.hidden = !canTake;
     button.dataset.itemId = String(entry.item_id);
     button.dataset.quantity = String(entry.quantity);
     button.dataset.q = String(building?.q ?? 0);
     button.dataset.r = String(building?.r ?? 0);
-    button.textContent = `Take ${entry.quantity} ${item?.name ?? ""}`.trim();
+    button.textContent = "Take";
     button.setAttribute("aria-label", `Take ${entry.quantity} ${name}`);
   });
 }
 
 function renderInspector(): void {
-  const element = required<HTMLDivElement>("selection-value");
+  const empty = required<HTMLElement>("inspect-empty");
+  const sheet = required<HTMLElement>("inspect-sheet");
+  const kicker = required<HTMLElement>("inspect-kicker");
+  const title = required<HTMLElement>("inspect-title");
+  const status = required<HTMLElement>("inspect-status");
   if (!selected) {
-    element.textContent = "Select a hex on the map.";
+    empty.hidden = false;
+    sheet.hidden = true;
+    kicker.textContent = "World inspector";
+    title.textContent = "Select a hex";
+    status.hidden = true;
     renderInspectorActions(undefined);
     renderInspectorRecipe(undefined);
     return;
@@ -439,61 +525,190 @@ function renderInspector(): void {
   const resource = snapshot.resources.find(
     ({ q, r }) => q === selected?.q && r === selected?.r,
   );
-  const lines = [`Build hex ${selected.q}, ${selected.r}`];
+  const surveyed = isSurveyed(snapshot.chunks, selectedWorld);
+  const definition = building
+    ? host.definitions.buildings.find(({ id }) => id === building.definition_id)
+    : undefined;
+  const fieldItem = resource
+    ? host.definitions.items.find(({ id }) => id === resource.item_id)
+    : undefined;
+
+  empty.hidden = true;
+  sheet.hidden = false;
+  required<HTMLElement>("inspect-q").textContent = String(selected.q);
+  required<HTMLElement>("inspect-r").textContent = String(selected.r);
+
+  const field = required<HTMLElement>("inspect-field");
+  // The actual field is what a new player needs first. Band potentials belong on empty
+  // ground; listing them above an iron cell is how the purple hex stayed anonymous.
   if (resource) {
-    const item = host.definitions.items.find(
-      ({ id }) => id === resource.item_id,
+    field.hidden = false;
+    field.classList.toggle("inspect-field-solo", !building);
+    field.style.setProperty("--item-color", fieldItem?.color ?? "transparent");
+    setItemGlyph(
+      required<HTMLElement>("inspect-field-glyph"),
+      fieldItem?.icon,
+      fieldItem?.color,
     );
-    const renewable = item?.regrowth_ticks ? " · regrows" : "";
-    // The actual field is what a new player needs first. Band potentials belong on empty
-    // ground; listing them above an iron cell is how the purple hex stayed anonymous.
-    lines.push(
-      `${item?.name ?? "Resource"}: ${resource.quantity} / ${resource.initial_quantity}${renewable}`,
-    );
-  }
-  if (isSurveyed(snapshot.chunks, selectedWorld)) {
-    const terrain =
-      snapshot.terrain.find(
-        ({ q, r }) => q === selected?.q && r === selected?.r,
-      )?.terrain ?? "lowland";
-    const band = TERRAIN_INFO[terrain];
-    // What the player may do with the hex comes first, from the passability native decides. On a
-    // field cell the band's other materials are noise — the cell already says what it holds.
-    lines.push(
-      resource
-        ? `${band.name} · ${terrainAccess(band)}`
-        : `${band.name} · ${terrainAccess(band)} · ${band.note}`,
+    required<HTMLElement>("inspect-field-name").textContent =
+      fieldItem?.name ?? "Resource";
+    setMeter(
+      required<HTMLElement>("inspect-field-meter"),
+      required<HTMLElement>("inspect-field-fill"),
+      required<HTMLElement>("inspect-field-amount"),
+      resource.quantity,
+      resource.initial_quantity,
+      true,
     );
   } else {
-    lines.push("Unsurveyed — travel here to lift the fog");
+    field.hidden = true;
   }
+
+  const terrain = surveyed
+    ? (snapshot.terrain.find(
+        ({ q, r }) => q === selected?.q && r === selected?.r,
+      )?.terrain ?? "lowland")
+    : undefined;
+  const band = terrain ? TERRAIN_INFO[terrain] : undefined;
+
   if (building) {
-    const definition = host.definitions.buildings.find(
-      ({ id }) => id === building.definition_id,
-    );
-    const stored = building.inventory.reduce(
-      (sum, item) => sum + item.quantity,
-      0,
-    );
-    lines.push(`${definition?.name ?? building.kind} · ${building.status}`);
-    const recipe = host.definitions.recipes.find(
-      ({ id }) => id === building.recipe_id,
-    );
-    if (recipe) lines.push(`Recipe: ${recipe.name}`);
-    if (building.fuel_required)
-      lines.push(
-        `Fuel: ${building.fuel_charge ?? 0} stored · ${building.fuel_required} per craft`,
-      );
-    if (building.power_demand)
-      lines.push(
-        `Power: ${building.power_satisfied ?? 0} / ${building.power_demand}`,
-      );
-    lines.push(
-      `Direction ${building.orientation} · stored ${stored}${building.cargo ? ` · cargo ${building.cargo.quantity}` : ""}`,
-    );
-    if (building.scenario_owned) lines.push("Protected scenario object");
+    kicker.textContent = "Building";
+    title.textContent = definition?.name ?? titleCase(building.kind);
+    status.hidden = false;
+    status.textContent = building.status;
+    status.className = `inspect-status ${STATUS_TONE[building.status] ?? "wait"}`;
+  } else if (resource) {
+    kicker.textContent = "Field";
+    title.textContent = fieldItem?.name ?? "Resource";
+    if (fieldItem?.regrowth_ticks) {
+      status.hidden = false;
+      status.textContent = "regrows";
+      status.className = "inspect-status live";
+    } else {
+      status.hidden = true;
+    }
+  } else if (!surveyed) {
+    kicker.textContent = "Unsurveyed";
+    title.textContent = "Fog";
+    status.hidden = true;
+  } else {
+    kicker.textContent = "Ground";
+    title.textContent = band?.name ?? "Lowland";
+    status.hidden = true;
   }
-  element.textContent = lines.join("\n");
+
+  const hex = required<HTMLElement>("inspect-hex");
+  const mark = required<HTMLElement>("inspect-portrait-mark");
+  const facingTick = required<HTMLElement>("inspect-facing-tick");
+  if (building) {
+    paintHexFace(hex, BUILDING_COLORS[building.kind], "#dce7ef", false);
+    mark.textContent = definition?.icon ?? "";
+    facingTick.hidden = false;
+    facingTick.className = `inspect-facing-tick dir-${building.orientation}`;
+  } else if (resource && fieldItem) {
+    paintHexFace(hex, fieldItem.color, "#f4f7f5", false);
+    setItemGlyph(mark, fieldItem.icon, fieldItem.color);
+    facingTick.hidden = true;
+  } else if (band) {
+    paintHexFace(hex, band.fill, band.stroke, !band.passable);
+    mark.textContent = "";
+    facingTick.hidden = true;
+  } else {
+    paintHexFace(hex, FOG_FILL, FOG_STROKE, false);
+    mark.textContent = "";
+    facingTick.hidden = true;
+  }
+
+  const place = required<HTMLElement>("inspect-place");
+  if (surveyed && band) {
+    place.hidden = false;
+    paintHexFace(
+      required<HTMLElement>("inspect-band-swatch"),
+      band.fill,
+      band.stroke,
+      !band.passable,
+    );
+    required<HTMLElement>("inspect-band-name").textContent = band.name;
+    const access = required<HTMLElement>("inspect-access");
+    access.textContent = terrainAccess(band);
+    access.classList.toggle("impassable-label", !band.passable);
+    required<HTMLElement>("inspect-band-note").textContent =
+      resource || building ? "" : band.note;
+  } else if (!surveyed) {
+    place.hidden = false;
+    paintHexFace(
+      required<HTMLElement>("inspect-band-swatch"),
+      FOG_FILL,
+      FOG_STROKE,
+      false,
+    );
+    required<HTMLElement>("inspect-band-name").textContent = "Unsurveyed";
+    const access = required<HTMLElement>("inspect-access");
+    access.textContent = "Fog";
+    access.classList.remove("impassable-label");
+    required<HTMLElement>("inspect-band-note").textContent =
+      "Travel here to lift the fog";
+  } else {
+    place.hidden = true;
+  }
+
+  const machine = required<HTMLElement>("inspect-machine");
+  machine.hidden = !building;
+  if (building) {
+    setMeter(
+      required<HTMLElement>("inspect-progress-meter"),
+      required<HTMLElement>("inspect-progress-fill"),
+      required<HTMLElement>("inspect-progress-amount"),
+      building.progress,
+      building.progress_total,
+      building.progress_total > 0,
+    );
+    setMeter(
+      required<HTMLElement>("inspect-fuel-meter"),
+      required<HTMLElement>("inspect-fuel-fill"),
+      required<HTMLElement>("inspect-fuel-amount"),
+      building.fuel_charge ?? 0,
+      building.fuel_required ?? 0,
+      Boolean(building.fuel_required),
+    );
+    setMeter(
+      required<HTMLElement>("inspect-power-meter"),
+      required<HTMLElement>("inspect-power-fill"),
+      required<HTMLElement>("inspect-power-amount"),
+      building.power_satisfied ?? 0,
+      building.power_demand ?? 0,
+      Boolean(building.power_demand),
+    );
+    for (const spoke of required<HTMLElement>("inspect-compass").children) {
+      const tick = spoke as HTMLElement;
+      tick.classList.toggle(
+        "on",
+        Number(tick.dataset.dir) === building.orientation,
+      );
+    }
+    required<HTMLElement>("inspect-facing-name").textContent =
+      DIRECTION_NAMES[building.orientation] ?? `Facing ${building.orientation}`;
+    required<HTMLElement>("inspect-protected").hidden =
+      !building.scenario_owned;
+    const cargo = required<HTMLElement>("inspect-cargo");
+    const cargoItem = building.cargo
+      ? host.definitions.items.find(({ id }) => id === building.cargo?.item_id)
+      : undefined;
+    cargo.hidden = !building.cargo;
+    if (building.cargo) {
+      setItemGlyph(
+        required<HTMLElement>("inspect-cargo-glyph"),
+        cargoItem?.icon,
+        cargoItem?.color,
+      );
+      required<HTMLElement>("inspect-cargo-name").textContent =
+        cargoItem?.name ?? `Item ${building.cargo.item_id}`;
+      required<HTMLElement>("inspect-cargo-count").textContent = String(
+        building.cargo.quantity,
+      );
+    }
+  }
+
   renderInspectorActions(building);
   renderInspectorRecipe(building);
 }
@@ -697,8 +912,6 @@ function selectTool(next: Tool): void {
     typeof next === "number"
       ? host.definitions.buildings.find(({ id }) => id === next)
       : undefined;
-  required<HTMLElement>("selected-tool-value").textContent =
-    definition?.name ?? titleCase(String(next));
   renderer.setBuildMode(next !== "inspect");
   renderer.setBuildFootprint(
     definition?.footprint ?? [{ q: 0, r: 0 }],

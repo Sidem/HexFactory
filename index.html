@@ -86,8 +86,13 @@
         >
           <div class="panel-heading">
             <div>
-              <span class="section-kicker">World inspector</span>
-              <h2 id="selected-tool-value">Inspect</h2>
+              <span class="section-kicker" id="inspect-kicker"
+                >World inspector</span
+              >
+              <div class="inspect-heading-row">
+                <h2 id="inspect-title">Select a hex</h2>
+                <span class="inspect-status" id="inspect-status" hidden></span>
+              </div>
             </div>
             <button
               class="panel-close"
@@ -98,14 +103,127 @@
             </button>
           </div>
           <div id="selection-value" class="inspector">
-            Select a hex, resource, or machine.
+            <p class="inspect-empty" id="inspect-empty">
+              Click a hex to read what stands on it.
+            </p>
+            <article class="inspect-sheet" id="inspect-sheet" hidden>
+              <header class="inspect-identity">
+                <div
+                  class="inspect-portrait"
+                  id="inspect-portrait"
+                  aria-hidden="true"
+                >
+                  <i class="inspect-hex" id="inspect-hex"></i>
+                  <span
+                    class="inspect-portrait-mark"
+                    id="inspect-portrait-mark"
+                  ></span>
+                  <i
+                    class="inspect-facing-tick"
+                    id="inspect-facing-tick"
+                    hidden
+                  ></i>
+                </div>
+                <div class="inspect-coord" title="Axial hex coordinates">
+                  <span><small>q</small><strong id="inspect-q">—</strong></span>
+                  <span><small>r</small><strong id="inspect-r">—</strong></span>
+                </div>
+              </header>
+              <section class="inspect-place" id="inspect-place" hidden>
+                <i class="inspect-band-swatch" id="inspect-band-swatch"></i>
+                <div class="inspect-place-copy">
+                  <div class="inspect-place-row">
+                    <strong id="inspect-band-name"></strong>
+                    <span class="inspect-access" id="inspect-access"></span>
+                  </div>
+                  <p class="inspect-band-note" id="inspect-band-note"></p>
+                </div>
+              </section>
+              <section class="inspect-field" id="inspect-field" hidden>
+                <div class="inspect-field-head">
+                  <span
+                    class="inspect-item-glyph"
+                    id="inspect-field-glyph"
+                  ></span>
+                  <div class="inspect-field-copy">
+                    <span class="inspect-kind">Field</span>
+                    <strong id="inspect-field-name"></strong>
+                  </div>
+                </div>
+                <div class="inspect-meter" id="inspect-field-meter">
+                  <div class="inspect-meter-track">
+                    <i id="inspect-field-fill"></i>
+                  </div>
+                  <span id="inspect-field-amount"></span>
+                </div>
+              </section>
+              <section class="inspect-machine" id="inspect-machine" hidden>
+                <div class="inspect-meter" id="inspect-progress-meter" hidden>
+                  <span class="inspect-meter-label">Craft</span>
+                  <div class="inspect-meter-track">
+                    <i id="inspect-progress-fill"></i>
+                  </div>
+                  <span id="inspect-progress-amount"></span>
+                </div>
+                <div class="inspect-meter" id="inspect-fuel-meter" hidden>
+                  <span class="inspect-meter-label">Fuel</span>
+                  <div class="inspect-meter-track">
+                    <i id="inspect-fuel-fill"></i>
+                  </div>
+                  <span id="inspect-fuel-amount"></span>
+                </div>
+                <div class="inspect-meter" id="inspect-power-meter" hidden>
+                  <span class="inspect-meter-label">Power</span>
+                  <div class="inspect-meter-track">
+                    <i id="inspect-power-fill"></i>
+                  </div>
+                  <span id="inspect-power-amount"></span>
+                </div>
+                <div class="inspect-facing-row">
+                  <div
+                    class="inspect-compass"
+                    id="inspect-compass"
+                    aria-hidden="true"
+                  >
+                    <i data-dir="0"></i>
+                    <i data-dir="1"></i>
+                    <i data-dir="2"></i>
+                    <i data-dir="3"></i>
+                    <i data-dir="4"></i>
+                    <i data-dir="5"></i>
+                  </div>
+                  <div class="inspect-facing-copy">
+                    <span class="inspect-kind">Facing</span>
+                    <strong id="inspect-facing-name">East</strong>
+                  </div>
+                  <span
+                    class="inspect-chip inspect-chip-gold"
+                    id="inspect-protected"
+                    hidden
+                  >
+                    Protected
+                  </span>
+                </div>
+                <div class="inspect-cargo" id="inspect-cargo" hidden>
+                  <span class="inspect-kind">On the belt</span>
+                  <span
+                    class="inspect-item-glyph"
+                    id="inspect-cargo-glyph"
+                  ></span>
+                  <strong id="inspect-cargo-name"></strong>
+                  <span id="inspect-cargo-count"></span>
+                </div>
+                <div class="inspect-stock" id="inspect-stock" hidden>
+                  <span class="inspect-kind">Stored</span>
+                  <div
+                    id="inspector-actions"
+                    class="inspect-stock-list"
+                    aria-label="Container contents"
+                  ></div>
+                </div>
+              </section>
+            </article>
           </div>
-          <div
-            id="inspector-actions"
-            class="inspector-actions"
-            aria-label="Container contents"
-            hidden
-          ></div>
           <label id="inspector-recipe" class="recipe-picker" hidden>
             <span class="section-kicker">Machine recipe</span>
             <select
