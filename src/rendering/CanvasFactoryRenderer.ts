@@ -10,10 +10,12 @@ import {
 
 import { TERRAIN_INFO } from "../core/terrain";
 import type {
+  BuildingDefinition,
   ChunkSnapshot,
   Definitions,
   EntitySnapshot,
   FactorySnapshot,
+  ItemDefinition,
   LinePreviewCell,
   PlacementPreview,
   WorldPoint,
@@ -21,7 +23,7 @@ import type {
 import { drawItemIcon } from "./icons";
 import { WORLD_SCALE, homeBearing } from "./landmarks";
 
-const BASE_HEX_SIZE = 22;
+export const BASE_HEX_SIZE = 22;
 
 /** One colour per building kind, shared with the minimap so a machine reads the same on both. */
 export const BUILDING_COLORS: Record<EntitySnapshot["kind"], string> = {
@@ -140,6 +142,8 @@ export class HexCamera {
 export class CanvasFactoryRenderer {
   readonly camera = new HexCamera();
   private readonly context: CanvasRenderingContext2D;
+  private readonly itemsById: ReadonlyMap<number, ItemDefinition>;
+  private readonly buildingsById: ReadonlyMap<number, BuildingDefinition>;
   private readonly reducedMotion = matchMedia(
     "(prefers-reduced-motion: reduce)",
   ).matches;
@@ -161,11 +165,15 @@ export class CanvasFactoryRenderer {
 
   constructor(
     private readonly canvas: HTMLCanvasElement,
-    private readonly definitions: Definitions,
+    definitions: Definitions,
   ) {
     const context = canvas.getContext("2d");
     if (!context) throw new Error("Canvas 2D is unavailable");
     this.context = context;
+    this.itemsById = new Map(definitions.items.map((item) => [item.id, item]));
+    this.buildingsById = new Map(
+      definitions.buildings.map((building) => [building.id, building]),
+    );
     new ResizeObserver(() => this.draw()).observe(canvas);
   }
 
@@ -391,9 +399,7 @@ export class CanvasFactoryRenderer {
         height,
       );
       if (!visible(center, size, width, height)) continue;
-      const item = this.definitions.items.find(
-        ({ id }) => id === resource.item_id,
-      );
+      const item = this.itemsById.get(resource.item_id);
       const color = item?.color ?? "#fff";
       const pulse = this.reducedMotion ? 0 : Math.sin(this.now / 450) * 0.03;
       drawHex(ctx, center, size * (0.82 + pulse), `${color}55`, color, 1.6);
@@ -699,9 +705,7 @@ export class CanvasFactoryRenderer {
     ctx.moveTo(center.x, center.y);
     ctx.lineTo(tip.x, tip.y);
     ctx.stroke();
-    const definition = this.definitions.buildings.find(
-      ({ id }) => id === building.definition_id,
-    );
+    const definition = this.buildingsById.get(building.definition_id);
     ctx.fillStyle = "#f5fbf8";
     ctx.font = `900 ${Math.max(8, size * 0.23)}px system-ui`;
     ctx.textAlign = "center";
@@ -749,9 +753,7 @@ export class CanvasFactoryRenderer {
       );
     }
     if (building.cargo) {
-      const item = this.definitions.items.find(
-        ({ id }) => id === building.cargo?.item_id,
-      );
+      const item = this.itemsById.get(building.cargo.item_id);
       const travel = this.reducedMotion
         ? 0.72
         : 0.3 + ((this.now / 900) % 0.55);

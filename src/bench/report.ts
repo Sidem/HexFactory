@@ -52,8 +52,10 @@ export interface NativeReport {
  * What one frame costs the host, measured on the main thread around the ordinary worker RPC.
  *
  * `round_trip_us` covers everything the native `frame_us` cannot see: posting the bounded command
- * batch, the worker's own `JSON.parse`, the structured clone of the delta, and both scheduling
- * hops. `apply_us` is the main thread merging that delta into its cached snapshot.
+ * batch, the worker's own decode, the transfer of the delta, and both scheduling hops. `apply_us`
+ * is the main thread merging that delta into its cached snapshot. Render timings are the two
+ * canvases the game actually draws; they are optional so a report that only measured the
+ * simulation half still types.
  */
 export interface HostTierResult {
   key: string;
@@ -66,6 +68,16 @@ export interface HostTierResult {
   checksum: number;
   /** Buildings in the host's cached snapshot after the run, through the per-entity patch path. */
   applied_entities: number;
+  /** `CanvasFactoryRenderer.draw` at the pinned 1440×900 viewport, camera on the player. */
+  render_world_us?: number;
+  /** `MinimapRenderer.draw` at the shipped 178 px square. */
+  render_minimap_us?: number;
+  /** `render_world_us + render_minimap_us`. */
+  render_us?: number;
+  /** How many world draws the 20 ms sample budget bought. */
+  render_samples?: number;
+  /** `host_frame_us + render_us`: one browser frame, end to end. */
+  browser_frame_us?: number;
 }
 
 export interface BenchEnvironment {
@@ -76,6 +88,69 @@ export interface BenchEnvironment {
   main_clock_resolution_us: number;
   worker_clock_resolution_us: number;
   recorded: string;
+  /** CSS pixels of the world canvas the renderer was timed against, when it was. */
+  viewport_width?: number;
+  viewport_height?: number;
+  minimap_size?: number;
+  device_pixel_ratio?: number;
+  hex_size?: number;
+}
+
+/** The viewport the renderer measurement pins, matching the 1440×900 playtest and the shipped minimap. */
+export const RENDER_VIEWPORT = {
+  width: 1440,
+  height: 900,
+  minimap: 178,
+} as const;
+
+/**
+ * Smallest duration a browser phase is allowed to run. A 100 µs clock step is then 0.5% of the
+ * sample, matching the native crate's wasm sample budget.
+ */
+export const MIN_PHASE_MS = 20;
+
+/**
+ * Repeat `work` until `minMs` have elapsed and return the mean cost in microseconds.
+ *
+ * The caller warms the path once outside this function, the same way the native harness warms a
+ * core before timing it. A single sample that already exceeds the budget is a valid measurement.
+ */
+export function timeMeanUs(
+  work: () => void,
+  nowMs: () => number = () => performance.now(),
+  minMs = MIN_PHASE_MS,
+): { meanUs: number; samples: number; elapsedMs: number } {
+  const started = nowMs();
+  let samples = 0;
+  let ended = started;
+  do {
+    work();
+    samples += 1;
+    ended = nowMs();
+  } while (ended - started < minMs);
+  const elapsedMs = ended - started;
+  return {
+    meanUs: samples === 0 ? 0 : (elapsedMs * 1000) / samples,
+    samples,
+    elapsedMs,
+  };
+}
+
+export function hostHasRender(
+  host: HostTierResult | null,
+): host is HostTierResult & {
+  render_world_us: number;
+  render_minimap_us: number;
+  render_us: number;
+  browser_frame_us: number;
+} {
+  return (
+    host !== null &&
+    host.render_us !== undefined &&
+    host.render_world_us !== undefined &&
+    host.render_minimap_us !== undefined &&
+    host.browser_frame_us !== undefined
+  );
 }
 
 export type MergedTierResult = NativeTierResult & {
@@ -150,10 +225,17 @@ export const TIER_COLUMNS = [
   "round trip µs",
   "apply µs",
   "host frame µs",
-  "60 Hz share",
+  "world µs",
+  "minimap µs",
+  "render µs",
+  "browser frame µs",
+  "sim share",
+  "frame share",
 ] as const;
 
 export function tierRow(tier: MergedTierResult): string[] {
+  const host = tier.host;
+  const rendered = hostHasRender(host);
   return [
     tier.key,
     integer(tier.lines),
@@ -167,10 +249,15 @@ export function tierRow(tier: MergedTierResult): string[] {
     micros(tier.full_compile_us),
     micros(tier.incremental_recompile_us),
     micros(tier.edit_us),
-    tier.host ? micros(tier.host.round_trip_us) : "—",
-    tier.host ? micros(tier.host.apply_us) : "—",
-    tier.host ? micros(tier.host.host_frame_us) : "—",
-    tier.host ? frameShare(tier.host.host_frame_us) : "—",
+    host ? micros(host.round_trip_us) : "—",
+    host ? micros(host.apply_us) : "—",
+    host ? micros(host.host_frame_us) : "—",
+    rendered ? micros(host.render_world_us) : "—",
+    rendered ? micros(host.render_minimap_us) : "—",
+    rendered ? micros(host.render_us) : "—",
+    rendered ? micros(host.browser_frame_us) : "—",
+    host ? frameShare(host.host_frame_us) : "—",
+    rendered ? frameShare(host.browser_frame_us) : "—",
   ];
 }
 

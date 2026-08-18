@@ -128,9 +128,10 @@ Keep this file concise; the durable roadmap, design pillars, and implementation 
   measuring. A checksum change invalidates checksum comparisons, not timing ones: say which of the
   two a record is claiming.
 - Every performance or scale claim must cite a measured tier in `docs/BENCHMARKS.md`. Claims beyond
-  the recorded ladder are not supported. Browser claims are supported only for the simulation half
-  of a frame — advancing a tick, crossing the worker boundary, and merging the delta — because
-  rendering is still unmeasured. One Chromium version on one desktop is the whole browser evidence.
+  the recorded ladder are not supported. Browser claims may cite a complete frame — advancing a
+  tick, crossing the worker boundary, merging the delta, and drawing the two canvases — only from
+  the v0.12.4 record onward, at the pinned 1440×900 viewport and device-pixel-ratio 1 that record
+  used. One Chromium version on one desktop is the whole browser evidence.
 - The capacity harness is measurement code, not shipped code. It compiles into wasm only under the
   `bench` cargo feature, and `bench.html` is served in development only. Neither may become a
   dependency of the game, the production build, or the CI gate.

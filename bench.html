@@ -98,16 +98,36 @@
         background: var(--panel);
         font-size: 12px;
       }
+      #render-stage {
+        position: absolute;
+        left: -200vw;
+        top: 0;
+        width: 1440px;
+        height: 900px;
+        pointer-events: none;
+      }
+      #bench-world {
+        display: block;
+        width: 1440px;
+        height: 900px;
+      }
+      #bench-minimap {
+        display: block;
+        width: 178px;
+        height: 178px;
+      }
     </style>
   </head>
   <body>
     <h1>HexFactory browser capacity ladder</h1>
     <p>
       The same deterministic ladder <code>npm run bench</code> runs natively,
-      measured here as wasm inside a module worker, plus the worker RPC round
-      trip and main-thread delta merge that a native run cannot see. Build the
-      harness artifact with <code>npm run build:wasm:bench</code> first. Record
-      results in <code>docs/BENCHMARKS.md</code>.
+      measured here as wasm inside a module worker, plus the costs a native run
+      cannot see: the worker RPC round trip, the main-thread delta merge, and
+      the two canvases the game draws (1440×900 world, 178&nbsp;px minimap).
+      Build the harness artifact with
+      <code>npm run build:wasm:bench</code> first. Record results in
+      <code>docs/BENCHMARKS.md</code>.
     </p>
     <div class="controls">
       <button id="run-full" type="button">Run full ladder</button>
@@ -125,6 +145,10 @@
     </div>
     <h2>Report</h2>
     <pre id="json"></pre>
+    <div id="render-stage" aria-hidden="true">
+      <canvas id="bench-world" width="1440" height="900"></canvas>
+      <canvas id="bench-minimap" width="178" height="178"></canvas>
+    </div>
     <script type="module" src="/src/bench/main.ts"></script>
   </body>
 </html>

@@ -105,12 +105,25 @@ bands, its richness, and how much has been taken from it, because native already
 
 ### Sequencing
 
-Rules 1, 2, and 5 add per-hex renderer work, and the renderer is the half of the frame
-`docs/BENCHMARKS.md` has never measured. Stage C is gated on that measurement and Stage B is not, so
-this work is legal before it. It should still not run far ahead of it, for the same reason the binary
-delta encoding should precede the milestones that grow the payload: tuning the cost of a terrain
-fringe with no measurement of the frame it lands in is guessing. Measure the renderer first, or
-alongside.
+Rules 1, 2, and 5 add per-hex renderer work. v0.12.4 measured the current frame: the world is
+909 µs at the largest tier and a complete browser frame is 18.2% of 60 Hz. Stage C is no longer
+gated on ignorance. Stage B's per-hex work should still not run far ahead of a re-measure, for
+the same reason the binary delta encoding preceded the milestones that grew the payload: adding
+a terrain fringe without timing the frame it lands in is guessing.
+
+## Longer horizon
+
+Named 2026-08-18. The destination, not the next session. Full write-up is in
+`docs/HEXFACTORY-PLAN.md` under **Longer horizon**.
+
+- **Organic tileables.** Stage B's five rules are the 2D start. The later systems produce tileable
+  textures and shapes so a hex lattice reads as organic terrain and organic objects, still generated
+  from published snapshot facts, still never a checksum input.
+- **3D presentation.** The camera tilts and orbits the player; the player, terrain, and buildings
+  gain 3D shape. Canvas 2D stays replaceable presentation. A 3D mesh hand-authored per definition is
+  the atlas again; a mesh derived from `recipe_category` and tier is this generator in another
+  dimension. A renderer replacement is still a measured decision; v0.12.4 is the baseline it is
+  measured against.
 
 ## Still
 

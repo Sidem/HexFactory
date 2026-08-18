@@ -87,7 +87,11 @@ The Rust `Core` owns all state that can change a game result:
     inventory, and carry the recipe the drag will carry — legality depends on the recipe's category,
     so a preview asking without one would refuse a run the drag would build. Undo is a stack of
     constructed entity ids replayed through `erase`; like `deposit_links` it is derived state and is
-    never saved, hashed, or checksummed.
+    never saved, hashed, or checksummed. A screen-vertical run on this pointy-top lattice has no
+    hex-edge direction and today zigzags NE/NW as a full tile on every cell; the longer-horizon
+    model anchors every second hex and half-covers the offset tiles between, and that change has
+    to land in native occupancy and in this same resolver, not as a draw trick. See
+    `docs/HEXFACTORY-PLAN.md` **North-south belts**.
 11. Extractors resolve their deposit by reference rather than by search. Each extractor's covering
     deposits are resolved once into a candidate list ordered exactly as a full scan would resolve
     it, cached against its stable entity id, and dropped whenever chunk generation adds tiles.
@@ -142,7 +146,10 @@ silently dropped about once a second.
 
 The replaceable Canvas 2D renderer consumes snapshots and draws continuous regions/resources,
 multi-cell buildings, player, hover, selection, build radius, legality, definition labels, cargo
-layers, and the fog of war over ungenerated world. The construction grid is hidden outside editing unless explicitly toggled. The command bar,
+layers, and the fog of war over ungenerated world. The longer-horizon replacement is a 3D
+renderer whose camera tilts and orbits the player and whose terrain, buildings, and player have
+shape — still presentation over the same snapshots, measured against the v0.12.4 baseline. The
+construction grid is hidden outside editing unless explicitly toggled. The command bar,
 snapshot-derived next-action guidance, inventory/research panels, construction dock, held touch pad,
 camera following, pan/zoom, feedback, and reduced-motion behavior are presentation only. Touch and
 keyboard movement share the same bounded native intent commands. `@hexlife/embed/hex` performs
@@ -234,9 +241,9 @@ move the workload's identity.
 
 The harness is measurement code and never becomes shipped code. It enters the wasm artifact only
 under the `bench` cargo feature, and the dev-only `/bench.html` page is not part of the production
-build, so the deployed artifact carries none of it. That page adds the two costs a native run
-cannot see, measured through the game's own paths: the worker RPC round trip, and
-`applySnapshotDelta` merging the patch on the main thread.
+build, so the deployed artifact carries none of it. That page adds the costs a native run cannot
+see, measured through the game's own paths: the worker RPC round trip, `applySnapshotDelta`
+merging the patch on the main thread, and the two canvases the game draws.
 
 v0.8 recorded the first browser tiers, and they moved the roadmap. The wasm engine costs about 1.2×
 native, so the native work of v0.6 and v0.7 transferred intact. The worker boundary cost roughly
@@ -247,9 +254,12 @@ about 1% of a frame and needed nothing.
 v0.12.2 made that change and re-measured both platforms. The payload is 13.6× smaller at the largest
 tier, the boundary 21.7× cheaper, and a host frame there is 11.0% of 60 Hz rather than 62.1%. The
 boundary is no longer what a frame is mostly made of — the wasm frame is 78% of it — so the engine
-is the cost again, and the merge, unchanged, is now 6.3% of a much smaller frame. A renderer
-decision is still gated on measuring the renderer, which `docs/BENCHMARKS.md` now names as the
-**first** follow-up: the measured half of a browser frame is 11% and rendering is the other 89%.
+is the cost again, and the merge, unchanged, is now 6.3% of a much smaller frame.
+
+v0.12.4 measured the two canvases the game draws against the same tiers. A complete browser frame
+at 6,144 entities is 18.2% of 60 Hz; the world is 909 µs, the minimap 160 µs. The page times them
+through the game's own `draw` paths, at a pinned 1440×900 viewport, and they stay out of the
+shipped artifact the same way the rest of the harness does.
 
 ## Fog of war
 

@@ -1,9 +1,10 @@
 # HexFactory capacity benchmarks
 
-Status: **Binary Delta v0.12.2 is the fifth measured record and the current one**, native and
-browser both. The roadmap gates any renderer decision and every scale claim behind this
-measurement. Nothing here is an extrapolation: each number below was produced by the committed
-harness, and the raw reports are stored beside this document.
+Status: **Renderer Measure v0.12.4 is the current browser record**; Binary Delta v0.12.2 remains
+the current native one. The Canvas renderer and the minimap are now timed against the same tiers
+as the simulation, so a browser frame is accounted for end to end. Nothing here is an
+extrapolation: each number below was produced by the committed harness, and the raw reports are
+stored beside this document.
 
 **The v0.8 tables below are a historical record, not the current cost**, and so is everything the
 v0.8 browser record concluded about the worker boundary. v0.11 changed the world generator, v0.12
@@ -57,20 +58,24 @@ ten ticks for the whole measured run. Tiers therefore differ in size, not in beh
 Each tier is measured in separately timed phases. Every phase that would otherwise disturb another
 runs on its own freshly warmed core, so no measurement inherits a state the previous one left:
 
-| Metric        | What it times                                                               |
-| ------------- | --------------------------------------------------------------------------- |
-| `tick`        | one simulation tick, with no snapshot and no serialization                  |
-| `snapshot`    | building one complete native snapshot, before serialization                 |
-| `checksum`    | one native checksum, which every delta carries                              |
-| `frame`       | one worker frame: bounded command batch, one tick, and one encoded delta    |
-| `delta bytes` | the encoded delta payload that frame sends across the worker boundary       |
-| `json bytes`  | what the same frames would have cost as JSON, the encoding's own comparison |
-| `compile`     | one full deterministic transport compile, as used on load and restore       |
-| `recompile`   | the incremental transport machinery alone, for one edit                     |
-| `edit`        | one complete public rotate edit, legality checks included                   |
-| `round trip`  | browser only: the same frame, requested and received over the worker RPC    |
-| `apply`       | browser only: the main thread merging that delta into its cached snapshot   |
-| `host frame`  | browser only: `round trip + apply`, one simulated frame end to end          |
+| Metric          | What it times                                                               |
+| --------------- | --------------------------------------------------------------------------- |
+| `tick`          | one simulation tick, with no snapshot and no serialization                  |
+| `snapshot`      | building one complete native snapshot, before serialization                 |
+| `checksum`      | one native checksum, which every delta carries                              |
+| `frame`         | one worker frame: bounded command batch, one tick, and one encoded delta    |
+| `delta bytes`   | the encoded delta payload that frame sends across the worker boundary       |
+| `json bytes`    | what the same frames would have cost as JSON, the encoding's own comparison |
+| `compile`       | one full deterministic transport compile, as used on load and restore       |
+| `recompile`     | the incremental transport machinery alone, for one edit                     |
+| `edit`          | one complete public rotate edit, legality checks included                   |
+| `round trip`    | browser only: the same frame, requested and received over the worker RPC    |
+| `apply`         | browser only: the main thread merging that delta into its cached snapshot   |
+| `host frame`    | browser only: `round trip + apply`, one simulated frame, excluding render   |
+| `world`         | browser only: `CanvasFactoryRenderer.draw` at a pinned 1440×900 viewport    |
+| `minimap`       | browser only: `MinimapRenderer.draw` at the shipped 178 px square           |
+| `render`        | browser only: `world + minimap`                                             |
+| `browser frame` | browser only: `host frame + render`, one frame end to end                   |
 
 `recompile` and `compile` are directly comparable — the incremental path is timed without the edit
 path's legality work, so the comparison is not confounded by it.
@@ -78,10 +83,14 @@ path's legality work, so the comparison is not confounded by it.
 `snapshot` is not part of a frame. Since v0.7 the complete snapshot is built only for the host's
 first frame, and it is kept in the ladder as the baseline the incremental delta is measured against.
 
-The three browser metrics are what a native run cannot see. `frame` stops at the edge of wasm;
+The host metrics are what a native run cannot see. `frame` stops at the edge of wasm;
 `round trip` is the same work as the game asks for it — `postMessage` out, the transfer of the
 delta buffer, the main thread's decode of it, and both scheduling hops — and `apply` is
-`applySnapshotDelta` merging the per-entity patch on the main thread. Neither includes rendering.
+`applySnapshotDelta` merging the per-entity patch on the main thread. `world` and `minimap` are
+the two canvases the game draws, timed against the snapshot the merge just produced, at a
+pinned 1440×900 viewport and the shipped 178 px minimap so a record is a measurement of the
+renderer rather than of the bench page's layout. Each render phase uses the same 20 ms sample
+budget as the rest of the browser harness.
 
 Before v0.12.2 the delta crossed as JSON, so `round trip` covered the worker's own `JSON.parse` and
 a structured clone of the resulting object graph instead of a transfer and a decode. The phase
@@ -328,29 +337,91 @@ oracle and is part of that figure.
 - Everything in **Limits of this measurement** below still applies: one browser, one shell, one
   machine, one workload shape, rendering excluded.
 
+## Renderer Measure v0.12.4 — the first complete browser frame
+
+Same host, `factory-wasm` still at 0.12.3 (the engine is unchanged), recorded 2026-08-18. Raw
+report: [`benchmarks/capacity-v0.12.4-browser.json`](benchmarks/capacity-v0.12.4-browser.json).
+This run answers follow-up 2.
+
+The viewport is pinned: 1440×900 for the world, 178 px for the minimap, `BASE_HEX_SIZE` 22,
+`devicePixelRatio` 1. The camera follows the player, which for this workload means standing at
+the origin of the plant — the view a player actually has, not a zoomed-out census of every
+entity. Chromium 151
+(`Mozilla/5.0 … Chrome/151.0.0.0 Safari/537.36`), 16 hardware threads, `performance.now`
+observed at a 100 µs step, page not cross-origin isolated. That is a different Chrome major
+than the v0.12.2 Electron 42 / Chrome 148 record; the simulation half is reported for
+continuity, not as a controlled pair.
+
+Every tier reproduced its v0.12.2 native checksum and delivered total, and every applied
+snapshot kept its full entity count.
+
+### Browser frame — v0.12.4
+
+| tier   | entities | host frame µs | world µs | minimap µs | render µs | browser frame µs | sim share | frame share |
+| ------ | -------: | ------------: | -------: | ---------: | --------: | ---------------: | --------: | ----------: |
+| line   |       12 |          79.8 |    271.6 |       18.9 |     290.5 |            370.3 |      0.5% |        2.2% |
+| small  |      192 |         153.0 |    346.6 |       57.3 |     403.9 |            556.9 |      0.9% |        3.3% |
+| medium |      768 |         379.0 |    481.0 |      100.0 |     581.0 |            960.0 |      2.3% |        5.8% |
+| wide   |    1,536 |         588.3 |    416.7 |       66.9 |     483.6 |          1,071.9 |      3.5% |        6.4% |
+| large  |    3,072 |       1,160.0 |    689.7 |       89.7 |     779.3 |          1,939.3 |      7.0% |       11.6% |
+| xlarge |    6,144 |       1,970.0 |    909.1 |      160.0 |   1,069.1 |          3,039.1 |     11.8% |       18.2% |
+
+### What this run says
+
+**1. A complete browser frame at the largest measured tier is 18.2% of 60 Hz.** The simulation
+half that v0.12.2 left at 11.0% is 11.8% here — within the stated noise floor, on a different
+Chrome major. Rendering is 1,069 µs, 35% of that complete frame and 6.4% of 60 Hz. The unknown
+89% is gone.
+
+**2. The world canvas is the render cost; the minimap is not.** At every tier the minimap is
+19–160 µs, 6–15% of `render`. The second canvas v0.12.3 added is visible in the number and is
+not what a frame is made of.
+
+**3. World draw has a large floor and grows slowly.** Twelve entities already cost 272 µs;
+6,144 cost 909 µs. The environment, fog, and clear are most of a draw. Walking every building
+and resource to clip it is cheap at these sizes. The dip at `wide` (417 µs against medium's 481) is inside the 20% noise floor and is not a finding.
+
+**4. Stage C is no longer gated on ignorance.** The largest tier leaves 81.8% of a 60 Hz frame.
+Whether an animated frame wants a different renderer is now a question with a number, not a
+prohibition. Follow-up 6 — revisit the renderer itself — is allowed by this record and not
+demanded by it. Nothing here says Canvas 2D is the problem at 6,144 entities.
+
+The one-time definition lookup the v0.12.2 follow-up named is folded into this milestone so
+the measurement did not have to answer it: both canvases build `item_id` / `definition_id`
+maps in the constructor and stop doing a linear `find` inside the per-entity draw loops.
+
+### Limits specific to this run
+
+- **One run, one Chrome 151, device pixel ratio 1.** A 2× retina viewport would rasterize four
+  times the pixels; this record does not speak to that. The v0.12.2 simulation-half comparison
+  is the same machine and not the same browser.
+- **The camera follows the player.** Off-screen entities are still walked and then clipped;
+  they are not drawn. A zoomed-out view that put the whole plant on screen would be a
+  different measurement.
+- Everything in **Limits of this measurement** below still applies, except that rendering is
+  no longer excluded.
+
 ## Measured capacity tiers
 
-Against a 16,667 µs frame at 60 Hz, using the browser's measured `host frame` — the whole cost of
-advancing the simulation one tick and merging the result, excluding rendering:
+Against a 16,667 µs frame at 60 Hz. `sim share` is `host frame` — the cost of advancing a tick
+and merging the result. `frame share` is the complete browser frame, render included, and
+exists only from v0.12.4:
 
-| tier   | entities | share at v0.8 | share at v0.12.2 | verdict     |
-| ------ | -------: | ------------: | ---------------: | ----------- |
-| line   |       12 |          0.6% |             0.4% | comfortable |
-| small  |      192 |          2.5% |             0.8% | comfortable |
-| medium |      768 |          8.3% |             1.9% | comfortable |
-| wide   |    1,536 |         15.8% |             3.3% | comfortable |
-| large  |    3,072 |         30.1% |             6.0% | comfortable |
-| xlarge |    6,144 |         62.1% |            11.0% | comfortable |
+| tier   | entities | sim share v0.8 | sim share v0.12.2 | sim share v0.12.4 | frame share v0.12.4 | verdict     |
+| ------ | -------: | -------------: | ----------------: | ----------------: | ------------------: | ----------- |
+| line   |       12 |           0.6% |              0.4% |              0.5% |                2.2% | comfortable |
+| small  |      192 |           2.5% |              0.8% |              0.9% |                3.3% | comfortable |
+| medium |      768 |           8.3% |              1.9% |              2.3% |                5.8% | comfortable |
+| wide   |    1,536 |          15.8% |              3.3% |              3.5% |                6.4% | comfortable |
+| large  |    3,072 |          30.1% |              6.0% |              7.0% |               11.6% | comfortable |
+| xlarge |    6,144 |          62.1% |             11.0% |             11.8% |               18.2% | comfortable |
 
-**The binary delta encoding took the browser ladder back to having headroom.** The largest tier
-used 23.1% of a frame in the v0.7 native record, 62.1% in the v0.8 browser record, and 11.0% here.
-Rendering is still unmeasured and still has to fit in what is left; the difference is that it is
-now being offered 89% of a frame rather than 38%.
+**The first complete browser frame still has headroom.** The largest tier used 62.1% of a
+frame for simulation alone in v0.8, 11.0% in v0.12.2, and 18.2% end to end here.
 
-**Neither record locates a ceiling any more.** v0.8's closing claim — above 6,144 entities, but not
-far above it — rested on the boundary cost this milestone removed, and is retired. What the ladder
-now says about the limit is only that it is above 6,144 entities, and extending it (follow-up 2
-below) is what would say more.
+**Neither record locates a ceiling.** What the ladder now says about the limit is only that a
+complete frame at 6,144 entities fits, and extending it (follow-up 3 below) is what would say
+more.
 
 ## What the numbers say
 
@@ -440,20 +511,18 @@ Game Feel v0.9 milestone ahead of them; that milestone has shipped, so these are
 among them is unchanged, and v0.9 added one new entry at the end.
 
 v0.12's re-measurement changes two of them: entry 4 loses most of its case, and a new entry 8
-records that the browser half of this document is now stale.
+records that the browser half of this document is now stale. v0.12.4 closes entry 2.
 
 1. ~~Replace the JSON delta with a compact binary encoding over a transferable buffer.~~ **Done in
    v0.12.2.** It did what finding 3 predicted and slightly more: payload 13.6× smaller, boundary
    21.7× cheaper, the largest tier's host frame down from 62.1% of a 60 Hz frame to 11.0%.
-2. **Measure the Canvas renderer against the same tiers**, so a browser frame is accounted for end
-   to end rather than up to the point rendering begins. Until then no complete browser frame-rate
-   claim is supported, only the simulation half of one. **This is now first by a wide margin.** It
-   was already the gate on animation and on any renderer decision; v0.12.2 makes it the gate on the
-   whole question, because the simulation half of the largest tier's frame is now 11% and the
-   unmeasured half is the other 89%. Every remaining entry below is an optimization of the 11%.
+2. ~~Measure the Canvas renderer against the same tiers.~~ **Done in v0.12.4.** A complete
+   browser frame at the largest tier is 18.2% of 60 Hz; rendering is 1,069 µs of that, 6.4% of
+   the budget. The unknown 89% is gone.
 3. Extend the ladder past 6,144 entities, so the record brackets a ceiling again instead of only
    showing headroom. v0.12.2 makes this more urgent, not less: it removed the cost that made 6,144
-   look close to a limit, so the ladder no longer locates one at all.
+   look close to a limit, so the ladder no longer locates one at all. v0.12.4 does not change
+   that — 18.2% is still only headroom.
 4. ~~An incremental checksum, after the encoding.~~ **Dropped to the bottom by the v0.12
    re-measurement.** v0.11's sparse tile overlay already took 3.0× off it; it is now about a tenth
    of the in-wasm frame and a much smaller share of a host one. Determinism-critical work for a
@@ -462,8 +531,9 @@ records that the browser half of this document is now stale.
    edits, or whether the full compile is simply the better default at these sizes. Both records show
    the incremental path costing about three times a full compile; do not remove it on that alone,
    because its tested behaviour under component splits and merges is a correctness asset.
-6. Only after the renderer measurement: revisit the renderer itself. Nothing measured yet implicates
-   it, and nothing measured yet exonerates it.
+6. Revisit the renderer itself. v0.12.4 allows this and does not demand it: Canvas 2D at 6,144
+   entities is 909 µs for the world and 160 µs for the minimap. A 2× pixel-ratio viewport, Stage
+   B's per-hex work, and Stage C animation are the things that would change the question.
 7. Batch the transport recompile inside a construction drag. v0.9 routes a drag through the tested
    per-cell `place`, so a 32-cell run recompiles 32 times. It happens once when the pointer is
    released rather than every frame, and no tier in the ladder measures it, so this is a known cost

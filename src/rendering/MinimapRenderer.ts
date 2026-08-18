@@ -1,7 +1,12 @@
 import { axialToPixel } from "@hexlife/embed/hex";
 
 import { TERRAIN_INFO } from "../core/terrain";
-import type { Definitions, FactorySnapshot, WorldPoint } from "../core/types";
+import type {
+  Definitions,
+  FactorySnapshot,
+  ItemDefinition,
+  WorldPoint,
+} from "../core/types";
 import { BUILDING_COLORS } from "./CanvasFactoryRenderer";
 import { WORLD_SCALE, homeBearing } from "./landmarks";
 
@@ -21,16 +26,18 @@ const MINIMAP_RADIUS_HEXES = 32;
  */
 export class MinimapRenderer {
   private readonly context: CanvasRenderingContext2D;
+  private readonly itemsById: ReadonlyMap<number, ItemDefinition>;
   private snapshot: FactorySnapshot | null = null;
   private home: WorldPoint | null = null;
 
   constructor(
     private readonly canvas: HTMLCanvasElement,
-    private readonly definitions: Definitions,
+    definitions: Definitions,
   ) {
     const context = canvas.getContext("2d");
     if (!context) throw new Error("Canvas 2D is unavailable");
     this.context = context;
+    this.itemsById = new Map(definitions.items.map((item) => [item.id, item]));
     new ResizeObserver(() => this.draw()).observe(canvas);
   }
 
@@ -96,9 +103,7 @@ export class MinimapRenderer {
       if (resource.quantity === 0) continue;
       const point = project(resource);
       if (!onMap(point, cell)) continue;
-      ctx.fillStyle =
-        this.definitions.items.find(({ id }) => id === resource.item_id)
-          ?.color ?? "#fff";
+      ctx.fillStyle = this.itemsById.get(resource.item_id)?.color ?? "#fff";
       ctx.fillRect(point.x - cell / 4, point.y - cell / 4, cell / 2, cell / 2);
     }
 

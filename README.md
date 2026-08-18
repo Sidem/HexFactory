@@ -93,21 +93,14 @@ See the [roadmap and implementation handoff](docs/HEXFACTORY-PLAN.md),
 
 Capacity is measured rather than asserted, and the measurement orders the work. The same
 deterministic ladder now runs natively and as wasm in the browser worker — the measurement lives in
-Rust and only the clock differs — so the record finally describes the artifact that ships. In the
-browser, every tier from 12 to 6,144 simultaneous buildings advances a tick and merges the result
-inside a 60 Hz frame, with the largest using 62% of one. Every browser tier reproduces its native
-checksum, so the two records compare directly.
+Rust and only the clock differs — so the record describes the artifact that ships. From v0.12.4
+the browser record also times the two canvases the game draws. Every tier from 12 to 6,144
+simultaneous buildings advances a tick, merges the result, and draws a 1440×900 frame inside
+60 Hz, with the largest using 18.2% of one. Every browser tier reproduces its native checksum.
 
-The measurement answered the question three releases had deferred. The wasm engine is not the
-limit: it costs about 1.2× native, so the earlier native work transferred intact. The worker
-boundary is — it accounts for roughly 60% of what a frame costs the host and scales with payload at
-about 10 µs per kilobyte, which is why a compact binary delta encoding is the next milestone rather
-than another simulation optimization.
-
-Rendering is not included in any of this, and one Chromium version on one desktop is the whole
-browser evidence. No claim is made beyond the recorded ladder. Run the ladders with `npm run bench`
-and `npm run bench:browser`; see [docs/BENCHMARKS.md](docs/BENCHMARKS.md) for method, results, and
-limits.
+One Chromium version on one desktop is the whole browser evidence. No claim is made beyond the
+recorded ladder. Run the ladders with `npm run bench` and `npm run bench:browser`; see
+[docs/BENCHMARKS.md](docs/BENCHMARKS.md) for method, results, and limits.
 
 ## License
 

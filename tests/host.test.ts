@@ -750,11 +750,43 @@ describe("availability and expanded snapshot adapter", () => {
       "utf8",
     );
     // More hexes in the viewport is a presentation knob, not another PLAYER_RADIUS bump.
-    expect(renderer).toContain("const BASE_HEX_SIZE = 22");
+    expect(renderer).toContain("export const BASE_HEX_SIZE = 22");
     expect(renderer).toContain("const drawnFrom");
     expect(renderer).toContain("drawFieldLabel(");
     // The old always-on count is what turned the landscape into a spreadsheet.
     expect(renderer).not.toContain("String(resource.quantity)");
+  });
+
+  it("resolves definitions once and keeps the bench out of the game", () => {
+    const renderer = readFileSync(
+      new URL("../src/rendering/CanvasFactoryRenderer.ts", import.meta.url),
+      "utf8",
+    );
+    const minimap = readFileSync(
+      new URL("../src/rendering/MinimapRenderer.ts", import.meta.url),
+      "utf8",
+    );
+    const main = readFileSync(
+      new URL("../src/main.ts", import.meta.url),
+      "utf8",
+    );
+    const vite = readFileSync(
+      new URL("../vite.config.ts", import.meta.url),
+      "utf8",
+    );
+    // Per-entity .find() inside the draw loops is the thing the renderer measurement should
+    // not have to answer. Lookups are built once from the roster.
+    expect(renderer).toContain("this.itemsById = new Map(");
+    expect(renderer).toContain("this.buildingsById = new Map(");
+    expect(renderer).not.toContain("definitions.items.find(");
+    expect(renderer).not.toContain("definitions.buildings.find(");
+    expect(minimap).toContain("this.itemsById = new Map(");
+    expect(minimap).not.toContain("definitions.items.find(");
+    expect(main).not.toMatch(/from ["'].*bench/);
+    expect(renderer).not.toMatch(/from ["'].*bench/);
+    expect(minimap).not.toMatch(/from ["'].*bench/);
+    // The production build's only HTML entry is index.html. bench.html is served in dev only.
+    expect(vite).not.toContain("bench.html");
   });
 });
 

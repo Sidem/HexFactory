@@ -1,14 +1,14 @@
 # Material Base v0.12 scope and acceptance
 
-Status: Binary Delta v0.12.2 is shipped on Playtest Feel v0.12.1, Material Base v0.12, World Shape
-v0.11, Playability v0.10, Game Feel v0.9, Browser Capacity v0.8, Sparse Snapshot v0.7, Sparse Cost
-v0.6, Worker Boundary v0.5, and Command Surface v0.4. v0.11 changed what the world looks like;
-v0.12 changes what it is made of — eight raw resources correlated with terrain, fourteen recipes
-across five machine categories, fuel as a property of items, renewable flora, and a pump that draws
-from a basin. v0.12.1 thins generation and quiets the first-minutes presentation: sparser fields,
-smaller hexes on screen, counts off untouched field hexes. v0.12.2 changes nothing the player can
-name and everything about what a frame costs: the snapshot delta crosses the worker boundary as a
-compact binary buffer that is transferred rather than copied.
+Status: Renderer Measure v0.12.4 is shipped on Sightlines v0.12.3, Binary Delta v0.12.2, Playtest
+Feel v0.12.1, Material Base v0.12, World Shape v0.11, Playability v0.10, Game Feel v0.9, Browser
+Capacity v0.8, Sparse Snapshot v0.7, Sparse Cost v0.6, Worker Boundary v0.5, and Command Surface
+v0.4. v0.11 changed what the world looks like; v0.12 changes what it is made of — eight raw
+resources correlated with terrain, fourteen recipes across five machine categories, fuel as a
+property of items, renewable flora, and a pump that draws from a basin. v0.12.1 thins generation
+and quiets the first-minutes presentation. v0.12.2 changes nothing the player can name and
+everything about what a frame costs: the snapshot delta crosses as a compact binary buffer.
+v0.12.4 times the two canvases the game draws, so a browser frame is accounted for end to end.
 `WORLD_GENERATOR_VERSION` 5 and `HXF1` save version 5 reject earlier envelopes. The capacity
 ladder is re-pinned; a generator bump invalidates checksum comparisons, not timing ones.
 
@@ -117,8 +117,9 @@ ladder is re-pinned; a generator bump invalidates checksum comparisons, not timi
   through its tick budget, so it cannot move with the sample count.
 - The browser harness additionally measures the worker RPC round trip and the main-thread delta
   merge through the game's own code paths — the same bounded command batch, the same
-  `snapshot_delta_json`, the same `applySnapshotDelta`. Rendering is not measured and no complete
-  browser frame-rate claim is made.
+  `snapshot_delta_json`, the same `applySnapshotDelta`. From v0.12.4 the same page also times the
+  two canvases the game draws. Complete browser frame-rate claims cite that record, at its pinned
+  viewport.
 - Results are recorded in `docs/BENCHMARKS.md` with the machine, browser, clock resolution, and
   limits that produced them. A performance claim without a recorded tier behind it is a defect.
 
@@ -310,20 +311,14 @@ release actions and must not be implied by local success.
 
 ## Explicit follow-ups
 
-1. **Measuring the Canvas renderer against the capacity tiers is now the first engine follow-up**,
-   promoted by v0.12.2 rather than merely inherited from it. No complete browser frame-rate claim is
-   supported until it exists, and now the gap is most of the frame: the measured simulation half is
-   11.0% of 60 Hz at the largest tier and rendering is the unmeasured 89%. It also gates animation
-   (Stage C) and should not run far behind Stage B art generation (`docs/ART.md`), three of whose
-   five rules add per-hex renderer work. One structural item to fold in when it happens, offered as
-   a reading of the code and not as a measurement: `CanvasFactoryRenderer` resolves item and
-   building definitions with a linear `find` inside its per-entity draw loops, once per resource
-   hex, per building, and per cargo, every frame. The rosters are small enough that this may cost
-   nothing; building the lookup once is cheap enough that the measurement should not have to answer
-   the question.
+1. ~~Measuring the Canvas renderer against the capacity tiers.~~ **Done in v0.12.4.** A complete
+   browser frame at 6,144 entities is 18.2% of 60 Hz; rendering is 1,069 µs of that. Both canvases
+   now resolve definitions through maps built once, so the linear `find` the previous note named
+   is not something a later measurement has to answer. Stage C is unblocked; Stage B's per-hex
+   work should still not run far ahead of a re-measure.
 2. Next play milestone is Power v0.13, and the payload worry that used to sit in front of it is
    settled — a per-entity satisfaction figure now lands on a wire 13.6× more compact than the one
-   that priced the concern.
+   that priced the concern. The renderer measurement that sat in front of it has landed too.
 3. New, from v0.12.2's measurement: the main-thread merge is 6.3% of the largest tier's host frame,
    against 0.7% when the boundary dominated. The code did not change and did not get slower;
    everything around it got faster. At 115 µs against a 100 µs clock step it needs a measurement

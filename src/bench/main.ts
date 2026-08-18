@@ -2,19 +2,33 @@
  * The browser capacity harness page.
  *
  * `npm run bench` measures the ladder natively; this measures the same ladder as wasm in a module
- * worker, and adds the one cost a native run cannot see: the worker RPC round trip and main-thread
- * delta merge the game pays for every frame. Results are recorded in `docs/BENCHMARKS.md`.
+ * worker, and adds the costs a native run cannot see: the worker RPC round trip, the main-thread
+ * delta merge, and the two canvases the game draws. Results are recorded in `docs/BENCHMARKS.md`.
  */
 
+import { validateDefinitions } from "../core/definitions";
 import { applySnapshotDelta } from "../core/snapshotDelta";
 import { decodeSnapshotDelta } from "../core/snapshotWire";
-import type { FactorySnapshot, FactorySnapshotDelta } from "../core/types";
+import type {
+  Definitions,
+  FactorySnapshot,
+  FactorySnapshotDelta,
+} from "../core/types";
+import rawDefinitions from "../data/definitions.json";
 import {
+  BASE_HEX_SIZE,
+  CanvasFactoryRenderer,
+} from "../rendering/CanvasFactoryRenderer";
+import { findLandingHub } from "../rendering/landmarks";
+import { MinimapRenderer } from "../rendering/MinimapRenderer";
+import {
+  RENDER_VIEWPORT,
   TIER_COLUMNS,
   deltaMergeIsIntact,
   mergeBrowserReport,
   probeClockResolutionUs,
   tierRow,
+  timeMeanUs,
 } from "./report";
 import type {
   BrowserReport,
@@ -148,6 +162,11 @@ async function run(quick: boolean): Promise<void> {
       hardware_concurrency: navigator.hardwareConcurrency,
       cross_origin_isolated: crossOriginIsolated,
       main_clock_resolution_us: probeClockResolutionUs(() => performance.now()),
+      viewport_width: RENDER_VIEWPORT.width,
+      viewport_height: RENDER_VIEWPORT.height,
+      minimap_size: RENDER_VIEWPORT.minimap,
+      device_pixel_ratio: window.devicePixelRatio || 1,
+      hex_size: BASE_HEX_SIZE,
       worker_clock_resolution_us: created.clockResolutionUs,
       recorded: new Date().toISOString(),
     });
@@ -209,15 +228,74 @@ async function measureRoundTrip(
   const roundTripUs =
     ((roundTripEnded - roundTripStarted) * 1000) / tier.frames;
   const applyUs = ((applyEnded - applyStarted) * 1000) / tier.frames;
+  const hostFrameUs = roundTripUs + applyUs;
+  const rendered = measureRender(snapshot);
   return {
     key: tier.key,
     frames: tier.frames,
     round_trip_us: roundTripUs,
     apply_us: applyUs,
-    host_frame_us: roundTripUs + applyUs,
+    host_frame_us: hostFrameUs,
     checksum: snapshot.checksum,
     applied_entities: snapshot.buildings.length,
+    ...rendered,
+    browser_frame_us: hostFrameUs + rendered.render_us,
   };
+}
+
+/**
+ * Time the two canvases the game actually draws, against the snapshot the merge just produced.
+ *
+ * The viewport is pinned (1440×900 world, 178 px minimap) so a record is a measurement of the
+ * renderer, not of the bench page's layout. Each canvas is warmed once, then repeated until the
+ * same 20 ms budget the rest of the browser harness uses.
+ */
+function measureRender(snapshot: FactorySnapshot): {
+  render_world_us: number;
+  render_minimap_us: number;
+  render_us: number;
+  render_samples: number;
+} {
+  const { world, minimap } = renderSurfaces();
+  const home = findLandingHub(snapshot);
+  world.setHome(home);
+  world.setSnapshot(snapshot);
+  const worldTimed = timeMeanUs(() => {
+    world.draw();
+  });
+  minimap.setSnapshot(snapshot, home);
+  const minimapTimed = timeMeanUs(() => {
+    minimap.draw();
+  });
+  return {
+    render_world_us: worldTimed.meanUs,
+    render_minimap_us: minimapTimed.meanUs,
+    render_us: worldTimed.meanUs + minimapTimed.meanUs,
+    render_samples: worldTimed.samples,
+  };
+}
+
+let surfaces: {
+  world: CanvasFactoryRenderer;
+  minimap: MinimapRenderer;
+} | null = null;
+
+function renderSurfaces(): {
+  world: CanvasFactoryRenderer;
+  minimap: MinimapRenderer;
+} {
+  if (surfaces) return surfaces;
+  const definitions = loadDefinitions();
+  surfaces = {
+    world: new CanvasFactoryRenderer(element("bench-world"), definitions),
+    minimap: new MinimapRenderer(element("bench-minimap"), definitions),
+  };
+  return surfaces;
+}
+
+function loadDefinitions(): Definitions {
+  validateDefinitions(rawDefinitions);
+  return rawDefinitions;
 }
 
 function appendRow(tier: NativeTierResult & { host: HostTierResult }): void {

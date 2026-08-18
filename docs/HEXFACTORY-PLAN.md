@@ -1,23 +1,20 @@
 # HexFactory — architecture, roadmap, and implementation handoffs
 
-Status: Sightlines v0.12.3 is shipped on Binary Delta v0.12.2, Playtest Feel v0.12.1, Material Base
-v0.12, World Shape v0.11, Playability v0.10, Game Feel v0.9, Browser Capacity v0.8, Sparse Snapshot
-v0.7, Sparse Cost v0.6, Capacity Tiers v0.5.1, Worker Boundary v0.5, Command Surface v0.4,
-Continuous Exploration v0.3, and the v0.3.1 incremental transport follow-up. The world now produces
-eight raw materials, each where its geography says it should be, and fourteen recipes across five
-machine categories turn them into something the player wanted. The compact binary delta encoding
-landed on the v0.12/v0.13 boundary the roadmap named as its deadline: the per-frame payload is 13.6×
-smaller and the largest measured tier now uses 11.0% of a 60 Hz frame rather than 62.1%. **The world
-is now the view**: the panels are behind keys, the player points where the cursor does, impassable
-ground says so, and a minimap and a bearing home mean walking away from the landing site is a
-decision rather than a risk.
+Status: Renderer Measure v0.12.4 is shipped on Sightlines v0.12.3, Binary Delta v0.12.2, Playtest
+Feel v0.12.1, Material Base v0.12, World Shape v0.11, Playability v0.10, Game Feel v0.9, Browser
+Capacity v0.8, Sparse Snapshot v0.7, Sparse Cost v0.6, Capacity Tiers v0.5.1, Worker Boundary v0.5,
+Command Surface v0.4, Continuous Exploration v0.3, and the v0.3.1 incremental transport follow-up.
+The world now produces eight raw materials, each where its geography says it should be, and fourteen
+recipes across five machine categories turn them into something the player wanted. The compact
+binary delta encoding landed on the v0.12/v0.13 boundary the roadmap named as its deadline: the
+per-frame payload is 13.6× smaller. **A complete browser frame is now a measured number**: 18.2% of
+60 Hz at the largest tier, of which rendering is 6.4%. The world is the view: the panels are behind
+keys, the player points where the cursor does, impassable ground says so, and a minimap and a
+bearing home mean walking away from the landing site is a decision rather than a risk.
 
-Next play milestone is Power v0.13. **The renderer measurement is now the first thing that should
-land**, ahead of it if the two compete for a session. It already gated animation and any renderer
-decision; v0.12.2 makes it the gate on the whole performance question, because the half of a browser
-frame that `docs/BENCHMARKS.md` measures is down to 11% and the unmeasured half is the other 89% —
-and v0.12.3 has now put a second canvas and a per-hex impassability pass into that unmeasured half.
-The drag's per-cell transport recompile is unblocked and can land anywhere.
+Next play milestone is Power v0.13. The renderer measurement that sat in front of it has landed;
+Stage C animation is no longer gated on ignorance. The drag's per-cell transport recompile is
+unblocked and can land anywhere.
 
 ## Remaining playtest diagnoses (after v0.12.1)
 
@@ -47,6 +44,14 @@ not a source dependency: HexFactory imports only the published package. Treat th
 read-only unless a future task explicitly authorizes a separately released generic package change.
 
 ## Shipped implementation record
+
+- Renderer Measure v0.12.4 is an engine record, not a play milestone. The browser harness now
+  times the two canvases the game draws — `CanvasFactoryRenderer.draw` at a pinned 1440×900
+  viewport and `MinimapRenderer.draw` at the shipped 178 px square — against the same tiers and
+  the same snapshot the merge just produced. A complete browser frame at 6,144 entities is
+  3,039 µs, 18.2% of 60 Hz; the world is 909 µs of that, the minimap 160 µs. The unknown 89% is
+  gone. Both canvases build definition maps once so a per-entity linear `find` is not something
+  the measurement had to answer. No save, generator, definition, or wire version moves.
 
 - Sightlines v0.12.3 is a control and legibility release: it changes what the player can see and
   where their attention is allowed to go, and it changes no simulation result. The player points
@@ -525,11 +530,10 @@ per-entity satisfaction figure — and growing the payload before compacting it 
 measured headroom on the wrong thing. Power can now add a per-entity figure to the wire against a
 payload that is 13.6× smaller than the one that priced the worry.
 
-What that milestone also did is move the renderer measurement to the front of the queue. It was
-already the gate for animation (see **Art direction and sprites** below) and for Stage B's per-hex
-work; it is now the gate on any performance claim at all, because the simulation half of a browser
-frame is 11% of 60 Hz at the largest measured tier and rendering is the unmeasured 89%. The drag's
-per-cell transport recompile has no dependency here and can land anywhere.
+The renderer measurement that paragraph moved to the front of the queue landed as v0.12.4: a
+complete browser frame at the largest tier is 18.2% of 60 Hz, rendering is 6.4% of it, and Stage
+C is no longer gated on ignorance. The drag's per-cell transport recompile has no dependency
+here and can land anywhere.
 
 ### v0.11 — World Shape
 
@@ -812,6 +816,67 @@ Named here so they are decisions rather than omissions, each with the thing it i
 - **Terraforming.** Cliffs are unbuildable until mined in v0.11; whether the player may reshape
   elevation, and what that costs, is a question the world has to exist before anyone can answer.
 
+### Longer horizon — 3D, north-south belts, organic generation
+
+Named 2026-08-18 from three directions given in one sitting. They are not the next session and they
+do not reorder Power or the renderer measurement. They are the destination the current architecture
+has to stay pointed at, so a 2D choice that would make them expensive later is the thing to refuse.
+
+#### 3D presentation
+
+The game eventually leaves the top-down hex view. The camera tilts and is free to orbit the player;
+the player, the terrain, and the buildings gain 3D shape.
+
+This is a renderer replacement, which the existing invariant already allows: Canvas 2D is
+replaceable presentation and simulation truth comes only from native snapshots. The axial lattice,
+the compiled graphs, and the native tick stay. Height is not implied as a gameplay dimension until
+a later pass names what it is for; smuggling a z-axis into the checksum because the camera can tilt
+would be the same class of defect as frame-coupled movement.
+
+The renderer measurement still gates any renderer decision. Stage C already says: measure first,
+then decide whether the animated frame wants a different renderer. A 3D renderer is that decision,
+made later, with a number in hand.
+
+#### North-south belts — every second tile is the anchor
+
+Pointy-top hex has no due-north or due-south neighbour. Direction 0 is east; the six steps are
+E/SE/SW/W/NW/NE. A screen-vertical drag therefore zigzags NE and NW, and today's `hex_line` places
+a full belt on every cell of that zigzag. That is the workaround.
+
+The intended run along the axis that is not a hex edge uses a two-row period instead:
+
+- **Anchors** are the hexes whose centres share a world-x. On this lattice those are two rows
+  apart: `(q, r)` and `(q + 1, r - 2)` (and the southbound pair). The belt entity lives on those
+  cells.
+- **Offset tiles** are the two staggered hexes in the row between, `(q, r - 1)` and
+  `(q + 1, r - 1)`. Each is half-covered by the belt's footprint, so the run reads as one straight
+  ribbon rather than a staircase of full tiles.
+
+`hex_line` as it stands cannot produce this: it visits every cell and each cell is a whole
+occupancy. The milestone that lands it has to decide what a half-covered offset hex _is_ —
+blocked, shareable by two parallel north-south runs (left half / right half), or
+presentation-only — and it has to decide it in native occupancy, not as a draw trick the drag
+preview cannot keep. The preview still comes from the same resolver as the place. Until then, the
+current one-cell-one-building zigzag stays.
+
+The six hex-edge directions already run straight and do not change.
+
+#### Organic generation
+
+Stage B already said the art is a generator, not an atlas. The longer form of that rule is the one
+that makes a hex world stop looking like a hex world: systems that procedurally produce **tileable
+textures and shapes**, so rigid hexagonal tiling reads as organic terrain and organic objects.
+
+Stage B's neighbour fringes, host-side hash variation, and depletion scarring are the 2D start of
+that. They stay 2D and they stay behind or beside the renderer measurement. The later systems
+inherit the same invariants: generated, presentation-only, derived from published snapshot facts
+(band, neighbours, richness, remaining quantity, `recipe_category`, tier), never a checksum input,
+and a new building or a new terrain band costs a data row rather than a drawing.
+
+That is also why 3D shape and this generator are the same programme. A 3D building mesh that is
+hand-authored per definition is the atlas again. A 3D building mesh derived from `recipe_category`
+and tier is the generator, just in another dimension.
+
 ### Art direction and sprites — when
 
 Three stages, gated on what would otherwise be redrawn or unaffordable.
@@ -840,12 +905,11 @@ makes this free here rather than risky. Three of the five rules add per-hex rend
 should not run far ahead of the renderer measurement below even though they are not gated on it.
 Still Canvas 2D.
 
-**Stage C — animation, gated on the renderer measurement.** Belt motion, machine work cycles,
-extractor pulses, and water shimmer are per-frame per-entity draws, and rendering is the half of the
-frame `docs/BENCHMARKS.md` has never measured. AGENTS.md forbids claiming anything about it, so
-animation stays behind the renderer measurement that is already on the follow-up list — measure
-first, then decide whether the animated frame wants a different renderer, then animate. This is the
-one place where the schedule is set by an invariant rather than by preference.
+**Stage C — animation, unblocked by v0.12.4.** Belt motion, machine work cycles, extractor pulses,
+and water shimmer are per-frame per-entity draws. The renderer measurement that gated them has
+landed: a complete frame at 6,144 entities is 18.2% of 60 Hz and the world draw is 909 µs, so
+there is a number to decide against rather than a prohibition. Measure-then-decide still applies
+to any renderer replacement; the 2D animated frame is now a choice, not a guess.
 
 ## Shipped milestone — Game Feel v0.9
 
@@ -855,10 +919,8 @@ simulation is correct and fast enough that the honest limit on enjoyment is now 
 here changes what the game means — it changes how much friction sits between intent and result.
 
 The measured engine follow-ups in `docs/BENCHMARKS.md` are not cancelled and not reordered among
-themselves; they are deferred behind this one. The binary delta encoding remains the next _engine_
-milestone and the renderer measurement still gates any renderer decision. (Both have since moved:
-the encoding shipped as v0.12.2, and the renderer measurement it promoted is now the first engine
-follow-up rather than the second.)
+themselves; they are deferred behind this one. (Both that paragraph named have since moved: the
+encoding shipped as v0.12.2, and the renderer measurement it promoted shipped as v0.12.4.)
 
 ### The friction this milestone removes
 
