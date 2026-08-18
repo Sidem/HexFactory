@@ -119,8 +119,27 @@ let playerAccumulator = 0;
 let previousTime = performance.now();
 let feedbackTimer = 0;
 let lastEvent = "";
-let panPointer: { id: number; x: number; y: number; moved: boolean } | null =
-  null;
+/**
+ * The button-held camera gesture, and — for the right button — the hex it is holding over.
+ *
+ * `harvest` is the hex a held right-click keeps working. It is fixed at the press rather than
+ * tracked to the cursor, because the same gesture pans: once the pointer has genuinely travelled,
+ * this is a pan and no longer a harvest. `origin` is what that travel is measured from, and it is
+ * deliberately a separate, slacker threshold from `moved`. Panning wants to answer the very first
+ * pixel; a hold lasting several seconds must survive the pixel or two of jitter a hand puts into a
+ * held mouse button, or the harvest would cancel itself.
+ */
+let panPointer: {
+  id: number;
+  x: number;
+  y: number;
+  moved: boolean;
+  originX: number;
+  originY: number;
+  harvest: { q: number; r: number } | null;
+} | null = null;
+/** How far a held right-click may drift, in pixels, before it becomes a pan instead. */
+const HARVEST_HOLD_SLOP = 5;
 let suppressMapClick = false;
 /**
  * The in-progress construction or removal drag. Only the two endpoints are ever held here — the
@@ -1336,6 +1355,14 @@ canvas.addEventListener("pointermove", (event) => {
     const dx = event.clientX - panPointer.x;
     const dy = event.clientY - panPointer.y;
     if (Math.abs(dx) + Math.abs(dy) > 1) panPointer.moved = true;
+    // Measured from the press, not from the last frame, so slow drift accumulates and cancels the
+    // harvest rather than creeping across the map one sub-threshold step at a time.
+    if (
+      Math.abs(event.clientX - panPointer.originX) +
+        Math.abs(event.clientY - panPointer.originY) >
+      HARVEST_HOLD_SLOP
+    )
+      panPointer.harvest = null;
     renderer.panBy(dx, dy);
     panPointer.x = event.clientX;
     panPointer.y = event.clientY;
@@ -1354,12 +1381,29 @@ canvas.addEventListener("pointermove", (event) => {
 });
 canvas.addEventListener("pointerdown", (event) => {
   if (event.button === 1 || event.button === 2 || event.shiftKey) {
+    // A right press starts working the hex under it straight away and keeps working it while the
+    // button is down; the frame loop repeats it and the native action cooldown paces the repeat,
+    // exactly as a held F is paced. Dragging out of the hex turns the gesture back into a pan.
+    const harvest =
+      event.button === 2 ? renderer.pick(event.clientX, event.clientY) : null;
     panPointer = {
       id: event.pointerId,
       x: event.clientX,
       y: event.clientY,
       moved: false,
+      originX: event.clientX,
+      originY: event.clientY,
+      harvest,
     };
+    if (harvest) {
+      selected = harvest;
+      renderer.setSelection(harvest);
+      enqueue({ type: "gather_at", ...harvest });
+      renderInspector();
+    }
+    // Captured last: capture is what keeps the gesture alive off the canvas, not what makes the
+    // press mean something. Taking it first would let a refused capture swallow the first harvest
+    // while still leaving the hold armed.
     canvas.setPointerCapture(event.pointerId);
     event.preventDefault();
     return;
@@ -1378,18 +1422,9 @@ canvas.addEventListener("pointerdown", (event) => {
 canvas.addEventListener("pointerup", (event) => {
   if (panPointer?.id === event.pointerId) {
     suppressMapClick = panPointer.moved;
-    const tapped = !panPointer.moved && event.button === 2;
     canvas.releasePointerCapture(event.pointerId);
+    // Releasing ends the hold. The harvest began on the press and repeated every frame since.
     panPointer = null;
-    // A right-drag pans; a right-click that never moved names a hex to harvest. Native decides
-    // whether it is in reach and whether it holds anything — the host only says which hex.
-    if (tapped) {
-      const coordinate = renderer.pick(event.clientX, event.clientY);
-      selected = coordinate;
-      renderer.setSelection(coordinate);
-      enqueue({ type: "gather_at", ...coordinate });
-      renderInspector();
-    }
     return;
   }
   if (dragBuild?.id !== event.pointerId) return;
@@ -1415,7 +1450,12 @@ canvas.addEventListener("pointerup", (event) => {
         },
   );
 });
-canvas.addEventListener("pointercancel", (event) => endDrag(event.pointerId));
+canvas.addEventListener("pointercancel", (event) => {
+  // A cancelled pointer never sends `pointerup`, and a held harvest that outlived its gesture
+  // would keep working a hex with nothing holding the button down.
+  if (panPointer?.id === event.pointerId) panPointer = null;
+  endDrag(event.pointerId);
+});
 canvas.addEventListener("pointerleave", () => {
   stopAiming();
   if (!panPointer && !dragBuild) {
@@ -1714,8 +1754,14 @@ function frame(now: number): void {
   else playerAccumulator = 0;
   if (!advancePending) {
     // A held gather repeats at frame rate and is paced natively by the action cooldown, so the
-    // player holds the key instead of tapping it once per unit.
-    if (gatherHeld && !input.size) input.enqueue({ type: "gather" });
+    // player holds the key instead of tapping it once per unit. A held right-click is the same
+    // idea aimed at a named hex, and it outranks the untargeted one: if both are held, the hex the
+    // player is pointing at is the one they chose.
+    if (!input.size) {
+      if (panPointer?.harvest)
+        input.enqueue({ type: "gather_at", ...panPointer.harvest });
+      else if (gatherHeld) input.enqueue({ type: "gather" });
+    }
     // Last into the batch, so the cursor outranks the walk direction for this frame's facing.
     sendAim();
     const commands = input.drain();

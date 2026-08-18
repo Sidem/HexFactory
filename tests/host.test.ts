@@ -274,6 +274,18 @@ describe("bounded host input", () => {
     // amount. Neither side re-derives the container's remaining room.
     expect(main).toContain('type: "store"');
     expect(main).not.toMatch(/capacity\s*-\s*/);
+    // A held right-click repeats through the frame loop and is paced by the native cooldown, the
+    // same way a held F is. Sending it only on release would make the player click per unit, and
+    // a host-side repeat timer would be the host pacing an action native already paces.
+    // It repeats from the same `!input.size` guard the held F uses, so both are paced by the
+    // cooldown rather than by a host-side timer of their own.
+    const repeat = main.slice(
+      main.indexOf("if (!input.size) {"),
+      main.indexOf("sendAim();"),
+    );
+    expect(repeat).toContain('type: "gather_at"');
+    expect(repeat).toContain('type: "gather"');
+    expect(repeat).not.toMatch(/setInterval|setTimeout/);
     // The Put list carries a control, so it must be patched rather than rebuilt: a
     // `replaceChildren` between pointerdown and pointerup detaches the pressed button and the
     // delegated click resolves to nothing.
