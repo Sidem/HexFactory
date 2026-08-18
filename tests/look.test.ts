@@ -2,7 +2,14 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 import { TERRAIN_ORDER } from "../src/core/terrain";
-import { silhouetteOf, trimOf, workCycle } from "../src/rendering/buildingLook";
+import {
+  facingTip,
+  NORTH,
+  silhouetteOf,
+  spanEnd,
+  trimOf,
+  workCycle,
+} from "../src/rendering/buildingLook";
 import {
   BAND_RANK,
   depletionLook,
@@ -102,6 +109,28 @@ describe("Stage B look generator", () => {
     expect(silhouetteOf("generator", undefined, "wind")).toBe("wind");
     expect(trimOf(0).stroke).not.toBe(trimOf(1).stroke);
     expect(trimOf().stroke).toBe(trimOf(0).stroke);
+  });
+
+  it("draws the two-row headings on the hex column they actually reach", () => {
+    const center = { x: 100, y: 100 };
+    // The point of due north is that it does not move world-x. The drawing has to agree, or the
+    // riser would look like it leans while the simulation routes it straight up.
+    for (const orientation of [NORTH, NORTH + 1]) {
+      expect(facingTip(center, 40, orientation).x).toBeCloseTo(center.x, 6);
+      expect(spanEnd(center, 40, orientation).x).toBeCloseTo(center.x, 6);
+    }
+    expect(facingTip(center, 40, NORTH).y).toBeLessThan(center.y);
+    expect(facingTip(center, 40, NORTH + 1).y).toBeGreaterThan(center.y);
+    // The heading tick reads the same length whatever axis it is on, because it is an indicator
+    // and not a measurement — the span is what carries the distance.
+    const east = facingTip(center, 40, 0);
+    const north = facingTip(center, 40, NORTH);
+    const length = (point: { x: number; y: number }): number =>
+      Math.hypot(point.x - center.x, point.y - center.y);
+    expect(length(north)).toBeCloseTo(length(east), 6);
+    expect(length(spanEnd(center, 40, NORTH))).toBeGreaterThan(length(north));
+    // The six edges are untouched.
+    expect(facingTip(center, 40, 0).x).toBeGreaterThan(center.x);
   });
 
   it("ties a machine cycle to published progress, not to a host clock", () => {

@@ -13,7 +13,12 @@ type DefinitionId = u16;
 type TechnologyId = u16;
 
 const SAVE_PREFIX: &str = "HXF1\n";
-const SAVE_VERSION: u16 = 6;
+/// Bumped to 7 for Upgrades and Tiers. Two things move under it at once: building definitions
+/// carry a tier and an upgrade ladder, and `orientation` is now an index into eight routing
+/// directions rather than six. Both are checksum-affecting, so a v0.13 envelope is rejected rather
+/// than reinterpreted — an old save's orientation would still read correctly, but its definition
+/// table would not.
+const SAVE_VERSION: u16 = 7;
 const WORLD_GENERATOR_VERSION: u16 = 5;
 const MAX_COMMANDS_PER_BATCH: usize = 8;
 /// A drag is one bounded command, so the run it expands into has to be bounded too. This is the
@@ -22,13 +27,49 @@ const MAX_LINE_CELLS: usize = 32;
 /// How many constructions back one session can be taken. Derived state, so it costs nothing saved.
 const MAX_UNDO_DEPTH: usize = 64;
 const GRAPH_TRACE_LIMIT: i32 = 8;
+/// The six hex edges: east, then clockwise. This is the *adjacency* table. Power reach, boiler and
+/// turbine neighbours, and every "what is next to this hex" question use it and only it.
 const DIRECTIONS: [(i32, i32); 6] = [(1, 0), (0, 1), (-1, 1), (-1, 0), (0, -1), (1, -1)];
+/// The eight *routing* directions: the six unit steps, unchanged and at their original indices,
+/// then due north and due south.
+///
+/// North and south are lattice vectors on this grid and always were. Pointy-top world-x is
+/// proportional to `q + r/2`, so `(q + 1, r - 2)` sits at exactly the same world-x as `(q, r)`,
+/// two rows up. They are simply not *unit* vectors, which is the only reason they were never in
+/// the table. `compile_graph_target` is a ray-cast that never assumed a unit step, so it needs no
+/// change to route through them.
+///
+/// This is deliberately a second table rather than a longer `DIRECTIONS`. Conflating them would
+/// silently let a boiler reach a turbine two rows away, and a pole span a distance the player
+/// cannot see. Only transport gets eight.
+///
+/// The two straddled hexes `(q, r - 1)` and `(q + 1, r - 1)` are never occupied by a riser: it is
+/// a single-cell building whose belt spans the seam where those two hexes meet, so both stay free,
+/// buildable, and walkable.
+const TRANSPORT_DIRECTIONS: [(i32, i32); 8] = [
+    (1, 0),
+    (0, 1),
+    (-1, 1),
+    (-1, 0),
+    (0, -1),
+    (1, -1),
+    (1, -2),
+    (-1, 2),
+];
+/// Orientation index of due north in `TRANSPORT_DIRECTIONS`, and the first index off the six-edge
+/// table. An orientation below this is an edge heading; at or above it, a vertical one.
+const NORTH: u8 = 6;
 const HEX_X: i32 = 1774;
 const HEX_Y: i32 = 1536;
 /// Center-to-vertex of a pointy-top hex. `HEX_Y * 2 / 3` and `HEX_X / √3` both land on 1024.
 const HEX_RADIUS: i32 = 1024;
-/// How many hex steps an extractor reaches, counting its own cell. v0.14 makes this the upgrade.
+/// How many hex steps a *hand* gather reaches. Also the reach of any extractor whose definition
+/// names no `extract_radius` of its own, so the base extractor is unchanged by tiers existing.
 const EXTRACT_RADIUS: i32 = 1;
+/// The largest reach a definition may claim. Reach is the flagship upgrade, so it is data — but
+/// `deposit_candidates` walks the whole disc, and a definition file is not allowed to make that
+/// walk unbounded.
+const MAX_EXTRACT_RADIUS: u32 = 4;
 /// Hexes around the hub forced to lowland so the landing is always a buildable clearing.
 const LANDING_CLEAR_RADIUS: i32 = 7;
 /// World units the player covers per player step. Paced by `PLAYER_TICKS_PER_SECOND`, not by the
@@ -158,6 +199,23 @@ struct BuildingDefinition {
     pole_reach: Option<u32>,
     #[serde(default)]
     power_source: Option<PowerSource>,
+    /// Which orientations this building may take. Absent means the six hex edges, which is what
+    /// every building built before v0.14 takes.
+    #[serde(default)]
+    orientation_axis: OrientationAxis,
+    /// Where this definition sits on its own upgrade ladder. Presentation reads it for trim; the
+    /// simulation only ever compares it, and never branches on it.
+    #[serde(default)]
+    tier: u8,
+    /// The definition `upgrade` turns this one into. A ladder is a chain of these, so a tier is a
+    /// data row rather than a kind, a tick path, or a drawing.
+    #[serde(default)]
+    upgrades_to: Option<DefinitionId>,
+    /// How many hex steps this extractor reaches, counting its own cell. Absent means
+    /// `EXTRACT_RADIUS`. This is what makes reach the flagship upgrade: a longer arm is one number
+    /// in this file, visible on the map, changing a decision the player already made.
+    #[serde(default)]
+    extract_radius: Option<u32>,
     construction_cost: Vec<Ingredient>,
     #[serde(default)]
     unlock_technology_id: Option<TechnologyId>,
@@ -193,6 +251,47 @@ enum PowerSource {
     Wind,
     Hydro,
     Turbine,
+}
+
+/// Which of the eight routing headings a definition may be built at.
+///
+/// `Edge` is the six hex edges and the default, so every definition that predates tiers keeps
+/// exactly the orientations it had. `Vertical` is due north and due south — the riser, and
+/// anything later that spans the two-row period.
+///
+/// Two axes rather than one free range, because the split is also the price. A riser covers
+/// `3 · size` of world distance against `√3 · size` for a unit step; letting a belt take a
+/// vertical heading would make a riser strictly dominant at a belt's cost. Separate axes mean
+/// separate definitions, and separate definitions mean separate `construction_cost` rows.
+#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+enum OrientationAxis {
+    #[default]
+    Edge,
+    Vertical,
+}
+
+impl OrientationAxis {
+    /// The half-open range of orientation indices this axis allows.
+    fn range(self) -> std::ops::Range<u8> {
+        match self {
+            Self::Edge => 0..NORTH,
+            Self::Vertical => NORTH..TRANSPORT_DIRECTIONS.len() as u8,
+        }
+    }
+
+    fn allows(self, orientation: u8) -> bool {
+        self.range().contains(&orientation)
+    }
+
+    /// The next orientation one `rotate` along. Rotation stays inside the axis, so turning a riser
+    /// flips it between north and south and turning a belt walks the six edges.
+    fn next(self, orientation: u8) -> u8 {
+        let range = self.range();
+        let span = range.end - range.start;
+        let offset = orientation.wrapping_sub(range.start);
+        range.start + (offset.wrapping_add(1) % span)
+    }
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
@@ -843,6 +942,13 @@ enum InputCommand {
         y: i32,
     },
     Gather,
+    /// Harvest one named hex inside the player's own reach. The target is explicit — the player
+    /// right-clicked it — which is why this is not the facing-weighted targeting the gather
+    /// invariant refuses.
+    GatherAt {
+        q: i32,
+        r: i32,
+    },
     Deposit,
     Place {
         q: i32,
@@ -878,8 +984,21 @@ enum InputCommand {
         q: i32,
         r: i32,
     },
+    /// Grow a building into the next tier of itself, keeping its contents, its heading, and its
+    /// connections. Bounded and range-checked like every other edit.
+    Upgrade {
+        q: i32,
+        r: i32,
+    },
     /// Take stock out of a container by hand. Bounded and range-checked like every other edit.
     Withdraw {
+        q: i32,
+        r: i32,
+        item_id: ItemId,
+        quantity: u32,
+    },
+    /// Put stock into a container by hand — the mirror of `Withdraw`, on the same contract.
+    Store {
         q: i32,
         r: i32,
         item_id: ItemId,
@@ -1143,7 +1262,15 @@ impl Core {
                     .footprint
                     .iter()
                     .map(|offset| {
-                        let offset = rotate_coordinate(*offset, orientation);
+                        // `@hexlife/embed` rotates a footprint by 60° a turn, and the vertical
+                        // orientations have no 60° equivalent — which is exactly why a definition
+                        // on the vertical axis is required to be single-cell. A single cell is
+                        // `(0, 0)`, so leaving it unrotated is both correct and the only honest
+                        // thing to do with a turn count that does not exist.
+                        let offset = match orientation {
+                            NORTH.. => *offset,
+                            turns => rotate_coordinate(*offset, turns),
+                        };
                         Coordinate {
                             q: placed.q + offset.q,
                             r: placed.r + offset.r,
@@ -1181,30 +1308,47 @@ impl Core {
     }
 
     /// Whether an extractor (or a gather) at this hex can draw from `cell`. One predicate: the
-    /// cell is a field hex inside the extractor's radius. Placement and the cached candidate list
-    /// share it, so a resolved reference cannot drift from the rule that allowed the building.
-    fn field_covered_at(&self, extractor: (i32, i32), cell: (i32, i32)) -> bool {
-        axial_distance(extractor, cell) <= EXTRACT_RADIUS && self.field_at(cell.0, cell.1).is_some()
+    /// cell is a field hex inside the reach it was asked about. Placement and the cached candidate
+    /// list share it, so a resolved reference cannot drift from the rule that allowed the building.
+    ///
+    /// Reach is a parameter rather than a constant because it is the flagship upgrade. It is still
+    /// one predicate and one rule — the caller says how far *it* reaches, and a hand gather and a
+    /// tier-1 extractor standing on the same hex are asking the same question at two reaches, not
+    /// two questions.
+    fn field_covered_at(&self, extractor: (i32, i32), cell: (i32, i32), radius: i32) -> bool {
+        axial_distance(extractor, cell) <= radius && self.field_at(cell.0, cell.1).is_some()
+    }
+
+    /// How far an extractor built from this definition reaches, counting its own cell. Absent in
+    /// the data means the base reach, so the tier-0 extractor is exactly what it always was.
+    fn extract_radius_of(&self, definition_id: DefinitionId) -> i32 {
+        self.building_definition(definition_id)
+            .and_then(|definition| definition.extract_radius)
+            .map(|radius| radius as i32)
+            .unwrap_or(EXTRACT_RADIUS)
     }
 
     /// The field cell a player standing at this world point draws from: their own hex while it
     /// still holds stock, otherwise the nearest covered neighbour. `gather` and placement both go
     /// through here, so one rule decides what a hex reaches.
+    /// The field cell the *player* draws from at this world point. The hand reaches `EXTRACT_RADIUS`
+    /// and no tier changes that: an upgrade is something the player builds, not something they grow.
     fn resource_at_world(&self, x: i32, y: i32) -> Option<(i32, i32)> {
         let (q, r) = world_to_axial(x, y);
-        self.deposit_candidates(q, r)
+        self.deposit_candidates(q, r, EXTRACT_RADIUS)
             .into_iter()
             .find(|&key| self.deposit_quantity(key) > 0)
     }
 
-    /// Every field cell an extractor at `(q, r)` covers, ordered nearest first and then by tile
-    /// key — the exact order `resource_at_world` resolves. Remaining quantity is deliberately not
-    /// part of the ordering, so one resolved list stays correct for the whole life of the field.
-    fn deposit_candidates(&self, q: i32, r: i32) -> Vec<(i32, i32)> {
+    /// Every field cell something at `(q, r)` reaching `radius` covers, ordered nearest first and
+    /// then by tile key — the exact order `resource_at_world` resolves. Remaining quantity is
+    /// deliberately not part of the ordering, so one resolved list stays correct for the whole life
+    /// of the field.
+    fn deposit_candidates(&self, q: i32, r: i32, radius: i32) -> Vec<(i32, i32)> {
         let origin = (q, r);
-        let mut candidates: Vec<(i64, (i32, i32))> = hexes_in_radius(origin, EXTRACT_RADIUS)
+        let mut candidates: Vec<(i64, (i32, i32))> = hexes_in_radius(origin, radius)
             .into_iter()
-            .filter(|&cell| self.field_covered_at(origin, cell))
+            .filter(|&cell| self.field_covered_at(origin, cell, radius))
             .map(|cell| {
                 let (x, y) = axial_world(q, r);
                 let (cx, cy) = axial_world(cell.0, cell.1);
@@ -1336,13 +1480,35 @@ impl Core {
         let id = self.entities[index].id;
         if !self.deposit_links.contains_key(&id) {
             let placed = self.entities[index].placed;
-            let candidates = self.deposit_candidates(placed.q, placed.r);
+            let radius = self.extract_radius_of(placed.definition_id);
+            let candidates = self.deposit_candidates(placed.q, placed.r, radius);
             self.deposit_links.insert(id, candidates);
         }
         self.deposit_links[&id]
             .iter()
             .copied()
             .find(|&key| self.deposit_quantity(key) > 0)
+    }
+
+    /// What one full cycle of this entity costs in ticks — a source's cadence, a composer's recipe
+    /// duration, and zero for everything that does not run a cycle at all. Published as
+    /// `progress_total` so the host draws a proportion it was given, and asked again by `upgrade`,
+    /// because a tier may change the cadence under a part-finished job.
+    fn progress_total(&self, index: usize) -> u32 {
+        let entity = &self.entities[index];
+        match entity.kind {
+            BuildingKind::Extractor | BuildingKind::Pump => self
+                .building_definition(entity.placed.definition_id)
+                .and_then(|definition| definition.cadence)
+                .unwrap_or(1),
+            BuildingKind::Composer => entity
+                .placed
+                .recipe_id
+                .and_then(|id| self.recipe(id))
+                .map(|recipe| recipe.duration)
+                .unwrap_or(0),
+            _ => 0,
+        }
     }
 
     fn technology(&self, id: TechnologyId) -> Option<&TechnologyDefinition> {
@@ -1456,7 +1622,12 @@ impl Core {
         occupied: &BTreeMap<(i32, i32), usize>,
     ) -> Option<usize> {
         let entity = &self.entities[index];
-        let (dq, dr) = DIRECTIONS[usize::from(entity.placed.orientation % 6)];
+        // Routing, so eight. The loop below is unchanged and always was a ray-cast: it steps
+        // `(dq, dr)` up to `GRAPH_TRACE_LIMIT`, skipping its own footprint, and returns the first
+        // other occupied cell. Nothing in it ever assumed the step was a unit vector, which is why
+        // north and south cost a table row here and nothing else.
+        let (dq, dr) = TRANSPORT_DIRECTIONS
+            [usize::from(entity.placed.orientation) % TRANSPORT_DIRECTIONS.len()];
         let mut q = entity.placed.q + dq;
         let mut r = entity.placed.r + dr;
         for _ in 0..GRAPH_TRACE_LIMIT {
@@ -2397,9 +2568,42 @@ impl Core {
         let key = self
             .resource_at_world(self.player.x, self.player.y)
             .ok_or("stand on or beside a field hex to gather")?;
+        self.gather_from(key)
+    }
+
+    /// Harvest one named hex rather than whichever the nearest-first order picks.
+    ///
+    /// This is the argument the facing invariant asked for, and it is a different argument.
+    /// Facing-weighted targeting was refused because *where the mouse rests* is not something a
+    /// player reads as aiming at a hex, so the harvest moved to a neighbour with no visible cause.
+    /// A right-click **is** the cause: the player named that hex, on screen, deliberately. So the
+    /// target is explicit and the reach is unchanged — `field_covered_at` at the player's own
+    /// reach, the same predicate placement and every extractor use, so a right-click can still
+    /// never take from a cell an extractor standing here could not.
+    fn gather_at(&mut self, q: i32, r: i32) -> Result<(), String> {
+        if self.player.action_cooldown > 0 {
+            return Err("action cooling down".into());
+        }
+        self.ensure_neighborhood(self.player.x, self.player.y);
+        let origin = world_to_axial(self.player.x, self.player.y);
+        if !self.field_covered_at(origin, (q, r), EXTRACT_RADIUS) {
+            return Err("that hex is out of reach".into());
+        }
+        self.gather_from((q, r))
+    }
+
+    /// Take one unit out of a field cell that has already been resolved and range-checked. Both
+    /// gathers land here, so the cooldown, the carrying rule, the depletion mark, and the event
+    /// are one implementation and cannot drift apart.
+    fn gather_from(&mut self, key: (i32, i32)) -> Result<(), String> {
         let field = self
             .field_at(key.0, key.1)
             .ok_or("stand on or beside a field hex to gather")?;
+        // `resource_at_world` filters empty cells for the untargeted gather, but a named hex has
+        // not been through that filter — and an empty one would underflow the subtraction below.
+        if self.deposit_quantity(key) == 0 {
+            return Err("this deposit is worked out".into());
+        }
         if self.player_room_for(field.item_id) == 0 {
             return Err("carrying capacity is full".into());
         }
@@ -2501,8 +2705,12 @@ impl Core {
         if !definition.buildable {
             return Err("this scenario object cannot be constructed".into());
         }
-        if orientation >= 6 {
-            return Err("orientation must be in 0..6".into());
+        if !definition.orientation_axis.allows(orientation) {
+            let range = definition.orientation_axis.range();
+            return Err(format!(
+                "{} must be oriented in {}..{}",
+                definition.name, range.start, range.end
+            ));
         }
         if let Some(required) = definition.unlock_technology_id {
             if !self.researched.contains(&required) {
@@ -2681,7 +2889,7 @@ impl Core {
             .ok_or_else(|| format!("unknown building definition {definition_id}"))?;
         let routed = definition.kind == BuildingKind::Belt;
         let name = definition.name.clone();
-        let cells = hex_line(from, to);
+        let cells = line_between(from, to, definition.orientation_axis);
         let before = self.events.len();
         let mut placed = 0usize;
         let mut last_error = None;
@@ -2752,7 +2960,7 @@ impl Core {
         };
         let routed = definition.kind == BuildingKind::Belt;
         let cost = definition.construction_cost.clone();
-        let cells = hex_line(from, to);
+        let cells = line_between(from, to, definition.orientation_axis);
         let mut budget = self.player.inventory.clone();
         let mut taken = BTreeSet::new();
         cells
@@ -2792,7 +3000,7 @@ impl Core {
     fn erase_line_preview(&self, from: (i32, i32), to: (i32, i32)) -> Vec<LinePreviewCell> {
         let mut carried = self.player.inventory.clone();
         let mut taken = BTreeSet::new();
-        hex_line(from, to)
+        line_between(from, to, self.erase_line_axis(from))
             .into_iter()
             .map(|(q, r)| {
                 let (x, y) = axial_world(q, r);
@@ -2824,9 +3032,20 @@ impl Core {
             .collect()
     }
 
+    /// Which axis a removal drag walks. Erasure carries no definition to ask, so it asks the hex
+    /// the drag started on: a run that begins on a riser takes back the riser column, and every
+    /// other run walks the six edges exactly as it did before v0.14. Deterministic and native, like
+    /// the path itself.
+    fn erase_line_axis(&self, from: (i32, i32)) -> OrientationAxis {
+        self.entity_at(from.0, from.1)
+            .and_then(|index| self.building_definition(self.entities[index].placed.definition_id))
+            .map(|definition| definition.orientation_axis)
+            .unwrap_or_default()
+    }
+
     /// One drag of removal, resolved exactly as `place_line` resolves construction.
     fn erase_line(&mut self, from: (i32, i32), to: (i32, i32)) -> Result<(), String> {
-        let cells = hex_line(from, to);
+        let cells = line_between(from, to, self.erase_line_axis(from));
         let before = self.events.len();
         let mut removed = 0usize;
         let mut last_error = None;
@@ -2972,6 +3191,176 @@ impl Core {
         Ok(())
     }
 
+    /// Grow the building at this hex into the next tier of itself. A new bounded command beside
+    /// `place`, `erase`, `withdraw`, and `set_recipe`, range-checked exactly as they are.
+    ///
+    /// **Contents, orientation, and connections all survive**, and none of them needs special
+    /// handling to do so: the entity is never removed and re-created, only its `definition_id`
+    /// moves. `validate_upgrade_ladders` has already pinned kind, recipe category, footprint, and
+    /// orientation axis across the step, so nothing the entity holds can become invalid by taking
+    /// it. Progress is the one exception, because a tier may run at a different cadence, and it is
+    /// clamped rather than reset — a machine most of the way through a craft stays most of the way
+    /// through it.
+    ///
+    /// **The price is exact, and it is exact in the same way `erase` is.** An upgrade is priced as
+    /// the erase-and-rebuild it stands in for: the old cost comes back and the new cost is paid,
+    /// netted per item so nothing round-trips through the pack. Both halves are checked before
+    /// either is applied, and a refund that will not fit is refused rather than partially paid —
+    /// the same choice, for the same reason, that `erase` makes. That is what keeps an
+    /// upgrade / erase round trip from being a duplication exploit: whatever ladder a player walks
+    /// up, erasing at the top hands back exactly the sum of what they paid.
+    fn upgrade(&mut self, q: i32, r: i32) -> Result<(), String> {
+        let (target_x, target_y) = axial_world(q, r);
+        if squared_distance(self.player.x, self.player.y, target_x, target_y)
+            > i64::from(self.player.build_range).pow(2)
+        {
+            return Err("upgrade target is outside build range".into());
+        }
+        let index = self.entity_at(q, r).ok_or("no building to upgrade")?;
+        if self.entities[index].placed.scenario_owned {
+            return Err("scenario-owned objects are protected".into());
+        }
+        let current = self
+            .building_definition(self.entities[index].placed.definition_id)
+            .ok_or("this building has no definition")?;
+        let next_id = current
+            .upgrades_to
+            .ok_or_else(|| format!("{} is already at its highest tier", current.name))?;
+        let refund = current.construction_cost.clone();
+        let next = self
+            .building_definition(next_id)
+            .ok_or("the next tier has no definition")?
+            .clone();
+        if let Some(required) = next.unlock_technology_id {
+            if !self.researched.contains(&required) {
+                return Err(format!("{} is locked by research", next.name));
+            }
+        }
+        // A container that already holds more than the next tier can is a capacity *downgrade*
+        // dressed as an upgrade. Refuse rather than silently strand the overflow.
+        if let Some(capacity) = next.capacity {
+            let stored: u32 = self.entities[index].inventory.values().copied().sum();
+            if stored > capacity {
+                return Err(format!(
+                    "{} holds {stored}, more than the next tier stores",
+                    current.name
+                ));
+            }
+        }
+        // Netted per item, so the two halves of the price never travel through the pack. A player
+        // upgrading with a full pack is charged the difference and asked to carry the difference,
+        // which is what an in-place edit actually costs them.
+        let mut charge: BTreeMap<ItemId, u32> = BTreeMap::new();
+        add_ingredients(&mut charge, &next.construction_cost);
+        let mut credit: BTreeMap<ItemId, u32> = BTreeMap::new();
+        add_ingredients(&mut credit, &refund);
+        let mut owed: BTreeMap<ItemId, u32> = BTreeMap::new();
+        let mut back: BTreeMap<ItemId, u32> = BTreeMap::new();
+        for item_id in charge
+            .keys()
+            .chain(credit.keys())
+            .copied()
+            .collect::<BTreeSet<_>>()
+        {
+            let charged = charge.get(&item_id).copied().unwrap_or(0);
+            let returned = credit.get(&item_id).copied().unwrap_or(0);
+            if charged > returned {
+                owed.insert(item_id, charged - returned);
+            } else if returned > charged {
+                back.insert(item_id, returned - charged);
+            }
+        }
+        let missing: Vec<String> = owed
+            .iter()
+            .filter_map(|(item_id, quantity)| {
+                let have = self.player.inventory.get(item_id).copied().unwrap_or(0);
+                if have >= *quantity {
+                    return None;
+                }
+                let name = self
+                    .item_definition(*item_id)
+                    .map(|item| item.name.as_str())
+                    .unwrap_or("item");
+                Some(format!("{quantity} {name} (have {have})"))
+            })
+            .collect();
+        if !missing.is_empty() {
+            return Err(format!("need {}", missing.join(" · ")));
+        }
+        // Only when the step actually hands something back. A tier whose cost contains the tier
+        // below it — which is the shape a ladder should have — returns nothing, and refusing that
+        // upgrade because the pack is full would be refusing an edit that does not touch the pack.
+        if !back.is_empty() && !self.player_can_carry(&back) {
+            return Err("no room to carry what this would return".into());
+        }
+        let old_links = self.graph_links_by_id();
+        let changed_cells = self
+            .entity_footprint(&self.entities[index])
+            .into_iter()
+            .map(|cell| (cell.q, cell.r))
+            .collect();
+        for (item_id, quantity) in &owed {
+            subtract_item(&mut self.player.inventory, *item_id, *quantity);
+        }
+        add_inventory(&mut self.player.inventory, &back);
+        let id = self.entities[index].id;
+        self.entities[index].placed.definition_id = next_id;
+        // A taller tier may reach further, so the resolved deposit list was answered against the
+        // wrong radius. It is derived state and rebuilds itself on the next tick.
+        self.deposit_links.remove(&id);
+        self.dirty.entities.push(id);
+        let total = self.progress_total(index);
+        if total > 0 {
+            self.entities[index].progress = self.entities[index].progress.min(total);
+        }
+        self.recompile_graph_components(&old_links, &changed_cells, &BTreeSet::from([id]));
+        self.events.push(format!("Upgraded to {}", next.name));
+        Ok(())
+    }
+
+    /// Put stock from the player's pack into a container. The exact mirror of `withdraw`, and it
+    /// keeps the same contract: the requested quantity is a ceiling, not a demand, so what actually
+    /// moves is limited by what the player holds and by the room the container has left. A partial
+    /// store succeeds and destroys nothing.
+    ///
+    /// Containers only. A machine's inputs belong to the recipe that reserved them — the same
+    /// reason composers still cannot be unloaded by hand.
+    fn store(&mut self, q: i32, r: i32, item_id: ItemId, quantity: u32) -> Result<(), String> {
+        let (target_x, target_y) = axial_world(q, r);
+        if squared_distance(self.player.x, self.player.y, target_x, target_y)
+            > i64::from(self.player.build_range).pow(2)
+        {
+            return Err("store target is outside build range".into());
+        }
+        let index = self.entity_at(q, r).ok_or("no building to load")?;
+        if self.entities[index].kind != BuildingKind::Container {
+            return Err("only containers can be loaded by hand".into());
+        }
+        let held = self.player.inventory.get(&item_id).copied().unwrap_or(0);
+        if held == 0 {
+            return Err("you are not carrying any of that item".into());
+        }
+        let capacity = self
+            .building_definition(self.entities[index].placed.definition_id)
+            .and_then(|definition| definition.capacity)
+            .unwrap_or(0);
+        let room = capacity.saturating_sub(inventory_total(&self.entities[index].inventory));
+        let moved = quantity.min(held).min(room);
+        if moved == 0 {
+            return Err("this container is full".into());
+        }
+        subtract_item(&mut self.player.inventory, item_id, moved);
+        *self.entities[index].inventory.entry(item_id).or_default() += moved;
+        let id = self.entities[index].id;
+        self.dirty.entities.push(id);
+        let name = self
+            .item_definition(item_id)
+            .map(|definition| definition.name.clone())
+            .unwrap_or_else(|| format!("item {item_id}"));
+        self.events.push(format!("Stored {moved} × {name}"));
+        Ok(())
+    }
+
     /// Give the machine at this hex a different recipe. Bounded and range-checked like every other
     /// edit, and it enforces the same category rule placement does, so a kiln can no more be
     /// reassigned to a circuit than it could be built with one.
@@ -3033,7 +3422,14 @@ impl Core {
         let old_links = self.graph_links_by_id();
         let old_footprint = self.entity_footprint(&self.entities[index]);
         let id = self.entities[index].id;
-        let next_orientation = (self.entities[index].placed.orientation + 1) % 6;
+        // Rotation stays on the definition's own axis: a belt walks the six edges, a riser flips
+        // between north and south. A building can never be turned into a heading it could not have
+        // been built at.
+        let axis = self
+            .building_definition(self.entities[index].placed.definition_id)
+            .map(|definition| definition.orientation_axis)
+            .unwrap_or_default();
+        let next_orientation = axis.next(self.entities[index].placed.orientation);
         let next_footprint = self.footprint_for(self.entities[index].placed, next_orientation);
         if next_footprint.iter().any(|cell| {
             self.entities.iter().enumerate().any(|(other, entity)| {
@@ -3100,6 +3496,7 @@ impl Core {
                 InputCommand::MoveIntent { x, y } => self.set_move_intent(x, y),
                 InputCommand::Aim { x, y } => self.set_aim(x, y),
                 InputCommand::Gather => self.gather(),
+                InputCommand::GatherAt { q, r } => self.gather_at(q, r),
                 InputCommand::Deposit => self.deposit_inventory(),
                 InputCommand::Place {
                     q,
@@ -3122,12 +3519,19 @@ impl Core {
                     self.erase_line((q, r), (to_q, to_r))
                 }
                 InputCommand::Rotate { q, r } => self.rotate(q, r),
+                InputCommand::Upgrade { q, r } => self.upgrade(q, r),
                 InputCommand::Withdraw {
                     q,
                     r,
                     item_id,
                     quantity,
                 } => self.withdraw(q, r, item_id, quantity),
+                InputCommand::Store {
+                    q,
+                    r,
+                    item_id,
+                    quantity,
+                } => self.store(q, r, item_id, quantity),
                 InputCommand::SetRecipe { q, r, recipe_id } => self.set_recipe(q, r, recipe_id),
                 InputCommand::Undo => self.undo(),
                 InputCommand::Research { technology_id } => self.research(technology_id),
@@ -3240,19 +3644,7 @@ impl Core {
         let powered = self.entity_powered(index);
         let (power_satisfied, power_demand) = self.network_of(index);
         let brownout = powered && power_demand > 0 && power_satisfied < power_demand;
-        let progress_total = match entity.kind {
-            BuildingKind::Extractor | BuildingKind::Pump => self
-                .building_definition(entity.placed.definition_id)
-                .and_then(|definition| definition.cadence)
-                .unwrap_or(1),
-            BuildingKind::Composer => entity
-                .placed
-                .recipe_id
-                .and_then(|id| self.recipe(id))
-                .map(|recipe| recipe.duration)
-                .unwrap_or(0),
-            _ => 0,
-        };
+        let progress_total = self.progress_total(index);
         let footprint = self.entity_footprint(entity);
         let next_id = self.graph[index].map(|target| self.entities[target].id);
         let snapshot = EntitySnapshot {
@@ -4153,10 +4545,98 @@ fn validate_definitions(definitions: &DefinitionsInput) -> Result<(), String> {
         {
             return Err(format!("building {} has an invalid footprint", building.id));
         }
+        // A vertical heading has no 60° equivalent, so `@hexlife/embed` cannot rotate a footprint
+        // into one. Single-cell is therefore not a style rule but the condition that makes the
+        // axis representable at all.
+        if building.orientation_axis == OrientationAxis::Vertical && building.footprint.len() != 1 {
+            return Err(format!(
+                "building {} spans the two-row period, which only a single-cell footprint can do",
+                building.id
+            ));
+        }
+        if let Some(radius) = building.extract_radius {
+            if building.kind != BuildingKind::Extractor {
+                return Err(format!(
+                    "building {} claims an extraction reach but does not extract",
+                    building.id
+                ));
+            }
+            if radius == 0 || radius > MAX_EXTRACT_RADIUS {
+                return Err(format!(
+                    "extractor {} needs a reach in 1..={MAX_EXTRACT_RADIUS}",
+                    building.id
+                ));
+            }
+        }
         for ingredient in &building.construction_cost {
             if ingredient.quantity == 0 || !item_ids.contains(&ingredient.item_id) {
                 return Err(format!("building {} has an invalid cost", building.id));
             }
+        }
+    }
+    validate_upgrade_ladders(definitions)?;
+    Ok(())
+}
+
+/// What an upgrade ladder has to be, checked once at load so `upgrade` itself stays a short
+/// command rather than a second copy of the placement rules.
+///
+/// A tier is a data row, and these are the constraints that make that true: an upgrade may only
+/// grow a building into a taller version of itself, never turn it into a different machine. Kind,
+/// recipe category, and footprint are all pinned, which is what lets the command preserve
+/// contents, orientation, and connections without asking whether any of them still apply. The
+/// strictly increasing tier is what makes the ladder finite, so a chain can never cycle.
+fn validate_upgrade_ladders(definitions: &DefinitionsInput) -> Result<(), String> {
+    for building in &definitions.buildings {
+        let Some(next_id) = building.upgrades_to else {
+            continue;
+        };
+        let Some(next) = definitions
+            .buildings
+            .iter()
+            .find(|candidate| candidate.id == next_id)
+        else {
+            return Err(format!(
+                "building {} upgrades to unknown building {next_id}",
+                building.id
+            ));
+        };
+        if next.tier <= building.tier {
+            return Err(format!(
+                "building {} upgrades to {next_id}, which is not a higher tier",
+                building.id
+            ));
+        }
+        if next.kind != building.kind || next.recipe_category != building.recipe_category {
+            return Err(format!(
+                "building {} upgrades into a different machine, not a higher tier of itself",
+                building.id
+            ));
+        }
+        if next.orientation_axis != building.orientation_axis {
+            return Err(format!(
+                "building {} upgrades onto a different orientation axis",
+                building.id
+            ));
+        }
+        let footprint: BTreeSet<_> = building
+            .footprint
+            .iter()
+            .map(|cell| (cell.q, cell.r))
+            .collect();
+        let next_footprint: BTreeSet<_> =
+            next.footprint.iter().map(|cell| (cell.q, cell.r)).collect();
+        if footprint != next_footprint {
+            return Err(format!(
+                "building {} upgrades to a different footprint, which would move its connections",
+                building.id
+            ));
+        }
+        if !next.buildable {
+            return Err(format!(
+                "building {} upgrades to {next_id}, which cannot be constructed",
+                building.id
+            ));
         }
     }
     Ok(())
@@ -4467,14 +4947,63 @@ fn axial_distance(from: (i32, i32), to: (i32, i32)) -> i32 {
     (dq.abs() + dr.abs() + (dq + dr).abs()) / 2
 }
 
-/// The direction index that steps from one hex to an adjacent one, or `None` if they are not
-/// neighbours.
+/// The routing orientation that steps from one hex to another in a single transport step, or
+/// `None` if no direction connects them.
+///
+/// Searches `TRANSPORT_DIRECTIONS`, so it answers for the two-row period as well as the six edges.
+/// The six come first and keep their indices, so every delta that resolved before resolves to the
+/// same number now.
 fn step_direction(from: (i32, i32), to: (i32, i32)) -> Option<u8> {
     let delta = (to.0 - from.0, to.1 - from.1);
-    DIRECTIONS
+    TRANSPORT_DIRECTIONS
         .iter()
         .position(|direction| *direction == delta)
         .map(|index| index as u8)
+}
+
+/// The cells one drag covers, resolved on the axis the dragged definition builds on.
+///
+/// The two rules are kept apart rather than merged into one greedy loop over eight directions,
+/// because a unit step almost always closes the distance and a two-row step closes it only from
+/// inside a narrow cone — so a single greedy loop would never select north or south at all. The
+/// consequence of splitting them is the property that matters most: `hex_line` is untouched, so
+/// **every drag that resolved before v0.14 resolves to exactly the same cells now.**
+fn line_between(from: (i32, i32), to: (i32, i32), axis: OrientationAxis) -> Vec<(i32, i32)> {
+    match axis {
+        OrientationAxis::Edge => hex_line(from, to),
+        OrientationAxis::Vertical => hex_line_vertical(from, to),
+    }
+}
+
+/// The cells one vertical drag covers — the explicit rule the two-row period needs.
+///
+/// A step is taken only when it closes the full two rows it spans. That single condition *is* the
+/// angle rule, and it needs no tuned constant to say so: in the hex norm, `(1, -2)` is the sum of
+/// `NE` and `NW`, and a sum closes the distance by its whole length exactly when the target lies
+/// in the closed cone those two span. That cone is 60° wide and centred on due north — `NE` sits
+/// 30° east of vertical and `NW` 30° west of it — so the rule reads, precisely, **within 30° of
+/// vertical, use the two-row period**.
+///
+/// A drag that leaves the cone stops rather than wandering: the run builds the risers it can and
+/// the player places the corner themselves, which is the same "build what is legal and say where
+/// it stopped" contract `place_line` already keeps for cost and for terrain.
+fn hex_line_vertical(from: (i32, i32), to: (i32, i32)) -> Vec<(i32, i32)> {
+    let mut cells = vec![from];
+    let mut current = from;
+    while current != to && cells.len() < MAX_LINE_CELLS {
+        let remaining = axial_distance(current, to);
+        // North and south are opposites, so at most one of them can ever close, and the choice
+        // cannot depend on iteration order.
+        let Some(&(dq, dr)) = TRANSPORT_DIRECTIONS[usize::from(NORTH)..]
+            .iter()
+            .find(|(dq, dr)| axial_distance((current.0 + dq, current.1 + dr), to) == remaining - 2)
+        else {
+            break;
+        };
+        current = (current.0 + dq, current.1 + dr);
+        cells.push(current);
+    }
+    cells
 }
 
 /// The cells one drag covers, from `from` through `to` inclusive.
@@ -5996,7 +6525,7 @@ mod tests {
         core.write_overlay(4, 0, 1, 3, 3);
         core.place(3, 0, 1, 0, None).unwrap();
         let index = core.entity_at(3, 0).unwrap();
-        let candidates = core.deposit_candidates(3, 0);
+        let candidates = core.deposit_candidates(3, 0, EXTRACT_RADIUS);
         assert_eq!(candidates[0], (3, 0));
         assert!(candidates.contains(&(4, 0)));
         assert_eq!(core.extractor_deposit(index), Some((3, 0)));
@@ -6018,7 +6547,9 @@ mod tests {
         // from the hex beside it, through the same radius an extractor uses.
         assert_eq!(core.terrain_at(1, -1), Terrain::Cliff);
         assert!(core.terrain_at(1, -1).blocks_construction());
-        assert!(core.deposit_candidates(1, 0).contains(&(1, -1)));
+        assert!(core
+            .deposit_candidates(1, 0, EXTRACT_RADIUS)
+            .contains(&(1, -1)));
 
         let mut seen: BTreeMap<Terrain, BTreeSet<ItemId>> = BTreeMap::new();
         let mut land = 0u32;
@@ -6527,6 +7058,79 @@ mod tests {
             .contains("player"));
     }
 
+    /// North and south are lattice vectors, not new geometry. This pins the claim the whole
+    /// milestone rests on: a two-row step lands on exactly the same world-x, two rows away.
+    #[test]
+    fn due_north_and_south_share_a_world_column_with_their_origin() {
+        for &(q, r) in &[(0, 0), (3, -1), (-4, 5), (12, 7)] {
+            let (x, y) = axial_world(q, r);
+            let (north_dq, north_dr) = TRANSPORT_DIRECTIONS[usize::from(NORTH)];
+            let (north_x, north_y) = axial_world(q + north_dq, r + north_dr);
+            assert_eq!(north_x, x, "due north must not move world-x");
+            assert!(north_y < y, "due north must move up the screen");
+            let (south_dq, south_dr) = TRANSPORT_DIRECTIONS[usize::from(NORTH) + 1];
+            let (south_x, south_y) = axial_world(q + south_dq, r + south_dr);
+            assert_eq!(south_x, x);
+            assert_eq!(south_y - y, y - north_y, "the period is symmetric");
+        }
+        // The six edges keep their indices, which is what makes every saved orientation, every
+        // fixture, and every existing drag mean the same thing after the table grew.
+        assert_eq!(TRANSPORT_DIRECTIONS[..DIRECTIONS.len()], DIRECTIONS);
+        // Adjacency stays six. A boiler must never reach two rows.
+        assert_eq!(DIRECTIONS.len(), 6);
+    }
+
+    /// The vertical drag rule, and the reason it needs no tuned angle constant: a two-row step is
+    /// taken exactly when it closes the full two rows it spans, which is true precisely inside the
+    /// 60° wedge between NE and NW — 30° either side of vertical.
+    #[test]
+    fn a_vertical_drag_uses_the_two_row_period_only_within_thirty_degrees_of_vertical() {
+        use OrientationAxis::{Edge, Vertical};
+        // Straight up: three risers, no zigzag. The six-direction rule needed five cells for this.
+        assert_eq!(
+            line_between((0, 0), (3, -6), Vertical),
+            vec![(0, 0), (1, -2), (2, -4), (3, -6)]
+        );
+        assert_eq!(hex_line((0, 0), (3, -6)).len(), 7);
+        // Straight down.
+        assert_eq!(
+            line_between((0, 0), (-2, 4), Vertical),
+            vec![(0, 0), (-1, 2), (-2, 4)]
+        );
+        // Inside the wedge: it rises as far as the period reaches, then stops rather than
+        // wandering off-axis. The player places the corner.
+        assert_eq!(
+            line_between((0, 0), (2, -3), Vertical),
+            vec![(0, 0), (1, -2)]
+        );
+        // The wedge edges are NE and NW themselves, and both are still inside it.
+        for &corner in &[(2, -3), (1, -3)] {
+            assert!(
+                line_between((0, 0), corner, Vertical).len() > 1,
+                "{corner:?} is on the wedge boundary and must still rise"
+            );
+        }
+        // Outside the wedge, a vertical drag refuses to travel at all: due east is not something a
+        // riser can approach, so the run is the single anchor cell.
+        for &away in &[(4, 0), (-4, 0), (2, -2), (-2, 2), (0, 3)] {
+            assert_eq!(
+                line_between((0, 0), away, Vertical),
+                vec![(0, 0)],
+                "{away:?} is outside the vertical cone"
+            );
+        }
+        // Bounded like every other drag.
+        assert_eq!(
+            line_between((0, 0), (900, -1800), Vertical).len(),
+            MAX_LINE_CELLS
+        );
+        // And the property that keeps every existing test meaningful: the edge axis is the old
+        // resolver, untouched.
+        for &to in &[(3, 0), (4, 1), (5, 3), (0, -6), (-3, 2)] {
+            assert_eq!(line_between((0, 0), to, Edge), hex_line((0, 0), to));
+        }
+    }
+
     #[test]
     fn a_drag_resolves_one_turn_and_stays_bounded() {
         // A straight run along a hex axis.
@@ -6766,7 +7370,7 @@ mod tests {
         let index = core.entity_at(3, 0).unwrap();
         assert_eq!(core.extractor_deposit(index), Some((3, 0)));
         assert_eq!(
-            core.deposit_candidates(3, 0),
+            core.deposit_candidates(3, 0, EXTRACT_RADIUS),
             core.deposit_links[&core.entities[index].id]
         );
 
@@ -7278,9 +7882,25 @@ mod tests {
         assert_eq!(uninterrupted.checksum(), resumed.checksum());
         assert_eq!(uninterrupted.delivered, resumed.delivered);
         assert!(Core::from_save(&definitions, &technologies, &scenarios, "bad").is_err());
-        let incompatible =
-            save.replacen("\"definition_version\":6", "\"definition_version\":999", 1);
+        // Written against the live version rather than a literal, so bumping a version is a
+        // one-line change in one place and this test keeps testing the rejection it names.
+        let incompatible = save.replacen(
+            &format!("\"definition_version\":{}", definitions.version),
+            "\"definition_version\":999",
+            1,
+        );
         assert!(Core::from_save(&definitions, &technologies, &scenarios, &incompatible).is_err());
+        // v0.14 bumps the envelope because `orientation` now indexes eight routing directions and
+        // definitions carry a tier. The previous envelope is rejected, not reinterpreted.
+        let previous_envelope = save.replacen(
+            &format!("\"save_version\":{SAVE_VERSION}"),
+            &format!("\"save_version\":{}", SAVE_VERSION - 1),
+            1,
+        );
+        assert!(
+            Core::from_save(&definitions, &technologies, &scenarios, &previous_envelope).is_err(),
+            "a v0.13 save must be refused rather than read with six-direction orientations"
+        );
         let old_world = save.replacen(
             "\"world_generator_version\":5",
             "\"world_generator_version\":4",
@@ -8053,6 +8673,352 @@ mod tests {
         assert!(core.entities.iter().all(|entity| entity.placed.q != 2));
         assert!(core.events[0].contains("locked"));
         assert!(validate_scenarios(&definitions, &catalogs().1, &scenarios).is_ok());
+    }
+
+    /// A riser routes two rows, and the hexes it spans stay free. This is the whole answer to
+    /// north-south transport: a direction-table row, resolved by the ray-cast the graph compiler
+    /// already was, with no sub-hex occupancy anywhere.
+    #[test]
+    fn a_riser_routes_two_rows_and_leaves_the_hexes_it_spans_free() {
+        let mut core = game("new-game");
+        core.researched.extend([1, 4, 11]);
+        core.player.inventory.insert(1, 40);
+
+        // A riser at (0, 3) facing north reaches (1, 1) — the same world column, two rows up.
+        set_player_hex(&mut core, 1, 2);
+        core.place(1, 1, 4, 0, None).unwrap();
+        set_player_hex(&mut core, 1, 3);
+        core.place(0, 3, 18, NORTH, None).unwrap();
+
+        let riser = core.entity_at(0, 3).unwrap();
+        let container = core.entity_at(1, 1).unwrap();
+        assert_eq!(
+            core.graph[riser],
+            Some(container),
+            "a north-facing riser must bind to what sits two rows above it"
+        );
+        // The seam it spans is two ordinary hexes, and neither is occupied by anything.
+        assert_eq!(core.entity_at(0, 2), None);
+        assert_eq!(core.entity_at(1, 2), None);
+        // So they stay buildable, and the riser never claims them for collision either.
+        assert!(core.placement_legality(0, 2, 2, 0, None, true).is_ok());
+        assert!(!core.building_definition(18).unwrap().blocks_movement);
+        // The riser occupies exactly one hex.
+        assert_eq!(core.entity_footprint(&core.entities[riser]).len(), 1);
+
+        // South is the same period the other way.
+        core.rotate(0, 3).unwrap();
+        assert_eq!(
+            core.entities[core.entity_at(0, 3).unwrap()]
+                .placed
+                .orientation,
+            NORTH + 1
+        );
+        core.rotate(0, 3).unwrap();
+        assert_eq!(
+            core.entities[core.entity_at(0, 3).unwrap()]
+                .placed
+                .orientation,
+            NORTH,
+            "rotation stays on the definition's own axis"
+        );
+    }
+
+    /// Orientation is an axis the definition owns, and that is what prices the riser. A belt may
+    /// never take a vertical heading, because a belt that could would reach twice as far for a
+    /// belt's cost.
+    #[test]
+    fn orientation_axes_keep_the_riser_priced_and_the_belt_horizontal() {
+        let mut core = game("new-game");
+        core.researched.extend([1, 11]);
+        core.player.inventory.insert(1, 40);
+        set_player_hex(&mut core, 1, 3);
+
+        assert!(core
+            .placement_legality(0, 3, 2, NORTH, None, true)
+            .unwrap_err()
+            .contains("oriented in 0..6"));
+        assert!(core
+            .placement_legality(0, 3, 18, 0, None, true)
+            .unwrap_err()
+            .contains("oriented in 6..8"));
+        assert!(core.placement_legality(0, 3, 18, NORTH, None, true).is_ok());
+
+        // And the price is a data row, not a mechanism: the riser simply costs twice the belt.
+        let belt = core
+            .building_definition(2)
+            .unwrap()
+            .construction_cost
+            .clone();
+        let riser = core
+            .building_definition(18)
+            .unwrap()
+            .construction_cost
+            .clone();
+        assert_eq!(riser.len(), belt.len());
+        for (riser, belt) in riser.iter().zip(&belt) {
+            assert_eq!(riser.item_id, belt.item_id);
+            assert_eq!(riser.quantity, belt.quantity * 2);
+        }
+
+        // A vertical heading has no 60° rotation, so a definition claiming one with a footprint to
+        // rotate is refused at load rather than silently drawn wrong.
+        let (mut definitions, _, _) = catalogs();
+        let index = definitions
+            .buildings
+            .iter()
+            .position(|building| building.id == 18)
+            .unwrap();
+        definitions.buildings[index]
+            .footprint
+            .push(Coordinate { q: 1, r: 0 });
+        assert!(validate_definitions(&definitions)
+            .unwrap_err()
+            .contains("two-row period"));
+    }
+
+    /// An upgrade grows a building in place: contents, heading, and connections all survive, and
+    /// the ladder conserves items exactly. The round trip is the assertion that matters — an
+    /// upgrade that paid out more than it took in would be a duplication exploit, which is the
+    /// same failure `erase`'s all-or-nothing refund exists to prevent.
+    #[test]
+    fn an_upgrade_preserves_contents_connections_and_conserves_items_exactly() {
+        let mut core = game("new-game");
+        core.researched.extend([1, 4, 12]);
+        // Everything the ladder can possibly charge, so the test measures conservation and not
+        // whether the player happened to be able to afford a step.
+        for item_id in [1, 3, 6, 11, 19] {
+            core.player.inventory.insert(item_id, 60);
+        }
+        core.player.carry_slots = 99;
+        let before = core.player.inventory.clone();
+
+        set_player_hex(&mut core, 1, 3);
+        core.place(0, 3, 4, 2, None).unwrap();
+        // Give it contents and a downstream connection to preserve.
+        let index = core.entity_at(0, 3).unwrap();
+        let id = core.entities[index].id;
+        core.entities[index].inventory.insert(5, 9);
+        core.place(0, 4, 2, 0, None).unwrap();
+        let linked_before = core.graph[core.entity_at(0, 4).unwrap()];
+
+        core.upgrade(0, 3).unwrap();
+
+        let index = core.entity_at(0, 3).unwrap();
+        assert_eq!(
+            core.entities[index].id, id,
+            "the entity is edited, not replaced"
+        );
+        assert_eq!(core.entities[index].placed.definition_id, 20);
+        assert_eq!(
+            core.entities[index].placed.orientation, 2,
+            "heading survives"
+        );
+        assert_eq!(
+            core.entities[index].inventory.get(&5),
+            Some(&9),
+            "stock survives"
+        );
+        assert_eq!(
+            core.graph[core.entity_at(0, 4).unwrap()],
+            linked_before,
+            "the belt feeding it still points at it"
+        );
+        assert!(core.events.iter().any(|event| event.contains("Upgraded")));
+
+        // The ladder ends: a tier with no `upgrades_to` says so rather than failing quietly.
+        assert!(core
+            .upgrade(0, 3)
+            .unwrap_err()
+            .contains("already at its highest tier"));
+
+        // Round trip. Erasing the upgraded container hands back exactly the sum of both payments,
+        // so the player's pack returns to where it started — plus only the stock the container was
+        // holding, which erase has always returned and which no step of the ladder created.
+        core.erase(0, 3).unwrap();
+        core.erase(0, 4).unwrap();
+        let mut expected = before.clone();
+        *expected.entry(5).or_default() += 9;
+        assert_eq!(
+            core.player.inventory, expected,
+            "place → upgrade → erase must be item-neutral"
+        );
+
+        // The same holds for the reach ladder, which charges a different item set.
+        let mut ore = game("new-game");
+        ore.researched.extend([1, 2, 12]);
+        for item_id in [1, 3, 6, 11, 19] {
+            ore.player.inventory.insert(item_id, 60);
+        }
+        ore.player.carry_slots = 99;
+        let before = ore.player.inventory.clone();
+        set_player_hex(&mut ore, 3, 1);
+        ore.place(3, 0, 1, 0, None).unwrap();
+        ore.upgrade(3, 0).unwrap();
+        assert_eq!(
+            ore.entities[ore.entity_at(3, 0).unwrap()]
+                .placed
+                .definition_id,
+            19
+        );
+        ore.erase(3, 0).unwrap();
+        assert_eq!(ore.player.inventory, before);
+    }
+
+    /// Reach is the flagship upgrade, so it has to be a number the definition owns — and the hand
+    /// must not inherit it. The predicate stays single; only its argument moves.
+    #[test]
+    fn extraction_reach_comes_from_the_definition_and_the_hand_keeps_its_own() {
+        let mut core = game("new-game");
+        core.researched.extend([1, 2, 12]);
+        for item_id in [1, 3, 6, 11, 19] {
+            core.player.inventory.insert(item_id, 60);
+        }
+        set_player_hex(&mut core, 3, 1);
+        core.place(3, 0, 1, 0, None).unwrap();
+
+        let shallow = core.entity_at(3, 0).unwrap();
+        core.extractor_deposit(shallow);
+        let shallow_reach = core.deposit_links[&core.entities[shallow].id].clone();
+        assert_eq!(shallow_reach, core.deposit_candidates(3, 0, 1));
+
+        core.upgrade(3, 0).unwrap();
+        assert_eq!(
+            core.deposit_links.get(&core.entities[shallow].id),
+            None,
+            "a change of reach must drop the list resolved against the old one"
+        );
+        let deep = core.entity_at(3, 0).unwrap();
+        core.extractor_deposit(deep);
+        let deep_reach = core.deposit_links[&core.entities[deep].id].clone();
+        assert_eq!(deep_reach, core.deposit_candidates(3, 0, 2));
+        assert!(
+            deep_reach.len() >= shallow_reach.len(),
+            "a deeper extractor can only ever cover more"
+        );
+        assert_eq!(core.extract_radius_of(1), EXTRACT_RADIUS);
+        assert_eq!(core.extract_radius_of(19), 2);
+
+        // The hand is unchanged. A gather still reaches exactly one hex, whatever is built on it.
+        let (x, y) = axial_world(3, 0);
+        let by_hand = core.resource_at_world(x, y);
+        assert!(by_hand.map_or(true, |cell| axial_distance((3, 0), cell) <= EXTRACT_RADIUS));
+
+        // And a definition may not claim an unbounded arm.
+        let (mut definitions, _, _) = catalogs();
+        let index = definitions
+            .buildings
+            .iter()
+            .position(|building| building.id == 19)
+            .unwrap();
+        definitions.buildings[index].extract_radius = Some(MAX_EXTRACT_RADIUS + 1);
+        assert!(validate_definitions(&definitions)
+            .unwrap_err()
+            .contains("reach in 1..="));
+    }
+
+    /// A right-click names the hex. That is a different thing from facing-weighted targeting, and
+    /// the difference is the whole reason this is allowed: the player chose the cell, on screen,
+    /// so the number that moves is the one they pointed at. Reach is unchanged.
+    #[test]
+    fn a_named_gather_takes_from_the_hex_the_player_picked_within_the_same_reach() {
+        let mut core = game("new-game");
+        set_player_hex(&mut core, 3, 0);
+        // Field cells either side of the one underfoot, so a target that drifts is visible.
+        core.write_overlay(4, 0, 1, 20, 20);
+        core.write_overlay(2, 0, 1, 20, 20);
+
+        // The untargeted gather still takes from the hex underfoot.
+        core.gather().unwrap();
+        assert_eq!(core.deposit_quantity((3, 0)), 47);
+        cooldown(&mut core);
+
+        // The named one takes from the neighbour that was named, and leaves the rest alone.
+        core.gather_at(4, 0).unwrap();
+        assert_eq!(
+            (
+                core.deposit_quantity((2, 0)),
+                core.deposit_quantity((3, 0)),
+                core.deposit_quantity((4, 0)),
+            ),
+            (20, 47, 19)
+        );
+        cooldown(&mut core);
+
+        // Reach is the same predicate, so a hex an extractor here could not cover is refused.
+        assert!(core.gather_at(6, 0).unwrap_err().contains("out of reach"));
+        // So is ground that holds no field at all.
+        assert!(core.gather_at(3, 1).unwrap_err().contains("out of reach"));
+        // And the cooldown is the one cooldown, shared by both.
+        core.gather_at(4, 0).unwrap();
+        assert!(core.gather_at(2, 0).unwrap_err().contains("cooling down"));
+        cooldown(&mut core);
+
+        // A worked-out cell is refused rather than underflowed.
+        core.write_overlay(2, 0, 1, 0, 20);
+        assert!(core.gather_at(2, 0).unwrap_err().contains("worked out"));
+
+        // Every reachable field cell is nameable, and nothing outside the reach is.
+        let origin = (3, 0);
+        for &(dq, dr) in &DIRECTIONS {
+            for steps in 1..=2 {
+                let cell = (origin.0 + dq * steps, origin.1 + dr * steps);
+                if core.field_at(cell.0, cell.1).is_none() {
+                    continue;
+                }
+                cooldown(&mut core);
+                let named = core.gather_at(cell.0, cell.1).is_ok();
+                assert_eq!(
+                    named,
+                    core.field_covered_at(origin, cell, EXTRACT_RADIUS)
+                        && core.deposit_quantity(cell) > 0,
+                    "named gather at {cell:?} disagreed with the shared reach predicate"
+                );
+            }
+        }
+    }
+
+    /// Loading a container by hand is the exact mirror of unloading one, on the same contract:
+    /// the quantity is a ceiling, a partial move succeeds, and nothing is ever destroyed.
+    #[test]
+    fn storing_moves_what_fits_and_leaves_the_rest_in_the_pack() {
+        let mut core = game("new-game");
+        core.researched.extend([1, 4]);
+        core.player.inventory.insert(1, 30);
+        set_player_hex(&mut core, 1, 3);
+        core.place(0, 3, 4, 0, None).unwrap();
+        let capacity = core.building_definition(4).unwrap().capacity.unwrap();
+
+        // A ceiling, not a demand: asking for more than the container can hold moves what fits.
+        core.store(0, 3, 1, 999).unwrap();
+        let index = core.entity_at(0, 3).unwrap();
+        assert_eq!(core.entities[index].inventory.get(&1), Some(&capacity));
+        // Conservation: what left the pack is exactly what arrived, cost of the box included.
+        assert_eq!(
+            core.player.inventory.get(&1).copied().unwrap_or(0) + capacity + 3,
+            30
+        );
+        assert!(core.events.iter().any(|event| event.contains("Stored")));
+
+        // A full container refuses rather than silently dropping the overflow.
+        assert!(core.store(0, 3, 1, 1).unwrap_err().contains("full"));
+        // And the round trip is exact.
+        let carried = core.player.inventory.get(&1).copied().unwrap_or(0);
+        core.withdraw(0, 3, 1, capacity).unwrap();
+        assert_eq!(core.player.inventory.get(&1), Some(&(carried + capacity)));
+        assert_eq!(
+            core.entities[index].inventory.get(&1).copied().unwrap_or(0),
+            0
+        );
+
+        // Only containers, and only what the player is actually carrying.
+        assert!(core
+            .store(0, 3, 99, 1)
+            .unwrap_err()
+            .contains("not carrying"));
+        assert!(core.store(2, 3, 1, 1).unwrap_err().contains("no building"));
+        // Bounded and range-checked like every other edit.
+        assert!(core.store(9, 9, 1, 1).unwrap_err().contains("build range"));
     }
 
     #[test]

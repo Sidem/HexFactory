@@ -85,5 +85,14 @@ export function encodeCommand(command: NativeInputCommand): EncodedCommand {
         opcode: 11,
         args: [command.q, command.r, command.recipe_id],
       };
+    case "upgrade":
+      return { opcode: 13, args: [command.q, command.r] };
+    case "gather_at":
+      return { opcode: 14, args: [command.q, command.r] };
+    case "store":
+      return {
+        opcode: 15,
+        args: [command.q, command.r, command.item_id, command.quantity],
+      };
   }
 }

@@ -21,6 +21,11 @@ export type Terrain =
   | "cliff";
 export type PlacementRule = "ground" | "resource" | "water" | "elevated";
 export type PowerSource = "burner" | "wind" | "hydro" | "turbine";
+/**
+ * Which routing headings a definition may be built at. `edge` is the six hex edges and the
+ * default; `vertical` is due north and due south, the two-row period a riser spans.
+ */
+export type OrientationAxis = "edge" | "vertical";
 
 export interface Ingredient {
   item_id: number;
@@ -80,6 +85,14 @@ export interface BuildingDefinition {
   pole_reach?: number;
   /** How a generator makes electricity. */
   power_source?: PowerSource;
+  /** Which headings this building may take. Absent means the six hex edges. */
+  orientation_axis?: OrientationAxis;
+  /** Where this definition sits on its own upgrade ladder. Absent means the base tier. */
+  tier?: number;
+  /** The definition an `upgrade` turns this one into, if it has a next tier. */
+  upgrades_to?: number;
+  /** How many hexes this extractor reaches, counting its own. Absent means one. */
+  extract_radius?: number;
   construction_cost: Ingredient[];
   unlock_technology_id?: number;
   placement_rule: PlacementRule;
@@ -302,6 +315,12 @@ export type NativeInputCommand =
    */
   | { type: "aim"; x: number; y: number }
   | { type: "gather" }
+  /**
+   * Harvest one named hex. The player right-clicked it, so the target is explicit and on screen —
+   * which is what separates this from the facing-weighted targeting the gather rule refuses.
+   * Reach is still native's, and still the same predicate an extractor on that hex would use.
+   */
+  | { type: "gather_at"; q: number; r: number }
   | { type: "deposit" }
   | {
       type: "place";
@@ -330,11 +349,28 @@ export type NativeInputCommand =
   | { type: "erase_line"; q: number; r: number; to_q: number; to_r: number }
   | { type: "rotate"; q: number; r: number }
   /**
+   * Grow a building into the next tier of itself. Contents, heading, and connections survive
+   * because native edits the entity in place rather than replacing it, and the price is netted
+   * against the old construction cost so a ladder conserves items exactly.
+   */
+  | { type: "upgrade"; q: number; r: number }
+  /**
    * Take stock out of a container by hand. `quantity` is a ceiling: native moves what the
    * container holds and what the player can still carry, and reports how much actually moved.
    */
   | {
       type: "withdraw";
+      q: number;
+      r: number;
+      item_id: number;
+      quantity: number;
+    }
+  /**
+   * Put stock into a container by hand — the mirror of `withdraw`, on the same contract. `quantity`
+   * is a ceiling: native moves what the player holds and what the container has room for.
+   */
+  | {
+      type: "store";
       q: number;
       r: number;
       item_id: number;

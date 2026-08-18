@@ -30,9 +30,14 @@ import { findLandingHub, homeBearing } from "./rendering/landmarks";
 import { MinimapRenderer } from "./rendering/MinimapRenderer";
 import "./styles.css";
 
-type Tool = "inspect" | "erase" | "rotate" | number;
+type Tool = "inspect" | "erase" | "rotate" | "upgrade" | number;
 
-const SAVE_KEY = "hexfactory:hxf1:v6";
+const SAVE_KEY = "hexfactory:hxf1:v7";
+/**
+ * The eight routing headings, in the core's own order. The six edges keep their indices; north and
+ * south are appended, which is why every saved orientation still names the direction it always
+ * did. The integer never reaches the player — this table is the only thing they read.
+ */
 const DIRECTION_NAMES = [
   "East",
   "Southeast",
@@ -40,7 +45,11 @@ const DIRECTION_NAMES = [
   "West",
   "Northwest",
   "Northeast",
+  "North",
+  "South",
 ];
+/** The first orientation index off the six-edge table. Matches `NORTH` in the core. */
+const NORTH = 6;
 const FOG_FILL = "#18242f";
 const FOG_STROKE = "#7fe0c0";
 const STATUS_TONE: Record<string, "live" | "wait" | "stop" | "hub"> = {
@@ -95,7 +104,7 @@ const minimap = new MinimapRenderer(
 let snapshot = host.snapshot();
 let playing = true;
 let tool: Tool = "inspect";
-let orientation: HexDirection = 0;
+let orientation = 0;
 let selected: { q: number; r: number } | null = null;
 let hover: { q: number; r: number } | null = null;
 let hoverPreview: PlacementPreview | null = null;
@@ -501,6 +510,59 @@ function renderInspectorActions(building: EntitySnapshot | undefined): void {
   });
 }
 
+/**
+ * The put-into-container controls: one row per stack the player is carrying, so moving stock into
+ * a box is the same gesture as taking it out and sits directly beneath it.
+ *
+ * `quantity` is the whole carried amount, exactly as the Take rows send the whole stored amount.
+ * Native clamps it to what the container has room for and reports how much actually moved, so the
+ * host never has to know the capacity rule. Patched in place like every list that carries a
+ * control — a `replaceChildren` here would drop the press between pointerdown and pointerup.
+ */
+function renderInspectorLoad(building: EntitySnapshot | undefined): void {
+  const section = required<HTMLElement>("inspect-load");
+  const list = required<HTMLDivElement>("inspector-load");
+  const carried =
+    building?.kind === "container" ? snapshot.player.carry_stacks : [];
+  // One row per item, not one per stack: a Put moves everything of that item that fits.
+  const totals = new Map<number, number>();
+  for (const { item_id, quantity } of carried)
+    totals.set(item_id, (totals.get(item_id) ?? 0) + quantity);
+  section.hidden = totals.size === 0;
+  const entries = [...totals].sort(([a], [b]) => a - b);
+  const rows = syncChildren(
+    list,
+    entries.map(([item_id]) => String(item_id)),
+    () => {
+      const row = document.createElement("div");
+      row.className = "inspect-stock-row";
+      row.innerHTML = `<div class="inspect-stock-item"><span class="inspect-item-glyph"></span><strong></strong><span></span></div>`;
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "withdraw-button";
+      row.append(button);
+      return row;
+    },
+  );
+  entries.forEach(([itemId, quantity], index) => {
+    const row = rows[index];
+    if (!row) return;
+    const item = host.definitions.items.find(({ id }) => id === itemId);
+    const name = item?.name ?? `Item ${itemId}`;
+    setItemGlyph(part(row, ".inspect-item-glyph"), item?.icon, item?.color);
+    part(row, "strong").textContent = name;
+    part(row, ".inspect-stock-item > span:last-child").textContent =
+      String(quantity);
+    const button = part<HTMLButtonElement>(row, "button");
+    button.dataset.itemId = String(itemId);
+    button.dataset.quantity = String(quantity);
+    button.dataset.q = String(building?.q ?? 0);
+    button.dataset.r = String(building?.r ?? 0);
+    button.textContent = "Put";
+    button.setAttribute("aria-label", `Put ${quantity} ${name} in`);
+  });
+}
+
 function renderInspector(): void {
   const empty = required<HTMLElement>("inspect-empty");
   const sheet = required<HTMLElement>("inspect-sheet");
@@ -514,6 +576,8 @@ function renderInspector(): void {
     title.textContent = "Select a hex";
     status.hidden = true;
     renderInspectorActions(undefined);
+    renderInspectorLoad(undefined);
+    renderInspectorTier(undefined);
     renderInspectorRecipe(undefined);
     return;
   }
@@ -710,7 +774,65 @@ function renderInspector(): void {
   }
 
   renderInspectorActions(building);
+  renderInspectorLoad(building);
+  renderInspectorTier(building);
   renderInspectorRecipe(building);
+}
+
+/**
+ * What tier this building is, how far it reaches, and what the next step up costs. Every number
+ * comes from the definition table the host already holds, so a tier costs no snapshot field and
+ * no wire change — the entity publishes its `definition_id` and the ladder is read from that.
+ */
+function renderInspectorTier(building: EntitySnapshot | undefined): void {
+  const card = required<HTMLElement>("inspect-tier");
+  const chip = required<HTMLElement>("inspect-tier-chip");
+  const reach = required<HTMLElement>("inspect-reach");
+  const button = required<HTMLButtonElement>("inspect-upgrade");
+  const definition = building
+    ? host.definitions.buildings.find(({ id }) => id === building.definition_id)
+    : undefined;
+  const next = definition?.upgrades_to
+    ? host.definitions.buildings.find(({ id }) => id === definition.upgrades_to)
+    : undefined;
+  const tier = definition?.tier ?? 0;
+  // Nothing to say about a base-tier building with no ladder above it, and an empty ruled box is
+  // exactly what the readability pass took out.
+  card.hidden = !definition || (tier === 0 && !next);
+  if (card.hidden) return;
+  chip.textContent = `Tier ${tier + 1}`;
+  const radius = definition?.extract_radius;
+  reach.hidden = radius === undefined;
+  if (radius !== undefined)
+    reach.textContent = `Reaches ${radius} ${radius === 1 ? "hex" : "hexes"}`;
+  button.hidden = !next || Boolean(building?.scenario_owned);
+  if (!next || !building) return;
+  const unlocked =
+    next.unlock_technology_id === undefined ||
+    snapshot.researched.includes(next.unlock_technology_id);
+  button.disabled = !unlocked;
+  button.dataset.q = String(building.q);
+  button.dataset.r = String(building.r);
+  button.textContent = unlocked ? `Upgrade to ${next.name}` : "Upgrade locked";
+  button.setAttribute(
+    "aria-label",
+    unlocked
+      ? `Upgrade to ${next.name} for ${costSummary(next)}`
+      : `${next.name} is locked by research`,
+  );
+  button.title = unlocked ? `Costs ${costSummary(next)}` : "";
+}
+
+/** A construction cost written the way the dock writes one. */
+function costSummary(definition: BuildingDefinition): string {
+  return (
+    definition.construction_cost
+      .map(({ item_id, quantity }) => {
+        const item = host.definitions.items.find(({ id }) => id === item_id);
+        return `${quantity} ${item?.name ?? `item ${item_id}`}`;
+      })
+      .join(", ") || "nothing"
+  );
 }
 
 /** The recipes a machine definition may be assigned, in catalog order. */
@@ -908,18 +1030,16 @@ function syncSessionInputs(next: FactorySnapshot): void {
 
 function selectTool(next: Tool): void {
   tool = next;
-  const definition =
-    typeof next === "number"
-      ? host.definitions.buildings.find(({ id }) => id === next)
-      : undefined;
   renderer.setBuildMode(next !== "inspect");
-  renderer.setBuildFootprint(
-    definition?.footprint ?? [{ q: 0, r: 0 }],
-    orientation,
-  );
   renderRecipePicker();
   renderHotbar();
-  refreshHoverPreview();
+  // Picking up a riser with an eastward heading held would carry an orientation the definition
+  // cannot take, so the pending heading is snapped onto the new tool's axis. `setOrientation` does
+  // the rest: the label, the footprint preview, and the refreshed legality all follow from it.
+  const { start, end } = orientationRange(next);
+  setOrientation(
+    orientation >= start && orientation < end ? orientation : start,
+  );
 }
 
 function enqueue(command: NativeInputCommand): void {
@@ -1100,6 +1220,33 @@ required<HTMLSelectElement>("machine-recipe").addEventListener(
     });
   },
 );
+required<HTMLButtonElement>("inspect-upgrade").addEventListener(
+  "click",
+  (event) => {
+    const button = event.currentTarget as HTMLButtonElement;
+    enqueue({
+      type: "upgrade",
+      q: Number(button.dataset.q),
+      r: Number(button.dataset.r),
+    });
+  },
+);
+required<HTMLDivElement>("inspector-load").addEventListener(
+  "click",
+  (event) => {
+    const button = (event.target as Element).closest<HTMLButtonElement>(
+      "button[data-item-id]",
+    );
+    if (!button) return;
+    enqueue({
+      type: "store",
+      q: Number(button.dataset.q),
+      r: Number(button.dataset.r),
+      item_id: Number(button.dataset.itemId),
+      quantity: Number(button.dataset.quantity),
+    });
+  },
+);
 required<HTMLDivElement>("inspector-actions").addEventListener(
   "click",
   (event) => {
@@ -1231,8 +1378,18 @@ canvas.addEventListener("pointerdown", (event) => {
 canvas.addEventListener("pointerup", (event) => {
   if (panPointer?.id === event.pointerId) {
     suppressMapClick = panPointer.moved;
+    const tapped = !panPointer.moved && event.button === 2;
     canvas.releasePointerCapture(event.pointerId);
     panPointer = null;
+    // A right-drag pans; a right-click that never moved names a hex to harvest. Native decides
+    // whether it is in reach and whether it holds anything — the host only says which hex.
+    if (tapped) {
+      const coordinate = renderer.pick(event.clientX, event.clientY);
+      selected = coordinate;
+      renderer.setSelection(coordinate);
+      enqueue({ type: "gather_at", ...coordinate });
+      renderInspector();
+    }
     return;
   }
   if (dragBuild?.id !== event.pointerId) return;
@@ -1289,6 +1446,7 @@ canvas.addEventListener("click", (event) => {
   renderer.setSelection(coordinate);
   if (tool === "erase") enqueue({ type: "erase", ...coordinate });
   else if (tool === "rotate") enqueue({ type: "rotate", ...coordinate });
+  else if (tool === "upgrade") enqueue({ type: "upgrade", ...coordinate });
   else if (typeof tool === "number") {
     enqueue({
       type: "place",
@@ -1418,12 +1576,12 @@ function pickToolUnderCursor(): void {
     showFeedback(`${definition?.name ?? "That"} cannot be built`);
     return;
   }
-  setOrientation(building.orientation as HexDirection);
   selectTool(definition.id);
+  setOrientation(building.orientation);
   showFeedback(`Copied ${definition.name}`);
 }
 
-function setOrientation(next: HexDirection): void {
+function setOrientation(next: number): void {
   orientation = next;
   required<HTMLElement>("orientation-value").textContent =
     `${DIRECTION_NAMES[orientation]} · R`;
@@ -1433,13 +1591,37 @@ function setOrientation(next: HexDirection): void {
       : undefined;
   renderer.setBuildFootprint(
     definition?.footprint ?? [{ q: 0, r: 0 }],
-    orientation,
+    // A vertical heading has no 60° rotation, and the footprint that carries one is a single cell
+    // by definition, so the preview asks for no turns rather than an impossible number of them.
+    orientation >= NORTH ? 0 : orientation,
   );
   refreshHoverPreview();
 }
 
+/**
+ * The orientations the pending tool may take. Native owns the rule; this reads the same definition
+ * field it reads, so the dock can never offer a heading placement would refuse.
+ */
+function orientationRange(tool: Tool): { start: number; end: number } {
+  const definition =
+    typeof tool === "number"
+      ? host.definitions.buildings.find(({ id }) => id === tool)
+      : undefined;
+  return definition?.orientation_axis === "vertical"
+    ? { start: NORTH, end: DIRECTION_NAMES.length }
+    : { start: 0, end: NORTH };
+}
+
 function rotateNewBuilding(): void {
-  setOrientation(rotateHexDirection(orientation, 1));
+  const { start, end } = orientationRange(tool);
+  // Rotation stays on the tool's own axis: a belt walks the six edges and a riser flips between
+  // north and south. `rotateHexDirection` still turns the six, so the package keeps owning the
+  // geometry it knows.
+  setOrientation(
+    start === 0
+      ? rotateHexDirection(orientation as HexDirection, 1)
+      : start + ((orientation - start + 1) % (end - start)),
+  );
 }
 
 function stopAiming(): void {

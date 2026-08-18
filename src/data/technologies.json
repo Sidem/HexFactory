@@ -1,5 +1,5 @@
 {
-  "version": 3,
+  "version": 4,
   "technologies": [
     {
       "id": 1,
@@ -90,6 +90,24 @@
       "prerequisites": [7, 8],
       "cost": 10,
       "unlocks": [16, 17]
+    },
+    {
+      "id": 11,
+      "key": "vertical-transport",
+      "name": "Vertical Transport",
+      "description": "Unlock the riser, which carries cargo due north and due south. Both screen axes, on the same hex lattice.",
+      "prerequisites": [1],
+      "cost": 6,
+      "unlocks": [18]
+    },
+    {
+      "id": 12,
+      "key": "machine-tiers",
+      "name": "Machine Tiers",
+      "description": "Unlock the deep extractor and the deep container, and the upgrade that grows one into the other in place.",
+      "prerequisites": [5],
+      "cost": 12,
+      "unlocks": [19, 20]
     }
   ]
 }

@@ -19,7 +19,13 @@ import type {
   PlacementPreview,
   WorldPoint,
 } from "../core/types";
-import { cargoTravel, drawBuildingLook, facingTip } from "./buildingLook";
+import {
+  cargoTravel,
+  drawBuildingLook,
+  facingTip,
+  NORTH,
+  spanEnd,
+} from "./buildingLook";
 import { drawHex, hexPath } from "./hexDraw";
 import { drawItemIcon } from "./icons";
 import { WORLD_SCALE, homeBearing } from "./landmarks";
@@ -376,11 +382,7 @@ export class CanvasFactoryRenderer {
       if (!cell.legal) continue;
       // The same heading mark placed buildings carry, so a previewed run reads like the run it
       // becomes rather than like a selection.
-      const tip = axialToPixel(
-        axialNeighbor({ q: 0, r: 0 }, cell.orientation),
-        size * 0.34,
-        center,
-      );
+      const tip = facingTip(center, size, cell.orientation, 0.34);
       ctx.strokeStyle = stroke;
       ctx.lineWidth = Math.max(2, size * 0.07);
       ctx.beginPath();
@@ -828,6 +830,18 @@ export class CanvasFactoryRenderer {
     }
     const center = this.camera.project(building, width, height);
     if (!visible(center, size, width, height)) return;
+    // A riser's whole point is the span, so it is drawn before the body: a thin gantry reaching
+    // across the seam to the hex two rows away, under the building rather than over it.
+    if (building.orientation >= NORTH) {
+      const far = spanEnd(center, size, building.orientation);
+      ctx.strokeStyle = `${color}cc`;
+      ctx.lineWidth = Math.max(2, size * 0.16);
+      ctx.lineCap = "round";
+      ctx.beginPath();
+      ctx.moveTo(center.x, center.y);
+      ctx.lineTo(far.x, far.y);
+      ctx.stroke();
+    }
     drawBuildingLook(ctx, {
       building,
       definition,
@@ -836,6 +850,7 @@ export class CanvasFactoryRenderer {
       color,
       now: this.now,
       reducedMotion: this.reducedMotion,
+      tier: definition?.tier,
     });
     const tip = facingTip(center, size, building.orientation);
     ctx.strokeStyle = "#f3f7fa";

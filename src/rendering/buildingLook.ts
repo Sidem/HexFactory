@@ -47,8 +47,8 @@ export function silhouetteOf(
 }
 
 /**
- * Trim reserved for `tier`. v0.14 will pass the real value; until then every building is tier 0
- * so a later upgrade is a data row rather than a new silhouette.
+ * Trim carries `tier`. A taller tier is brighter and heavier edging on the same silhouette, which
+ * is what makes a tier a data row: the upgrade is legible on the map without a second drawing.
  */
 export function trimOf(tier = 0): BuildingTrim {
   if (tier <= 0) return { stroke: "#dce7ef", width: 1.4 };
@@ -64,7 +64,7 @@ export interface BuildingLookInput {
   color: string;
   now: number;
   reducedMotion: boolean;
-  /** Reserved for v0.14. Leave 0 so today's draw matches tomorrow's tier-0 row. */
+  /** The definition's tier. Absent is the base tier, which is what every v0.13 building was. */
   tier?: number;
 }
 
@@ -355,11 +355,56 @@ function drawSilhouette(
   }
 }
 
+/** The first orientation index off the six-edge table. Matches `NORTH` in the core. */
+export const NORTH = 6;
+/** The two-row period. There is no third vertical heading, so these are named rather than indexed. */
+const DUE_NORTH = { q: 1, r: -2 };
+const DUE_SOUTH = { q: -1, r: 2 };
+/**
+ * A two-row step spans `3 · size` of world distance against `√3 · size` for a unit step, so a
+ * vertical heading drawn at the edge scale would reach √3 times as far. The tip is a heading
+ * indicator, not a measurement, so it is shortened to read the same length as the other six.
+ */
+const VERTICAL_TIP_SCALE = 1 / Math.sqrt(3);
+
+/**
+ * Where a building's heading points, in pixels.
+ *
+ * The six edge headings are the package's own neighbours. The two vertical ones are not neighbours
+ * at all, so they are named here rather than asked of `axialNeighbor`, which only knows six. Both
+ * go through the same `axialToPixel`, which is what puts a riser's tip on the same screen column
+ * as its own centre — the property the whole direction is for.
+ */
 export function facingTip(
   center: PixelPoint,
   size: number,
   orientation: number,
+  reach = 0.39,
 ): PixelPoint {
-  const direction = axialNeighbor({ q: 0, r: 0 }, orientation);
-  return axialToPixel(direction, size * 0.39, center);
+  if (orientation >= NORTH) {
+    const direction = orientation === NORTH ? DUE_NORTH : DUE_SOUTH;
+    return axialToPixel(direction, size * reach * VERTICAL_TIP_SCALE, center);
+  }
+  return axialToPixel(
+    axialNeighbor({ q: 0, r: 0 }, orientation),
+    size * reach,
+    center,
+  );
+}
+
+/**
+ * The far end of a riser's span: the centre of the hex two rows away that it actually reaches.
+ * Drawn as the gantry, so the seam it crosses reads as a short bridge over the crack between two
+ * hexes rather than as a tile that is half of something.
+ */
+export function spanEnd(
+  center: PixelPoint,
+  size: number,
+  orientation: number,
+): PixelPoint {
+  return axialToPixel(
+    orientation === NORTH ? DUE_NORTH : DUE_SOUTH,
+    size,
+    center,
+  );
 }

@@ -215,6 +215,22 @@ describe("bounded host input", () => {
     expect(
       encodeCommand({ type: "set_recipe", q: 1, r: 1, recipe_id: 6 }),
     ).toEqual({ opcode: 11, args: [1, 1, 6] });
+    // An upgrade names a hex and nothing else. Which tier it becomes, what it costs, and what it
+    // hands back are all native's, so the host cannot describe an upgrade native would not make.
+    expect(encodeCommand({ type: "upgrade", q: 3, r: -2 })).toEqual({
+      opcode: 13,
+      args: [3, -2],
+    });
+    // A right-click names a hex to harvest and nothing else. Whether it is in reach, and whether
+    // it holds anything, are native's — the host never re-derives the gather predicate.
+    expect(encodeCommand({ type: "gather_at", q: 4, r: 0 })).toEqual({
+      opcode: 14,
+      args: [4, 0],
+    });
+    // Storing is the mirror of withdrawing, on the same ceiling-not-demand contract.
+    expect(
+      encodeCommand({ type: "store", q: 1, r: 1, item_id: 2, quantity: 7 }),
+    ).toEqual({ opcode: 15, args: [1, 1, 2, 7] });
     // An aim carries the world point under the cursor, not a heading: native resolves the facing
     // vector, because facing is a checksum input and normalizing it here would decide one.
     expect(encodeCommand({ type: "aim", x: -4200, y: 1774 })).toEqual({
@@ -243,6 +259,30 @@ describe("bounded host input", () => {
     expect(main.match(/type: "place_line"/g)).toHaveLength(1);
     expect(renderer).toContain("setDragPath(");
     expect(renderer).not.toMatch(/hexLine|axialLine/);
+  });
+
+  it("keeps the reach and capacity rules native for both new hand actions", () => {
+    const main = readFileSync(
+      new URL("../src/main.ts", import.meta.url),
+      "utf8",
+    );
+    // A right-click sends the hex it named. The host must not decide whether it is close enough,
+    // or which cell "close to the player" resolves to — that is the shared gather predicate.
+    expect(main).toContain('type: "gather_at"');
+    expect(main).not.toMatch(/EXTRACT_RADIUS|axialDistance\(.*player/);
+    // A Put sends the whole carried amount as a ceiling, exactly as a Take sends the whole stored
+    // amount. Neither side re-derives the container's remaining room.
+    expect(main).toContain('type: "store"');
+    expect(main).not.toMatch(/capacity\s*-\s*/);
+    // The Put list carries a control, so it must be patched rather than rebuilt: a
+    // `replaceChildren` between pointerdown and pointerup detaches the pressed button and the
+    // delegated click resolves to nothing.
+    const load = main.slice(
+      main.indexOf("function renderInspectorLoad"),
+      main.indexOf("function renderInspector("),
+    );
+    expect(load).toContain("syncChildren(");
+    expect(load).not.toContain("replaceChildren");
   });
 
   it("contains no host-side player or progression mutation loop", () => {

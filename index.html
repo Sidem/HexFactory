@@ -191,6 +191,8 @@
                     <i data-dir="3"></i>
                     <i data-dir="4"></i>
                     <i data-dir="5"></i>
+                    <i data-dir="6"></i>
+                    <i data-dir="7"></i>
                   </div>
                   <div class="inspect-facing-copy">
                     <span class="inspect-kind">Facing</span>
@@ -220,6 +222,24 @@
                     class="inspect-stock-list"
                     aria-label="Container contents"
                   ></div>
+                </div>
+                <div class="inspect-stock" id="inspect-load" hidden>
+                  <span class="inspect-kind">Put in from your pack</span>
+                  <div
+                    id="inspector-load"
+                    class="inspect-stock-list"
+                    aria-label="Items you can load into this container"
+                  ></div>
+                </div>
+                <div class="inspect-tier" id="inspect-tier" hidden>
+                  <span class="inspect-chip" id="inspect-tier-chip"></span>
+                  <span class="inspect-reach" id="inspect-reach" hidden></span>
+                  <button
+                    type="button"
+                    id="inspect-upgrade"
+                    class="withdraw-button"
+                    hidden
+                  ></button>
                 </div>
               </section>
             </article>
@@ -346,8 +366,10 @@
             <p>
               Hold <kbd>F</kbd> to keep gathering from the field you are
               standing on or beside, and <kbd>X</kbd> to deliver at the landing
-              hub. The ring that closes around you is the wait until the next
-              action.
+              hub. To work one particular hex, right-click it: a right-click
+              that does not drag harvests exactly the cell you pointed at, as
+              far as your own reach goes. The ring that closes around you is the
+              wait until the next action.
             </p>
           </div>
           <div class="control-block">
@@ -361,7 +383,20 @@
               <kbd>Q</kbd> copies whatever is under the cursor, and
               <kbd>Ctrl</kbd>+<kbd>Z</kbd> takes back the last thing you built.
               Machines run one category of recipe each; smelters and kilns also
-              need fuel, and burn whatever arrives.
+              need fuel, and burn whatever arrives. Risers are belts that run
+              due north and due south, over the seam between two hexes — the
+              hexes they cross stay free to build on.
+            </p>
+          </div>
+          <div class="control-block">
+            <span class="section-kicker">Boxes and tiers</span>
+            <p>
+              Click a container to see everything in it. Each stored row has a
+              <strong>Take</strong>, and each stack you are carrying has a
+              <strong>Put</strong>, so stock moves both ways without a belt.
+              Buildings with a higher tier show an <strong>Upgrade</strong>
+              button that grows them in place, keeping their contents, their
+              heading, and everything connected to them.
             </p>
           </div>
           <div class="control-block">
@@ -587,6 +622,13 @@
               aria-label="Demolish building"
             >
               <span aria-hidden="true">⌫</span><small>Erase</small>
+            </button>
+            <button
+              type="button"
+              data-tool="upgrade"
+              aria-label="Upgrade building to its next tier"
+            >
+              <span aria-hidden="true">▲</span><small>Upgrade</small>
             </button>
             <button
               type="button"

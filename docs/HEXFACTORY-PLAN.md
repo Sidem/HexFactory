@@ -13,17 +13,84 @@ per-frame payload is 13.6× smaller. **A complete browser frame is a measured nu
 v0.12.4 baseline of 909 µs. The world is the view: shorelines come from neighbours, buildings
 from `recipe_category`, and a worked-out field is a scar rather than a missing glyph.
 
-**Next play milestone is Upgrades and Tiers v0.14.** Look Systems shipped the generator that makes a
-tier a data row. The drag's per-cell transport recompile is unblocked and can land anywhere.
-Inspector Readability shipped as **v0.13.2**, a presentation pass on the Look Systems world: a
-clicked hex is cards — identity, coordinates, band swatch, field meter, facing compass, machine
-meters — not a `textContent` dump.
+**Upgrades and Tiers shipped as v0.14.** Tiered definitions with an in-place `upgrade` that
+conserves items exactly, extraction reach as the flagship upgrade, north and south in the transport
+direction table as the riser, a right-click that harvests one named hex, and two-way hand transfer
+with containers. Save version 7, definition version 7, technology version 4. The shipped record is
+the section below; the brief it was built from is kept beneath it.
+
+**The next play milestone is not yet named.** The nearest candidates are the deferred list below —
+animals/biomatter/waste as one milestone, fluid networks, intermittent generation with
+accumulators — plus tunnels, which v0.14 deliberately left out and which now cost one match arm in
+the trace loop that already routes eight directions.
 
 **North-south belts are resolved and have left the longer horizon.** Due north is a lattice vector
 on this grid — `(q + 1, r - 2)` shares a world-x with `(q, r)` — and `compile_graph_target` is
 already a ray-cast that never assumed a unit step. So the fix is a direction-table row, not sub-hex
 occupancy, and it rides v0.14's version bump. The write-up below supersedes the half-covered-tile
 proposal.
+
+## Shipped milestone — Upgrades and Tiers v0.14
+
+Shipped 2026-08-18. The brief below is kept as written; this section records what it became.
+
+**A tier is a data row, and the ladder is validated once at load.** `BuildingDefinition` gained
+`tier`, `upgrades_to`, `extract_radius`, and `orientation_axis`. `validate_upgrade_ladders` pins
+kind, recipe category, footprint, and axis across every step of a ladder and requires a strictly
+increasing tier — which is what lets `upgrade` stay a short command instead of a second copy of the
+placement rules, and what makes a ladder finite. Two ladders ship: the extractor grows into the
+**deep extractor** (reach 2, cadence 4 — the flagship, visible on the map), and the container into
+the **deep container** (capacity 24).
+
+**`upgrade` edits the entity in place and never replaces it.** That is what preserves contents,
+orientation, and connections with no special handling: only `definition_id` moves. Progress is
+clamped rather than reset, because a tier may change the cadence under a part-finished craft.
+The price is netted per item against the old construction cost, both halves are checked before
+either is applied, and a refund that will not fit is refused rather than partially paid — the same
+all-or-nothing rule `erase` uses. Both shipped tier-1 costs _contain_ their tier-0 cost, so an
+upgrade is a pure surcharge and nothing round-trips through the pack. `place → upgrade → erase` is
+asserted item-neutral. One correctness note found while testing: an upgrade that returns nothing
+must not consult carrying capacity at all, or a full pack refuses an edit that does not touch it.
+
+**North and south are a direction-table row, exactly as the write-up predicted.** `DIRECTIONS`
+stays six for adjacency and power; `TRANSPORT_DIRECTIONS` is eight for routing, with the six at
+their original indices. `compile_graph_target` needed one line — the table it indexes — and nothing
+else, because it always was a ray-cast that never assumed a unit step. A test pins the claim the
+whole design rests on: `(q + 1, r - 2)` lands on _exactly_ the same world-x, two rows up.
+
+**The vertical drag rule needs no tuned angle constant.** `hex_line` is untouched, so every drag
+that resolved before v0.14 resolves identically; `hex_line_vertical` is a separate rule selected by
+the dragged definition's axis. It takes a two-row step only when that step closes the full two rows
+it spans — and in the hex norm that is true exactly when the target lies in the closed cone between
+`NE` and `NW`, which is 60° wide and centred on due north. So the rule reads, precisely, _within
+30° of vertical_. An erase drag has no definition to ask, so it takes its axis from the hex it
+started on.
+
+**The riser is priced as a data row.** `OrientationAxis::Vertical` requires a single-cell footprint,
+because `@hexlife/embed` rotates by 60° and the vertical headings have no 60° equivalent. A belt
+cannot take a vertical heading and a riser cannot take an edge one, which is what stops a riser
+being strictly dominant: it is a separate definition, so it has a separate cost row — 2× a belt,
+asserted in both languages. The two straddled hexes are never occupied and need no code to stay
+free: the riser is one cell, and its belt spans the seam.
+
+**Two player-facing additions arrived mid-milestone, both asked for directly.** A right-click that
+does not drag harvests one _named_ hex — which is the argument the facing invariant demanded, and a
+different argument from the one it refused: the player named the hex on screen, so the cause of the
+number moving is visible. Reach is unchanged and still the shared `field_covered_at` predicate, and
+both gathers land in one `gather_from`. And `store` is the exact mirror of `withdraw`, so the
+inspector now carries a **Put** row per carried stack beneath its **Take** rows and stock moves both
+ways by hand without a belt.
+
+`HXF1` save version is 7, definition version 7, technology version 4. v0.13 saves are rejected —
+the envelope covers both the tier definitions and `orientation` becoming an index into eight.
+No wire change: `orientation` was already a `u8`, and tier is read from the definition table the
+host already holds, so the entity snapshot is untouched and the v0.13.1 render baseline stands.
+
+Gate: `npm run quality` green — 71 Rust tests, 62 TypeScript tests, lint, format, build.
+Interactive browser verification was **not** available this session: the Browser pane was not
+compositing, so `requestAnimationFrame` never fired and the frame loop could not run. Boot was
+verified instead (no console errors, both catalogs validated at load, the new dock entries,
+compass spokes, and panels all present in the DOM).
 
 ## Next session — Upgrades and Tiers v0.14
 

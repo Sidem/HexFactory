@@ -7,10 +7,11 @@ architecture are the means that make that game possible at scale, not the point 
 
 Keep this file concise; the durable roadmap, design pillars, and implementation handoffs live in
 `docs/HEXFACTORY-PLAN.md`, architecture decisions in `docs/ARCHITECTURE.md`, shipped MVP status in
-`docs/MVP.md`, and measured capacity in `docs/BENCHMARKS.md`. Next play milestone is
-Upgrades and Tiers v0.14 — brief at the top of the plan. Inspector Readability shipped as
-v0.13.2, a presentation pass (cards, not a text dump). North-south belts are resolved to a
-transport direction-table row and folded into v0.14; sub-hex occupancy is withdrawn.
+`docs/MVP.md`, and measured capacity in `docs/BENCHMARKS.md`. Upgrades and Tiers shipped as
+**v0.14**: tiered definitions with an in-place `upgrade`, extraction reach as the flagship
+upgrade, north and south in the transport direction table as the riser, a right-click that
+harvests one named hex, and two-way hand transfer with containers. `HXF1` save version is 7,
+definition version 7, technology version 4; v0.13 saves are rejected.
 
 ## Workspace boundary
 
@@ -52,12 +53,35 @@ transport direction-table row and folded into v0.14; sub-hex occupancy is withdr
   does themselves, actions as well as walking — a cooldown spent per simulation tick froze
   gathering outright while paused and otherwise scaled the harvest rate with the speed setting. So
   the host keeps the player's clock running while a cooldown is outstanding, not only while walking.
-- A gather asks the same question an extractor on that hex asks, through `resource_at_world`, and
-  facing is not part of it. A target weighted by facing counted down a neighbouring hex while the one
-  underfoot stayed full — a change with no visible cause. Facing became visible in v0.12.3, which
-  retires half of that reason and not the other half: where the mouse happens to rest is still not
-  something a player reads as aiming at a hex. Facing-weighted targeting has to be argued for on its
-  own, with a target the player can see, and not smuggled in as a consequence of drawing the pointer.
+- A gather asks the same question an extractor on that hex asks, and facing is not part of it. A
+  target weighted by facing counted down a neighbouring hex while the one underfoot stayed full — a
+  change with no visible cause. Where the mouse happens to rest is still not something a player
+  reads as aiming at a hex, so facing-weighted targeting stays refused.
+  **v0.14 makes the argument that rule asked for, and makes a different one.** A right-click is not
+  a weighting; it is the player naming a hex on screen, deliberately, so the number that moves is
+  the one they pointed at and the cause is visible. `gather_at` therefore takes an explicit target —
+  and only the target moves. Reach is unchanged and still `field_covered_at` at the player's own
+  radius, so a right-click can never take from a cell an extractor standing there could not. Both
+  gathers land in `gather_from`, so the cooldown, the carrying rule, and the depletion mark are one
+  implementation.
+- Extraction reach is a definition field, not a constant: `field_covered_at` takes the radius its
+  caller reaches, `deposit_candidates` passes the extractor's own, and the hand always passes
+  `EXTRACT_RADIUS`. It is still one predicate — placement, the cached candidate list, and both
+  gathers share it — so a resolved reference cannot drift from the rule that allowed the building.
+  A tier that changes reach must drop that entity's `deposit_links`, which were resolved against the
+  old radius.
+- Orientation is an axis the definition owns. `DIRECTIONS` (six) is adjacency and power;
+  `TRANSPORT_DIRECTIONS` (eight) is routing, and the six keep their indices so every saved
+  orientation still means what it meant. `OrientationAxis::Vertical` is the two-row period and
+  requires a single-cell footprint, because `@hexlife/embed` rotates by 60° and the vertical
+  headings have no 60° equivalent. Never widen `DIRECTIONS`: a boiler that reached two rows would
+  be a silent rule change.
+- An upgrade edits the entity in place and never replaces it, which is what preserves contents,
+  orientation, and connections without special handling. `validate_upgrade_ladders` pins kind,
+  recipe category, footprint, and axis across every step, so the command does not have to re-ask
+  whether any of them still apply. The price is netted per item against the old construction cost
+  and both halves are checked before either is applied — the same all-or-nothing rule `erase` uses,
+  and the reason an upgrade / erase round trip cannot duplicate items.
 - Facing is native, checksummed state, so the host may send the world position it wants the player to
   face and never a heading. `aim` carries the point under the cursor; native resolves the unit vector
   in integer arithmetic. `move_intent` still sets facing, and an aim wins by arriving later in the

@@ -1,4 +1,4 @@
-import type { Definitions, Technologies } from "./types";
+import type { BuildingDefinition, Definitions, Technologies } from "./types";
 
 const KINDS = new Set([
   "extractor",
@@ -14,6 +14,9 @@ const KINDS = new Set([
 ]);
 const PLACEMENT_RULES = new Set(["ground", "resource", "water", "elevated"]);
 const POWER_SOURCES = new Set(["burner", "wind", "hydro", "turbine"]);
+const ORIENTATION_AXES = new Set(["edge", "vertical"]);
+/** Matches `MAX_EXTRACT_RADIUS` in the core. The rule itself is native's. */
+const MAX_EXTRACT_RADIUS = 4;
 
 export function validateDefinitions(
   value: unknown,
@@ -129,6 +132,35 @@ export function validateDefinitions(
       )
     )
       throw new TypeError(`generator ${building.id} needs a source and output`);
+    if (
+      building.orientation_axis !== undefined &&
+      !ORIENTATION_AXES.has(building.orientation_axis)
+    )
+      throw new TypeError(
+        `building ${building.id} has an unknown orientation axis`,
+      );
+    // A vertical heading has no 60° rotation, so there is no correct way to turn a footprint into
+    // one. Native refuses this too; the catalog should not reach it.
+    if (
+      building.orientation_axis === "vertical" &&
+      building.footprint.length !== 1
+    )
+      throw new TypeError(
+        `building ${building.id} spans the two-row period, which only a single-cell footprint can do`,
+      );
+    if (building.extract_radius !== undefined) {
+      if (building.kind !== "extractor")
+        throw new TypeError(
+          `building ${building.id} claims an extraction reach but does not extract`,
+        );
+      if (
+        !positiveInteger(building.extract_radius) ||
+        building.extract_radius > MAX_EXTRACT_RADIUS
+      )
+        throw new TypeError(
+          `extractor ${building.id} needs a reach in 1..=${MAX_EXTRACT_RADIUS}`,
+        );
+    }
     for (const ingredient of building.construction_cost) {
       if (
         !itemIds.has(ingredient.item_id) ||
@@ -136,6 +168,51 @@ export function validateDefinitions(
       )
         throw new TypeError(`building ${building.id} has an invalid cost`);
     }
+  }
+  validateUpgradeLadders(data.buildings);
+}
+
+/**
+ * An upgrade may only grow a building into a taller version of itself. Kind, recipe category,
+ * footprint, and orientation axis are all pinned across a step, which is what lets the command
+ * preserve contents, orientation, and connections without asking whether any of them still apply.
+ * The strictly increasing tier is what keeps a ladder finite.
+ */
+function validateUpgradeLadders(buildings: BuildingDefinition[]): void {
+  const byId = new Map(buildings.map((building) => [building.id, building]));
+  for (const building of buildings) {
+    if (building.upgrades_to === undefined) continue;
+    const next = byId.get(building.upgrades_to);
+    if (!next)
+      throw new TypeError(
+        `building ${building.id} upgrades to unknown building ${building.upgrades_to}`,
+      );
+    if ((next.tier ?? 0) <= (building.tier ?? 0))
+      throw new TypeError(
+        `building ${building.id} upgrades to ${next.id}, which is not a higher tier`,
+      );
+    if (
+      next.kind !== building.kind ||
+      next.recipe_category !== building.recipe_category ||
+      (next.orientation_axis ?? "edge") !==
+        (building.orientation_axis ?? "edge")
+    )
+      throw new TypeError(
+        `building ${building.id} upgrades into a different machine, not a higher tier of itself`,
+      );
+    if (!next.buildable)
+      throw new TypeError(
+        `building ${building.id} upgrades to ${next.id}, which cannot be constructed`,
+      );
+    const cells = (definition: BuildingDefinition): string =>
+      definition.footprint
+        .map(({ q, r }) => `${q},${r}`)
+        .sort()
+        .join(" ");
+    if (cells(next) !== cells(building))
+      throw new TypeError(
+        `building ${building.id} upgrades to a different footprint, which would move its connections`,
+      );
   }
 }
 

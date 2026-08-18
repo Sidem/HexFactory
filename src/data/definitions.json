@@ -1,5 +1,5 @@
 {
-  "version": 6,
+  "version": 7,
   "items": [
     {
       "id": 1,
@@ -406,6 +406,7 @@
       "icon": "EXT",
       "cadence": 5,
       "power_draw": 4,
+      "upgrades_to": 19,
       "construction_cost": [
         { "item_id": 1, "quantity": 4 },
         { "item_id": 3, "quantity": 1 }
@@ -461,6 +462,7 @@
       "description": "Buffers exact item quantities and releases the lowest item ID first.",
       "icon": "BOX",
       "capacity": 12,
+      "upgrades_to": 20,
       "construction_cost": [{ "item_id": 1, "quantity": 3 }],
       "unlock_technology_id": 4,
       "placement_rule": "ground",
@@ -705,6 +707,64 @@
         { "item_id": 19, "quantity": 2 }
       ],
       "unlock_technology_id": 10,
+      "placement_rule": "ground",
+      "buildable": true,
+      "blocks_movement": true,
+      "footprint": [{ "q": 0, "r": 0 }]
+    },
+    {
+      "id": 18,
+      "key": "riser",
+      "name": "Riser",
+      "kind": "belt",
+      "description": "A short gantry over the seam between two hexes, carrying cargo due north or due south. Twice a belt's cost for twice a belt's reach; the hexes it spans stay free to build on and to walk through.",
+      "icon": "RSR",
+      "orientation_axis": "vertical",
+      "construction_cost": [{ "item_id": 1, "quantity": 2 }],
+      "unlock_technology_id": 11,
+      "placement_rule": "ground",
+      "buildable": true,
+      "blocks_movement": false,
+      "footprint": [{ "q": 0, "r": 0 }]
+    },
+    {
+      "id": 19,
+      "key": "extractor-ii",
+      "name": "Deep extractor",
+      "kind": "extractor",
+      "description": "Reaches two hexes instead of one and works a shade faster. The arm is visible on the map: one deep extractor works a field a ring of shallow ones could not.",
+      "icon": "EX2",
+      "tier": 1,
+      "cadence": 4,
+      "extract_radius": 2,
+      "power_draw": 7,
+      "construction_cost": [
+        { "item_id": 1, "quantity": 4 },
+        { "item_id": 3, "quantity": 1 },
+        { "item_id": 6, "quantity": 6 },
+        { "item_id": 19, "quantity": 2 }
+      ],
+      "unlock_technology_id": 12,
+      "placement_rule": "resource",
+      "buildable": true,
+      "blocks_movement": true,
+      "footprint": [{ "q": 0, "r": 0 }]
+    },
+    {
+      "id": 20,
+      "key": "container-ii",
+      "name": "Deep container",
+      "kind": "container",
+      "description": "Twice the buffer in the same hex, for a line that outruns what one container can hold.",
+      "icon": "BX2",
+      "tier": 1,
+      "capacity": 24,
+      "construction_cost": [
+        { "item_id": 1, "quantity": 3 },
+        { "item_id": 6, "quantity": 4 },
+        { "item_id": 11, "quantity": 2 }
+      ],
+      "unlock_technology_id": 12,
       "placement_rule": "ground",
       "buildable": true,
       "blocks_movement": true,

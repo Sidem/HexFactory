@@ -41,7 +41,54 @@ describe("data-defined content", () => {
       "on-site-power",
       "sited-generation",
       "steam-works",
+      "vertical-transport",
+      "machine-tiers",
     ]);
+  });
+
+  it("keeps an upgrade ladder a taller version of the same machine", () => {
+    const buildings = typedDefinitions.buildings;
+    const ladders = buildings.filter(
+      ({ upgrades_to }) => upgrades_to !== undefined,
+    );
+    expect(ladders.length).toBeGreaterThan(0);
+    for (const building of ladders) {
+      const next = buildings.find(({ id }) => id === building.upgrades_to);
+      expect(next, `${building.key} names a real next tier`).toBeDefined();
+      expect(next?.kind).toBe(building.kind);
+      expect(next?.tier ?? 0).toBeGreaterThan(building.tier ?? 0);
+      expect(next?.footprint).toEqual(building.footprint);
+    }
+    // Reach is the flagship upgrade, so it has to actually grow.
+    const extractor = buildings.find(({ key }) => key === "extractor");
+    const deep = buildings.find(({ key }) => key === "extractor-ii");
+    expect(extractor?.extract_radius ?? 1).toBeLessThan(
+      deep?.extract_radius ?? 0,
+    );
+
+    const broken = structuredClone(typedDefinitions);
+    const target = broken.buildings.find(({ key }) => key === "extractor-ii");
+    if (target) target.tier = 0;
+    expect(() => validateDefinitions(broken)).toThrow(/not a higher tier/);
+  });
+
+  it("lets only a single-cell definition claim the two-row period", () => {
+    const riser = typedDefinitions.buildings.find(({ key }) => key === "riser");
+    expect(riser?.orientation_axis).toBe("vertical");
+    expect(riser?.footprint).toHaveLength(1);
+    // And it is priced for the reach it buys: twice a belt, for twice a belt's span.
+    const belt = typedDefinitions.buildings.find(({ key }) => key === "belt");
+    expect(riser?.construction_cost).toEqual(
+      belt?.construction_cost.map(({ item_id, quantity }) => ({
+        item_id,
+        quantity: quantity * 2,
+      })),
+    );
+
+    const broken = structuredClone(typedDefinitions);
+    const target = broken.buildings.find(({ key }) => key === "riser");
+    target?.footprint.push({ q: 1, r: 0 });
+    expect(() => validateDefinitions(broken)).toThrow(/two-row period/);
   });
 
   it("gives every material a source and every recipe a machine that runs it", () => {

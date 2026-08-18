@@ -560,10 +560,34 @@ canvas {
 .inspect-machine[hidden],
 .inspect-cargo[hidden],
 .inspect-stock[hidden],
+#inspect-load[hidden],
 .inspect-meter[hidden],
 .inspect-chip[hidden],
+.inspect-tier[hidden],
+.inspect-reach[hidden],
+#inspect-upgrade[hidden],
 .inspect-facing-tick[hidden] {
   display: none;
+}
+.inspect-tier {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding-top: 6px;
+  border-top: 1px solid #243832;
+}
+.inspect-reach {
+  color: #d7e5df;
+  font-size: 0.68rem;
+  font-variant-numeric: tabular-nums;
+}
+#inspect-upgrade {
+  margin-left: auto;
+}
+#inspect-upgrade:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 .inspect-identity,
 .inspect-place,
@@ -651,6 +675,14 @@ canvas {
 }
 .inspect-facing-tick.dir-5 {
   transform: rotate(30deg) translateY(-18px);
+}
+/* The two-row period. Up is 0deg on this dial, which is what makes north and south read as the
+   screen axes they are. */
+.inspect-facing-tick.dir-6 {
+  transform: rotate(0deg) translateY(-18px);
+}
+.inspect-facing-tick.dir-7 {
+  transform: rotate(180deg) translateY(-18px);
 }
 .inspect-coord {
   display: grid;
@@ -874,6 +906,20 @@ canvas {
 }
 .inspect-compass i[data-dir="5"] {
   transform: rotate(30deg);
+}
+/* Due north and due south sit on the dial's own vertical, longer than the six edge spokes because
+   the step they stand for covers more ground. */
+.inspect-compass i[data-dir="6"],
+.inspect-compass i[data-dir="7"] {
+  height: 13px;
+  margin-top: -22px;
+  transform-origin: 50% 22px;
+}
+.inspect-compass i[data-dir="6"] {
+  transform: rotate(0deg);
+}
+.inspect-compass i[data-dir="7"] {
+  transform: rotate(180deg);
 }
 .inspect-compass i.on {
   background: var(--gold);
