@@ -297,6 +297,39 @@ describe("bounded host input", () => {
     expect(load).not.toContain("replaceChildren");
   });
 
+  it("keeps the hotbar a preference and never a simulation input", () => {
+    const main = readFileSync(
+      new URL("../src/main.ts", import.meta.url),
+      "utf8",
+    );
+    // The bar is an arrangement of keys, not a fact about a factory. It lives in localStorage
+    // beside no game state, and nothing about it may ever reach a command or the checksum.
+    expect(main).toContain("hexfactory:hotbar:v1");
+    const hotbarRegion = main.slice(
+      main.indexOf("function loadHotbar"),
+      main.indexOf("function renderHotbar"),
+    );
+    // Reading the definition catalogue to validate a stored id is fine; sending anything is not.
+    expect(hotbarRegion).not.toContain("enqueue(");
+    expect(hotbarRegion).not.toContain("input.");
+    expect(main).not.toMatch(/enqueue\(\{[^}]*hotbar/);
+    // A stored slot naming a definition this build retired must be dropped, not rendered as a
+    // button that selects nothing.
+    expect(main).toContain("function sanitiseSlot");
+    // The dock no longer enumerates every buildable definition: that list is the catalogue's job
+    // and it grew to twenty stamps by v0.14.
+    expect(main).not.toMatch(/toolShelf\.append/);
+    // Both new lists carry controls, so both are patched rather than rebuilt.
+    for (const fn of ["renderHotbarSlots", "renderBuildPanel"]) {
+      const region = main.slice(
+        main.indexOf(`function ${fn}`),
+        main.indexOf(`function ${fn}`) + 1400,
+      );
+      expect(region, `${fn} patches in place`).toContain("syncChildren(");
+      expect(region, `${fn} does not rebuild`).not.toContain("replaceChildren");
+    }
+  });
+
   it("contains no host-side player or progression mutation loop", () => {
     const main = readFileSync(
       new URL("../src/main.ts", import.meta.url),

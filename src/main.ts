@@ -80,6 +80,7 @@ const PANEL_KEYS: Record<string, string> = {
   KeyI: "inventory-panel",
   KeyO: "research-panel",
   KeyP: "quest-panel",
+  KeyB: "build-panel",
 };
 /**
  * A refusal the world itself already shows. The cooldown ring around the player says the wait is
@@ -181,15 +182,108 @@ let previewPending = false;
 let previewRequested = false;
 let previewRevision = 0;
 
-for (const definition of host.definitions.buildings.filter(
-  ({ buildable }) => buildable,
-)) {
-  const button = document.createElement("button");
-  button.type = "button";
-  button.dataset.tool = String(definition.id);
-  button.setAttribute("aria-label", `Build ${definition.name}`);
-  button.innerHTML = `<span>${definition.icon}</span><small>${definition.name}</small>`;
-  toolShelf.append(button);
+/**
+ * How the catalogue is grouped, in the order a player meets these things.
+ *
+ * The dock used to be every buildable definition in id order, which by v0.14 was twenty buttons of
+ * three-letter stamps — a list that grows every milestone and explains nothing. The grouping is
+ * derived from `kind`, so a new definition lands in the right section by being what it is; nothing
+ * here is a per-building special case.
+ */
+const BUILD_GROUPS: {
+  key: string;
+  title: string;
+  blurb: string;
+  holds: (definition: BuildingDefinition) => boolean;
+}[] = [
+  {
+    key: "extraction",
+    title: "Extraction",
+    blurb: "Take raw material out of the ground and the water.",
+    holds: ({ kind }) => kind === "extractor" || kind === "pump",
+  },
+  {
+    key: "transport",
+    title: "Transport",
+    blurb:
+      "Move cargo. Belts run along the hex edges; risers run due north and south.",
+    holds: ({ kind }) => kind === "belt",
+  },
+  {
+    key: "processing",
+    title: "Processing",
+    blurb:
+      "Turn one material into another. Each machine runs one category of recipe.",
+    holds: ({ kind }) => kind === "composer",
+  },
+  {
+    key: "storage",
+    title: "Storage",
+    blurb: "Buffer a line, and hold stock you can take back by hand.",
+    holds: ({ kind }) => kind === "container",
+  },
+  {
+    key: "power",
+    title: "Power",
+    blurb:
+      "Make electricity and carry it. Machines draw; belts and boxes do not.",
+    holds: ({ kind }) =>
+      kind === "generator" || kind === "boiler" || kind === "pole",
+  },
+];
+const HOTBAR_SLOTS = 9;
+const HOTBAR_KEY = "hexfactory:hotbar:v1";
+/**
+ * What the bar starts with: the early game in the order it is met, then the two things a player
+ * reaches for constantly once power lands. Anything else is a pin away.
+ */
+const DEFAULT_HOTBAR: (Tool | null)[] = [2, 1, 3, 4, 7, 8, 12, 13, 18];
+/** Which slot each definition sits in, or null for an empty slot. Presentation only — never saved
+ * with the game, never hashed: it is a preference about a keyboard, not a fact about a factory. */
+let hotbar: (Tool | null)[] = loadHotbar();
+/** The slot a drag is currently over, so the drop target can be shown before the pointer lands. */
+let hotbarDragOver: number | null = null;
+
+function loadHotbar(): (Tool | null)[] {
+  const defaults = Array.from(
+    { length: HOTBAR_SLOTS },
+    (_, slot) => DEFAULT_HOTBAR[slot] ?? null,
+  );
+  try {
+    const stored: unknown = JSON.parse(
+      window.localStorage.getItem(HOTBAR_KEY) ?? "null",
+    );
+    // A stored bar is taken whole, empty slots included: a slot the player deliberately cleared
+    // must not refill itself with a default on the next load.
+    if (!Array.isArray(stored)) return defaults;
+    return Array.from({ length: HOTBAR_SLOTS }, (_, slot) =>
+      sanitiseSlot(stored[slot]),
+    );
+  } catch {
+    // A corrupt or unreadable preference is not worth failing a boot over.
+    return defaults;
+  }
+}
+
+/**
+ * Whatever came out of storage, reduced to something this build actually has. Definitions are
+ * dynamic and a milestone can retire an id, so a stored slot naming one is dropped rather than
+ * left to render as a blank button that selects nothing.
+ */
+function sanitiseSlot(value: unknown): Tool | null {
+  if (value === "erase" || value === "rotate" || value === "upgrade")
+    return value;
+  if (typeof value !== "number") return null;
+  const definition = host.definitions.buildings.find(({ id }) => id === value);
+  return definition?.buildable ? value : null;
+}
+
+function saveHotbar(): void {
+  try {
+    window.localStorage.setItem(HOTBAR_KEY, JSON.stringify(hotbar));
+  } catch {
+    // Private-mode storage refusals must not break the bar for the session in front of us.
+  }
 }
 
 function update(next: FactorySnapshot): void {
@@ -219,6 +313,7 @@ function update(next: FactorySnapshot): void {
     .toUpperCase();
   renderInventory();
   renderHotbar();
+  renderBuildPanel();
   renderTechnologies();
   renderInspector();
   renderObjective();
@@ -346,35 +441,361 @@ function renderInventory(): void {
     `${stacks.length} of ${snapshot.player.carry_slots} slots carried.`;
 }
 
+/** The label a slot or card shows for a tool that is not a building. */
+const TOOL_LABELS: Record<string, { icon: string; name: string }> = {
+  erase: { icon: "⌫", name: "Erase" },
+  rotate: { icon: "↻", name: "Edit" },
+  upgrade: { icon: "▲", name: "Upgrade" },
+  inspect: { icon: "⌖", name: "Inspect" },
+};
+
+/**
+ * The nine customizable slots, patched in place like every other list that carries a control.
+ *
+ * A slot is a button so it is reachable by keyboard and by click; the digit it answers to is drawn
+ * on it, so the binding is visible rather than something to memorize. Filled slots are draggable —
+ * onto another slot to move, off the bar to clear.
+ */
+function renderHotbarSlots(): void {
+  const container = required<HTMLDivElement>("hotbar-slots");
+  const slots = syncChildren(
+    container,
+    hotbar.map((_, slot) => String(slot)),
+    () => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "hotbar-slot";
+      button.innerHTML =
+        '<span></span><small></small><i class="hotbar-key" aria-hidden="true"></i><b class="hotbar-clear" aria-hidden="true">×</b>';
+      return button;
+    },
+  );
+  hotbar.forEach((value, slot) => {
+    const button = slots[slot] as HTMLButtonElement | undefined;
+    if (!button) return;
+    const definition =
+      typeof value === "number"
+        ? host.definitions.buildings.find(({ id }) => id === value)
+        : undefined;
+    const fixed = typeof value === "string" ? TOOL_LABELS[value] : undefined;
+    part(button, ".hotbar-key").textContent = String(slot + 1);
+    button.classList.toggle("empty", value === null);
+    button.classList.toggle("drop-target", hotbarDragOver === slot);
+    button.draggable = value !== null;
+    button.dataset.slot = String(slot);
+    if (value === null) {
+      delete button.dataset.tool;
+      button.disabled = false;
+      button.classList.remove("active", "unaffordable", "locked");
+      part(button, "span").textContent = "";
+      part(button, "small").textContent = "Empty";
+      button.title = `Slot ${slot + 1} is empty — pin something from the build catalogue (B)`;
+      button.setAttribute("aria-label", `Hotbar slot ${slot + 1}, empty`);
+      return;
+    }
+    button.dataset.tool = String(value);
+    button.classList.toggle("active", String(value) === String(tool));
+    if (definition) {
+      const availability = buildingAvailability(
+        definition,
+        snapshot,
+        host.definitions.items,
+      );
+      button.disabled = availability.locked;
+      button.classList.toggle("unaffordable", !availability.affordable);
+      button.classList.toggle("locked", availability.locked);
+      part(button, "span").textContent = availability.locked
+        ? "◇"
+        : definition.icon;
+      part(button, "small").textContent = definition.name;
+      button.title = availability.locked
+        ? `${definition.name} — locked by research`
+        : `${definition.name} · ${availability.costLabel}`;
+      button.setAttribute(
+        "aria-label",
+        `Hotbar slot ${slot + 1}: build ${definition.name}`,
+      );
+      return;
+    }
+    button.disabled = false;
+    button.classList.remove("unaffordable", "locked");
+    part(button, "span").textContent = fixed?.icon ?? "?";
+    part(button, "small").textContent = fixed?.name ?? String(value);
+    button.title = fixed?.name ?? String(value);
+    button.setAttribute(
+      "aria-label",
+      `Hotbar slot ${slot + 1}: ${fixed?.name ?? String(value)}`,
+    );
+  });
+}
+
+/** Put a tool in a slot, moving it out of any slot it already occupied so it cannot be in two. */
+function assignHotbarSlot(slot: number, value: Tool | null): void {
+  if (slot < 0 || slot >= HOTBAR_SLOTS) return;
+  if (value !== null)
+    hotbar = hotbar.map((existing) =>
+      String(existing) === String(value) ? null : existing,
+    );
+  hotbar[slot] = value;
+  saveHotbar();
+  renderHotbarSlots();
+  renderBuildPanel();
+}
+
+/** Pin to the first free slot, or to the last one when the bar is full. */
+function pinToHotbar(value: Tool): void {
+  if (hotbar.some((existing) => String(existing) === String(value))) {
+    showFeedback("Already on the bar");
+    return;
+  }
+  const free = hotbar.indexOf(null);
+  const slot = free === -1 ? HOTBAR_SLOTS - 1 : free;
+  assignHotbarSlot(slot, value);
+  const definition =
+    typeof value === "number"
+      ? host.definitions.buildings.find(({ id }) => id === value)
+      : undefined;
+  showFeedback(
+    `${definition?.name ?? TOOL_LABELS[String(value)]?.name ?? "Tool"} pinned to slot ${slot + 1}`,
+  );
+}
+
+/**
+ * The bar: the four fixed tools, then the nine slots.
+ *
+ * The fixed tools are static markup and only ever change which of them is lit. Everything that
+ * depends on the snapshot — cost, affordability, research locks — belongs to the slots, because
+ * that is where buildings live now.
+ */
 function renderHotbar(): void {
   for (const button of toolShelf.querySelectorAll<HTMLButtonElement>(
-    "button[data-tool]",
-  )) {
-    const value = button.dataset.tool ?? "inspect";
-    button.classList.toggle("active", value === String(tool));
-    if (!/^\d+$/.test(value)) continue;
-    const definition = host.definitions.buildings.find(
-      ({ id }) => id === Number(value),
+    ":scope > button[data-tool]",
+  ))
+    button.classList.toggle(
+      "active",
+      (button.dataset.tool ?? "inspect") === String(tool),
     );
-    if (!definition) continue;
-    const availability = buildingAvailability(
-      definition,
-      snapshot,
-      host.definitions.items,
+  renderHotbarSlots();
+}
+
+/**
+ * The construction catalogue: every buildable definition, grouped by what it is for, with its cost
+ * and — for a machine — every recipe it can run, written as materials rather than as a name in a
+ * dropdown.
+ *
+ * The sections themselves are static, created once, because `BUILD_GROUPS` is constant. Only the
+ * cards inside them are patched, and they are patched rather than rebuilt for the usual reason:
+ * every card carries a Pin control.
+ */
+function renderBuildPanel(): void {
+  const root = required<HTMLDivElement>("build-groups");
+  if (!root.childElementCount)
+    for (const group of BUILD_GROUPS) {
+      const section = document.createElement("section");
+      section.className = "build-group";
+      section.dataset.group = group.key;
+      section.innerHTML = `<h3>${group.title}</h3><p>${group.blurb}</p><div class="build-cards"></div>`;
+      root.append(section);
+    }
+  for (const group of BUILD_GROUPS) {
+    const section = root.querySelector<HTMLElement>(
+      `[data-group="${group.key}"]`,
     );
-    button.disabled = availability.locked;
-    button.classList.toggle("unaffordable", !availability.affordable);
-    button.classList.toggle("locked", availability.locked);
-    // Text, not `innerHTML`: replacing the inner nodes on every snapshot detaches whichever one
-    // the pointer went down on, and the delegated click then resolves to nothing.
-    part(button, "span").textContent = availability.locked
-      ? "◇"
-      : definition.icon;
-    part(button, "small").textContent = availability.locked
-      ? definition.name
-      : `${definition.name} · ${availability.costLabel}`;
-    button.title = `${definition.description} ${availability.costLabel}`;
+    if (!section) continue;
+    const definitions = host.definitions.buildings.filter(
+      (definition) => definition.buildable && group.holds(definition),
+    );
+    section.hidden = definitions.length === 0;
+    const cards = syncChildren(
+      part<HTMLElement>(section, ".build-cards"),
+      definitions.map(({ id }) => String(id)),
+      createBuildCard,
+    );
+    definitions.forEach((definition, index) => {
+      const card = cards[index];
+      if (card) fillBuildCard(card, definition);
+    });
   }
+}
+
+function createBuildCard(key: string): HTMLElement {
+  const card = document.createElement("article");
+  card.className = "build-card";
+  card.draggable = true;
+  card.dataset.definitionId = key;
+  card.innerHTML = `
+    <header>
+      <i class="build-stamp"></i>
+      <div class="build-card-title">
+        <strong></strong>
+        <span class="build-chips"></span>
+      </div>
+      <button type="button" class="build-pin" data-pin>Pin</button>
+    </header>
+    <p class="build-card-copy"></p>
+    <div class="build-cost"></div>
+    <div class="build-recipes"></div>`;
+  return card;
+}
+
+function fillBuildCard(
+  card: HTMLElement,
+  definition: BuildingDefinition,
+): void {
+  const availability = buildingAvailability(
+    definition,
+    snapshot,
+    host.definitions.items,
+  );
+  card.classList.toggle("locked", availability.locked);
+  card.classList.toggle("unaffordable", !availability.affordable);
+  card.classList.toggle("active", definition.id === tool);
+  card.classList.toggle("pinned", hotbar.includes(definition.id));
+  const stamp = part<HTMLElement>(card, ".build-stamp");
+  stamp.textContent = availability.locked ? "◇" : definition.icon;
+  stamp.style.setProperty(
+    "--stamp-color",
+    BUILDING_COLORS[definition.kind] ?? "#8fd4ff",
+  );
+  part(card, "strong").textContent = definition.name;
+  part(card, ".build-card-copy").textContent = definition.description;
+
+  const chips = part<HTMLElement>(card, ".build-chips");
+  const labels: string[] = [];
+  if (availability.locked) {
+    const technology = host.technologies.technologies.find(
+      ({ id }) => id === definition.unlock_technology_id,
+    );
+    labels.push(`Needs ${technology?.name ?? "research"}`);
+  }
+  if ((definition.tier ?? 0) > 0)
+    labels.push(`Tier ${(definition.tier ?? 0) + 1}`);
+  if (definition.extract_radius !== undefined)
+    labels.push(`Reaches ${definition.extract_radius}`);
+  if (definition.capacity !== undefined)
+    labels.push(`Holds ${definition.capacity}`);
+  if (definition.power_output) labels.push(`+${definition.power_output} power`);
+  if (definition.power_draw) labels.push(`−${definition.power_draw} power`);
+  if (definition.orientation_axis === "vertical") labels.push("North / south");
+  const chipNodes = syncChildren(chips, labels, () => {
+    const chip = document.createElement("span");
+    chip.className = "build-chip";
+    return chip;
+  });
+  labels.forEach((label, index) => {
+    const node = chipNodes[index];
+    if (node) node.textContent = label;
+  });
+
+  renderIngredientRow(
+    part<HTMLElement>(card, ".build-cost"),
+    definition.construction_cost,
+    "Costs",
+  );
+  renderCardRecipes(part<HTMLElement>(card, ".build-recipes"), definition);
+}
+
+/** A labelled run of item glyphs with counts — the shape every cost and every recipe side uses. */
+function renderIngredientRow(
+  container: HTMLElement,
+  ingredients: { item_id: number; quantity: number }[],
+  label: string,
+): void {
+  container.hidden = ingredients.length === 0;
+  if (!container.childElementCount) {
+    const caption = document.createElement("span");
+    caption.className = "ingredient-label";
+    const list = document.createElement("span");
+    list.className = "ingredient-list";
+    container.append(caption, list);
+  }
+  part(container, ".ingredient-label").textContent = label;
+  fillIngredients(
+    part<HTMLElement>(container, ".ingredient-list"),
+    ingredients,
+  );
+}
+
+function fillIngredients(
+  list: HTMLElement,
+  ingredients: { item_id: number; quantity: number }[],
+): void {
+  const nodes = syncChildren(
+    list,
+    ingredients.map(({ item_id }) => String(item_id)),
+    () => {
+      const entry = document.createElement("span");
+      entry.className = "ingredient";
+      entry.innerHTML =
+        '<span class="inspect-item-glyph"></span><b></b><small></small>';
+      return entry;
+    },
+  );
+  ingredients.forEach(({ item_id, quantity }, index) => {
+    const node = nodes[index];
+    if (!node) return;
+    const item = host.definitions.items.find(({ id }) => id === item_id);
+    setItemGlyph(part(node, ".inspect-item-glyph"), item?.icon, item?.color);
+    part(node, "b").textContent = `×${quantity}`;
+    part(node, "small").textContent = item?.name ?? `Item ${item_id}`;
+  });
+}
+
+/**
+ * Every recipe this machine can run, as materials in and materials out.
+ *
+ * A recipe used to be a name in a `<select>` — `Steel`, `Circuit` — which says nothing about what
+ * it consumes, what it takes, or whether it burns fuel. Written as glyphs with an arrow between
+ * them, the same twelve-glyph set the pack and the fields use, it is readable without being
+ * learned. Clicking a row picks that recipe for the pending building, which is the choice the
+ * select made and is now made where the reason for it is visible.
+ */
+function renderCardRecipes(
+  container: HTMLElement,
+  definition: BuildingDefinition,
+): void {
+  const recipes = recipeChoices(definition);
+  container.hidden = recipes.length === 0;
+  const rows = syncChildren(
+    container,
+    recipes.map(({ id }) => String(id)),
+    () => {
+      const row = document.createElement("button");
+      row.type = "button";
+      row.className = "recipe-row";
+      row.innerHTML =
+        '<span class="ingredient-list recipe-in"></span><i class="recipe-arrow" aria-hidden="true">→</i><span class="ingredient-list recipe-out"></span><small class="recipe-meta"></small>';
+      return row;
+    },
+  );
+  const chosen = recipeFor(definition.id);
+  recipes.forEach((recipe, index) => {
+    const row = rows[index];
+    if (!row) return;
+    row.dataset.definitionId = String(definition.id);
+    row.dataset.recipeId = String(recipe.id);
+    row.classList.toggle("chosen", recipe.id === chosen);
+    fillIngredients(part<HTMLElement>(row, ".recipe-in"), recipe.inputs);
+    fillIngredients(part<HTMLElement>(row, ".recipe-out"), [recipe.output]);
+    const meta = [`${recipe.duration} ticks`];
+    if (recipe.fuel) meta.push(`${recipe.fuel} fuel`);
+    part(row, ".recipe-meta").textContent = meta.join(" · ");
+    row.setAttribute(
+      "aria-label",
+      `${recipe.name}: ${describeRecipe(recipe)}. ${meta.join(", ")}`,
+    );
+  });
+}
+
+/** The same recipe in words, for a screen reader and for a tooltip. */
+function describeRecipe(recipe: RecipeDefinition): string {
+  const name = (item_id: number): string =>
+    host.definitions.items.find(({ id }) => id === item_id)?.name ??
+    `item ${item_id}`;
+  const inputs = recipe.inputs
+    .map(({ item_id, quantity }) => `${quantity} ${name(item_id)}`)
+    .join(" and ");
+  return `${inputs} makes ${recipe.output.quantity} ${name(recipe.output.item_id)}`;
 }
 
 /**
@@ -1201,12 +1622,118 @@ required<HTMLButtonElement>("continue").addEventListener("click", async () => {
 });
 
 toolShelf.addEventListener("click", (event) => {
+  // The × on a filled slot clears it rather than selecting it.
+  const clear = (event.target as Element).closest<HTMLElement>(".hotbar-clear");
+  if (clear) {
+    const slot = Number(
+      clear.closest<HTMLElement>("[data-slot]")?.dataset.slot ?? -1,
+    );
+    if (slot >= 0) {
+      assignHotbarSlot(slot, null);
+      showFeedback(`Slot ${slot + 1} cleared`);
+    }
+    event.stopPropagation();
+    return;
+  }
   const button = (event.target as Element).closest<HTMLButtonElement>(
     "button[data-tool]",
   );
   if (!button || button.disabled) return;
   const value = button.dataset.tool ?? "inspect";
   selectTool(/^\d+$/.test(value) ? Number(value) : (value as Tool));
+});
+
+/**
+ * Dragging on the bar. A slot dragged onto another slot swaps with it; a slot dragged off the bar
+ * entirely is cleared, which is the gesture a player already expects from a hotbar.
+ */
+toolShelf.addEventListener("dragstart", (event) => {
+  const slot = (event.target as Element).closest<HTMLElement>("[data-slot]");
+  if (!slot || !event.dataTransfer) return;
+  event.dataTransfer.effectAllowed = "move";
+  event.dataTransfer.setData("text/hexfactory-slot", slot.dataset.slot ?? "");
+});
+toolShelf.addEventListener("dragover", (event) => {
+  const slot = (event.target as Element).closest<HTMLElement>("[data-slot]");
+  if (!slot) return;
+  event.preventDefault();
+  const index = Number(slot.dataset.slot);
+  if (hotbarDragOver === index) return;
+  hotbarDragOver = index;
+  renderHotbarSlots();
+});
+toolShelf.addEventListener("dragleave", (event) => {
+  if (
+    (event.target as Element).closest("[data-slot]") &&
+    hotbarDragOver !== null
+  ) {
+    hotbarDragOver = null;
+    renderHotbarSlots();
+  }
+});
+toolShelf.addEventListener("drop", (event) => {
+  const target = (event.target as Element).closest<HTMLElement>("[data-slot]");
+  hotbarDragOver = null;
+  if (!target || !event.dataTransfer) return;
+  event.preventDefault();
+  const slot = Number(target.dataset.slot);
+  const fromCatalogue = event.dataTransfer.getData("text/hexfactory-build");
+  if (fromCatalogue) {
+    assignHotbarSlot(slot, Number(fromCatalogue));
+    return;
+  }
+  const fromSlot = Number(event.dataTransfer.getData("text/hexfactory-slot"));
+  if (!Number.isInteger(fromSlot) || fromSlot === slot) {
+    renderHotbarSlots();
+    return;
+  }
+  // A swap rather than an insert, so no other binding shifts under the player's fingers.
+  const moved = hotbar[fromSlot] ?? null;
+  hotbar[fromSlot] = hotbar[slot] ?? null;
+  hotbar[slot] = moved;
+  saveHotbar();
+  renderHotbarSlots();
+  renderBuildPanel();
+});
+toolShelf.addEventListener("dragend", () => {
+  if (hotbarDragOver === null) return;
+  hotbarDragOver = null;
+  renderHotbarSlots();
+});
+
+const buildGroups = required<HTMLDivElement>("build-groups");
+buildGroups.addEventListener("click", (event) => {
+  const target = event.target as Element;
+  const recipeRow = target.closest<HTMLElement>(".recipe-row");
+  if (recipeRow) {
+    const definitionId = Number(recipeRow.dataset.definitionId);
+    selectedRecipes.set(definitionId, Number(recipeRow.dataset.recipeId));
+    selectTool(definitionId);
+    renderBuildPanel();
+    return;
+  }
+  const card = target.closest<HTMLElement>(".build-card");
+  if (!card) return;
+  const definitionId = Number(card.dataset.definitionId);
+  if (target.closest("[data-pin]")) {
+    pinToHotbar(definitionId);
+    return;
+  }
+  if (card.classList.contains("locked")) {
+    showFeedback("That building is still locked by research");
+    return;
+  }
+  selectTool(definitionId);
+  renderBuildPanel();
+});
+buildGroups.addEventListener("dragstart", (event) => {
+  const card = (event.target as Element).closest<HTMLElement>(".build-card");
+  if (!card || !event.dataTransfer) return;
+  event.dataTransfer.effectAllowed = "copy";
+  event.dataTransfer.setData(
+    "text/hexfactory-build",
+    card.dataset.definitionId ?? "",
+  );
 });
 required<HTMLDivElement>("technology-list").addEventListener(
   "click",
@@ -1320,11 +1847,18 @@ window.addEventListener("keydown", (event) => {
   else if (event.code === "KeyQ") pickToolUnderCursor();
   else if (event.code === "KeyE") selectTool("erase");
   else if (/^Digit[1-9]$/.test(event.code)) {
-    const buildable = host.definitions.buildings.filter(
-      ({ buildable }) => buildable,
-    );
-    const definition = buildable[Number(event.code.at(-1)) - 1];
-    if (definition) selectTool(definition.id);
+    // A digit is a slot, not an index into the catalogue. Which building it builds is the
+    // player's arrangement, and it is theirs to change.
+    const slot = Number(event.code.slice(-1)) - 1;
+    const value = hotbar[slot] ?? null;
+    if (value === null) {
+      showFeedback(`Slot ${slot + 1} is empty — pin something from Build (B)`);
+      event.preventDefault();
+      return;
+    }
+    selectTool(value);
+    event.preventDefault();
+    return;
   } else return;
   event.preventDefault();
 });

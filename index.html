@@ -314,6 +314,32 @@
         </aside>
 
         <aside
+          id="build-panel"
+          class="glass-panel build-panel"
+          aria-label="Construction catalogue"
+        >
+          <div class="panel-heading">
+            <div>
+              <span class="section-kicker">Everything you can build · B</span>
+              <h2>Construction</h2>
+            </div>
+            <button
+              class="panel-close"
+              type="button"
+              aria-label="Close construction catalogue"
+            >
+              ×
+            </button>
+          </div>
+          <p class="panel-copy">
+            Click a card to hold that building. <strong>Pin</strong> puts it on
+            the bar, or drag a card straight onto the slot you want. Drag a slot
+            off the bar to clear it.
+          </p>
+          <div id="build-groups" class="build-groups"></div>
+        </aside>
+
+        <aside
           id="quest-panel"
           class="glass-panel quest-panel"
           aria-label="Objective and controls"
@@ -355,10 +381,10 @@
           <div class="control-block">
             <span class="section-kicker">Panels</span>
             <p>
-              <kbd>I</kbd> opens the cargo pack, <kbd>O</kbd> research, and
-              <kbd>P</kbd> this panel. <kbd>Esc</kbd> closes whatever is open
-              and returns to the inspect tool, which is the one panel that stays
-              on the world.
+              <kbd>B</kbd> opens the construction catalogue, <kbd>I</kbd> the
+              cargo pack, <kbd>O</kbd> research, and <kbd>P</kbd> this panel.
+              <kbd>Esc</kbd> closes whatever is open and returns to the inspect
+              tool, which is the one panel that stays on the world.
             </p>
           </div>
           <div class="control-block">
@@ -371,6 +397,21 @@
               as your own reach goes, while dragging away pans the camera
               instead. The ring that closes around you is the wait until the
               next action.
+            </p>
+          </div>
+          <div class="control-block">
+            <span class="section-kicker">The bar, and what goes on it</span>
+            <p>
+              <kbd>B</kbd> opens the catalogue: everything you can build,
+              grouped by what it is for, each card showing what it costs and —
+              for a machine — every recipe it runs, written as the materials in
+              and the materials out. Click a recipe to hold that machine set to
+              it. The bottom bar is yours to arrange: <kbd>1</kbd>–<kbd>9</kbd>
+              select its nine slots, <strong>Pin</strong> drops a building into
+              the first free one, and dragging a card onto a slot chooses which.
+              Drag a slot onto another to swap them, or use the
+              <strong>×</strong>
+              to clear one. Your arrangement is remembered.
             </p>
           </div>
           <div class="control-block">
@@ -637,6 +678,25 @@
               aria-label="Rotate placed building"
             >
               <span aria-hidden="true">↻</span><small>Edit</small>
+            </button>
+            <span class="shelf-divider" aria-hidden="true"></span>
+            <div
+              id="hotbar-slots"
+              class="hotbar-slots"
+              role="group"
+              aria-label="Hotbar. Press 1 to 9 to select a slot."
+            ></div>
+            <button
+              id="open-build"
+              class="shelf-more panel-toggle"
+              type="button"
+              data-panel-target="build-panel"
+              aria-controls="build-panel"
+              aria-expanded="false"
+              title="Everything you can build (B)"
+              aria-label="Open the construction catalogue"
+            >
+              <span aria-hidden="true">⊞</span><small>Build · B</small>
             </button>
           </div>
           <button

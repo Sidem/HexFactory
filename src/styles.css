@@ -296,6 +296,186 @@ canvas {
   border: 0;
   border-top: 1px solid #334b45;
 }
+/* The construction catalogue. Wide enough for a recipe to read as one line of materials. */
+.build-panel {
+  top: 62px;
+  left: 14px;
+  z-index: 13;
+  width: min(560px, calc(100vw - 28px));
+  max-height: calc(100vh - 190px);
+  overflow-y: auto;
+}
+.build-panel.open {
+  display: block;
+}
+.build-groups {
+  display: grid;
+  gap: 16px;
+}
+.build-group h3 {
+  margin: 0;
+  font-size: 0.86rem;
+  letter-spacing: -0.01em;
+}
+.build-group > p {
+  margin: 2px 0 8px;
+  color: var(--muted);
+  font-size: 0.72rem;
+  line-height: 1.45;
+}
+.build-group[hidden] {
+  display: none;
+}
+.build-cards {
+  display: grid;
+  gap: 8px;
+}
+.build-card {
+  display: grid;
+  gap: 6px;
+  padding: 9px 10px;
+  border: 1px solid #2a4038;
+  border-radius: 9px;
+  background: #0a1815c4;
+  cursor: pointer;
+}
+.build-card:hover {
+  border-color: #43695f;
+}
+.build-card.active {
+  border-color: var(--gold);
+  background: #16241bcc;
+}
+.build-card.locked {
+  opacity: 0.62;
+  cursor: not-allowed;
+}
+.build-card.unaffordable .build-cost .ingredient-list {
+  color: #ff9e9b;
+}
+.build-card header {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+.build-stamp {
+  display: grid;
+  flex: 0 0 32px;
+  place-items: center;
+  height: 32px;
+  border: 1px solid var(--stamp-color, #8fd4ff);
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--stamp-color, #8fd4ff) 22%, #08130f);
+  color: #f2fbf7;
+  font-size: 0.62rem;
+  font-style: normal;
+  font-weight: 900;
+}
+.build-card-title {
+  display: grid;
+  flex: 1 1 auto;
+  gap: 3px;
+  min-width: 0;
+}
+.build-card-title strong {
+  font-size: 0.84rem;
+}
+.build-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.build-chip {
+  padding: 1px 6px;
+  border: 1px solid #37554d;
+  border-radius: 99px;
+  color: #a9c6bd;
+  font-size: 0.6rem;
+  white-space: nowrap;
+}
+.build-pin {
+  flex: 0 0 auto;
+  padding: 4px 9px;
+  font-size: 0.66rem;
+}
+.build-card.pinned .build-pin {
+  border-color: #b48d37;
+  color: var(--gold);
+}
+.build-card-copy {
+  margin: 0;
+  color: #b6cbc3;
+  font-size: 0.72rem;
+  line-height: 1.45;
+}
+/* Costs and recipes share one vocabulary: a glyph, a count, a name. */
+.build-cost,
+.recipe-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+}
+.build-cost[hidden],
+.build-recipes[hidden] {
+  display: none;
+}
+.ingredient-label {
+  color: var(--muted);
+  font-size: 0.64rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.ingredient-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  align-items: center;
+}
+.ingredient {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 0.7rem;
+}
+.ingredient b {
+  font-variant-numeric: tabular-nums;
+}
+.ingredient small {
+  color: #a7bdb5;
+  font-size: 0.66rem;
+}
+.build-recipes {
+  display: grid;
+  gap: 4px;
+  margin-top: 2px;
+}
+.recipe-row {
+  width: 100%;
+  padding: 5px 7px;
+  border: 1px solid #263d36;
+  border-radius: 7px;
+  background: #08120fb0;
+  text-align: left;
+}
+.recipe-row:hover {
+  border-color: #43695f;
+}
+.recipe-row.chosen {
+  border-color: var(--gold);
+  background: #1a1c12b0;
+}
+.recipe-arrow {
+  color: var(--gold);
+  font-size: 0.82rem;
+  font-style: normal;
+}
+.recipe-meta {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 0.62rem;
+  white-space: nowrap;
+}
 .panel-heading {
   display: flex;
   align-items: start;
@@ -1105,6 +1285,102 @@ canvas {
 }
 .tool-shelf::-webkit-scrollbar {
   display: none;
+}
+/* The four fixed tools are narrower than a dock button, because the bar now has to carry nine
+   slots and the catalogue opener beside them and still fit a 1440-wide window without scrolling. */
+.build-dock .tool-shelf > button {
+  flex: 0 0 50px;
+  min-width: 50px;
+  padding: 4px 3px;
+}
+.shelf-divider {
+  flex: 0 0 1px;
+  align-self: stretch;
+  margin: 4px 3px;
+  background: #2c443e;
+}
+.hotbar-slots {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 5px;
+}
+/* A slot is a button with its digit drawn on it, so the binding is visible instead of memorized.
+   Compact and caption-less on purpose: nine slots beside four tools and the catalogue button have
+   to fit the bar without scrolling, and at this width a name would truncate to nothing useful. The
+   stamp is the identity here; the full name lives in the tooltip and in the catalogue. */
+.build-dock .hotbar-slot {
+  position: relative;
+  flex: 0 0 46px;
+  min-width: 46px;
+  padding: 4px 2px;
+}
+.build-dock .hotbar-slot > small {
+  display: none;
+}
+.build-dock .hotbar-slot > span {
+  font-size: 0.72rem;
+}
+.hotbar-key {
+  position: absolute;
+  top: 2px;
+  left: 4px;
+  color: #6f8c84;
+  font-size: 0.54rem;
+  font-style: normal;
+  font-weight: 700;
+  line-height: 1;
+  pointer-events: none;
+}
+.hotbar-slot.active .hotbar-key {
+  color: var(--gold);
+}
+.hotbar-slot.empty {
+  border-style: dashed;
+  border-color: #2f4a44;
+  background: #0a1614a8;
+}
+.hotbar-slot.empty > span::after {
+  content: "+";
+  color: #47635c;
+  font-weight: 400;
+}
+.hotbar-slot.drop-target {
+  border-color: var(--gold);
+  box-shadow: 0 0 0 1px #f6c85f66 inset;
+}
+/* The clear affordance stays out of the way until the slot is worth clearing. */
+.hotbar-clear {
+  position: absolute;
+  top: 1px;
+  right: 2px;
+  display: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #22352fdd;
+  color: #d9e9e3;
+  font-size: 0.62rem;
+  font-style: normal;
+  font-weight: 700;
+  line-height: 14px;
+  text-align: center;
+}
+.hotbar-slot:not(.empty):hover .hotbar-clear,
+.hotbar-slot:not(.empty):focus-visible .hotbar-clear {
+  display: block;
+}
+.hotbar-clear:hover {
+  background: #7a2f2c;
+  color: #ffd9d7;
+}
+.build-dock .tool-shelf > .shelf-more {
+  flex: 0 0 56px;
+  min-width: 56px;
+  border-color: #3d5f57;
+  background: #12241fdd;
+}
+.shelf-more:hover {
+  border-color: var(--gold);
 }
 .tool-shelf button,
 .rotate-button,

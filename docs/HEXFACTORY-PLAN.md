@@ -30,6 +30,45 @@ already a ray-cast that never assumed a unit step. So the fix is a direction-tab
 occupancy, and it rides v0.14's version bump. The write-up below supersedes the half-covered-tile
 proposal.
 
+## Presentation pass — Construction Catalogue v0.14.1
+
+Shipped 2026-08-18. Presentation only: no command, no save, definition, wire, or checksum movement.
+
+**The defect, named.** The dock was every buildable definition in id order. That was fine at six
+and unreadable at eighteen: a row of three-letter stamps that grows every milestone, mixing a belt
+with a steam turbine, showing cost as a truncated caption and a machine's recipes not at all. The
+player's own words were "overwhelming and hard to understand."
+
+**Buildings moved into a catalogue behind `B`.** Grouped by what a thing is _for_ — Extraction,
+Transport, Processing, Storage, Power — and the grouping is derived from `kind`, so a new
+definition lands in the right section by being what it is rather than by a per-building case. Each
+card carries the stamp in its own `BUILDING_COLORS` hue, the description, and chips for the facts
+that decide a choice: what research it needs, its tier, its reach, what it holds, what it draws or
+makes, and whether it runs north–south.
+
+**A recipe is materials now, not a name in a dropdown.** `Steel` said nothing about what steel
+takes. Every recipe on a machine's card is written as glyphs with counts, an arrow, and the output
+— the same twelve-glyph set the pack and the fields already use — with ticks and fuel beside it.
+Clicking one holds that machine set to it. The `<select>` remains for the pending build, but the
+choice can now be made where its reason is visible.
+
+**The bar became a hotbar the player owns.** Four fixed tools, then nine slots bound to `1`–`9`,
+with the digit drawn on the slot so the binding is visible rather than memorized. `Pin` drops a
+building into the first free slot; dragging a card onto a slot chooses which; dragging a slot onto
+another swaps them; `×` clears one. The arrangement persists in `localStorage` and is
+**presentation state under the usual rule** — never saved with the game, never hashed, never sent:
+it is a preference about a keyboard, not a fact about a factory. A stored slot naming a definition
+this build retired is dropped rather than rendered as a button that selects nothing, and a slot the
+player deliberately cleared does not refill itself with a default.
+
+Both new lists carry controls, so both are patched in place rather than rebuilt — the rule that
+already exists because a `replaceChildren` between pointerdown and pointerup loses the click.
+
+Layout was measured, not assumed: nine slots beside four tools and the catalogue opener overflowed
+a 1440-wide window at the dock's original button size. Slots are compact and caption-less (stamp,
+digit, and the full name in the tooltip) and the fixed tools are narrower, which brings the bar to
+747 px inside 747 px with nothing clipped.
+
 ## Shipped milestone — Upgrades and Tiers v0.14
 
 Shipped 2026-08-18. The brief below is kept as written; this section records what it became.

@@ -135,7 +135,13 @@ definition version 7, technology version 4; v0.13 saves are rejected.
   refund will not fit is refused rather than partially paid, so the policy stays exactly 100%.
 - Any host list carrying a control is patched in place, never rebuilt. A `replaceChildren` between
   pointerdown and pointerup detaches the pressed control and the delegated click resolves to
-  nothing.
+  nothing. This now covers the hotbar slots and the catalogue cards as well as the research list,
+  the Take rows, and the Put rows.
+- The hotbar arrangement is presentation state and lives in `localStorage`: never saved with the
+  game, never hashed, never sent. It is a preference about a keyboard, not a fact about a factory.
+  Definitions are dynamic, so a stored slot is validated against the live catalogue on load and
+  dropped if its id no longer exists. Buildings live in the `B` catalogue, grouped by `kind`; the
+  bar holds only what the player pinned there.
 - Arbitration is stable by native entity ID. Initial entity IDs derive from sorted coordinates, so
   JSON insertion order cannot change a run.
 - Derived caches never become truth. Resolved extractor deposit references are rebuilt from tiles,
