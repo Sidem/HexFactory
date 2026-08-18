@@ -18,6 +18,7 @@ import type {
   NativeInputCommand,
   PlacementPreview,
   RecipeDefinition,
+  WorldParams,
   WorldPoint,
 } from "./core/types";
 import {
@@ -32,7 +33,13 @@ import "./styles.css";
 
 type Tool = "inspect" | "erase" | "rotate" | "upgrade" | number;
 
-const SAVE_KEY = "hexfactory:hxf1:v7";
+/**
+ * The stored save's compatibility, not just its save version: v0.16 leaves `SAVE_VERSION` at 7 and
+ * takes the generator to 6, and a v7/w5 envelope is refused because it names no world parameters.
+ * Naming both in the key retires that save instead of offering a Continue button that can only
+ * fail.
+ */
+const SAVE_KEY = "hexfactory:hxf1:v7w6";
 /**
  * The eight routing headings, in the core's own order. The six edges keep their indices; north and
  * south are appended, which is why every saved orientation still names the direction it always
@@ -92,6 +99,11 @@ const playButton = required<HTMLButtonElement>("play");
 const speedInput = required<HTMLSelectElement>("speed");
 const scenarioInput = required<HTMLSelectElement>("scenario");
 const seedInput = required<HTMLInputElement>("seed");
+const worldPresetInput = required<HTMLSelectElement>("world-preset");
+const worldPresetDescription = required<HTMLParagraphElement>(
+  "world-preset-description",
+);
+const worldParameterFields = required<HTMLDivElement>("world-parameter-fields");
 const toolShelf = required<HTMLDivElement>("tool-shelf");
 const feedback = required<HTMLDivElement>("feedback");
 const input = new BoundedInputQueue();
@@ -1466,6 +1478,7 @@ function setPlaying(value: boolean): void {
 function syncSessionInputs(next: FactorySnapshot): void {
   scenarioInput.value = next.scenario;
   seedInput.value = String(next.seed);
+  void syncWorldInputs();
 }
 
 function selectTool(next: Tool): void {
@@ -1576,6 +1589,120 @@ required<HTMLButtonElement>("toggle-grid").addEventListener(
       : "Show construction grid";
   },
 );
+/**
+ * The scalar parameters the new-world flow exposes, in the order the two questions are actually
+ * asked: how big is a landform, then how much of the world each band covers. The resource table is
+ * the fourth kind of parameter and is not edited here — a preset supplies it whole.
+ *
+ * Ranges are the native validator's, restated so a form cannot offer a value native will refuse.
+ */
+type WorldScalar = Exclude<keyof WorldParams, "field_rules">;
+
+const WORLD_PARAMETER_FIELDS: {
+  key: WorldScalar;
+  label: string;
+  min: number;
+  max: number;
+}[] = [
+  { key: "elevation_coarse_cell", label: "Landform scale", min: 1, max: 64 },
+  { key: "elevation_fine_cell", label: "Detail scale", min: 1, max: 64 },
+  {
+    key: "elevation_coarse_weight",
+    label: "Landform share %",
+    min: 0,
+    max: 100,
+  },
+  { key: "moisture_cell", label: "Moisture scale", min: 1, max: 64 },
+  { key: "richness_cell", label: "Richness scale", min: 1, max: 64 },
+  { key: "vein_cell", label: "Vein scale", min: 1, max: 64 },
+  { key: "water_level", label: "Sea level", min: 0, max: 65535 },
+  { key: "shore_level", label: "Shore level", min: 0, max: 65535 },
+  { key: "hills_level", label: "Hills level", min: 0, max: 65535 },
+  { key: "highland_level", label: "Highland level", min: 0, max: 65535 },
+  { key: "cliff_step", label: "Cliff steepness", min: 1, max: 65535 },
+  { key: "deep_water_moisture", label: "Deep water", min: -1, max: 65535 },
+];
+
+/** What Start scenario will generate. Native validates it again on arrival. */
+let pendingWorld: WorldParams | null = null;
+const worldParameterInputs = new Map<WorldScalar, HTMLInputElement>();
+
+for (const preset of host.worldPresets) {
+  const option = document.createElement("option");
+  option.value = preset.key;
+  option.textContent = preset.name;
+  worldPresetInput.append(option);
+}
+// A hand-edited parameter set is no preset, and saying so is what keeps the picker honest about
+// what is about to be generated.
+const customOption = document.createElement("option");
+customOption.value = "custom";
+customOption.textContent = "Custom";
+customOption.hidden = true;
+worldPresetInput.append(customOption);
+
+// Built once and only ever written to. A form rebuilt under a pointer loses the control it was
+// rebuilt for, which is the same rule the catalogue and the research list live under.
+for (const field of WORLD_PARAMETER_FIELDS) {
+  const label = document.createElement("label");
+  label.textContent = field.label;
+  const control = document.createElement("input");
+  control.type = "number";
+  control.min = String(field.min);
+  control.max = String(field.max);
+  control.setAttribute("aria-label", field.label);
+  control.addEventListener("input", () => {
+    if (!pendingWorld) return;
+    const value = Number(control.value);
+    if (!Number.isSafeInteger(value)) return;
+    pendingWorld = { ...pendingWorld, [field.key]: value };
+    customOption.hidden = false;
+    worldPresetInput.value = "custom";
+  });
+  label.append(control);
+  worldParameterFields.append(label);
+  worldParameterInputs.set(field.key, control);
+}
+
+function showWorldParams(params: WorldParams): void {
+  pendingWorld = params;
+  for (const [key, control] of worldParameterInputs) {
+    control.value = String(params[key]);
+  }
+  const preset = host.presetKeyFor(params);
+  customOption.hidden = preset !== undefined;
+  worldPresetInput.value = preset ?? "custom";
+  worldPresetDescription.textContent =
+    host.worldPresets.find((entry) => entry.key === worldPresetInput.value)
+      ?.description ?? "Hand-tuned parameters.";
+}
+
+worldPresetInput.addEventListener("change", () => {
+  const preset = host.worldPresets.find(
+    (entry) => entry.key === worldPresetInput.value,
+  );
+  if (preset) showWorldParams(structuredClone(preset.params));
+});
+
+/** The world the running game was generated from, read back from native rather than remembered. */
+async function syncWorldInputs(): Promise<void> {
+  try {
+    showWorldParams(structuredClone(await host.worldParams()));
+  } catch (error) {
+    reportWorkerError(error);
+  }
+}
+
+required<HTMLButtonElement>("world-parameters-reset").addEventListener(
+  "click",
+  () => {
+    const preset =
+      host.worldPresets.find((entry) => entry.key === worldPresetInput.value) ??
+      host.worldPresets[0];
+    if (preset) showWorldParams(structuredClone(preset.params));
+  },
+);
+
 required<HTMLButtonElement>("new-game").addEventListener("click", async () => {
   input.clear();
   const parsedSeed = Number(seedInput.value);
@@ -1586,7 +1713,11 @@ required<HTMLButtonElement>("new-game").addEventListener("click", async () => {
       ? parsedSeed
       : undefined;
   try {
-    const next = await host.newGame(scenarioInput.value, seed);
+    const next = await host.newGame(
+      scenarioInput.value,
+      seed,
+      pendingWorld ?? undefined,
+    );
     update(next);
     syncSessionInputs(next);
     renderer.recenter();

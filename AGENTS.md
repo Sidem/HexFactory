@@ -22,12 +22,20 @@ contact sheet is `contact.html`, a dev entry point beside `bench.html` — dev-o
 `bench.html` it must not become a dependency of the game, the production build, or the CI gate.
 Presentation only: no save, definition, generator, wire, or checksum movement.
 
-The next two milestones are **v0.16 World Parameters → v0.17 Balance**, in that order because it is
-the dependency order. Neither is a new play system; each replaces a hardcoded thing with a
-generated one, so the play systems that follow cost data rows. v0.16 puts `WorldParams` in the save
-and the checksum and takes `WORLD_GENERATOR_VERSION` to 6. v0.17 moves definition data and adds
-`fixtures/balance.json`. Read the briefs at the top of `docs/HEXFACTORY-PLAN.md`, and `docs/ART.md`
-Stage D before touching `src/rendering/buildingLook.ts` or the grammar.
+World Parameters shipped as **v0.16**: a world is a seed plus a `WorldParams`, which travels in the
+save envelope and the checksum, so `WORLD_GENERATOR_VERSION` is 6 and a version-5 envelope is
+rejected. Feature scale and threshold are separate axes — sea level decides how much water there
+is, the coarse elevation octave's cell size and blend share decide how big it is. `field_at`'s
+match arms are a `FieldRule` table evaluated in declared order. Four presets ship as data rows
+(`continental` is version 5's frozen numbers). `npm run survey` measures what a parameter set
+actually generates and is where every claim a preset makes comes from; `--set name=value` surveys
+one nobody shipped. The browser save key is `hexfactory:hxf1:v7w6`.
+
+One milestone is left in the arc: **v0.17 Balance**, which moves definition data and adds
+`fixtures/balance.json`. It was always third because balance is tuned against resource density and
+v0.16 is what turned density into a parameter. Read the brief at the top of
+`docs/HEXFACTORY-PLAN.md`, and `docs/ART.md` Stage D before touching
+`src/rendering/buildingLook.ts` or the grammar.
 
 ## Workspace boundary
 
@@ -194,6 +202,11 @@ Stage D before touching `src/rendering/buildingLook.ts` or the grammar.
 - `npm run test:run` / `npm run test:rust`
 - `npm run bench` — native capacity ladder; deliberately outside the gate, since shared runners do
   not produce comparable timings
+- `npm run survey` — what a world parameter set actually generates: band histogram, field density
+  per material, distance from the landing site, and water body sizes. A threshold is not a
+  proportion, so this is where a preset's claims about its own landscape come from. Also outside
+  the gate, and like the ladder it is native-only measurement code that never enters the wasm
+  artifact
 - `npm run bench:browser` — build the `--features bench` wasm artifact and serve it; the same ladder
   plus worker round-trip cost runs at `/HexFactory/bench.html`. Also outside the gate
 - `npm run quality` — complete local gate

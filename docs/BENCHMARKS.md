@@ -682,6 +682,55 @@ records that the browser half of this document is now stale. v0.12.4 closes entr
    115 µs against a 100 µs clock step it is barely above the resolution it is measured with, so
    what it needs first is a measurement that can resolve it, not an optimization.
 
+## World Parameters v0.16 — a flat ladder, and the first measurement of generation
+
+Same host, `factory-wasm` 0.16.0, recorded 2026-08-18. Raw report:
+[`benchmarks/capacity-v0.16-native.json`](benchmarks/capacity-v0.16-native.json).
+
+The generator changed, so the ladder was re-run under the rule that requires it. Checksums moved:
+`WorldParams` is now hashed beside the seed, so this record claims **timings, not checksums**. The
+workload's shape is untouched — delivered totals and entity counts match v0.13 exactly, and so do
+the delta byte counts to the byte.
+
+| tier   | entities | tick µs | snapshot µs | checksum µs | frame µs | compile µs | recompile µs |
+| ------ | -------: | ------: | ----------: | ----------: | -------: | ---------: | -----------: |
+| line   |       12 |     1.9 |        15.5 |         1.2 |      3.9 |        1.7 |          6.1 |
+| small  |      192 |     7.9 |        58.5 |        11.6 |     48.4 |       19.2 |         60.7 |
+| medium |      768 |    35.3 |       260.5 |        40.1 |    178.4 |       97.2 |        255.1 |
+| wide   |    1,536 |    85.2 |       684.3 |        80.6 |    344.1 |      208.5 |        623.0 |
+| large  |    3,072 |   154.6 |     1,059.5 |       158.0 |    703.6 |      428.4 |      1,204.2 |
+| xlarge |    6,144 |   378.1 |     2,263.2 |       323.0 |  1,416.8 |      872.8 |      2,314.1 |
+
+Every tier is within noise of v0.13: xlarge tick 378.1 against 361.2 µs, frame 1,416.8 against
+1,455.5. **The noise floor is stated rather than hidden** — the ladder was run twice on this build
+and xlarge gave tick 359.7 / frame 1,439.5 on the other run, so a 5% swing between runs is what
+this host resolves and nothing smaller than that is a finding. The table is the second run, which
+is the JSON on disk.
+
+**What this says is that the parameter indirection costs nothing in the tick, snapshot, and delta
+path.** What it deliberately does not say is anything about generation — the ladder's scenario sets
+`generated_environment: false` and never calls `terrain_at` at all. A record that let the ladder
+stand in for the generator would be citing the wrong measurement.
+
+### Generation — the first record for this path
+
+`terrain_at` and `field_at` now read a `WorldParams` where version 5 read literals, so the cost of
+generating a hex is worth a number rather than an assurance. Measured with `survey.exe` at two
+radii, five runs each, taking medians and differencing to cancel process start-up:
+
+| radius |  hexes | median wall time |
+| -----: | -----: | ---------------: |
+|     48 |  7,057 |          10.6 ms |
+|     96 | 27,937 |          18.0 ms |
+
+20,880 hexes for 7.4 ms is **0.35 µs per hex**, covering terrain, field, and the survey's own
+per-hex bookkeeping — so it is an upper bound on generation alone. A chunk is 64 hexes, so
+generating one costs at most ~23 µs, and `ensure_neighborhood`'s seven chunks at most ~160 µs,
+paid only when the player walks into unsurveyed ground.
+
+**This is a first record, not a comparison.** No earlier milestone measured this path, so there is
+no baseline to call it a regression or an improvement against. The next generator change has one.
+
 Record new runs by adding a dated report under `docs/benchmarks/` and updating the tables above.
 **Checksum comparisons are only valid while the pinned workload checksum in the Rust test gate is
 unchanged; timing comparisons survive a checksum change as long as the workload's shape, entity

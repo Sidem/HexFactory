@@ -19,11 +19,14 @@ direction table as the riser, a right-click that harvests one named hex, and two
 with containers. Save version 7, definition version 7, technology version 4. The shipped record is
 the section below; the brief it was built from is kept beneath it.
 
-**The next three milestones are named, and none of them is a new play system.** Directed on
-2026-08-18: generated assets that a tier visibly changes, worlds generated from parameters, and a
-first real balance pass. They run **v0.15 Generated Shapes → v0.16 World Parameters → v0.17
-Balance**, in that order because it is the dependency order — balance is tuned against resource
-density, and v0.16 is what makes density a parameter. The briefs are the three sections below.
+**Generated Shapes shipped as v0.15 and World Parameters as v0.16.** Two of the three named
+milestones are done, and neither was a new play system: a building's drawing is a part list from an
+eight-part vocabulary that a tier modifies, and a world is now a seed plus a `WorldParams` that
+travels in the save and the checksum. `WORLD_GENERATOR_VERSION` is 6, four presets ship as data
+rows, and `npm run survey` is what every claim any of them makes about its own landscape comes
+from. **One milestone is left in the arc: v0.17 Balance**, and it was always third because balance
+is tuned against resource density and v0.16 is what turned density into a parameter. Its brief is
+the section below the two shipped records.
 
 The play candidates the deferred list already holds — animals/biomatter/waste as one milestone,
 fluid networks, intermittent generation with accumulators, plus tunnels, which v0.14 left out and
@@ -179,10 +182,105 @@ while its trim kept climbing. That is deliberate — a visibly odd machine beats
 but the roster ships no tier above 1 today, and the day it does, the ladder needs a third row
 rather than a wider `trimOf`.
 
-## Next session — World Parameters v0.16
+## Shipped milestone — World Parameters v0.16
+
+Shipped 2026-08-18. The brief below is kept as written; this section records what it became.
+
+**A world is a seed and a parameter set, and the checksum says so.** `WorldParams` carries twelve
+integers and the resource table, `Core` holds one, `terrain_at` and `field_at` take it, and
+`hash_world_params` folds every field of it — the rule rows included, in order — into the checksum
+beside the seed. It is in `SavedState`, so a save records the generation its overlay was cut from.
+`WORLD_GENERATOR_VERSION` is **6**: a version-5 envelope names no parameters at all, so it cannot
+be read as the default set and is refused. `SAVE_VERSION` stays 7, and the browser's save key is
+now `hexfactory:hxf1:v7w6`, which retires a stored v7/w5 save instead of offering a Continue button
+that can only fail.
+
+**Feature scale and threshold are separate axes, and the acceptance test is the proof.** Sea level
+decides how _much_ water there is; the coarse elevation octave's cell size — and its share of the
+blend — decides how _big_ it is. `feature_scale_makes_seas_and_sea_level_only_makes_more_ponds`
+asserts both halves against measured body counts. Moving only the cell size from 4 to 24 at a fixed
+sea level took water from 209 bodies averaging 10 hexes to 15 bodies averaging 84, with the total
+water within a factor of two either way. Moving only the sea level from 18,000 to 26,000 took water
+from 1,630 hexes to 6,905 while the body _count_ barely moved, 191 to 236. **The measurement that
+separates them is body count, not largest body** — whether one landform in a sample happens to dip
+under the sea swung that figure by 3× across a sweep whose trend was otherwise perfectly monotone,
+and the first version of the test asserted on it and failed for that reason.
+
+**Resource commonness is a table.** `field_at`'s eleven `match` arms are `FieldRule` rows — terrain,
+item, three gates, base, spread — evaluated in declared order, first match wins. The hazard that
+used to live in a prose comment is now the row order itself: clay is the leftover of the band wood
+takes first, and `field_rule_order_decides_which_band_holds_what` swaps the two rows and asserts
+that clay's cell count rises and the checksum changes. Gates use `ANY = -1` rather than 0, because
+noise samples zero at a lattice point and a zero gate would be wrong once in a billion hexes and
+never reproduce.
+
+**The survey tool found two unplayable presets before a player could.** `npm run survey` samples a
+disc for a parameter set and reports the band histogram, field density per material, nearest and
+mean distance from the landing site to each, and the count and size of connected water bodies. Run
+against the first draft of the presets, it reported that **Basin generated zero stone anywhere in a
+27,937-hex sample** and that **Archipelago read 182 per mille of the world as cliff**. Both came
+from the same cause: `cliff_step` is a gradient threshold, and a gradient scales with feature size,
+so a step tuned for Continental's cell 8 means "sheer" at cell 4 and "nothing is ever steep" at
+cell 20. That is precisely the failure the brief predicted, and it was found by counting rather
+than by playing. `--set name=value` surveys a parameter set nobody shipped, which is how the fixed
+numbers were chosen instead of guessed.
+
+**The shipped presets, measured at seed 1,213,486,160 and radius 96 (27,937 hexes).** Bands in
+parts per thousand; water as bodies / mean body / largest body; nearest is the furthest any of the
+eight materials sits from the landing site.
+
+| preset      | water | shore | lowland | hills | highland | cliff |   water bodies | furthest material |
+| ----------- | ----: | ----: | ------: | ----: | -------: | ----: | -------------: | ----------------: |
+| Continental |    57 |   126 |     345 |   324 |      138 |     7 |  191 / 8 / 104 |                23 |
+| Archipelago |   230 |   175 |     274 |   207 |       81 |    29 | 575 / 11 / 179 |                23 |
+| Highlands   |    10 |    26 |     216 |   398 |      315 |    32 |    41 / 7 / 46 |                32 |
+| Basin       |   103 |   131 |     365 |   260 |      106 |    31 | 28 / 103 / 997 |                25 |
+
+Continental is version 5's frozen numbers unchanged, so the default world is the world the game
+already had. Basin's 28 bodies averaging 103 hexes against Archipelago's 575 averaging 11 is the
+milestone's claim in one row of a table.
+
+**Every preset reaches all eight materials, asserted rather than assumed.** `LANDING_FIELD` still
+guarantees one cell of each at the clearing, and
+`every_preset_reaches_every_material_from_the_landing_site` checks that promise under every preset
+_and_ the stronger claim behind it: that the generator itself puts every material within 40 hexes
+of the landing site, and that barren ground stays the common case at v0.15's density floor and
+ceiling. A preset that made a band scarce is not allowed to make its materials unfindable, which is
+what `relaxed` does — it lowers the gates on one band's rows, so Highlands' thin shore holds sand
+and clay densely and Archipelago's broken highland holds its ore.
+
+**Validation refuses parameter sets that are not worlds; it does not pretend to judge playability.**
+Cells outside 1..64, a weight that is not a percentage, band cuts out of ascending order, an empty
+rule table, an unknown item, a zero spread. Bands out of order do not make a band rare — they make
+it unreachable — so that one is a refusal rather than a warning. Whether a valid set is _playable_
+is what the survey measures, and no validator can decide it.
+
+**The new-world flow is a preset picker with the raw parameters behind it.** The preset table is
+native's, served by `Factory.world_presets_json()`, so the host renders a table it cannot drift
+from — the same relationship the catalogue has to the definitions. Editing any of the twelve
+scalars switches the picker to Custom. `world_params_json()` is a getter rather than a snapshot
+field: a world's parameters change only when the world does, so the host asks after `new_game` and
+`load` instead of paying for them on every frame. The resource table comes from the preset whole;
+the panel says so.
+
+**Measured.** The native ladder is unchanged: xlarge frame 1,416.8 µs against v0.13's 1,455.5 µs,
+tick 378.1 against 361.2, delta bytes identical at 49,476, delivered totals identical. The ladder
+was run twice and the two runs differ by about 5% at that tier, which is the host's resolution and
+is recorded in `docs/BENCHMARKS.md` rather than smoothed away. That is
+evidence the parameter indirection costs nothing in the tick, snapshot, and delta path — and it is
+**not** evidence about generation, because the ladder's scenario sets `generated_environment: false`
+and never calls `terrain_at`. Generation was measured separately and for the first time: surveying
+radius 48 (7,057 hexes) and radius 96 (27,937 hexes) with the same binary, five runs each, medians
+10.6 ms and 18.0 ms, gives **0.35 µs per hex** for terrain, field, and the survey's own bookkeeping
+— an upper bound on generation alone. A chunk is 64 hexes, so generating one costs at most ~23 µs
+and the seven-chunk neighbourhood refresh at most ~160 µs, and only when the player walks into new
+ground. There is no prior figure to compare it against; v0.15 and earlier never measured this path,
+so this is a first record and not a regression claim.
 
 Directed 2026-08-18: "generate new worlds with parameters, like how common certain resources and
 terrain types are, how water and other biomes show up, in large lakes/seas/oceans or just ponds."
+
+The brief this was built from follows.
 
 Unlike v0.15, this is **simulation truth**. That is the line to hold across both milestones: art
 parameters are free to vary because presentation owns nothing, while world parameters are part of a

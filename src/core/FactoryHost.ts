@@ -13,6 +13,8 @@ import type {
   PlacementPreview,
   Scenarios,
   Technologies,
+  WorldParams,
+  WorldPreset,
 } from "./types";
 
 export type FactoryWorkerMethod =
@@ -23,7 +25,14 @@ export type FactoryWorkerMethod =
   | "placementPreview"
   | "linePreview"
   | "save"
-  | "load";
+  | "load"
+  | "worldParams";
+
+/**
+ * How a caller names the world a new game is generated with: a preset key, a complete parameter
+ * set, or nothing at all, which means whatever the scenario names.
+ */
+export type WorldChoice = string | WorldParams;
 
 export interface FactoryTransport {
   request<T>(method: FactoryWorkerMethod, payload?: unknown): Promise<T>;
@@ -34,6 +43,8 @@ interface InitialSnapshot {
   snapshot: FactorySnapshot;
   revision: number;
   playerTicksPerSecond: number;
+  worldPresets: WorldPreset[];
+  worldParams: WorldParams;
 }
 
 interface WorkerResponse {
@@ -111,16 +122,27 @@ export class FactoryHost {
    * host converts elapsed real time into a step count with it and invents no rate of its own.
    */
   readonly playerTicksPerSecond: number;
+  /**
+   * The shipped world presets, as native declares them. The new-world flow is built from this the
+   * same way the catalogue is built from the definitions — a copy on this side could drift from
+   * the generator it claims to describe.
+   */
+  readonly worldPresets: WorldPreset[];
   private revision: number;
+  private currentWorldParams: WorldParams | null;
 
   private constructor(
     private readonly transport: FactoryTransport,
     private currentSnapshot: FactorySnapshot,
     revision: number,
     playerTicksPerSecond: number,
+    worldPresets: WorldPreset[] = [],
+    worldParams: WorldParams | null = null,
   ) {
     this.revision = revision;
     this.playerTicksPerSecond = playerTicksPerSecond;
+    this.worldPresets = worldPresets;
+    this.currentWorldParams = worldParams;
     this.definitions = definitionsJson as Definitions;
     this.technologies = technologiesJson as Technologies;
     this.scenarios = scenariosJson as Scenarios;
@@ -143,6 +165,8 @@ export class FactoryHost {
         initial.snapshot,
         initial.revision,
         initial.playerTicksPerSecond,
+        initial.worldPresets,
+        initial.worldParams,
       );
     } catch (error) {
       transport.dispose();
@@ -155,8 +179,15 @@ export class FactoryHost {
     initial: FactorySnapshot,
     revision = 0,
     playerTicksPerSecond = 30,
+    worldPresets: WorldPreset[] = [],
   ): FactoryHost {
-    return new FactoryHost(transport, initial, revision, playerTicksPerSecond);
+    return new FactoryHost(
+      transport,
+      initial,
+      revision,
+      playerTicksPerSecond,
+      worldPresets,
+    );
   }
 
   /**
@@ -187,16 +218,25 @@ export class FactoryHost {
     );
   }
 
+  /**
+   * `world` names the generation: a preset key, a complete parameter set, or nothing, which means
+   * whatever the scenario names. The parameters the world actually came out with are read back
+   * from native afterwards rather than assumed to be what was asked for.
+   */
   async newGame(
     scenario = "new-game",
     seed?: number,
+    world?: WorldChoice,
   ): Promise<FactorySnapshot> {
-    return this.applyDelta(
+    const snapshot = this.applyDelta(
       await this.transport.request<FactorySnapshotDelta>("newGame", {
         scenario,
         seed,
+        worldParams: world,
       }),
     );
+    this.currentWorldParams = null;
+    return snapshot;
   }
 
   /**
@@ -249,13 +289,36 @@ export class FactoryHost {
   }
 
   async load(save: string): Promise<FactorySnapshot> {
-    return this.applyDelta(
+    const snapshot = this.applyDelta(
       await this.transport.request<FactorySnapshotDelta>("load", { save }),
     );
+    // A save carries its own parameters, so the loaded world is not necessarily the one that was
+    // on screen a moment ago.
+    this.currentWorldParams = null;
+    return snapshot;
   }
 
   snapshot(): FactorySnapshot {
     return this.currentSnapshot;
+  }
+
+  /**
+   * The parameters the current world was generated from. Cached because it changes only when the
+   * world does, and re-read from native rather than remembered from the request that asked for it.
+   */
+  async worldParams(): Promise<WorldParams> {
+    if (!this.currentWorldParams) {
+      this.currentWorldParams =
+        await this.transport.request<WorldParams>("worldParams");
+    }
+    return this.currentWorldParams;
+  }
+
+  /** The preset whose parameters these are, if any. A hand-tuned set matches none. */
+  presetKeyFor(params: WorldParams): string | undefined {
+    return this.worldPresets.find(
+      (preset) => JSON.stringify(preset.params) === JSON.stringify(params),
+    )?.key;
   }
 
   dispose(): void {

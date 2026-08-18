@@ -1171,6 +1171,32 @@ canvas {
 .simulation-settings label {
   grid-column: 1 / -1;
 }
+.world-preset-description,
+.world-parameters-note {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.68rem;
+  line-height: 1.4;
+}
+.world-parameters summary {
+  cursor: pointer;
+  font-size: 0.72rem;
+  color: var(--muted);
+  padding: 4px 0;
+}
+.world-parameters-note {
+  margin-bottom: 7px;
+}
+/* Two columns, because these read as pairs: a scale beside a scale, a level beside a level. */
+#world-parameter-fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  margin-bottom: 7px;
+}
+#world-parameter-fields label {
+  font-size: 0.64rem;
+}
 .save-status {
   margin: 0;
   color: var(--muted);

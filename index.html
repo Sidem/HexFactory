@@ -485,6 +485,25 @@
               max="4294967295"
               value="1213486160"
           /></label>
+          <label
+            >World<select id="world-preset" aria-label="World preset"></select
+          ></label>
+          <p id="world-preset-description" class="world-preset-description">
+            &nbsp;
+          </p>
+          <details id="world-parameters" class="world-parameters">
+            <summary>World parameters</summary>
+            <p class="world-parameters-note">
+              Feature scale is how big a landform is; a band level is how much
+              of the world it covers. Raising the sea level makes more water,
+              not bigger water &mdash; bigger water is a larger landform scale.
+              The resource table comes from the preset.
+            </p>
+            <div id="world-parameter-fields"></div>
+            <button id="world-parameters-reset" type="button">
+              Back to preset
+            </button>
+          </details>
           <button id="new-game" class="primary-action" type="button">
             Start scenario
           </button>

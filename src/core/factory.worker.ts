@@ -9,6 +9,8 @@ import type {
   NativeFactory,
   NativeInputCommand,
   PlacementPreview,
+  WorldParams,
+  WorldPreset,
 } from "./types";
 
 interface WorkerRequest {
@@ -57,6 +59,8 @@ async function handle(request: WorkerRequest): Promise<unknown> {
       JSON.stringify(technologies),
       JSON.stringify(scenarios),
       String(payload.scenario ?? "new-game"),
+      undefined,
+      worldParamsJson(payload.worldParams),
     ) as NativeFactory;
     return {
       snapshot: JSON.parse(native.snapshot_json()) as FactorySnapshot,
@@ -64,6 +68,10 @@ async function handle(request: WorkerRequest): Promise<unknown> {
       // The player's walking cadence is native truth; the host only converts elapsed real time
       // into a step count with it.
       playerTicksPerSecond: Factory.playerTicksPerSecond(),
+      // The preset table is native's, the same way the catalogue is: the host renders it rather
+      // than keeping a copy that can drift from the generator it describes.
+      worldPresets: JSON.parse(Factory.world_presets_json()) as WorldPreset[],
+      worldParams: JSON.parse(native.world_params_json()) as WorldParams,
     };
   }
 
@@ -83,8 +91,13 @@ async function handle(request: WorkerRequest): Promise<unknown> {
       factory.new_game(
         String(payload.scenario ?? "new-game"),
         optionalNumber(payload.seed),
+        worldParamsJson(payload.worldParams),
       );
       return delta(factory);
+    case "worldParams":
+      // Not part of the per-frame delta: a world's parameters change only when the world does,
+      // so the host asks after `newGame` and `load` rather than paying for them every frame.
+      return JSON.parse(factory.world_params_json()) as WorldParams;
     case "placementPreview":
       return JSON.parse(
         factory.placement_preview_json(
@@ -150,4 +163,14 @@ function delta(factory: NativeFactory): ArrayBuffer {
 
 function optionalNumber(value: unknown): number | undefined {
   return typeof value === "number" ? value : undefined;
+}
+
+/**
+ * What the host may name a world with: a preset key, or a complete parameter set. Native accepts
+ * both and decides which it was given, so the two are one code path rather than two.
+ */
+function worldParamsJson(value: unknown): string | undefined {
+  if (typeof value === "string") return JSON.stringify({ preset: value });
+  if (value && typeof value === "object") return JSON.stringify(value);
+  return undefined;
 }

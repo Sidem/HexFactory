@@ -13,8 +13,9 @@ and construction costs close to the world on desktop and touch layouts. A
 new game starts beside a landing hub inside a small surveyed clearing, with the rest of the world
 under fog: explore to lift it, walk across basins and highlands, gather finite ore and crystal
 fields, deliver items for insight, unlock a short technology tree, build a compiled transport
-line, compose three components, and win. The founding prebuilt architecture proof remains
-available as the **Factory demo** scenario.
+line, compose three components, and win. Pick the **world** as well as the seed — Continental,
+Archipelago, Highlands, or Basin, with the raw generator parameters exposed behind the preset. The
+founding prebuilt architecture proof remains available as the **Factory demo** scenario.
 
 Rust/Wasm runs inside a dedicated module worker and owns environment features, resources, collision,
 continuous player movement, inventories, costs, research, objectives, saves, transport, machines,
@@ -65,11 +66,19 @@ The capacity ladders sit outside that gate, because shared runners cannot produc
 timings. Run the native one with `npm run bench`, and the browser one with `npm run bench:browser`,
 which builds the measurement-only wasm artifact and serves `/HexFactory/bench.html`.
 
+`npm run survey` reports what a world parameter set actually generates — band histogram, field
+density per material, how far the landing site is from each of them, and the size of the water
+bodies. A threshold is not a proportion, so this is where a preset's claims about its own landscape
+come from rather than from reading its numbers.
+
 ## Architecture
 
-- The versioned native seed generates axial environment chunks independently of traversal order.
-  Terrain bands and resource fields are derived; only the depletion overlay, the surveyed chunk
-  set, and ordinary simulation state are native checksum inputs.
+- A world is a native seed **and a parameter set**, both checksummed and both saved. Feature scale
+  and threshold are separate knobs: sea level decides how much water there is, and the coarse
+  elevation octave's cell size decides how big it is. Resource commonness is an ordered rule table
+  rather than a `match`. Axial environment chunks generate independently of traversal order; terrain
+  bands and resource fields are derived, and only the depletion overlay, the surveyed chunk set, and
+  ordinary simulation state are the remaining checksum inputs.
 - Data files define dynamic items, recipes, buildings, costs, descriptions, icons, unlock
   requirements, and the acyclic technology graph. Native code validates and enforces them against
   forged host commands.

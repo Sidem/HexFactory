@@ -1,6 +1,6 @@
 {
   "name": "hexfactory",
-  "version": "0.15.0",
+  "version": "0.16.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -17,6 +17,7 @@
     "test:rust": "cargo test --manifest-path factory-wasm/Cargo.toml",
     "audit": "npm audit --audit-level=high",
     "bench": "cargo run --release --manifest-path factory-wasm/Cargo.toml --bin capacity --",
+    "survey": "cargo run --release --manifest-path factory-wasm/Cargo.toml --bin survey --",
     "bench:browser": "npm run build:wasm:bench && vite",
     "quality": "npm run audit && npm run format && npm run lint && npm run typecheck && npm run test:run && npm run test:rust && npm run build"
   },

@@ -44,6 +44,7 @@ import type {
   FactorySnapshotDelta,
   ResourceSnapshot,
   Terrain,
+  WorldParams,
 } from "../src/core/types";
 import definitions from "../src/data/definitions.json";
 import technologies from "../src/data/technologies.json";
@@ -444,6 +445,35 @@ describe("availability and expanded snapshot adapter", () => {
         payload: { commands: [{ type: "gather" }], ticks: 2, playerSteps: 5 },
       },
     ]);
+  });
+
+  it("names a world by preset or by parameters and re-reads what it got", async () => {
+    const { transport, requests } = fakeTransport();
+    const preset = {
+      key: "basin",
+      name: "Basin",
+      description: "Great contiguous seas around broad land.",
+      params: TEST_WORLD_PARAMS,
+    };
+    const host = FactoryHost.forTesting(transport, snapshot, 0, 30, [preset]);
+    await host.newGame("new-game", 7, "basin");
+    const tuned = { ...TEST_WORLD_PARAMS, water_level: 26000 };
+    await host.newGame("new-game", 7, tuned);
+    expect(requests.map((entry) => entry.payload)).toEqual([
+      { scenario: "new-game", seed: 7, worldParams: "basin" },
+      { scenario: "new-game", seed: 7, worldParams: tuned },
+    ]);
+
+    // The parameters come back from native rather than from what was asked for, and only once:
+    // a world's parameters cannot change without a new world.
+    expect(await host.worldParams()).toEqual(TEST_WORLD_PARAMS);
+    expect(await host.worldParams()).toEqual(TEST_WORLD_PARAMS);
+    expect(
+      requests.filter((entry) => entry.method === "worldParams"),
+    ).toHaveLength(1);
+
+    expect(host.presetKeyFor(TEST_WORLD_PARAMS)).toBe("basin");
+    expect(host.presetKeyFor(tuned)).toBeUndefined();
   });
 
   it("applies per-entity buildings patches instead of whole-array replacements", () => {
@@ -906,6 +936,33 @@ describe("availability and expanded snapshot adapter", () => {
   });
 });
 
+/** The shipped `continental` numbers, as native would report them. */
+const TEST_WORLD_PARAMS: WorldParams = {
+  elevation_coarse_cell: 8,
+  elevation_fine_cell: 3,
+  elevation_coarse_weight: 50,
+  moisture_cell: 7,
+  richness_cell: 5,
+  vein_cell: 4,
+  water_level: 18000,
+  shore_level: 24000,
+  hills_level: 33000,
+  highland_level: 42000,
+  cliff_step: 14000,
+  deep_water_moisture: 40000,
+  field_rules: [
+    {
+      terrain: "cliff",
+      item_id: 6,
+      moisture_min: -1,
+      richness_min: 50000,
+      vein_min: -1,
+      base: 24,
+      spread: 25,
+    },
+  ],
+};
+
 function fakeTransport(): {
   transport: FactoryTransport;
   requests: Array<{ method: FactoryWorkerMethod; payload: unknown }>;
@@ -928,6 +985,10 @@ function fakeTransport(): {
       if (method === "load")
         return response({ events: ["HXF1 save restored"] }) as T;
       if (method === "advance") return response({ tick: 14 }) as T;
+      if (method === "newGame") return response({ tick: 0 }) as T;
+      // A world's parameters change only when the world does, so they are asked for on demand
+      // rather than carried in every frame's delta.
+      if (method === "worldParams") return TEST_WORLD_PARAMS as T;
       throw new Error(`Unexpected test method ${method}`);
     },
     dispose: vi.fn(),

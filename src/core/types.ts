@@ -137,6 +137,55 @@ export interface Scenarios {
   scenarios: ScenarioDefinition[];
 }
 
+/**
+ * One row of the generator's resource table. Rows are evaluated in declared order and the first
+ * match wins, so the order is part of the world: clay is the leftover of the band wood takes
+ * first, and it says so by being the later row.
+ *
+ * `-1` on a gate means the rule is not asking about that channel at all.
+ */
+export interface FieldRule {
+  terrain: Terrain;
+  item_id: number;
+  moisture_min: number;
+  richness_min: number;
+  vein_min: number;
+  base: number;
+  spread: number;
+}
+
+/**
+ * The parameters a world is generated from. Simulation truth, unlike the shape grammar: these
+ * travel in the save envelope and the checksum, so two worlds sharing a seed and differing here
+ * are different worlds.
+ *
+ * Feature scale and threshold are separate axes. Raising `water_level` makes *more* water, not
+ * *bigger* water — bigger water comes from `elevation_coarse_cell`.
+ */
+export interface WorldParams {
+  elevation_coarse_cell: number;
+  elevation_fine_cell: number;
+  elevation_coarse_weight: number;
+  moisture_cell: number;
+  richness_cell: number;
+  vein_cell: number;
+  water_level: number;
+  shore_level: number;
+  hills_level: number;
+  highland_level: number;
+  cliff_step: number;
+  deep_water_moisture: number;
+  field_rules: FieldRule[];
+}
+
+/** A named parameter set. The preset is what a player picks; the parameters are behind it. */
+export interface WorldPreset {
+  key: string;
+  name: string;
+  description: string;
+  params: WorldParams;
+}
+
 export type Cargo = Ingredient;
 
 export interface EntitySnapshot extends AxialCoordinate {
@@ -387,7 +436,18 @@ export type NativeInputCommand =
 export interface NativeFactory {
   tick(count: number): void;
   reset(): void;
-  new_game(scenarioKey: string, seedOverride?: number): void;
+  /**
+   * `worldParamsJson` is either a preset key (`{"preset":"basin"}`) or a complete parameter set.
+   * Omitting it generates whatever the scenario names, which is how every caller that does not
+   * care about generation stays unaware that parameters exist.
+   */
+  new_game(
+    scenarioKey: string,
+    seedOverride?: number,
+    worldParamsJson?: string,
+  ): void;
+  /** The parameters the current world was generated from. */
+  world_params_json(): string;
   apply_commands_json(commands: string): void;
   advance_json(commands: string, count: number, playerSteps: number): void;
   placement_preview_json(

@@ -7,8 +7,10 @@ Worker Boundary v0.5, and Command Surface v0.4. v0.11 changed what the world loo
 changes what it is made of; v0.13 adds a power network; Look Systems turns the mosaic into
 generated terrain and building silhouettes without moving a checksum. v0.12.4 times the two
 canvases the game draws; v0.13.1 re-measures them after Stage B and the first Stage C motion.
-`WORLD_GENERATOR_VERSION` 5 and `HXF1` save version 6 reject earlier envelopes. The capacity
-ladder is re-pinned; a generator bump invalidates checksum comparisons, not timing ones.
+Since this document was written the arc has continued: v0.14 Upgrades and Tiers, v0.15 Generated
+Shapes, and v0.16 World Parameters. **`WORLD_GENERATOR_VERSION` is 6 and `HXF1` save version is 7**;
+earlier envelopes are rejected. The capacity ladder is re-pinned; a generator bump invalidates
+checksum comparisons, not timing ones.
 
 ## Binary delta contract
 
@@ -70,12 +72,17 @@ ladder is re-pinned; a generator bump invalidates checksum comparisons, not timi
 
 - Generation is a pure function of seed and axial hex. Feature circles on a rectangular lattice
   are gone. `world_to_axial` inverts `axial_world` with integer cube rounding.
+- **v0.16: and of a `WorldParams`.** The noise cell sizes and the band cuts are parameters rather
+  than literals, and they are saved and checksummed beside the seed — a world is both. Feature
+  scale and threshold are separate axes: the sea level says how much water, the coarse elevation
+  octave's cell size says how big.
 - Terrain is read from elevation and moisture bands. Cliffs come from the elevation gradient.
   Deep water, shallow water, and cliffs block walking and construction; shore, lowland, and
   highland do not.
-- A field cell is `(item_id, richness)` above a threshold. Only drawn-from cells are stored in
-  the depletion overlay. The overlay is saved, hashed, and checksummed; the generated field is
-  not.
+- A field cell is `(item_id, richness)` above a threshold. **v0.16: which threshold, in which band,
+  for which item is a `FieldRule` row**, evaluated in declared order with the first match winning.
+  Only drawn-from cells are stored in the depletion overlay. The overlay is saved, hashed, and
+  checksummed; the generated field is not.
 - `deposit_candidates` and `resource_at_world` share `field_covered_at`: hex distance at most
   `EXTRACT_RADIUS` (1) and a field present. Remaining quantity is not part of the order.
 - Player radius is published on the snapshot. The host draws the body from that radius.
