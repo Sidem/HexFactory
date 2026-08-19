@@ -608,10 +608,16 @@ and `tests/guidance.test.ts` walks the guide against a modelled board, refusing 
 on the board the snapshot carried.
 
 **Versions.** Save 10, definitions 10, wire 5 with a new requests group written between the contract
-and the player. The browser save key reads all four. `npm run quality` is green: 98 Rust tests
+and the player. `npm run quality` is green: 98 Rust tests
 (six new) and 85 TypeScript tests, lint, format, typecheck, and the production build. The pinned
 capacity workload checksum moved to `780_276_626` because the board is in the checksum; the world
 generator, item roster, and entity snapshot are unchanged, so no tier was re-measured.
+
+**The browser no longer hides a save when a version moves.** Named slots live in
+`hexfactory:saves:v1`. Each row remembers the seed, scenario, and world (preset or the landform
+scale and sea level) plus the five numbers native refuses a load on. An incompatible run stays in
+the list and says which number moved. Leftover single-slot keys `hexfactory:hxf1:…` are imported
+and not deleted. The HXF1 envelope is unchanged; this is host catalog only.
 
 **Also in this pass — the camera left the right mouse button.** Dragging with the right button
 panned _and_ harvested, arbitrated by a five-pixel drift threshold that fired exactly when a player

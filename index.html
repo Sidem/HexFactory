@@ -583,13 +583,28 @@
           <button id="new-game" class="primary-action" type="button">
             Start scenario
           </button>
+          <p class="save-help">
+            Named saves remember the world you started and the build that wrote
+            them. An older run stays in the list; if this version cannot load
+            it, the row says why.
+          </p>
+          <label
+            >Save name<input
+              id="save-name"
+              type="text"
+              maxlength="48"
+              autocomplete="off"
+              spellcheck="false"
+              placeholder="Landing run"
+          /></label>
           <div class="session-actions">
-            <button id="save" type="button">Save game</button
+            <button id="save" type="button">Save</button
             ><button id="continue" type="button">Continue</button>
           </div>
           <p id="save-status" class="save-status" role="status">
             No local save yet.
           </p>
+          <ul id="save-slots" class="save-slots"></ul>
           <hr />
           <div class="comfort-settings">
             <label class="switch"

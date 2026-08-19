@@ -12,6 +12,26 @@ import { cueForEvent, FeedbackAudio } from "./audio/feedback";
 import { FactoryHost } from "./core/FactoryHost";
 import { nextAction } from "./core/guidance";
 import { BoundedInputQueue, MOVEMENT_KEYS, movementIntent } from "./core/input";
+import {
+  compatibility,
+  describeMismatches,
+  formatConfig,
+  formatSavedAt,
+  formatVersions,
+  importLegacySlots,
+  latestCompatible,
+  parseHxf1,
+  readCatalog,
+  removeSlot,
+  replaceNamedSlot,
+  SAVE_VERSION,
+  slotFromPayload,
+  slotsNewestFirst,
+  upsertSlot,
+  writeCatalog,
+  type CurrentBuild,
+  type SaveSlot,
+} from "./core/saveSlots";
 import { TERRAIN_INFO, TERRAIN_ORDER, terrainAccess } from "./core/terrain";
 import type {
   BuildingDefinition,
@@ -37,33 +57,24 @@ import "./styles.css";
 type Tool = "inspect" | "erase" | "rotate" | "upgrade" | number;
 
 /**
- * The stored save's compatibility, not just its save version.
- *
- * Native refuses a load on four numbers, not one — the save version, the world generator version,
- * the definition version, and the technology version — so all four belong in the key. v0.16
- * learned half of this: it left `SAVE_VERSION` at 7, took the generator to 6, and named both,
- * because a v7/w5 envelope is refused for naming no world parameters. v0.17 moves only the
- * definition version, which the old key did not carry at all, so a v0.16 save would have sat
- * under an unchanged key behind a Continue button that could only fail. Naming every number the
- * envelope refuses on retires an incompatible save instead of offering it.
- *
- * v0.18 stops writing three of them down. The definition, technology, and scenario catalogue
- * versions are all published to the host, so the key reads them rather than restating them — a
- * number a person has to remember to copy is a number that will eventually not be copied, and
- * twice now it has not been. The scenario version joins them because the envelope refuses on that
- * too, and the Founding Contract is exactly the kind of change that moves it. `SAVE_VERSION` stays
- * a literal because native does not publish it; it is the headline of any save-format change, and
- * `v10` is Standing Requests': a run carries the board the hub has posted and how many times each
- * row has left it, and a version-9 envelope carries neither.
+ * What this build will load. Native still refuses on these numbers; the catalog only reports them.
+ * `SAVE_VERSION` is the one literal because native does not publish it.
  */
-function saveKey(): string {
-  return [
-    "hexfactory:hxf1:v10",
-    `w${snapshot.world_version}`,
-    `d${host.definitions.version}`,
-    `t${host.technologies.version}`,
-    `s${host.scenarios.version}`,
-  ].join("");
+function currentBuild(): CurrentBuild {
+  return {
+    versions: {
+      save: SAVE_VERSION,
+      world: snapshot.world_version,
+      definitions: host.definitions.version,
+      technology: host.technologies.version,
+    },
+    scenarios: host.scenarios.scenarios.map((scenario) => ({
+      key: scenario.key,
+      name: scenario.name,
+      version: scenario.version,
+    })),
+    worldPresets: host.worldPresets,
+  };
 }
 /**
  * The eight routing headings, in the core's own order. The six edges keep their indices; north and
@@ -129,6 +140,7 @@ const MOTION_KEY = "hexfactory:reduced-motion:v1";
 const speedInput = required<HTMLSelectElement>("speed");
 const scenarioInput = required<HTMLSelectElement>("scenario");
 const seedInput = required<HTMLInputElement>("seed");
+const saveNameInput = required<HTMLInputElement>("save-name");
 const worldPresetInput = required<HTMLSelectElement>("world-preset");
 const worldPresetDescription = required<HTMLParagraphElement>(
   "world-preset-description",
@@ -146,6 +158,8 @@ const minimap = new MinimapRenderer(
 );
 
 let snapshot = host.snapshot();
+/** Which named slot Save will overwrite, if any. Presentation only — the catalog is the store. */
+let selectedSaveId: string | null = null;
 let playing = true;
 let tool: Tool = "inspect";
 let orientation = 0;
@@ -1992,27 +2006,55 @@ required<HTMLButtonElement>("new-game").addEventListener("click", async () => {
 });
 required<HTMLButtonElement>("save").addEventListener("click", async () => {
   try {
-    localStorage.setItem(saveKey(), await host.save());
-    updateContinueState("HXF1 save stored locally.");
+    const payload = await host.save();
+    const build = currentBuild();
+    const named = saveNameInput.value.trim();
+    const selected = selectedSaveId
+      ? readCatalog(localStorage).slots.find(
+          (slot) => slot.id === selectedSaveId,
+        )
+      : undefined;
+    const overwriteName =
+      named || selected?.name || snapshot.scenario_name || "Save";
+    const drafted = slotFromPayload(
+      payload,
+      overwriteName,
+      build,
+      Date.now(),
+      selected &&
+        (!named ||
+          named.toLocaleLowerCase() === selected.name.toLocaleLowerCase())
+        ? selected.id
+        : undefined,
+    );
+    if (!drafted) {
+      updateContinueState("Save failed: the envelope was not readable HXF1.");
+      return;
+    }
+    const { slots, error } = readCatalog(localStorage);
+    if (error) {
+      updateContinueState(error);
+      return;
+    }
+    const nextSlots =
+      drafted.id === selected?.id
+        ? upsertSlot(slots, drafted)
+        : replaceNamedSlot(slots, drafted);
+    writeCatalog(localStorage, nextSlots);
+    selectedSaveId = drafted.id;
+    saveNameInput.value = drafted.name;
+    updateContinueState(`Saved “${drafted.name}”.`);
     showFeedback("Game saved");
   } catch (error) {
     updateContinueState(`Save failed: ${String(error)}`);
   }
 });
-required<HTMLButtonElement>("continue").addEventListener("click", async () => {
-  const save = localStorage.getItem(saveKey());
-  if (!save) return;
-  try {
-    input.clear();
-    const next = await host.load(save);
-    update(next);
-    syncSessionInputs(next);
-    renderer.recenter();
-    showFeedback("Native HXF1 save restored");
-    closePanels();
-  } catch (error) {
-    updateContinueState(`Continue rejected: ${String(error)}`);
-  }
+required<HTMLButtonElement>("continue").addEventListener("click", () => {
+  const slot = latestCompatible(
+    readCatalog(localStorage).slots,
+    currentBuild(),
+  );
+  if (slot) void loadSlot(slot);
 });
 
 toolShelf.addEventListener("click", (event) => {
@@ -2752,13 +2794,148 @@ function frame(now: number): void {
 }
 
 function updateContinueState(message?: string): void {
-  const hasSave =
-    localStorage.getItem(saveKey())?.startsWith("HXF1\n") ?? false;
-  required<HTMLButtonElement>("continue").disabled = !hasSave;
+  const build = currentBuild();
+  let slots: SaveSlot[] = [];
+  let imported = 0;
+  let error: string | undefined;
+  try {
+    const pulled = importLegacySlots(localStorage, build);
+    imported = pulled.imported;
+    const read =
+      imported > 0 ? { slots: pulled.slots } : readCatalog(localStorage);
+    slots = read.slots;
+    error = "error" in read ? read.error : undefined;
+  } catch (caught) {
+    error = `Save list failed: ${String(caught)}`;
+  }
+  const compatible = latestCompatible(slots, build);
+  required<HTMLButtonElement>("continue").disabled = !compatible;
+  renderSaveSlots(slots, build);
+  const importedNote =
+    imported > 0
+      ? `Imported ${imported} previous run${imported === 1 ? "" : "s"} from an older slot. `
+      : "";
+  const scenarioVersion =
+    host.scenarios.scenarios.find(
+      (scenario) => scenario.key === snapshot.scenario,
+    )?.version ?? 0;
   required<HTMLElement>("save-status").textContent =
     message ??
-    (hasSave ? "A compatible local save is available." : "No local save yet.");
+    importedNote +
+      (error
+        ? error
+        : compatible
+          ? `Continue loads “${compatible.name}”. This build is ${formatVersions({ ...build.versions, scenario: scenarioVersion })}.`
+          : slots.length > 0
+            ? "Saved runs are listed below. None of them can load in this build."
+            : "No local save yet.");
 }
+
+function renderSaveSlots(slots: SaveSlot[], build: CurrentBuild): void {
+  const board = required<HTMLElement>("save-slots");
+  const ordered = slotsNewestFirst(slots);
+  const rows = syncChildren(
+    board,
+    ordered.map((slot) => slot.id),
+    () => {
+      const row = document.createElement("li");
+      row.className = "save-slot";
+      row.innerHTML = `<button type="button" class="save-slot-select"><strong></strong><span class="save-slot-when"></span><span class="save-slot-config"></span><span class="save-slot-versions"></span><span class="save-slot-issue"></span></button><button type="button" class="save-slot-load">Load</button><button type="button" class="save-slot-delete">Delete</button>`;
+      return row;
+    },
+  );
+  ordered.forEach((slot, index) => {
+    const row = rows[index];
+    if (!row) return;
+    const envelope = parseHxf1(slot.payload);
+    const check = envelope
+      ? compatibility(envelope, build)
+      : {
+          compatible: false,
+          mismatches: [
+            {
+              field: "save",
+              expected: "a readable HXF1 file",
+              found: "unreadable",
+            },
+          ],
+        };
+    row.classList.toggle("selected", slot.id === selectedSaveId);
+    row.classList.toggle("incompatible", !check.compatible);
+    part(row, "strong").textContent = slot.name;
+    part(row, ".save-slot-when").textContent = formatSavedAt(slot.savedAt);
+    part(row, ".save-slot-config").textContent = formatConfig(slot.config);
+    part(row, ".save-slot-versions").textContent = formatVersions(
+      slot.versions,
+    );
+    part(row, ".save-slot-issue").textContent = check.compatible
+      ? ""
+      : describeMismatches(check.mismatches);
+    const select = part<HTMLButtonElement>(row, ".save-slot-select");
+    select.dataset.slotId = slot.id;
+    select.setAttribute("aria-pressed", String(slot.id === selectedSaveId));
+    select.setAttribute("aria-label", `Select save ${slot.name}`);
+    const load = part<HTMLButtonElement>(row, ".save-slot-load");
+    load.dataset.slotId = slot.id;
+    load.disabled = !check.compatible;
+    load.setAttribute("aria-label", `Load ${slot.name}`);
+    const remove = part<HTMLButtonElement>(row, ".save-slot-delete");
+    remove.dataset.slotId = slot.id;
+    remove.setAttribute("aria-label", `Delete ${slot.name}`);
+  });
+}
+
+async function loadSlot(slot: SaveSlot): Promise<void> {
+  try {
+    input.clear();
+    const next = await host.load(slot.payload);
+    update(next);
+    syncSessionInputs(next);
+    renderer.recenter();
+    selectedSaveId = slot.id;
+    saveNameInput.value = slot.name;
+    showFeedback(`Restored “${slot.name}”`);
+    closePanels();
+    updateContinueState(`Restored “${slot.name}”.`);
+  } catch (error) {
+    updateContinueState(`Load rejected: ${String(error)}`);
+  }
+}
+
+required<HTMLElement>("save-slots").addEventListener("click", (event) => {
+  const target = event.target as HTMLElement;
+  const load = target.closest<HTMLButtonElement>(".save-slot-load");
+  const remove = target.closest<HTMLButtonElement>(".save-slot-delete");
+  const select = target.closest<HTMLButtonElement>(".save-slot-select");
+  const id = (load ?? remove ?? select)?.dataset.slotId;
+  if (!id) return;
+  const { slots, error } = readCatalog(localStorage);
+  if (error) {
+    updateContinueState(error);
+    return;
+  }
+  const slot = slots.find((entry) => entry.id === id);
+  if (!slot) return;
+  if (load) {
+    void loadSlot(slot);
+    return;
+  }
+  if (remove) {
+    if (!window.confirm(`Delete “${slot.name}”? This cannot be undone.`))
+      return;
+    if (slot.sourceKey) localStorage.removeItem(slot.sourceKey);
+    writeCatalog(localStorage, removeSlot(slots, slot.id));
+    if (selectedSaveId === slot.id) {
+      selectedSaveId = null;
+      if (saveNameInput.value === slot.name) saveNameInput.value = "";
+    }
+    updateContinueState(`Deleted “${slot.name}”.`);
+    return;
+  }
+  selectedSaveId = slot.id;
+  saveNameInput.value = slot.name;
+  updateContinueState();
+});
 
 /*
  * Whether a key belongs to the focused control instead of to the world.

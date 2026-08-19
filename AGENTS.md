@@ -194,11 +194,12 @@ step the rules would refuse.
   ladder, and never enters the wasm artifact. What TypeScript does recompute is the pure arithmetic
   over `definitions.json`, in `tests/balance.test.ts`, so the fixture is pinned by two independent
   expansions rather than by one implementation agreeing with itself.
-- The browser save key names every version the envelope refuses a load on — save, world generator,
-  definition, technology, and scenario. A bump the key cannot see is a Continue button that can only
-  fail, and it has been exactly that twice. Four of the five are now read from what native publishes
-  or from the catalogue the host already holds, so they cannot fall out of step; `SAVE_VERSION` is
-  the one literal, because native does not publish it.
+- Named saves live in a version-independent catalog (`hexfactory:saves:v1`). Each slot records the
+  envelope versions and the world it was started with (seed, scenario, preset or custom scales).
+  Incompatibilities stay visible on the row; they are never hidden by putting those numbers in the
+  storage key. Native still refuses a load the numbers cannot support. `SAVE_VERSION` is the one
+  literal, because native does not publish it. Leftover `hexfactory:hxf1:` keys are imported into
+  the catalog and left in place.
 - No scripted guide may outrun the rules it is explaining. The next step is derived — the contract's
   outstanding bill, expanded through the recipe tree, plus the technologies those machines sit
   behind and the power branch none of them names — so every step it can produce is achievable in the

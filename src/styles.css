@@ -1199,10 +1199,69 @@ canvas {
 #world-parameter-fields label {
   font-size: 0.64rem;
 }
+.save-help,
 .save-status {
   margin: 0;
   color: var(--muted);
   font-size: 0.68rem;
+}
+.save-help {
+  line-height: 1.4;
+}
+.save-slots {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  max-height: 240px;
+  overflow-y: auto;
+  list-style: none;
+}
+.save-slot {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: 6px;
+  align-items: start;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #24393450;
+}
+.save-slot:last-child {
+  padding-bottom: 0;
+  border-bottom: 0;
+}
+.save-slot-select {
+  display: grid;
+  gap: 2px;
+  padding: 6px 8px;
+  text-align: left;
+  background: #132420;
+}
+.save-slot.selected .save-slot-select,
+.save-slot-select[aria-pressed="true"] {
+  border-color: var(--gold);
+}
+.save-slot-select strong {
+  font-size: 0.78rem;
+}
+.save-slot-when,
+.save-slot-config,
+.save-slot-versions {
+  color: var(--muted);
+  font-size: 0.62rem;
+  line-height: 1.35;
+}
+.save-slot-issue {
+  color: var(--danger);
+  font-size: 0.62rem;
+  line-height: 1.35;
+}
+.save-slot-issue:empty {
+  display: none;
+}
+.save-slot-load,
+.save-slot-delete {
+  padding: 5px 8px;
+  font-size: 0.66rem;
 }
 .debug-readout {
   display: grid;
