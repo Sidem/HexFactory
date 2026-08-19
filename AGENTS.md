@@ -31,10 +31,14 @@ match arms are a `FieldRule` table evaluated in declared order. Four presets shi
 actually generates and is where every claim a preset makes comes from; `--set name=value` surveys
 one nobody shipped. The browser save key is `hexfactory:hxf1:v7w6`.
 
-One milestone is left in the arc: **v0.17 Balance**, which moves definition data and adds
-`fixtures/balance.json`. It was always third because balance is tuned against resource density and
-v0.16 is what turned density into a parameter. Read the brief at the top of
-`docs/HEXFACTORY-PLAN.md`, and `docs/ART.md` Stage D before touching
+Balance shipped as **v0.17**, finishing the arc. `fixtures/balance.json` is every figure that
+decides whether the economy works — machine rates, what a generator carries and what it burns and
+drinks to carry it, fuel conversions, and the full raw-material cost of every building expanded
+through its whole recipe tree — computed by `factory-wasm/src/balance.rs` from the shipped
+catalogues, printed by `npm run balance`, and pinned in both languages. The first tuning pass moved
+six numbers, each traceable to a printed figure; definition version is 8 and the browser save key
+is `hexfactory:hxf1:v7w6d8t4`. Read the shipped record in `docs/HEXFACTORY-PLAN.md` before changing
+a cost, a cadence, or a power figure, and `docs/ART.md` Stage D before touching
 `src/rendering/buildingLook.ts` or the grammar.
 
 ## Workspace boundary
@@ -166,6 +170,20 @@ v0.16 is what turned density into a parameter. Read the brief at the top of
   Definitions are dynamic, so a stored slot is validated against the live catalogue on load and
   dropped if its id no longer exists. Buildings live in the `B` catalogue, grouped by `kind`; the
   bar holds only what the player pinned there.
+- The economy states its curve, and the curve is two rules over the data rather than a mood. A tier
+  costs strictly more than the tier it upgrades from; a machine costs no less than a machine of the
+  same `kind` whose technology it is unlocked behind. Cost is `effort` — tree-expanded raw units
+  plus fuel energy priced in the densest fuel item — and every raw unit counts once, because that is
+  the only weighting the data supplies. A cutter does not follow a kiln, so they are not compared.
+- Balance figures are derived and are computed once, natively. Items per minute restates
+  `advance_composer`, machines carried restates `power_progress`, and a site yield restates
+  `deposit_candidates`; recomputing any of them in the host would be a second implementation of a
+  native rule. `factory-wasm/src/balance.rs` is native-only measurement code like the survey and the
+  ladder, and never enters the wasm artifact. What TypeScript does recompute is the pure arithmetic
+  over `definitions.json`, in `tests/balance.test.ts`, so the fixture is pinned by two independent
+  expansions rather than by one implementation agreeing with itself.
+- The browser `SAVE_KEY` names every version the envelope refuses a load on — save, world generator,
+  definition, and technology. A bump the key cannot see is a Continue button that can only fail.
 - Arbitration is stable by native entity ID. Initial entity IDs derive from sorted coordinates, so
   JSON insertion order cannot change a run.
 - Derived caches never become truth. Resolved extractor deposit references are rebuilt from tiles,
@@ -207,6 +225,14 @@ v0.16 is what turned density into a parameter. Read the brief at the top of
   proportion, so this is where a preset's claims about its own landscape come from. Also outside
   the gate, and like the ladder it is native-only measurement code that never enters the wasm
   artifact
+- `npm run balance` — what the shipped numbers add up to: machine rates, generator budgets, fuel
+  conversions, tree-expanded building costs, the curve, material access, site yields, and the
+  openings. A cost row says what a building costs and nothing about what its inputs cost to make, so
+  a tuning pass argued from the data file alone is argued from a quarter of the numbers. Outside the
+  gate like the ladder and the survey, and native-only measurement code that never enters the wasm
+  artifact. `fixtures/balance.json` is the recorded form: regenerate with
+  `UPDATE_BALANCE_FIXTURE=1 cargo test balance_fixture`, then
+  `npx prettier --write fixtures/balance.json`
 - `npm run bench:browser` — build the `--features bench` wasm artifact and serve it; the same ladder
   plus worker round-trip cost runs at `/HexFactory/bench.html`. Also outside the gate
 - `npm run quality` — complete local gate

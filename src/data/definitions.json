@@ -1,5 +1,5 @@
 {
-  "version": 7,
+  "version": 8,
   "items": [
     {
       "id": 1,
@@ -153,7 +153,7 @@
       "description": "Wood pyrolysed into fuel, so smelting never waits on a coal field.",
       "insight_value": 2,
       "stack_size": 20,
-      "fuel_value": 4
+      "fuel_value": 8
     },
     {
       "id": 16,
@@ -552,7 +552,7 @@
       "recipe_category": "cutting",
       "construction_cost": [
         { "item_id": 11, "quantity": 3 },
-        { "item_id": 6, "quantity": 4 }
+        { "item_id": 6, "quantity": 6 }
       ],
       "unlock_technology_id": 6,
       "placement_rule": "ground",
@@ -587,7 +587,7 @@
       "kind": "pump",
       "description": "Draws water from a basin it stands beside. The basin never runs dry.",
       "icon": "PMP",
-      "cadence": 6,
+      "cadence": 2,
       "power_draw": 4,
       "output_item_id": 10,
       "construction_cost": [
@@ -646,8 +646,8 @@
       "power_reach": 2,
       "power_source": "wind",
       "construction_cost": [
-        { "item_id": 11, "quantity": 4 },
-        { "item_id": 19, "quantity": 2 }
+        { "item_id": 11, "quantity": 2 },
+        { "item_id": 19, "quantity": 1 }
       ],
       "unlock_technology_id": 9,
       "placement_rule": "elevated",
@@ -662,7 +662,7 @@
       "kind": "generator",
       "description": "High output at a basin edge. Scarce, because the shore is scarce.",
       "icon": "HYD",
-      "power_output": 36,
+      "power_output": 24,
       "power_reach": 2,
       "power_source": "hydro",
       "construction_cost": [

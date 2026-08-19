@@ -7,9 +7,11 @@ Worker Boundary v0.5, and Command Surface v0.4. v0.11 changed what the world loo
 changes what it is made of; v0.13 adds a power network; Look Systems turns the mosaic into
 generated terrain and building silhouettes without moving a checksum. v0.12.4 times the two
 canvases the game draws; v0.13.1 re-measures them after Stage B and the first Stage C motion.
-Since this document was written the arc has continued: v0.14 Upgrades and Tiers, v0.15 Generated
-Shapes, and v0.16 World Parameters. **`WORLD_GENERATOR_VERSION` is 6 and `HXF1` save version is 7**;
-earlier envelopes are rejected. The capacity ladder is re-pinned; a generator bump invalidates
+Since this document was written the arc has continued and finished: v0.14 Upgrades and Tiers, v0.15
+Generated Shapes, v0.16 World Parameters, and v0.17 Balance. **`WORLD_GENERATOR_VERSION` is 6,
+`HXF1` save version is 7, and the definition version is 8**; earlier envelopes are rejected, and
+the browser save key names all four numbers native refuses on. v0.17 adds `fixtures/balance.json`,
+which is a test artifact and touches neither the wire nor the save. The capacity ladder is re-pinned; a generator bump invalidates
 checksum comparisons, not timing ones.
 
 ## Binary delta contract

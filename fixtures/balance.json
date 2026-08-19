@@ -1,0 +1,2178 @@
+{
+  "access": [
+    {
+      "landing_cell": [3, 0],
+      "landing_quantity": 48,
+      "material": "ore",
+      "nearest_generated": 20,
+      "reachable": true,
+      "required_by": 22
+    },
+    {
+      "landing_cell": [-2, 2],
+      "landing_quantity": 32,
+      "material": "crystal",
+      "nearest_generated": 20,
+      "reachable": true,
+      "required_by": 3
+    },
+    {
+      "landing_cell": [0, -3],
+      "landing_quantity": 40,
+      "material": "copper-ore",
+      "nearest_generated": 15,
+      "reachable": true,
+      "required_by": 3
+    },
+    {
+      "landing_cell": [2, -3],
+      "landing_quantity": 28,
+      "material": "coal",
+      "nearest_generated": 8,
+      "reachable": true,
+      "required_by": 1
+    },
+    {
+      "landing_cell": [1, -1],
+      "landing_quantity": 40,
+      "material": "stone",
+      "nearest_generated": 23,
+      "reachable": true,
+      "required_by": 9
+    },
+    {
+      "landing_cell": [1, 3],
+      "landing_quantity": 30,
+      "material": "sand",
+      "nearest_generated": 19,
+      "reachable": true,
+      "required_by": 3
+    },
+    {
+      "landing_cell": [-1, 3],
+      "landing_quantity": 26,
+      "material": "clay",
+      "nearest_generated": 14,
+      "reachable": true,
+      "required_by": 5
+    },
+    {
+      "landing_cell": [-3, 1],
+      "landing_quantity": 14,
+      "material": "wood",
+      "nearest_generated": 15,
+      "reachable": true,
+      "required_by": 3
+    },
+    {
+      "landing_cell": null,
+      "landing_quantity": 0,
+      "material": "water",
+      "nearest_generated": 3,
+      "reachable": true,
+      "required_by": 1
+    }
+  ],
+  "buildings": [
+    {
+      "batch": [
+        {
+          "item": "ore",
+          "quantity": 4
+        },
+        {
+          "item": "crystal",
+          "quantity": 1
+        }
+      ],
+      "batch_fuel_energy": 0,
+      "batch_units": 5,
+      "building": "extractor",
+      "depth": 0,
+      "direct": [
+        {
+          "item": "ore",
+          "quantity": 4
+        },
+        {
+          "item": "crystal",
+          "quantity": 1
+        }
+      ],
+      "effort_milli": 5000,
+      "fuel_energy_milli": 0,
+      "kind": "extractor",
+      "machine_ticks": 0,
+      "raw": [
+        {
+          "item": "ore",
+          "quantity_milli": 4000
+        },
+        {
+          "item": "crystal",
+          "quantity_milli": 1000
+        }
+      ],
+      "raw_units_milli": 5000,
+      "tier": 0,
+      "unlock_technology": "automated-extraction"
+    },
+    {
+      "batch": [
+        {
+          "item": "ore",
+          "quantity": 1
+        }
+      ],
+      "batch_fuel_energy": 0,
+      "batch_units": 1,
+      "building": "belt",
+      "depth": 0,
+      "direct": [
+        {
+          "item": "ore",
+          "quantity": 1
+        }
+      ],
+      "effort_milli": 1000,
+      "fuel_energy_milli": 0,
+      "kind": "belt",
+      "machine_ticks": 0,
+      "raw": [
+        {
+          "item": "ore",
+          "quantity_milli": 1000
+        }
+      ],
+      "raw_units_milli": 1000,
+      "tier": 0,
+      "unlock_technology": "field-logistics"
+    },
+    {
+      "batch": [
+        {
+          "item": "ore",
+          "quantity": 5
+        },
+        {
+          "item": "crystal",
+          "quantity": 3
+        }
+      ],
+      "batch_fuel_energy": 0,
+      "batch_units": 8,
+      "building": "composer",
+      "depth": 0,
+      "direct": [
+        {
+          "item": "ore",
+          "quantity": 5
+        },
+        {
+          "item": "crystal",
+          "quantity": 3
+        }
+      ],
+      "effort_milli": 8000,
+      "fuel_energy_milli": 0,
+      "kind": "composer",
+      "machine_ticks": 0,
+      "raw": [
+        {
+          "item": "ore",
+          "quantity_milli": 5000
+        },
+        {
+          "item": "crystal",
+          "quantity_milli": 3000
+        }
+      ],
+      "raw_units_milli": 8000,
+      "tier": 0,
+      "unlock_technology": "composition"
+    },
+    {
+      "batch": [
+        {
+          "item": "ore",
+          "quantity": 3
+        }
+      ],
+      "batch_fuel_energy": 0,
+      "batch_units": 3,
+      "building": "container",
+      "depth": 0,
+      "direct": [
+        {
+          "item": "ore",
+          "quantity": 3
+        }
+      ],
+      "effort_milli": 3000,
+      "fuel_energy_milli": 0,
+      "kind": "container",
+      "machine_ticks": 0,
+      "raw": [
+        {
+          "item": "ore",
+          "quantity_milli": 3000
+        }
+      ],
+      "raw_units_milli": 3000,
+      "tier": 0,
+      "unlock_technology": "storage-planning"
+    },
+    {
+      "batch": [
+        {
+          "item": "ore",
+          "quantity": 4
+        },
+        {
+          "item": "stone",
+          "quantity": 8
+        }
+      ],
+      "batch_fuel_energy": 0,
+      "batch_units": 12,
+      "building": "smelter",
+      "depth": 0,
+      "direct": [
+        {
+          "item": "stone",
+          "quantity": 8
+        },
+        {
+          "item": "ore",
+          "quantity": 4
+        }
+      ],
+      "effort_milli": 12000,
+      "fuel_energy_milli": 0,
+      "kind": "composer",
+      "machine_ticks": 0,
+      "raw": [
+        {
+          "item": "ore",
+          "quantity_milli": 4000
+        },
+        {
+          "item": "stone",
+          "quantity_milli": 8000
+        }
+      ],
+      "raw_units_milli": 12000,
+      "tier": 0,
+      "unlock_technology": "material-processing"
+    },
+    {
+      "batch": [
+        {
+          "item": "stone",
+          "quantity": 6
+        },
+        {
+          "item": "clay",
+          "quantity": 4
+        }
+      ],
+      "batch_fuel_energy": 0,
+      "batch_units": 10,
+      "building": "kiln",
+      "depth": 0,
+      "direct": [
+        {
+          "item": "stone",
+          "quantity": 6
+        },
+        {
+          "item": "clay",
+          "quantity": 4
+        }
+      ],
+      "effort_milli": 10000,
+      "fuel_energy_milli": 0,
+      "kind": "composer",
+      "machine_ticks": 0,
+      "raw": [
+        {
+          "item": "stone",
+          "quantity_milli": 6000
+        },
+        {
+          "item": "clay",
+          "quantity_milli": 4000
+        }
+      ],
+      "raw_units_milli": 10000,
+      "tier": 0,
+      "unlock_technology": "material-processing"
+    },
+    {
+      "batch": [
+        {
+          "item": "ore",
+          "quantity": 6
+        },
+        {
+          "item": "stone",
+          "quantity": 6
+        }
+      ],
+      "batch_fuel_energy": 12,
+      "batch_units": 12,
+      "building": "cutter",
+      "depth": 1,
+      "direct": [
+        {
+          "item": "iron-plate",
+          "quantity": 3
+        },
+        {
+          "item": "stone",
+          "quantity": 6
+        }
+      ],
+      "effort_milli": 13500,
+      "fuel_energy_milli": 12000,
+      "kind": "composer",
+      "machine_ticks": 30,
+      "raw": [
+        {
+          "item": "ore",
+          "quantity_milli": 6000
+        },
+        {
+          "item": "stone",
+          "quantity_milli": 6000
+        }
+      ],
+      "raw_units_milli": 12000,
+      "tier": 0,
+      "unlock_technology": "mechanical-shaping"
+    },
+    {
+      "batch": [
+        {
+          "item": "ore",
+          "quantity": 8
+        },
+        {
+          "item": "stone",
+          "quantity": 6
+        }
+      ],
+      "batch_fuel_energy": 16,
+      "batch_units": 14,
+      "building": "crusher",
+      "depth": 1,
+      "direct": [
+        {
+          "item": "iron-plate",
+          "quantity": 4
+        },
+        {
+          "item": "stone",
+          "quantity": 6
+        }
+      ],
+      "effort_milli": 16000,
+      "fuel_energy_milli": 16000,
+      "kind": "composer",
+      "machine_ticks": 40,
+      "raw": [
+        {
+          "item": "ore",
+          "quantity_milli": 8000
+        },
+        {
+          "item": "stone",
+          "quantity_milli": 6000
+        }
+      ],
+      "raw_units_milli": 14000,
+      "tier": 0,
+      "unlock_technology": "mechanical-shaping"
+    },
+    {
+      "batch": [
+        {
+          "item": "ore",
+          "quantity": 8
+        },
+        {
+          "item": "clay",
+          "quantity": 4
+        }
+      ],
+      "batch_fuel_energy": 24,
+      "batch_units": 12,
+      "building": "pump",
+      "depth": 1,
+      "direct": [
+        {
+          "item": "iron-plate",
+          "quantity": 4
+        },
+        {
+          "item": "brick",
+          "quantity": 4
+        }
+      ],
+      "effort_milli": 13333,
+      "fuel_energy_milli": 21333,
+      "kind": "pump",
+      "machine_ticks": 64,
+      "raw": [
+        {
+          "item": "ore",
+          "quantity_milli": 8000
+        },
+        {
+          "item": "clay",
+          "quantity_milli": 2667
+        }
+      ],
+      "raw_units_milli": 10667,
+      "tier": 0,
+      "unlock_technology": "hydrology"
+    },
+    {
+      "batch": [
+        {
+          "item": "ore",
+          "quantity": 1
+        }
+      ],
+      "batch_fuel_energy": 0,
+      "batch_units": 1,
+      "building": "pole",
+      "depth": 0,
+      "direct": [
+        {
+          "item": "ore",
+          "quantity": 1
+        }
+      ],
+      "effort_milli": 1000,
+      "fuel_energy_milli": 0,
+      "kind": "pole",
+      "machine_ticks": 0,
+      "raw": [
+        {
+          "item": "ore",
+          "quantity_milli": 1000
+        }
+      ],
+      "raw_units_milli": 1000,
+      "tier": 0,
+      "unlock_technology": "on-site-power"
+    },
+    {
+      "batch": [
+        {
+          "item": "ore",
+          "quantity": 4
+        },
+        {
+          "item": "stone",
+          "quantity": 4
+        }
+      ],
+      "batch_fuel_energy": 0,
+      "batch_units": 8,
+      "building": "burner-generator",
+      "depth": 0,
+      "direct": [
+        {
+          "item": "ore",
+          "quantity": 4
+        },
+        {
+          "item": "stone",
+          "quantity": 4
+        }
+      ],
+      "effort_milli": 8000,
+      "fuel_energy_milli": 0,
+      "kind": "generator",
+      "machine_ticks": 0,
+      "raw": [
+        {
+          "item": "ore",
+          "quantity_milli": 4000
+        },
+        {
+          "item": "stone",
+          "quantity_milli": 4000
+        }
+      ],
+      "raw_units_milli": 8000,
+      "tier": 0,
+      "unlock_technology": "on-site-power"
+    },
+    {
+      "batch": [
+        {
+          "item": "ore",
+          "quantity": 8
+        }
+      ],
+      "batch_fuel_energy": 16,
+      "batch_units": 8,
+      "building": "wind-turbine",
+      "depth": 2,
+      "direct": [
+        {
+          "item": "iron-plate",
+          "quantity": 2
+        },
+        {
+          "item": "gear",
+          "quantity": 1
+        }
+      ],
+      "effort_milli": 10000,
+      "fuel_energy_milli": 16000,
+      "kind": "generator",
+      "machine_ticks": 48,
+      "raw": [
+        {
+          "item": "ore",
+          "quantity_milli": 8000
+        }
+      ],
+      "raw_units_milli": 8000,
+      "tier": 0,
+      "unlock_technology": "sited-generation"
+    },
+    {
+      "batch": [
+        {
+          "item": "ore",
+          "quantity": 12
+        },
+        {
+          "item": "clay",
+          "quantity": 4
+        }
+      ],
+      "batch_fuel_energy": 32,
+      "batch_units": 16,
+      "building": "hydro-generator",
+      "depth": 1,
+      "direct": [
+        {
+          "item": "iron-plate",
+          "quantity": 6
+        },
+        {
+          "item": "brick",
+          "quantity": 4
+        }
+      ],
+      "effort_milli": 18333,
+      "fuel_energy_milli": 29333,
+      "kind": "generator",
+      "machine_ticks": 84,
+      "raw": [
+        {
+          "item": "ore",
+          "quantity_milli": 12000
+        },
+        {
+          "item": "clay",
+          "quantity_milli": 2667
+        }
+      ],
+      "raw_units_milli": 14667,
+      "tier": 0,
+      "unlock_technology": "sited-generation"
+    },
+    {
+      "batch": [
+        {
+          "item": "ore",
+          "quantity": 12
+        },
+        {
+          "item": "clay",
+          "quantity": 4
+        }
+      ],
+      "batch_fuel_energy": 32,
+      "batch_units": 16,
+      "building": "boiler",
+      "depth": 1,
+      "direct": [
+        {
+          "item": "iron-plate",
+          "quantity": 6
+        },
+        {
+          "item": "brick",
+          "quantity": 4
+        }
+      ],
+      "effort_milli": 18333,
+      "fuel_energy_milli": 29333,
+      "kind": "boiler",
+      "machine_ticks": 84,
+      "raw": [
+        {
+          "item": "ore",
+          "quantity_milli": 12000
+        },
+        {
+          "item": "clay",
+          "quantity_milli": 2667
+        }
+      ],
+      "raw_units_milli": 14667,
+      "tier": 0,
+      "unlock_technology": "steam-works"
+    },
+    {
+      "batch": [
+        {
+          "item": "ore",
+          "quantity": 20
+        }
+      ],
+      "batch_fuel_energy": 40,
+      "batch_units": 20,
+      "building": "steam-turbine",
+      "depth": 2,
+      "direct": [
+        {
+          "item": "iron-plate",
+          "quantity": 6
+        },
+        {
+          "item": "gear",
+          "quantity": 2
+        }
+      ],
+      "effort_milli": 25000,
+      "fuel_energy_milli": 40000,
+      "kind": "generator",
+      "machine_ticks": 116,
+      "raw": [
+        {
+          "item": "ore",
+          "quantity_milli": 20000
+        }
+      ],
+      "raw_units_milli": 20000,
+      "tier": 0,
+      "unlock_technology": "steam-works"
+    },
+    {
+      "batch": [
+        {
+          "item": "ore",
+          "quantity": 2
+        }
+      ],
+      "batch_fuel_energy": 0,
+      "batch_units": 2,
+      "building": "riser",
+      "depth": 0,
+      "direct": [
+        {
+          "item": "ore",
+          "quantity": 2
+        }
+      ],
+      "effort_milli": 2000,
+      "fuel_energy_milli": 0,
+      "kind": "belt",
+      "machine_ticks": 0,
+      "raw": [
+        {
+          "item": "ore",
+          "quantity_milli": 2000
+        }
+      ],
+      "raw_units_milli": 2000,
+      "tier": 0,
+      "unlock_technology": "vertical-transport"
+    },
+    {
+      "batch": [
+        {
+          "item": "ore",
+          "quantity": 12
+        },
+        {
+          "item": "crystal",
+          "quantity": 1
+        },
+        {
+          "item": "stone",
+          "quantity": 6
+        }
+      ],
+      "batch_fuel_energy": 16,
+      "batch_units": 19,
+      "building": "extractor-ii",
+      "depth": 2,
+      "direct": [
+        {
+          "item": "ore",
+          "quantity": 4
+        },
+        {
+          "item": "crystal",
+          "quantity": 1
+        },
+        {
+          "item": "stone",
+          "quantity": 6
+        },
+        {
+          "item": "gear",
+          "quantity": 2
+        }
+      ],
+      "effort_milli": 21000,
+      "fuel_energy_milli": 16000,
+      "kind": "extractor",
+      "machine_ticks": 56,
+      "raw": [
+        {
+          "item": "ore",
+          "quantity_milli": 12000
+        },
+        {
+          "item": "crystal",
+          "quantity_milli": 1000
+        },
+        {
+          "item": "stone",
+          "quantity_milli": 6000
+        }
+      ],
+      "raw_units_milli": 19000,
+      "tier": 1,
+      "unlock_technology": "machine-tiers"
+    },
+    {
+      "batch": [
+        {
+          "item": "ore",
+          "quantity": 7
+        },
+        {
+          "item": "stone",
+          "quantity": 4
+        }
+      ],
+      "batch_fuel_energy": 8,
+      "batch_units": 11,
+      "building": "container-ii",
+      "depth": 1,
+      "direct": [
+        {
+          "item": "ore",
+          "quantity": 3
+        },
+        {
+          "item": "stone",
+          "quantity": 4
+        },
+        {
+          "item": "iron-plate",
+          "quantity": 2
+        }
+      ],
+      "effort_milli": 12000,
+      "fuel_energy_milli": 8000,
+      "kind": "container",
+      "machine_ticks": 20,
+      "raw": [
+        {
+          "item": "ore",
+          "quantity_milli": 7000
+        },
+        {
+          "item": "stone",
+          "quantity_milli": 4000
+        }
+      ],
+      "raw_units_milli": 11000,
+      "tier": 1,
+      "unlock_technology": "machine-tiers"
+    }
+  ],
+  "curve": [
+    {
+      "building": "container-ii",
+      "effort_milli": 12000,
+      "follows": "container",
+      "follows_effort_milli": 3000,
+      "holds": true,
+      "relation": "upgrade"
+    },
+    {
+      "building": "crusher",
+      "effort_milli": 16000,
+      "follows": "kiln",
+      "follows_effort_milli": 10000,
+      "holds": true,
+      "relation": "kind"
+    },
+    {
+      "building": "crusher",
+      "effort_milli": 16000,
+      "follows": "smelter",
+      "follows_effort_milli": 12000,
+      "holds": true,
+      "relation": "kind"
+    },
+    {
+      "building": "cutter",
+      "effort_milli": 13500,
+      "follows": "kiln",
+      "follows_effort_milli": 10000,
+      "holds": true,
+      "relation": "kind"
+    },
+    {
+      "building": "cutter",
+      "effort_milli": 13500,
+      "follows": "smelter",
+      "follows_effort_milli": 12000,
+      "holds": true,
+      "relation": "kind"
+    },
+    {
+      "building": "extractor-ii",
+      "effort_milli": 21000,
+      "follows": "extractor",
+      "follows_effort_milli": 5000,
+      "holds": true,
+      "relation": "kind"
+    },
+    {
+      "building": "extractor-ii",
+      "effort_milli": 21000,
+      "follows": "extractor",
+      "follows_effort_milli": 5000,
+      "holds": true,
+      "relation": "upgrade"
+    },
+    {
+      "building": "hydro-generator",
+      "effort_milli": 18333,
+      "follows": "burner-generator",
+      "follows_effort_milli": 8000,
+      "holds": true,
+      "relation": "kind"
+    },
+    {
+      "building": "riser",
+      "effort_milli": 2000,
+      "follows": "belt",
+      "follows_effort_milli": 1000,
+      "holds": true,
+      "relation": "kind"
+    },
+    {
+      "building": "steam-turbine",
+      "effort_milli": 25000,
+      "follows": "burner-generator",
+      "follows_effort_milli": 8000,
+      "holds": true,
+      "relation": "kind"
+    },
+    {
+      "building": "wind-turbine",
+      "effort_milli": 10000,
+      "follows": "burner-generator",
+      "follows_effort_milli": 8000,
+      "holds": true,
+      "relation": "kind"
+    }
+  ],
+  "extraction": [
+    {
+      "material": "ore",
+      "mean_cell_quantity": 25,
+      "mean_same_material": [81, 132],
+      "mean_site_yield": [118, 237],
+      "preset": "continental",
+      "sites": 205
+    },
+    {
+      "material": "crystal",
+      "mean_cell_quantity": 17,
+      "mean_same_material": [45, 65],
+      "mean_site_yield": [116, 246],
+      "preset": "continental",
+      "sites": 85
+    },
+    {
+      "material": "copper-ore",
+      "mean_cell_quantity": 25,
+      "mean_same_material": [77, 125],
+      "mean_site_yield": [101, 199],
+      "preset": "continental",
+      "sites": 469
+    },
+    {
+      "material": "coal",
+      "mean_cell_quantity": 19,
+      "mean_same_material": [61, 95],
+      "mean_site_yield": [66, 113],
+      "preset": "continental",
+      "sites": 444
+    },
+    {
+      "material": "stone",
+      "mean_cell_quantity": 38,
+      "mean_same_material": [63, 68],
+      "mean_site_yield": [126, 212],
+      "preset": "continental",
+      "sites": 18
+    },
+    {
+      "material": "sand",
+      "mean_cell_quantity": 28,
+      "mean_same_material": [71, 107],
+      "mean_site_yield": [81, 137],
+      "preset": "continental",
+      "sites": 219
+    },
+    {
+      "material": "clay",
+      "mean_cell_quantity": 19,
+      "mean_same_material": [57, 99],
+      "mean_site_yield": [74, 152],
+      "preset": "continental",
+      "sites": 420
+    },
+    {
+      "material": "wood",
+      "mean_cell_quantity": 16,
+      "mean_same_material": [31, 42],
+      "mean_site_yield": [98, 198],
+      "preset": "continental",
+      "sites": 111
+    },
+    {
+      "material": "ore",
+      "mean_cell_quantity": 26,
+      "mean_same_material": [71, 109],
+      "mean_site_yield": [102, 195],
+      "preset": "archipelago",
+      "sites": 257
+    },
+    {
+      "material": "crystal",
+      "mean_cell_quantity": 17,
+      "mean_same_material": [34, 50],
+      "mean_site_yield": [104, 210],
+      "preset": "archipelago",
+      "sites": 71
+    },
+    {
+      "material": "copper-ore",
+      "mean_cell_quantity": 25,
+      "mean_same_material": [65, 103],
+      "mean_site_yield": [106, 210],
+      "preset": "archipelago",
+      "sites": 319
+    },
+    {
+      "material": "coal",
+      "mean_cell_quantity": 20,
+      "mean_same_material": [52, 75],
+      "mean_site_yield": [57, 90],
+      "preset": "archipelago",
+      "sites": 418
+    },
+    {
+      "material": "stone",
+      "mean_cell_quantity": 36,
+      "mean_same_material": [69, 89],
+      "mean_site_yield": [116, 199],
+      "preset": "archipelago",
+      "sites": 89
+    },
+    {
+      "material": "sand",
+      "mean_cell_quantity": 28,
+      "mean_same_material": [53, 87],
+      "mean_site_yield": [69, 143],
+      "preset": "archipelago",
+      "sites": 337
+    },
+    {
+      "material": "clay",
+      "mean_cell_quantity": 19,
+      "mean_same_material": [43, 69],
+      "mean_site_yield": [61, 123],
+      "preset": "archipelago",
+      "sites": 377
+    },
+    {
+      "material": "wood",
+      "mean_cell_quantity": 16,
+      "mean_same_material": [29, 43],
+      "mean_site_yield": [86, 185],
+      "preset": "archipelago",
+      "sites": 108
+    },
+    {
+      "material": "ore",
+      "mean_cell_quantity": 25,
+      "mean_same_material": [108, 208],
+      "mean_site_yield": [126, 269],
+      "preset": "highlands",
+      "sites": 535
+    },
+    {
+      "material": "crystal",
+      "mean_cell_quantity": 15,
+      "mean_same_material": [48, 68],
+      "mean_site_yield": [107, 243],
+      "preset": "highlands",
+      "sites": 42
+    },
+    {
+      "material": "copper-ore",
+      "mean_cell_quantity": 25,
+      "mean_same_material": [86, 140],
+      "mean_site_yield": [109, 215],
+      "preset": "highlands",
+      "sites": 446
+    },
+    {
+      "material": "coal",
+      "mean_cell_quantity": 20,
+      "mean_same_material": [71, 120],
+      "mean_site_yield": [76, 138],
+      "preset": "highlands",
+      "sites": 783
+    },
+    {
+      "material": "stone",
+      "mean_cell_quantity": 36,
+      "mean_same_material": [116, 182],
+      "mean_site_yield": [152, 298],
+      "preset": "highlands",
+      "sites": 112
+    },
+    {
+      "material": "sand",
+      "mean_cell_quantity": 27,
+      "mean_same_material": [77, 120],
+      "mean_site_yield": [87, 150],
+      "preset": "highlands",
+      "sites": 119
+    },
+    {
+      "material": "clay",
+      "mean_cell_quantity": 21,
+      "mean_same_material": [80, 152],
+      "mean_site_yield": [91, 188],
+      "preset": "highlands",
+      "sites": 397
+    },
+    {
+      "material": "wood",
+      "mean_cell_quantity": 16,
+      "mean_same_material": [53, 84],
+      "mean_site_yield": [88, 191],
+      "preset": "highlands",
+      "sites": 98
+    },
+    {
+      "material": "ore",
+      "mean_cell_quantity": 25,
+      "mean_same_material": [103, 192],
+      "mean_site_yield": [125, 261],
+      "preset": "basin",
+      "sites": 160
+    },
+    {
+      "material": "crystal",
+      "mean_cell_quantity": 17,
+      "mean_same_material": [44, 61],
+      "mean_site_yield": [114, 269],
+      "preset": "basin",
+      "sites": 42
+    },
+    {
+      "material": "copper-ore",
+      "mean_cell_quantity": 26,
+      "mean_same_material": [100, 184],
+      "mean_site_yield": [113, 227],
+      "preset": "basin",
+      "sites": 300
+    },
+    {
+      "material": "coal",
+      "mean_cell_quantity": 20,
+      "mean_same_material": [66, 107],
+      "mean_site_yield": [70, 123],
+      "preset": "basin",
+      "sites": 382
+    },
+    {
+      "material": "stone",
+      "mean_cell_quantity": 37,
+      "mean_same_material": [121, 207],
+      "mean_site_yield": [153, 300],
+      "preset": "basin",
+      "sites": 95
+    },
+    {
+      "material": "sand",
+      "mean_cell_quantity": 28,
+      "mean_same_material": [103, 181],
+      "mean_site_yield": [108, 196],
+      "preset": "basin",
+      "sites": 242
+    },
+    {
+      "material": "clay",
+      "mean_cell_quantity": 19,
+      "mean_same_material": [76, 140],
+      "mean_site_yield": [93, 195],
+      "preset": "basin",
+      "sites": 401
+    },
+    {
+      "material": "wood",
+      "mean_cell_quantity": 16,
+      "mean_same_material": [55, 94],
+      "mean_site_yield": [95, 215],
+      "preset": "basin",
+      "sites": 186
+    }
+  ],
+  "fuel": [
+    {
+      "fuel_value": 8,
+      "gain_milli": null,
+      "input_energy": 0,
+      "item": "coal",
+      "output_energy": 8,
+      "recipe": null
+    },
+    {
+      "fuel_value": 2,
+      "gain_milli": null,
+      "input_energy": 0,
+      "item": "wood",
+      "output_energy": 2,
+      "recipe": null
+    },
+    {
+      "fuel_value": 8,
+      "gain_milli": 2000,
+      "input_energy": 4,
+      "item": "charcoal",
+      "output_energy": 8,
+      "recipe": "charcoal"
+    }
+  ],
+  "items": [
+    {
+      "depth": 0,
+      "effort_milli": 1000,
+      "fuel_energy_milli": 0,
+      "item": "ore",
+      "machine_ticks_milli": 0,
+      "raw": [
+        {
+          "item": "ore",
+          "quantity_milli": 1000
+        }
+      ],
+      "raw_units_milli": 1000
+    },
+    {
+      "depth": 1,
+      "effort_milli": 2000,
+      "fuel_energy_milli": 0,
+      "item": "component",
+      "machine_ticks_milli": 8000,
+      "raw": [
+        {
+          "item": "ore",
+          "quantity_milli": 2000
+        }
+      ],
+      "raw_units_milli": 2000
+    },
+    {
+      "depth": 0,
+      "effort_milli": 1000,
+      "fuel_energy_milli": 0,
+      "item": "crystal",
+      "machine_ticks_milli": 0,
+      "raw": [
+        {
+          "item": "crystal",
+          "quantity_milli": 1000
+        }
+      ],
+      "raw_units_milli": 1000
+    },
+    {
+      "depth": 0,
+      "effort_milli": 1000,
+      "fuel_energy_milli": 0,
+      "item": "copper-ore",
+      "machine_ticks_milli": 0,
+      "raw": [
+        {
+          "item": "copper-ore",
+          "quantity_milli": 1000
+        }
+      ],
+      "raw_units_milli": 1000
+    },
+    {
+      "depth": 0,
+      "effort_milli": 1000,
+      "fuel_energy_milli": 0,
+      "item": "coal",
+      "machine_ticks_milli": 0,
+      "raw": [
+        {
+          "item": "coal",
+          "quantity_milli": 1000
+        }
+      ],
+      "raw_units_milli": 1000
+    },
+    {
+      "depth": 0,
+      "effort_milli": 1000,
+      "fuel_energy_milli": 0,
+      "item": "stone",
+      "machine_ticks_milli": 0,
+      "raw": [
+        {
+          "item": "stone",
+          "quantity_milli": 1000
+        }
+      ],
+      "raw_units_milli": 1000
+    },
+    {
+      "depth": 0,
+      "effort_milli": 1000,
+      "fuel_energy_milli": 0,
+      "item": "sand",
+      "machine_ticks_milli": 0,
+      "raw": [
+        {
+          "item": "sand",
+          "quantity_milli": 1000
+        }
+      ],
+      "raw_units_milli": 1000
+    },
+    {
+      "depth": 0,
+      "effort_milli": 1000,
+      "fuel_energy_milli": 0,
+      "item": "clay",
+      "machine_ticks_milli": 0,
+      "raw": [
+        {
+          "item": "clay",
+          "quantity_milli": 1000
+        }
+      ],
+      "raw_units_milli": 1000
+    },
+    {
+      "depth": 0,
+      "effort_milli": 1000,
+      "fuel_energy_milli": 0,
+      "item": "wood",
+      "machine_ticks_milli": 0,
+      "raw": [
+        {
+          "item": "wood",
+          "quantity_milli": 1000
+        }
+      ],
+      "raw_units_milli": 1000
+    },
+    {
+      "depth": 0,
+      "effort_milli": 1000,
+      "fuel_energy_milli": 0,
+      "item": "water",
+      "machine_ticks_milli": 0,
+      "raw": [
+        {
+          "item": "water",
+          "quantity_milli": 1000
+        }
+      ],
+      "raw_units_milli": 1000
+    },
+    {
+      "depth": 1,
+      "effort_milli": 2500,
+      "fuel_energy_milli": 4000,
+      "item": "iron-plate",
+      "machine_ticks_milli": 10000,
+      "raw": [
+        {
+          "item": "ore",
+          "quantity_milli": 2000
+        }
+      ],
+      "raw_units_milli": 2000
+    },
+    {
+      "depth": 1,
+      "effort_milli": 2500,
+      "fuel_energy_milli": 4000,
+      "item": "copper-plate",
+      "machine_ticks_milli": 10000,
+      "raw": [
+        {
+          "item": "copper-ore",
+          "quantity_milli": 2000
+        }
+      ],
+      "raw_units_milli": 2000
+    },
+    {
+      "depth": 1,
+      "effort_milli": 2625,
+      "fuel_energy_milli": 5000,
+      "item": "glass",
+      "machine_ticks_milli": 12000,
+      "raw": [
+        {
+          "item": "sand",
+          "quantity_milli": 2000
+        }
+      ],
+      "raw_units_milli": 2000
+    },
+    {
+      "depth": 1,
+      "effort_milli": 833,
+      "fuel_energy_milli": 1333,
+      "item": "brick",
+      "machine_ticks_milli": 4000,
+      "raw": [
+        {
+          "item": "clay",
+          "quantity_milli": 667
+        }
+      ],
+      "raw_units_milli": 667
+    },
+    {
+      "depth": 1,
+      "effort_milli": 2000,
+      "fuel_energy_milli": 0,
+      "item": "charcoal",
+      "machine_ticks_milli": 10000,
+      "raw": [
+        {
+          "item": "wood",
+          "quantity_milli": 2000
+        }
+      ],
+      "raw_units_milli": 2000
+    },
+    {
+      "depth": 1,
+      "effort_milli": 500,
+      "fuel_energy_milli": 0,
+      "item": "timber",
+      "machine_ticks_milli": 3000,
+      "raw": [
+        {
+          "item": "wood",
+          "quantity_milli": 500
+        }
+      ],
+      "raw_units_milli": 500
+    },
+    {
+      "depth": 1,
+      "effort_milli": 500,
+      "fuel_energy_milli": 0,
+      "item": "gravel",
+      "machine_ticks_milli": 3000,
+      "raw": [
+        {
+          "item": "stone",
+          "quantity_milli": 500
+        }
+      ],
+      "raw_units_milli": 500
+    },
+    {
+      "depth": 2,
+      "effort_milli": 1250,
+      "fuel_energy_milli": 2000,
+      "item": "copper-wire",
+      "machine_ticks_milli": 8000,
+      "raw": [
+        {
+          "item": "copper-ore",
+          "quantity_milli": 1000
+        }
+      ],
+      "raw_units_milli": 1000
+    },
+    {
+      "depth": 2,
+      "effort_milli": 5000,
+      "fuel_energy_milli": 8000,
+      "item": "gear",
+      "machine_ticks_milli": 28000,
+      "raw": [
+        {
+          "item": "ore",
+          "quantity_milli": 4000
+        }
+      ],
+      "raw_units_milli": 4000
+    },
+    {
+      "depth": 2,
+      "effort_milli": 3500,
+      "fuel_energy_milli": 4000,
+      "item": "frame",
+      "machine_ticks_milli": 26000,
+      "raw": [
+        {
+          "item": "ore",
+          "quantity_milli": 2000
+        },
+        {
+          "item": "wood",
+          "quantity_milli": 1000
+        }
+      ],
+      "raw_units_milli": 3000
+    },
+    {
+      "depth": 2,
+      "effort_milli": 1500,
+      "fuel_energy_milli": 0,
+      "item": "concrete",
+      "machine_ticks_milli": 9000,
+      "raw": [
+        {
+          "item": "stone",
+          "quantity_milli": 500
+        },
+        {
+          "item": "sand",
+          "quantity_milli": 500
+        },
+        {
+          "item": "water",
+          "quantity_milli": 500
+        }
+      ],
+      "raw_units_milli": 1500
+    },
+    {
+      "depth": 3,
+      "effort_milli": 6375,
+      "fuel_energy_milli": 11000,
+      "item": "circuit",
+      "machine_ticks_milli": 50000,
+      "raw": [
+        {
+          "item": "copper-ore",
+          "quantity_milli": 3000
+        },
+        {
+          "item": "sand",
+          "quantity_milli": 2000
+        }
+      ],
+      "raw_units_milli": 5000
+    },
+    {
+      "depth": 2,
+      "effort_milli": 8000,
+      "fuel_energy_milli": 16000,
+      "item": "steel",
+      "machine_ticks_milli": 40000,
+      "raw": [
+        {
+          "item": "ore",
+          "quantity_milli": 4000
+        },
+        {
+          "item": "coal",
+          "quantity_milli": 2000
+        }
+      ],
+      "raw_units_milli": 6000
+    }
+  ],
+  "machines": [
+    {
+      "building": "extractor",
+      "fuel_energy_per_cycle": 0,
+      "fuel_energy_per_minute_milli": 0,
+      "inputs_per_minute": [],
+      "output_item": null,
+      "output_per_cycle": 1,
+      "per_minute_milli": 120000,
+      "power_draw": 4,
+      "recipe": null,
+      "ticks_per_cycle": 5
+    },
+    {
+      "building": "composer",
+      "fuel_energy_per_cycle": 0,
+      "fuel_energy_per_minute_milli": 0,
+      "inputs_per_minute": [
+        {
+          "item": "ore",
+          "quantity_milli": 150000
+        }
+      ],
+      "output_item": "component",
+      "output_per_cycle": 1,
+      "per_minute_milli": 75000,
+      "power_draw": 8,
+      "recipe": "component",
+      "ticks_per_cycle": 8
+    },
+    {
+      "building": "composer",
+      "fuel_energy_per_cycle": 0,
+      "fuel_energy_per_minute_milli": 0,
+      "inputs_per_minute": [
+        {
+          "item": "copper-plate",
+          "quantity_milli": 100000
+        }
+      ],
+      "output_item": "copper-wire",
+      "output_per_cycle": 2,
+      "per_minute_milli": 200000,
+      "power_draw": 8,
+      "recipe": "copper-wire",
+      "ticks_per_cycle": 6
+    },
+    {
+      "building": "composer",
+      "fuel_energy_per_cycle": 0,
+      "fuel_energy_per_minute_milli": 0,
+      "inputs_per_minute": [
+        {
+          "item": "iron-plate",
+          "quantity_milli": 150000
+        }
+      ],
+      "output_item": "gear",
+      "output_per_cycle": 1,
+      "per_minute_milli": 75000,
+      "power_draw": 8,
+      "recipe": "gear",
+      "ticks_per_cycle": 8
+    },
+    {
+      "building": "composer",
+      "fuel_energy_per_cycle": 0,
+      "fuel_energy_per_minute_milli": 0,
+      "inputs_per_minute": [
+        {
+          "item": "timber",
+          "quantity_milli": 120000
+        },
+        {
+          "item": "iron-plate",
+          "quantity_milli": 60000
+        }
+      ],
+      "output_item": "frame",
+      "output_per_cycle": 1,
+      "per_minute_milli": 60000,
+      "power_draw": 8,
+      "recipe": "frame",
+      "ticks_per_cycle": 10
+    },
+    {
+      "building": "composer",
+      "fuel_energy_per_cycle": 0,
+      "fuel_energy_per_minute_milli": 0,
+      "inputs_per_minute": [
+        {
+          "item": "gravel",
+          "quantity_milli": 100000
+        },
+        {
+          "item": "sand",
+          "quantity_milli": 50000
+        },
+        {
+          "item": "water",
+          "quantity_milli": 50000
+        }
+      ],
+      "output_item": "concrete",
+      "output_per_cycle": 2,
+      "per_minute_milli": 100000,
+      "power_draw": 8,
+      "recipe": "concrete",
+      "ticks_per_cycle": 12
+    },
+    {
+      "building": "composer",
+      "fuel_energy_per_cycle": 0,
+      "fuel_energy_per_minute_milli": 0,
+      "inputs_per_minute": [
+        {
+          "item": "glass",
+          "quantity_milli": 42857
+        },
+        {
+          "item": "copper-wire",
+          "quantity_milli": 128571
+        }
+      ],
+      "output_item": "circuit",
+      "output_per_cycle": 1,
+      "per_minute_milli": 42857,
+      "power_draw": 8,
+      "recipe": "circuit",
+      "ticks_per_cycle": 14
+    },
+    {
+      "building": "smelter",
+      "fuel_energy_per_cycle": 4,
+      "fuel_energy_per_minute_milli": 240000,
+      "inputs_per_minute": [
+        {
+          "item": "ore",
+          "quantity_milli": 120000
+        }
+      ],
+      "output_item": "iron-plate",
+      "output_per_cycle": 1,
+      "per_minute_milli": 60000,
+      "power_draw": 10,
+      "recipe": "iron-plate",
+      "ticks_per_cycle": 10
+    },
+    {
+      "building": "smelter",
+      "fuel_energy_per_cycle": 4,
+      "fuel_energy_per_minute_milli": 240000,
+      "inputs_per_minute": [
+        {
+          "item": "copper-ore",
+          "quantity_milli": 120000
+        }
+      ],
+      "output_item": "copper-plate",
+      "output_per_cycle": 1,
+      "per_minute_milli": 60000,
+      "power_draw": 10,
+      "recipe": "copper-plate",
+      "ticks_per_cycle": 10
+    },
+    {
+      "building": "smelter",
+      "fuel_energy_per_cycle": 5,
+      "fuel_energy_per_minute_milli": 250000,
+      "inputs_per_minute": [
+        {
+          "item": "sand",
+          "quantity_milli": 100000
+        }
+      ],
+      "output_item": "glass",
+      "output_per_cycle": 1,
+      "per_minute_milli": 50000,
+      "power_draw": 10,
+      "recipe": "glass",
+      "ticks_per_cycle": 12
+    },
+    {
+      "building": "smelter",
+      "fuel_energy_per_cycle": 8,
+      "fuel_energy_per_minute_milli": 240000,
+      "inputs_per_minute": [
+        {
+          "item": "iron-plate",
+          "quantity_milli": 60000
+        },
+        {
+          "item": "coal",
+          "quantity_milli": 60000
+        }
+      ],
+      "output_item": "steel",
+      "output_per_cycle": 1,
+      "per_minute_milli": 30000,
+      "power_draw": 10,
+      "recipe": "steel",
+      "ticks_per_cycle": 20
+    },
+    {
+      "building": "kiln",
+      "fuel_energy_per_cycle": 4,
+      "fuel_energy_per_minute_milli": 200000,
+      "inputs_per_minute": [
+        {
+          "item": "clay",
+          "quantity_milli": 100000
+        }
+      ],
+      "output_item": "brick",
+      "output_per_cycle": 3,
+      "per_minute_milli": 150000,
+      "power_draw": 10,
+      "recipe": "brick",
+      "ticks_per_cycle": 12
+    },
+    {
+      "building": "kiln",
+      "fuel_energy_per_cycle": 0,
+      "fuel_energy_per_minute_milli": 0,
+      "inputs_per_minute": [
+        {
+          "item": "wood",
+          "quantity_milli": 120000
+        }
+      ],
+      "output_item": "charcoal",
+      "output_per_cycle": 1,
+      "per_minute_milli": 60000,
+      "power_draw": 10,
+      "recipe": "charcoal",
+      "ticks_per_cycle": 10
+    },
+    {
+      "building": "cutter",
+      "fuel_energy_per_cycle": 0,
+      "fuel_energy_per_minute_milli": 0,
+      "inputs_per_minute": [
+        {
+          "item": "wood",
+          "quantity_milli": 100000
+        }
+      ],
+      "output_item": "timber",
+      "output_per_cycle": 2,
+      "per_minute_milli": 200000,
+      "power_draw": 8,
+      "recipe": "timber",
+      "ticks_per_cycle": 6
+    },
+    {
+      "building": "crusher",
+      "fuel_energy_per_cycle": 0,
+      "fuel_energy_per_minute_milli": 0,
+      "inputs_per_minute": [
+        {
+          "item": "stone",
+          "quantity_milli": 100000
+        }
+      ],
+      "output_item": "gravel",
+      "output_per_cycle": 2,
+      "per_minute_milli": 200000,
+      "power_draw": 8,
+      "recipe": "gravel",
+      "ticks_per_cycle": 6
+    },
+    {
+      "building": "pump",
+      "fuel_energy_per_cycle": 0,
+      "fuel_energy_per_minute_milli": 0,
+      "inputs_per_minute": [],
+      "output_item": "water",
+      "output_per_cycle": 1,
+      "per_minute_milli": 300000,
+      "power_draw": 4,
+      "recipe": null,
+      "ticks_per_cycle": 2
+    },
+    {
+      "building": "extractor-ii",
+      "fuel_energy_per_cycle": 0,
+      "fuel_energy_per_minute_milli": 0,
+      "inputs_per_minute": [],
+      "output_item": null,
+      "output_per_cycle": 1,
+      "per_minute_milli": 150000,
+      "power_draw": 7,
+      "recipe": null,
+      "ticks_per_cycle": 4
+    }
+  ],
+  "openings": [
+    {
+      "buildings": ["smelter"],
+      "fuel_energy": 0,
+      "fuel_items": 0,
+      "gather_total": 19,
+      "gathers": [
+        {
+          "item": "ore",
+          "quantity": 4
+        },
+        {
+          "item": "stone",
+          "quantity": 8
+        }
+      ],
+      "hand_seconds_milli": 9500,
+      "insight": 14,
+      "insight_items": 7,
+      "machine_seconds_milli": 0,
+      "machine_ticks": 0,
+      "name": "first smelter",
+      "technologies": [
+        "field-logistics",
+        "automated-extraction",
+        "material-processing"
+      ]
+    },
+    {
+      "buildings": ["burner-generator", "pole"],
+      "fuel_energy": 0,
+      "fuel_items": 0,
+      "gather_total": 13,
+      "gathers": [
+        {
+          "item": "ore",
+          "quantity": 5
+        },
+        {
+          "item": "stone",
+          "quantity": 4
+        }
+      ],
+      "hand_seconds_milli": 6500,
+      "insight": 7,
+      "insight_items": 4,
+      "machine_seconds_milli": 0,
+      "machine_ticks": 0,
+      "name": "first power",
+      "technologies": ["field-logistics", "on-site-power"]
+    },
+    {
+      "buildings": ["composer", "smelter"],
+      "fuel_energy": 13,
+      "fuel_items": 2,
+      "gather_total": 39,
+      "gathers": [
+        {
+          "item": "ore",
+          "quantity": 9
+        },
+        {
+          "item": "crystal",
+          "quantity": 3
+        },
+        {
+          "item": "copper-ore",
+          "quantity": 4
+        },
+        {
+          "item": "stone",
+          "quantity": 8
+        },
+        {
+          "item": "sand",
+          "quantity": 2
+        }
+      ],
+      "hand_seconds_milli": 19500,
+      "insight": 22,
+      "insight_items": 11,
+      "machine_seconds_milli": 5800,
+      "machine_ticks": 58,
+      "name": "first circuit",
+      "technologies": [
+        "field-logistics",
+        "automated-extraction",
+        "composition",
+        "material-processing"
+      ]
+    }
+  ],
+  "power": [
+    {
+      "building": "burner-generator",
+      "carries": [
+        {
+          "building": "extractor",
+          "machines": 5,
+          "power_draw": 4
+        },
+        {
+          "building": "composer",
+          "machines": 2,
+          "power_draw": 8
+        },
+        {
+          "building": "smelter",
+          "machines": 2,
+          "power_draw": 10
+        },
+        {
+          "building": "kiln",
+          "machines": 2,
+          "power_draw": 10
+        },
+        {
+          "building": "cutter",
+          "machines": 2,
+          "power_draw": 8
+        },
+        {
+          "building": "crusher",
+          "machines": 2,
+          "power_draw": 8
+        },
+        {
+          "building": "pump",
+          "machines": 5,
+          "power_draw": 4
+        },
+        {
+          "building": "extractor-ii",
+          "machines": 2,
+          "power_draw": 7
+        }
+      ],
+      "fuel_energy_per_tick": 1,
+      "net_output": 20,
+      "output": 20,
+      "pumps_required": 0,
+      "requires": null,
+      "source": "burner",
+      "ticks_per_fuel_item": 8,
+      "upkeep_draw": 0,
+      "water_per_tick": 0
+    },
+    {
+      "building": "wind-turbine",
+      "carries": [
+        {
+          "building": "extractor",
+          "machines": 3,
+          "power_draw": 4
+        },
+        {
+          "building": "composer",
+          "machines": 1,
+          "power_draw": 8
+        },
+        {
+          "building": "smelter",
+          "machines": 1,
+          "power_draw": 10
+        },
+        {
+          "building": "kiln",
+          "machines": 1,
+          "power_draw": 10
+        },
+        {
+          "building": "cutter",
+          "machines": 1,
+          "power_draw": 8
+        },
+        {
+          "building": "crusher",
+          "machines": 1,
+          "power_draw": 8
+        },
+        {
+          "building": "pump",
+          "machines": 3,
+          "power_draw": 4
+        },
+        {
+          "building": "extractor-ii",
+          "machines": 1,
+          "power_draw": 7
+        }
+      ],
+      "fuel_energy_per_tick": 0,
+      "net_output": 12,
+      "output": 12,
+      "pumps_required": 0,
+      "requires": null,
+      "source": "wind",
+      "ticks_per_fuel_item": 0,
+      "upkeep_draw": 0,
+      "water_per_tick": 0
+    },
+    {
+      "building": "hydro-generator",
+      "carries": [
+        {
+          "building": "extractor",
+          "machines": 6,
+          "power_draw": 4
+        },
+        {
+          "building": "composer",
+          "machines": 3,
+          "power_draw": 8
+        },
+        {
+          "building": "smelter",
+          "machines": 2,
+          "power_draw": 10
+        },
+        {
+          "building": "kiln",
+          "machines": 2,
+          "power_draw": 10
+        },
+        {
+          "building": "cutter",
+          "machines": 3,
+          "power_draw": 8
+        },
+        {
+          "building": "crusher",
+          "machines": 3,
+          "power_draw": 8
+        },
+        {
+          "building": "pump",
+          "machines": 6,
+          "power_draw": 4
+        },
+        {
+          "building": "extractor-ii",
+          "machines": 3,
+          "power_draw": 7
+        }
+      ],
+      "fuel_energy_per_tick": 0,
+      "net_output": 24,
+      "output": 24,
+      "pumps_required": 0,
+      "requires": null,
+      "source": "hydro",
+      "ticks_per_fuel_item": 0,
+      "upkeep_draw": 0,
+      "water_per_tick": 0
+    },
+    {
+      "building": "steam-turbine",
+      "carries": [
+        {
+          "building": "extractor",
+          "machines": 10,
+          "power_draw": 4
+        },
+        {
+          "building": "composer",
+          "machines": 5,
+          "power_draw": 8
+        },
+        {
+          "building": "smelter",
+          "machines": 4,
+          "power_draw": 10
+        },
+        {
+          "building": "kiln",
+          "machines": 4,
+          "power_draw": 10
+        },
+        {
+          "building": "cutter",
+          "machines": 5,
+          "power_draw": 8
+        },
+        {
+          "building": "crusher",
+          "machines": 5,
+          "power_draw": 8
+        },
+        {
+          "building": "pump",
+          "machines": 10,
+          "power_draw": 4
+        },
+        {
+          "building": "extractor-ii",
+          "machines": 5,
+          "power_draw": 7
+        }
+      ],
+      "fuel_energy_per_tick": 1,
+      "net_output": 40,
+      "output": 48,
+      "pumps_required": 2,
+      "requires": "boiler",
+      "source": "turbine",
+      "ticks_per_fuel_item": 8,
+      "upkeep_draw": 8,
+      "water_per_tick": 1
+    }
+  ],
+  "reference": {
+    "best_fuel_item": "coal",
+    "best_fuel_value": 8,
+    "cells_in_reach": [7, 19],
+    "definition_version": 8,
+    "gather_cooldown_steps": 15,
+    "hand_items_per_minute": 120,
+    "landing_clearing": [
+      {
+        "item": "ore",
+        "quantity": 48
+      },
+      {
+        "item": "crystal",
+        "quantity": 32
+      },
+      {
+        "item": "copper-ore",
+        "quantity": 40
+      },
+      {
+        "item": "coal",
+        "quantity": 28
+      },
+      {
+        "item": "stone",
+        "quantity": 40
+      },
+      {
+        "item": "sand",
+        "quantity": 30
+      },
+      {
+        "item": "clay",
+        "quantity": 26
+      },
+      {
+        "item": "wood",
+        "quantity": 14
+      }
+    ],
+    "landing_clearing_total": 258,
+    "player_ticks_per_second": 30,
+    "technology_version": 4,
+    "ticks_per_second": 10
+  }
+}

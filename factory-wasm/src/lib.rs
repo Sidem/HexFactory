@@ -7,6 +7,13 @@ use wasm_bindgen::prelude::*;
 /// The binary encoding the snapshot delta crosses the worker boundary in.
 mod wire;
 
+/// Derived economy figures: what the shipped numbers actually say the curve is.
+///
+/// Measurement code like the capacity ladder and the survey, and native only for the same reason:
+/// nothing here runs a tick, and the wasm artifact the game ships must not carry it.
+#[cfg(not(target_arch = "wasm32"))]
+pub mod balance;
+
 type ItemId = u16;
 type RecipeId = u16;
 type DefinitionId = u16;
@@ -88,9 +95,17 @@ const PLAYER_RADIUS: i32 = 580;
 const BUILDING_RADIUS: i32 = 690;
 /// Player steps between one gather and the next. Counted on the player's own cadence like the
 /// walk, so holding the action key harvests at one rate whether the factory is paused, running at
-/// 4 tps, or running at 60. Six steps is the 0.2s the old two-tick cooldown was worth at the
-/// default simulation speed, which is the pace the action was tuned at.
-const GATHER_COOLDOWN_STEPS: u32 = 6;
+/// 4 tps, or running at 60.
+///
+/// **Fifteen steps is one extractor.** The value was six — 0.2s, inherited from a two-tick
+/// cooldown — which is 300 items a minute against an extractor's 120 at the default simulation
+/// speed, so the first machine a player built was two and a half times slower than the hands it
+/// was supposed to replace. That is a curve inversion at the very start of the game and no cost
+/// row could show it. At fifteen the hand is worth exactly one extractor working the same seven
+/// cells, so what automation buys is not a bigger number: it is that the player can walk away.
+/// `fixtures/balance.json` pins the equality, and v0.17's write-up in `docs/HEXFACTORY-PLAN.md`
+/// is where the reasoning lives.
+const GATHER_COOLDOWN_STEPS: u32 = 15;
 const HUB_RANGE: i32 = 1900;
 /// How far from the player an `aim` target may sit, in world units — about 600,000 hexes, which is
 /// far past anything a viewport can be showing. It is a bound on a command, not a play rule: the
@@ -9386,6 +9401,211 @@ mod tests {
         assert_eq!(
             generated, recorded,
             "the wire format moved; the TypeScript decoder has to move with it"
+        );
+    }
+
+    /// The economy's own fixture, in the role `fixtures/hex-directions.json` plays for the
+    /// direction table and `fixtures/snapshot-delta-wire.json` plays for the wire.
+    ///
+    /// Balance was the one system here with no representation: the costs were data, but every
+    /// figure that decides whether the data works — items per minute, what a generator carries,
+    /// what a building costs once its inputs are expanded to raw materials — existed nowhere and
+    /// was checked by nothing. This is that file. Rust computes it from the shipped catalogues and
+    /// `tests/balance.test.ts` recomputes the cost trees in TypeScript against the same
+    /// `definitions.json`, so the recorded numbers are pinned by two independent expansions rather
+    /// than by one implementation agreeing with its own output.
+    ///
+    /// Regenerate with `UPDATE_BALANCE_FIXTURE=1 cargo test balance_fixture`, then
+    /// `npx prettier --write fixtures/balance.json` because serde and prettier disagree about
+    /// short arrays, and read the diff: a change here is a change to what the game plays like, and
+    /// it should be one somebody meant. The comparison is over parsed JSON, so the formatting pass
+    /// cannot change what the test asserts.
+    #[test]
+    fn balance_fixture_pins_the_economy_for_both_languages() {
+        let generated = serde_json::to_value(balance::compute()).unwrap();
+        let path =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../fixtures/balance.json");
+        if std::env::var("UPDATE_BALANCE_FIXTURE").is_ok() {
+            let mut text = serde_json::to_string_pretty(&generated).unwrap();
+            text.push('\n');
+            std::fs::write(&path, text).unwrap();
+        }
+        let recorded: serde_json::Value = serde_json::from_str(
+            &std::fs::read_to_string(&path)
+                .expect("fixtures/balance.json exists — regenerate with UPDATE_BALANCE_FIXTURE=1"),
+        )
+        .unwrap();
+        assert_eq!(
+            generated, recorded,
+            "the economy moved; say so in the plan and regenerate the fixture"
+        );
+    }
+
+    /// The stated curve, and the proof that stating it is not the same as describing it.
+    ///
+    /// Two rules, both claims about the data rather than about taste. A tier costs strictly more
+    /// than the tier it upgrades from, and a machine costs no less than a machine of the same kind
+    /// whose technology it is unlocked behind. The negative case is the point: put the cutter's
+    /// stone back to the four it shipped with through v0.16 and the curve breaks, because a cutter
+    /// two technologies past a smelter cost less than the smelter.
+    #[test]
+    fn every_step_of_the_curve_holds_and_a_broken_one_is_caught() {
+        let report = balance::compute();
+        assert!(!report.curve.is_empty());
+        for step in &report.curve {
+            assert!(
+                step.holds,
+                "{} ({}) follows {} ({}) by {} and does not cost more",
+                step.building,
+                step.effort_milli,
+                step.follows,
+                step.follows_effort_milli,
+                step.relation
+            );
+        }
+
+        let mut broken: DefinitionsInput = serde_json::from_str(DEFINITIONS).unwrap();
+        let technologies: TechnologiesInput = serde_json::from_str(TECHNOLOGIES).unwrap();
+        let cutter = broken
+            .buildings
+            .iter_mut()
+            .find(|building| building.key == "cutter")
+            .expect("the cutter is in the catalogue");
+        let stone = cutter
+            .construction_cost
+            .iter_mut()
+            .find(|ingredient| ingredient.item_id == STONE)
+            .expect("a cutter is built out of stone");
+        stone.quantity = 4;
+        let broken = balance::compute_from(broken, technologies);
+        assert!(
+            broken.curve.iter().any(|step| !step.holds),
+            "a cheaper-than-its-predecessor building has to fail the curve"
+        );
+    }
+
+    /// The two rates a player compares without being told they are comparing them: their own
+    /// hands, and the first machine that replaces them.
+    ///
+    /// These are measured against the same wall clock and they must not invert. Through v0.16 the
+    /// hand ran at 300 items a minute against an extractor's 120, so the first automation in the
+    /// game was two and a half times slower than doing it yourself — invisible in every cost row,
+    /// because it is not a cost. At `GATHER_COOLDOWN_STEPS` of fifteen they are equal, and what an
+    /// extractor buys is that the player can walk away from it.
+    #[test]
+    fn one_extractor_is_worth_exactly_the_hands_it_frees() {
+        let report = balance::compute();
+        let extractor = report
+            .machines
+            .iter()
+            .find(|machine| machine.building == "extractor")
+            .expect("the extractor is a machine");
+        assert_eq!(
+            u64::from(report.reference.hand_items_per_minute) * 1000,
+            extractor.per_minute_milli
+        );
+        // Both work the same seven cells: reach is what an upgrade buys, never what a hand grows.
+        assert_eq!(report.reference.cells_in_reach.first(), Some(&7));
+    }
+
+    /// A fuel recipe that hands back the energy it was given is a recipe with no reason to run.
+    ///
+    /// Charcoal was exactly that: two wood at two energy each into one charcoal at four, for a
+    /// kiln, ten ticks, and a hundred power. Fuel is a property of the item, so this is the one
+    /// place the round trip can be checked at all — nothing in a recipe row knows what its inputs
+    /// burn for.
+    #[test]
+    fn every_fuel_conversion_ends_up_ahead() {
+        let report = balance::compute();
+        let converted: Vec<_> = report
+            .fuel
+            .iter()
+            .filter(|entry| entry.recipe.is_some())
+            .collect();
+        assert!(!converted.is_empty(), "some fuel is crafted");
+        for entry in converted {
+            assert!(
+                entry.gain_milli.unwrap_or(0) > 1000,
+                "{} returns {} energy for {} — it costs a machine to break even",
+                entry.item,
+                entry.output_energy,
+                entry.input_energy
+            );
+        }
+    }
+
+    /// Every material the economy bottoms out in can actually be had, from the site the game
+    /// starts you on, under the preset it starts you in.
+    ///
+    /// Two separate questions, and the second is the one that bites: stone is generated on cliffs
+    /// that nothing can stand on, so "the world holds some" and "you can reach some" are different
+    /// claims and only the second one makes it a material rather than scenery.
+    #[test]
+    fn every_recipe_input_is_reachable_from_the_landing_site() {
+        let report = balance::compute();
+        assert!(report.access.len() >= 9, "eight fields and water");
+        for material in &report.access {
+            assert!(
+                material.reachable,
+                "{} is required by {} rows and nothing can reach any of it",
+                material.material, material.required_by
+            );
+            assert!(
+                material.landing_quantity > 0 || material.nearest_generated.is_some(),
+                "{} is required by {} rows and the default world generates none",
+                material.material,
+                material.required_by
+            );
+        }
+        // Water is nobody's field: a pump makes it out of terrain, so it is the one material with
+        // no cell in the clearing and it still has to be within reach of it.
+        let water = report
+            .access
+            .iter()
+            .find(|material| material.material == "water")
+            .expect("water is a raw material");
+        assert_eq!(water.landing_quantity, 0);
+        assert!(water.nearest_generated.unwrap_or(u32::MAX) <= LANDING_CLEAR_RADIUS as u32);
+    }
+
+    /// A generator whose upkeep eats its own output is not a generator.
+    ///
+    /// A boiler drinks one water every tick it runs and a turbine is dead without one beside it,
+    /// so the pumps are part of the plant whether or not the definition file says so. Through
+    /// v0.16 the pump made one water every six ticks, which is six pumps drawing 24 of the
+    /// turbine's 48 before a single machine ran — leaving the mid-game workhorse behind a hydro
+    /// generator that cost exactly the same and needed neither fuel nor plumbing.
+    #[test]
+    fn every_generator_is_worth_more_than_its_own_upkeep() {
+        let report = balance::compute();
+        for plant in &report.power {
+            assert!(
+                plant.net_output > 0,
+                "{} produces {} and spends {} keeping itself fed",
+                plant.building,
+                plant.output,
+                plant.upkeep_draw
+            );
+        }
+        // The one that burns fuel and drinks water is the one that carries the most, or the cost
+        // of running it buys nothing.
+        let best_free = report
+            .power
+            .iter()
+            .filter(|plant| plant.fuel_energy_per_tick == 0)
+            .map(|plant| plant.net_output)
+            .max()
+            .unwrap_or(0);
+        let steam = report
+            .power
+            .iter()
+            .find(|plant| plant.source == "turbine")
+            .expect("steam is in the catalogue");
+        assert!(
+            steam.net_output > best_free,
+            "steam nets {} against {} for a generator that needs nothing",
+            steam.net_output,
+            best_free
         );
     }
 

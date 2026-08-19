@@ -19,14 +19,16 @@ direction table as the riser, a right-click that harvests one named hex, and two
 with containers. Save version 7, definition version 7, technology version 4. The shipped record is
 the section below; the brief it was built from is kept beneath it.
 
-**Generated Shapes shipped as v0.15 and World Parameters as v0.16.** Two of the three named
-milestones are done, and neither was a new play system: a building's drawing is a part list from an
-eight-part vocabulary that a tier modifies, and a world is now a seed plus a `WorldParams` that
-travels in the save and the checksum. `WORLD_GENERATOR_VERSION` is 6, four presets ship as data
-rows, and `npm run survey` is what every claim any of them makes about its own landscape comes
-from. **One milestone is left in the arc: v0.17 Balance**, and it was always third because balance
-is tuned against resource density and v0.16 is what turned density into a parameter. Its brief is
-the section below the two shipped records.
+**The generator arc is finished: Generated Shapes as v0.15, World Parameters as v0.16, and Balance
+as v0.17.** None of the three was a play system, and each replaced a hardcoded thing with a
+generated one. A building's drawing is a part list from an eight-part vocabulary that a tier
+modifies. A world is a seed plus a `WorldParams` that travels in the save and the checksum,
+`WORLD_GENERATOR_VERSION` is 6, four presets ship as data rows, and `npm run survey` is what every
+claim any of them makes about its own landscape comes from. **And the economy now states its own
+curve**: `fixtures/balance.json` is every figure that decides whether the numbers work — items per
+minute, what a generator carries, and the full raw-material cost of every building expanded
+through its whole recipe tree — computed from the shipped catalogues and pinned in both languages.
+Definition version is 8, because the first pass at the numbers moved six of them.
 
 The play candidates the deferred list already holds — animals/biomatter/waste as one milestone,
 fluid networks, intermittent generation with accumulators, plus tunnels, which v0.14 left out and
@@ -368,6 +370,171 @@ parameterization.
 - The band histogram for each shipped preset is recorded in the notes, not estimated.
 - Every preset reaches all eight raw materials from the landing site, asserted.
 - Save round-trip and checksum cover `WorldParams`; a version-5 envelope is rejected.
+
+## Shipped milestone — Balance v0.17
+
+Shipped 2026-08-19. The brief below is kept as written; this section records what it became.
+
+**`fixtures/balance.json` is the representation balance did not have.** It carries nine sections —
+the reference units, machine rates, power plants, fuel conversions, item costs, building costs, the
+curve, material access, site yields, and the openings — computed from `definitions.json` and
+`technologies.json` by `factory-wasm/src/balance.rs` and asserted in test. `npm run balance` prints
+the readable form. Regenerate with `UPDATE_BALANCE_FIXTURE=1 cargo test balance_fixture`, then
+`npx prettier --write fixtures/balance.json`, because serde and prettier disagree about short
+arrays; the assertion is over parsed JSON, so the formatting pass cannot change what it checks.
+
+**It lives in Rust because every figure in it is a restatement of a rule the tick implements.**
+Items per minute restates `advance_composer`, machines carried restates `power_progress`, and a
+site's yield restates `deposit_candidates` walking its whole list regardless of which material a
+cell holds. Computing those in the host would be a second implementation of native truth, which is
+the defect this project has refused everywhere else. The module is native-only for the same reason
+the survey and the capacity ladder are: nothing in it runs a tick, and the wasm artifact must not
+carry it.
+
+**The expansion is exact rational arithmetic, and it rounds once.** A kiln fires three bricks at a
+time, so a pump wanting four costs four thirds of a batch; rounding that at every level of a tree
+and then comparing two buildings compares rounding errors. Costs are carried as `i128` fractions
+and written down in thousandths, rounded half up, at the edge. Both the proportional cost and the
+**batch** cost are reported — the second is what a player actually spends, crafting whole batches
+and eating the leftovers, and the gap between them is the lumpiness.
+
+**TypeScript recomputes the arithmetic rather than reading it back.** `tests/balance.test.ts`
+implements the tree expansion, the fuel round trip, and the machine rates a second time, against
+the same `definitions.json`, and asserts it lands on the same numbers. That is what makes the
+fixture evidence: one implementation agreeing with its own output would say only that the file was
+written. What is _not_ recomputed there is what a preset generates and what a site is worth, because
+re-deriving those in the host would be a second world generator.
+
+### What the tool found in its first run, and what moved
+
+Six numbers changed. Every one of them is traceable to a printed figure, and the pre-tuning report
+is what each argument is made from.
+
+- **The player's hands beat the first machine that replaces them, by two and a half times.** The
+  hand gathered at 300 items a minute against an extractor's 120 at the default 10 tps, working the
+  same seven cells. That is a curve inversion at the very start of the game and no cost row could
+  ever have shown it, because it is not a cost. `GATHER_COOLDOWN_STEPS` goes 6 → 15, which makes the
+  hand worth **exactly one extractor**, and the test asserts the equality rather than the direction.
+  What automation buys is not a bigger number; it is that the player can walk away. This is the one
+  change outside the definition file — the constant is code, and moving it into the scenario beside
+  `carry_slots` and `build_range` is the obvious next step for whoever wants a scenario to set its
+  own pace.
+- **Steam, the described "mid-game workhorse", was strictly dominated by the generator before it.**
+  A boiler drinks one water every tick it runs, and the pump made one every six, so a steam plant
+  needed **six pumps drawing 24 of the turbine's 48** before a single machine ran. Net 24 — against
+  a hydro generator that costs _exactly the same as the boiler alone_ (both 6 iron plate and 4
+  brick, effort 18.333 to the thousandth), produces 36, and needs neither fuel nor plumbing. Pump
+  cadence goes 6 → 2, so one boiler is fed by two pumps, and hydro's output goes 36 → 24. The power
+  ladder now reads wind 12, burner 20, hydro 24, steam 40 net — free power is capped and sited,
+  fuel-burning power scales, and the plant that costs the most to run carries the most.
+- **The wind turbine cost more than the hydro generator for a third of the output.** Effort 20
+  against 18.333 for 12 power against 36. Siting excuses a difference; it does not excuse paying
+  more for a third as much. Its cost drops to 2 iron plate and 1 gear (effort 10), which makes it
+  what it is described as: the cheap fuel-free trickle you can put on the highland the ore sits on.
+- **Charring wood returned exactly the energy it consumed.** Two wood at 2 energy each into one
+  charcoal at 4 — a gain of 1.000×, for a kiln, ten ticks, and a hundred power. A fuel conversion
+  that breaks even is a recipe with no reason to run, and fuel being a property of the item is
+  precisely why nothing in a recipe row could notice. Charcoal's `fuel_value` goes 4 → 8, so the
+  conversion doubles, and the one renewable material in the game becomes a fuel worth processing.
+- **The cutter cost less than the smelter it is unlocked two technologies behind.** Effort 11.5
+  against 12. Its stone goes 4 → 6, which puts the mechanical-shaping pair above the
+  material-processing pair while keeping the cutter the cheaper of the two shaping machines. This is
+  the one break the curve rules caught on the shipped data, and putting the 4 back is the negative
+  case the curve test asserts against.
+
+### The curve is two rules, and only two
+
+"Meant to follow" had to be a claim about the data rather than a mood, or a tuning pass ends up
+inflating numbers to satisfy an ordering nothing in the game asserts. So: a tier costs **strictly**
+more than the tier it upgrades from, and a machine costs **no less** than a machine of the same
+`kind` whose technology it is unlocked behind. A cutter does not follow a kiln — they sit beside
+each other in the same tech tier — and the rules say so by not comparing them.
+
+Cost is one scalar, `effort`: raw units plus fuel energy priced in the densest fuel item. Every raw
+unit counts once, which is the only weighting the data supplies. An insight value is a research
+price, not a scarcity, and inventing a scarcity weight would be tuning by feel inside the tool that
+exists to stop it.
+
+### Measured, not argued
+
+- **Every recipe input is reachable from the landing site under the default preset**, and reachable
+  is the second of two questions. The world generating some is the first; something being able to
+  stand where it reaches any is the second, and stone is why — it is quarried off cliffs nothing can
+  stand on. The check asks for a non-blocking hex within the one reach every extractor and the
+  player's own hand share, and water is asked the pump's question instead, since a pump stands
+  beside a basin and never in it. Water's nearest basin is 3 hexes from the landing site, inside the
+  clearing radius.
+- **Site yields are sampled, not derived from the rule table**, over the same radius-96 disc the
+  survey uses and under all four presets. An extractor empties every field cell in reach whatever
+  material it holds, so the figure is the whole site: 118 units at reach 1 and 237 at reach 2 for an
+  iron site under `continental`, of which 81 and 132 are actually iron. The rest arrives on the same
+  belt, which is a fact about a layout rather than a rounding note.
+- **The landing clearing is 258 units on every seed** — the entire bootstrap budget before a belt
+  exists — and it is reported separately from geography for the same reason the survey excludes it:
+  it is a promise, not a landscape.
+- **The openings are floors and say so.** First smelter is 19 gathers and 14 insight; first power is
+  13 gathers and 7 insight; first circuit is 39 gathers, 22 insight, two machines, and 58 machine
+  ticks. Walking is excluded, so what the number leaves out is exactly what a playtest measures.
+
+### The save key names every version the envelope refuses on
+
+`SAVE_KEY` becomes `hexfactory:hxf1:v7w6d8t4`. Native refuses a load on four numbers — save,
+world generator, definition, and technology — and the key carried only the first two. v0.17 moves
+the definition version and nothing else, so a v0.16 save would have sat under an unchanged key
+behind a Continue button that could only fail, which is the exact failure v0.16 named the key to
+prevent. Verified in the browser: a v0.16 envelope under the old key leaves Continue disabled and
+the status reading "No local save yet", and a v0.17 save round trips through Continue at an
+identical checksum.
+
+### Gate
+
+`npm run quality` green: 83 Rust tests and 78 TypeScript tests, lint, format, build. Six Rust tests
+and six TypeScript tests are new, and the curve test carries its own negative case — it puts the
+cutter's stone back to four and requires the curve to break.
+
+No bench re-measure. The rule asks for one when a milestone changes the world generator, the item
+roster, or the entity snapshot; this one changes none of those. The roster is the same
+twenty-three items, the snapshot shape is untouched, and the wire fixture is unchanged.
+
+Browser verification was partial for the third session running: the pane reports
+`document.hidden`, so `requestAnimationFrame` never fires and the frame loop cannot run, which
+means the gather rate itself could not be measured in a browser. What was verified there is the
+boot with both catalogues validating at definition version 8, no console errors, the tuned numbers
+reaching the player where they are read (hydro `+24 power`, wind `×2 Iron plate ×1 Gear`, cutter
+`×3 Iron plate ×6 Stone`), the simulation advancing across the worker boundary under the step
+button, and the save behaviour above. The cooldown itself is asserted natively, by a test that
+already existed and one that is new.
+
+## Next session — the first play system after the arc
+
+The generator arc is finished and it was taken first for one reason: every deferred milestone
+multiplies a roster, and against a generator each addition is a data row rather than a drawing, a
+threshold, or a guess about a number. All three generators now exist — a shape grammar, a world
+parameter table, and a balance fixture — so the next milestone should be one that spends them.
+
+The candidates are the deferred list's, unchanged, with what each is waiting for named there.
+**Animals, biomatter, and waste is the one the list names first, and it is the one to take**: it is
+a genuine play system rather than an improvement on a working one, its consumer and its producer
+have to be designed together or they get designed twice, and it is what brings
+`outputs: Vec<Ingredient>` into `RecipeDefinition`. Fluid networks and intermittency are both
+improvements on things that already work, and both read better after there is more economy to
+improve.
+
+Two things that milestone should know before it starts:
+
+- **A multi-output recipe breaks the balance expansion, deliberately and loudly.**
+  `Economy::recipe_for` asserts that exactly one recipe produces each item, because "what does a
+  plate cost" has no answer otherwise — and a byproduct is precisely a second producer. That assert
+  is the handoff: expanding a tree through a recipe with several outputs needs a stated rule for how
+  a craft's cost divides between them, and picking one is part of designing byproducts rather than a
+  detail of the fixture. Pick it deliberately and write it down beside the rule.
+- **Tunnels are still cheap and still not a milestone of their own.** v0.14 left them out, and they
+  now cost one match arm in the trace loop that already routes eight directions. They can ride any
+  milestone that is already paying for a version bump.
+
+Whatever comes next, `fixtures/balance.json` is now the thing a new building or recipe has to face:
+a definition that never reaches it is a definition nothing has compared against the curve, and both
+test suites say so.
 
 ## Next session — Balance v0.17
 
@@ -1221,6 +1388,14 @@ ones cheap.
 v0.16 bumps `WORLD_GENERATOR_VERSION` to 6 and puts `WorldParams` in the envelope and the checksum.
 v0.17 moves definition data, so it bumps the definition version and nothing else — the fixture it
 adds is a test artifact, not a wire or save concern.
+
+**All three have shipped, and v0.17's version cost was one line off.** The definition version went
+to 8 as predicted and the fixture stayed a test artifact as predicted, but the paragraph missed
+that the browser `SAVE_KEY` named only the save and world versions while native refuses a load on
+four. A definition-only bump was therefore the one bump the key could not see, so it now names all
+four: `hexfactory:hxf1:v7w6d8t4`. The other thing the prediction missed is that one tuned number
+was not in the definition file at all — `GATHER_COOLDOWN_STEPS`, the player's own gather rate,
+which is the number the fixture found most out of line and which no data file could have carried.
 
 **Where the engine milestones slot.** The compact binary delta encoding landed as v0.12.2, on the
 boundary this paragraph set for it and for the reason it gave: every milestone here grows the

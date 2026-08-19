@@ -34,12 +34,17 @@ import "./styles.css";
 type Tool = "inspect" | "erase" | "rotate" | "upgrade" | number;
 
 /**
- * The stored save's compatibility, not just its save version: v0.16 leaves `SAVE_VERSION` at 7 and
- * takes the generator to 6, and a v7/w5 envelope is refused because it names no world parameters.
- * Naming both in the key retires that save instead of offering a Continue button that can only
- * fail.
+ * The stored save's compatibility, not just its save version.
+ *
+ * Native refuses a load on four numbers, not one — the save version, the world generator version,
+ * the definition version, and the technology version — so all four belong in the key. v0.16
+ * learned half of this: it left `SAVE_VERSION` at 7, took the generator to 6, and named both,
+ * because a v7/w5 envelope is refused for naming no world parameters. v0.17 moves only the
+ * definition version, which the old key did not carry at all, so a v0.16 save would have sat
+ * under an unchanged key behind a Continue button that could only fail. Naming every number the
+ * envelope refuses on retires an incompatible save instead of offering it.
  */
-const SAVE_KEY = "hexfactory:hxf1:v7w6";
+const SAVE_KEY = "hexfactory:hxf1:v7w6d8t4";
 /**
  * The eight routing headings, in the core's own order. The six edges keep their indices; north and
  * south are appended, which is why every saved orientation still names the direction it always
