@@ -557,6 +557,68 @@ milestone would have been built on top of it: a byproduct loop metered by a per-
 charges idle machines is a loop whose costs no player could read. It is the last substrate
 milestone, and it was asked for from play rather than from this document.
 
+## Shipped milestone — Standing Requests v0.20
+
+Shipped 2026-08-19, and asked for from play rather than from this document: pressing `X` beside the
+hub emptied the whole pack into it and handed back a generic currency at a rate nothing on screen
+ever stated. That is the defect the roadmap decision above already named — "delivering arbitrary
+material for one generic insight currency makes the opening's eight raw materials differ less than
+their geography claims" — so it is fixed here rather than inside the ecological milestone.
+
+**Insight is no longer a property of an item.** `insight_value` is gone from every item row. The
+landing hub posts a board of three **requests** — a named quantity of one item, for a stated number
+of insight — and filling one is the only thing in the game that pays. `definitions.json` ships
+twenty-two rows, from `10 Iron ore` for 10 up to `5 Steel` for 57, and validation refuses a
+catalogue with none: insight buys research, and a game where nothing pays insight is a game where
+nothing can be learned.
+
+**Eligibility is the recipe tree, not an unlock column.** `Core::item_reachable` walks from the
+requested item down through the recipes that make it, requiring a buildable machine for every
+category and an unlocked source for every leaf — so water is gated on the pump, and a plate cannot
+be asked for until somebody may build a smelter. A new item is gated correctly by existing.
+`the_board_only_posts_what_the_player_could_make` passes every slot twelve times over and refuses
+any posted row it could not produce.
+
+**The draw order is a function of state, with no randomness in it.** `request_rounds` counts how
+many times each row has left the board, filled or passed, and the least-used eligible row is posted
+first. So fresh content leads in catalogue order, old standing orders come round again once nothing
+new is left, and a save restores the board exactly rather than rerolling it. Every row carries a
+**Pass**, because three materials the player has not found yet would otherwise hold the whole
+economy; passing costs the row a place in the queue and forfeits whatever was already delivered
+against it.
+
+**The hub takes what it asked for and nothing else, by belt exactly as by hand.** `hub_demand` is
+the board's outstanding units plus the founding contract's — every remaining stage, which is what
+keeps the v0.18 surplus rule true — and it is the same predicate `can_accept` and `X` both use. A
+line pointed at a satisfied hub backs up, which the belt shows; voiding the cargo for a coin was
+not something the player could see.
+
+**The balance tool priced the ladder, and the first run failed its own rule.** A new `requests`
+section expands every row through the whole tree and reports insight per thousand gathers, fuel
+included. Raw sits at 1000 by construction. The first authored pass put glass at exactly 1000 and
+plate at 1100 — a tier that pays no better than the ground for a machine, its research, its power,
+and its fuel — so eleven rewards moved before anything shipped. The curve is now raw 1000, crystal
+1250, one machine step 1300–1333, assembly 1533–1625, and the deep chains 1778–1867, and
+`every_processed_request_pays_better_per_gather_than_raw_material` is what holds it there.
+
+**Guidance names a row, not an accounting entry.** The funding step was "Gather material for
+insight", which is no longer true of gathering. It now names the posted request closest to done,
+what is still wanted, and what it pays — `fill-request:ore-assay` or `deliver-request:ore-assay` —
+and `tests/guidance.test.ts` walks the guide against a modelled board, refusing any row that is not
+on the board the snapshot carried.
+
+**Versions.** Save 10, definitions 10, wire 5 with a new requests group written between the contract
+and the player. The browser save key reads all four. `npm run quality` is green: 98 Rust tests
+(six new) and 85 TypeScript tests, lint, format, typecheck, and the production build. The pinned
+capacity workload checksum moved to `780_276_626` because the board is in the checksum; the world
+generator, item roster, and entity snapshot are unchanged, so no tier was re-measured.
+
+**Also in this pass — the camera left the right mouse button.** Dragging with the right button
+panned _and_ harvested, arbitrated by a five-pixel drift threshold that fired exactly when a player
+was working one hex for several seconds. Panning is the middle button, or shift with the left; the
+right button is only ever the harvest, and dragging now walks the hold to the hex under the cursor
+instead of cancelling it.
+
 ## Shipped milestone — Power Grid v0.19
 
 Shipped 2026-08-19. There was no brief for this one: it came from play, and the four things it was

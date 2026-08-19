@@ -29,15 +29,17 @@ export function validateDefinitions(
   if (
     !Array.isArray(data.items) ||
     !Array.isArray(data.recipes) ||
-    !Array.isArray(data.buildings)
+    !Array.isArray(data.buildings) ||
+    !Array.isArray(data.requests)
   ) {
     throw new TypeError(
-      "definitions require item, recipe, and building arrays",
+      "definitions require item, recipe, building, and request arrays",
     );
   }
   uniqueIds(data.items, "item");
   uniqueIds(data.recipes, "recipe");
   uniqueIds(data.buildings, "building");
+  uniqueIds(data.requests, "request");
   const itemIds = new Set(data.items.map((item) => item.id));
   for (const item of data.items) {
     if (
@@ -46,10 +48,24 @@ export function validateDefinitions(
       !item.color ||
       !item.icon ||
       !item.description ||
-      !positiveInteger(item.insight_value) ||
       !positiveInteger(item.stack_size)
     )
       throw new TypeError(`item ${item.id} is incomplete`);
+  }
+  // Requests are the only thing that pays insight, and insight is the only thing that buys
+  // research. A catalogue with none of them is one where nothing could ever be learned.
+  if (!data.requests.length)
+    throw new TypeError("no hub requests: nothing would ever pay insight");
+  for (const request of data.requests) {
+    if (
+      !request.key ||
+      !request.name ||
+      !request.brief ||
+      !itemIds.has(request.item_id) ||
+      !positiveInteger(request.quantity) ||
+      !positiveInteger(request.insight)
+    )
+      throw new TypeError(`request ${request.id} is incomplete`);
   }
   const categories = new Set(
     data.buildings

@@ -2,6 +2,7 @@ import type {
   BuildingDefinition,
   Definitions,
   FactorySnapshot,
+  RequestSnapshot,
   Technologies,
   TechnologyDefinition,
 } from "./types";
@@ -99,21 +100,37 @@ export function nextAction(
         title: `Research ${ready.name}`,
         detail: `${ready.description} You have the ${ready.cost} insight it costs.`,
       };
-    // Funding is not an instruction a player can carry out. What they can do is gather, or walk
-    // to the hub and deliver, so the step names that and the sentence names what it is buying.
+    // Funding is not an instruction a player can carry out, and neither is "gather something" now
+    // that the hub only pays for what it posted. The step names one row of the board: which item,
+    // how much of it is still wanted, and what filling it pays.
     const short = ready.cost - snapshot.insight;
-    const carrying = snapshot.player.carry_stacks.length > 0;
-    return carrying
-      ? {
-          key: `deliver-for:${ready.key}`,
-          title: "Deliver your cargo for insight",
-          detail: `Walk to the landing hub and deliver. ${ready.name} costs ${ready.cost} insight and you are ${short} short.`,
-        }
-      : {
-          key: `gather-for:${ready.key}`,
-          title: "Gather material for insight",
-          detail: `Walk onto a field and gather, then deliver it at the landing hub. ${ready.name} costs ${ready.cost} insight and you are ${short} short.`,
-        };
+    const closest = [...snapshot.requests].sort(
+      (a, b) => stillToFind(a, snapshot) - stillToFind(b, snapshot),
+    )[0];
+    if (closest) {
+      const item = definitions.items.find(
+        (value) => value.id === closest.item_id,
+      );
+      const name = item?.name ?? `item ${closest.item_id}`;
+      const left = closest.required - closest.delivered;
+      const funding = `${closest.name} pays ${closest.insight} insight; ${ready.name} costs ${ready.cost} and you are ${short} short.`;
+      return stillToFind(closest, snapshot) === 0
+        ? {
+            key: `deliver-request:${closest.key}`,
+            title: `Deliver ${name.toLowerCase()} to the landing hub`,
+            detail: `You are carrying the ${left} the hub is still waiting for. ${funding}`,
+          }
+        : {
+            key: `fill-request:${closest.key}`,
+            title: `Fill the hub's request for ${name.toLowerCase()}`,
+            detail: `${closest.brief} ${stillToFind(closest, snapshot)} more, then deliver at the landing hub. ${funding}`,
+          };
+    }
+    return {
+      key: `gather-for:${ready.key}`,
+      title: "Gather material for insight",
+      detail: `Walk onto a field and gather, then deliver it at the landing hub. ${ready.name} costs ${ready.cost} insight and you are ${short} short.`,
+    };
   }
 
   // 2. Power, before the machines that need it. This is the step the scripted guidance skipped:
@@ -204,6 +221,19 @@ export function nextAction(
       ? `${line.delivered} of ${line.required} delivered. Point the line's output at the landing hub, or carry it there yourself.`
       : "Keep the line supplied and pointed at the landing hub.",
   };
+}
+
+/**
+ * How many more of a request's item the player has to find before they can finish it — what is
+ * still wanted, less what is already in the pack. Zero means the delivery is the only step left,
+ * which is what decides whether the guide says "gather" or "walk to the hub".
+ */
+function stillToFind(
+  request: RequestSnapshot,
+  snapshot: FactorySnapshot,
+): number {
+  const carried = snapshot.player.inventory[String(request.item_id)] ?? 0;
+  return Math.max(0, request.required - request.delivered - carried);
 }
 
 /**

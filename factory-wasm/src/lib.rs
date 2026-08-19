@@ -18,6 +18,7 @@ type ItemId = u16;
 type RecipeId = u16;
 type DefinitionId = u16;
 type TechnologyId = u16;
+type RequestId = u16;
 
 const SAVE_PREFIX: &str = "HXF1\n";
 /// Bumped to 7 for Upgrades and Tiers. Two things move under it at once: building definitions
@@ -36,7 +37,13 @@ const SAVE_PREFIX: &str = "HXF1\n";
 /// toward the next unit of fuel — both checksummed. A version-8 envelope has neither, and defaulting
 /// them to zero is not a translation: the same factory would restart with every buffer empty and
 /// every plant's part-burned fuel forgotten.
-const SAVE_VERSION: u16 = 9;
+///
+/// Bumped to 10 for Standing Requests. Insight is no longer a property of an item the hub is handed;
+/// it is paid for filling a request the hub posted, so the board a run is holding and how many times
+/// each request has been filled are saved and checksummed. A version-9 envelope carries neither, and
+/// a loader that drew a fresh board for it would hand a finished run three requests it may already
+/// have filled.
+const SAVE_VERSION: u16 = 10;
 /// Bumped to 6 for World Parameters. `WorldParams` is now part of a run's identity — it is in the
 /// save envelope and in the checksum — so a version-5 envelope carries no answer to the question
 /// "which world is this" and is rejected rather than assumed to be the default.
@@ -118,6 +125,15 @@ const BUILDING_RADIUS: i32 = 690;
 /// is where the reasoning lives.
 const GATHER_COOLDOWN_STEPS: u32 = 15;
 const HUB_RANGE: i32 = 1900;
+/// How many requests the landing hub posts at once.
+///
+/// Three, because a board of one is an errand and a board of ten is a spreadsheet. Three is enough
+/// that a material the player cannot find yet never blocks the whole economy, and few enough that
+/// every line of it fits in the panel beside the contract it is funding.
+const REQUEST_SLOTS: usize = 3;
+/// How deep the reachability walk over the recipe tree may go before it gives up. The shipped tree
+/// is four deep; this is a guard against a catalogue that cycles, not a limit on content.
+const MAX_RECIPE_DEPTH: u32 = 8;
 /// How far from the player an `aim` target may sit, in world units — about 600,000 hexes, which is
 /// far past anything a viewport can be showing. It is a bound on a command, not a play rule: the
 /// squared distance an aim resolves through has to stay inside an `i64`, and a forged aim is
@@ -156,6 +172,32 @@ struct DefinitionsInput {
     items: Vec<ItemDefinition>,
     recipes: Vec<RecipeDefinition>,
     buildings: Vec<BuildingDefinition>,
+    /// What the landing hub is willing to pay insight for, and how much. See
+    /// [`Core::refill_requests`] for how a row becomes a posted request.
+    requests: Vec<RequestDefinition>,
+}
+
+/// One standing order the landing hub can post: a named quantity of one item, for a stated
+/// number of insight.
+///
+/// Insight used to be a property of the item — every delivery paid `insight_value × quantity`,
+/// whatever the hub had any use for — which made the eight raw materials differ less than their
+/// geography claims and left the player with no way to find out what anything was worth except by
+/// handing it over. A request states the price *before* the delivery, and it is the only thing in
+/// the game that pays insight at all.
+#[derive(Clone, Deserialize)]
+struct RequestDefinition {
+    id: RequestId,
+    key: String,
+    name: String,
+    /// One sentence saying why the hub wants it. Shown on the board, so it is content rather than
+    /// a comment.
+    brief: String,
+    item_id: ItemId,
+    quantity: u32,
+    /// What filling it pays. Priced against the raw gathers underneath the item — see the
+    /// `requests` section of `fixtures/balance.json`, which reports exactly that ratio.
+    insight: u32,
 }
 
 #[derive(Clone, Deserialize)]
@@ -166,7 +208,6 @@ struct ItemDefinition {
     color: String,
     icon: String,
     description: String,
-    insight_value: u32,
     /// How many of this item occupy one carried slot. Carrying capacity is a rule over the
     /// player's ordinary `item_id → quantity` map rather than a stored array of slots, so the save
     /// format, the checksum inputs, and every ordering guarantee are unchanged by it.
@@ -575,6 +616,7 @@ struct Snapshot {
     insight: u64,
     victory: bool,
     contract: ContractSnapshot,
+    requests: Vec<RequestSnapshot>,
     player: PlayerSnapshot,
     researched: Vec<TechnologyId>,
     chunks: Vec<ChunkSnapshot>,
@@ -623,6 +665,27 @@ struct ContractSnapshot {
     /// whole contract is complete.
     requirements: Vec<ContractRequirement>,
     complete: bool,
+}
+
+/// One posted request as the hub is holding it: which row, and how much of it has arrived.
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
+struct RequestState {
+    request_id: RequestId,
+    delivered: u32,
+}
+
+/// One line of the request board as the host sees it. Everything needed to draw the row travels
+/// with it — the price above all, because a price the player has to discover by delivering is the
+/// defect this whole system exists to remove.
+#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
+struct RequestSnapshot {
+    key: String,
+    name: String,
+    brief: String,
+    item_id: ItemId,
+    delivered: u32,
+    required: u32,
+    insight: u32,
 }
 
 #[derive(Clone, Copy, Debug, Serialize, PartialEq, Eq)]
@@ -859,6 +922,8 @@ struct SnapshotDelta {
     #[serde(skip_serializing_if = "Option::is_none")]
     contract: Option<ContractSnapshot>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    requests: Option<Vec<RequestSnapshot>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     player: Option<PlayerSnapshot>,
     #[serde(skip_serializing_if = "Option::is_none")]
     researched: Option<Vec<TechnologyId>>,
@@ -890,6 +955,7 @@ impl SnapshotDelta {
             insight: Some(current.insight),
             victory: Some(current.victory),
             contract: Some(current.contract.clone()),
+            requests: Some(current.requests.clone()),
             player: Some(current.player.clone()),
             researched: Some(current.researched.clone()),
             chunks: Some(current.chunks.clone()),
@@ -926,6 +992,7 @@ impl SnapshotDelta {
             insight: changed_copy(previous.insight, current.insight),
             victory: changed_copy(previous.victory, current.victory),
             contract: changed(&previous.contract, &current.contract),
+            requests: changed(&previous.requests, &current.requests),
             player: changed(&previous.player, &current.player),
             researched: changed(&previous.researched, &current.researched),
             chunks: changed(&previous.chunks, &current.chunks),
@@ -1133,6 +1200,10 @@ enum InputCommand {
     Research {
         technology_id: TechnologyId,
     },
+    /// Pass on one posted request, so the hub asks for something else in that slot.
+    SkipRequest {
+        slot: usize,
+    },
 }
 
 struct Core {
@@ -1184,6 +1255,14 @@ struct Core {
     /// Every hub delivery lands here, not only the items the current stage names, so a player who
     /// automates a line early is credited for it when the stage that wants it arrives.
     contract_contributed: BTreeMap<ItemId, u64>,
+    /// The requests the hub has posted, in slot order. Saved and checksummed: which standing orders
+    /// are open, and how far each one has been filled, is as much a run's progress as the contract
+    /// stage is, and it is the only thing that pays insight.
+    requests: Vec<RequestState>,
+    /// How many times each request has left the board — filled or passed on. It is also the draw
+    /// order: the least-used eligible row is posted first, so fresh content leads and old standing
+    /// orders come round again once there is nothing new left to post.
+    request_rounds: BTreeMap<RequestId, u32>,
     produced: BTreeMap<ItemId, u64>,
     events: Vec<String>,
     /// Derived presentation state: what has changed since the host's last delta. Never saved,
@@ -1268,6 +1347,8 @@ impl Core {
             victory: false,
             contract_stage: 0,
             contract_contributed: BTreeMap::new(),
+            requests: Vec::new(),
+            request_rounds: BTreeMap::new(),
             produced: BTreeMap::new(),
             events: vec![format!("{} ready", scenario.name)],
             dirty: SnapshotDirty::default(),
@@ -1307,6 +1388,7 @@ impl Core {
             core.next_entity_id += 1;
         }
         core.compile_graph();
+        core.refill_requests();
         Ok(core)
     }
 
@@ -2753,7 +2835,11 @@ impl Core {
                     .unwrap_or(u32::MAX);
                 inventory_total(&entity.inventory) + cargo.quantity <= capacity
             }
-            BuildingKind::Consumer | BuildingKind::Hub => true,
+            BuildingKind::Consumer => true,
+            // The hub takes what it asked for and nothing else, by belt exactly as by hand. A line
+            // pointed at it backs up once the board and the contract are satisfied, which is a
+            // legible answer — the belt shows it — where silently voiding the cargo was not.
+            BuildingKind::Hub => self.hub_demand(cargo.item_id) >= u64::from(cargo.quantity),
             BuildingKind::Extractor | BuildingKind::Pump | BuildingKind::Pole => false,
             BuildingKind::Generator | BuildingKind::Boiler => {
                 let burns = self
@@ -2801,13 +2887,248 @@ impl Core {
     fn deliver_to_hub(&mut self, item_id: ItemId, quantity: u32) {
         self.delivered += u64::from(quantity);
         *self.delivered_by_item.entry(item_id).or_default() += u64::from(quantity);
-        let value = self
-            .item_definition(item_id)
-            .map(|item| item.insight_value)
-            .unwrap_or(0);
-        self.insight += u64::from(value) * u64::from(quantity);
+        self.credit_requests(item_id, quantity);
         *self.contract_contributed.entry(item_id).or_default() += u64::from(quantity);
         self.advance_contract();
+    }
+
+    fn request_definition(&self, id: RequestId) -> Option<&RequestDefinition> {
+        self.definitions
+            .requests
+            .iter()
+            .find(|request| request.id == id)
+    }
+
+    /// Put a delivery against the board, and pay for whatever it finishes.
+    ///
+    /// This is the only path in the game that adds insight. Before it, every hub delivery paid
+    /// `insight_value × quantity` whether the hub had a use for the item or not, which meant the
+    /// price of a material was a number the player could only learn by giving it away. Now the
+    /// price is posted first and paid on completion.
+    ///
+    /// A filled slot is replaced in place rather than compacted out, so the row the player was
+    /// reading does not jump to another slot the moment it completes. The replacement is not filled
+    /// from the same delivery: it starts empty, and the next delivery is what moves it.
+    fn credit_requests(&mut self, item_id: ItemId, quantity: u32) {
+        let mut remaining = quantity;
+        let mut slot = 0;
+        while slot < self.requests.len() && remaining > 0 {
+            let Some(definition) = self
+                .request_definition(self.requests[slot].request_id)
+                .cloned()
+            else {
+                slot += 1;
+                continue;
+            };
+            if definition.item_id != item_id {
+                slot += 1;
+                continue;
+            }
+            let take = definition
+                .quantity
+                .saturating_sub(self.requests[slot].delivered)
+                .min(remaining);
+            remaining -= take;
+            self.requests[slot].delivered += take;
+            if self.requests[slot].delivered < definition.quantity {
+                slot += 1;
+                continue;
+            }
+            self.insight += u64::from(definition.insight);
+            *self.request_rounds.entry(definition.id).or_default() += 1;
+            self.events.push(format!(
+                "{} complete — the hub pays {} insight",
+                definition.name, definition.insight
+            ));
+            let posted = self.posted_requests(Some(slot));
+            match self.next_request(&posted) {
+                Some(id) => {
+                    self.requests[slot] = RequestState {
+                        request_id: id,
+                        delivered: 0,
+                    };
+                    slot += 1;
+                }
+                // Nothing left the player can reach. The slot closes rather than reposting the row
+                // that was just paid for, and `refill_requests` opens it again when research does.
+                None => {
+                    self.requests.remove(slot);
+                }
+            }
+        }
+        self.refill_requests();
+    }
+
+    /// The request ids currently on the board, optionally ignoring one slot.
+    fn posted_requests(&self, ignore: Option<usize>) -> BTreeSet<RequestId> {
+        self.requests
+            .iter()
+            .enumerate()
+            .filter(|&(slot, _)| Some(slot) != ignore)
+            .map(|(_, state)| state.request_id)
+            .collect()
+    }
+
+    /// The row that should be posted next: the least-used one the player can actually supply.
+    ///
+    /// There is no randomness here, and that is deliberate. A board that is a pure function of
+    /// state is a board a save restores exactly, a checksum agrees about, and a test can walk —
+    /// and one whose progression a player can learn rather than reroll.
+    fn next_request(&self, posted: &BTreeSet<RequestId>) -> Option<RequestId> {
+        self.definitions
+            .requests
+            .iter()
+            .filter(|request| !posted.contains(&request.id))
+            .filter(|request| self.item_reachable(request.item_id, 0))
+            .min_by_key(|request| {
+                (
+                    self.request_rounds
+                        .get(&request.id)
+                        .copied()
+                        .unwrap_or_default(),
+                    request.id,
+                )
+            })
+            .map(|request| request.id)
+    }
+
+    /// Post requests into every empty slot.
+    fn refill_requests(&mut self) {
+        let capacity = REQUEST_SLOTS.min(self.definitions.requests.len());
+        while self.requests.len() < capacity {
+            let posted = self.posted_requests(None);
+            let Some(id) = self.next_request(&posted) else {
+                return;
+            };
+            self.requests.push(RequestState {
+                request_id: id,
+                delivered: 0,
+            });
+        }
+    }
+
+    /// Whether the player could actually produce this item with what they have researched.
+    ///
+    /// The board is drawn against this rather than against an unlock column written by hand, so a
+    /// request can never ask for something the rules do not yet allow, and a new item is gated
+    /// correctly by existing. The walk is the recipe tree: every craft along it needs a machine the
+    /// player may build, and every leaf needs a source they may use — water is nobody's field, so
+    /// an item a building outputs directly is reachable exactly when that building is.
+    fn item_reachable(&self, item: ItemId, depth: u32) -> bool {
+        if depth > MAX_RECIPE_DEPTH {
+            return false;
+        }
+        match self
+            .definitions
+            .recipes
+            .iter()
+            .find(|recipe| recipe.output.item_id == item)
+        {
+            Some(recipe) => {
+                self.category_unlocked(&recipe.category)
+                    && recipe
+                        .inputs
+                        .iter()
+                        .all(|input| self.item_reachable(input.item_id, depth + 1))
+            }
+            None => {
+                let mut sources = self
+                    .definitions
+                    .buildings
+                    .iter()
+                    .filter(|building| building.output_item_id == Some(item))
+                    .peekable();
+                sources.peek().is_none() || sources.any(|building| self.technology_met(building))
+            }
+        }
+    }
+
+    fn category_unlocked(&self, category: &str) -> bool {
+        self.definitions.buildings.iter().any(|building| {
+            building.buildable
+                && building.recipe_category.as_deref() == Some(category)
+                && self.technology_met(building)
+        })
+    }
+
+    fn technology_met(&self, building: &BuildingDefinition) -> bool {
+        match building.unlock_technology_id {
+            Some(id) => self.researched.contains(&id),
+            None => true,
+        }
+    }
+
+    /// How much of one item the landing hub still has a use for: what the posted requests are
+    /// short, plus what the founding contract has not been given yet.
+    ///
+    /// The contract half counts every remaining stage rather than only the current one, which is
+    /// what keeps the v0.18 surplus rule true — a player who automates a line early is still
+    /// credited when the stage that wants it arrives. What the hub does *not* want, it no longer
+    /// takes: an item nobody asked for used to vanish into the hub for a coin of insight, and the
+    /// player had no way to see that happening.
+    fn hub_demand(&self, item: ItemId) -> u64 {
+        let posted: u64 = self
+            .requests
+            .iter()
+            .filter_map(|state| {
+                self.request_definition(state.request_id)
+                    .map(|definition| (definition, state))
+            })
+            .filter(|(definition, _)| definition.item_id == item)
+            .map(|(definition, state)| {
+                u64::from(definition.quantity.saturating_sub(state.delivered))
+            })
+            .sum();
+        let billed: u64 = self
+            .scenario
+            .contract
+            .stages
+            .get(self.contract_stage..)
+            .unwrap_or_default()
+            .iter()
+            .flat_map(|stage| stage.requirements.iter())
+            .filter(|need| need.item_id == item)
+            .map(|need| u64::from(need.quantity))
+            .sum();
+        let held = self
+            .contract_contributed
+            .get(&item)
+            .copied()
+            .unwrap_or_default();
+        posted + billed.saturating_sub(held)
+    }
+
+    /// Pass on a posted request, so another takes its slot.
+    ///
+    /// Without this the board is a trap rather than an offer: three materials the player has not
+    /// found yet would hold every slot, and the only source of insight in the game with them.
+    /// Passing costs the row one place in the draw order — it comes round again behind everything
+    /// not yet seen — and it forfeits whatever has already been delivered against it, which is why
+    /// it is a decision rather than a free reroll.
+    fn skip_request(&mut self, slot: usize) -> Result<(), String> {
+        let state = *self
+            .requests
+            .get(slot)
+            .ok_or("no request is posted in that slot")?;
+        let name = self
+            .request_definition(state.request_id)
+            .map(|definition| definition.name.clone())
+            .unwrap_or_else(|| format!("request {}", state.request_id));
+        // The round is counted first, because what is being passed on is still a candidate for the
+        // slot it is leaving — and it must not win it back while anything less used is waiting.
+        let rounds = self.request_rounds.entry(state.request_id).or_default();
+        *rounds += 1;
+        let posted = self.posted_requests(Some(slot));
+        let Some(id) = self.next_request(&posted) else {
+            *self.request_rounds.entry(state.request_id).or_default() -= 1;
+            return Err("the hub has nothing else to ask for".into());
+        };
+        self.requests[slot] = RequestState {
+            request_id: id,
+            delivered: 0,
+        };
+        self.events.push(format!("Passed on {name}"));
+        Ok(())
     }
 
     /// Close every stage the hub can now afford, in order.
@@ -3014,18 +3335,33 @@ impl Core {
         if self.player.inventory.is_empty() {
             return Err("inventory is empty".into());
         }
+        // Only what the hub is actually asking for, and only as much of it as is still wanted. The
+        // key used to empty the whole pack into the hub whatever it held — which is how a player
+        // loses a stack they were carrying home for a machine they had not built yet.
         let cargo: Vec<(ItemId, u32)> = self
             .player
             .inventory
             .iter()
-            .map(|(&item, &quantity)| (item, quantity))
+            .map(|(&item, &carried)| (item, self.hub_demand(item).min(u64::from(carried)) as u32))
+            .filter(|&(_, quantity)| quantity > 0)
             .collect();
-        self.player.inventory.clear();
+        if cargo.is_empty() {
+            return Err("the landing hub is not asking for anything you carry".into());
+        }
+        // Announced before the deliveries rather than after them, so that a request this hand-off
+        // completes has the last word. "Delivered 10" is the smaller of the two things that just
+        // happened, and the host shows the player the latest event.
+        let handed: u32 = cargo.iter().map(|&(_, quantity)| quantity).sum();
+        self.events
+            .push(format!("Delivered {handed} to the landing hub"));
         for (item, quantity) in cargo {
+            let carried = self.player.inventory.entry(item).or_default();
+            *carried -= quantity;
+            if *carried == 0 {
+                self.player.inventory.remove(&item);
+            }
             self.deliver_to_hub(item, quantity);
         }
-        self.events
-            .push("Delivered inventory to landing hub".into());
         Ok(())
     }
 
@@ -3049,6 +3385,9 @@ impl Core {
         }
         self.insight -= u64::from(technology.cost);
         self.researched.insert(technology_id);
+        // A breakthrough can make a request reachable that was not, which matters only when the
+        // board is short of a slot — the usual case is a full board that turns over on its own.
+        self.refill_requests();
         self.events.push(format!("Researched {}", technology.name));
         Ok(())
     }
@@ -3899,6 +4238,7 @@ impl Core {
                 InputCommand::SetRecipe { q, r, recipe_id } => self.set_recipe(q, r, recipe_id),
                 InputCommand::Undo => self.undo(),
                 InputCommand::Research { technology_id } => self.research(technology_id),
+                InputCommand::SkipRequest { slot } => self.skip_request(slot),
             };
             if let Err(error) = result {
                 self.events.push(error);
@@ -4183,6 +4523,25 @@ impl Core {
         }
     }
 
+    /// The board, in slot order, with the price on every row.
+    fn request_snapshots(&self) -> Vec<RequestSnapshot> {
+        self.requests
+            .iter()
+            .filter_map(|state| {
+                let definition = self.request_definition(state.request_id)?;
+                Some(RequestSnapshot {
+                    key: definition.key.clone(),
+                    name: definition.name.clone(),
+                    brief: definition.brief.clone(),
+                    item_id: definition.item_id,
+                    delivered: state.delivered.min(definition.quantity),
+                    required: definition.quantity,
+                    insight: definition.insight,
+                })
+            })
+            .collect()
+    }
+
     /// The complete snapshot. It is the host's first frame and the oracle the incremental delta
     /// builder is pinned against; the shipped per-frame path no longer materializes one.
     fn snapshot(&mut self) -> Snapshot {
@@ -4203,6 +4562,7 @@ impl Core {
             insight: self.insight,
             victory: self.victory,
             contract: self.contract_snapshot(),
+            requests: self.request_snapshots(),
             player: self.player_snapshot(),
             researched: self.researched.iter().copied().collect(),
             chunks,
@@ -4287,6 +4647,16 @@ impl Core {
             hash_u32(&mut hash, u32::from(item));
             hash_u64(&mut hash, quantity);
         }
+        hash_u32(&mut hash, u32::MAX - 3);
+        for state in &self.requests {
+            hash_u32(&mut hash, u32::from(state.request_id));
+            hash_u32(&mut hash, state.delivered);
+        }
+        hash_u32(&mut hash, u32::MAX - 4);
+        for (&request, &rounds) in &self.request_rounds {
+            hash_u32(&mut hash, u32::from(request));
+            hash_u32(&mut hash, rounds);
+        }
         hash
     }
 
@@ -4311,6 +4681,8 @@ impl Core {
             victory: self.victory,
             contract_stage: self.contract_stage,
             contract_contributed: self.contract_contributed.clone(),
+            requests: self.requests.clone(),
+            request_rounds: self.request_rounds.clone(),
             produced: self.produced.clone(),
         };
         let envelope = SaveEnvelope {
@@ -4404,6 +4776,11 @@ impl Core {
         core.victory = envelope.state.victory;
         core.contract_stage = envelope.state.contract_stage;
         core.contract_contributed = envelope.state.contract_contributed;
+        // The board is restored, never redrawn: `Core::new` posted one for a fresh run and this run
+        // is not fresh. A redraw would hand a finished game three requests it may already have
+        // filled, and the checksum below would be the first thing to say so.
+        core.requests = envelope.state.requests;
+        core.request_rounds = envelope.state.request_rounds;
         core.produced = envelope.state.produced;
         core.events = vec!["HXF1 save restored".into()];
         core.compile_graph();
@@ -4447,6 +4824,8 @@ struct SavedState {
     victory: bool,
     contract_stage: usize,
     contract_contributed: BTreeMap<ItemId, u64>,
+    requests: Vec<RequestState>,
+    request_rounds: BTreeMap<RequestId, u32>,
     produced: BTreeMap<ItemId, u64>,
 }
 
@@ -4468,6 +4847,7 @@ struct SnapshotBaseline {
     insight: u64,
     victory: bool,
     contract: ContractSnapshot,
+    requests: Vec<RequestSnapshot>,
     player: PlayerSnapshot,
     researched: Vec<TechnologyId>,
     chunks: Vec<ChunkSnapshot>,
@@ -4487,6 +4867,7 @@ impl SnapshotBaseline {
             insight: snapshot.insight,
             victory: snapshot.victory,
             contract: snapshot.contract.clone(),
+            requests: snapshot.requests.clone(),
             player: snapshot.player.clone(),
             researched: snapshot.researched.clone(),
             chunks: snapshot.chunks.clone(),
@@ -4612,6 +4993,7 @@ impl Factory {
             insight: take_changed_copy(&mut baseline.insight, core.insight),
             victory: take_changed_copy(&mut baseline.victory, core.victory),
             contract: take_changed(&mut baseline.contract, core.contract_snapshot()),
+            requests: take_changed(&mut baseline.requests, core.request_snapshots()),
             player: take_changed(&mut baseline.player, core.player_snapshot()),
             researched: take_changed(
                 &mut baseline.researched,
@@ -4902,14 +5284,33 @@ fn validate_definitions(definitions: &DefinitionsInput) -> Result<(), String> {
         definitions.buildings.iter().map(|building| building.id),
         "building",
     )?;
+    unique_positive_ids(
+        definitions.requests.iter().map(|request| request.id),
+        "request",
+    )?;
     let item_ids: BTreeSet<_> = definitions.items.iter().map(|item| item.id).collect();
+    // Requests are the only thing in the game that pays insight, and insight is the only thing that
+    // buys research. A catalogue with none of them is a catalogue where nothing can ever be learned.
+    if definitions.requests.is_empty() {
+        return Err("no hub requests: nothing would ever pay insight".into());
+    }
+    for request in &definitions.requests {
+        if request.key.trim().is_empty()
+            || request.name.trim().is_empty()
+            || request.brief.trim().is_empty()
+            || request.quantity == 0
+            || request.insight == 0
+            || !item_ids.contains(&request.item_id)
+        {
+            return Err(format!("request {} is incomplete", request.id));
+        }
+    }
     for item in &definitions.items {
         if item.key.trim().is_empty()
             || item.name.trim().is_empty()
             || item.color.trim().is_empty()
             || item.icon.trim().is_empty()
             || item.description.trim().is_empty()
-            || item.insight_value == 0
             || item.stack_size == 0
         {
             return Err(format!(
@@ -5394,6 +5795,28 @@ fn validate_saved_state(
             .any(|id| !technology_ids.contains(id))
     {
         return Err("save contains invalid player or research state".into());
+    }
+    // A board is restored rather than redrawn, so it is checked instead: a slot naming a row this
+    // build no longer ships, a duplicate slot, or one holding more than it ever asked for would all
+    // survive the checksum and then be drawn as a request nobody can read.
+    let mut posted = BTreeSet::new();
+    for slot in &state.requests {
+        let definition = definitions
+            .requests
+            .iter()
+            .find(|request| request.id == slot.request_id)
+            .ok_or("save references an unknown hub request")?;
+        if slot.delivered > definition.quantity || !posted.insert(slot.request_id) {
+            return Err("save contains invalid hub request state".into());
+        }
+    }
+    if state.requests.len() > REQUEST_SLOTS
+        || state
+            .request_rounds
+            .keys()
+            .any(|id| !definitions.requests.iter().any(|request| request.id == *id))
+    {
+        return Err("save contains invalid hub request state".into());
     }
     let unique_tiles: BTreeSet<_> = state.tiles.iter().map(|tile| (tile.q, tile.r)).collect();
     if unique_tiles.len() != state.tiles.len()
@@ -9760,10 +10183,14 @@ mod tests {
     fn the_founding_contract_advances_stage_by_stage_and_victory_is_persistent() {
         let mut core = game("new-game");
         core.power_unmetered = false;
-        core.player.inventory.insert(1, 12);
-        core.player.inventory.insert(3, 4);
         set_player_hex(&mut core, 1, 0);
-        core.deposit_inventory().unwrap();
+        // Research is funded by filling what the hub posted, one board row at a time. The opening
+        // three are ore, stone, and wood, and each is worth ten insight.
+        for (item, quantity) in [(1, 10), (6, 10), (9, 10)] {
+            core.player.inventory.insert(item, quantity);
+            core.deposit_inventory().unwrap();
+        }
+        assert_eq!(core.insight, 30);
         core.research(1).unwrap();
         core.research(8).unwrap();
         core.research(2).unwrap();
@@ -9820,6 +10247,8 @@ mod tests {
         let mut core = game("new-game");
         set_player_hex(&mut core, 0, -1);
         // Everything the whole contract asks for, in one delivery, plus one component too many.
+        // The hub takes a later stage's materials as well as the current one's, which is the
+        // surplus rule: a line automated early is credited when the stage that wants it arrives.
         core.player.inventory.insert(2, 4);
         core.player.inventory.insert(11, 16);
         core.player.inventory.insert(14, 20);
@@ -9828,17 +10257,163 @@ mod tests {
         // than closing one stage per arriving item.
         assert_eq!(core.contract_stage, 2);
         assert!(core.victory);
-        // Each stage consumed exactly its own bill; the fourth component is still held.
-        assert_eq!(core.contract_contributed.get(&2), Some(&1));
+        // Each stage consumed exactly its own bill, and the fourth component was never taken at
+        // all: the hub accepts what it asked for and leaves the rest in the pack.
+        assert_eq!(core.contract_contributed.get(&2), Some(&0));
         assert_eq!(core.contract_contributed.get(&11), Some(&0));
         assert_eq!(core.contract_contributed.get(&14), Some(&0));
-        // Delivering into a contract that is finished is still a delivery: insight and the
-        // delivered totals keep moving, and no stage index runs off the end of the list.
+        assert_eq!(core.player.inventory.get(&2), Some(&1));
+        // A finished contract does not close the hub. The board is still posting, filling a row is
+        // still what pays, and no stage index runs off the end of the list.
         let insight = core.insight;
-        core.player.inventory.insert(1, 5);
+        core.player.inventory.insert(1, 10);
         core.deposit_inventory().unwrap();
         assert!(core.insight > insight);
         assert_eq!(core.contract_stage, 2);
+    }
+
+    /// The price is posted, and it is paid on completion — never before, and never for anything the
+    /// hub did not ask for.
+    #[test]
+    fn a_request_pays_on_completion_and_the_board_moves_on() {
+        let mut core = game("new-game");
+        set_player_hex(&mut core, 1, 0);
+        let board = |core: &Core| -> Vec<String> {
+            core.request_snapshots()
+                .iter()
+                .map(|request| request.key.clone())
+                .collect()
+        };
+        assert_eq!(board(&core), ["ore-assay", "cliff-stone", "cordwood"]);
+        // Half a request is worth nothing. This is the whole difference from the currency it
+        // replaced, where five ore was five insight and the player never saw the rate.
+        core.player.inventory.insert(1, 5);
+        core.deposit_inventory().unwrap();
+        assert_eq!(core.insight, 0);
+        assert_eq!(core.request_snapshots()[0].delivered, 5);
+        core.player.inventory.insert(1, 5);
+        core.deposit_inventory().unwrap();
+        assert_eq!(core.insight, 10);
+        // The slot that was filled holds the next row, in its own place: the board does not
+        // shuffle, and it does not repost the row that was just paid for while others are unseen.
+        assert_eq!(board(&core), ["clay-survey", "cliff-stone", "cordwood"]);
+        assert_eq!(core.request_rounds.get(&1), Some(&1));
+    }
+
+    /// The hub takes what it asked for and leaves the rest in the pack — by hand and by belt, at one
+    /// predicate, so a line cannot void cargo the key would have refused.
+    #[test]
+    fn the_hub_refuses_what_nobody_asked_for() {
+        let mut core = game("new-game");
+        set_player_hex(&mut core, 1, 0);
+        core.player.inventory.insert(3, 6);
+        assert!(core
+            .deposit_inventory()
+            .unwrap_err()
+            .contains("not asking for anything"));
+        assert_eq!(core.player.inventory.get(&3), Some(&6));
+        let hub = core
+            .entities
+            .iter()
+            .position(|entity| entity.kind == BuildingKind::Hub)
+            .expect("the landing hub");
+        assert!(!core.can_accept(
+            hub,
+            Cargo {
+                item_id: 3,
+                quantity: 1
+            }
+        ));
+        assert!(core.can_accept(
+            hub,
+            Cargo {
+                item_id: 1,
+                quantity: 1
+            }
+        ));
+        // Ten ore is the whole standing order, so the eleventh has nowhere to go either.
+        core.player.inventory.insert(1, 10);
+        core.deposit_inventory().unwrap();
+        assert!(!core.can_accept(
+            hub,
+            Cargo {
+                item_id: 1,
+                quantity: 1
+            }
+        ));
+    }
+
+    /// The board is drawn from the rules, so it can never post something the rules refuse.
+    #[test]
+    fn the_board_only_posts_what_the_player_could_make() {
+        let mut core = game("new-game");
+        assert!(core.item_reachable(1, 0), "ore is in the ground");
+        assert!(
+            !core.item_reachable(11, 0),
+            "a plate needs a smelter nobody may build yet"
+        );
+        assert!(
+            !core.item_reachable(10, 0),
+            "water needs a pump, and water is nobody's field"
+        );
+        // Passing every slot repeatedly walks the whole eligible list. Nothing that needs a machine
+        // may appear in it, however far up the catalogue that row stands.
+        for _ in 0..12 {
+            for slot in 0..REQUEST_SLOTS {
+                let item = core.request_snapshots()[slot].item_id;
+                assert!(
+                    core.item_reachable(item, 0),
+                    "the board posted item {item}, which cannot be produced yet"
+                );
+                core.skip_request(slot).unwrap();
+            }
+        }
+        core.insight = 100;
+        for technology in [1, 2, 5] {
+            core.research(technology).unwrap();
+        }
+        assert!(core.item_reachable(11, 0), "the smelter unlocks the plate");
+    }
+
+    /// Passing a row costs it a place in the queue, and costs the player whatever they had already
+    /// put against it. It is a decision, not a free reroll.
+    #[test]
+    fn passing_a_request_forfeits_it_and_puts_it_behind_the_unseen() {
+        let mut core = game("new-game");
+        set_player_hex(&mut core, 1, 0);
+        core.player.inventory.insert(1, 5);
+        core.deposit_inventory().unwrap();
+        assert_eq!(core.request_snapshots()[0].delivered, 5);
+        core.skip_request(0).unwrap();
+        assert_eq!(core.request_snapshots()[0].key, "clay-survey");
+        assert_eq!(core.request_snapshots()[0].delivered, 0);
+        assert_eq!(core.insight, 0);
+        assert!(core.skip_request(9).unwrap_err().contains("no request"));
+    }
+
+    /// A board is saved state, restored rather than redrawn.
+    #[test]
+    fn a_save_restores_the_board_it_was_holding() {
+        let (definitions, technologies, scenarios) = catalogs();
+        let mut core = game("new-game");
+        set_player_hex(&mut core, 1, 0);
+        core.player.inventory.insert(1, 10);
+        core.player.inventory.insert(6, 4);
+        core.deposit_inventory().unwrap();
+        let before = core.request_snapshots();
+        let save = core.save_string().unwrap();
+        let restored = Core::from_save(&definitions, &technologies, &scenarios, &save).unwrap();
+        assert_eq!(restored.request_snapshots(), before);
+        assert_eq!(restored.request_rounds, core.request_rounds);
+        assert_eq!(restored.insight, 10);
+        // A row this build does not ship would survive the file and then be drawn as a request
+        // nobody can read, so the loader refuses it before the checksum ever gets the chance.
+        let forged = save.replace("\"request_id\":4", "\"request_id\":9999");
+        assert_ne!(forged, save);
+        let refusal = Core::from_save(&definitions, &technologies, &scenarios, &forged)
+            .err()
+            .expect("a forged board is refused");
+        assert!(refusal.contains("unknown hub request"), "{refusal}");
     }
 
     #[test]
@@ -10002,6 +10577,7 @@ mod tests {
             insight: None,
             victory: None,
             contract: None,
+            requests: None,
             player: None,
             researched: None,
             chunks: None,
@@ -10074,6 +10650,29 @@ mod tests {
                 ],
                 complete: false,
             }),
+            // A board with one row part-filled and one untouched, so a decoder that loses the
+            // count, swaps `delivered` and `required`, or reads the price before the numbers cannot
+            // pass. The brief carries the multi-byte case the events list carries too.
+            requests: Some(vec![
+                RequestSnapshot {
+                    key: "plate-stock".to_owned(),
+                    name: "Plate stock".to_owned(),
+                    brief: "Smelted iron — not ore.".to_owned(),
+                    item_id: 11,
+                    delivered: 3,
+                    required: 8,
+                    insight: 22,
+                },
+                RequestSnapshot {
+                    key: "cliff-stone".to_owned(),
+                    name: "Cliff stone".to_owned(),
+                    brief: "Cut stone for the apron.".to_owned(),
+                    item_id: 6,
+                    delivered: 0,
+                    required: 10,
+                    insight: 10,
+                },
+            ]),
             player: Some(PlayerSnapshot {
                 state: PlayerState {
                     x: -123_456,
@@ -10463,6 +11062,45 @@ mod tests {
         }
     }
 
+    /// Processing has to pay for itself, and the request board is where it is paid.
+    ///
+    /// A request that pays no better per gather than a raw one is a request nobody would ever build
+    /// a machine for: the smelter costs research, construction, power, and fuel, and the hub would
+    /// be offering the same rate for two ore as for the plate they became. So every row whose item
+    /// comes out of a recipe has to beat every row whose item comes out of the ground — measured
+    /// through the whole tree, fuel included, which is the only comparison that is not a guess.
+    #[test]
+    fn every_processed_request_pays_better_per_gather_than_raw_material() {
+        let report = balance::compute();
+        let raw: Vec<_> = report
+            .requests
+            .iter()
+            .filter(|request| request.machine_ticks == 0)
+            .collect();
+        let processed: Vec<_> = report
+            .requests
+            .iter()
+            .filter(|request| request.machine_ticks > 0)
+            .collect();
+        assert!(raw.len() >= 7, "the eight opening materials, less water");
+        assert!(processed.len() >= 10, "a ladder, not one processed row");
+        let best_raw = raw
+            .iter()
+            .map(|request| request.insight_per_gather_milli)
+            .max()
+            .expect("a raw request");
+        for request in processed {
+            assert!(
+                request.insight_per_gather_milli > best_raw,
+                "{} pays {} insight per thousand gathers and the best raw row pays {} — nobody \
+                 would build the machine",
+                request.request,
+                request.insight_per_gather_milli,
+                best_raw
+            );
+        }
+    }
+
     /// Every material the economy bottoms out in can actually be had, from the site the game
     /// starts you on, under the preset it starts you in.
     ///
@@ -10775,6 +11413,11 @@ mod tests {
             .advance(r#"[{"type":"deposit"}]"#, 1, 0)
             .unwrap();
         check(&mut factory, "delivering inventory to the hub");
+        // Four technologies cost twenty insight and one board row pays ten, so the rest is funded
+        // directly. Insight is compared against the baseline rather than marked, so a direct change
+        // is exactly what the host would see from any native path that moves it.
+        factory.core.insight += 20;
+        check(&mut factory, "funding the research");
         for technology in [1, 2, 3, 4] {
             let command = format!(r#"[{{"type":"research","technology_id":{technology}}}]"#);
             factory.core.advance(&command, 1, 0).unwrap();
@@ -10963,10 +11606,12 @@ mod tests {
         set_player_hex(&mut core, 1, 0);
         core.advance(r#"[{"type":"deposit"}]"#, 1, 0).unwrap();
         assert_eq!(core.tick, 1);
+        // Eight ore, because the opening board asks for ore and nobody has asked for crystal yet.
         assert!(core
             .events
             .iter()
-            .any(|event| event.contains("Delivered inventory")));
+            .any(|event| event.contains("Delivered 8 to the landing hub")));
+        assert_eq!(core.player.inventory.get(&3), Some(&4));
     }
 
     #[test]
@@ -11348,7 +11993,7 @@ mod tests {
         // invalidate comparisons against previously recorded tier numbers. A generator-version
         // bump moves this number while the workload does not — which is why the delivered total
         // and the entity count below are the assertions that say the run is the same run.
-        assert_eq!(first.checksum(), 914_129_621);
+        assert_eq!(first.checksum(), 780_276_626);
         assert_eq!(first.entities.len(), spec.entities() as usize);
         // Every line must be running end to end, or the tiers would measure an idle blueprint.
         assert_eq!(first.delivered, u64::from(spec.lines) * 14);

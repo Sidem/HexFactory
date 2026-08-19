@@ -19,6 +19,7 @@ export type FeedbackCue =
   | "place"
   | "reject"
   | "deliver"
+  | "reward"
   | "unlock"
   | "project";
 
@@ -60,6 +61,15 @@ const CUES: Record<FeedbackCue, CueSpec> = {
     type: "sine",
     length: 0.11,
     gain: 0.11,
+    bend: 1,
+  },
+  // A filled request is paid work, so it rises further than a delivery and stops short of the
+  // fanfare a founding stage gets. One more data row, which is the whole claim this table makes.
+  reward: {
+    notes: [523, 659, 988],
+    type: "triangle",
+    length: 0.1,
+    gain: 0.1,
     bend: 1,
   },
   unlock: {
@@ -191,6 +201,8 @@ export function cueForEvent(event: string): FeedbackCue | null {
   if (event.startsWith("Gathered") || event.startsWith("Recovered"))
     return "gather";
   if (event.startsWith("Delivered")) return "deliver";
+  // The hub paying for a filled request, whether a belt or a hand completed it.
+  if (event.includes("the hub pays")) return "reward";
   if (event.startsWith("Researched")) return "unlock";
   if (
     event.includes("landing hub grows") ||

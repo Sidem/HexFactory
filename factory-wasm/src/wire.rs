@@ -48,7 +48,11 @@ pub(crate) const WIRE_MAGIC: [u8; 4] = *b"HXFD";
 /// and carries two more numbers behind it — what a machine has banked and what it banks to. A
 /// version-3 decoder would read the first byte of a two-byte flag and mis-frame every field after
 /// it, which is exactly the misreading this number exists to prevent.
-pub(crate) const WIRE_VERSION: u8 = 4;
+///
+/// Version 5 is Standing Requests. A new group carries the hub's request board, and it is written
+/// between the contract and the player — so a version-4 decoder that skipped the group bit would
+/// read the board's first string as a player and mis-frame the rest of the buffer.
+pub(crate) const WIRE_VERSION: u8 = 5;
 
 /// Which optional groups the buffer carries, in the order they are written.
 mod group {
@@ -61,13 +65,14 @@ mod group {
     pub(super) const INSIGHT: u32 = 1 << 6;
     pub(super) const VICTORY: u32 = 1 << 7;
     pub(super) const CONTRACT: u32 = 1 << 8;
-    pub(super) const PLAYER: u32 = 1 << 9;
-    pub(super) const RESEARCHED: u32 = 1 << 10;
-    pub(super) const CHUNKS: u32 = 1 << 11;
-    pub(super) const TERRAIN: u32 = 1 << 12;
-    pub(super) const RESOURCES: u32 = 1 << 13;
-    pub(super) const BUILDINGS: u32 = 1 << 14;
-    pub(super) const EVENTS: u32 = 1 << 15;
+    pub(super) const REQUESTS: u32 = 1 << 9;
+    pub(super) const PLAYER: u32 = 1 << 10;
+    pub(super) const RESEARCHED: u32 = 1 << 11;
+    pub(super) const CHUNKS: u32 = 1 << 12;
+    pub(super) const TERRAIN: u32 = 1 << 13;
+    pub(super) const RESOURCES: u32 = 1 << 14;
+    pub(super) const BUILDINGS: u32 = 1 << 15;
+    pub(super) const EVENTS: u32 = 1 << 16;
 }
 
 /// Per-entity presence bits, so an absent option costs a bit rather than a field name and a `null`.
@@ -229,6 +234,7 @@ pub(crate) fn encode_delta(delta: &SnapshotDelta) -> Vec<u8> {
     set(group::INSIGHT, delta.insight.is_some());
     set(group::VICTORY, delta.victory.is_some());
     set(group::CONTRACT, delta.contract.is_some());
+    set(group::REQUESTS, delta.requests.is_some());
     set(group::PLAYER, delta.player.is_some());
     set(group::RESEARCHED, delta.researched.is_some());
     set(group::CHUNKS, delta.chunks.is_some());
@@ -281,6 +287,18 @@ pub(crate) fn encode_delta(delta: &SnapshotDelta) -> Vec<u8> {
             writer.uvarint(u64::from(need.required));
         }
         writer.bool(contract.complete);
+    }
+    if let Some(requests) = &delta.requests {
+        writer.uvarint(requests.len() as u64);
+        for request in requests {
+            writer.string(&request.key);
+            writer.string(&request.name);
+            writer.string(&request.brief);
+            writer.uvarint(u64::from(request.item_id));
+            writer.uvarint(u64::from(request.delivered));
+            writer.uvarint(u64::from(request.required));
+            writer.uvarint(u64::from(request.insight));
+        }
     }
     if let Some(player) = &delta.player {
         write_player(&mut writer, player);
@@ -656,6 +674,19 @@ pub(crate) mod decode {
                 .collect(),
             complete: reader.bool(),
         });
+        let requests = has(group::REQUESTS).then(|| {
+            (0..reader.count())
+                .map(|_| RequestSnapshot {
+                    key: reader.string(),
+                    name: reader.string(),
+                    brief: reader.string(),
+                    item_id: reader.uvarint() as ItemId,
+                    delivered: reader.uvarint() as u32,
+                    required: reader.uvarint() as u32,
+                    insight: reader.uvarint() as u32,
+                })
+                .collect()
+        });
         let player = has(group::PLAYER).then(|| read_player(&mut reader));
         let researched = has(group::RESEARCHED).then(|| {
             (0..reader.count())
@@ -751,6 +782,7 @@ pub(crate) mod decode {
             insight,
             victory,
             contract,
+            requests,
             player,
             researched,
             chunks,

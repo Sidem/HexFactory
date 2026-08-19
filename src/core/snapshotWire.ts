@@ -6,6 +6,7 @@ import type {
   EntitySnapshot,
   FactorySnapshotDelta,
   Ingredient,
+  RequestSnapshot,
   ResourceSnapshot,
   ResourcesPatch,
   Terrain,
@@ -32,7 +33,7 @@ import type {
  */
 
 const MAGIC = 0x48584644; // "HXFD"
-const VERSION = 4;
+const VERSION = 5;
 
 /** Wire code is the index. Pinned against Rust by `fixtures/snapshot-delta-wire.json`. */
 const KINDS: BuildingKind[] = [
@@ -88,13 +89,14 @@ const GROUP = {
   insight: 1 << 6,
   victory: 1 << 7,
   contract: 1 << 8,
-  player: 1 << 9,
-  researched: 1 << 10,
-  chunks: 1 << 11,
-  terrain: 1 << 12,
-  resources: 1 << 13,
-  buildings: 1 << 14,
-  events: 1 << 15,
+  requests: 1 << 9,
+  player: 1 << 10,
+  researched: 1 << 11,
+  chunks: 1 << 12,
+  terrain: 1 << 13,
+  resources: 1 << 14,
+  buildings: 1 << 15,
+  events: 1 << 16,
 } as const;
 
 const ENTITY_FLAG = {
@@ -257,6 +259,21 @@ export function decodeSnapshotDelta(buffer: ArrayBuffer): FactorySnapshotDelta {
       requirements,
       complete: reader.bool(),
     };
+  }
+  if (has(GROUP.requests)) {
+    const count = reader.uvarint();
+    const requests: RequestSnapshot[] = new Array<RequestSnapshot>(count);
+    for (let index = 0; index < count; index += 1)
+      requests[index] = {
+        key: reader.string(),
+        name: reader.string(),
+        brief: reader.string(),
+        item_id: reader.uvarint(),
+        delivered: reader.uvarint(),
+        required: reader.uvarint(),
+        insight: reader.uvarint(),
+      };
+    delta.requests = requests;
   }
   if (has(GROUP.player)) delta.player = readPlayer(reader);
   if (has(GROUP.researched)) {

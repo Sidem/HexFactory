@@ -12,7 +12,7 @@ What is playable today is deliberately small. Its full-viewport command surface 
 and construction costs close to the world on desktop and touch layouts. A
 new game starts beside a landing hub inside a small surveyed clearing, with the rest of the world
 under fog: explore to lift it, walk across basins and highlands, gather finite ore and crystal
-fields, deliver items for insight, unlock a short technology tree, build a compiled transport
+fields, fill the hub's posted requests for insight, unlock a short technology tree, build a compiled transport
 line, compose three components, and win. Pick the **world** as well as the seed — Continental,
 Archipelago, Highlands, or Basin, with the raw generator parameters exposed behind the preset. The
 founding prebuilt architecture proof remains available as the **Factory demo** scenario.

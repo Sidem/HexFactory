@@ -94,5 +94,9 @@ export function encodeCommand(command: NativeInputCommand): EncodedCommand {
         opcode: 15,
         args: [command.q, command.r, command.item_id, command.quantity],
       };
+    // A pass names a slot and nothing else. Which row replaces it, and what passing costs, are
+    // native's — the host never re-derives the draw order.
+    case "skip_request":
+      return { opcode: 16, args: [command.slot] };
   }
 }

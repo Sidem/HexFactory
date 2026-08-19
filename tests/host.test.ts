@@ -73,6 +73,17 @@ const snapshot: FactorySnapshot = {
     requirements: [{ item_id: 2, delivered: 0, required: 3 }],
     complete: false,
   },
+  requests: [
+    {
+      key: "ore-assay",
+      name: "Ore assay",
+      brief: "A sample of the highland seam.",
+      item_id: 1,
+      delivered: 2,
+      required: 10,
+      insight: 10,
+    },
+  ],
   player: {
     x: 1774,
     y: 0,

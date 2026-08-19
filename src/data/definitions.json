@@ -1,5 +1,5 @@
 {
-  "version": 9,
+  "version": 10,
   "items": [
     {
       "id": 1,
@@ -8,7 +8,6 @@
       "color": "#e2a85f",
       "icon": "ore",
       "description": "Highland ore. Smelts into the plate everything else is built from.",
-      "insight_value": 1,
       "stack_size": 20
     },
     {
@@ -18,7 +17,6 @@
       "color": "#6fddd0",
       "icon": "component",
       "description": "A composed part required by the landing objective.",
-      "insight_value": 5,
       "stack_size": 10
     },
     {
@@ -28,7 +26,6 @@
       "color": "#b78cff",
       "icon": "crystal",
       "description": "A finite secondary resource used by advanced machines.",
-      "insight_value": 2,
       "stack_size": 10
     },
     {
@@ -38,7 +35,6 @@
       "color": "#c9743f",
       "icon": "ore",
       "description": "Hill ore. Becomes the plate and wire every circuit needs.",
-      "insight_value": 1,
       "stack_size": 20
     },
     {
@@ -48,7 +44,6 @@
       "color": "#39404a",
       "icon": "lump",
       "description": "Dense highland fuel, and the carbon steel is made with.",
-      "insight_value": 1,
       "stack_size": 20,
       "fuel_value": 8
     },
@@ -59,7 +54,6 @@
       "color": "#96938c",
       "icon": "lump",
       "description": "Cut from cliff faces. The cheapest structural material there is.",
-      "insight_value": 1,
       "stack_size": 20
     },
     {
@@ -69,7 +63,6 @@
       "color": "#ded0a3",
       "icon": "grains",
       "description": "Shore grit. Melts into glass and binds into concrete.",
-      "insight_value": 1,
       "stack_size": 20
     },
     {
@@ -79,7 +72,6 @@
       "color": "#b0714c",
       "icon": "grains",
       "description": "Damp shore and lowland earth. Fires into brick.",
-      "insight_value": 1,
       "stack_size": 20
     },
     {
@@ -89,7 +81,6 @@
       "color": "#7c5a34",
       "icon": "log",
       "description": "Cut from lowland flora, which grows back. Burns, and cuts into timber.",
-      "insight_value": 1,
       "stack_size": 20,
       "fuel_value": 2,
       "regrowth_ticks": 90
@@ -101,7 +92,6 @@
       "color": "#4aa8d8",
       "icon": "droplet",
       "description": "Pumped from a basin and belted like anything else, for now.",
-      "insight_value": 1,
       "stack_size": 20
     },
     {
@@ -111,7 +101,6 @@
       "color": "#c3ced6",
       "icon": "plate",
       "description": "Smelted iron. The structural backbone of every later tier.",
-      "insight_value": 3,
       "stack_size": 10
     },
     {
@@ -121,7 +110,6 @@
       "color": "#e08e58",
       "icon": "plate",
       "description": "Smelted copper, drawn into wire.",
-      "insight_value": 3,
       "stack_size": 10
     },
     {
@@ -131,7 +119,6 @@
       "color": "#a8dbe6",
       "icon": "plate",
       "description": "Melted sand. The substrate a circuit is printed on.",
-      "insight_value": 3,
       "stack_size": 10
     },
     {
@@ -141,7 +128,6 @@
       "color": "#b5563f",
       "icon": "plate",
       "description": "Fired clay. Cheap, plentiful, and it holds heat.",
-      "insight_value": 2,
       "stack_size": 20
     },
     {
@@ -151,7 +137,6 @@
       "color": "#5c5148",
       "icon": "lump",
       "description": "Wood pyrolysed into fuel, so smelting never waits on a coal field.",
-      "insight_value": 2,
       "stack_size": 20,
       "fuel_value": 8
     },
@@ -162,7 +147,6 @@
       "color": "#b3874f",
       "icon": "log",
       "description": "Wood cut to length. Frames are built from it.",
-      "insight_value": 2,
       "stack_size": 20
     },
     {
@@ -172,7 +156,6 @@
       "color": "#9a9188",
       "icon": "grains",
       "description": "Crushed stone. Aggregate for concrete.",
-      "insight_value": 1,
       "stack_size": 20
     },
     {
@@ -182,7 +165,6 @@
       "color": "#e0a45f",
       "icon": "wire",
       "description": "Drawn copper. Three of them and a pane of glass make a circuit.",
-      "insight_value": 4,
       "stack_size": 20
     },
     {
@@ -192,7 +174,6 @@
       "color": "#b9c2c8",
       "icon": "gear",
       "description": "Cut iron teeth. The first part that is a mechanism rather than a material.",
-      "insight_value": 5,
       "stack_size": 10
     },
     {
@@ -202,7 +183,6 @@
       "color": "#a08a63",
       "icon": "frame",
       "description": "Timber braced with iron. Everything large is hung on one.",
-      "insight_value": 6,
       "stack_size": 10
     },
     {
@@ -212,7 +192,6 @@
       "color": "#9aa0a4",
       "icon": "plate",
       "description": "Gravel, sand, and water. The first recipe that needs a basin nearby.",
-      "insight_value": 4,
       "stack_size": 20
     },
     {
@@ -222,7 +201,6 @@
       "color": "#5fd6a8",
       "icon": "circuit",
       "description": "Glass printed with copper. Where the material base starts to think.",
-      "insight_value": 8,
       "stack_size": 10
     },
     {
@@ -232,7 +210,6 @@
       "color": "#8fa3b0",
       "icon": "plate",
       "description": "Iron smelted again with coal. The strongest thing this world makes.",
-      "insight_value": 8,
       "stack_size": 10
     }
   ],
@@ -243,8 +220,16 @@
       "name": "Compose component",
       "description": "Bind two iron ore into a landing component.",
       "category": "assembly",
-      "inputs": [{ "item_id": 1, "quantity": 2 }],
-      "output": { "item_id": 2, "quantity": 1 },
+      "inputs": [
+        {
+          "item_id": 1,
+          "quantity": 2
+        }
+      ],
+      "output": {
+        "item_id": 2,
+        "quantity": 1
+      },
       "duration": 8
     },
     {
@@ -253,8 +238,16 @@
       "name": "Smelt iron plate",
       "description": "Melt two iron ore down into one plate.",
       "category": "smelting",
-      "inputs": [{ "item_id": 1, "quantity": 2 }],
-      "output": { "item_id": 11, "quantity": 1 },
+      "inputs": [
+        {
+          "item_id": 1,
+          "quantity": 2
+        }
+      ],
+      "output": {
+        "item_id": 11,
+        "quantity": 1
+      },
       "duration": 10,
       "fuel": 4
     },
@@ -264,8 +257,16 @@
       "name": "Smelt copper plate",
       "description": "Melt two copper ore down into one plate.",
       "category": "smelting",
-      "inputs": [{ "item_id": 4, "quantity": 2 }],
-      "output": { "item_id": 12, "quantity": 1 },
+      "inputs": [
+        {
+          "item_id": 4,
+          "quantity": 2
+        }
+      ],
+      "output": {
+        "item_id": 12,
+        "quantity": 1
+      },
       "duration": 10,
       "fuel": 4
     },
@@ -275,8 +276,16 @@
       "name": "Melt glass",
       "description": "Melt two sand into one pane of glass.",
       "category": "smelting",
-      "inputs": [{ "item_id": 7, "quantity": 2 }],
-      "output": { "item_id": 13, "quantity": 1 },
+      "inputs": [
+        {
+          "item_id": 7,
+          "quantity": 2
+        }
+      ],
+      "output": {
+        "item_id": 13,
+        "quantity": 1
+      },
       "duration": 12,
       "fuel": 5
     },
@@ -287,10 +296,19 @@
       "description": "Smelt two iron plate with two coal as carbon. The heat is fuel on top of that.",
       "category": "smelting",
       "inputs": [
-        { "item_id": 11, "quantity": 2 },
-        { "item_id": 5, "quantity": 2 }
+        {
+          "item_id": 11,
+          "quantity": 2
+        },
+        {
+          "item_id": 5,
+          "quantity": 2
+        }
       ],
-      "output": { "item_id": 23, "quantity": 1 },
+      "output": {
+        "item_id": 23,
+        "quantity": 1
+      },
       "duration": 20,
       "fuel": 8
     },
@@ -300,8 +318,16 @@
       "name": "Fire brick",
       "description": "Fire two clay into three brick.",
       "category": "firing",
-      "inputs": [{ "item_id": 8, "quantity": 2 }],
-      "output": { "item_id": 14, "quantity": 3 },
+      "inputs": [
+        {
+          "item_id": 8,
+          "quantity": 2
+        }
+      ],
+      "output": {
+        "item_id": 14,
+        "quantity": 3
+      },
       "duration": 12,
       "fuel": 4
     },
@@ -311,8 +337,16 @@
       "name": "Char wood",
       "description": "Pyrolyse two wood into charcoal. Needs no fuel, so smelting can start without coal.",
       "category": "firing",
-      "inputs": [{ "item_id": 9, "quantity": 2 }],
-      "output": { "item_id": 15, "quantity": 1 },
+      "inputs": [
+        {
+          "item_id": 9,
+          "quantity": 2
+        }
+      ],
+      "output": {
+        "item_id": 15,
+        "quantity": 1
+      },
       "duration": 10
     },
     {
@@ -321,8 +355,16 @@
       "name": "Cut timber",
       "description": "Cut one wood into two lengths of timber.",
       "category": "cutting",
-      "inputs": [{ "item_id": 9, "quantity": 1 }],
-      "output": { "item_id": 16, "quantity": 2 },
+      "inputs": [
+        {
+          "item_id": 9,
+          "quantity": 1
+        }
+      ],
+      "output": {
+        "item_id": 16,
+        "quantity": 2
+      },
       "duration": 6
     },
     {
@@ -331,8 +373,16 @@
       "name": "Crush gravel",
       "description": "Crush one stone into two gravel.",
       "category": "crushing",
-      "inputs": [{ "item_id": 6, "quantity": 1 }],
-      "output": { "item_id": 17, "quantity": 2 },
+      "inputs": [
+        {
+          "item_id": 6,
+          "quantity": 1
+        }
+      ],
+      "output": {
+        "item_id": 17,
+        "quantity": 2
+      },
       "duration": 6
     },
     {
@@ -341,8 +391,16 @@
       "name": "Draw copper wire",
       "description": "Draw one copper plate into two lengths of wire.",
       "category": "assembly",
-      "inputs": [{ "item_id": 12, "quantity": 1 }],
-      "output": { "item_id": 18, "quantity": 2 },
+      "inputs": [
+        {
+          "item_id": 12,
+          "quantity": 1
+        }
+      ],
+      "output": {
+        "item_id": 18,
+        "quantity": 2
+      },
       "duration": 6
     },
     {
@@ -351,8 +409,16 @@
       "name": "Cut gear",
       "description": "Cut two iron plate into one toothed gear.",
       "category": "assembly",
-      "inputs": [{ "item_id": 11, "quantity": 2 }],
-      "output": { "item_id": 19, "quantity": 1 },
+      "inputs": [
+        {
+          "item_id": 11,
+          "quantity": 2
+        }
+      ],
+      "output": {
+        "item_id": 19,
+        "quantity": 1
+      },
       "duration": 8
     },
     {
@@ -362,10 +428,19 @@
       "description": "Brace two timber with an iron plate.",
       "category": "assembly",
       "inputs": [
-        { "item_id": 16, "quantity": 2 },
-        { "item_id": 11, "quantity": 1 }
+        {
+          "item_id": 16,
+          "quantity": 2
+        },
+        {
+          "item_id": 11,
+          "quantity": 1
+        }
       ],
-      "output": { "item_id": 20, "quantity": 1 },
+      "output": {
+        "item_id": 20,
+        "quantity": 1
+      },
       "duration": 10
     },
     {
@@ -375,11 +450,23 @@
       "description": "Mix two gravel, one sand, and one water into two concrete.",
       "category": "assembly",
       "inputs": [
-        { "item_id": 17, "quantity": 2 },
-        { "item_id": 7, "quantity": 1 },
-        { "item_id": 10, "quantity": 1 }
+        {
+          "item_id": 17,
+          "quantity": 2
+        },
+        {
+          "item_id": 7,
+          "quantity": 1
+        },
+        {
+          "item_id": 10,
+          "quantity": 1
+        }
       ],
-      "output": { "item_id": 21, "quantity": 2 },
+      "output": {
+        "item_id": 21,
+        "quantity": 2
+      },
       "duration": 12
     },
     {
@@ -389,10 +476,19 @@
       "description": "Print three copper wire onto a pane of glass.",
       "category": "assembly",
       "inputs": [
-        { "item_id": 13, "quantity": 1 },
-        { "item_id": 18, "quantity": 3 }
+        {
+          "item_id": 13,
+          "quantity": 1
+        },
+        {
+          "item_id": 18,
+          "quantity": 3
+        }
       ],
-      "output": { "item_id": 22, "quantity": 1 },
+      "output": {
+        "item_id": 22,
+        "quantity": 1
+      },
       "duration": 14
     }
   ],
@@ -408,14 +504,25 @@
       "power_draw": 4,
       "upgrades_to": 19,
       "construction_cost": [
-        { "item_id": 1, "quantity": 4 },
-        { "item_id": 3, "quantity": 1 }
+        {
+          "item_id": 1,
+          "quantity": 4
+        },
+        {
+          "item_id": 3,
+          "quantity": 1
+        }
       ],
       "unlock_technology_id": 2,
       "placement_rule": "resource",
       "buildable": true,
       "blocks_movement": true,
-      "footprint": [{ "q": 0, "r": 0 }]
+      "footprint": [
+        {
+          "q": 0,
+          "r": 0
+        }
+      ]
     },
     {
       "id": 2,
@@ -424,12 +531,22 @@
       "kind": "belt",
       "description": "Moves one cargo stack along its clockwise hex direction.",
       "icon": "BLT",
-      "construction_cost": [{ "item_id": 1, "quantity": 1 }],
+      "construction_cost": [
+        {
+          "item_id": 1,
+          "quantity": 1
+        }
+      ],
       "unlock_technology_id": 1,
       "placement_rule": "ground",
       "buildable": true,
       "blocks_movement": false,
-      "footprint": [{ "q": 0, "r": 0 }]
+      "footprint": [
+        {
+          "q": 0,
+          "r": 0
+        }
+      ]
     },
     {
       "id": 3,
@@ -442,16 +559,28 @@
       "power_draw": 8,
       "recipe_category": "assembly",
       "construction_cost": [
-        { "item_id": 1, "quantity": 5 },
-        { "item_id": 3, "quantity": 3 }
+        {
+          "item_id": 1,
+          "quantity": 5
+        },
+        {
+          "item_id": 3,
+          "quantity": 3
+        }
       ],
       "unlock_technology_id": 3,
       "placement_rule": "ground",
       "buildable": true,
       "blocks_movement": true,
       "footprint": [
-        { "q": 0, "r": 0 },
-        { "q": 0, "r": -1 }
+        {
+          "q": 0,
+          "r": 0
+        },
+        {
+          "q": 0,
+          "r": -1
+        }
       ]
     },
     {
@@ -463,12 +592,22 @@
       "icon": "BOX",
       "capacity": 12,
       "upgrades_to": 20,
-      "construction_cost": [{ "item_id": 1, "quantity": 3 }],
+      "construction_cost": [
+        {
+          "item_id": 1,
+          "quantity": 3
+        }
+      ],
       "unlock_technology_id": 4,
       "placement_rule": "ground",
       "buildable": true,
       "blocks_movement": true,
-      "footprint": [{ "q": 0, "r": 0 }]
+      "footprint": [
+        {
+          "q": 0,
+          "r": 0
+        }
+      ]
     },
     {
       "id": 5,
@@ -481,7 +620,12 @@
       "placement_rule": "ground",
       "buildable": false,
       "blocks_movement": true,
-      "footprint": [{ "q": 0, "r": 0 }]
+      "footprint": [
+        {
+          "q": 0,
+          "r": 0
+        }
+      ]
     },
     {
       "id": 6,
@@ -495,9 +639,18 @@
       "buildable": false,
       "blocks_movement": true,
       "footprint": [
-        { "q": 0, "r": 0 },
-        { "q": 0, "r": 1 },
-        { "q": -1, "r": 1 }
+        {
+          "q": 0,
+          "r": 0
+        },
+        {
+          "q": 0,
+          "r": 1
+        },
+        {
+          "q": -1,
+          "r": 1
+        }
       ]
     },
     {
@@ -511,14 +664,25 @@
       "power_draw": 10,
       "recipe_category": "smelting",
       "construction_cost": [
-        { "item_id": 6, "quantity": 8 },
-        { "item_id": 1, "quantity": 4 }
+        {
+          "item_id": 6,
+          "quantity": 8
+        },
+        {
+          "item_id": 1,
+          "quantity": 4
+        }
       ],
       "unlock_technology_id": 5,
       "placement_rule": "ground",
       "buildable": true,
       "blocks_movement": true,
-      "footprint": [{ "q": 0, "r": 0 }]
+      "footprint": [
+        {
+          "q": 0,
+          "r": 0
+        }
+      ]
     },
     {
       "id": 8,
@@ -531,14 +695,25 @@
       "power_draw": 10,
       "recipe_category": "firing",
       "construction_cost": [
-        { "item_id": 6, "quantity": 6 },
-        { "item_id": 8, "quantity": 4 }
+        {
+          "item_id": 6,
+          "quantity": 6
+        },
+        {
+          "item_id": 8,
+          "quantity": 4
+        }
       ],
       "unlock_technology_id": 5,
       "placement_rule": "ground",
       "buildable": true,
       "blocks_movement": true,
-      "footprint": [{ "q": 0, "r": 0 }]
+      "footprint": [
+        {
+          "q": 0,
+          "r": 0
+        }
+      ]
     },
     {
       "id": 9,
@@ -551,14 +726,25 @@
       "power_draw": 8,
       "recipe_category": "cutting",
       "construction_cost": [
-        { "item_id": 11, "quantity": 3 },
-        { "item_id": 6, "quantity": 6 }
+        {
+          "item_id": 11,
+          "quantity": 3
+        },
+        {
+          "item_id": 6,
+          "quantity": 6
+        }
       ],
       "unlock_technology_id": 6,
       "placement_rule": "ground",
       "buildable": true,
       "blocks_movement": true,
-      "footprint": [{ "q": 0, "r": 0 }]
+      "footprint": [
+        {
+          "q": 0,
+          "r": 0
+        }
+      ]
     },
     {
       "id": 10,
@@ -571,14 +757,25 @@
       "power_draw": 8,
       "recipe_category": "crushing",
       "construction_cost": [
-        { "item_id": 11, "quantity": 4 },
-        { "item_id": 6, "quantity": 6 }
+        {
+          "item_id": 11,
+          "quantity": 4
+        },
+        {
+          "item_id": 6,
+          "quantity": 6
+        }
       ],
       "unlock_technology_id": 6,
       "placement_rule": "ground",
       "buildable": true,
       "blocks_movement": true,
-      "footprint": [{ "q": 0, "r": 0 }]
+      "footprint": [
+        {
+          "q": 0,
+          "r": 0
+        }
+      ]
     },
     {
       "id": 11,
@@ -591,14 +788,25 @@
       "power_draw": 4,
       "output_item_id": 10,
       "construction_cost": [
-        { "item_id": 11, "quantity": 4 },
-        { "item_id": 14, "quantity": 4 }
+        {
+          "item_id": 11,
+          "quantity": 4
+        },
+        {
+          "item_id": 14,
+          "quantity": 4
+        }
       ],
       "unlock_technology_id": 7,
       "placement_rule": "water",
       "buildable": true,
       "blocks_movement": true,
-      "footprint": [{ "q": 0, "r": 0 }]
+      "footprint": [
+        {
+          "q": 0,
+          "r": 0
+        }
+      ]
     },
     {
       "id": 12,
@@ -611,12 +819,22 @@
       "supply_radius": 3,
       "pole_reach": 6,
       "upgrades_to": 21,
-      "construction_cost": [{ "item_id": 1, "quantity": 1 }],
+      "construction_cost": [
+        {
+          "item_id": 1,
+          "quantity": 1
+        }
+      ],
       "unlock_technology_id": 8,
       "placement_rule": "ground",
       "buildable": true,
       "blocks_movement": false,
-      "footprint": [{ "q": 0, "r": 0 }]
+      "footprint": [
+        {
+          "q": 0,
+          "r": 0
+        }
+      ]
     },
     {
       "id": 13,
@@ -628,14 +846,25 @@
       "power_output": 20,
       "power_source": "burner",
       "construction_cost": [
-        { "item_id": 1, "quantity": 4 },
-        { "item_id": 6, "quantity": 4 }
+        {
+          "item_id": 1,
+          "quantity": 4
+        },
+        {
+          "item_id": 6,
+          "quantity": 4
+        }
       ],
       "unlock_technology_id": 8,
       "placement_rule": "ground",
       "buildable": true,
       "blocks_movement": true,
-      "footprint": [{ "q": 0, "r": 0 }]
+      "footprint": [
+        {
+          "q": 0,
+          "r": 0
+        }
+      ]
     },
     {
       "id": 14,
@@ -647,14 +876,25 @@
       "power_output": 12,
       "power_source": "wind",
       "construction_cost": [
-        { "item_id": 11, "quantity": 2 },
-        { "item_id": 19, "quantity": 1 }
+        {
+          "item_id": 11,
+          "quantity": 2
+        },
+        {
+          "item_id": 19,
+          "quantity": 1
+        }
       ],
       "unlock_technology_id": 9,
       "placement_rule": "elevated",
       "buildable": true,
       "blocks_movement": true,
-      "footprint": [{ "q": 0, "r": 0 }]
+      "footprint": [
+        {
+          "q": 0,
+          "r": 0
+        }
+      ]
     },
     {
       "id": 15,
@@ -666,14 +906,25 @@
       "power_output": 24,
       "power_source": "hydro",
       "construction_cost": [
-        { "item_id": 11, "quantity": 6 },
-        { "item_id": 14, "quantity": 4 }
+        {
+          "item_id": 11,
+          "quantity": 6
+        },
+        {
+          "item_id": 14,
+          "quantity": 4
+        }
       ],
       "unlock_technology_id": 9,
       "placement_rule": "water",
       "buildable": true,
       "blocks_movement": true,
-      "footprint": [{ "q": 0, "r": 0 }]
+      "footprint": [
+        {
+          "q": 0,
+          "r": 0
+        }
+      ]
     },
     {
       "id": 16,
@@ -683,14 +934,25 @@
       "description": "Burns fuel and water into steam for an adjacent turbine. Belt water in; this is not a fluid network.",
       "icon": "BLR",
       "construction_cost": [
-        { "item_id": 11, "quantity": 6 },
-        { "item_id": 14, "quantity": 4 }
+        {
+          "item_id": 11,
+          "quantity": 6
+        },
+        {
+          "item_id": 14,
+          "quantity": 4
+        }
       ],
       "unlock_technology_id": 10,
       "placement_rule": "water",
       "buildable": true,
       "blocks_movement": true,
-      "footprint": [{ "q": 0, "r": 0 }]
+      "footprint": [
+        {
+          "q": 0,
+          "r": 0
+        }
+      ]
     },
     {
       "id": 17,
@@ -702,14 +964,25 @@
       "power_output": 48,
       "power_source": "turbine",
       "construction_cost": [
-        { "item_id": 11, "quantity": 6 },
-        { "item_id": 19, "quantity": 2 }
+        {
+          "item_id": 11,
+          "quantity": 6
+        },
+        {
+          "item_id": 19,
+          "quantity": 2
+        }
       ],
       "unlock_technology_id": 10,
       "placement_rule": "ground",
       "buildable": true,
       "blocks_movement": true,
-      "footprint": [{ "q": 0, "r": 0 }]
+      "footprint": [
+        {
+          "q": 0,
+          "r": 0
+        }
+      ]
     },
     {
       "id": 18,
@@ -719,12 +992,22 @@
       "description": "A short gantry over the seam between two hexes, carrying cargo due north or due south. Twice a belt's cost for twice a belt's reach; the hexes it spans stay free to build on and to walk through.",
       "icon": "RSR",
       "orientation_axis": "vertical",
-      "construction_cost": [{ "item_id": 1, "quantity": 2 }],
+      "construction_cost": [
+        {
+          "item_id": 1,
+          "quantity": 2
+        }
+      ],
       "unlock_technology_id": 11,
       "placement_rule": "ground",
       "buildable": true,
       "blocks_movement": false,
-      "footprint": [{ "q": 0, "r": 0 }]
+      "footprint": [
+        {
+          "q": 0,
+          "r": 0
+        }
+      ]
     },
     {
       "id": 19,
@@ -738,16 +1021,33 @@
       "extract_radius": 2,
       "power_draw": 7,
       "construction_cost": [
-        { "item_id": 1, "quantity": 4 },
-        { "item_id": 3, "quantity": 1 },
-        { "item_id": 6, "quantity": 6 },
-        { "item_id": 19, "quantity": 2 }
+        {
+          "item_id": 1,
+          "quantity": 4
+        },
+        {
+          "item_id": 3,
+          "quantity": 1
+        },
+        {
+          "item_id": 6,
+          "quantity": 6
+        },
+        {
+          "item_id": 19,
+          "quantity": 2
+        }
       ],
       "unlock_technology_id": 12,
       "placement_rule": "resource",
       "buildable": true,
       "blocks_movement": true,
-      "footprint": [{ "q": 0, "r": 0 }]
+      "footprint": [
+        {
+          "q": 0,
+          "r": 0
+        }
+      ]
     },
     {
       "id": 20,
@@ -759,15 +1059,29 @@
       "tier": 1,
       "capacity": 24,
       "construction_cost": [
-        { "item_id": 1, "quantity": 3 },
-        { "item_id": 6, "quantity": 4 },
-        { "item_id": 11, "quantity": 2 }
+        {
+          "item_id": 1,
+          "quantity": 3
+        },
+        {
+          "item_id": 6,
+          "quantity": 4
+        },
+        {
+          "item_id": 11,
+          "quantity": 2
+        }
       ],
       "unlock_technology_id": 12,
       "placement_rule": "ground",
       "buildable": true,
       "blocks_movement": true,
-      "footprint": [{ "q": 0, "r": 0 }]
+      "footprint": [
+        {
+          "q": 0,
+          "r": 0
+        }
+      ]
     },
     {
       "id": 21,
@@ -781,14 +1095,25 @@
       "pole_reach": 8,
       "upgrades_to": 22,
       "construction_cost": [
-        { "item_id": 11, "quantity": 2 },
-        { "item_id": 18, "quantity": 2 }
+        {
+          "item_id": 11,
+          "quantity": 2
+        },
+        {
+          "item_id": 18,
+          "quantity": 2
+        }
       ],
       "unlock_technology_id": 13,
       "placement_rule": "ground",
       "buildable": true,
       "blocks_movement": false,
-      "footprint": [{ "q": 0, "r": 0 }]
+      "footprint": [
+        {
+          "q": 0,
+          "r": 0
+        }
+      ]
     },
     {
       "id": 22,
@@ -801,15 +1126,229 @@
       "supply_radius": 6,
       "pole_reach": 12,
       "construction_cost": [
-        { "item_id": 23, "quantity": 2 },
-        { "item_id": 18, "quantity": 4 },
-        { "item_id": 22, "quantity": 1 }
+        {
+          "item_id": 23,
+          "quantity": 2
+        },
+        {
+          "item_id": 18,
+          "quantity": 4
+        },
+        {
+          "item_id": 22,
+          "quantity": 1
+        }
       ],
       "unlock_technology_id": 14,
       "placement_rule": "ground",
       "buildable": true,
       "blocks_movement": false,
-      "footprint": [{ "q": 0, "r": 0 }]
+      "footprint": [
+        {
+          "q": 0,
+          "r": 0
+        }
+      ]
+    }
+  ],
+  "requests": [
+    {
+      "id": 1,
+      "key": "ore-assay",
+      "name": "Ore assay",
+      "brief": "The survey wants a proper sample of the highland seam before the hub commits a foundry to it.",
+      "item_id": 1,
+      "quantity": 10,
+      "insight": 10
+    },
+    {
+      "id": 2,
+      "key": "cliff-stone",
+      "name": "Cliff stone",
+      "brief": "Cut stone for the landing pad's apron. The cliff faces are the nearest source, and the nearest is what the hub is paying for.",
+      "item_id": 6,
+      "quantity": 10,
+      "insight": 10
+    },
+    {
+      "id": 3,
+      "key": "cordwood",
+      "name": "Cordwood",
+      "brief": "Lowland wood, unworked. The hub burns it while there is nothing better to burn, and the flora grows back.",
+      "item_id": 9,
+      "quantity": 10,
+      "insight": 10
+    },
+    {
+      "id": 4,
+      "key": "clay-survey",
+      "name": "Clay survey",
+      "brief": "Wet shore earth, for a kiln nobody has built yet. Bring enough to prove the bed is worth siting on.",
+      "item_id": 8,
+      "quantity": 10,
+      "insight": 10
+    },
+    {
+      "id": 5,
+      "key": "shore-sand",
+      "name": "Shore sand",
+      "brief": "Shore grit, for the glass that comes before circuits and the concrete that comes after them.",
+      "item_id": 7,
+      "quantity": 10,
+      "insight": 10
+    },
+    {
+      "id": 6,
+      "key": "coal-seam",
+      "name": "Coal seam",
+      "brief": "Highland coal. Every furnace and every burner in this world eventually asks for it, so the hub wants its own pile.",
+      "item_id": 5,
+      "quantity": 8,
+      "insight": 8
+    },
+    {
+      "id": 7,
+      "key": "copper-assay",
+      "name": "Copper assay",
+      "brief": "The hills carry copper as well as iron, and nothing here conducts a signal without it.",
+      "item_id": 4,
+      "quantity": 10,
+      "insight": 10
+    },
+    {
+      "id": 8,
+      "key": "crystal-array",
+      "name": "Crystal array",
+      "brief": "Signal crystal is finite and no recipe makes more. The hub wants a reserve while the fields still hold some.",
+      "item_id": 3,
+      "quantity": 4,
+      "insight": 5
+    },
+    {
+      "id": 9,
+      "key": "plate-stock",
+      "name": "Plate stock",
+      "brief": "Smelted iron, not ore. The hub is paying for the smelting, and it pays better than the digging did.",
+      "item_id": 11,
+      "quantity": 8,
+      "insight": 26
+    },
+    {
+      "id": 10,
+      "key": "copper-stock",
+      "name": "Copper stock",
+      "brief": "Copper run through the same furnace. Plate travels better than ore and is worth more when it lands.",
+      "item_id": 12,
+      "quantity": 8,
+      "insight": 26
+    },
+    {
+      "id": 11,
+      "key": "kiln-brick",
+      "name": "Kiln brick",
+      "brief": "Fired clay for a furnace lining. A kiln turns two clay into three bricks, so this bill is cheaper than its number looks.",
+      "item_id": 14,
+      "quantity": 15,
+      "insight": 17
+    },
+    {
+      "id": 12,
+      "key": "glazing-panes",
+      "name": "Glazing panes",
+      "brief": "Melted sand. Nobody can be asked for a circuit until somebody can make a pane.",
+      "item_id": 13,
+      "quantity": 6,
+      "insight": 21
+    },
+    {
+      "id": 13,
+      "key": "charcoal-run",
+      "name": "Charcoal run",
+      "brief": "Wood pyrolysed into fuel, so a furnace sited far from any coal can still run.",
+      "item_id": 15,
+      "quantity": 8,
+      "insight": 21
+    },
+    {
+      "id": 14,
+      "key": "sawn-timber",
+      "name": "Sawn timber",
+      "brief": "Wood cut to length. One log makes two, which is the first recipe in this world that hands back more than it took.",
+      "item_id": 16,
+      "quantity": 12,
+      "insight": 8
+    },
+    {
+      "id": 15,
+      "key": "ballast",
+      "name": "Ballast",
+      "brief": "Crushed stone for the pad's bed. A crusher doubles it, so one cliff face goes twice as far.",
+      "item_id": 17,
+      "quantity": 12,
+      "insight": 8
+    },
+    {
+      "id": 16,
+      "key": "component-batch",
+      "name": "Component batch",
+      "brief": "The part the founding contract is built out of. The hub will take as many as a line can make.",
+      "item_id": 2,
+      "quantity": 8,
+      "insight": 26
+    },
+    {
+      "id": 17,
+      "key": "drawn-wire",
+      "name": "Drawn wire",
+      "brief": "Copper drawn thin. Three of them and one pane make a circuit, and the hub is counting ahead.",
+      "item_id": 18,
+      "quantity": 12,
+      "insight": 23
+    },
+    {
+      "id": 18,
+      "key": "cut-gears",
+      "name": "Cut gears",
+      "brief": "Iron plate cut into teeth. The first thing here that is a mechanism rather than a material.",
+      "item_id": 19,
+      "quantity": 6,
+      "insight": 47
+    },
+    {
+      "id": 19,
+      "key": "braced-frames",
+      "name": "Braced frames",
+      "brief": "Timber braced with iron: two chains from two landscapes meeting in one machine, which is what this bill is really testing.",
+      "item_id": 20,
+      "quantity": 5,
+      "insight": 32
+    },
+    {
+      "id": 20,
+      "key": "concrete-pour",
+      "name": "Concrete pour",
+      "brief": "Gravel, sand, and water. The first bill that needs a basin as well as a seam.",
+      "item_id": 21,
+      "quantity": 10,
+      "insight": 28
+    },
+    {
+      "id": 21,
+      "key": "circuit-batch",
+      "name": "Circuit batch",
+      "brief": "Glass printed with copper. Nothing in this one is close to the ground, which is exactly why it pays.",
+      "item_id": 22,
+      "quantity": 5,
+      "insight": 61
+    },
+    {
+      "id": 22,
+      "key": "steel-billets",
+      "name": "Steel billets",
+      "brief": "Iron smelted a second time with coal. The strongest thing this world makes, at the end of its longest chain.",
+      "item_id": 23,
+      "quantity": 5,
+      "insight": 72
     }
   ]
 }

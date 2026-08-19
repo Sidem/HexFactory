@@ -1558,6 +1558,73 @@ canvas {
   transition: width 280ms ease;
 }
 
+.quest-requests {
+  margin-top: 8px;
+}
+.request-board {
+  display: grid;
+  gap: 9px;
+  margin: 9px 0 0;
+  padding: 0;
+  list-style: none;
+}
+/* Two lines per row: the offer, then the sentence and the count under it. */
+.request-line {
+  display: grid;
+  grid-template-columns: 12px 1fr auto auto;
+  align-items: center;
+  gap: 3px 8px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #24393450;
+}
+.request-line:last-child {
+  padding-bottom: 0;
+  border-bottom: 0;
+}
+.request-line .swatch {
+  width: 11px;
+  aspect-ratio: 1;
+  border-radius: 3px;
+}
+.request-line strong {
+  font-size: 0.78rem;
+}
+.request-price {
+  color: var(--gold);
+  font-size: 0.74rem;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.request-pass {
+  padding: 2px 7px;
+  border: 1px solid #38534c;
+  border-radius: 999px;
+  background: transparent;
+  color: #9fb5ae;
+  font: inherit;
+  font-size: 0.66rem;
+  cursor: pointer;
+}
+.request-pass:hover,
+.request-pass:focus-visible {
+  border-color: var(--gold);
+  color: var(--gold);
+}
+.request-brief {
+  grid-column: 2 / 5;
+  color: #b9ccc5;
+  font-size: 0.7rem;
+  line-height: 1.45;
+}
+.request-line .contract-count {
+  grid-column: 2 / 5;
+  justify-self: start;
+}
+.request-line .contract-bar {
+  grid-column: 2 / 5;
+}
+
 .comfort-settings {
   display: grid;
   gap: 7px;

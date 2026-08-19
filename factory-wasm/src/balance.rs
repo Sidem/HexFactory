@@ -356,9 +356,12 @@ pub struct Opening {
     pub name: String,
     pub technologies: Vec<String>,
     pub insight: u32,
-    /// Items delivered to the hub to pay for that research, at the best insight per item the
-    /// landing clearing holds.
+    /// Items delivered to the hub to pay for that research, through the cheapest standing request
+    /// the landing clearing can supply.
     pub insight_items: u32,
+    /// Which request that is. A funding cost with no request named would be a number quoted against
+    /// a rate nobody posted.
+    pub insight_request: String,
     pub buildings: Vec<String>,
     pub gathers: Vec<Amount>,
     pub fuel_energy: u64,
@@ -394,6 +397,30 @@ pub struct ContractCost {
     pub opening: Opening,
 }
 
+/// One standing request, priced through the same tree an opening is.
+///
+/// A reward on its own is a number with no denominator. What decides whether a request is worth
+/// filling — and whether the ladder of them rewards processing at all — is the insight against the
+/// raw units and the machine time underneath the item. A tier that pays no better per gather than
+/// the tier below it is a tier nobody has a reason to automate.
+#[derive(Clone, Debug, Serialize)]
+pub struct RequestCost {
+    pub request: String,
+    pub item: String,
+    pub quantity: u32,
+    pub insight: u32,
+    /// The raw materials the bill bottoms out in.
+    pub gathers: Vec<Amount>,
+    /// Units of the densest fuel the crafting energy is paid with, counted into the gather total.
+    pub fuel_items: u64,
+    pub gather_total: u64,
+    /// Insight per thousand gathers. A raw request sits at about a thousand — one insight for one
+    /// gather, which is the rate the old per-item currency paid for everything.
+    pub insight_per_gather_milli: u64,
+    pub machine_ticks: u64,
+    pub machine_seconds_milli: u64,
+}
+
 #[derive(Clone, Debug, Serialize)]
 pub struct BalanceReport {
     pub reference: Reference,
@@ -407,6 +434,7 @@ pub struct BalanceReport {
     pub extraction: Vec<SiteYield>,
     pub openings: Vec<Opening>,
     pub contracts: Vec<ContractCost>,
+    pub requests: Vec<RequestCost>,
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -688,6 +716,7 @@ fn report(economy: &Economy) -> BalanceReport {
         extraction: extraction(economy),
         openings: openings(economy, best_fuel_value),
         contracts: contracts(economy, best_fuel_value),
+        requests: requests(economy, best_fuel_value),
     }
 }
 
@@ -1258,6 +1287,43 @@ fn openings(economy: &Economy, best_fuel_value: u32) -> Vec<Opening> {
         .collect()
 }
 
+/// Every standing request the hub can post, priced through its whole tree.
+fn requests(economy: &Economy, best_fuel_value: u32) -> Vec<RequestCost> {
+    economy
+        .definitions
+        .requests
+        .iter()
+        .map(|request| {
+            let expansion = economy.cost_of(&[Ingredient {
+                item_id: request.item_id,
+                quantity: request.quantity,
+            }]);
+            let fuel_items = divide_up(expansion.batch_energy, u64::from(best_fuel_value.max(1)));
+            let gather_total = expansion.batch_raw.values().sum::<u64>() + fuel_items;
+            RequestCost {
+                request: request.key.clone(),
+                item: economy.item_key(request.item_id),
+                quantity: request.quantity,
+                insight: request.insight,
+                gathers: amounts(economy, &expansion.batch_raw),
+                fuel_items,
+                gather_total,
+                insight_per_gather_milli: Ratio::new(
+                    i128::from(request.insight),
+                    i128::from(gather_total.max(1)),
+                )
+                .milli(),
+                machine_ticks: expansion.batch_ticks,
+                machine_seconds_milli: Ratio::new(
+                    i128::from(expansion.batch_ticks),
+                    i128::from(REFERENCE_TICKS_PER_SECOND),
+                )
+                .milli(),
+            }
+        })
+        .collect()
+}
+
 /// Every contract stage the shipped scenarios state, priced through its whole tree.
 fn contracts(economy: &Economy, best_fuel_value: u32) -> Vec<ContractCost> {
     let mut rows = Vec::new();
@@ -1411,14 +1477,26 @@ fn opening(
         .filter_map(|&id| economy.technology(id))
         .map(|technology| technology.cost)
         .sum();
-    let best_insight = LANDING_FIELD
+    // Insight stopped being a property of an item: it is paid for filling a request the hub posted.
+    // So the cheapest way to fund the research is the standing request that reaches the total in the
+    // fewest delivered items, counted over the rows the landing clearing can actually supply.
+    let landing: BTreeSet<ItemId> = LANDING_FIELD
         .iter()
-        .filter_map(|&(_, _, item_id, _)| economy.item(item_id))
-        .map(|item| item.insight_value)
-        .max()
-        .unwrap_or(1)
-        .max(1);
-    let insight_items = insight.div_ceil(best_insight);
+        .map(|&(_, _, item_id, _)| item_id)
+        .collect();
+    let (insight_items, insight_request) = economy
+        .definitions
+        .requests
+        .iter()
+        .filter(|request| landing.contains(&request.item_id))
+        .map(|request| {
+            (
+                insight.div_ceil(request.insight.max(1)) * request.quantity,
+                request.key.clone(),
+            )
+        })
+        .min()
+        .unwrap_or_default();
 
     let fuel_items = divide_up(expansion.batch_energy, u64::from(best_fuel_value.max(1)));
     let gather_total: u64 =
@@ -1441,6 +1519,7 @@ fn opening(
             .collect(),
         insight,
         insight_items,
+        insight_request,
         buildings: names,
         gathers: amounts(economy, &expansion.batch_raw),
         fuel_energy: expansion.batch_energy,

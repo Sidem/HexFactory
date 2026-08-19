@@ -4,6 +4,7 @@ import { nextAction } from "../src/core/guidance";
 import type {
   Definitions,
   FactorySnapshot,
+  RequestSnapshot,
   Technologies,
 } from "../src/core/types";
 import definitionsJson from "../src/data/definitions.json";
@@ -34,6 +35,35 @@ function shippedScenario(key: string): ScenarioShape {
 }
 
 const newGame = shippedScenario("new-game");
+const CRAFTED = new Set(
+  definitions.recipes.map((recipe) => recipe.output.item_id),
+);
+
+/**
+ * The hub's board, modelled the way native draws it: the least-used rows whose item the player
+ * could actually supply, three at a time.
+ *
+ * The walk below only ever gathers by hand, so "could supply" here is "comes out of the ground" —
+ * which is the state the opening is in, and the state the funding step has to work in. Filling a
+ * row takes it off the board and the next one takes its slot.
+ */
+function boardFor(filled: string[]): RequestSnapshot[] {
+  return definitions.requests
+    .filter(
+      (request) =>
+        !CRAFTED.has(request.item_id) && !filled.includes(request.key),
+    )
+    .slice(0, 3)
+    .map((request) => ({
+      key: request.key,
+      name: request.name,
+      brief: request.brief,
+      item_id: request.item_id,
+      delivered: 0,
+      required: request.quantity,
+      insight: request.insight,
+    }));
+}
 
 /**
  * A snapshot is a large object and this suite only reads a corner of it, so the rest is a fixed
@@ -46,6 +76,7 @@ function snapshotAt(state: {
   inventory: Record<string, number>;
   buildings: { definition_id: number; kind: string }[];
   delivered?: Record<number, number>;
+  filled?: string[];
 }): FactorySnapshot {
   const stage = newGame.contract.stages[state.stage];
   const carry = Object.entries(state.inventory).map(([item, quantity]) => ({
@@ -81,6 +112,7 @@ function snapshotAt(state: {
       })),
       complete: stage === undefined,
     },
+    requests: boardFor(state.filled ?? []),
     player: {
       x: 0,
       y: 0,
@@ -142,6 +174,7 @@ describe("guidance derived from the rules rather than scripted against them", ()
       inventory: {} as Record<string, number>,
       buildings: [] as { definition_id: number; kind: string }[],
       delivered: {} as Record<number, number>,
+      filled: [] as string[],
     };
     const researched = new Set<number>();
     const seen: string[] = [];
@@ -196,20 +229,35 @@ describe("guidance derived from the rules rather than scripted against them", ()
         continue;
       }
 
-      if (
-        guidance.key.startsWith("gather-for:") ||
-        guidance.key.startsWith("gather:")
-      ) {
+      if (guidance.key.startsWith("gather:")) {
         // Gathering is always available to a player with a free slot, which is the state the loop
-        // is in here. It buys insight and material.
-        state.insight += 4;
+        // is in here.
         state.inventory = { ...state.inventory, "1": 8, "8": 8 };
         continue;
       }
 
-      if (guidance.key.startsWith("deliver-for:")) {
-        state.insight += 4;
-        state.inventory = {};
+      if (
+        guidance.key.startsWith("fill-request:") ||
+        guidance.key.startsWith("deliver-request:")
+      ) {
+        const key = guidance.key.slice(guidance.key.indexOf(":") + 1);
+        const request = definitions.requests.find((value) => value.key === key);
+        expect(
+          request,
+          `guidance named an unknown request ${key}`,
+        ).toBeDefined();
+        if (!request) break;
+        // Achievable in this state, which is the whole point of the walk: the row is posted on the
+        // board this very snapshot carried, and its item is something a hand can take out of the
+        // ground. A guide that names a row the hub is not asking for is a guide that cannot be
+        // followed, and one that names a crafted item before any machine exists is worse.
+        expect(snapshot.requests.some((posted) => posted.key === key)).toBe(
+          true,
+        );
+        expect(CRAFTED.has(request.item_id)).toBe(false);
+        state.filled = [...state.filled, key];
+        state.insight += request.insight;
+        state.inventory = { ...state.inventory, "1": 8, "8": 8 };
         continue;
       }
 
@@ -248,8 +296,9 @@ describe("guidance derived from the rules rather than scripted against them", ()
     expect(composer).toBeGreaterThan(power);
   });
 
-  it("names the physical action rather than the accounting behind it", () => {
-    // "Fund Field Logistics" is not something a player can do. Gathering is.
+  it("names one posted request, with its price, rather than the accounting behind it", () => {
+    // "Fund Field Logistics" is not something a player can do, and neither is "gather something"
+    // now that the hub pays only for what it asked for. Filling a named row is.
     const opening = nextAction(
       snapshotAt({
         stage: 0,
@@ -261,22 +310,23 @@ describe("guidance derived from the rules rather than scripted against them", ()
       definitions,
       technologies,
     );
-    expect(opening.key).toBe("gather-for:field-logistics");
+    expect(opening.key).toBe("fill-request:ore-assay");
+    expect(opening.detail).toContain("10 insight");
     expect(opening.detail).toContain("landing hub");
 
-    // Carrying something changes the answer, because now the hub is one walk away.
+    // Carrying the outstanding units changes the answer, because now the hub is one walk away.
     const carrying = nextAction(
       snapshotAt({
         stage: 0,
         researched: [],
         insight: 0,
-        inventory: { "1": 6 },
+        inventory: { "1": 10 },
         buildings: [],
       }),
       definitions,
       technologies,
     );
-    expect(carrying.key).toBe("deliver-for:field-logistics");
+    expect(carrying.key).toBe("deliver-request:ore-assay");
   });
 
   it("stops asking for anything once the contract is finished", () => {

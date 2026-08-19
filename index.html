@@ -344,8 +344,8 @@
             </button>
           </div>
           <p class="panel-copy">
-            Deliver raw materials to earn insight. Each breakthrough expands the
-            build dock.
+            Fill the landing hub's requests to earn insight — the board is on
+            <kbd>P</kbd>. Each breakthrough expands the build dock.
           </p>
           <!--
             Progressive disclosure. The default view is what you have, what you can take next, and
@@ -425,6 +425,21 @@
             <ul id="contract-bill" class="contract-bill"></ul>
           </div>
 
+          <!--
+            The board. It is the only thing in the game that pays insight, so it says what it pays
+            before anything is handed over — and every row carries a Pass, because a material you
+            cannot find yet must never be able to hold the whole economy.
+          -->
+          <div class="quest-objective quest-requests">
+            <span class="section-kicker">Hub requests · insight</span>
+            <p id="requests-detail">
+              The landing hub pays insight for what it asks for here, and for
+              nothing else. Deliver with <kbd>X</kbd> beside the hub, or point a
+              belt at it.
+            </p>
+            <ul id="request-board" class="request-board"></ul>
+          </div>
+
           <div class="control-block">
             <span class="section-kicker">Moving and looking</span>
             <p>
@@ -433,8 +448,10 @@
               particular hex. The player always faces the pointer.
               <kbd>Space</kbd> centres the camera back on the player,
               <kbd>T</kbd> pauses and resumes the factory, <kbd>M</kbd> mutes
-              the feedback sounds, and dragging with the right or middle button
-              pans while the wheel zooms.
+              the feedback sounds, and dragging with the middle button — or with
+              <kbd>Shift</kbd> held and the left one — pans while the wheel
+              zooms. The right button is never the camera: it is how you work a
+              hex.
             </p>
           </div>
           <div class="control-block">
@@ -450,12 +467,12 @@
             <span class="section-kicker">Field actions</span>
             <p>
               Hold <kbd>F</kbd> to keep gathering from the field you are
-              standing on or beside, and <kbd>X</kbd> to deliver at the landing
-              hub. To work one particular hex, hold the right button on it:
-              holding keeps harvesting exactly the cell you pointed at, as far
-              as your own reach goes, while dragging away pans the camera
-              instead. The ring that closes around you is the wait until the
-              next action.
+              standing on or beside, and <kbd>X</kbd> to hand the landing hub
+              whatever it is asking for. To work one particular hex, hold the
+              right button on it: holding keeps harvesting the cell you are
+              pointing at, as far as your own reach goes, and dragging walks the
+              harvest along to the next one. The ring that closes around you is
+              the wait until the next action.
             </p>
           </div>
           <div class="control-block">

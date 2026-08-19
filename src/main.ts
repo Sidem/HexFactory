@@ -53,12 +53,12 @@ type Tool = "inspect" | "erase" | "rotate" | "upgrade" | number;
  * twice now it has not been. The scenario version joins them because the envelope refuses on that
  * too, and the Founding Contract is exactly the kind of change that moves it. `SAVE_VERSION` stays
  * a literal because native does not publish it; it is the headline of any save-format change, and
- * `v9` is the Power Grid's: machines carry banked electricity and plants carry their progress
- * toward the next unit of fuel, and neither exists in a version-8 envelope.
+ * `v10` is Standing Requests': a run carries the board the hub has posted and how many times each
+ * row has left it, and a version-9 envelope carries neither.
  */
 function saveKey(): string {
   return [
-    "hexfactory:hxf1:v9",
+    "hexfactory:hxf1:v10",
     `w${snapshot.world_version}`,
     `d${host.definitions.version}`,
     `t${host.technologies.version}`,
@@ -164,26 +164,28 @@ let previousTime = performance.now();
 let feedbackTimer = 0;
 let lastEvent = "";
 /**
- * The button-held camera gesture, and — for the right button — the hex it is holding over.
+ * The button-held camera gesture. The middle button, or shift with the left — never the right one.
  *
- * `harvest` is the hex a held right-click keeps working. It is fixed at the press rather than
- * tracked to the cursor, because the same gesture pans: once the pointer has genuinely travelled,
- * this is a pan and no longer a harvest. `origin` is what that travel is measured from, and it is
- * deliberately a separate, slacker threshold from `moved`. Panning wants to answer the very first
- * pixel; a hold lasting several seconds must survive the pixel or two of jitter a hand puts into a
- * held mouse button, or the harvest would cancel itself.
+ * The right button used to pan as well as harvest, and the two readings of one gesture had to be
+ * told apart by a drift threshold: a hold that wandered a few pixels stopped being a harvest. That
+ * is a rule a hand cannot see, and it fires exactly when the player is working a hex for several
+ * seconds. Panning has the middle button to itself now, so the ambiguity is gone rather than
+ * arbitrated.
  */
 let panPointer: {
   id: number;
   x: number;
   y: number;
   moved: boolean;
-  originX: number;
-  originY: number;
-  harvest: { q: number; r: number } | null;
 } | null = null;
-/** How far a held right-click may drift, in pixels, before it becomes a pan instead. */
-const HARVEST_HOLD_SLOP = 5;
+/**
+ * The hex a held right-click keeps working, tracked to the cursor rather than fixed at the press.
+ *
+ * Nothing competes for this gesture any more, so dragging is free to mean something useful: the
+ * hold follows the pointer and works whatever hex it is over, which is how a player clears a seam
+ * without releasing and pressing again on every cell.
+ */
+let harvestPointer: { id: number; q: number; r: number } | null = null;
 let suppressMapClick = false;
 /**
  * The in-progress construction or removal drag. Only the two endpoints are ever held here — the
@@ -359,6 +361,7 @@ function update(next: FactorySnapshot): void {
   renderTechnologies();
   renderInspector();
   renderContract();
+  renderRequests();
   renderNextAction();
   const latestEvent = snapshot.events.at(-1) ?? "";
   if (
@@ -1593,6 +1596,53 @@ function renderContract(): void {
 }
 
 /**
+ * The hub's request board.
+ *
+ * Every number on a row is published: what is wanted, how much has arrived, and — the reason the
+ * board exists at all — what filling it pays, stated before anything is handed over. The insight
+ * that used to appear from a delivery of anything at all is now something the player can read off
+ * the wall before walking anywhere.
+ *
+ * The list carries a control, so it is patched in place rather than rebuilt: a `replaceChildren`
+ * here would drop the press between pointerdown and pointerup, which is the defect `syncChildren`
+ * exists for.
+ */
+function renderRequests(): void {
+  const board = required<HTMLElement>("request-board");
+  const rows = syncChildren(
+    board,
+    snapshot.requests.map((request) => request.key),
+    () => {
+      const row = document.createElement("li");
+      row.className = "request-line";
+      row.innerHTML = `<span class="swatch"></span><strong></strong><span class="request-price"></span><button type="button" class="request-pass" data-slot>Pass</button><small class="request-brief"></small><span class="contract-count"></span><i class="contract-bar"><b></b></i>`;
+      return row;
+    },
+  );
+  snapshot.requests.forEach((request, index) => {
+    const row = rows[index];
+    if (!row) return;
+    const item = host.definitions.items.find(
+      ({ id }) => id === request.item_id,
+    );
+    part<HTMLElement>(row, ".swatch").style.background =
+      item?.color ?? "#8fd4ff";
+    part(row, "strong").textContent = item?.name ?? `Item ${request.item_id}`;
+    part(row, ".request-price").textContent = `+${request.insight} ◆`;
+    part(row, ".request-brief").textContent = request.brief;
+    part(row, ".contract-count").textContent =
+      `${request.delivered} / ${request.required}`;
+    part<HTMLElement>(row, ".contract-bar b").style.width =
+      `${Math.min(100, (request.delivered / Math.max(1, request.required)) * 100)}%`;
+    const pass = part<HTMLButtonElement>(row, ".request-pass");
+    pass.dataset.slot = String(index);
+    pass.title = `Pass on ${request.name}. It goes behind everything you have not been asked for yet, and anything already delivered against it is lost.`;
+    pass.setAttribute("aria-label", `Pass on ${request.name}`);
+  });
+  required<HTMLElement>("requests-detail").hidden = rows.length === 0;
+}
+
+/**
  * The next step, in the panel and in the permanent chrome, from one derivation.
  *
  * `nextAction` reads the contract and the catalogues rather than a branch ladder, so this is only
@@ -1774,6 +1824,16 @@ for (const button of document.querySelectorAll<HTMLButtonElement>(
     if (type === "gather" || type === "deposit") enqueue({ type });
   });
 }
+// Delegated, because the board is patched in place and its rows come and go with every fill.
+required<HTMLElement>("request-board").addEventListener("click", (event) => {
+  const pass = (event.target as HTMLElement).closest<HTMLButtonElement>(
+    ".request-pass",
+  );
+  if (!pass) return;
+  const slot = Number(pass.dataset.slot);
+  if (!Number.isInteger(slot)) return;
+  enqueue({ type: "skip_request", slot });
+});
 required<HTMLButtonElement>("recenter").addEventListener("click", () =>
   renderer.recenter(),
 );
@@ -2236,20 +2296,32 @@ canvas.addEventListener("pointermove", (event) => {
     const dx = event.clientX - panPointer.x;
     const dy = event.clientY - panPointer.y;
     if (Math.abs(dx) + Math.abs(dy) > 1) panPointer.moved = true;
-    // Measured from the press, not from the last frame, so slow drift accumulates and cancels the
-    // harvest rather than creeping across the map one sub-threshold step at a time.
-    if (
-      Math.abs(event.clientX - panPointer.originX) +
-        Math.abs(event.clientY - panPointer.originY) >
-      HARVEST_HOLD_SLOP
-    )
-      panPointer.harvest = null;
     renderer.panBy(dx, dy);
     panPointer.x = event.clientX;
     panPointer.y = event.clientY;
     return;
   }
   const coordinate = renderer.pick(event.clientX, event.clientY);
+  if (harvestPointer?.id === event.pointerId) {
+    // The hold walks to the hex under the cursor and keeps working from there. Selecting it is what
+    // makes the target visible, which matters more here than for a click: the gesture repeats.
+    if (
+      coordinate.q !== harvestPointer.q ||
+      coordinate.r !== harvestPointer.r
+    ) {
+      harvestPointer = {
+        id: event.pointerId,
+        q: coordinate.q,
+        r: coordinate.r,
+      };
+      selected = coordinate;
+      renderer.setSelection(coordinate);
+      renderInspector();
+    }
+    hover = coordinate;
+    refreshHoverPreview();
+    return;
+  }
   if (dragBuild?.id === event.pointerId) {
     if (coordinate.q === dragBuild.to.q && coordinate.r === dragBuild.to.r)
       return;
@@ -2261,30 +2333,31 @@ canvas.addEventListener("pointermove", (event) => {
   refreshHoverPreview();
 });
 canvas.addEventListener("pointerdown", (event) => {
-  if (event.button === 1 || event.button === 2 || event.shiftKey) {
+  if (event.button === 2) {
     // A right press starts working the hex under it straight away and keeps working it while the
     // button is down; the frame loop repeats it and the native action cooldown paces the repeat,
-    // exactly as a held F is paced. Dragging out of the hex turns the gesture back into a pan.
-    const harvest =
-      event.button === 2 ? renderer.pick(event.clientX, event.clientY) : null;
+    // exactly as a held F is paced. Dragging moves the hold to the next hex rather than cancelling
+    // it — the camera is on the middle button and no longer wants this gesture.
+    const harvest = renderer.pick(event.clientX, event.clientY);
+    harvestPointer = { id: event.pointerId, q: harvest.q, r: harvest.r };
+    selected = harvest;
+    renderer.setSelection(harvest);
+    enqueue({ type: "gather_at", ...harvest });
+    renderInspector();
+    // Captured last: capture is what keeps the gesture alive off the canvas, not what makes the
+    // press mean something. Taking it first would let a refused capture swallow the first harvest
+    // while still leaving the hold armed.
+    canvas.setPointerCapture(event.pointerId);
+    event.preventDefault();
+    return;
+  }
+  if (event.button === 1 || event.shiftKey) {
     panPointer = {
       id: event.pointerId,
       x: event.clientX,
       y: event.clientY,
       moved: false,
-      originX: event.clientX,
-      originY: event.clientY,
-      harvest,
     };
-    if (harvest) {
-      selected = harvest;
-      renderer.setSelection(harvest);
-      enqueue({ type: "gather_at", ...harvest });
-      renderInspector();
-    }
-    // Captured last: capture is what keeps the gesture alive off the canvas, not what makes the
-    // press mean something. Taking it first would let a refused capture swallow the first harvest
-    // while still leaving the hold armed.
     canvas.setPointerCapture(event.pointerId);
     event.preventDefault();
     return;
@@ -2304,8 +2377,13 @@ canvas.addEventListener("pointerup", (event) => {
   if (panPointer?.id === event.pointerId) {
     suppressMapClick = panPointer.moved;
     canvas.releasePointerCapture(event.pointerId);
-    // Releasing ends the hold. The harvest began on the press and repeated every frame since.
     panPointer = null;
+    return;
+  }
+  if (harvestPointer?.id === event.pointerId) {
+    canvas.releasePointerCapture(event.pointerId);
+    // Releasing ends the hold. The harvest began on the press and repeated every frame since.
+    harvestPointer = null;
     return;
   }
   if (dragBuild?.id !== event.pointerId) return;
@@ -2335,11 +2413,12 @@ canvas.addEventListener("pointercancel", (event) => {
   // A cancelled pointer never sends `pointerup`, and a held harvest that outlived its gesture
   // would keep working a hex with nothing holding the button down.
   if (panPointer?.id === event.pointerId) panPointer = null;
+  if (harvestPointer?.id === event.pointerId) harvestPointer = null;
   endDrag(event.pointerId);
 });
 canvas.addEventListener("pointerleave", () => {
   stopAiming();
-  if (!panPointer && !dragBuild) {
+  if (!panPointer && !harvestPointer && !dragBuild) {
     hover = null;
     refreshHoverPreview();
   }
@@ -2642,8 +2721,12 @@ function frame(now: number): void {
     // idea aimed at a named hex, and it outranks the untargeted one: if both are held, the hex the
     // player is pointing at is the one they chose.
     if (!input.size) {
-      if (panPointer?.harvest)
-        input.enqueue({ type: "gather_at", ...panPointer.harvest });
+      if (harvestPointer)
+        input.enqueue({
+          type: "gather_at",
+          q: harvestPointer.q,
+          r: harvestPointer.r,
+        });
       else if (gatherHeld) input.enqueue({ type: "gather" });
     }
     // Last into the batch, so the cursor outranks the walk direction for this frame's facing.

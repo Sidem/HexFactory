@@ -39,7 +39,6 @@ export interface ItemDefinition {
   color: string;
   icon: string;
   description: string;
-  insight_value: number;
   /** How many of this item fill one carried slot. The rule itself lives in Rust. */
   stack_size: number;
   /** Energy one unit releases when burned, for an item that is fuel. */
@@ -106,6 +105,21 @@ export interface Definitions {
   items: ItemDefinition[];
   recipes: RecipeDefinition[];
   buildings: BuildingDefinition[];
+  requests: RequestDefinition[];
+}
+
+/**
+ * One standing order the landing hub can post. The only thing in the game that pays insight, and it
+ * says what it pays before anything is handed over.
+ */
+export interface RequestDefinition {
+  id: number;
+  key: string;
+  name: string;
+  brief: string;
+  item_id: number;
+  quantity: number;
+  insight: number;
 }
 
 export interface TechnologyDefinition {
@@ -307,6 +321,22 @@ export interface ContractSnapshot {
   complete: boolean;
 }
 
+/**
+ * One posted request as the hub is holding it. Everything the row needs to draw travels with it —
+ * the price above all, because a price a player can only discover by delivering is the defect the
+ * board exists to remove.
+ */
+export interface RequestSnapshot {
+  key: string;
+  name: string;
+  brief: string;
+  item_id: number;
+  /** Already clamped natively to `required`, so a bar is two published numbers. */
+  delivered: number;
+  required: number;
+  insight: number;
+}
+
 export interface ContractRequirement {
   item_id: number;
   /** Already clamped natively to `required`, so a bar is two published numbers. */
@@ -326,6 +356,8 @@ export interface FactorySnapshot {
   insight: number;
   victory: boolean;
   contract: ContractSnapshot;
+  /** The hub's request board, in slot order. */
+  requests: RequestSnapshot[];
   player: PlayerSnapshot;
   researched: number[];
   chunks: ChunkSnapshot[];
@@ -462,7 +494,13 @@ export type NativeInputCommand =
    */
   | { type: "set_recipe"; q: number; r: number; recipe_id: number }
   | { type: "undo" }
-  | { type: "research"; technology_id: number };
+  | { type: "research"; technology_id: number }
+  /**
+   * Pass on one posted request. The row goes behind everything the player has not seen yet and
+   * another takes its slot, so a material they cannot find never holds the board hostage. Whatever
+   * was already delivered against it is forfeited, which is native's rule and not the host's.
+   */
+  | { type: "skip_request"; slot: number };
 
 export interface NativeFactory {
   tick(count: number): void;
