@@ -9,12 +9,14 @@ generated terrain and building silhouettes without moving a checksum. v0.12.4 ti
 canvases the game draws; v0.13.1 re-measures them after Stage B and the first Stage C motion.
 Since this document was written the arc has continued and finished: v0.14 Upgrades and Tiers, v0.15
 Generated Shapes, v0.16 World Parameters, and v0.17 Balance, and then v0.18 Founding Contract began
-the pivot from substrate to motive. **`WORLD_GENERATOR_VERSION` is 6, `HXF1` save version is 8, the
-definition version is 8, and the scenario version is 5**; earlier envelopes are rejected, and the
-browser save key names every number native refuses on — four of them read from what is published
+the pivot from substrate to motive, and v0.19 Power Grid replaced the power model this document
+describes. **`WORLD_GENERATOR_VERSION` is 6, `HXF1` save version is 9, the definition version is 9,
+the technology version is 5, and the scenario version is 5**; earlier envelopes are rejected, and
+the browser save key names every number native refuses on — four of them read from what is published
 rather than written down. v0.17 adds `fixtures/balance.json`, which is a test artifact and touches
 neither the wire nor the save. v0.18 replaces the single delivered objective with a staged contract
-that is saved and checksummed, and takes the wire format to version 3. The capacity ladder is
+that is saved and checksummed, and takes the wire format to version 3; v0.19 takes it to version 4,
+where the per-entity flag field is a uvarint rather than a fixed byte. The capacity ladder is
 re-pinned; a checksum change invalidates checksum comparisons, not timing ones.
 
 ## Binary delta contract
@@ -332,8 +334,13 @@ release actions and must not be implied by local success.
    browser frame at 6,144 entities is 18.2% of 60 Hz; rendering is 1,069 µs of that. Both canvases
    now resolve definitions through maps built once, so the linear `find` the previous note named
    is not something a later measurement has to answer. Stage C is unblocked.
-2. ~~Power v0.13.~~ **Shipped.** Poles compile a network; brownouts are integer; water stays
-   belted.
+2. ~~Power v0.13.~~ **Shipped, and superseded by Power Grid v0.19.** Poles compile a network;
+   brownouts are integer; water stays belted. What v0.19 changed is what a network _charges for_:
+   electricity is energy bought per unit of work and banked in a per-machine buffer, not a per-tick
+   tax, so an idle machine costs nothing and a plant burns only for what it handed over. Coverage
+   moved onto the pole and became upgradable, and machines that touch each other conduct. A
+   brownout is still integer — it is now a machine that has spent its bank rather than a ratio
+   applied to its progress.
    2b. ~~Look Systems.~~ **Shipped as v0.13.1.** Stage B generator and the first Stage C motion,
    then a re-measure: 19.0% of 60 Hz at 6,144 entities. Next play milestone is Upgrades and
    Tiers v0.14. The session brief is at the top of `docs/HEXFACTORY-PLAN.md`.

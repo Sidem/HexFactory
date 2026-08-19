@@ -43,6 +43,8 @@ describe("data-defined content", () => {
       "steam-works",
       "vertical-transport",
       "machine-tiers",
+      "transmission",
+      "grid-engineering",
     ]);
   });
 

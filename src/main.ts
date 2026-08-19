@@ -53,11 +53,12 @@ type Tool = "inspect" | "erase" | "rotate" | "upgrade" | number;
  * twice now it has not been. The scenario version joins them because the envelope refuses on that
  * too, and the Founding Contract is exactly the kind of change that moves it. `SAVE_VERSION` stays
  * a literal because native does not publish it; it is the headline of any save-format change, and
- * `v8` is the Founding Contract's.
+ * `v9` is the Power Grid's: machines carry banked electricity and plants carry their progress
+ * toward the next unit of fuel, and neither exists in a version-8 envelope.
  */
 function saveKey(): string {
   return [
-    "hexfactory:hxf1:v8",
+    "hexfactory:hxf1:v9",
     `w${snapshot.world_version}`,
     `d${host.definitions.version}`,
     `t${host.technologies.version}`,
@@ -750,6 +751,8 @@ function fillBuildCard(
     labels.push(`Tier ${(definition.tier ?? 0) + 1}`);
   if (definition.extract_radius !== undefined)
     labels.push(`Reaches ${definition.extract_radius}`);
+  if (definition.supply_radius !== undefined)
+    labels.push(`Supplies ${definition.supply_radius}`);
   if (definition.capacity !== undefined)
     labels.push(`Holds ${definition.capacity}`);
   if (definition.power_output) labels.push(`+${definition.power_output} power`);
@@ -1319,13 +1322,21 @@ function renderInspector(): void {
       building.fuel_required ?? 0,
       Boolean(building.fuel_required),
     );
+    // A machine that banks electricity shows its own bank; anything else on the network — a
+    // generator, a pole — shows the grid it is part of. One meter, and in both cases the number
+    // the player would act on: a bank that keeps hitting zero wants more generation, and a grid
+    // whose draw is over its supply says which.
+    const banks = Boolean(building.power_capacity);
+    required<HTMLElement>("inspect-power-label").textContent = banks
+      ? "Charge"
+      : "Power";
     setMeter(
       required<HTMLElement>("inspect-power-meter"),
       required<HTMLElement>("inspect-power-fill"),
       required<HTMLElement>("inspect-power-amount"),
-      building.power_satisfied ?? 0,
-      building.power_demand ?? 0,
-      Boolean(building.power_demand),
+      banks ? (building.power_charge ?? 0) : (building.power_satisfied ?? 0),
+      banks ? (building.power_capacity ?? 0) : (building.power_demand ?? 0),
+      banks || Boolean(building.power_demand),
     );
     for (const spoke of required<HTMLElement>("inspect-compass").children) {
       const tick = spoke as HTMLElement;
@@ -1385,10 +1396,15 @@ function renderInspectorTier(building: EntitySnapshot | undefined): void {
   card.hidden = !definition || (tier === 0 && !next);
   if (card.hidden) return;
   chip.textContent = `Tier ${tier + 1}`;
-  const radius = definition?.extract_radius;
+  // An extractor's reach and a pole's coverage are the same sentence about the same lattice, so
+  // they share the line rather than each getting a row the other building leaves empty.
+  const radius = definition?.extract_radius ?? definition?.supply_radius;
   reach.hidden = radius === undefined;
   if (radius !== undefined)
-    reach.textContent = `Reaches ${radius} ${radius === 1 ? "hex" : "hexes"}`;
+    reach.textContent =
+      definition?.supply_radius === undefined
+        ? `Reaches ${radius} ${radius === 1 ? "hex" : "hexes"}`
+        : `Supplies ${radius} hexes · links ${definition.pole_reach ?? radius}`;
   button.hidden = !next || Boolean(building?.scenario_owned);
   if (!next || !building) return;
   const unlocked =
@@ -2500,6 +2516,9 @@ function setOrientation(next: number): void {
     // by definition, so the preview asks for no turns rather than an impossible number of them.
     orientation >= NORTH ? 0 : orientation,
   );
+  // Placing a pole shows what it would light before it is paid for, which is the difference
+  // between choosing where a pole goes and finding out afterwards.
+  renderer.setBuildSupplyRadius(definition?.supply_radius ?? null);
   refreshHoverPreview();
 }
 

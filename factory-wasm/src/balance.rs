@@ -196,6 +196,14 @@ pub struct MachineRate {
     /// rate against an extractor's output rate is how many extractors feed a smelter.
     pub inputs_per_minute: Vec<MilliAmount>,
     pub power_draw: u32,
+    /// Electricity one whole cycle costs: the draw against the cycle it is spent over.
+    ///
+    /// This is the number the Power Grid made real. `power_draw` is a rate against *progress*, so
+    /// a machine that spends half its life blocked pays half as much clock but exactly this much
+    /// per thing it makes. Divide it by a plant's `grid_energy_per_fuel_item` for what one craft
+    /// costs in coal.
+    pub grid_energy_per_cycle: u32,
+    pub grid_energy_per_minute_milli: u64,
     pub fuel_energy_per_cycle: u32,
     pub fuel_energy_per_minute_milli: u64,
 }
@@ -216,10 +224,17 @@ pub struct PowerPlant {
     pub output: u32,
     /// The building this one is dead without. A turbine's fuel and water are a boiler's.
     pub requires: Option<String>,
+    /// Fuel energy a tick costs *at full output*, which is now a ceiling rather than a standing
+    /// charge: a plant is billed for the electricity it actually hands over, so one carrying a
+    /// fifth of the load pays a fifth of this.
     pub fuel_energy_per_tick: u32,
     pub water_per_tick: u32,
-    /// Ticks one unit of the densest fuel sustains it.
+    /// Ticks one unit of the densest fuel sustains it at full output.
     pub ticks_per_fuel_item: u32,
+    /// Electricity one unit of the densest fuel buys through this plant. The exchange rate a
+    /// machine's `grid_energy_per_cycle` is priced against, and the reason a wind turbine and a
+    /// burner are not the same machine with different numbers.
+    pub grid_energy_per_fuel_item: u32,
     /// Pumps needed to keep the water up, at the shipped pump cadence, and what they draw. A
     /// generator whose upkeep eats its own output is not a generator.
     pub pumps_required: u32,
@@ -742,6 +757,10 @@ fn machines(economy: &Economy) -> Vec<MachineRate> {
                     per_minute_milli: rate.milli(),
                     inputs_per_minute: Vec::new(),
                     power_draw,
+                    grid_energy_per_cycle: power_draw * cadence,
+                    grid_energy_per_minute_milli: rate
+                        .mul(Ratio::whole(power_draw * cadence))
+                        .milli(),
                     fuel_energy_per_cycle: 0,
                     fuel_energy_per_minute_milli: 0,
                 });
@@ -772,6 +791,10 @@ fn machines(economy: &Economy) -> Vec<MachineRate> {
                             })
                             .collect(),
                         power_draw,
+                        grid_energy_per_cycle: power_draw * recipe.duration,
+                        grid_energy_per_minute_milli: cycles
+                            .mul(Ratio::whole(power_draw * recipe.duration))
+                            .milli(),
                         fuel_energy_per_cycle: recipe.fuel,
                         fuel_energy_per_minute_milli: cycles.mul(Ratio::whole(recipe.fuel)).milli(),
                     });
@@ -844,6 +867,11 @@ fn power(economy: &Economy, best_fuel_value: u32) -> Vec<PowerPlant> {
                 0
             } else {
                 best_fuel_value / fuel_energy_per_tick
+            },
+            grid_energy_per_fuel_item: if fuel_energy_per_tick == 0 {
+                0
+            } else {
+                best_fuel_value * output / fuel_energy_per_tick
             },
             pumps_required,
             upkeep_draw,

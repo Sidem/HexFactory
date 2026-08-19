@@ -32,7 +32,7 @@ import type {
  */
 
 const MAGIC = 0x48584644; // "HXFD"
-const VERSION = 3;
+const VERSION = 4;
 
 /** Wire code is the index. Pinned against Rust by `fixtures/snapshot-delta-wire.json`. */
 const KINDS: BuildingKind[] = [
@@ -106,6 +106,8 @@ const ENTITY_FLAG = {
   nextId: 1 << 5,
   powerSatisfied: 1 << 6,
   powerDemand: 1 << 7,
+  powerCharge: 1 << 8,
+  powerCapacity: 1 << 9,
 } as const;
 
 const PATCH_REPLACE = 1 << 0;
@@ -413,7 +415,9 @@ function readBuildings(reader: Reader): BuildingsPatch {
     const definition_id = reader.uvarint();
     const kind = kindOf(reader.u8());
     const orientation = reader.u8();
-    const flags = reader.u8();
+    // A uvarint since wire version 4, not the fixed byte it was: ten flags do not fit in eight
+    // bits, and a fixed pair of bytes would have charged every belt for the two it never sets.
+    const flags = reader.uvarint();
     const recipe_id =
       (flags & ENTITY_FLAG.recipeId) !== 0 ? reader.uvarint() : null;
     const cargo =
@@ -434,6 +438,10 @@ function readBuildings(reader: Reader): BuildingsPatch {
       (flags & ENTITY_FLAG.powerSatisfied) !== 0 ? reader.uvarint() : 0;
     const power_demand =
       (flags & ENTITY_FLAG.powerDemand) !== 0 ? reader.uvarint() : 0;
+    const power_charge =
+      (flags & ENTITY_FLAG.powerCharge) !== 0 ? reader.uvarint() : 0;
+    const power_capacity =
+      (flags & ENTITY_FLAG.powerCapacity) !== 0 ? reader.uvarint() : 0;
     const cells = reader.uvarint();
     const footprint = new Array<{ q: number; r: number }>(cells);
     for (let cell = 0; cell < cells; cell += 1) {
@@ -463,6 +471,8 @@ function readBuildings(reader: Reader): BuildingsPatch {
     if (fuel_required !== 0) entity.fuel_required = fuel_required;
     if (power_satisfied !== 0) entity.power_satisfied = power_satisfied;
     if (power_demand !== 0) entity.power_demand = power_demand;
+    if (power_charge !== 0) entity.power_charge = power_charge;
+    if (power_capacity !== 0) entity.power_capacity = power_capacity;
     changed[index] = entity;
   }
   const removedCount = reader.uvarint();

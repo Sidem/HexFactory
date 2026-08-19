@@ -15,7 +15,22 @@ have moved.
 is what currently holds for both platforms. The v0.8 browser tables are retained because the
 current record's central comparison is drawn against them.
 
-**Founding Contract v0.18 moves every recorded checksum and no recorded timing.** The contract's
+**Power Grid v0.19 moves every recorded checksum and no recorded timing, for the same reason v0.18
+did.** A machine's banked electricity and a plant's progress toward its next unit of fuel are saved,
+checksummed state, so the workload's pinned checksum changed from `1679299541` to `914129621` — the
+same run, hashed over two more fields. The ladder itself is untouched: the world generator, item
+roster, and entity snapshot are all exactly what v0.17 measured, and the capacity workload runs
+unmetered, so the new demand rule cannot change what it produces. Its delivered total and entity
+count are asserted unchanged alongside the checksum. So the ladder was not re-run, and the timings
+below remain the current record while every tier checksum below is historical.
+
+One cost is worth naming even though it was not re-measured. The per-entity wire flag field became a
+uvarint, which charges a second byte only to entities that set a high bit — machines on a network,
+which already carry four numbers — and leaves every belt and container in the world at the one byte
+they paid before. A fixed `u16` would have charged all of them, which at the largest measured tier
+is the same order as the 86 KB the fuel fields were skipped to avoid.
+
+**Founding Contract v0.18 moved every recorded checksum and no recorded timing.** The contract's
 stage and what the hub is holding against the current bill are saved, checksummed state, so the
 workload's pinned checksum changed from `2402899979` to `1679299541` — the same run, hashed over one
 more field. The ladder itself is untouched: the workload never delivers to a hub, its entity counts

@@ -1,5 +1,5 @@
 {
-  "version": 4,
+  "version": 5,
   "technologies": [
     {
       "id": 1,
@@ -108,6 +108,24 @@
       "prerequisites": [5],
       "cost": 12,
       "unlocks": [19, 20]
+    },
+    {
+      "id": 13,
+      "key": "transmission",
+      "name": "Transmission",
+      "description": "Unlock the relay pole, and the upgrade that grows a pole into one in place. A wider disc means fewer poles between the plant and the work.",
+      "prerequisites": [8, 5],
+      "cost": 9,
+      "unlocks": [21]
+    },
+    {
+      "id": 14,
+      "key": "grid-engineering",
+      "name": "Grid Engineering",
+      "description": "Unlock the trunk pole, which spans twelve hexes to the next. A line of them reaches a site too far to give its own generator.",
+      "prerequisites": [13, 12],
+      "cost": 16,
+      "unlocks": [22]
     }
   ]
 }

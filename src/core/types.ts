@@ -75,13 +75,13 @@ export interface BuildingDefinition {
   recipe_category?: string;
   /** What a source building produces, for a pump. */
   output_item_id?: number;
-  /** Electricity this machine draws every tick while it is on a network. */
+  /** Electricity this machine spends per tick of work. Idle time is free. */
   power_draw?: number;
   /** Electricity this generator offers every tick it is live. */
   power_output?: number;
-  /** Hex reach from this machine to a pole. */
-  power_reach?: number;
-  /** Hex reach from this pole to another pole. */
+  /** How far this pole supplies the machines around it. Poles always name it. */
+  supply_radius?: number;
+  /** How far this pole links to the next pole. Poles always name it. */
   pole_reach?: number;
   /** How a generator makes electricity. */
   power_source?: PowerSource;
@@ -217,6 +217,12 @@ export interface EntitySnapshot extends AxialCoordinate {
    */
   power_satisfied?: number;
   power_demand?: number;
+  /**
+   * Electricity this machine has banked, against the buffer it fills to. A machine buys work out
+   * of this rather than out of a network ratio, so a draining bank is what a brownout looks like.
+   */
+  power_charge?: number;
+  power_capacity?: number;
   status: string;
   next_id?: number | null;
   footprint: AxialCoordinate[];

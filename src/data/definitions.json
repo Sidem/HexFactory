@@ -1,5 +1,5 @@
 {
-  "version": 8,
+  "version": 9,
   "items": [
     {
       "id": 1,
@@ -607,7 +607,10 @@
       "kind": "pole",
       "description": "Connects machines and generators into one power network.",
       "icon": "POL",
-      "pole_reach": 4,
+      "tier": 0,
+      "supply_radius": 3,
+      "pole_reach": 6,
+      "upgrades_to": 21,
       "construction_cost": [{ "item_id": 1, "quantity": 1 }],
       "unlock_technology_id": 8,
       "placement_rule": "ground",
@@ -623,7 +626,6 @@
       "description": "Burns any fuel item into electricity. The first way a factory keeps running.",
       "icon": "BRN",
       "power_output": 20,
-      "power_reach": 2,
       "power_source": "burner",
       "construction_cost": [
         { "item_id": 1, "quantity": 4 },
@@ -643,7 +645,6 @@
       "description": "Fuel-free power on hills and highland — the same ground the ore sits on.",
       "icon": "WND",
       "power_output": 12,
-      "power_reach": 2,
       "power_source": "wind",
       "construction_cost": [
         { "item_id": 11, "quantity": 2 },
@@ -663,7 +664,6 @@
       "description": "High output at a basin edge. Scarce, because the shore is scarce.",
       "icon": "HYD",
       "power_output": 24,
-      "power_reach": 2,
       "power_source": "hydro",
       "construction_cost": [
         { "item_id": 11, "quantity": 6 },
@@ -700,7 +700,6 @@
       "description": "Turns an adjacent boiler into the mid-game workhorse. Place it beside the boiler.",
       "icon": "TRB",
       "power_output": 48,
-      "power_reach": 2,
       "power_source": "turbine",
       "construction_cost": [
         { "item_id": 11, "quantity": 6 },
@@ -768,6 +767,48 @@
       "placement_rule": "ground",
       "buildable": true,
       "blocks_movement": true,
+      "footprint": [{ "q": 0, "r": 0 }]
+    },
+    {
+      "id": 21,
+      "key": "pole-ii",
+      "name": "Relay pole",
+      "kind": "pole",
+      "description": "Lights a wider disc and spans further to the next pole. Every machine already standing in the new ring joins the network the moment the pole grows.",
+      "icon": "PO2",
+      "tier": 1,
+      "supply_radius": 4,
+      "pole_reach": 8,
+      "upgrades_to": 22,
+      "construction_cost": [
+        { "item_id": 11, "quantity": 2 },
+        { "item_id": 18, "quantity": 2 }
+      ],
+      "unlock_technology_id": 13,
+      "placement_rule": "ground",
+      "buildable": true,
+      "blocks_movement": false,
+      "footprint": [{ "q": 0, "r": 0 }]
+    },
+    {
+      "id": 22,
+      "key": "pole-iii",
+      "name": "Trunk pole",
+      "kind": "pole",
+      "description": "Carries a grid across open country: six hexes of coverage and twelve to the next trunk. What a distant site costs is a line of these rather than a second power plant.",
+      "icon": "PO3",
+      "tier": 2,
+      "supply_radius": 6,
+      "pole_reach": 12,
+      "construction_cost": [
+        { "item_id": 23, "quantity": 2 },
+        { "item_id": 18, "quantity": 4 },
+        { "item_id": 22, "quantity": 1 }
+      ],
+      "unlock_technology_id": 14,
+      "placement_rule": "ground",
+      "buildable": true,
+      "blocks_movement": false,
       "footprint": [{ "q": 0, "r": 0 }]
     }
   ]

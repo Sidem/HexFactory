@@ -37,8 +37,8 @@ followed by free build. Most of the material base, power choices, tiers, and wor
 be ignored before that finish, and the opening exposed the whole locked roster before the player
 had a reason to want it. The next three milestones spend the generators on play, in order:
 **Founding Contract v0.18** repairs the first twenty minutes and makes the landing hub visibly grow;
-**Living Lattice v0.19** turns animals/biomatter/waste into one coupled ecological system;
-**Regional Discovery v0.20** makes an unbounded world something the player must read and travel
+**Living Lattice v0.20** turns animals/biomatter/waste into one coupled ecological system;
+**Regional Discovery v0.21** makes an unbounded world something the player must read and travel
 through rather than a larger background. Fluid networks and intermittency remain behind those
 milestones. Tunnels are still small enough to ride a version bump rather than claim one.
 
@@ -50,6 +50,13 @@ technology graph, so it cannot recommend a factory the rules refuse, which the o
 time it named an extractor without naming power. Save version 8, scenario version 5, and the browser
 save key now reads the catalogue versions instead of restating them. The shipped record is the
 section below.
+
+**Power Grid shipped as v0.19.** Electricity stopped being a per-tick tax and became energy bought
+per unit of work: a machine banks three cycles' worth and spends it as it makes progress, so idle
+time is free and a plant burns only for what it actually handed over. Coverage moved onto the pole,
+where it can be upgraded — three rungs, 3 → 4 → 6 hexes — and machines that touch each other
+conduct, so a pole is what distance costs rather than what power costs. Save version 9, definition
+version 9, technology version 5, wire version 4. The shipped record is the section below.
 
 **North-south belts are resolved and have left the longer horizon.** Due north is a lattice vector
 on this grid — `(q + 1, r - 2)` shares a world-x with `(q, r)` — and `compile_graph_target` is
@@ -540,9 +547,91 @@ the guidance never names. The game can therefore recommend a factory that cannot
 guide is allowed to outrun the rules it is explaining.
 
 The next work is three milestones in dependency order. v0.18 gives the existing economy a purpose
-and proves the first twenty minutes. v0.19 adds the first genuinely new play system and makes the
-world answer the factory. v0.20 makes distance and regional difference earn the unbounded map. Do
+and proves the first twenty minutes. v0.20 adds the first genuinely new play system and makes the
+world answer the factory. v0.21 makes distance and regional difference earn the unbounded map. Do
 not pull fluids, intermittency, a day cycle, or 3D in front of them.
+
+That order gained a milestone at the front. **Power Grid v0.19** was pulled in ahead of Living
+Lattice because electricity was the one substrate the pivot had not touched, and the ecological
+milestone would have been built on top of it: a byproduct loop metered by a per-tick tax that
+charges idle machines is a loop whose costs no player could read. It is the last substrate
+milestone, and it was asked for from play rather than from this document.
+
+## Shipped milestone — Power Grid v0.19
+
+Shipped 2026-08-19. There was no brief for this one: it came from play, and the four things it was
+asked for were a larger and upgradable pole reach, power through touching buildings, plants that
+burn only what is used, and output proportional to consumption rather than to the clock. This
+section records what those became, because one model turned out to answer all four.
+
+**Power is energy now, not a rate.** `power_draw` kept its name and its number and changed what it
+measures: it is spent per tick _of progress_, not per tick of the clock. A machine that is blocked,
+starved, or unassigned spends nothing, and one craft costs `power_draw × duration` however long the
+machine stood waiting first. Every number in `fixtures/balance.json` therefore holds for a saturated
+factory — a component is still 64 units of electricity, a burner still turns one unit of fuel energy
+into twenty — and the only thing that changed is that idle time stopped being billed.
+
+**The buffer is the "one unit, three cycles" rule, and it is what makes a grid sized by average
+load.** Each machine banks `POWER_BUFFER_CYCLES` whole cycles of work and asks for nothing more.
+An extractor on a five-tick cadence, or a smelter waiting on ore, stops reserving capacity it is not
+using, so one generator carries a much larger and lumpier factory than a per-tick tax ever could.
+A brownout is no longer a slowdown factor applied to a machine: it is a machine that ran out of what
+it was given, and it resumes at full speed the moment the grid hands it more.
+
+**Demand-driven fuel needed no rule of its own.** A machine with nothing to do asks the grid for
+nothing, so the grid draws nothing from its plants, so the plants burn nothing — there is no
+"throttle the generator" step anywhere, because there is nothing to throttle. `advance_power_plants`
+is gone; what replaced it is `burn_for_output`, billed against energy actually delivered, with
+`burn_progress` holding the fraction of a fuel unit still owed so a plant at a fifth of load pays a
+fifth as often rather than being either free or rounded up to a whole coal every tick. A turbine has
+no firebox of its own, so its bill lands on the boiler beside it, where the coal and the water are.
+
+**Energy is conserved, and that is the property the tests are built on.** What the machines banked
+equals what the plants produced, to the unit — `apportion` splits by largest remainder so the two
+sides balance exactly with no per-entity remainder to store and no drift to audit. Throughput comes
+out proportional to generation with no scaling factor anywhere: an undersupplied factory is not
+scaled down, it is handed less to spend.
+
+**Coverage belongs to the pole, which is what makes it upgradable.** Before this, the distance a
+machine could stand from a pole was read off _the machine_ (`power_reach`, default 2), so every pole
+in the game reached exactly as far as every other one and no upgrade could move it — the test
+`a_better_pole_lights_a_wider_disc_and_the_machine_does_not_change` could not have been written.
+`supply_radius` is now the pole's, and the ladder is three data rows: pole 3, relay pole 4, trunk
+pole 6, with pole-to-pole links at 6, 8, and 12 behind two new technologies. Validation refuses a
+pole that supplies further than it links, and refuses one that names neither number, so the host can
+read the ring straight off the file with no hidden default to miss.
+
+**Touching machines conduct, which finally makes the balance tool honest.** `fixtures/balance.json`
+has priced openings since v0.18 on the claim that "a generator's own reach covers what stands beside
+it, so a pole is what distance costs, not what power costs." That claim was false against the
+simulation: machines linked only to poles, so a burner built hard against a smelter powered nothing.
+Now anything that draws or generates conducts to its neighbours. Belts and containers deliberately
+do not — a line of the cheapest building in the game as free wire would mean nobody ever places the
+second pole.
+
+**The overlay is half the milestone.** A pole's reach was a number in a data file and nothing on
+screen: the only way to find the edge of a network was to build a machine and watch it stay dark.
+Selecting a pole now draws the disc it lights, rim brighter than field because where coverage
+_stops_ is the reason to draw it; the pending-tool preview draws the same ring before the pole is
+paid for. The inspector's power meter shows a machine's own bank against its buffer and a
+generator's grid against its load, so "brownout" has a picture.
+
+**What was verified, and what could not be.** 92 Rust tests and 85 TypeScript tests pass, with
+`lint`, `typecheck`, and `format` clean. Five new native tests were each checked by breaking the
+rule they name and watching them fail — disabling the adjacency relay, making plants burn flat out,
+widening pole coverage by two, and letting idle machines hold the grid. Two of them were descriptive
+on the first attempt and were rewritten: `power_of` puts an unconnected machine on a network of its
+own, so `is_some()` is true of every machine ever built and proves nothing. In the real browser, the
+factory demo runs, delivers, banks and drains, and a save round-trips to an identical checksum both
+at load and after 25 further ticks. The coverage ring was confirmed by pixel diff rather than by
+screenshot — **the browser pane still does not composite, so the frame loop never runs**, and the
+timed keyboard-and-pointer playtest v0.18 asked for is still outstanding.
+
+**Versions.** Save 9, definition 9, technology 5, wire 4. The wire's per-entity flag field became a
+uvarint rather than the fixed byte it was: ten flags do not fit in eight bits, and widening to a
+fixed `u16` would have charged every belt in the world a second byte to say nothing. The pinned
+capacity workload checksum moved from `1679299541` to `914129621` because banked energy is in the
+checksum; `docs/BENCHMARKS.md` says which of its numbers that invalidates and which it does not.
 
 ## Shipped milestone — Founding Contract v0.18
 
@@ -660,7 +749,7 @@ the brief asks for was not done**, and the reason is the same one v0.17 recorded
 does not composite, so the frame loop never runs and nothing on the player's own clock — walking,
 gathering, the cooldown, the new precision walk — can be exercised here. The material floor is
 measured and written down above; the interaction cost is not, and no claim is made about it. That
-playtest is the first thing v0.19 should do, and it should be done by a person.
+playtest is the first thing the next milestone should do, and it should be done by a person.
 
 **The capacity ladder was not re-run.** The world generator, the item roster, and the entity snapshot
 are all exactly what v0.17 measured, so no trigger fired. The pinned workload checksum moved from
@@ -723,7 +812,7 @@ sprite.
 - The old three-Component save/objective contract moves only with an explicit save/scenario version
   decision. The browser save key still names every native version the envelope refuses.
 
-## Next session — Living Lattice v0.19
+## Next session — Living Lattice v0.20
 
 The brief below is unchanged and is the milestone. Four things it should know before it starts, all
 of them handed over by v0.18 rather than invented here:
@@ -748,11 +837,11 @@ of them handed over by v0.18 rather than invented here:
 - **Guidance follows the contract for free, but only through recipes.** `nextAction` walks recipe
   inputs and recipe categories. An ecological input that is _harvested from a population_ rather
   than crafted will fall out of the walk as a raw material, which is right; an ecological _process_
-  with no recipe row will not appear at all. Whatever v0.19 adds, give it a recipe row or teach the
+  with no recipe row will not appear at all. Whatever v0.20 adds, give it a recipe row or teach the
   walk about it deliberately — the one thing that must not happen is a hub asking for something the
   next step cannot explain.
 
-## Following milestone — Living Lattice v0.19
+## Following milestone — Living Lattice v0.20
 
 Animals, biomatter, and waste remain one milestone, but their purpose is now sharper: this is the
 first system that makes HexFactory something other than a factory game drawn on hexes. A living
@@ -797,9 +886,9 @@ the world survey.
 - The native capacity ladder and complete browser frame are re-measured if the entity or world
   snapshot changes. No claim is made beyond the measured tier.
 
-## Later milestone — Regional Discovery v0.20
+## Later milestone — Regional Discovery v0.21
 
-v0.16 made world shape parameterized; v0.20 makes that variation a play system. The landing
+v0.16 made world shape parameterized; v0.21 makes that variation a play system. The landing
 clearing guarantees only the bootstrap path established by v0.18. Advanced materials and ecological
 opportunities belong to readable regions that require travel, surveying, and eventually outposts.
 The current assertion that every preset puts all eight raw materials near the landing site must be
@@ -829,7 +918,7 @@ needs; do not build a programmable system in search of a problem.
 - The minimap and home bearing support the expedition without revealing unsurveyed world or
   re-deriving native generation truth.
 
-## Longer play horizon after v0.20
+## Longer play horizon after v0.21
 
 - **Hub programmes.** Player-chosen modules grow around the landing hub's rings and create different
   material demands. They are finite authored systems and visible construction, not endless random
@@ -1057,7 +1146,7 @@ Iron ore`). The guide loop (gather → gold hub → research) is the one thing t
 - ~~**Walking overshoots a single hex easily at hold-to-move speed.**~~ Closed by v0.18. `Shift`
   walks at 0.4 magnitude through the intent field native already accepted.
 - **The landing clearing answers exploration too early.** All eight raw materials at spawn make the
-  terrain legible but make four presets and an unbounded map less consequential. v0.20 replaces the
+  terrain legible but make four presets and an unbounded map less consequential. v0.21 replaces the
   sample platter with a measured bootstrap guarantee and regional discovery.
 
 ## Presentation pass — Inspector Readability v0.13.2
@@ -2015,7 +2104,7 @@ efficient generators follow the same pattern.
 
 Named here so they are decisions rather than omissions, each with the thing it is waiting for:
 
-- ~~**Animals, biomatter, and waste.**~~ Promoted to **Living Lattice v0.19** above, still one
+- ~~**Animals, biomatter, and waste.**~~ Promoted to **Living Lattice v0.20** above, still one
   milestone rather than three. The promoted brief adds the missing purpose: ecology is the first
   system in which the world answers the factory, and the first player-facing reason hex
   neighbourhoods must matter.
@@ -2028,7 +2117,7 @@ Named here so they are decisions rather than omissions, each with the thing it i
   and should be chosen for what it does to the game's feel, not smuggled in as a power source.
 - **Terraforming.** Cliffs are unbuildable until mined in v0.11; whether the player may reshape
   elevation, and what that costs, is a question the world has to exist before anyone can answer.
-- ~~**Regional biomes — a third generation channel.**~~ Promoted to **Regional Discovery v0.20**
+- ~~**Regional biomes — a third generation channel.**~~ Promoted to **Regional Discovery v0.21**
   above. The generation channel remains an implementation option; the milestone is the readable
   expedition, the sustained distant site, and the measured replacement for "all materials near
   spawn," not another noise field by itself.

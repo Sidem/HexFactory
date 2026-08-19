@@ -30,7 +30,13 @@ const SAVE_PREFIX: &str = "HXF1\n";
 /// one item: the stage the hub has reached, and what it is holding against the current bill, are
 /// saved state and are in the checksum. A version-7 envelope carries neither, and inventing a stage
 /// for it would be the loader guessing at a founding project's history.
-const SAVE_VERSION: u16 = 8;
+///
+/// Bumped to 9 for the Power Grid. Electricity became a quantity a machine holds rather than a rate
+/// it is taxed at, so every machine now carries banked energy and every plant carries its progress
+/// toward the next unit of fuel — both checksummed. A version-8 envelope has neither, and defaulting
+/// them to zero is not a translation: the same factory would restart with every buffer empty and
+/// every plant's part-burned fuel forgotten.
+const SAVE_VERSION: u16 = 9;
 /// Bumped to 6 for World Parameters. `WorldParams` is now part of a run's identity — it is in the
 /// save envelope and in the checksum — so a version-5 envelope carries no answer to the question
 /// "which world is this" and is rejected rather than assumed to be the default.
@@ -120,9 +126,23 @@ const MAX_AIM_DISTANCE: i64 = 1 << 30;
 /// How far a pump reaches for open water. One hex, like every other radius in the game, so a pump
 /// stands on buildable ground at the edge of a basin rather than in it.
 const PUMP_RADIUS: i32 = 1;
-/// Default hex reach from a machine to a pole, and from a pole to another pole.
-const DEFAULT_POWER_REACH: i32 = 2;
-const DEFAULT_POLE_REACH: i32 = 4;
+/// How far a pole supplies machines around it, and how far it links to the next pole, for a pole
+/// definition that names neither. Coverage is a property of the *pole*: before v0.19 the distance a
+/// machine could stand from a pole was read off the machine, which made "how far does this pole
+/// reach" a question no pole could answer and no upgrade could change.
+const DEFAULT_POLE_SUPPLY_RADIUS: i32 = 3;
+const DEFAULT_POLE_REACH: i32 = 6;
+/// The largest coverage a pole definition may claim, for the same reason `MAX_EXTRACT_RADIUS`
+/// exists: the pole-to-machine pass walks a disc, and a definition file is not allowed to make that
+/// walk unbounded.
+const MAX_POLE_SUPPLY_RADIUS: u32 = 8;
+/// How many crafts' worth of electricity a machine banks before it stops asking for more.
+///
+/// This is the whole of the "1 unit, 3 cycles" rule, and it is what makes a grid sized by *average*
+/// load rather than peak. An extractor on a five-tick cadence, or a smelter waiting on ore, stops
+/// reserving capacity it is not using, so the same generator carries a much larger and lumpier
+/// factory than a per-tick tax ever could.
+const POWER_BUFFER_CYCLES: u32 = 3;
 /// Water as a belted item. Boilers drink it; a fluid network is not this milestone.
 const WATER_ITEM: ItemId = 10;
 
@@ -210,14 +230,23 @@ struct BuildingDefinition {
     /// output is content, not a branch in the tick.
     #[serde(default)]
     output_item_id: Option<ItemId>,
-    /// Electricity drawn every tick while this machine is on a network. Zero or absent: no draw.
+    /// Electricity this machine spends per tick of work. Zero or absent: no draw.
+    ///
+    /// A *rate against progress*, not against the clock. A machine that is blocked, starved, or
+    /// out of recipe spends nothing, which is the difference between this and a per-tick tax: one
+    /// craft costs `power_draw × duration` however long the machine stood idle first.
     #[serde(default)]
     power_draw: Option<u32>,
-    /// Electricity offered every tick this generator is live.
+    /// Electricity offered every tick this generator is live, and the rate at which its fuel is
+    /// worth that electricity: a generator running flat out spends exactly one unit of fuel energy
+    /// per tick, so `power_output` is also the grid energy one fuel unit buys.
     #[serde(default)]
     power_output: Option<u32>,
+    /// How far this pole supplies the machines around it.
     #[serde(default)]
-    power_reach: Option<u32>,
+    supply_radius: Option<u32>,
+    /// How far this pole links to the next pole. Longer than `supply_radius` because spanning
+    /// distance is what a line of poles is for.
     #[serde(default)]
     pole_reach: Option<u32>,
     #[serde(default)]
@@ -521,9 +550,16 @@ struct Entity {
     /// not the same machine as one that has just been fed.
     #[serde(default)]
     fuel_charge: u32,
-    /// Remainder of `base * satisfied / demand` so brownouts pay exact work over time.
+    /// Electricity this machine has been given and has not spent yet. Real state for the same
+    /// reason `fuel_charge` is: a smelter holding two crafts' worth of power is not the same
+    /// machine as one that has just been connected, and the difference survives a save.
     #[serde(default)]
-    power_remainder: u32,
+    power_charge: u32,
+    /// A generator's progress toward its next whole unit of fuel energy, numerator over
+    /// `power_output`. A plant carrying a tenth of the load burns a tenth of the coal, and this is
+    /// where the other nine tenths of the unit waits rather than being rounded away.
+    #[serde(default)]
+    burn_progress: u32,
 }
 
 #[derive(Clone, Debug, Serialize, PartialEq, Eq)]
@@ -715,6 +751,12 @@ struct EntitySnapshot {
     power_satisfied: u32,
     #[serde(skip_serializing_if = "is_zero")]
     power_demand: u32,
+    /// Electricity this machine is holding, against the buffer it fills to. Published for the same
+    /// reason `fuel_charge` is: "brownout" is a word, and a bank draining is the picture.
+    #[serde(skip_serializing_if = "is_zero")]
+    power_charge: u32,
+    #[serde(skip_serializing_if = "is_zero")]
+    power_capacity: u32,
     status: EntityStatus,
     next_id: Option<u32>,
     footprint: Vec<Coordinate>,
@@ -1259,7 +1301,8 @@ impl Core {
                 reserved_inputs: BTreeMap::new(),
                 progress: 0,
                 fuel_charge: 0,
-                power_remainder: 0,
+                power_charge: 0,
+                burn_progress: 0,
             });
             core.next_entity_id += 1;
         }
@@ -1800,7 +1843,8 @@ impl Core {
                         || definition.power_draw.unwrap_or(0) > 0)
             })
             .collect();
-        // Poles form the long-range graph. Machines attach only to poles, so a plant of
+        // Poles form the long-range graph, and each pole supplies the machines inside its own
+        // coverage. Machines attach to poles rather than to each other at range, so a plant of
         // extractors with no poles is linear rather than quadratic.
         for (offset, &left) in poles.iter().enumerate() {
             for &right in &poles[offset + 1..] {
@@ -1816,11 +1860,40 @@ impl Core {
                 }
             }
         }
+        // Touching machines conduct. A generator standing beside a smelter runs it, a block of
+        // machines built shoulder to shoulder wires itself, and a pole becomes what *distance*
+        // costs rather than what power costs — which is what the balance tool's opening prices
+        // have always assumed.
+        //
+        // Only buildings that draw or generate conduct. If belts and containers carried current,
+        // a line of the cheapest building in the game would be free wire across the map and no
+        // player would ever place the second pole.
+        //
+        // Walked through a cell index rather than pairwise, so the pass is linear in machines
+        // instead of quadratic: `entity_at` is a scan, and six of them per footprint cell per
+        // machine is the shape of a compile that gets slower the more factory there is.
+        let mut cells: BTreeMap<(i32, i32), usize> = BTreeMap::new();
+        for &machine in &machines {
+            for cell in self.entity_footprint(&self.entities[machine]) {
+                cells.insert((cell.q, cell.r), machine);
+            }
+        }
+        for &machine in &machines {
+            for cell in self.entity_footprint(&self.entities[machine]) {
+                for &(dq, dr) in &DIRECTIONS {
+                    if let Some(&other) = cells.get(&(cell.q + dq, cell.r + dr)) {
+                        if other != machine {
+                            union(&mut parent, machine, other, &ids);
+                        }
+                    }
+                }
+            }
+        }
         for index in poles.into_iter().chain(machines) {
             let root = find(&mut parent, index);
             self.power_of[index] = Some(ids[root]);
         }
-        self.refresh_power();
+        self.refresh_power_meters();
     }
 
     fn power_linked(&self, left: usize, right: usize) -> bool {
@@ -1841,9 +1914,14 @@ impl Core {
             return distance <= reach;
         }
         if a_pole || b_pole {
-            let machine = if a_pole { b } else { a };
-            let reach = machine.power_reach.unwrap_or(DEFAULT_POWER_REACH as u32) as i32;
-            return distance <= reach;
+            // Coverage is the pole's, not the machine's. This is the whole of the upgrade: a
+            // better pole lights a wider disc, and every machine already standing in it connects
+            // without being touched.
+            let pole = if a_pole { a } else { b };
+            let radius = pole
+                .supply_radius
+                .unwrap_or(DEFAULT_POLE_SUPPLY_RADIUS as u32) as i32;
+            return distance <= radius;
         }
         false
     }
@@ -1858,7 +1936,14 @@ impl Core {
         best
     }
 
-    fn refresh_power(&mut self) {
+    /// What the meters read: live generation and the standing draw of the machines that have work.
+    ///
+    /// Deliberately *not* the buffer-fill requests `distribute_power` allocates against. A machine
+    /// with a full bank asks for nothing that tick, and a needle that dropped to zero every time
+    /// the factory got comfortable would be telling the player about the accounting rather than
+    /// about their grid. Supply against standing draw is the number that answers "can this plant
+    /// carry this factory".
+    fn refresh_power_meters(&mut self) {
         let previous_supply = self.power_supply.clone();
         let previous_demand = self.power_demand.clone();
         self.power_supply.clear();
@@ -1871,12 +1956,12 @@ impl Core {
             let draw = self
                 .building_definition(definition_id)
                 .and_then(|definition| definition.power_draw)
-                .filter(|&value| value > 0);
+                .unwrap_or(0);
             let output = self
                 .building_definition(definition_id)
                 .and_then(|definition| definition.power_output)
                 .unwrap_or(0);
-            if let Some(draw) = draw {
+            if draw > 0 && self.power_work_wanted(index) {
                 *self.power_demand.entry(net).or_default() += draw;
             }
             if output > 0 {
@@ -1893,6 +1978,196 @@ impl Core {
                 }
             }
         }
+    }
+
+    /// Whether this machine has work its next tick of power would actually buy.
+    ///
+    /// This predicate is the entire fuel rule. A machine with nothing to do asks the grid for
+    /// nothing, so the grid draws nothing from its plants, so the plants burn nothing — there is no
+    /// separate "throttle the generator" step anywhere, because there is nothing to throttle.
+    fn power_work_wanted(&self, index: usize) -> bool {
+        let entity = &self.entities[index];
+        match entity.kind {
+            // A blocked extractor or pump has produced something nobody has taken. It is not
+            // waiting on power and must not hold a share of it.
+            BuildingKind::Extractor | BuildingKind::Pump => entity.cargo.is_none(),
+            BuildingKind::Composer => {
+                if entity.cargo.is_some() {
+                    return false;
+                }
+                let Some(recipe) = entity.placed.recipe_id.and_then(|id| self.recipe(id)) else {
+                    return false;
+                };
+                // Mid-craft always wants power: the inputs are already spent and the only thing
+                // between the machine and its output is time it has to be paid for.
+                if entity.progress > 0 {
+                    return true;
+                }
+                let stocked = recipe.inputs.iter().all(|ingredient| {
+                    entity
+                        .inventory
+                        .get(&ingredient.item_id)
+                        .copied()
+                        .unwrap_or(0)
+                        >= ingredient.quantity
+                });
+                stocked && self.fuel_ready(entity)
+            }
+            _ => false,
+        }
+    }
+
+    /// How much electricity this machine wants banked: `POWER_BUFFER_CYCLES` whole cycles of the
+    /// work it is set up to do. A machine with no recipe, or no work, wants nothing.
+    fn power_capacity(&self, index: usize) -> u32 {
+        let draw = self
+            .building_definition(self.entities[index].placed.definition_id)
+            .and_then(|definition| definition.power_draw)
+            .unwrap_or(0);
+        if draw == 0 {
+            return 0;
+        }
+        // `progress_total` is already the length of one cycle for every kind that has one — a
+        // cadence for an extractor or pump, a recipe duration for a composer — so the buffer is
+        // sized off the same number the progress bar fills against rather than a second opinion.
+        draw.saturating_mul(self.progress_total(index).max(1))
+            .saturating_mul(POWER_BUFFER_CYCLES)
+    }
+
+    /// One tick of the grid: every network is filled from its plants, and every plant burns for
+    /// exactly the energy it was asked to hand over.
+    ///
+    /// Energy is conserved. What machines bank equals what plants produced, to the unit, which is
+    /// why throughput comes out exactly proportional to generation without a slowdown factor
+    /// anywhere: an undersupplied factory is not scaled down, it is simply given less to spend.
+    fn distribute_power(&mut self) {
+        self.refresh_power_meters();
+        if self.power_unmetered {
+            return;
+        }
+        // Requests, by network, in ascending entity id — which is index order, so every
+        // apportionment below is over a list whose order is a save's order.
+        let mut requests: BTreeMap<u32, Vec<(usize, u64)>> = BTreeMap::new();
+        let mut plants: BTreeMap<u32, Vec<(usize, u64)>> = BTreeMap::new();
+        for index in 0..self.entities.len() {
+            let Some(net) = self.power_of.get(index).copied().flatten() else {
+                continue;
+            };
+            let definition_id = self.entities[index].placed.definition_id;
+            let Some(definition) = self.building_definition(definition_id) else {
+                continue;
+            };
+            let draw = definition.power_draw.unwrap_or(0);
+            let output = definition.power_output.unwrap_or(0);
+            if output > 0 {
+                let live = self.generator_output_now(index);
+                if live > 0 {
+                    plants
+                        .entry(net)
+                        .or_default()
+                        .push((index, u64::from(live)));
+                }
+            } else if draw > 0 && self.power_work_wanted(index) {
+                let want = u64::from(self.power_capacity(index))
+                    .saturating_sub(u64::from(self.entities[index].power_charge));
+                if want > 0 {
+                    requests.entry(net).or_default().push((index, want));
+                }
+            }
+        }
+        for (net, asked) in requests {
+            let Some(offers) = plants.get(&net) else {
+                continue;
+            };
+            let available: u64 = offers.iter().map(|&(_, offer)| offer).sum();
+            let wanted: u64 = asked.iter().map(|&(_, want)| want).sum();
+            let used = available.min(wanted);
+            if used == 0 {
+                continue;
+            }
+            let weights: Vec<u64> = asked.iter().map(|&(_, want)| want).collect();
+            for (&(index, _), granted) in asked.iter().zip(apportion(used, &weights)) {
+                if granted == 0 {
+                    continue;
+                }
+                self.entities[index].power_charge += granted as u32;
+                let id = self.entities[index].id;
+                self.dirty.entities.push(id);
+            }
+            // The same split over the plants, so what was produced equals what was banked and no
+            // generator burns for a unit that never reached a machine.
+            let offered: Vec<u64> = offers.iter().map(|&(_, offer)| offer).collect();
+            let sources: Vec<usize> = offers.iter().map(|&(index, _)| index).collect();
+            for (index, produced) in sources.into_iter().zip(apportion(used, &offered)) {
+                self.burn_for_output(index, produced as u32);
+            }
+        }
+    }
+
+    /// Charge a plant for the electricity it just produced.
+    ///
+    /// A generator running flat out spends one unit of fuel energy per tick, so `power_output` is
+    /// the exchange rate, and a plant carrying a fifth of the load pays a fifth as often.
+    /// `burn_progress` is where the fraction waits, which is what keeps a lightly loaded burner
+    /// honest instead of either free or rounded up to a whole coal every tick.
+    fn burn_for_output(&mut self, index: usize, produced: u32) {
+        if produced == 0 {
+            return;
+        }
+        let Some(definition) = self.building_definition(self.entities[index].placed.definition_id)
+        else {
+            return;
+        };
+        let (source, rate) = (
+            definition.power_source,
+            definition.power_output.unwrap_or(0),
+        );
+        if rate == 0 {
+            return;
+        }
+        // Wind and water are paid for once, at construction. Only a plant with a bill has one.
+        if !matches!(
+            source,
+            Some(PowerSource::Burner) | Some(PowerSource::Turbine)
+        ) {
+            return;
+        }
+        self.entities[index].burn_progress += produced;
+        let units = self.entities[index].burn_progress / rate;
+        if units == 0 {
+            return;
+        }
+        self.entities[index].burn_progress -= units * rate;
+        match source {
+            Some(PowerSource::Burner) => {
+                if self.charge_fuel(index, units, &[]) {
+                    self.entities[index].fuel_charge -= units;
+                }
+            }
+            // A turbine has no firebox of its own: the bill lands on the boiler beside it, which is
+            // where the coal and the water actually are.
+            Some(PowerSource::Turbine) => {
+                if let Some(boiler) = self.adjacent_live_boiler_index(index) {
+                    let water = self.entities[boiler]
+                        .inventory
+                        .get(&WATER_ITEM)
+                        .copied()
+                        .unwrap_or(0)
+                        .min(units);
+                    if water > 0 {
+                        subtract_item(&mut self.entities[boiler].inventory, WATER_ITEM, water);
+                    }
+                    if self.charge_fuel(boiler, units, &[]) {
+                        self.entities[boiler].fuel_charge -= units;
+                    }
+                    let id = self.entities[boiler].id;
+                    self.dirty.entities.push(id);
+                }
+            }
+            _ => {}
+        }
+        let id = self.entities[index].id;
+        self.dirty.entities.push(id);
     }
 
     fn generator_output_now(&self, index: usize) -> u32 {
@@ -1944,19 +2219,38 @@ impl Core {
     }
 
     fn adjacent_live_boiler(&self, index: usize) -> bool {
+        self.adjacent_live_boiler_index(index).is_some()
+    }
+
+    /// The boiler a turbine's bill lands on: the lowest-id live one it touches, so a turbine
+    /// wedged between two boilers always empties the same one and a save reproduces which.
+    fn adjacent_live_boiler_index(&self, index: usize) -> Option<usize> {
+        let mut best: Option<usize> = None;
         for cell in self.entity_footprint(&self.entities[index]) {
             for &(dq, dr) in &DIRECTIONS {
                 if let Some(other) = self.entity_at(cell.q + dq, cell.r + dr) {
                     if self.entities[other].kind == BuildingKind::Boiler && self.boiler_live(other)
                     {
-                        return true;
+                        best = Some(match best {
+                            Some(current)
+                                if self.entities[current].id <= self.entities[other].id =>
+                            {
+                                current
+                            }
+                            _ => other,
+                        });
                     }
                 }
             }
         }
-        false
+        best
     }
 
+    /// Spend banked electricity on `base` ticks of progress, returning the ticks actually paid for.
+    ///
+    /// The machine buys work out of its own bank rather than out of a network ratio. A brownout is
+    /// therefore not a slowdown factor applied to a machine: it is a machine that ran out of what
+    /// it was given, and it resumes at full speed the moment the grid hands it more.
     fn power_progress(&mut self, index: usize, base: u32) -> u32 {
         if self.power_unmetered || base == 0 {
             return base;
@@ -1968,25 +2262,18 @@ impl Core {
         if draw == 0 {
             return base;
         }
-        let Some(net) = self.power_of.get(index).copied().flatten() else {
-            return 0;
-        };
-        let demand = self.power_demand.get(&net).copied().unwrap_or(0);
-        if demand == 0 {
-            return base;
-        }
-        let supply = self.power_supply.get(&net).copied().unwrap_or(0);
-        let satisfied = supply.min(demand);
-        if satisfied == 0 {
+        let charge = self.entities[index].power_charge;
+        let afforded = base.min(charge / draw);
+        if afforded == 0 {
             return 0;
         }
-        let remainder = self.entities[index].power_remainder;
-        let combined = u64::from(base) * u64::from(satisfied) + u64::from(remainder);
-        let add = combined / u64::from(demand);
-        self.entities[index].power_remainder = (combined % u64::from(demand)) as u32;
-        add as u32
+        self.entities[index].power_charge = charge - afforded * draw;
+        afforded
     }
 
+    /// Whether this machine can pay for a tick of work right now — it holds at least one tick's
+    /// draw. What gates a craft is the bank, not the network, so a machine on a dead grid keeps
+    /// running until the energy it was already given runs out.
     fn entity_powered(&self, index: usize) -> bool {
         if self.power_unmetered {
             return true;
@@ -1995,7 +2282,14 @@ impl Core {
             .building_definition(self.entities[index].placed.definition_id)
             .and_then(|definition| definition.power_draw)
             .unwrap_or(0);
-        if draw == 0 {
+        draw == 0 || self.entities[index].power_charge >= draw
+    }
+
+    /// Whether this machine is wired to anything that is generating. Separates "no power" from
+    /// "brownout": the first is a grid problem the player fixes with a pole or a plant, the second
+    /// is a capacity problem they fix with more generation.
+    fn entity_connected(&self, index: usize) -> bool {
+        if self.power_unmetered {
             return true;
         }
         let Some(net) = self.power_of.get(index).copied().flatten() else {
@@ -2014,77 +2308,10 @@ impl Core {
         )
     }
 
-    fn advance_power_plants(&mut self) {
-        let mut order: Vec<usize> = (0..self.entities.len()).collect();
-        order.sort_by_key(|&index| self.entities[index].id);
-        for index in order {
-            match self.entities[index].kind {
-                BuildingKind::Generator => self.advance_generator(index),
-                BuildingKind::Boiler => self.advance_boiler(index),
-                _ => {}
-            }
-        }
-    }
-
-    fn advance_generator(&mut self, index: usize) {
-        let Some(definition) = self.building_definition(self.entities[index].placed.definition_id)
-        else {
-            return;
-        };
-        if definition.power_source != Some(PowerSource::Burner) {
-            return;
-        }
-        let Some(net) = self.power_of.get(index).copied().flatten() else {
-            return;
-        };
-        if self.power_demand.get(&net).copied().unwrap_or(0) == 0 {
-            return;
-        }
-        if !self.charge_fuel(index, 1, &[]) {
-            return;
-        }
-        self.entities[index].fuel_charge -= 1;
-        let id = self.entities[index].id;
-        self.dirty.entities.push(id);
-    }
-
-    fn advance_boiler(&mut self, index: usize) {
-        if !self.adjacent_turbine(index) || !self.boiler_live(index) {
-            return;
-        }
-        if !self.charge_fuel(index, 1, &[]) {
-            return;
-        }
-        if self.entities[index]
-            .inventory
-            .get(&WATER_ITEM)
-            .copied()
-            .unwrap_or(0)
-            < 1
-        {
-            return;
-        }
-        subtract_item(&mut self.entities[index].inventory, WATER_ITEM, 1);
-        self.entities[index].fuel_charge -= 1;
-        let id = self.entities[index].id;
-        self.dirty.entities.push(id);
-    }
-
-    fn adjacent_turbine(&self, index: usize) -> bool {
-        for cell in self.entity_footprint(&self.entities[index]) {
-            for &(dq, dr) in &DIRECTIONS {
-                if let Some(other) = self.entity_at(cell.q + dq, cell.r + dr) {
-                    let source = self
-                        .building_definition(self.entities[other].placed.definition_id)
-                        .and_then(|definition| definition.power_source);
-                    if source == Some(PowerSource::Turbine) {
-                        return true;
-                    }
-                }
-            }
-        }
-        false
-    }
+    // `advance_power_plants` used to live here: one pass that burned a unit of fuel per plant per
+    // tick whenever its network had any demand at all, so one extractor cost a burner exactly what
+    // five composers did. Its work is now `burn_for_output`, charged against energy the grid
+    // actually delivered, which is why there is no longer a separate plant phase in the tick.
 
     fn graph_links_by_id(&self) -> BTreeMap<u32, Option<u32>> {
         self.entities
@@ -2206,9 +2433,10 @@ impl Core {
 
     fn advance_ticks(&mut self, count: u32) {
         for _ in 0..count {
-            self.refresh_power();
+            // Fill the grid, then spend it. Both halves of power happen before any machine moves,
+            // so no machine can be paid out of energy a later machine in the same tick produced.
+            self.distribute_power();
             self.advance_machines();
-            self.advance_power_plants();
             self.transfer_cargo();
             self.tick += 1;
             self.regrow_flora();
@@ -2983,7 +3211,8 @@ impl Core {
             reserved_inputs: BTreeMap::new(),
             progress: 0,
             fuel_charge: 0,
-            power_remainder: 0,
+            power_charge: 0,
+            burn_progress: 0,
         });
         self.next_entity_id += 1;
         self.undo_stack.push(id);
@@ -3776,9 +4005,14 @@ impl Core {
             .and_then(|id| self.recipe(id))
             .map_or(0, |recipe| recipe.fuel);
         let fuel_ready = self.fuel_ready(entity);
-        let powered = self.entity_powered(index);
+        // Two different failures, and the player fixes them with two different buildings: `powered`
+        // is "wired to something that generates" and wants a pole or a plant, `brownout` is "wired
+        // in but the bank ran dry" and wants more generation.
+        let powered = self.entity_connected(index);
+        let brownout = powered && !self.entity_powered(index);
         let (power_satisfied, power_demand) = self.network_of(index);
-        let brownout = powered && power_demand > 0 && power_satisfied < power_demand;
+        let power_charge = entity.power_charge;
+        let power_capacity = self.power_capacity(index);
         let progress_total = self.progress_total(index);
         let footprint = self.entity_footprint(entity);
         let next_id = self.graph[index].map(|target| self.entities[target].id);
@@ -3803,6 +4037,8 @@ impl Core {
             fuel_required,
             power_satisfied,
             power_demand,
+            power_charge,
+            power_capacity,
             status: EntityStatus::Idle,
             next_id,
             footprint,
@@ -4030,7 +4266,8 @@ impl Core {
             hash_u32(&mut hash, u32::from(entity.placed.scenario_owned));
             hash_u32(&mut hash, entity.progress);
             hash_u32(&mut hash, entity.fuel_charge);
-            hash_u32(&mut hash, entity.power_remainder);
+            hash_u32(&mut hash, entity.power_charge);
+            hash_u32(&mut hash, entity.burn_progress);
             hash_inventory(&mut hash, &entity.inventory);
             hash_inventory(&mut hash, &entity.reserved_inputs);
             if let Some(cargo) = entity.cargo {
@@ -4797,6 +5034,41 @@ fn validate_definitions(definitions: &DefinitionsInput) -> Result<(), String> {
                 ));
             }
         }
+        if let Some(radius) = building.supply_radius {
+            if building.kind != BuildingKind::Pole {
+                return Err(format!(
+                    "building {} claims a supply radius but is not a pole",
+                    building.id
+                ));
+            }
+            if radius == 0 || radius > MAX_POLE_SUPPLY_RADIUS {
+                return Err(format!(
+                    "pole {} needs a supply radius in 1..={MAX_POLE_SUPPLY_RADIUS}",
+                    building.id
+                ));
+            }
+        }
+        // A pole that supplies further than it can pass current on is a pole that cannot be
+        // chained at its own coverage — a line of them would leave dark gaps between lit discs.
+        if let (Some(radius), Some(link)) = (building.supply_radius, building.pole_reach) {
+            if link < radius {
+                return Err(format!(
+                    "pole {} reaches less far than it supplies",
+                    building.id
+                ));
+            }
+        }
+        // Every pole states both of its distances. The defaults above exist so the rule has one
+        // definition, not so a data row can stay silent: the host draws the coverage ring straight
+        // off this file, and a pole that named no radius would be drawn at a radius nobody chose.
+        if building.kind == BuildingKind::Pole
+            && (building.supply_radius.is_none() || building.pole_reach.is_none())
+        {
+            return Err(format!(
+                "pole {} must name both the distance it supplies and the distance it links",
+                building.id
+            ));
+        }
         for ingredient in &building.construction_cost {
             if ingredient.quantity == 0 || !item_ids.contains(&ingredient.item_id) {
                 return Err(format!("building {} has an invalid cost", building.id));
@@ -5190,6 +5462,40 @@ fn rotate_coordinate(mut coordinate: Coordinate, turns: u8) -> Coordinate {
         };
     }
     coordinate
+}
+
+/// Split `total` across `weights` so the parts sum to exactly `total`.
+///
+/// Integer floor first, then the leftover units to the largest fractional remainders, ties broken
+/// by position — and callers always pass entities in ascending id order, so the tie-break is a
+/// save's own order. Exactness is the point: this is how energy is conserved between what plants
+/// produced and what machines banked, with no per-entity remainder to store and no drift to audit.
+fn apportion(total: u64, weights: &[u64]) -> Vec<u64> {
+    let sum: u64 = weights.iter().sum();
+    if sum == 0 || total == 0 {
+        return vec![0; weights.len()];
+    }
+    let mut parts: Vec<u64> = weights
+        .iter()
+        .map(|&weight| (weight as u128 * total as u128 / sum as u128) as u64)
+        .collect();
+    let mut leftover = total - parts.iter().sum::<u64>();
+    if leftover == 0 {
+        return parts;
+    }
+    let mut order: Vec<usize> = (0..weights.len()).collect();
+    order.sort_by_key(|&index| {
+        let remainder = (weights[index] as u128 * total as u128) % sum as u128;
+        (std::cmp::Reverse(remainder), index)
+    });
+    for index in order {
+        if leftover == 0 {
+            break;
+        }
+        parts[index] += 1;
+        leftover -= 1;
+    }
+    parts
 }
 
 fn axial_distance(from: (i32, i32), to: (i32, i32)) -> i32 {
@@ -7251,8 +7557,391 @@ mod tests {
         assert!(extractor.cargo.is_some() || extractor.progress > 0);
         let snapshot = lit.entity_snapshot(burner);
         assert_eq!(snapshot.status, EntityStatus::Generating);
-        assert!(snapshot.power_demand > 0);
         assert!(snapshot.power_satisfied > 0);
+        // The extractor has produced and nobody has taken it: it is blocked, not waiting on power,
+        // so it is not on the meter. Before v0.19 it would still have been booking its full draw
+        // and costing the burner a unit of coal a tick for work it could not do.
+        assert!(lit.entities[extractor_index(&lit)].cargo.is_some());
+        assert_eq!(snapshot.power_demand, 0);
+    }
+
+    /// The other half of the same rule, and the one the player pays for: a plant carrying a small
+    /// load burns proportionally less fuel, and a plant carrying none burns none at all.
+    #[test]
+    fn a_generator_burns_for_the_work_it_powers_and_not_for_the_clock() {
+        let coal = |core: &Core, index: usize| {
+            let entity = &core.entities[index];
+            u32::from(entity.inventory.get(&5).copied().unwrap_or(0)) * 8 + entity.fuel_charge
+        };
+
+        // One burner, one pole, one extractor with a deposit to work.
+        let mut working = game("new-game");
+        working.power_unmetered = false;
+        working.researched.extend([1, 2, 8]);
+        working.player.inventory.insert(1, 20);
+        working.player.inventory.insert(3, 4);
+        working.player.inventory.insert(6, 8);
+        working.player.inventory.insert(5, 8);
+        set_player_hex(&mut working, 1, 0);
+        working.place(3, 0, 1, 0, None).unwrap();
+        let pole = try_place_near(&mut working, (3, 0), 12);
+        try_place_near(&mut working, pole, 13);
+        let burner = working
+            .entities
+            .iter()
+            .position(|entity| entity.kind == BuildingKind::Generator)
+            .unwrap();
+        working.entities[burner].inventory.insert(5, 20);
+        let before = coal(&working, burner);
+        working.tick_many(40);
+        let spent_working = before - coal(&working, burner);
+        let output = working
+            .building_definition(working.entities[burner].placed.definition_id)
+            .unwrap()
+            .power_output
+            .unwrap();
+        let taken = grid_energy_received(&working);
+        let owed = working.entities[burner].burn_progress;
+
+        // The same grid with nothing on it: a generator wired to a pole and no machine at all.
+        let mut idle = game("new-game");
+        idle.power_unmetered = false;
+        idle.researched.extend([1, 2, 8]);
+        idle.player.inventory.insert(1, 20);
+        idle.player.inventory.insert(3, 4);
+        idle.player.inventory.insert(6, 8);
+        idle.player.inventory.insert(5, 8);
+        set_player_hex(&mut idle, 1, 0);
+        let pole = try_place_near(&mut idle, (3, 0), 12);
+        try_place_near(&mut idle, pole, 13);
+        let idle_burner = idle
+            .entities
+            .iter()
+            .position(|entity| entity.kind == BuildingKind::Generator)
+            .unwrap();
+        idle.entities[idle_burner].inventory.insert(5, 20);
+        let before = coal(&idle, idle_burner);
+        idle.tick_many(40);
+
+        assert_eq!(
+            before - coal(&idle, idle_burner),
+            0,
+            "a plant with nothing to power burns nothing"
+        );
+        assert!(spent_working > 0, "a plant doing work burns something");
+        // The bill is the load, exactly. Fuel spent buys `output` units of electricity each, and
+        // the part-unit still owed sits in `burn_progress` — so this equality is the whole rule,
+        // and it is what fails the moment a plant burns for the clock instead of for the work.
+        assert_eq!(
+            spent_working * output + owed,
+            taken,
+            "a plant burns for what it handed over"
+        );
+        // And what one extractor asks for over forty ticks is nowhere near what this plant could
+        // have made in them. The old rule charged a unit of fuel energy per tick regardless —
+        // forty — where this is a handful.
+        assert!(
+            spent_working * 4 < 40,
+            "one extractor must not cost a burner its full output: spent {spent_working}"
+        );
+    }
+
+    /// Coverage belongs to the pole, and it is the whole of the upgrade.
+    ///
+    /// The same machine at the same hex is dark under a base pole and lit under a relay pole,
+    /// with nothing else in the world changed. Before v0.19 this test could not have been written:
+    /// the distance came off the machine, so every pole in the game reached exactly as far as
+    /// every other one and no upgrade could move it.
+    #[test]
+    fn a_better_pole_lights_a_wider_disc_and_the_machine_does_not_change() {
+        let base = building_by_key("pole");
+        let relay = building_by_key("pole-ii");
+        let trunk = building_by_key("pole-iii");
+        assert_eq!(base.supply_radius, Some(3));
+        assert_eq!(relay.supply_radius, Some(4));
+        assert_eq!(trunk.supply_radius, Some(6));
+        // The ladder is a chain, so an upgrade never skips a rung or turns a pole into a machine.
+        assert_eq!(base.upgrades_to, Some(relay.id));
+        assert_eq!(relay.upgrades_to, Some(trunk.id));
+
+        // A pole and a machine exactly four hexes apart: outside a base pole, inside a relay.
+        for (definition_id, expected) in [(base.id, false), (relay.id, true)] {
+            let mut core = game("new-game");
+            core.power_unmetered = false;
+            core.researched.extend([1, 2, 8, 5, 13]);
+            core.player.inventory.insert(1, 40);
+            core.player.inventory.insert(3, 8);
+            core.player.inventory.insert(6, 20);
+            core.player.inventory.insert(11, 8);
+            core.player.inventory.insert(18, 8);
+            core.player.build_range = 1 << 20;
+            set_player_hex(&mut core, 0, 0);
+            core.place(3, 0, 1, 0, None).unwrap();
+            let extractor = extractor_index(&core);
+            core.place(3 + 4, 0, definition_id, 0, None).unwrap();
+            let pole = core
+                .entities
+                .iter()
+                .position(|entity| entity.kind == BuildingKind::Pole)
+                .unwrap();
+            // An unconnected machine sits on a network of its own, so what says "covered" is
+            // sharing the pole's network rather than merely having one.
+            assert_eq!(
+                core.power_of[extractor] == core.power_of[pole],
+                expected,
+                "a pole with radius {:?} four hexes away",
+                core.building_definition(definition_id)
+                    .unwrap()
+                    .supply_radius
+            );
+        }
+    }
+
+    /// Machines that touch conduct, and only the ones that carry current do.
+    ///
+    /// This is what makes a pole cost *distance* rather than power, and it is what
+    /// `fixtures/balance.json` has priced openings against since v0.18 — one generator, no pole,
+    /// for a machine standing beside it. Until v0.19 that price was simply wrong.
+    #[test]
+    fn a_generator_powers_what_stands_against_it_and_a_belt_carries_nothing() {
+        let mut core = game("new-game");
+        core.power_unmetered = false;
+        core.researched.extend([1, 2, 8]);
+        core.player.inventory.insert(1, 40);
+        core.player.inventory.insert(3, 8);
+        core.player.inventory.insert(6, 20);
+        core.player.inventory.insert(5, 20);
+        core.player.build_range = 1 << 20;
+        set_player_hex(&mut core, 0, 0);
+        core.place(3, 0, 1, 0, None).unwrap();
+        let extractor = extractor_index(&core);
+
+        // No pole anywhere: the generator is simply built against the extractor's footprint.
+        let mut placed = None;
+        for &(dq, dr) in &DIRECTIONS {
+            if core.place(3 + dq, dr, 13, 0, None).is_ok() {
+                placed = Some((3 + dq, dr));
+                break;
+            }
+        }
+        placed.expect("a burner fits beside the extractor");
+        let generator = core
+            .entities
+            .iter()
+            .position(|entity| entity.kind == BuildingKind::Generator)
+            .unwrap();
+        // Sharing the generator's network, not merely having one: an unconnected machine is put on
+        // a network of its own, so `is_some` is true of every machine ever built and proves nothing.
+        assert_eq!(
+            core.power_of[extractor], core.power_of[generator],
+            "a machine touching a generator is on its network"
+        );
+        assert!(
+            core.entities
+                .iter()
+                .all(|entity| entity.kind != BuildingKind::Pole),
+            "and it got there without a pole"
+        );
+
+        // A belt is not wire. One built hard against the pair still joins no network, so a line of
+        // the cheapest building in the game cannot carry current across the map and no player ever
+        // stops placing the second pole.
+        let belt = try_place_near(&mut core, (3, 0), 2);
+        let belt_index = core
+            .entities
+            .iter()
+            .position(|entity| entity.placed.q == belt.0 && entity.placed.r == belt.1)
+            .unwrap();
+        assert_eq!(axial_distance((3, 0), belt), 1, "the belt is touching");
+        assert!(core.power_of[belt_index].is_none());
+    }
+
+    /// A scarce grid feeds the machine that can work, not the one that is holding an output.
+    ///
+    /// The gate that makes this true is also the whole of the fuel rule, and under a full grid the
+    /// two are indistinguishable — a blocked machine with a full bank asks for nothing either way.
+    /// It takes scarcity and an empty bank to tell them apart, which is exactly the state a player
+    /// is in when they are wondering why the factory got slow.
+    #[test]
+    fn a_blocked_machine_does_not_take_a_share_of_a_grid_it_cannot_use() {
+        let mut core = game("new-game");
+        core.power_unmetered = false;
+        core.researched.extend([1, 2, 8]);
+        core.player.inventory.insert(1, 60);
+        core.player.inventory.insert(3, 12);
+        core.player.inventory.insert(6, 20);
+        core.player.inventory.insert(5, 40);
+        core.player.build_range = 1 << 20;
+        set_player_hex(&mut core, 0, 0);
+        core.place(3, 0, 1, 0, None).unwrap();
+        let first = extractor_index(&core);
+        try_place_near(&mut core, (3, 0), 1);
+        let second = core
+            .entities
+            .iter()
+            .enumerate()
+            .filter(|(index, entity)| *index != first && entity.kind == BuildingKind::Extractor)
+            .map(|(index, _)| index)
+            .next()
+            .expect("a second extractor");
+        let pole = try_place_near(&mut core, (3, 0), 12);
+        try_place_near(&mut core, pole, 13);
+        let burner = core
+            .entities
+            .iter()
+            .position(|entity| entity.kind == BuildingKind::Generator)
+            .unwrap();
+        core.entities[burner].inventory.insert(5, 40);
+        core.tick_many(2);
+        assert_eq!(core.power_of[first], core.power_of[second]);
+
+        // Both banks empty, and both machines holding an output nobody has taken. The only
+        // difference between them is the one we are about to make.
+        for index in [first, second] {
+            core.entities[index].power_charge = 0;
+            core.entities[index].cargo = Some(Cargo {
+                item_id: 1,
+                quantity: 1,
+            });
+        }
+        // A belt takes the first one's output. Now it has work and the other still does not.
+        core.entities[first].cargo = None;
+        core.tick_many(1);
+
+        assert!(
+            core.entities[first].power_charge > 0,
+            "the machine that can work was given power"
+        );
+        assert_eq!(
+            core.entities[second].power_charge, 0,
+            "the machine holding an output took none of it"
+        );
+    }
+    /// Electricity is conserved: what the machines banked is what the plants produced, to the unit.
+    ///
+    /// The reason throughput comes out exactly proportional to generation with no slowdown factor
+    /// anywhere. An undersupplied factory is not scaled down — it is handed less to spend.
+    #[test]
+    fn every_unit_a_plant_produced_is_a_unit_a_machine_banked() {
+        let mut core = game("new-game");
+        core.power_unmetered = false;
+        core.researched.extend([1, 2, 8]);
+        core.player.inventory.insert(1, 60);
+        core.player.inventory.insert(3, 12);
+        core.player.inventory.insert(6, 20);
+        core.player.inventory.insert(5, 40);
+        core.player.build_range = 1 << 20;
+        set_player_hex(&mut core, 0, 0);
+        core.place(3, 0, 1, 0, None).unwrap();
+        let pole = try_place_near(&mut core, (3, 0), 12);
+        try_place_near(&mut core, pole, 13);
+        let burner = core
+            .entities
+            .iter()
+            .position(|entity| entity.kind == BuildingKind::Generator)
+            .unwrap();
+        core.entities[burner].inventory.insert(5, 40);
+
+        let received_before = grid_energy_received(&core);
+        let plant_energy_before = core.entities[burner].fuel_charge
+            + core.entities[burner]
+                .inventory
+                .get(&5)
+                .copied()
+                .unwrap_or(0)
+                * 8;
+        core.tick_many(30);
+        let received_after = grid_energy_received(&core);
+        let plant_energy_after = core.entities[burner].fuel_charge
+            + core.entities[burner]
+                .inventory
+                .get(&5)
+                .copied()
+                .unwrap_or(0)
+                * 8;
+
+        // Fuel energy spent, times the exchange rate, is grid energy produced. That grid energy
+        // either sits in a bank or has already been turned into progress, and it is never anything
+        // else — there is no third place for a unit of electricity to go.
+        let output = core
+            .building_definition(core.entities[burner].placed.definition_id)
+            .unwrap()
+            .power_output
+            .unwrap();
+        let produced = (plant_energy_before - plant_energy_after) * output
+            + core.entities[burner].burn_progress;
+        assert!(produced > 0, "the plant produced something");
+        assert_eq!(
+            produced,
+            received_after - received_before,
+            "the plant produced {produced} and the machines received {}",
+            received_after - received_before
+        );
+    }
+
+    /// Every unit of electricity the grid has handed to a machine, wherever it now sits.
+    ///
+    /// Three places and only three: still banked, already turned into progress, or turned into a
+    /// finished thing. A machine's `progress` resets when it produces, so the last of those has to
+    /// be counted from the cargo or conservation would read as a leak every time something came
+    /// out of a machine.
+    fn grid_energy_received(core: &Core) -> u32 {
+        core.entities
+            .iter()
+            .map(|entity| {
+                let Some(definition) = core.building_definition(entity.placed.definition_id) else {
+                    return entity.power_charge;
+                };
+                let draw = definition.power_draw.unwrap_or(0);
+                let finished = match (entity.cargo, definition.cadence) {
+                    (Some(_), Some(cycle)) => cycle * draw,
+                    _ => 0,
+                };
+                entity.power_charge + entity.progress * draw + finished
+            })
+            .sum()
+    }
+
+    /// The split that makes allocation exact without storing a remainder on every entity.
+    #[test]
+    fn apportioning_hands_out_every_unit_and_no_more() {
+        for total in [0u64, 1, 7, 20, 1000] {
+            for weights in [
+                vec![1u64, 1, 1],
+                vec![64, 20, 20],
+                vec![1, 999],
+                vec![5],
+                vec![],
+            ] {
+                let parts = apportion(total, &weights);
+                assert_eq!(parts.len(), weights.len());
+                let handed: u64 = parts.iter().sum();
+                let cap: u64 = weights.iter().sum();
+                assert_eq!(handed, total.min(if cap == 0 { 0 } else { total }));
+                // Nobody is given more than the whole, and the split follows the weights.
+                for (part, weight) in parts.iter().zip(&weights) {
+                    if *weight == 0 {
+                        assert_eq!(*part, 0);
+                    }
+                }
+            }
+        }
+    }
+
+    fn building_by_key(key: &str) -> BuildingDefinition {
+        let (definitions, _, _) = catalogs();
+        definitions
+            .buildings
+            .iter()
+            .find(|building| building.key == key)
+            .unwrap_or_else(|| panic!("building {key} exists"))
+            .clone()
+    }
+    fn extractor_index(core: &Core) -> usize {
+        core.entities
+            .iter()
+            .position(|entity| entity.kind == BuildingKind::Extractor)
+            .unwrap()
     }
 
     fn game(key: &str) -> Core {
@@ -7320,7 +8009,8 @@ mod tests {
             reserved_inputs: BTreeMap::new(),
             progress: 0,
             fuel_charge: 0,
-            power_remainder: 0,
+            power_charge: 0,
+            burn_progress: 0,
         });
         id
     }
@@ -9155,6 +9845,13 @@ mod tests {
     fn hxf1_round_trip_and_resume_match_uninterrupted_run() {
         let (definitions, technologies, scenarios) = catalogs();
         let mut uninterrupted = game("factory-demo");
+        // Metered on both sides, which is the shipped rule and the only way this test is honest.
+        // `power_unmetered` is a harness hook that no save carries, so a resumed core always comes
+        // back metered; leaving the running one unmetered compared two different games. It passed
+        // until v0.19 only because a fully supplied grid used to make the two paths agree by
+        // arithmetic — with banked energy they no longer do, and the resume is exactly what should
+        // catch that.
+        uninterrupted.power_unmetered = false;
         uninterrupted.tick_many(120);
         let save = uninterrupted.save_string().unwrap();
         assert!(save.starts_with(SAVE_PREFIX));
@@ -9501,6 +10198,11 @@ mod tests {
                         fuel_required: 0,
                         power_satisfied: 0,
                         power_demand: 0,
+                        // A belt sets no high flag, so its flag field is still the one byte it was
+                        // before the field became a uvarint. That is the whole point of the change
+                        // and this entity is what pins it.
+                        power_charge: 0,
+                        power_capacity: 0,
                         status: EntityStatus::Idle,
                         next_id: None,
                         footprint: vec![Coordinate { q: 2, r: 0 }],
@@ -9534,6 +10236,10 @@ mod tests {
                         fuel_required: 100,
                         power_satisfied: 8,
                         power_demand: 12,
+                        // Both high bits set, so this entity's flag field is two bytes and the
+                        // fixture carries a decoder that has to widen past the old fixed byte.
+                        power_charge: 96,
+                        power_capacity: 360,
                         status: EntityStatus::Composing,
                         next_id: Some(9),
                         // A multi-cell footprint, coded against the entity's own hex.
@@ -10642,7 +11348,7 @@ mod tests {
         // invalidate comparisons against previously recorded tier numbers. A generator-version
         // bump moves this number while the workload does not — which is why the delivered total
         // and the entity count below are the assertions that say the run is the same run.
-        assert_eq!(first.checksum(), 1_679_299_541);
+        assert_eq!(first.checksum(), 914_129_621);
         assert_eq!(first.entities.len(), spec.entities() as usize);
         // Every line must be running end to end, or the tiers would measure an idle blueprint.
         assert_eq!(first.delivered, u64::from(spec.lines) * 14);

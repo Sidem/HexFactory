@@ -43,7 +43,12 @@ pub(crate) const WIRE_MAGIC: [u8; 4] = *b"HXFD";
 /// Bumped whenever the layout below changes in a way an old decoder would misread. Version 3 is
 /// the Founding Contract: the objective group became the contract group, and it carries names and
 /// a bill rather than one item's three numbers.
-pub(crate) const WIRE_VERSION: u8 = 3;
+///
+/// Version 4 is the Power Grid. The per-entity flag field is a uvarint rather than a fixed byte,
+/// and carries two more numbers behind it — what a machine has banked and what it banks to. A
+/// version-3 decoder would read the first byte of a two-byte flag and mis-frame every field after
+/// it, which is exactly the misreading this number exists to prevent.
+pub(crate) const WIRE_VERSION: u8 = 4;
 
 /// Which optional groups the buffer carries, in the order they are written.
 mod group {
@@ -65,17 +70,27 @@ mod group {
     pub(super) const EVENTS: u32 = 1 << 15;
 }
 
-/// Per-entity presence bits, packed into one byte so an absent option costs a bit rather than a
-/// field name and a `null`.
+/// Per-entity presence bits, so an absent option costs a bit rather than a field name and a `null`.
+///
+/// Written as a uvarint rather than the fixed byte it was through wire version 3. The Power Grid
+/// needs ten bits and a byte holds eight, and widening to a fixed `u16` would have charged every
+/// belt and container in the world a second byte to say nothing. A uvarint charges it only to
+/// entities that actually set a high bit — which is machines on a network, the ones already
+/// carrying four numbers.
+///
+/// The low seven bits are therefore the *common* flags on purpose: anything an ordinary belt sets
+/// has to stay under `1 << 7` or every belt pays for the ordering.
 mod entity_flag {
-    pub(super) const RECIPE_ID: u8 = 1 << 0;
-    pub(super) const SCENARIO_OWNED: u8 = 1 << 1;
-    pub(super) const CARGO: u8 = 1 << 2;
-    pub(super) const FUEL_CHARGE: u8 = 1 << 3;
-    pub(super) const FUEL_REQUIRED: u8 = 1 << 4;
-    pub(super) const NEXT_ID: u8 = 1 << 5;
-    pub(super) const POWER_SATISFIED: u8 = 1 << 6;
-    pub(super) const POWER_DEMAND: u8 = 1 << 7;
+    pub(super) const RECIPE_ID: u16 = 1 << 0;
+    pub(super) const SCENARIO_OWNED: u16 = 1 << 1;
+    pub(super) const CARGO: u16 = 1 << 2;
+    pub(super) const FUEL_CHARGE: u16 = 1 << 3;
+    pub(super) const FUEL_REQUIRED: u16 = 1 << 4;
+    pub(super) const NEXT_ID: u16 = 1 << 5;
+    pub(super) const POWER_SATISFIED: u16 = 1 << 6;
+    pub(super) const POWER_DEMAND: u16 = 1 << 7;
+    pub(super) const POWER_CHARGE: u16 = 1 << 8;
+    pub(super) const POWER_CAPACITY: u16 = 1 << 9;
 }
 
 /// Set on a group whose list replaces the host's rather than patching it.
@@ -400,7 +415,7 @@ fn write_entities(writer: &mut Writer, entities: &[EntitySnapshot]) {
         writer.u8(kind_code(entity.kind));
         writer.u8(entity.orientation);
 
-        let mut flags = 0u8;
+        let mut flags = 0u16;
         if entity.recipe_id.is_some() {
             flags |= entity_flag::RECIPE_ID;
         }
@@ -425,7 +440,13 @@ fn write_entities(writer: &mut Writer, entities: &[EntitySnapshot]) {
         if entity.power_demand != 0 {
             flags |= entity_flag::POWER_DEMAND;
         }
-        writer.u8(flags);
+        if entity.power_charge != 0 {
+            flags |= entity_flag::POWER_CHARGE;
+        }
+        if entity.power_capacity != 0 {
+            flags |= entity_flag::POWER_CAPACITY;
+        }
+        writer.uvarint(u64::from(flags));
 
         if let Some(recipe_id) = entity.recipe_id {
             writer.uvarint(u64::from(recipe_id));
@@ -452,6 +473,12 @@ fn write_entities(writer: &mut Writer, entities: &[EntitySnapshot]) {
         }
         if entity.power_demand != 0 {
             writer.uvarint(u64::from(entity.power_demand));
+        }
+        if entity.power_charge != 0 {
+            writer.uvarint(u64::from(entity.power_charge));
+        }
+        if entity.power_capacity != 0 {
+            writer.uvarint(u64::from(entity.power_capacity));
         }
         // Against the entity's own hex, so the single-cell footprint every belt and machine has
         // costs two bytes rather than two full coordinates.
@@ -791,7 +818,7 @@ pub(crate) mod decode {
             let definition_id = reader.uvarint() as DefinitionId;
             let kind = kind_of(reader.u8());
             let orientation = reader.u8();
-            let flags = reader.u8();
+            let flags = reader.uvarint() as u16;
             let recipe_id =
                 (flags & entity_flag::RECIPE_ID != 0).then(|| reader.uvarint() as RecipeId);
             let cargo = (flags & entity_flag::CARGO != 0).then(|| Cargo {
@@ -823,6 +850,16 @@ pub(crate) mod decode {
             } else {
                 0
             };
+            let power_charge = if flags & entity_flag::POWER_CHARGE != 0 {
+                reader.uvarint() as u32
+            } else {
+                0
+            };
+            let power_capacity = if flags & entity_flag::POWER_CAPACITY != 0 {
+                reader.uvarint() as u32
+            } else {
+                0
+            };
             let cells = reader.count();
             let footprint = (0..cells)
                 .map(|_| Coordinate {
@@ -847,6 +884,8 @@ pub(crate) mod decode {
                 fuel_required,
                 power_satisfied,
                 power_demand,
+                power_charge,
+                power_capacity,
                 status,
                 next_id,
                 footprint,

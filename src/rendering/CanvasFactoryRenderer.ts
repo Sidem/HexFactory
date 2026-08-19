@@ -45,6 +45,13 @@ import {
 
 export const BASE_HEX_SIZE = 22;
 
+/** Hex steps between two cells, the same measure native's `power_distance` uses. */
+function axialDistance(from: AxialCoordinate, to: AxialCoordinate): number {
+  const dq = to.q - from.q;
+  const dr = to.r - from.r;
+  return (Math.abs(dq) + Math.abs(dr) + Math.abs(dq + dr)) / 2;
+}
+
 /** One colour per building kind, shared with the minimap so a machine reads the same on both. */
 export const BUILDING_COLORS: Record<EntitySnapshot["kind"], string> = {
   extractor: "#b75e45",
@@ -192,6 +199,7 @@ export class CanvasFactoryRenderer {
   private buildMode = false;
   private gridToggled = false;
   private buildFootprint: AxialCoordinate[] = [{ q: 0, r: 0 }];
+  private buildSupplyRadius: number | null = null;
   private dragPath: LinePreviewCell[] = [];
   private veil: HTMLCanvasElement | null = null;
   private terrainLayer: HTMLCanvasElement | null = null;
@@ -265,6 +273,19 @@ export class CanvasFactoryRenderer {
     this.buildFootprint = footprint.map((cell) =>
       rotateAxial(cell, orientation, { q: 0, r: 0 }),
     );
+    this.draw();
+  }
+
+  /**
+   * How far the pole being placed would supply, or `null` for any other tool.
+   *
+   * Coverage was invisible until v0.19: a pole's reach was a number in a data file and nothing on
+   * screen, so the only way to find the edge of a network was to build a machine and watch it stay
+   * dark. Read straight off `supply_radius`, which every pole definition states, so the ring drawn
+   * is the ring the simulation will honour.
+   */
+  setBuildSupplyRadius(radius: number | null): void {
+    this.buildSupplyRadius = radius;
     this.draw();
   }
 
@@ -351,6 +372,7 @@ export class CanvasFactoryRenderer {
     this.drawEnvironment(width, height, size);
     if (this.buildMode || this.gridToggled) this.drawGrid(width, height, size);
     if (this.buildMode) this.drawBuildRange(width, height);
+    this.drawPowerCoverage(width, height, size);
     for (const building of this.snapshot.buildings)
       this.drawBuilding(building, width, height, size);
     this.drawFog(width, height, ratio);
@@ -389,6 +411,61 @@ export class CanvasFactoryRenderer {
         );
       }
     }
+  }
+
+  /**
+   * The discs poles light: the one under the cursor while a pole is the pending tool, and the one
+   * belonging to a pole the player has selected.
+   *
+   * The selected pole's ring is the more useful of the two, because it answers the question the
+   * player actually arrives with — "why is that machine dark" — by drawing the edge they are
+   * standing outside of. Both are drawn under the buildings so a covered machine still reads as a
+   * machine.
+   */
+  private drawPowerCoverage(width: number, height: number, size: number): void {
+    const rings: { center: AxialCoordinate; radius: number }[] = [];
+    if (this.buildSupplyRadius !== null && this.hover && !this.dragPath.length)
+      rings.push({ center: this.hover, radius: this.buildSupplyRadius });
+    const selected = this.selectedBuilding();
+    const selectedRadius = selected
+      ? this.buildingsById.get(selected.definition_id)?.supply_radius
+      : undefined;
+    if (selected && selectedRadius !== undefined)
+      rings.push({
+        center: { q: selected.q, r: selected.r },
+        radius: selectedRadius,
+      });
+    if (!rings.length) return;
+    const ctx = this.context;
+    for (const ring of rings) {
+      for (let dq = -ring.radius; dq <= ring.radius; dq += 1) {
+        for (let dr = -ring.radius; dr <= ring.radius; dr += 1) {
+          const cell = { q: ring.center.q + dq, r: ring.center.r + dr };
+          const distance = axialDistance(ring.center, cell);
+          if (distance > ring.radius) continue;
+          const point = this.camera.project(cell, width, height);
+          if (!visible(point, size, width, height)) continue;
+          // The rim is drawn brighter than the field, because where coverage *stops* is the whole
+          // reason to draw it at all.
+          drawHex(
+            ctx,
+            point,
+            size * 0.95,
+            "#8fd4ff10",
+            distance === ring.radius ? "#8fd4ff5c" : "transparent",
+            1.2,
+          );
+        }
+      }
+    }
+  }
+
+  private selectedBuilding(): EntitySnapshot | undefined {
+    if (!this.selection || !this.snapshot) return undefined;
+    const { q, r } = this.selection;
+    return this.snapshot.buildings.find((building) =>
+      building.footprint.some((cell) => cell.q === q && cell.r === r),
+    );
   }
 
   /**

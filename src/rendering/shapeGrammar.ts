@@ -290,14 +290,15 @@ export interface TierStep {
 export const TIER_LADDER: readonly TierStep[] = [
   {
     name: "reinforced",
-    reads: "plated, vented, and open wider than the machine it grew out of",
-    modifiers: ["platingBand", "addStack", "widenMouth"],
+    reads:
+      "plated, vented, open wider, and standing taller than the machine it grew out of",
+    modifiers: ["platingBand", "addStack", "widenMouth", "raiseMast"],
   },
   {
     name: "overbuilt",
     reads:
-      "segmented body, a second vent, and another blade on anything that turns",
-    modifiers: ["segmentVessel", "addRotorBlade", "addStack"],
+      "segmented body, a second vent, another blade on anything that turns, and a mast higher again",
+    modifiers: ["segmentVessel", "addRotorBlade", "addStack", "raiseMast"],
   },
 ];
 
