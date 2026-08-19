@@ -268,9 +268,11 @@ canvas {
 .inventory-panel,
 .research-panel,
 .quest-panel {
-  top: 62px;
+  top: 108px;
   left: 14px;
   z-index: 12;
+  /* Down to the dock and no further: 108 above, and the 82 the dock owns plus a gap below. */
+  max-height: calc(100% - 196px);
 }
 .quest-panel {
   width: 336px;
@@ -298,11 +300,11 @@ canvas {
 }
 /* The construction catalogue. Wide enough for a recipe to read as one line of materials. */
 .build-panel {
-  top: 62px;
+  top: 108px;
   left: 14px;
   z-index: 13;
   width: min(560px, calc(100vw - 28px));
-  max-height: calc(100vh - 190px);
+  max-height: calc(100vh - 260px);
   overflow-y: auto;
 }
 .build-panel.open {
@@ -1474,14 +1476,17 @@ canvas {
 }
 
 /*
- * The next step, in permanent chrome. It sits above where the left-hand panels open, so opening
- * one covers the world under it rather than the sentence itself, and it reads as a card the player
- * can press rather than as a toast that will go away.
+ * The next step, in permanent chrome. The top-left corner is a stack, read downward: the view
+ * buttons, then this card, then whatever panel is open. It used to share the corner with the
+ * buttons, which drew over the one sentence a new player needs, so it now starts below them and
+ * the panels start below its heading — opening one covers the world under the card rather than
+ * the sentence itself. It reads as a card the player can press rather than a toast that will go
+ * away.
  */
 .next-step {
   position: absolute;
   z-index: 6;
-  top: 14px;
+  top: 60px;
   left: 14px;
   display: grid;
   gap: 3px;

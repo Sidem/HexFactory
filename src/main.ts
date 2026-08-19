@@ -2130,6 +2130,8 @@ required<HTMLDivElement>("inspector-actions").addEventListener(
 
 window.addEventListener("keydown", (event) => {
   if (isTypingTarget(event.target)) return;
+  // Space presses a button the keyboard tabbed to, and centres the camera every other time.
+  if (event.code === "Space" && isKeyboardFocusedControl(event.target)) return;
   // Undo is the one binding that keeps its modifier, because every other application uses it.
   if ((event.ctrlKey || event.metaKey) && event.code === "KeyZ") {
     event.preventDefault();
@@ -2656,14 +2658,41 @@ function updateContinueState(message?: string): void {
     (hasSave ? "A compatible local save is available." : "No local save yet.");
 }
 
+/*
+ * Whether a key belongs to the focused control instead of to the world.
+ *
+ * Only a field that consumes what you type does. A button keeps focus after it is clicked, and
+ * counting that as typing left every binding dead until the canvas was clicked again: pressing a
+ * panel toggle meant you could no longer walk, and Space no longer recentred. The world owns the
+ * keys unless the player is actually filling something in.
+ */
 function isTypingTarget(target: EventTarget | null): boolean {
-  return (
+  if (
     target instanceof HTMLInputElement ||
     target instanceof HTMLSelectElement ||
-    target instanceof HTMLTextAreaElement ||
-    target instanceof HTMLButtonElement ||
-    target instanceof HTMLAnchorElement
-  );
+    target instanceof HTMLTextAreaElement
+  )
+    return true;
+  return target instanceof HTMLElement && target.isContentEditable;
+}
+
+/*
+ * The one exception, and the reason it is narrow. A control the keyboard itself reached keeps its
+ * own Space, so the panels stay operable without a mouse; `:focus-visible` is what tells that
+ * apart from a button the mouse merely left focused, which is the case the world takes back.
+ */
+function isKeyboardFocusedControl(target: EventTarget | null): boolean {
+  if (
+    !(
+      target instanceof HTMLButtonElement || target instanceof HTMLAnchorElement
+    )
+  )
+    return false;
+  try {
+    return target.matches(":focus-visible");
+  } catch {
+    return false;
+  }
 }
 
 function titleCase(value: string): string {
@@ -2692,6 +2721,15 @@ for (const toggle of document.querySelectorAll<HTMLButtonElement>(
     togglePanel(toggle.dataset.panelTarget ?? ""),
   );
 }
+
+/*
+ * A dropdown holds the keys while it is being used, because arrow keys and letters are how an
+ * option is chosen. It hands them straight back once a choice is made, so picking a speed or a
+ * recipe never leaves the player unable to walk.
+ */
+document.addEventListener("change", (event) => {
+  if (event.target instanceof HTMLSelectElement) event.target.blur();
+});
 
 for (const close of document.querySelectorAll<HTMLButtonElement>(
   ".panel-close",
