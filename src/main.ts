@@ -6,9 +6,12 @@ import {
 
 import {
   buildingAvailability,
+  costLines,
   technologyAvailability,
+  type CostLine,
 } from "./core/availability";
 import { cueForEvent, FeedbackAudio } from "./audio/feedback";
+import { halfTransfer } from "./core/commands";
 import { FactoryHost } from "./core/FactoryHost";
 import { nextAction } from "./core/guidance";
 import { BoundedInputQueue, MOVEMENT_KEYS, movementIntent } from "./core/input";
@@ -37,6 +40,7 @@ import type {
   BuildingDefinition,
   EntitySnapshot,
   FactorySnapshot,
+  ItemDefinition,
   NativeInputCommand,
   PlacementPreview,
   RecipeDefinition,
@@ -50,6 +54,11 @@ import {
   isSurveyed,
 } from "./rendering/CanvasFactoryRenderer";
 import { itemIconSvg } from "./rendering/icons";
+import {
+  createItemChip,
+  fillItemChip,
+  type ItemChipView,
+} from "./rendering/itemChip";
 import { findLandingHub, homeBearing } from "./rendering/landmarks";
 import { MinimapRenderer } from "./rendering/MinimapRenderer";
 import "./styles.css";
@@ -463,6 +472,36 @@ function syncChildren(
   return ordered;
 }
 
+/** The item definition behind an id, or `undefined` when the catalogue has no such row. */
+function itemById(itemId: number | undefined): ItemDefinition | undefined {
+  return itemId === undefined
+    ? undefined
+    : host.definitions.items.find(({ id }) => id === itemId);
+}
+
+/**
+ * The one chip inside a holder, created on first use and patched from then on.
+ *
+ * Static markup names a holder rather than spelling a chip out, so `createItemChip` stays the only
+ * place the chip's shape is written down — which is the whole point of the component. A chip is
+ * never rebuilt, so a holder inside a list carrying a control is safe by construction.
+ */
+const holdersChip = new WeakMap<HTMLElement, HTMLElement>();
+function paintChip(
+  holder: HTMLElement,
+  itemId: number | undefined,
+  view: ItemChipView = {},
+): HTMLElement {
+  let chip = holdersChip.get(holder);
+  if (!chip) {
+    chip = createItemChip();
+    holder.append(chip);
+    holdersChip.set(holder, chip);
+  }
+  fillItemChip(chip, itemById(itemId), itemId, view);
+  return chip;
+}
+
 /**
  * The cargo pack as a slot grid. Native resolves which stacks the player is carrying — the host
  * lays them out and pads the remainder with empty slots, so the stacking rule is not written twice.
@@ -478,20 +517,20 @@ function renderInventory(): void {
       const cell = document.createElement("div");
       cell.className = "inventory-slot";
       cell.setAttribute("role", "listitem");
-      cell.innerHTML = `<span class="swatch"></span><small></small><strong></strong>`;
       return cell;
     },
   );
   cells.forEach((cell, index) => {
     const stack = stacks[index];
-    const item = stack
-      ? host.definitions.items.find(({ id }) => id === stack.item_id)
-      : undefined;
     cell.classList.toggle("filled", Boolean(stack));
-    cell.style.setProperty("--item-color", item?.color ?? "transparent");
-    const icon = part(cell, "small");
-    icon.innerHTML = item && stack ? itemIconSvg(item.icon, item.color) : "";
-    part(cell, "strong").textContent = stack ? String(stack.quantity) : "";
+    // A slot is dense: the glyph is the identity and the name would not fit, so it rides the
+    // chip's own label rather than a second aria string written here.
+    paintChip(cell, stack?.item_id, {
+      count: stack?.quantity,
+      named: false,
+      short: true,
+    });
+    const item = itemById(stack?.item_id);
     cell.setAttribute(
       "aria-label",
       item && stack
@@ -789,15 +828,17 @@ function fillBuildCard(
     part<HTMLElement>(card, ".build-cost"),
     definition.construction_cost,
     "Costs",
+    availability.cost,
   );
   renderCardRecipes(part<HTMLElement>(card, ".build-recipes"), definition);
 }
 
-/** A labelled run of item glyphs with counts — the shape every cost and every recipe side uses. */
+/** A labelled run of item chips — the shape every cost and every recipe side uses. */
 function renderIngredientRow(
   container: HTMLElement,
   ingredients: { item_id: number; quantity: number }[],
   label: string,
+  supply?: CostLine[],
 ): void {
   container.hidden = ingredients.length === 0;
   if (!container.childElementCount) {
@@ -811,12 +852,23 @@ function renderIngredientRow(
   fillIngredients(
     part<HTMLElement>(container, ".ingredient-list"),
     ingredients,
+    supply,
   );
 }
 
+/**
+ * One run of ingredients as chips.
+ *
+ * Passing `supply` states what the player holds against each line, which is the whole of defect
+ * one: a card that says "no" without saying which line is short sends the player to another panel
+ * to find out. Because the shortfall is a state of the chip, this is one argument at every site
+ * that names a quantity the player might be expected to supply rather than four bespoke
+ * treatments.
+ */
 function fillIngredients(
   list: HTMLElement,
   ingredients: { item_id: number; quantity: number }[],
+  supply?: CostLine[],
 ): void {
   const nodes = syncChildren(
     list,
@@ -824,18 +876,19 @@ function fillIngredients(
     () => {
       const entry = document.createElement("span");
       entry.className = "ingredient";
-      entry.innerHTML =
-        '<span class="inspect-item-glyph"></span><b></b><small></small>';
       return entry;
     },
   );
   ingredients.forEach(({ item_id, quantity }, index) => {
     const node = nodes[index];
     if (!node) return;
-    const item = host.definitions.items.find(({ id }) => id === item_id);
-    setItemGlyph(part(node, ".inspect-item-glyph"), item?.icon, item?.color);
-    part(node, "b").textContent = `×${quantity}`;
-    part(node, "small").textContent = item?.name ?? `Item ${item_id}`;
+    const line = supply?.[index];
+    paintChip(node, item_id, {
+      count: line ? undefined : quantity,
+      progress: line ? { have: line.held, need: line.required } : undefined,
+      shortfall: line?.shortfall,
+      short: true,
+    });
   });
 }
 
@@ -873,7 +926,14 @@ function renderCardRecipes(
     row.dataset.definitionId = String(definition.id);
     row.dataset.recipeId = String(recipe.id);
     row.classList.toggle("chosen", recipe.id === chosen);
-    fillIngredients(part<HTMLElement>(row, ".recipe-in"), recipe.inputs);
+    // Inputs are a quantity the player may be expected to supply — early machines are hand-fed
+    // through Put long before a belt reaches them — so they are priced against the pack. The
+    // output is a result and is only ever an amount.
+    fillIngredients(
+      part<HTMLElement>(row, ".recipe-in"),
+      recipe.inputs,
+      costLines(recipe.inputs, snapshot),
+    );
     fillIngredients(part<HTMLElement>(row, ".recipe-out"), [recipe.output]);
     const meta = [`${recipe.duration} ticks`];
     if (recipe.fuel) meta.push(`${recipe.fuel} fuel`);
@@ -1066,105 +1126,132 @@ function setItemGlyph(
   element.innerHTML = icon && color ? itemIconSvg(icon, color) : "";
 }
 
+/** Which way stock moves across a transfer row, and everything that differs because of it. */
+const TRANSFER: Record<
+  "take" | "put",
+  { label: string; command: "withdraw" | "store"; describe: string }
+> = {
+  take: { label: "Take", command: "withdraw", describe: "out" },
+  put: { label: "Put", command: "store", describe: "in" },
+};
+
+type TransferDirection = keyof typeof TRANSFER;
+
 /**
- * The take-from-container controls for the inspected hex, patched in place for the same reason the
- * research list is. `quantity` is the whole stored amount: native clamps it to what the container
- * holds and to what the player can still carry, and reports how much actually moved. A composer
- * still shows its reserved inputs, but only a container grows a Take — reserved inputs belong to
- * the job that reserved them.
+ * Both halves of hand transfer, as one function.
+ *
+ * Take and Put were near-identical: the same row markup, the same glyph call, the same button
+ * class, differing only in the data source, the button label, and the command. Two copies of one
+ * function is how the two halves drift, and the fractional deposit is the proof — it belongs to
+ * both and would otherwise be written twice.
+ *
+ * The full amount stays the default, because it is what the gesture meant before and what it means
+ * now; half is a second button beside it. Native already carries a quantity on `store` and
+ * `withdraw`, already clamps it to what the container holds, to what the player can still carry,
+ * and to what there is room for, and already reports how much actually moved — the host has only
+ * ever sent the maximum. So this adds a number to a command that has always taken one, and no rule
+ * about capacity moves to the host.
+ *
+ * Patched in place like every list that carries a control: a `replaceChildren` here would drop the
+ * press between pointerdown and pointerup.
  */
-function renderInspectorActions(building: EntitySnapshot | undefined): void {
-  const list = required<HTMLDivElement>("inspector-actions");
-  const stock = required<HTMLElement>("inspect-stock");
-  const stored = building?.inventory ?? [];
-  const canTake = building?.kind === "container";
-  stock.hidden = stored.length === 0;
+function renderTransferRows(
+  list: HTMLElement,
+  entries: { item_id: number; quantity: number }[],
+  direction: TransferDirection,
+  building: EntitySnapshot | undefined,
+  actionable: boolean,
+): void {
+  const { label, describe } = TRANSFER[direction];
   const rows = syncChildren(
     list,
-    stored.map(({ item_id }) => String(item_id)),
+    entries.map(({ item_id }) => String(item_id)),
     () => {
       const row = document.createElement("div");
       row.className = "inspect-stock-row";
-      row.innerHTML = `<div class="inspect-stock-item"><span class="inspect-item-glyph"></span><strong></strong><span></span></div>`;
-      const button = document.createElement("button");
-      button.type = "button";
-      button.className = "withdraw-button";
-      row.append(button);
+      const holder = document.createElement("div");
+      holder.className = "inspect-stock-item chip-host";
+      const controls = document.createElement("div");
+      controls.className = "transfer-controls";
+      const all = document.createElement("button");
+      all.type = "button";
+      all.className = "withdraw-button";
+      const half = document.createElement("button");
+      half.type = "button";
+      half.className = "withdraw-button transfer-half";
+      half.textContent = "½";
+      controls.append(all, half);
+      row.append(holder, controls);
       return row;
     },
   );
-  stored.forEach((entry, index) => {
+  entries.forEach(({ item_id, quantity }, index) => {
     const row = rows[index];
     if (!row) return;
-    const item = host.definitions.items.find(({ id }) => id === entry.item_id);
-    const name = item?.name ?? `Item ${entry.item_id}`;
-    setItemGlyph(part(row, ".inspect-item-glyph"), item?.icon, item?.color);
-    part(row, "strong").textContent = name;
-    part(row, ".inspect-stock-item > span:last-child").textContent = String(
-      entry.quantity,
-    );
-    const button = part<HTMLButtonElement>(row, "button");
-    button.hidden = !canTake;
-    button.dataset.itemId = String(entry.item_id);
-    button.dataset.quantity = String(entry.quantity);
-    button.dataset.q = String(building?.q ?? 0);
-    button.dataset.r = String(building?.r ?? 0);
-    button.textContent = "Take";
-    button.setAttribute("aria-label", `Take ${entry.quantity} ${name}`);
+    const chip = paintChip(part<HTMLElement>(row, ".chip-host"), item_id, {
+      count: quantity,
+    });
+    const name = itemById(item_id)?.name ?? `Item ${item_id}`;
+    const controls = part<HTMLElement>(row, ".transfer-controls");
+    controls.hidden = !actionable;
+    for (const button of controls.querySelectorAll<HTMLButtonElement>(
+      "button",
+    )) {
+      const half = button.classList.contains("transfer-half");
+      const amount = half ? halfTransfer(quantity) : quantity;
+      button.dataset.direction = direction;
+      button.dataset.itemId = String(item_id);
+      button.dataset.quantity = String(amount);
+      button.dataset.q = String(building?.q ?? 0);
+      button.dataset.r = String(building?.r ?? 0);
+      button.hidden = half && quantity < 2;
+      if (!half) button.textContent = label;
+      button.setAttribute(
+        "aria-label",
+        `${label} ${amount} ${name} ${describe}`,
+      );
+    }
+    chip.title = `${name}: ${quantity}`;
   });
 }
 
 /**
- * The put-into-container controls: one row per stack the player is carrying, so moving stock into
- * a box is the same gesture as taking it out and sits directly beneath it.
- *
- * `quantity` is the whole carried amount, exactly as the Take rows send the whole stored amount.
- * Native clamps it to what the container has room for and reports how much actually moved, so the
- * host never has to know the capacity rule. Patched in place like every list that carries a
- * control — a `replaceChildren` here would drop the press between pointerdown and pointerup.
+ * What the inspected hex is holding. A composer still shows its reserved inputs, but only a
+ * container grows a Take — reserved inputs belong to the job that reserved them.
+ */
+function renderInspectorActions(building: EntitySnapshot | undefined): void {
+  const stored = building?.inventory ?? [];
+  required<HTMLElement>("inspect-stock").hidden = stored.length === 0;
+  renderTransferRows(
+    required<HTMLDivElement>("inspector-actions"),
+    stored,
+    "take",
+    building,
+    building?.kind === "container",
+  );
+}
+
+/**
+ * What the player can put in, so moving stock into a box is the same gesture as taking it out and
+ * sits directly beneath it.
  */
 function renderInspectorLoad(building: EntitySnapshot | undefined): void {
-  const section = required<HTMLElement>("inspect-load");
-  const list = required<HTMLDivElement>("inspector-load");
   const carried =
     building?.kind === "container" ? snapshot.player.carry_stacks : [];
   // One row per item, not one per stack: a Put moves everything of that item that fits.
   const totals = new Map<number, number>();
   for (const { item_id, quantity } of carried)
     totals.set(item_id, (totals.get(item_id) ?? 0) + quantity);
-  section.hidden = totals.size === 0;
-  const entries = [...totals].sort(([a], [b]) => a - b);
-  const rows = syncChildren(
-    list,
-    entries.map(([item_id]) => String(item_id)),
-    () => {
-      const row = document.createElement("div");
-      row.className = "inspect-stock-row";
-      row.innerHTML = `<div class="inspect-stock-item"><span class="inspect-item-glyph"></span><strong></strong><span></span></div>`;
-      const button = document.createElement("button");
-      button.type = "button";
-      button.className = "withdraw-button";
-      row.append(button);
-      return row;
-    },
+  required<HTMLElement>("inspect-load").hidden = totals.size === 0;
+  renderTransferRows(
+    required<HTMLDivElement>("inspector-load"),
+    [...totals]
+      .sort(([a], [b]) => a - b)
+      .map(([item_id, quantity]) => ({ item_id, quantity })),
+    "put",
+    building,
+    true,
   );
-  entries.forEach(([itemId, quantity], index) => {
-    const row = rows[index];
-    if (!row) return;
-    const item = host.definitions.items.find(({ id }) => id === itemId);
-    const name = item?.name ?? `Item ${itemId}`;
-    setItemGlyph(part(row, ".inspect-item-glyph"), item?.icon, item?.color);
-    part(row, "strong").textContent = name;
-    part(row, ".inspect-stock-item > span:last-child").textContent =
-      String(quantity);
-    const button = part<HTMLButtonElement>(row, "button");
-    button.dataset.itemId = String(itemId);
-    button.dataset.quantity = String(quantity);
-    button.dataset.q = String(building?.q ?? 0);
-    button.dataset.r = String(building?.r ?? 0);
-    button.textContent = "Put";
-    button.setAttribute("aria-label", `Put ${quantity} ${name} in`);
-  });
 }
 
 function renderInspector(): void {
@@ -1213,21 +1300,13 @@ function renderInspector(): void {
     field.hidden = false;
     field.classList.toggle("inspect-field-solo", !building);
     field.style.setProperty("--item-color", fieldItem?.color ?? "transparent");
-    setItemGlyph(
-      required<HTMLElement>("inspect-field-glyph"),
-      fieldItem?.icon,
-      fieldItem?.color,
-    );
-    required<HTMLElement>("inspect-field-name").textContent =
-      fieldItem?.name ?? "Resource";
-    setMeter(
-      required<HTMLElement>("inspect-field-meter"),
-      required<HTMLElement>("inspect-field-fill"),
-      required<HTMLElement>("inspect-field-amount"),
-      resource.quantity,
-      resource.initial_quantity,
-      true,
-    );
+    paintChip(required<HTMLElement>("inspect-field-chip"), resource.item_id, {
+      progress: {
+        have: resource.quantity,
+        need: resource.initial_quantity,
+      },
+      meter: true,
+    });
   } else {
     field.hidden = true;
   }
@@ -1367,22 +1446,13 @@ function renderInspector(): void {
     required<HTMLElement>("inspect-protected").hidden =
       !building.scenario_owned;
     const cargo = required<HTMLElement>("inspect-cargo");
-    const cargoItem = building.cargo
-      ? host.definitions.items.find(({ id }) => id === building.cargo?.item_id)
-      : undefined;
     cargo.hidden = !building.cargo;
-    if (building.cargo) {
-      setItemGlyph(
-        required<HTMLElement>("inspect-cargo-glyph"),
-        cargoItem?.icon,
-        cargoItem?.color,
+    if (building.cargo)
+      paintChip(
+        required<HTMLElement>("inspect-cargo-chip"),
+        building.cargo.item_id,
+        { count: building.cargo.quantity },
       );
-      required<HTMLElement>("inspect-cargo-name").textContent =
-        cargoItem?.name ?? `Item ${building.cargo.item_id}`;
-      required<HTMLElement>("inspect-cargo-count").textContent = String(
-        building.cargo.quantity,
-      );
-    }
   }
 
   renderInspectorActions(building);
@@ -1533,14 +1603,10 @@ function renderRecipePicker(): void {
 function renderContract(): void {
   const contract = snapshot.contract;
   const demo = snapshot.scenario === "factory-demo";
-  const lines = contract.requirements.map((need) => {
-    const item = host.definitions.items.find(({ id }) => id === need.item_id);
-    return {
-      need,
-      name: item?.name ?? `Item ${need.item_id}`,
-      color: item?.color ?? "#8fd4ff",
-    };
-  });
+  const lines = contract.requirements.map((need) => ({
+    need,
+    name: itemById(need.item_id)?.name ?? `Item ${need.item_id}`,
+  }));
 
   const progress = contract.complete
     ? 1
@@ -1592,20 +1658,20 @@ function renderContract(): void {
     lines.map(({ need }) => String(need.item_id)),
     () => {
       const row = document.createElement("li");
-      row.className = "contract-line";
-      row.innerHTML = `<span class="swatch"></span><strong></strong><span class="contract-count"></span><i class="contract-bar"><b></b></i>`;
+      row.className = "contract-line chip-host";
       return row;
     },
   );
-  lines.forEach(({ need, name, color }, index) => {
+  lines.forEach(({ need }, index) => {
     const row = rows[index];
     if (!row) return;
-    part<HTMLElement>(row, ".swatch").style.background = color;
-    part(row, "strong").textContent = name;
-    part(row, ".contract-count").textContent =
-      `${need.delivered} / ${need.required}`;
-    part<HTMLElement>(row, ".contract-bar b").style.width =
-      `${Math.min(100, (need.delivered / Math.max(1, need.required)) * 100)}%`;
+    // A bill is a fetch list, and a bare colour swatch is not an identity in a catalogue with
+    // three greys in it. It gets the same chip everything else does, glyph and all.
+    paintChip(row, need.item_id, {
+      progress: { have: need.delivered, need: need.required },
+      meter: true,
+      shortfall: Math.max(0, need.required - need.delivered),
+    });
   });
 }
 
@@ -1629,25 +1695,22 @@ function renderRequests(): void {
     () => {
       const row = document.createElement("li");
       row.className = "request-line";
-      row.innerHTML = `<span class="swatch"></span><strong></strong><span class="request-price"></span><button type="button" class="request-pass" data-slot>Pass</button><small class="request-brief"></small><span class="contract-count"></span><i class="contract-bar"><b></b></i>`;
+      row.innerHTML = `<span class="request-item chip-host"></span><span class="request-price"></span><button type="button" class="request-pass" data-slot>Pass</button><small class="request-brief"></small>`;
       return row;
     },
   );
   snapshot.requests.forEach((request, index) => {
     const row = rows[index];
     if (!row) return;
-    const item = host.definitions.items.find(
-      ({ id }) => id === request.item_id,
-    );
-    part<HTMLElement>(row, ".swatch").style.background =
-      item?.color ?? "#8fd4ff";
-    part(row, "strong").textContent = item?.name ?? `Item ${request.item_id}`;
+    // Same chip as the bill and the pack: a board that asks for a specific grey has to draw the
+    // glyph that tells three greys apart.
+    paintChip(part<HTMLElement>(row, ".request-item"), request.item_id, {
+      progress: { have: request.delivered, need: request.required },
+      meter: true,
+      shortfall: Math.max(0, request.required - request.delivered),
+    });
     part(row, ".request-price").textContent = `+${request.insight} ◆`;
     part(row, ".request-brief").textContent = request.brief;
-    part(row, ".contract-count").textContent =
-      `${request.delivered} / ${request.required}`;
-    part<HTMLElement>(row, ".contract-bar b").style.width =
-      `${Math.min(100, (request.delivered / Math.max(1, request.required)) * 100)}%`;
     const pass = part<HTMLButtonElement>(row, ".request-pass");
     pass.dataset.slot = String(index);
     pass.title = `Pass on ${request.name}. It goes behind everything you have not been asked for yet, and anything already delivered against it is lost.`;
@@ -2213,38 +2276,23 @@ required<HTMLButtonElement>("inspect-upgrade").addEventListener(
     });
   },
 );
-required<HTMLDivElement>("inspector-load").addEventListener(
-  "click",
-  (event) => {
+// One listener for both lists, because the row that raised the press already says which way the
+// stock is moving. The button carries the amount, so the full and half controls are the same path.
+for (const id of ["inspector-actions", "inspector-load"])
+  required<HTMLDivElement>(id).addEventListener("click", (event) => {
     const button = (event.target as Element).closest<HTMLButtonElement>(
       "button[data-item-id]",
     );
-    if (!button) return;
+    const direction = button?.dataset.direction;
+    if (!button || (direction !== "take" && direction !== "put")) return;
     enqueue({
-      type: "store",
+      type: TRANSFER[direction].command,
       q: Number(button.dataset.q),
       r: Number(button.dataset.r),
       item_id: Number(button.dataset.itemId),
       quantity: Number(button.dataset.quantity),
     });
-  },
-);
-required<HTMLDivElement>("inspector-actions").addEventListener(
-  "click",
-  (event) => {
-    const button = (event.target as Element).closest<HTMLButtonElement>(
-      "button[data-item-id]",
-    );
-    if (!button) return;
-    enqueue({
-      type: "withdraw",
-      q: Number(button.dataset.q),
-      r: Number(button.dataset.r),
-      item_id: Number(button.dataset.itemId),
-      quantity: Number(button.dataset.quantity),
-    });
-  },
-);
+  });
 
 window.addEventListener("keydown", (event) => {
   if (isTypingTarget(event.target)) return;
@@ -2708,13 +2756,67 @@ function sendAim(): void {
     aimDegrees = degrees;
 }
 
-/** Open one panel, closing whichever other one was open, or close it if it already was. */
+/**
+ * Open or close one panel, independently of every other one.
+ *
+ * Opening any panel used to close all the others, and that was not a policy that could simply be
+ * deleted: the pack, research, catalogue, and objective panels all sat at one origin, so removing
+ * the exclusivity would have stacked four panels on top of each other. The rails are what make
+ * this a layout question rather than a flag — see `.panel-rail` in `src/styles.css`.
+ *
+ * Below the rail breakpoint there is only room for one at a time, so the old behaviour is what the
+ * narrow layout keeps.
+ */
+const ONE_PANEL_AT_A_TIME = window.matchMedia("(max-width: 720px)");
+
 function togglePanel(id: string): void {
   const target = document.getElementById(id);
   if (!target) return;
   const opening = !target.classList.contains("open");
-  closePanels(target);
+  if (opening && ONE_PANEL_AT_A_TIME.matches) closePanels(target);
   target.classList.toggle("open", opening);
+  syncPanelToggles();
+  savePanelState();
+}
+
+/**
+ * Which panels are open, in `localStorage`, on exactly the terms the hotbar arrangement already
+ * sets: never saved with the game, never hashed, never sent. It is a preference about a screen,
+ * not a fact about a factory.
+ */
+const PANEL_KEY = "hexfactory:panels:v1";
+
+function openPanelIds(): string[] {
+  return [...document.querySelectorAll<HTMLElement>(".glass-panel.open")].map(
+    ({ id }) => id,
+  );
+}
+
+function savePanelState(): void {
+  try {
+    localStorage.setItem(PANEL_KEY, JSON.stringify(openPanelIds()));
+  } catch {
+    // A browser with storage refused is a browser that opens panels fresh, not a broken one.
+  }
+}
+
+function loadPanelState(): void {
+  let stored: unknown;
+  try {
+    stored = JSON.parse(localStorage.getItem(PANEL_KEY) ?? "[]");
+  } catch {
+    return;
+  }
+  if (!Array.isArray(stored)) return;
+  // A stored id is validated against the live document, exactly as a stored hotbar slot is
+  // validated against the live catalogue: a panel that no longer exists is dropped.
+  const ids = stored.filter(
+    (id): id is string =>
+      typeof id === "string" &&
+      document.getElementById(id)?.classList.contains("glass-panel") === true,
+  );
+  const restore = ONE_PANEL_AT_A_TIME.matches ? ids.slice(0, 1) : ids;
+  for (const id of restore) document.getElementById(id)?.classList.add("open");
   syncPanelToggles();
 }
 
@@ -3008,6 +3110,11 @@ function reportWorkerError(error: unknown): void {
   showFeedback(`Simulation worker error: ${String(error)}`);
 }
 
+/**
+ * Clear the screen. This is the reset it always was — `Escape`, a new game, and a load all call it,
+ * and all three should still leave nothing open. What changed in v0.20.1 is that opening a panel
+ * stopped calling it.
+ */
 function closePanels(except?: HTMLElement): void {
   for (const panel of document.querySelectorAll<HTMLElement>(
     ".glass-panel.open",
@@ -3016,6 +3123,7 @@ function closePanels(except?: HTMLElement): void {
     panel.classList.remove("open");
   }
   syncPanelToggles();
+  savePanelState();
 }
 
 for (const toggle of document.querySelectorAll<HTMLButtonElement>(
@@ -3035,12 +3143,14 @@ document.addEventListener("change", (event) => {
   if (event.target instanceof HTMLSelectElement) event.target.blur();
 });
 
+// A close button closes the panel it is in and nothing else. Clearing the screen is Escape's job.
 for (const close of document.querySelectorAll<HTMLButtonElement>(
   ".panel-close",
 )) {
   close.addEventListener("click", () => {
     close.closest<HTMLElement>(".glass-panel")?.classList.remove("open");
-    closePanels();
+    syncPanelToggles();
+    savePanelState();
   });
 }
 
@@ -3078,6 +3188,15 @@ function part<T extends HTMLElement>(root: HTMLElement, selector: string): T {
 }
 
 renderTerrainLegend();
+loadPanelState();
+// Crossing down into the narrow layout leaves whichever panel is topmost in the rail, because
+// below that width there is only room for one.
+ONE_PANEL_AT_A_TIME.addEventListener("change", (event) => {
+  if (!event.matches) return;
+  const [first] = openPanelIds();
+  const keep = first ? document.getElementById(first) : null;
+  closePanels(keep ?? undefined);
+});
 setMuted(audio.isMuted);
 setReducedMotion(loadReducedMotion());
 update(snapshot);

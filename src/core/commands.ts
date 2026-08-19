@@ -12,6 +12,18 @@ export interface EncodedCommand {
  */
 export const MAX_AIM_COORDINATE = 2 ** 30;
 
+/**
+ * Half a stack, for the fractional half of a hand transfer.
+ *
+ * Rounded up and floored at one, so the control is never a no-op: half of one unit has to be one,
+ * or a row holding a single item would grow a button that does nothing. The result is still only a
+ * ceiling — native clamps it to the stock, the carrying room, and the container's capacity, and
+ * reports how much actually moved.
+ */
+export function halfTransfer(quantity: number): number {
+  return Math.max(1, Math.ceil(quantity / 2));
+}
+
 export function encodeCommand(command: NativeInputCommand): EncodedCommand {
   switch (command.type) {
     case "move_intent":

@@ -15,7 +15,11 @@ import {
   buildingAvailability,
   technologyAvailability,
 } from "../src/core/availability";
-import { encodeCommand, MAX_AIM_COORDINATE } from "../src/core/commands";
+import {
+  encodeCommand,
+  halfTransfer,
+  MAX_AIM_COORDINATE,
+} from "../src/core/commands";
 import {
   FactoryHost,
   type FactoryTransport,
@@ -250,6 +254,27 @@ describe("bounded host input", () => {
     );
   });
 
+  it("halves a transfer without ever asking for nothing", () => {
+    // The full amount is the default and half is the increment beside it. Rounding up, floored at
+    // one, is what keeps the control from being a button that does nothing on a single unit.
+    expect(halfTransfer(30)).toBe(15);
+    expect(halfTransfer(7)).toBe(4);
+    expect(halfTransfer(2)).toBe(1);
+    expect(halfTransfer(1)).toBe(1);
+    expect(halfTransfer(0)).toBe(1);
+    // It is only ever a ceiling: native clamps it to the stock, the carrying room, and the
+    // container's capacity, and reports how much actually moved.
+    expect(
+      encodeCommand({
+        type: "store",
+        q: 1,
+        r: 1,
+        item_id: 6,
+        quantity: halfTransfer(30),
+      }),
+    ).toEqual({ opcode: 15, args: [1, 1, 6, 15] });
+  });
+
   it("sends a drag as two endpoints and never resolves the run itself", () => {
     // One drag is one bounded command carrying only what the pointer did.
     expect(
@@ -328,9 +353,10 @@ describe("bounded host input", () => {
     // or which cell "close to the player" resolves to — that is the shared gather predicate.
     expect(main).toContain('type: "gather_at"');
     expect(main).not.toMatch(/EXTRACT_RADIUS|axialDistance\(.*player/);
-    // A Put sends the whole carried amount as a ceiling, exactly as a Take sends the whole stored
-    // amount. Neither side re-derives the container's remaining room.
-    expect(main).toContain('type: "store"');
+    // A Put sends what the row's control names as a ceiling, exactly as a Take does. Neither side
+    // re-derives the container's remaining room: native clamps and reports what actually moved.
+    expect(main).toContain('command: "store"');
+    expect(main).toContain('command: "withdraw"');
     expect(main).not.toMatch(/capacity\s*-\s*/);
     // A held right-click repeats through the frame loop and is paced by the native cooldown, the
     // same way a held F is. Sending it only on release would make the player click per unit, and
@@ -344,15 +370,20 @@ describe("bounded host input", () => {
     expect(repeat).toContain('type: "gather_at"');
     expect(repeat).toContain('type: "gather"');
     expect(repeat).not.toMatch(/setInterval|setTimeout/);
-    // The Put list carries a control, so it must be patched rather than rebuilt: a
+    // Take and Put are one function, so the direction is data and not a second copy of the row.
+    // Two near-identical renderers is how the two halves drift, and the fractional deposit — which
+    // belongs to both — is what would have been written twice.
+    expect(main).toContain("function renderTransferRows(");
+    expect(main).not.toContain("function renderInspectorActionsRow");
+    // That one list carries a control, so it must be patched rather than rebuilt: a
     // `replaceChildren` between pointerdown and pointerup detaches the pressed button and the
     // delegated click resolves to nothing.
-    const load = main.slice(
-      main.indexOf("function renderInspectorLoad"),
-      main.indexOf("function renderInspector("),
+    const transfer = main.slice(
+      main.indexOf("function renderTransferRows("),
+      main.indexOf("function renderInspectorActions("),
     );
-    expect(load).toContain("syncChildren(");
-    expect(load).not.toContain("replaceChildren");
+    expect(transfer).toContain("syncChildren(");
+    expect(transfer).not.toContain("replaceChildren");
   });
 
   it("keeps the hotbar a preference and never a simulation input", () => {
@@ -386,6 +417,93 @@ describe("bounded host input", () => {
       expect(region, `${fn} patches in place`).toContain("syncChildren(");
       expect(region, `${fn} does not rebuild`).not.toContain("replaceChildren");
     }
+  });
+
+  it("keeps panel arrangement a preference and lets panels open independently", () => {
+    const main = readFileSync(
+      new URL("../src/main.ts", import.meta.url),
+      "utf8",
+    );
+    const css = readFileSync(
+      new URL("../src/styles.css", import.meta.url),
+      "utf8",
+    );
+    const html = readFileSync(
+      new URL("../index.html", import.meta.url),
+      "utf8",
+    );
+    // Which panels are open is a preference about a screen, on exactly the terms the hotbar sets:
+    // localStorage, never saved with the game, never hashed, never sent.
+    expect(main).toContain("hexfactory:panels:v1");
+    const panelRegion = main.slice(
+      main.indexOf("function savePanelState"),
+      main.indexOf("function syncPanelToggles"),
+    );
+    expect(panelRegion).not.toContain("enqueue(");
+    expect(panelRegion).not.toContain("host.");
+    expect(main).not.toMatch(/enqueue\(\{[^}]*panel/i);
+    // Opening a panel no longer closes the rest. Exclusivity survives only below the width where
+    // there is genuinely one rectangle to share.
+    const toggle = main.slice(
+      main.indexOf("function togglePanel("),
+      main.indexOf("\n}", main.indexOf("function togglePanel(")),
+    );
+    expect(toggle).toContain("ONE_PANEL_AT_A_TIME");
+    expect(toggle).not.toMatch(/^\s*closePanels\(target\);$/m);
+    // The exclusivity was covering for a layout: four panels at one origin. The rails are what
+    // replaced it, so no panel may reclaim an absolute origin of its own.
+    expect(css).toContain(".panel-rail");
+    expect(html).toContain("panel-rail rail-left");
+    expect(html).toContain("panel-rail rail-right");
+    // `.glass-panel` is a flow child of a rail now, so nothing about a panel positions itself.
+    const glass = css.slice(
+      css.indexOf(".glass-panel {"),
+      css.indexOf("}", css.indexOf(".glass-panel {")),
+    );
+    expect(glass).not.toMatch(/position:\s*absolute/);
+    for (const panel of [
+      "inventory-panel",
+      "research-panel",
+      "quest-panel",
+      "build-panel",
+      "inspector-panel",
+      "session-panel",
+    ])
+      expect(
+        css,
+        `.${panel} sits in a rail rather than at an origin`,
+      ).not.toMatch(
+        // A property boundary, so `margin-left` is not read as an origin.
+        new RegExp(
+          `\\.${panel}[^{}]*\\{[^}]*[;{\\s](position:\\s*absolute|top:|left:|right:)`,
+        ),
+      );
+    // Escape, a new game, and a load still clear the screen.
+    expect(main).toContain("function closePanels(");
+  });
+
+  it("draws every item through the one chip component", () => {
+    const main = readFileSync(
+      new URL("../src/main.ts", import.meta.url),
+      "utf8",
+    );
+    const chip = readFileSync(
+      new URL("../src/rendering/itemChip.ts", import.meta.url),
+      "utf8",
+    );
+    // One component is the only place an item glyph, name, or count is written. Eight bespoke
+    // shapes is what this replaced, and a ninth would start the drift again.
+    expect(chip).toContain('class="item-chip-glyph"');
+    expect(main).not.toContain('class="item-chip');
+    // An item always shows its glyph: the bare colour swatch on the contract bill and the request
+    // board is gone, and colour alone is not an identity in a catalogue with three greys in it.
+    expect(main).not.toMatch(/swatch"\)\.style\.background/);
+    // One spelling per meaning. `×3` was a third spelling of a plain amount.
+    expect(main).not.toContain("`×${quantity}`");
+    // Every item drawing goes through the same patcher, so a chip inside a list carrying a control
+    // is never rebuilt between pointerdown and pointerup.
+    expect(main).toContain("function paintChip(");
+    expect(chip).toContain("export function fillItemChip(");
   });
 
   it("contains no host-side player or progression mutation loop", () => {
@@ -440,7 +558,7 @@ describe("bounded host input", () => {
     for (const renderer of [
       "renderTechnologies",
       "renderInventory",
-      "renderInspectorActions",
+      "renderTransferRows",
     ]) {
       const body = main.slice(
         main.indexOf(`function ${renderer}(`),
@@ -463,6 +581,7 @@ describe("availability and expanded snapshot adapter", () => {
       locked: false,
       affordable: true,
       costLabel: "1 Iron ore",
+      cost: [{ item_id: 1, required: 1, held: 3, shortfall: 0 }],
     });
     expect(
       buildingAvailability(extractor, snapshot, definitions.items),
@@ -949,7 +1068,10 @@ describe("availability and expanded snapshot adapter", () => {
     expect(html).toContain('id="inspect-title"');
     expect(html).toContain('id="inspect-q"');
     expect(html).toContain('id="inspect-compass"');
-    expect(html).toContain('id="inspect-field-meter"');
+    // The field cell is a metered item chip. Static markup names a holder rather than spelling the
+    // chip out, so `createItemChip` stays the only place its shape is written down.
+    expect(html).toContain('id="inspect-field-chip"');
+    expect(html).not.toContain("item-chip-glyph");
     expect(html).not.toContain('id="selected-tool-value"');
     // Direction 0 never reaches the player; the six names and a compass do.
     expect(main).toContain("DIRECTION_NAMES[building.orientation]");

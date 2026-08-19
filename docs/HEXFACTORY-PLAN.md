@@ -888,40 +888,107 @@ sprite.
 
 ## Where to start
 
-Two independent fronts, and picking either is correct:
+**Landforms and Fields v0.21**, after the roadmap decision below. Panels and Item Language v0.20.1
+shipped on 2026-08-19 and its record is directly beneath this section; the milestone arc is what is
+left, and the order v0.21 → v0.22 → v0.23 is load-bearing rather than a preference — read the
+roadmap decision for why the world work has to precede the economy work.
 
-1. **Panels and Item Language v0.20.1**, immediately below. Host-only, no native code, no version
-   movement, independent of everything else in this document. Shortest path to a visible improvement,
-   and it is the one a session with limited room should take.
-2. **Landforms and Fields v0.21**, after the roadmap decision below. The milestone arc, and the
-   order v0.21 → v0.22 → v0.23 is load-bearing rather than a preference — read the roadmap decision
-   for why the world work has to precede the economy work.
-
-Do not start v0.23 first. It is written to be tuned against a world that v0.21 builds, and against
-transfer rows that v0.20.1 collapses into one function.
+Do not start v0.23 first. It is written to be tuned against a world that v0.21 builds. Its other
+prerequisite is already met: v0.20.1 collapsed the transfer rows into one function, so the
+fractional deposit that arrived with them is not waiting on anything.
 
 **v0.21 and v0.22 are one version train.** v0.21 moves `WORLD_GENERATOR_VERSION` and rejects every
 existing save; v0.22's twelve-heading routing table wants a save break of its own and rides that one
 instead of spending a second. If they are ever split, v0.22 has to pay for its own break and the
 orientation-index decision in that brief reopens.
 
-Four decisions are deliberately left open for whoever implements, and each is marked where it sits:
-whether panels dock in rails or float freely (v0.20.1); whether `regrowth_ticks` moves when a forest
-cell drops to three wood (v0.21); whether the single-cell footprint restriction is lifted now that
-its stated reason is gone (v0.22 — the brief recommends **not** now, and says why); and whether one
-board slot is reserved for the deepest eligible request (v0.23). Each says what would settle it.
+Three decisions are deliberately left open for whoever implements, and each is marked where it sits:
+whether `regrowth_ticks` moves when a forest cell drops to three wood (v0.21); whether the
+single-cell footprint restriction is lifted now that its stated reason is gone (v0.22 — the brief
+recommends **not** now, and says why); and whether one board slot is reserved for the deepest
+eligible request (v0.23). Each says what would settle it. The fourth — rails or free-floating
+panels — was settled by shipping the rail; see the record below for what would reopen it.
 
 One decision that is **not** open, and must not be reopened casually: `DIRECTIONS` stays six. Twelve
 headings are transport only. Widening adjacency would let a boiler reach a turbine two rows away and
 a pole span a distance no player can see. Decide them from measurement and write the answer
 down; do not leave them open a second time.
 
-## Presentation pass — Panels and Item Language v0.20.1
+## Shipped presentation pass — Panels and Item Language v0.20.1
 
-A point release rather than a milestone, on the precedent Inspector Readability v0.13.2 and
-Construction Catalogue v0.14.1 already set: host-only work, no native change, no save, definition,
-generator, wire, or checksum movement. It is independent of the whole v0.21–v0.23 arc and can ship
-before, between, or after any of it.
+Shipped 2026-08-19. A point release rather than a milestone, on the precedent Inspector Readability
+v0.13.2 and Construction Catalogue v0.14.1 already set: host-only work, no native change, no save,
+definition, generator, wire, or checksum movement. It was independent of the whole v0.21–v0.23 arc
+and shipped before it. **The Rust suite is untouched, and so is `factory-wasm/`.**
+
+### What shipped, and the two things the brief got to decide
+
+Four defects went in as the brief named them, and the four call sites collapsed into two components:
+`src/core/availability.ts` prices a bill against the pack, and `src/rendering/itemChip.ts` is the
+only place an item is drawn.
+
+- **`BuildAvailability.cost`** is a `CostLine[]` — `item_id`, `required`, `held`, `shortfall` — and
+  `affordable` is now derived from it (`cost.every(shortfall === 0)`), so the boolean and the lines
+  cannot disagree. `costLines(ingredients, snapshot)` is the reusable half, and it prices recipe
+  inputs as well as construction costs. Tested in `tests/availability.test.ts` with no DOM.
+- **`itemChip`** carries `count` (`3`), `progress` (`3 / 10`), and `meter`, plus the `named`,
+  `short`, and `shortfall` modifiers. `×3` is gone; the contract bill and the request board draw
+  glyphs; `.inspect-item-glyph`, the two `.swatch` treatments, and the bespoke inventory-slot glyph
+  are all deleted. Static markup names a `.chip-host` and never spells the chip out, which is what
+  keeps `createItemChip` the only definition of its shape — `tests/host.test.ts` pins that
+  `index.html` contains no `item-chip-glyph`.
+- **`renderTransferRows(list, entries, direction, building, actionable)`** is both halves of hand
+  transfer. `TRANSFER` supplies the label, the command, and the preposition; one delegated listener
+  serves both lists and reads the direction off the button.
+- **The fractional deposit needed no native change**, which is the brief's claim confirmed: `store`
+  and `withdraw` have always treated `quantity` as a ceiling and clamped it to stock, carrying room,
+  and capacity, and `withdrawing_moves_what_fits_and_leaves_the_rest_in_the_container` already
+  covered a partial. The host had only ever sent the maximum. `halfTransfer` in
+  `src/core/commands.ts` is the whole of the new rule — rounded up, floored at one, so the control
+  is never a button that does nothing on a single unit.
+
+**Two decisions the brief left to the implementer, and how they went.**
+
+- **Rails, not free-floating windows** — the brief's recommendation, taken. `.panel-rail` is an
+  absolutely positioned flex column with `pointer-events: none` and children that restore it, so the
+  gap between two open panels is still the world underneath. Panels are flow children with
+  `flex: 0 1 auto; min-height: 0`, which means four open at once shrink to the rail and each scrolls
+  in its own box rather than overflowing: measured at 375×812, a rail 606px tall held four panels of
+  64/103/160/249px against content of 326/696/1228/2054px. **What would reopen it:** wanting
+  positions the player chooses, at which point the rail becomes the docked default rather than the
+  destination — the saved-coordinate, overlap, off-screen-recovery, and touch-gesture questions in
+  the brief below are all still unanswered and still real.
+- **Where the shortfall marker goes** — on the chip, but not on a metered one. A bill line already
+  states both numbers and draws the gap as a bar, so marking it short as well would be the same fact
+  three times. The shortfall still reaches the label, so a screen reader hears "Component: 0 of 3.
+  Need 3 more" on a chip that shows no marker.
+
+Panel open state is `hexfactory:panels:v1` in `localStorage`, on exactly the terms the hotbar
+arrangement set: never saved with the game, never hashed, never sent, and a stored id validated
+against the live document on load exactly as a stored hotbar slot is validated against the live
+catalogue. Below 720px the rails keep the old one-at-a-time behaviour, because below that width
+there is genuinely one rectangle to share; a restore at that width opens only the topmost.
+
+**What was verified live, and what was not.** The dev server was driven at 1280×720 and 375×812:
+four panels open at once down the rail with no overlap and the correct 10px gaps; a reload restores
+all three stored panels at desktop width and only the first at mobile; a bogus stored id is dropped;
+`Escape` still clears the screen and the preference follows; a panel's close button closes only that
+panel; the build card reads `Iron ore 0 / 4 · need 4`; the contract bill and request board carry
+glyphs and `document.querySelectorAll('.contract-line .swatch, .request-line .swatch')` is empty;
+and a Put row's half control carries 15 against a stack of 30. **The pane's `requestAnimationFrame`
+is dead for the fourth session running** (0 frames in 1.5s), so the frame loop never drains the
+input queue and the half-deposit could not be watched landing in a container through the UI — the
+command it builds is pinned in `tests/host.test.ts` instead, against the native rule that Rust
+already tests. `matchMedia` change events are also not delivered under the pane's emulated resize
+(a freshly armed listener saw zero across 375→1280 while `matches` flipped correctly), so the
+runtime breakpoint-crossing collapse is asserted by construction rather than observed.
+
+Gate: `npm run quality` green.
+
+## Historical brief — Panels and Item Language v0.20.1
+
+What follows is the brief as it was written, unchanged, as the record of what was asked for. Its
+acceptance list is what the shipped record above was checked against.
 
 Asked for from play: _"the user has to tediously open the development and cargo panels separately to
 check if they have the right resource in the right amounts"_, and _"items in inventory should look

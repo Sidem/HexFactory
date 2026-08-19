@@ -80,11 +80,25 @@ envelope versions and the world it started with, an incompatible run stays visib
 than being hidden by the storage key, and leftover `hexfactory:hxf1:` keys are imported and left in
 place. `SAVE_VERSION` is the one literal, because native does not publish it.
 
-**What to pick up next** is in `docs/HEXFACTORY-PLAN.md`, and there are two independent fronts. The
-host-only **Panels and Item Language v0.20.1** presentation pass touches no native code and can ship
-at any time. The milestone arc is **Landforms and Fields v0.21**, then Crossings and Canopy v0.22,
-then Earned Insight v0.23; that order is load-bearing and its reasoning is in the roadmap decision
-directly above the v0.21 brief. Read that decision before starting either.
+Panels and Item Language shipped as **v0.20.1**, a host-only presentation pass: no native, save,
+definition, generator, wire, or checksum movement, and the Rust suite untouched. Three things it
+established. **`src/rendering/itemChip.ts` is the only place an item is ever drawn** — glyph, name,
+count — replacing eight bespoke shapes; `count` spells a plain amount (`3`) and `progress` spells
+progress toward a known target (`3 / 10`), `×3` is gone, and there is no variant without a glyph,
+because colour alone is not an identity in a catalogue holding three greys. Static markup names a
+`.chip-host` and never spells the chip out. **Affordability is a per-line shortfall, not a boolean**:
+`BuildAvailability.cost` is a `CostLine[]` and `affordable` is derived from it, so a card names which
+line is short and by how much instead of sending the player to another panel. **Panels open
+independently in two rails** — `.panel-rail`, a flex column; the old exclusivity was covering for
+four panels sharing one origin, and it survives only below 720px where there is one rectangle to
+share. Take and Put are one `renderTransferRows`, and the fractional deposit it gained needed no
+native change: `store` and `withdraw` have always clamped `quantity` as a ceiling, and the host had
+only ever sent the maximum.
+
+**What to pick up next** is in `docs/HEXFACTORY-PLAN.md`: the milestone arc is **Landforms and
+Fields v0.21**, then Crossings and Canopy v0.22, then Earned Insight v0.23. That order is
+load-bearing and its reasoning is in the roadmap decision directly above the v0.21 brief. Read that
+decision before starting.
 
 ## Workspace boundary
 
@@ -213,8 +227,21 @@ directly above the v0.21 brief. Read that decision before starting either.
   refund will not fit is refused rather than partially paid, so the policy stays exactly 100%.
 - Any host list carrying a control is patched in place, never rebuilt. A `replaceChildren` between
   pointerdown and pointerup detaches the pressed control and the delegated click resolves to
-  nothing. This now covers the hotbar slots and the catalogue cards as well as the research list,
-  the Take rows, and the Put rows.
+  nothing. This now covers the hotbar slots and the catalogue cards as well as the research list and
+  the transfer rows, which since v0.20.1 are one function for both directions. An item chip is
+  created once per holder and patched from then on, so a chip inside such a list satisfies the rule
+  by construction rather than by being remembered at each call site.
+- An item is drawn one way, by `src/rendering/itemChip.ts`, and never by a second shape. Every
+  variant is a modifier class on that one markup, every chip shows its glyph, and `3` and `3 / 10`
+  are the only two spellings of a quantity — one an amount, the other progress toward a known
+  target. HTML names a `.chip-host` for a chip to be built into; markup that spells a chip out by
+  hand is the drift this replaced, and `tests/host.test.ts` refuses it.
+- Which panels are open is presentation state and lives in `localStorage` under
+  `hexfactory:panels:v1`, on the same terms as the hotbar arrangement: never saved with the game,
+  never hashed, never sent, and a stored id validated against the live document on load. Panels are
+  flow children of a rail and never position themselves; the one-panel-at-a-time rule survives only
+  below 720px, where there is one rectangle to share. `closePanels` stays the reset that `Escape`, a
+  new game, and a load call — opening a panel must not call it.
 - The hotbar arrangement is presentation state and lives in `localStorage`: never saved with the
   game, never hashed, never sent. It is a preference about a keyboard, not a fact about a factory.
   Definitions are dynamic, so a stored slot is validated against the live catalogue on load and

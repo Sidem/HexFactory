@@ -114,546 +114,546 @@
           >
         </button>
 
-        <aside
-          id="inspector-panel"
-          class="glass-panel inspector-panel"
-          aria-label="World inspector"
-        >
-          <div class="panel-heading">
-            <div>
-              <span class="section-kicker" id="inspect-kicker"
-                >World inspector</span
-              >
-              <div class="inspect-heading-row">
-                <h2 id="inspect-title">Select a hex</h2>
-                <span class="inspect-status" id="inspect-status" hidden></span>
+        <div class="panel-rail rail-left">
+          <aside
+            id="inventory-panel"
+            class="glass-panel inventory-panel"
+            aria-label="Cargo pack"
+          >
+            <div class="panel-heading">
+              <div>
+                <span class="section-kicker">Carried stacks · I</span>
+                <h2>Cargo pack</h2>
               </div>
+              <button
+                class="panel-close"
+                type="button"
+                aria-label="Close cargo pack"
+              >
+                ×
+              </button>
             </div>
-            <button
-              class="panel-close"
-              type="button"
-              aria-label="Close world inspector"
-            >
-              ×
-            </button>
-          </div>
-          <div id="selection-value" class="inspector">
-            <p class="inspect-empty" id="inspect-empty">
-              Click a hex to read what stands on it.
+            <p class="panel-copy">
+              Each material fills slots one stack at a time. A full pack refuses
+              both gathering and the refund from a demolition, so deliver at the
+              landing hub or take stacks out of a container to make room.
             </p>
-            <article class="inspect-sheet" id="inspect-sheet" hidden>
-              <header class="inspect-identity">
-                <div
-                  class="inspect-portrait"
-                  id="inspect-portrait"
-                  aria-hidden="true"
+            <div
+              id="inventory"
+              class="inventory"
+              role="list"
+              aria-label="Carried stacks"
+            ></div>
+            <p id="carry-detail" class="panel-copy" aria-live="polite">
+              0 of 6 slots carried.
+            </p>
+          </aside>
+
+          <aside
+            id="research-panel"
+            class="glass-panel research-panel"
+            aria-label="Research"
+          >
+            <div class="panel-heading">
+              <div>
+                <span class="section-kicker">Development · O</span>
+                <h2>Research</h2>
+              </div>
+              <button
+                class="panel-close"
+                type="button"
+                aria-label="Close research panel"
+              >
+                ×
+              </button>
+            </div>
+            <p class="panel-copy">
+              Fill the landing hub's requests to earn insight — the board is on
+              <kbd>P</kbd>. Each breakthrough expands the build dock.
+            </p>
+            <!--
+              Progressive disclosure. The default view is what you have, what you can take next, and
+              what those unlock; the whole tree is one press away for planning, and the count says
+              what is being held back so nothing feels hidden.
+            -->
+            <button
+              id="research-scope"
+              class="scope-toggle"
+              type="button"
+              aria-pressed="false"
+            ></button>
+            <div id="technology-list" class="technology-list"></div>
+          </aside>
+
+          <aside
+            id="build-panel"
+            class="glass-panel build-panel"
+            aria-label="Construction catalogue"
+          >
+            <div class="panel-heading">
+              <div>
+                <span class="section-kicker">Everything you can build · B</span>
+                <h2>Construction</h2>
+              </div>
+              <button
+                class="panel-close"
+                type="button"
+                aria-label="Close construction catalogue"
+              >
+                ×
+              </button>
+            </div>
+            <p class="panel-copy">
+              Click a card to hold that building. <strong>Pin</strong> puts it
+              on the bar, or drag a card straight onto the slot you want. Drag a
+              slot off the bar to clear it.
+            </p>
+            <button
+              id="build-scope"
+              class="scope-toggle"
+              type="button"
+              aria-pressed="false"
+            ></button>
+            <div id="build-groups" class="build-groups"></div>
+          </aside>
+
+          <aside
+            id="quest-panel"
+            class="glass-panel quest-panel"
+            aria-label="Objective and controls"
+          >
+            <div class="panel-heading">
+              <div>
+                <span class="section-kicker">Next move · P</span>
+                <h2 id="next-action-title">Survey the landing zone</h2>
+              </div>
+              <button
+                class="panel-close"
+                type="button"
+                aria-label="Close objective and controls"
+              >
+                ×
+              </button>
+            </div>
+            <p id="next-action-detail" class="next-action-detail">
+              The hatched fog is unsurveyed world. Walk toward it to reveal
+              terrain, then gather from an ore or crystal field.
+            </p>
+            <div class="quest-objective">
+              <span class="section-kicker" id="contract-kicker"
+                >Founding contract</span
+              >
+              <p id="quest-detail">
+                Deliver 3 components to the landing hub. Progress: 0.
+              </p>
+              <ul id="contract-bill" class="contract-bill"></ul>
+            </div>
+
+            <!--
+              The board. It is the only thing in the game that pays insight, so it says what it pays
+              before anything is handed over — and every row carries a Pass, because a material you
+              cannot find yet must never be able to hold the whole economy.
+            -->
+            <div class="quest-objective quest-requests">
+              <span class="section-kicker">Hub requests · insight</span>
+              <p id="requests-detail">
+                The landing hub pays insight for what it asks for here, and for
+                nothing else. Deliver with <kbd>X</kbd> beside the hub, or point
+                a belt at it.
+              </p>
+              <ul id="request-board" class="request-board"></ul>
+            </div>
+
+            <div class="control-block">
+              <span class="section-kicker">Moving and looking</span>
+              <p>
+                Move with <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd>, and
+                hold <kbd>Shift</kbd> to walk slowly when you want to stop on
+                one particular hex. The player always faces the pointer.
+                <kbd>Space</kbd> centres the camera back on the player,
+                <kbd>T</kbd> pauses and resumes the factory, <kbd>M</kbd> mutes
+                the feedback sounds, and dragging with the middle button — or
+                with <kbd>Shift</kbd> held and the left one — pans while the
+                wheel zooms. The right button is never the camera: it is how you
+                work a hex.
+              </p>
+            </div>
+            <div class="control-block">
+              <span class="section-kicker">Panels</span>
+              <p>
+                <kbd>B</kbd> opens the construction catalogue, <kbd>I</kbd> the
+                cargo pack, <kbd>O</kbd> research, and <kbd>P</kbd> this panel.
+                <kbd>Esc</kbd> closes whatever is open and returns to the
+                inspect tool, which is the one panel that stays on the world.
+              </p>
+            </div>
+            <div class="control-block">
+              <span class="section-kicker">Field actions</span>
+              <p>
+                Hold <kbd>F</kbd> to keep gathering from the field you are
+                standing on or beside, and <kbd>X</kbd> to hand the landing hub
+                whatever it is asking for. To work one particular hex, hold the
+                right button on it: holding keeps harvesting the cell you are
+                pointing at, as far as your own reach goes, and dragging walks
+                the harvest along to the next one. The ring that closes around
+                you is the wait until the next action.
+              </p>
+            </div>
+            <div class="control-block">
+              <span class="section-kicker">The bar, and what goes on it</span>
+              <p>
+                <kbd>B</kbd> opens the catalogue: everything you can build,
+                grouped by what it is for, each card showing what it costs and —
+                for a machine — every recipe it runs, written as the materials
+                in and the materials out. Click a recipe to hold that machine
+                set to it. The bottom bar is yours to arrange: <kbd>1</kbd>–<kbd
+                  >9</kbd
                 >
-                  <i class="inspect-hex" id="inspect-hex"></i>
+                select its nine slots, <strong>Pin</strong> drops a building
+                into the first free one, and dragging a card onto a slot chooses
+                which. Drag a slot onto another to swap them, or use the
+                <strong>×</strong>
+                to clear one. Your arrangement is remembered.
+              </p>
+            </div>
+            <div class="control-block">
+              <span class="section-kicker">Building</span>
+              <p>
+                With a belt or single-hex building selected, drag across the map
+                to lay a whole run at once — it routes itself, turning where the
+                drag turns. <kbd>E</kbd> selects erase, and dragging with it
+                removes a run. <kbd>R</kbd> rotates the pending building, or the
+                one under the cursor when no build tool is held.
+                <kbd>Q</kbd> copies whatever is under the cursor, and
+                <kbd>Ctrl</kbd>+<kbd>Z</kbd> takes back the last thing you
+                built. Machines run one category of recipe each; smelters and
+                kilns also need fuel, and burn whatever arrives. Risers are
+                belts that run due north and due south, over the seam between
+                two hexes — the hexes they cross stay free to build on.
+              </p>
+            </div>
+            <div class="control-block">
+              <span class="section-kicker">Boxes and tiers</span>
+              <p>
+                Click a container to see everything in it. Each stored row has a
+                <strong>Take</strong>, and each stack you are carrying has a
+                <strong>Put</strong>, so stock moves both ways without a belt.
+                Buildings with a higher tier show an <strong>Upgrade</strong>
+                button that grows them in place, keeping their contents, their
+                heading, and everything connected to them.
+              </p>
+            </div>
+            <div class="control-block">
+              <span class="section-kicker">Reading the ground</span>
+              <p>
+                Terrain is the material map, and hatched ground is ground you
+                cannot stand on. Travelling toward the dashed survey frontier
+                lifts the fog for good; the minimap and the gold marker on the
+                edge of the view both point back to the landing hub.
+              </p>
+              <div id="terrain-legend" class="terrain-legend" role="list"></div>
+            </div>
+          </aside>
+        </div>
+
+        <div class="panel-rail rail-right">
+          <aside
+            id="inspector-panel"
+            class="glass-panel inspector-panel"
+            aria-label="World inspector"
+          >
+            <div class="panel-heading">
+              <div>
+                <span class="section-kicker" id="inspect-kicker"
+                  >World inspector</span
+                >
+                <div class="inspect-heading-row">
+                  <h2 id="inspect-title">Select a hex</h2>
                   <span
-                    class="inspect-portrait-mark"
-                    id="inspect-portrait-mark"
-                  ></span>
-                  <i
-                    class="inspect-facing-tick"
-                    id="inspect-facing-tick"
+                    class="inspect-status"
+                    id="inspect-status"
                     hidden
-                  ></i>
-                </div>
-                <div class="inspect-coord" title="Axial hex coordinates">
-                  <span><small>q</small><strong id="inspect-q">—</strong></span>
-                  <span><small>r</small><strong id="inspect-r">—</strong></span>
-                </div>
-              </header>
-              <section class="inspect-place" id="inspect-place" hidden>
-                <i class="inspect-band-swatch" id="inspect-band-swatch"></i>
-                <div class="inspect-place-copy">
-                  <div class="inspect-place-row">
-                    <strong id="inspect-band-name"></strong>
-                    <span class="inspect-access" id="inspect-access"></span>
-                  </div>
-                  <p class="inspect-band-note" id="inspect-band-note"></p>
-                </div>
-              </section>
-              <section class="inspect-field" id="inspect-field" hidden>
-                <div class="inspect-field-head">
-                  <span
-                    class="inspect-item-glyph"
-                    id="inspect-field-glyph"
                   ></span>
-                  <div class="inspect-field-copy">
-                    <span class="inspect-kind">Field</span>
-                    <strong id="inspect-field-name"></strong>
-                  </div>
                 </div>
-                <div class="inspect-meter" id="inspect-field-meter">
-                  <div class="inspect-meter-track">
-                    <i id="inspect-field-fill"></i>
-                  </div>
-                  <span id="inspect-field-amount"></span>
-                </div>
-              </section>
-              <section class="inspect-machine" id="inspect-machine" hidden>
-                <div class="inspect-meter" id="inspect-progress-meter" hidden>
-                  <span class="inspect-meter-label">Craft</span>
-                  <div class="inspect-meter-track">
-                    <i id="inspect-progress-fill"></i>
-                  </div>
-                  <span id="inspect-progress-amount"></span>
-                </div>
-                <div class="inspect-meter" id="inspect-fuel-meter" hidden>
-                  <span class="inspect-meter-label">Fuel</span>
-                  <div class="inspect-meter-track">
-                    <i id="inspect-fuel-fill"></i>
-                  </div>
-                  <span id="inspect-fuel-amount"></span>
-                </div>
-                <div class="inspect-meter" id="inspect-power-meter" hidden>
-                  <span class="inspect-meter-label" id="inspect-power-label"
-                    >Power</span
-                  >
-                  <div class="inspect-meter-track">
-                    <i id="inspect-power-fill"></i>
-                  </div>
-                  <span id="inspect-power-amount"></span>
-                </div>
-                <div class="inspect-facing-row">
+              </div>
+              <button
+                class="panel-close"
+                type="button"
+                aria-label="Close world inspector"
+              >
+                ×
+              </button>
+            </div>
+            <div id="selection-value" class="inspector">
+              <p class="inspect-empty" id="inspect-empty">
+                Click a hex to read what stands on it.
+              </p>
+              <article class="inspect-sheet" id="inspect-sheet" hidden>
+                <header class="inspect-identity">
                   <div
-                    class="inspect-compass"
-                    id="inspect-compass"
+                    class="inspect-portrait"
+                    id="inspect-portrait"
                     aria-hidden="true"
                   >
-                    <i data-dir="0"></i>
-                    <i data-dir="1"></i>
-                    <i data-dir="2"></i>
-                    <i data-dir="3"></i>
-                    <i data-dir="4"></i>
-                    <i data-dir="5"></i>
-                    <i data-dir="6"></i>
-                    <i data-dir="7"></i>
+                    <i class="inspect-hex" id="inspect-hex"></i>
+                    <span
+                      class="inspect-portrait-mark"
+                      id="inspect-portrait-mark"
+                    ></span>
+                    <i
+                      class="inspect-facing-tick"
+                      id="inspect-facing-tick"
+                      hidden
+                    ></i>
                   </div>
-                  <div class="inspect-facing-copy">
-                    <span class="inspect-kind">Facing</span>
-                    <strong id="inspect-facing-name">East</strong>
+                  <div class="inspect-coord" title="Axial hex coordinates">
+                    <span
+                      ><small>q</small><strong id="inspect-q">—</strong></span
+                    >
+                    <span
+                      ><small>r</small><strong id="inspect-r">—</strong></span
+                    >
                   </div>
-                  <span
-                    class="inspect-chip inspect-chip-gold"
-                    id="inspect-protected"
-                    hidden
-                  >
-                    Protected
-                  </span>
-                </div>
-                <div class="inspect-cargo" id="inspect-cargo" hidden>
-                  <span class="inspect-kind">On the belt</span>
-                  <span
-                    class="inspect-item-glyph"
-                    id="inspect-cargo-glyph"
-                  ></span>
-                  <strong id="inspect-cargo-name"></strong>
-                  <span id="inspect-cargo-count"></span>
-                </div>
-                <div class="inspect-stock" id="inspect-stock" hidden>
-                  <span class="inspect-kind">Stored</span>
-                  <div
-                    id="inspector-actions"
-                    class="inspect-stock-list"
-                    aria-label="Container contents"
-                  ></div>
-                </div>
-                <div class="inspect-stock" id="inspect-load" hidden>
-                  <span class="inspect-kind">Put in from your pack</span>
-                  <div
-                    id="inspector-load"
-                    class="inspect-stock-list"
-                    aria-label="Items you can load into this container"
-                  ></div>
-                </div>
-                <div class="inspect-tier" id="inspect-tier" hidden>
-                  <span class="inspect-chip" id="inspect-tier-chip"></span>
-                  <span class="inspect-reach" id="inspect-reach" hidden></span>
-                  <button
-                    type="button"
-                    id="inspect-upgrade"
-                    class="withdraw-button"
-                    hidden
-                  ></button>
-                </div>
-              </section>
-            </article>
-          </div>
-          <label id="inspector-recipe" class="recipe-picker" hidden>
-            <span class="section-kicker">Machine recipe</span>
-            <select
-              id="machine-recipe"
-              aria-label="Recipe for the inspected machine"
-            ></select>
-          </label>
-          <p id="placement-value" class="placement-readout"></p>
-        </aside>
-
-        <aside
-          id="inventory-panel"
-          class="glass-panel inventory-panel"
-          aria-label="Cargo pack"
-        >
-          <div class="panel-heading">
-            <div>
-              <span class="section-kicker">Carried stacks · I</span>
-              <h2>Cargo pack</h2>
+                </header>
+                <section class="inspect-place" id="inspect-place" hidden>
+                  <i class="inspect-band-swatch" id="inspect-band-swatch"></i>
+                  <div class="inspect-place-copy">
+                    <div class="inspect-place-row">
+                      <strong id="inspect-band-name"></strong>
+                      <span class="inspect-access" id="inspect-access"></span>
+                    </div>
+                    <p class="inspect-band-note" id="inspect-band-note"></p>
+                  </div>
+                </section>
+                <section class="inspect-field" id="inspect-field" hidden>
+                  <span class="inspect-kind">Field</span>
+                  <div class="chip-host" id="inspect-field-chip"></div>
+                </section>
+                <section class="inspect-machine" id="inspect-machine" hidden>
+                  <div class="inspect-meter" id="inspect-progress-meter" hidden>
+                    <span class="inspect-meter-label">Craft</span>
+                    <div class="inspect-meter-track">
+                      <i id="inspect-progress-fill"></i>
+                    </div>
+                    <span id="inspect-progress-amount"></span>
+                  </div>
+                  <div class="inspect-meter" id="inspect-fuel-meter" hidden>
+                    <span class="inspect-meter-label">Fuel</span>
+                    <div class="inspect-meter-track">
+                      <i id="inspect-fuel-fill"></i>
+                    </div>
+                    <span id="inspect-fuel-amount"></span>
+                  </div>
+                  <div class="inspect-meter" id="inspect-power-meter" hidden>
+                    <span class="inspect-meter-label" id="inspect-power-label"
+                      >Power</span
+                    >
+                    <div class="inspect-meter-track">
+                      <i id="inspect-power-fill"></i>
+                    </div>
+                    <span id="inspect-power-amount"></span>
+                  </div>
+                  <div class="inspect-facing-row">
+                    <div
+                      class="inspect-compass"
+                      id="inspect-compass"
+                      aria-hidden="true"
+                    >
+                      <i data-dir="0"></i>
+                      <i data-dir="1"></i>
+                      <i data-dir="2"></i>
+                      <i data-dir="3"></i>
+                      <i data-dir="4"></i>
+                      <i data-dir="5"></i>
+                      <i data-dir="6"></i>
+                      <i data-dir="7"></i>
+                    </div>
+                    <div class="inspect-facing-copy">
+                      <span class="inspect-kind">Facing</span>
+                      <strong id="inspect-facing-name">East</strong>
+                    </div>
+                    <span
+                      class="inspect-chip inspect-chip-gold"
+                      id="inspect-protected"
+                      hidden
+                    >
+                      Protected
+                    </span>
+                  </div>
+                  <div class="inspect-cargo" id="inspect-cargo" hidden>
+                    <span class="inspect-kind">On the belt</span>
+                    <div class="chip-host" id="inspect-cargo-chip"></div>
+                  </div>
+                  <div class="inspect-stock" id="inspect-stock" hidden>
+                    <span class="inspect-kind">Stored</span>
+                    <div
+                      id="inspector-actions"
+                      class="inspect-stock-list"
+                      aria-label="Container contents"
+                    ></div>
+                  </div>
+                  <div class="inspect-stock" id="inspect-load" hidden>
+                    <span class="inspect-kind">Put in from your pack</span>
+                    <div
+                      id="inspector-load"
+                      class="inspect-stock-list"
+                      aria-label="Items you can load into this container"
+                    ></div>
+                  </div>
+                  <div class="inspect-tier" id="inspect-tier" hidden>
+                    <span class="inspect-chip" id="inspect-tier-chip"></span>
+                    <span
+                      class="inspect-reach"
+                      id="inspect-reach"
+                      hidden
+                    ></span>
+                    <button
+                      type="button"
+                      id="inspect-upgrade"
+                      class="withdraw-button"
+                      hidden
+                    ></button>
+                  </div>
+                </section>
+              </article>
             </div>
-            <button
-              class="panel-close"
-              type="button"
-              aria-label="Close cargo pack"
-            >
-              ×
-            </button>
-          </div>
-          <p class="panel-copy">
-            Each material fills slots one stack at a time. A full pack refuses
-            both gathering and the refund from a demolition, so deliver at the
-            landing hub or take stacks out of a container to make room.
-          </p>
-          <div
-            id="inventory"
-            class="inventory"
-            role="list"
-            aria-label="Carried stacks"
-          ></div>
-          <p id="carry-detail" class="panel-copy" aria-live="polite">
-            0 of 6 slots carried.
-          </p>
-        </aside>
+            <label id="inspector-recipe" class="recipe-picker" hidden>
+              <span class="section-kicker">Machine recipe</span>
+              <select
+                id="machine-recipe"
+                aria-label="Recipe for the inspected machine"
+              ></select>
+            </label>
+            <p id="placement-value" class="placement-readout"></p>
+          </aside>
 
-        <aside
-          id="research-panel"
-          class="glass-panel research-panel"
-          aria-label="Research"
-        >
-          <div class="panel-heading">
-            <div>
-              <span class="section-kicker">Development · O</span>
-              <h2>Research</h2>
-            </div>
-            <button
-              class="panel-close"
-              type="button"
-              aria-label="Close research panel"
-            >
-              ×
-            </button>
-          </div>
-          <p class="panel-copy">
-            Fill the landing hub's requests to earn insight — the board is on
-            <kbd>P</kbd>. Each breakthrough expands the build dock.
-          </p>
-          <!--
-            Progressive disclosure. The default view is what you have, what you can take next, and
-            what those unlock; the whole tree is one press away for planning, and the count says
-            what is being held back so nothing feels hidden.
-          -->
-          <button
-            id="research-scope"
-            class="scope-toggle"
-            type="button"
-            aria-pressed="false"
-          ></button>
-          <div id="technology-list" class="technology-list"></div>
-        </aside>
-
-        <aside
-          id="build-panel"
-          class="glass-panel build-panel"
-          aria-label="Construction catalogue"
-        >
-          <div class="panel-heading">
-            <div>
-              <span class="section-kicker">Everything you can build · B</span>
-              <h2>Construction</h2>
-            </div>
-            <button
-              class="panel-close"
-              type="button"
-              aria-label="Close construction catalogue"
-            >
-              ×
-            </button>
-          </div>
-          <p class="panel-copy">
-            Click a card to hold that building. <strong>Pin</strong> puts it on
-            the bar, or drag a card straight onto the slot you want. Drag a slot
-            off the bar to clear it.
-          </p>
-          <button
-            id="build-scope"
-            class="scope-toggle"
-            type="button"
-            aria-pressed="false"
-          ></button>
-          <div id="build-groups" class="build-groups"></div>
-        </aside>
-
-        <aside
-          id="quest-panel"
-          class="glass-panel quest-panel"
-          aria-label="Objective and controls"
-        >
-          <div class="panel-heading">
-            <div>
-              <span class="section-kicker">Next move · P</span>
-              <h2 id="next-action-title">Survey the landing zone</h2>
-            </div>
-            <button
-              class="panel-close"
-              type="button"
-              aria-label="Close objective and controls"
-            >
-              ×
-            </button>
-          </div>
-          <p id="next-action-detail" class="next-action-detail">
-            The hatched fog is unsurveyed world. Walk toward it to reveal
-            terrain, then gather from an ore or crystal field.
-          </p>
-          <div class="quest-objective">
-            <span class="section-kicker" id="contract-kicker"
-              >Founding contract</span
-            >
-            <p id="quest-detail">
-              Deliver 3 components to the landing hub. Progress: 0.
-            </p>
-            <ul id="contract-bill" class="contract-bill"></ul>
-          </div>
-
-          <!--
-            The board. It is the only thing in the game that pays insight, so it says what it pays
-            before anything is handed over — and every row carries a Pass, because a material you
-            cannot find yet must never be able to hold the whole economy.
-          -->
-          <div class="quest-objective quest-requests">
-            <span class="section-kicker">Hub requests · insight</span>
-            <p id="requests-detail">
-              The landing hub pays insight for what it asks for here, and for
-              nothing else. Deliver with <kbd>X</kbd> beside the hub, or point a
-              belt at it.
-            </p>
-            <ul id="request-board" class="request-board"></ul>
-          </div>
-
-          <div class="control-block">
-            <span class="section-kicker">Moving and looking</span>
-            <p>
-              Move with <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd>, and
-              hold <kbd>Shift</kbd> to walk slowly when you want to stop on one
-              particular hex. The player always faces the pointer.
-              <kbd>Space</kbd> centres the camera back on the player,
-              <kbd>T</kbd> pauses and resumes the factory, <kbd>M</kbd> mutes
-              the feedback sounds, and dragging with the middle button — or with
-              <kbd>Shift</kbd> held and the left one — pans while the wheel
-              zooms. The right button is never the camera: it is how you work a
-              hex.
-            </p>
-          </div>
-          <div class="control-block">
-            <span class="section-kicker">Panels</span>
-            <p>
-              <kbd>B</kbd> opens the construction catalogue, <kbd>I</kbd> the
-              cargo pack, <kbd>O</kbd> research, and <kbd>P</kbd> this panel.
-              <kbd>Esc</kbd> closes whatever is open and returns to the inspect
-              tool, which is the one panel that stays on the world.
-            </p>
-          </div>
-          <div class="control-block">
-            <span class="section-kicker">Field actions</span>
-            <p>
-              Hold <kbd>F</kbd> to keep gathering from the field you are
-              standing on or beside, and <kbd>X</kbd> to hand the landing hub
-              whatever it is asking for. To work one particular hex, hold the
-              right button on it: holding keeps harvesting the cell you are
-              pointing at, as far as your own reach goes, and dragging walks the
-              harvest along to the next one. The ring that closes around you is
-              the wait until the next action.
-            </p>
-          </div>
-          <div class="control-block">
-            <span class="section-kicker">The bar, and what goes on it</span>
-            <p>
-              <kbd>B</kbd> opens the catalogue: everything you can build,
-              grouped by what it is for, each card showing what it costs and —
-              for a machine — every recipe it runs, written as the materials in
-              and the materials out. Click a recipe to hold that machine set to
-              it. The bottom bar is yours to arrange: <kbd>1</kbd>–<kbd>9</kbd>
-              select its nine slots, <strong>Pin</strong> drops a building into
-              the first free one, and dragging a card onto a slot chooses which.
-              Drag a slot onto another to swap them, or use the
-              <strong>×</strong>
-              to clear one. Your arrangement is remembered.
-            </p>
-          </div>
-          <div class="control-block">
-            <span class="section-kicker">Building</span>
-            <p>
-              With a belt or single-hex building selected, drag across the map
-              to lay a whole run at once — it routes itself, turning where the
-              drag turns. <kbd>E</kbd> selects erase, and dragging with it
-              removes a run. <kbd>R</kbd> rotates the pending building, or the
-              one under the cursor when no build tool is held.
-              <kbd>Q</kbd> copies whatever is under the cursor, and
-              <kbd>Ctrl</kbd>+<kbd>Z</kbd> takes back the last thing you built.
-              Machines run one category of recipe each; smelters and kilns also
-              need fuel, and burn whatever arrives. Risers are belts that run
-              due north and due south, over the seam between two hexes — the
-              hexes they cross stay free to build on.
-            </p>
-          </div>
-          <div class="control-block">
-            <span class="section-kicker">Boxes and tiers</span>
-            <p>
-              Click a container to see everything in it. Each stored row has a
-              <strong>Take</strong>, and each stack you are carrying has a
-              <strong>Put</strong>, so stock moves both ways without a belt.
-              Buildings with a higher tier show an <strong>Upgrade</strong>
-              button that grows them in place, keeping their contents, their
-              heading, and everything connected to them.
-            </p>
-          </div>
-          <div class="control-block">
-            <span class="section-kicker">Reading the ground</span>
-            <p>
-              Terrain is the material map, and hatched ground is ground you
-              cannot stand on. Travelling toward the dashed survey frontier
-              lifts the fog for good; the minimap and the gold marker on the
-              edge of the view both point back to the landing hub.
-            </p>
-            <div id="terrain-legend" class="terrain-legend" role="list"></div>
-          </div>
-        </aside>
-
-        <aside
-          id="session-panel"
-          class="glass-panel session-panel"
-          aria-label="Game menu"
-        >
-          <div class="panel-heading">
-            <div>
-              <span class="section-kicker">Game menu</span>
-              <h2>Session</h2>
-            </div>
-            <button
-              class="panel-close"
-              type="button"
-              aria-label="Close game menu"
-            >
-              ×
-            </button>
-          </div>
-          <label
-            >Scenario<select id="scenario" aria-label="Scenario">
-              <option value="new-game">New game</option>
-              <option value="factory-demo">Factory demo</option>
-            </select></label
+          <aside
+            id="session-panel"
+            class="glass-panel session-panel"
+            aria-label="Game menu"
           >
-          <label
-            >World seed<input
-              id="seed"
-              type="number"
-              min="0"
-              max="4294967295"
-              value="1213486160"
-          /></label>
-          <label
-            >World<select id="world-preset" aria-label="World preset"></select
-          ></label>
-          <p id="world-preset-description" class="world-preset-description">
-            &nbsp;
-          </p>
-          <details id="world-parameters" class="world-parameters">
-            <summary>World parameters</summary>
-            <p class="world-parameters-note">
-              Feature scale is how big a landform is; a band level is how much
-              of the world it covers. Raising the sea level makes more water,
-              not bigger water &mdash; bigger water is a larger landform scale.
-              The resource table comes from the preset.
-            </p>
-            <div id="world-parameter-fields"></div>
-            <button id="world-parameters-reset" type="button">
-              Back to preset
-            </button>
-          </details>
-          <button id="new-game" class="primary-action" type="button">
-            Start scenario
-          </button>
-          <p class="save-help">
-            Named saves remember the world you started and the build that wrote
-            them. An older run stays in the list; if this version cannot load
-            it, the row says why.
-          </p>
-          <label
-            >Save name<input
-              id="save-name"
-              type="text"
-              maxlength="48"
-              autocomplete="off"
-              spellcheck="false"
-              placeholder="Landing run"
-          /></label>
-          <div class="session-actions">
-            <button id="save" type="button">Save</button
-            ><button id="continue" type="button">Continue</button>
-          </div>
-          <p id="save-status" class="save-status" role="status">
-            No local save yet.
-          </p>
-          <ul id="save-slots" class="save-slots"></ul>
-          <hr />
-          <div class="comfort-settings">
-            <label class="switch"
-              ><input id="reduce-motion" type="checkbox" />Reduce motion</label
-            >
-            <label class="switch"
-              ><input id="mute" type="checkbox" />Mute sounds</label
-            >
-            <p class="comfort-note">
-              The system's own reduced-motion setting is always honoured; this
-              only ever quietens more.
-            </p>
-          </div>
-          <hr />
-          <div class="simulation-settings">
-            <button id="step" type="button">Single step</button>
-            <button id="reset" type="button">Reset</button>
+            <div class="panel-heading">
+              <div>
+                <span class="section-kicker">Game menu</span>
+                <h2>Session</h2>
+              </div>
+              <button
+                class="panel-close"
+                type="button"
+                aria-label="Close game menu"
+              >
+                ×
+              </button>
+            </div>
             <label
-              >Speed<select id="speed" aria-label="Simulation speed">
-                <option value="4">4 tps</option>
-                <option value="10" selected>10 tps</option>
-                <option value="30">30 tps</option>
-                <option value="60">60 tps</option>
+              >Scenario<select id="scenario" aria-label="Scenario">
+                <option value="new-game">New game</option>
+                <option value="factory-demo">Factory demo</option>
               </select></label
             >
-          </div>
-          <dl class="debug-readout">
-            <div>
-              <dt>Scenario</dt>
-              <dd id="scenario-value">New game</dd>
+            <label
+              >World seed<input
+                id="seed"
+                type="number"
+                min="0"
+                max="4294967295"
+                value="1213486160"
+            /></label>
+            <label
+              >World<select id="world-preset" aria-label="World preset"></select
+            ></label>
+            <p id="world-preset-description" class="world-preset-description">
+              &nbsp;
+            </p>
+            <details id="world-parameters" class="world-parameters">
+              <summary>World parameters</summary>
+              <p class="world-parameters-note">
+                Feature scale is how big a landform is; a band level is how much
+                of the world it covers. Raising the sea level makes more water,
+                not bigger water &mdash; bigger water is a larger landform
+                scale. The resource table comes from the preset.
+              </p>
+              <div id="world-parameter-fields"></div>
+              <button id="world-parameters-reset" type="button">
+                Back to preset
+              </button>
+            </details>
+            <button id="new-game" class="primary-action" type="button">
+              Start scenario
+            </button>
+            <p class="save-help">
+              Named saves remember the world you started and the build that
+              wrote them. An older run stays in the list; if this version cannot
+              load it, the row says why.
+            </p>
+            <label
+              >Save name<input
+                id="save-name"
+                type="text"
+                maxlength="48"
+                autocomplete="off"
+                spellcheck="false"
+                placeholder="Landing run"
+            /></label>
+            <div class="session-actions">
+              <button id="save" type="button">Save</button
+              ><button id="continue" type="button">Continue</button>
             </div>
-            <div>
-              <dt>Tick</dt>
-              <dd id="tick-value">0</dd>
+            <p id="save-status" class="save-status" role="status">
+              No local save yet.
+            </p>
+            <ul id="save-slots" class="save-slots"></ul>
+            <hr />
+            <div class="comfort-settings">
+              <label class="switch"
+                ><input id="reduce-motion" type="checkbox" />Reduce
+                motion</label
+              >
+              <label class="switch"
+                ><input id="mute" type="checkbox" />Mute sounds</label
+              >
+              <p class="comfort-note">
+                The system's own reduced-motion setting is always honoured; this
+                only ever quietens more.
+              </p>
             </div>
-            <div>
-              <dt>Position</dt>
-              <dd id="position-value">0.0, 0.0</dd>
+            <hr />
+            <div class="simulation-settings">
+              <button id="step" type="button">Single step</button>
+              <button id="reset" type="button">Reset</button>
+              <label
+                >Speed<select id="speed" aria-label="Simulation speed">
+                  <option value="4">4 tps</option>
+                  <option value="10" selected>10 tps</option>
+                  <option value="30">30 tps</option>
+                  <option value="60">60 tps</option>
+                </select></label
+              >
             </div>
-            <div>
-              <dt>Sectors surveyed</dt>
-              <dd id="surveyed-value">0</dd>
-            </div>
-            <div>
-              <dt>Checksum</dt>
-              <dd><code id="checksum-value">00000000</code></dd>
-            </div>
-          </dl>
-        </aside>
+            <dl class="debug-readout">
+              <div>
+                <dt>Scenario</dt>
+                <dd id="scenario-value">New game</dd>
+              </div>
+              <div>
+                <dt>Tick</dt>
+                <dd id="tick-value">0</dd>
+              </div>
+              <div>
+                <dt>Position</dt>
+                <dd id="position-value">0.0, 0.0</dd>
+              </div>
+              <div>
+                <dt>Sectors surveyed</dt>
+                <dd id="surveyed-value">0</dd>
+              </div>
+              <div>
+                <dt>Checksum</dt>
+                <dd><code id="checksum-value">00000000</code></dd>
+              </div>
+            </dl>
+          </aside>
+        </div>
 
         <nav class="view-actions" aria-label="View and panel controls">
           <button

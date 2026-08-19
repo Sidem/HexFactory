@@ -236,13 +236,47 @@ canvas {
  * surface that answers a question about the hex the player just clicked, so it stays on the world
  * wherever there is room for it, and everything else — pack, research, objective, session — waits
  * behind its key.
+ *
+ * They live in two rails rather than at one origin. Four panels used to share the same
+ * `top: 108px; left: 14px`, which is why opening one had to close the rest: the exclusivity was
+ * covering for the layout. A rail is a flow column, so several panels open at once stack down it
+ * instead of on top of each other, and each keeps its own scrollbox.
+ *
+ * The rail is `pointer-events: none` and its children restore it, so the empty space between two
+ * open panels is still the world underneath, not a strip that eats clicks.
  */
-.glass-panel {
+.panel-rail {
   position: absolute;
+  z-index: 12;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: max-content;
+  max-width: calc(100vw - 28px);
+  pointer-events: none;
+}
+.panel-rail > * {
+  pointer-events: auto;
+}
+.rail-left {
+  top: 108px;
+  left: 14px;
+  align-items: flex-start;
+  /* Down to the dock and no further: 108 above, and the 82 the dock owns plus a gap below. */
+  max-height: calc(100% - 196px);
+}
+.rail-right {
+  top: 14px;
+  right: 14px;
+  align-items: flex-end;
+  max-height: calc(100% - 132px);
+}
+.glass-panel {
   z-index: 8;
   display: none;
+  flex: 0 1 auto;
   width: 300px;
-  max-height: calc(100% - 128px);
+  min-height: 0;
   overflow-y: auto;
   padding: 15px;
   border: 1px solid #415b55;
@@ -260,27 +294,12 @@ canvas {
 }
 .inspector-panel {
   display: block;
-  top: 14px;
-  right: 14px;
   width: 292px;
-  max-height: calc(100% - 260px);
-}
-.inventory-panel,
-.research-panel,
-.quest-panel {
-  top: 108px;
-  left: 14px;
-  z-index: 12;
-  /* Down to the dock and no further: 108 above, and the 82 the dock owns plus a gap below. */
-  max-height: calc(100% - 196px);
 }
 .quest-panel {
   width: 336px;
 }
 .session-panel {
-  top: 14px;
-  right: 14px;
-  z-index: 15;
   width: 310px;
 }
 .session-panel.open {
@@ -300,12 +319,7 @@ canvas {
 }
 /* The construction catalogue. Wide enough for a recipe to read as one line of materials. */
 .build-panel {
-  top: 108px;
-  left: 14px;
-  z-index: 13;
   width: min(560px, calc(100vw - 28px));
-  max-height: calc(100vh - 260px);
-  overflow-y: auto;
 }
 .build-panel.open {
   display: block;
@@ -437,15 +451,121 @@ canvas {
 .ingredient {
   display: inline-flex;
   align-items: center;
-  gap: 3px;
-  font-size: 0.7rem;
+  min-width: 0;
 }
-.ingredient b {
+
+/*
+ * The item chip: the only way an item is ever drawn.
+ *
+ * Eight places used to render "an item and a quantity" and no two agreed — three orderings of
+ * glyph, name and count, three spellings of the same number, and two places (the contract bill and
+ * the request board) where an item was a bare colour swatch with no glyph at all. Colour alone is
+ * not an identity in this catalogue: Iron plate, Gravel, and Concrete are three greys, and those
+ * two boards are precisely where the player is being told to go and fetch a specific one.
+ *
+ * `.named`, `.metered`, and `.short` are modifiers on this one markup. There is no second shape,
+ * and there is no variant without a glyph.
+ */
+.item-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  font-size: 0.72rem;
+  line-height: 1.25;
+}
+.item-chip-glyph {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 21px;
+  height: 21px;
+  border-radius: 6px;
+  color: var(--item-color, var(--muted));
+  background: color-mix(in srgb, var(--item-color) 13%, transparent);
+  box-shadow: inset 0 0 0 1px
+    color-mix(in srgb, var(--item-color) 42%, transparent);
+}
+.item-chip-glyph svg {
+  display: block;
+  width: 16px;
+  height: 16px;
+}
+.item-chip.short {
+  gap: 4px;
+}
+.item-chip.short .item-chip-glyph {
+  width: 18px;
+  height: 18px;
+  border-radius: 5px;
+}
+.item-chip.short .item-chip-glyph svg {
+  width: 14px;
+  height: 14px;
+}
+.item-chip.empty .item-chip-glyph {
+  background: transparent;
+  box-shadow: inset 0 0 0 1px #24382f;
+}
+.item-chip-name {
+  overflow: hidden;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.item-chip-count {
+  flex: none;
+  color: var(--muted);
   font-variant-numeric: tabular-nums;
 }
-.ingredient small {
-  color: #a7bdb5;
-  font-size: 0.66rem;
+.item-chip.covered .item-chip-count {
+  color: var(--mint);
+}
+.item-chip.shortfall .item-chip-count,
+.item-chip-short {
+  color: var(--gold);
+  font-variant-numeric: tabular-nums;
+}
+.item-chip-short {
+  flex: none;
+  font-size: 0.64rem;
+  white-space: nowrap;
+}
+.item-chip-name[hidden],
+.item-chip-count[hidden],
+.item-chip-short[hidden],
+.item-chip-meter[hidden] {
+  display: none;
+}
+/* A metered chip owns its row: the numbers sit on one line and the bar spans beneath them. */
+.item-chip.metered {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 3px 7px;
+  width: 100%;
+}
+.item-chip.metered .item-chip-short {
+  grid-column: 3;
+}
+.item-chip-meter {
+  display: block;
+  grid-column: 1 / -1;
+  overflow: hidden;
+  height: 4px;
+  border-radius: 999px;
+  background: #0b1714;
+  box-shadow: inset 0 0 0 1px #24382f;
+}
+.item-chip-meter b {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--item-color) 60%, #0e2620),
+    var(--item-color)
+  );
 }
 .build-recipes {
   display: grid;
@@ -535,31 +655,23 @@ canvas {
   border-color: color-mix(in srgb, var(--item-color) 55%, transparent);
   background: #091714c7;
 }
-.inventory-slot .swatch {
-  width: 9px;
-  height: 9px;
-  border-radius: 50%;
-  background: transparent;
+.inventory-slot .item-chip {
+  flex-direction: column;
+  gap: 3px;
 }
-.inventory-slot.filled .swatch {
-  background: var(--item-color);
-  box-shadow: 0 0 10px var(--item-color);
+.inventory-slot .item-chip-glyph {
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
 }
-.inventory-slot small {
-  color: var(--item-color, var(--muted));
-  width: 22px;
-  height: 22px;
-  display: grid;
-  place-items: center;
-}
-.inventory-slot small svg {
+.inventory-slot .item-chip-glyph svg {
   width: 20px;
   height: 20px;
-  display: block;
 }
-.inventory-slot strong {
+.inventory-slot .item-chip-count {
+  color: var(--ink);
   font-size: 0.9rem;
-  font-variant-numeric: tabular-nums;
+  font-weight: 600;
 }
 
 .quest-objective {
@@ -949,10 +1061,6 @@ canvas {
   display: grid;
   gap: 8px;
 }
-.inspect-field-solo .inspect-field-head {
-  display: none;
-}
-.inspect-field-head,
 .inspect-facing-row {
   display: grid;
   grid-template-columns: auto 1fr auto;
@@ -961,37 +1069,29 @@ canvas {
 }
 .inspect-cargo {
   display: grid;
-  grid-template-columns: auto 1fr auto;
+  gap: 5px;
+}
+/* A chip holder is a plain box: it exists so the static markup names a place rather than a shape,
+   and every chip inside one is built by `createItemChip`. */
+.chip-host {
+  display: flex;
+  min-width: 0;
   align-items: center;
-  gap: 6px 8px;
 }
-.inspect-cargo .inspect-kind {
-  grid-column: 1 / -1;
+.inspect-field .chip-host,
+.inspect-cargo .chip-host {
+  display: block;
 }
-.inspect-field-copy,
+.inspect-field .item-chip-name,
+.inspect-cargo .item-chip-name {
+  font-size: 0.8rem;
+}
 .inspect-facing-copy {
   min-width: 0;
 }
-.inspect-field-copy strong,
-.inspect-cargo strong,
 .inspect-facing-copy strong {
   display: block;
   font-size: 0.8rem;
-}
-.inspect-item-glyph {
-  display: grid;
-  place-items: center;
-  width: 28px;
-  height: 28px;
-  border-radius: 7px;
-  background: #071310;
-  color: var(--item-color, var(--ink));
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--item-color) 45%, #243832);
-}
-.inspect-item-glyph svg {
-  width: 18px;
-  height: 18px;
-  display: block;
 }
 .inspect-chip {
   padding: 2px 6px;
@@ -1012,9 +1112,6 @@ canvas {
   grid-template-columns: 42px 1fr auto;
   align-items: center;
   gap: 7px;
-}
-.inspect-field .inspect-meter {
-  grid-template-columns: 1fr auto;
 }
 .inspect-meter-label {
   color: var(--muted);
@@ -1111,10 +1208,6 @@ canvas {
   padding-top: 2px;
   border-top: 1px solid #243832;
 }
-.inspect-cargo span:last-child {
-  font-variant-numeric: tabular-nums;
-  font-weight: 700;
-}
 .inspect-stock {
   display: grid;
   gap: 6px;
@@ -1131,29 +1224,33 @@ canvas {
   align-items: center;
   gap: 8px;
 }
-.inspect-stock-item {
-  display: grid;
-  grid-template-columns: 28px 1fr auto;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-}
-.inspect-stock-item strong {
-  overflow: hidden;
+.inspect-stock-item .item-chip-name {
   font-size: 0.74rem;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
-.inspect-stock-item span:last-child {
-  font-variant-numeric: tabular-nums;
+.inspect-stock-item .item-chip-count {
+  color: var(--ink);
   font-weight: 700;
 }
-.inspect-stock-row:has(button[hidden]) {
+.inspect-stock-row:has(.transfer-controls[hidden]) {
   grid-template-columns: 1fr;
+}
+/* Full amount and half, side by side. The full one keeps the label because it is what the gesture
+   has always meant; half is the increment beside it. */
+.transfer-controls {
+  display: flex;
+  flex: none;
+  gap: 4px;
+}
+.transfer-controls[hidden] {
+  display: none;
 }
 .withdraw-button {
   padding: 5px 9px;
   font-size: 0.66rem;
+}
+.transfer-half {
+  padding: 5px 7px;
+  color: var(--muted);
 }
 .withdraw-button[hidden] {
   display: none;
@@ -1582,37 +1679,19 @@ canvas {
   padding: 0;
   list-style: none;
 }
-.contract-line {
-  display: grid;
-  grid-template-columns: 12px 1fr auto;
-  align-items: center;
-  gap: 4px 8px;
-}
-.contract-line .swatch {
-  width: 11px;
-  aspect-ratio: 1;
-  border-radius: 3px;
-}
-.contract-line strong {
+/* The bill is a fetch list, so every line is one chip and nothing else. It used to be a colour
+   swatch with no glyph — see `.item-chip` for why that was the worst place for one. */
+.contract-line .item-chip-name {
   font-size: 0.78rem;
 }
-.contract-count {
+.contract-line .item-chip-count,
+.request-line .item-chip-count {
   color: var(--gold);
   font-size: 0.74rem;
   font-weight: 800;
-  font-variant-numeric: tabular-nums;
 }
-.contract-bar {
-  grid-column: 2 / 4;
-  overflow: hidden;
-  height: 3px;
-  border-radius: 3px;
-  background: #29403a;
-}
-.contract-bar b {
-  display: block;
-  width: 0%;
-  height: 100%;
+.contract-line .item-chip-meter b,
+.request-line .item-chip-meter b {
   background: linear-gradient(90deg, var(--gold), #fff09b);
   transition: width 280ms ease;
 }
@@ -1627,12 +1706,13 @@ canvas {
   padding: 0;
   list-style: none;
 }
-/* Two lines per row: the offer, then the sentence and the count under it. */
+/* Two lines per row: the offer, then the sentence under it. The chip carries the item, the count,
+   and the bar, so the row only has to place the price and the Pass beside it. */
 .request-line {
   display: grid;
-  grid-template-columns: 12px 1fr auto auto;
+  grid-template-columns: minmax(0, 1fr) auto auto;
   align-items: center;
-  gap: 3px 8px;
+  gap: 5px 8px;
   padding-bottom: 8px;
   border-bottom: 1px solid #24393450;
 }
@@ -1640,12 +1720,10 @@ canvas {
   padding-bottom: 0;
   border-bottom: 0;
 }
-.request-line .swatch {
-  width: 11px;
-  aspect-ratio: 1;
-  border-radius: 3px;
+.request-item {
+  min-width: 0;
 }
-.request-line strong {
+.request-line .item-chip-name {
   font-size: 0.78rem;
 }
 .request-price {
@@ -1671,17 +1749,10 @@ canvas {
   color: var(--gold);
 }
 .request-brief {
-  grid-column: 2 / 5;
+  grid-column: 1 / -1;
   color: #b9ccc5;
   font-size: 0.7rem;
   line-height: 1.45;
-}
-.request-line .contract-count {
-  grid-column: 2 / 5;
-  justify-self: start;
-}
-.request-line .contract-bar {
-  grid-column: 2 / 5;
 }
 
 .comfort-settings {
@@ -1783,11 +1854,14 @@ canvas {
   .command-bar {
     grid-template-columns: 180px 1fr auto;
   }
+  .rail-right {
+    top: 62px;
+    max-height: calc(100% - 148px);
+  }
+  /* Below this width the world is too narrow to keep a standing inspector beside it, so the one
+     panel that is open by default goes behind its key like the rest. */
   .inspector-panel {
     display: none;
-    top: 62px;
-    right: 14px;
-    max-height: calc(100% - 200px);
   }
   .inspector-panel.open {
     display: block;
@@ -1853,17 +1927,25 @@ canvas {
     width: 34px;
     height: 34px;
   }
-  .glass-panel,
-  .inspector-panel,
-  .inventory-panel,
-  .research-panel,
-  .quest-panel,
-  .session-panel {
+  /* One rectangle, one panel. There is no room to stack two here, which is why the host keeps the
+     old one-at-a-time behaviour below this width — see `ONE_PANEL_AT_A_TIME` in `src/main.ts`. */
+  .panel-rail,
+  .rail-left,
+  .rail-right {
     top: 56px;
     right: 8px;
     left: 8px;
     width: auto;
+    max-width: none;
     max-height: calc(100% - 148px);
+  }
+  .glass-panel,
+  .inspector-panel,
+  .build-panel,
+  .quest-panel,
+  .session-panel {
+    width: auto;
+    max-width: none;
     display: none;
   }
   .glass-panel.open,
