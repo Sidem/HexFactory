@@ -27,6 +27,7 @@ import {
   PLAYER_BODY,
   PLAYER_RING,
   spanEnd,
+  stallMark,
 } from "./buildingLook";
 import { drawParts } from "./shapeGrammar";
 import { drawHex, hexPath } from "./hexDraw";
@@ -166,9 +167,19 @@ export class CanvasFactoryRenderer {
   private readonly context: CanvasRenderingContext2D;
   private readonly itemsById: ReadonlyMap<number, ItemDefinition>;
   private readonly buildingsById: ReadonlyMap<number, BuildingDefinition>;
-  private readonly reducedMotion = matchMedia(
+  /**
+   * Motion is off when the system asks for it off, or when the player does. The system preference
+   * is the default and is never overridden downward: a player who set it at the operating system
+   * has already answered, and an in-game switch that could turn animation back on for them would
+   * be the game arguing with an accessibility setting.
+   */
+  private readonly systemReducedMotion = matchMedia(
     "(prefers-reduced-motion: reduce)",
   ).matches;
+  private forcedReducedMotion = false;
+  private get reducedMotion(): boolean {
+    return this.systemReducedMotion || this.forcedReducedMotion;
+  }
   private snapshot: FactorySnapshot | null = null;
   /**
    * Where the landing hub stands, so the view can always say which way home is. Resolved by the
@@ -210,6 +221,16 @@ export class CanvasFactoryRenderer {
 
   setHome(point: WorldPoint | null): void {
     this.home = point;
+  }
+
+  /** The player's own answer, on top of the system's. It can only ever reduce motion further. */
+  setReducedMotion(value: boolean): void {
+    this.forcedReducedMotion = value;
+    this.draw();
+  }
+
+  get motionReduced(): boolean {
+    return this.reducedMotion;
   }
 
   setHover(
@@ -854,6 +875,11 @@ export class CanvasFactoryRenderer {
       now: this.now,
       reducedMotion: this.reducedMotion,
       tier: definition?.tier,
+      // The hub is the one building the player never places, so what it has been built into is a
+      // fact about the contract rather than about the entity. Growth comes from the same published
+      // stage the mission header reads.
+      growth:
+        building.kind === "hub" ? (this.snapshot?.contract.stage ?? 0) : 0,
     });
     const tip = facingTip(center, size, building.orientation);
     ctx.strokeStyle = "#f3f7fa";
@@ -862,15 +888,36 @@ export class CanvasFactoryRenderer {
     ctx.moveTo(center.x, center.y);
     ctx.lineTo(tip.x, tip.y);
     ctx.stroke();
-    ctx.fillStyle = "#f5fbf8";
-    ctx.font = `900 ${Math.max(8, size * 0.23)}px system-ui`;
+    // The stamp is a label, not the machine. Drawn across the middle in bright white it covered the
+    // anatomy it was labelling, and a playtest found it doing all the identifying work at ordinary
+    // zoom — which made every machine the same drawing with different letters on it. It sits under
+    // the body now, smaller and quieter, so the shape is what the eye reaches first.
+    ctx.fillStyle = "#dbe9e2c9";
+    ctx.font = `800 ${Math.max(7, size * 0.2)}px system-ui`;
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     ctx.fillText(
       definition?.icon ?? building.kind.slice(0, 3).toUpperCase(),
       center.x,
-      center.y,
+      center.y + size * 0.46,
     );
+    // Why a machine is doing nothing, where it is doing nothing. Published status, one dot.
+    const stall = stallMark(building.status);
+    if (stall) {
+      ctx.fillStyle = stall;
+      ctx.beginPath();
+      ctx.arc(
+        center.x - size * 0.44,
+        center.y - size * 0.44,
+        Math.max(2.5, size * 0.13),
+        0,
+        Math.PI * 2,
+      );
+      ctx.fill();
+      ctx.strokeStyle = "#07100fcc";
+      ctx.lineWidth = 1;
+      ctx.stroke();
+    }
     if (building.progress_total > 0 && building.progress > 0) {
       ctx.strokeStyle = "#f5d572";
       ctx.lineWidth = Math.max(2, size * 0.1);

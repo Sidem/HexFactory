@@ -24,12 +24,14 @@
           >
         </a>
         <section class="mission-strip" aria-label="Current mission">
-          <span class="mission-kicker">Landing directive</span>
-          <strong id="mission-title">Establish component production</strong>
+          <span class="mission-kicker" id="mission-kicker"
+            >Founding contract</span
+          >
+          <strong id="mission-title">Prove the line</strong>
           <div class="mission-progress" aria-hidden="true">
             <i id="mission-progress-fill"></i>
           </div>
-          <span id="objective-value">0 / 3</span>
+          <span id="objective-value">0 / 3 Component</span>
         </section>
         <div class="command-actions">
           <span class="resource-chip" title="Research insight"
@@ -59,6 +61,16 @@
             Ⅱ
           </button>
           <button
+            id="sound"
+            class="icon-button"
+            type="button"
+            aria-pressed="true"
+            title="Mute feedback sounds (M)"
+            aria-label="Mute feedback sounds"
+          >
+            ♪
+          </button>
+          <button
             class="icon-button panel-toggle"
             type="button"
             data-panel-target="session-panel"
@@ -78,6 +90,29 @@
           tabindex="0"
           aria-label="Interactive HexFactory world map. Use WASD or the on-screen movement pad to explore, then choose a construction tool and select a hex to build. The player faces wherever the pointer is."
         ></canvas>
+
+        <!--
+          The next step, in permanent chrome. A player should never have to know that a key hides
+          the one useful sentence, so this is on screen from the first frame; pressing it opens the
+          full brief behind the same toggle P uses.
+        -->
+        <button
+          id="next-step"
+          class="next-step panel-toggle"
+          type="button"
+          data-panel-target="quest-panel"
+          aria-controls="quest-panel"
+          aria-expanded="false"
+        >
+          <span class="section-kicker">Next step · P</span>
+          <strong id="next-step-title" aria-live="polite"
+            >Survey the landing zone</strong
+          >
+          <small id="next-step-detail"
+            >The hatched fog is unsurveyed world. Walk toward it to reveal
+            terrain, then gather from an ore or crystal field.</small
+          >
+        </button>
 
         <aside
           id="inspector-panel"
@@ -310,6 +345,17 @@
             Deliver raw materials to earn insight. Each breakthrough expands the
             build dock.
           </p>
+          <!--
+            Progressive disclosure. The default view is what you have, what you can take next, and
+            what those unlock; the whole tree is one press away for planning, and the count says
+            what is being held back so nothing feels hidden.
+          -->
+          <button
+            id="research-scope"
+            class="scope-toggle"
+            type="button"
+            aria-pressed="false"
+          ></button>
           <div id="technology-list" class="technology-list"></div>
         </aside>
 
@@ -336,6 +382,12 @@
             the bar, or drag a card straight onto the slot you want. Drag a slot
             off the bar to clear it.
           </p>
+          <button
+            id="build-scope"
+            class="scope-toggle"
+            type="button"
+            aria-pressed="false"
+          ></button>
           <div id="build-groups" class="build-groups"></div>
         </aside>
 
@@ -362,20 +414,25 @@
             terrain, then gather from an ore or crystal field.
           </p>
           <div class="quest-objective">
-            <span class="section-kicker">Landing directive</span>
+            <span class="section-kicker" id="contract-kicker"
+              >Founding contract</span
+            >
             <p id="quest-detail">
               Deliver 3 components to the landing hub. Progress: 0.
             </p>
+            <ul id="contract-bill" class="contract-bill"></ul>
           </div>
 
           <div class="control-block">
             <span class="section-kicker">Moving and looking</span>
             <p>
-              Move with <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd>. The
-              player always faces the pointer. <kbd>Space</kbd> centres the
-              camera back on the player, <kbd>T</kbd> pauses and resumes the
-              factory, and dragging with the right or middle button pans while
-              the wheel zooms.
+              Move with <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd>, and
+              hold <kbd>Shift</kbd> to walk slowly when you want to stop on one
+              particular hex. The player always faces the pointer.
+              <kbd>Space</kbd> centres the camera back on the player,
+              <kbd>T</kbd> pauses and resumes the factory, <kbd>M</kbd> mutes
+              the feedback sounds, and dragging with the right or middle button
+              pans while the wheel zooms.
             </p>
           </div>
           <div class="control-block">
@@ -514,6 +571,19 @@
           <p id="save-status" class="save-status" role="status">
             No local save yet.
           </p>
+          <hr />
+          <div class="comfort-settings">
+            <label class="switch"
+              ><input id="reduce-motion" type="checkbox" />Reduce motion</label
+            >
+            <label class="switch"
+              ><input id="mute" type="checkbox" />Mute sounds</label
+            >
+            <p class="comfort-note">
+              The system's own reduced-motion setting is always honoured; this
+              only ever quietens more.
+            </p>
+          </div>
           <hr />
           <div class="simulation-settings">
             <button id="step" type="button">Single step</button>

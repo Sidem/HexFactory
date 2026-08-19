@@ -1,7 +1,7 @@
 {
   "cases": [
     {
-      "bytes": "4858464402292ac0843defbeadde00",
+      "bytes": "4858464403292ac0843defbeadde00",
       "delta": {
         "base_revision": 41,
         "checksum": 3735928559,
@@ -11,7 +11,7 @@
       "name": "a quiet frame"
     },
     {
-      "bytes": "48584644020203ac0207000000ff9f02086e65772d67616d65084e65772067616d6505ffffffff0fffffffffffffff0f020180a094a58d1dac020080f40301090403ff880fe2ef4fcf0fc40d00010301280314ffff03010580200c0201280314880906040102030402000003ff7fff7f808002030200ffff04808001808002021147617468657265642049726f6e206f72652644656c697665726564203320c39720537465656c20e28094206f626a656374697665206d6574",
+      "bytes": "48584644030203ac0207000000ff9f02086e65772d67616d65084e65772067616d6505ffffffff0fffffffffffffff0f020180a094a58d1dac020080f4030108666f756e64696e6711466f756e64696e6720636f6e7472616374010207666f756e6472791852616973652074686520666f756e647279206d6f64756c6525506c61746520616e6420627269636b2c2066726f6d2074776f206c616e647363617065732e020b10100e001400ff880fe2ef4fcf0fc40d00010301280314ffff03010580200c0201280314880906040102030402000003ff7fff7f808002030200ffff04808001808002021147617468657265642049726f6e206f72652644656c697665726564203320c39720537465656c20e28094206f626a656374697665206d6574",
       "delta": {
         "base_revision": 2,
         "checksum": 7,
@@ -33,6 +33,28 @@
             "y": 8192
           }
         ],
+        "contract": {
+          "complete": false,
+          "key": "founding",
+          "name": "Founding contract",
+          "requirements": [
+            {
+              "delivered": 16,
+              "item_id": 11,
+              "required": 16
+            },
+            {
+              "delivered": 0,
+              "item_id": 14,
+              "required": 20
+            }
+          ],
+          "stage": 1,
+          "stage_brief": "Plate and brick, from two landscapes.",
+          "stage_key": "foundry",
+          "stage_name": "Raise the foundry module",
+          "stages": 2
+        },
         "delivered": 9007199254740991,
         "delivered_by_item": [
           {
@@ -46,11 +68,6 @@
         ],
         "events": ["Gathered Iron ore", "Delivered 3 × Steel — objective met"],
         "insight": 64000,
-        "objective": {
-          "delivered": 4,
-          "item_id": 9,
-          "required": 3
-        },
         "player": {
           "action_cooldown": 5,
           "action_cooldown_total": 6,
@@ -91,7 +108,7 @@
       "name": "every scalar group"
     },
     {
-      "bytes": "48584644020a0b80040403020180e001020507cb8a01ff5f8008060200dc1b0080080000023f00fff6060080080100300006ca298048800802113c0002070400020103000000000c010000f8ffffff0f010c030205ff0b040202010605ac021128fa01640509080c030000020000020301018207",
+      "bytes": "48584644030a0b80040403020180e001020507cb8a01ff5f8008060200dc1b0080080000023f00fff6060080080100300006ca298048800802113c0002070400020103000000000c010000f8ffffff0f010c030205ff0b040202010605ac021128fa01640509080c030000020000020301018207",
       "delta": {
         "base_revision": 10,
         "buildings": {
@@ -216,7 +233,7 @@
       "name": "both patches with entries"
     },
     {
-      "bytes": "48584644020001000100000080c003010001000000",
+      "bytes": "48584644030001000100000080c003010001000000",
       "delta": {
         "base_revision": 0,
         "buildings": {
@@ -274,5 +291,5 @@
     "highland",
     "cliff"
   ],
-  "version": 2
+  "version": 3
 }

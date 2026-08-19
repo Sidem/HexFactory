@@ -62,7 +62,17 @@ const snapshot: FactorySnapshot = {
   delivered_by_item: [{ item_id: 1, quantity: 2 }],
   insight: 4,
   victory: false,
-  objective: { item_id: 2, delivered: 0, required: 3 },
+  contract: {
+    key: "founding",
+    name: "Founding contract",
+    stage: 0,
+    stages: 2,
+    stage_key: "components",
+    stage_name: "Prove the line",
+    stage_brief: "Deliver three components to the landing hub.",
+    requirements: [{ item_id: 2, delivered: 0, required: 3 }],
+    complete: false,
+  },
   player: {
     x: 1774,
     y: 0,
@@ -166,6 +176,29 @@ describe("bounded host input", () => {
       x: 707,
       y: -707,
     });
+    // Precision walking is a smaller intent, never a smaller step: the magnitude field native
+    // already accepts is what carries it, so no rule about the player's clock moves for it. At
+    // full speed a hex column takes about a quarter of a second, which is why holding a direction
+    // overshoots one; at 0.4 it is closer to two thirds of a second and a single hex is aimable.
+    expect(movementIntent(new Set(["KeyD"]), true)).toEqual({
+      type: "move_intent",
+      x: 400,
+      y: 0,
+    });
+    expect(movementIntent(new Set(["KeyW", "KeyD"]), true)).toEqual({
+      type: "move_intent",
+      x: 283,
+      y: -283,
+    });
+    // Still bounded by what the command encoder will accept, precise or not.
+    for (const precise of [false, true])
+      for (const keys of [["KeyW"], ["KeyW", "KeyD"], ["KeyA", "KeyS"]]) {
+        const intent = movementIntent(new Set(keys), precise);
+        expect(Math.abs(intent.x)).toBeLessThanOrEqual(1000);
+        expect(Math.abs(intent.y)).toBeLessThanOrEqual(1000);
+        expect(Number.isInteger(intent.x)).toBe(true);
+        expect(Number.isInteger(intent.y)).toBe(true);
+      }
     const queue = new BoundedInputQueue();
     for (let index = 0; index < MAX_INPUT_COMMANDS; index += 1)
       expect(queue.enqueue({ type: "move_intent", x: 0, y: -1000 })).toBe(true);
@@ -697,6 +730,19 @@ describe("availability and expanded snapshot adapter", () => {
     expect(html).toContain("<kbd>Q</kbd>");
     expect(html).toContain("<kbd>Ctrl</kbd>+<kbd>Z</kbd>");
     expect(html).toContain('id="next-action-title"');
+    // The next step is permanent chrome, not something behind a key a new player has to find.
+    expect(html).toContain('id="next-step-title"');
+    expect(html).toContain('id="next-step-detail"');
+    // Comfort controls exist in the product, both on the bar and in the menu, and the precision
+    // walk that fixes single-hex overshoot is documented in the page rather than only in the repo.
+    expect(html).toContain('id="sound"');
+    expect(html).toContain('id="reduce-motion"');
+    expect(html).toContain('id="mute"');
+    expect(html).toContain("<kbd>Shift</kbd>");
+    // Progressive disclosure has a visible control on both catalogues, so nothing is silently held
+    // back from a player who wants the whole tree.
+    expect(html).toContain('id="research-scope"');
+    expect(html).toContain('id="build-scope"');
     expect(html).toContain('data-move-key="KeyW"');
     expect(html).toContain('data-native-action="gather"');
     expect(html).toContain('aria-label="Current mission"');

@@ -283,6 +283,31 @@ export interface PlayerSnapshot extends WorldPoint {
   action_cooldown_total: number;
 }
 
+/**
+ * The landing hub's standing demand. Native owns the stage, the bill, and the sentence in front of
+ * it, so the mission header, the panel, and the drawing of the hub cannot disagree about which
+ * project is current. `stage` doubles as how far the hub has grown.
+ */
+export interface ContractSnapshot {
+  key: string;
+  name: string;
+  stage: number;
+  stages: number;
+  stage_key: string;
+  stage_name: string;
+  stage_brief: string;
+  /** The current stage's bill. Empty once every stage is complete. */
+  requirements: ContractRequirement[];
+  complete: boolean;
+}
+
+export interface ContractRequirement {
+  item_id: number;
+  /** Already clamped natively to `required`, so a bar is two published numbers. */
+  delivered: number;
+  required: number;
+}
+
 export interface FactorySnapshot {
   scenario: string;
   scenario_name: string;
@@ -294,7 +319,7 @@ export interface FactorySnapshot {
   delivered_by_item: Ingredient[];
   insight: number;
   victory: boolean;
-  objective: { item_id: number; delivered: number; required: number };
+  contract: ContractSnapshot;
   player: PlayerSnapshot;
   researched: number[];
   chunks: ChunkSnapshot[];

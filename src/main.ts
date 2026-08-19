@@ -8,7 +8,9 @@ import {
   buildingAvailability,
   technologyAvailability,
 } from "./core/availability";
+import { cueForEvent, FeedbackAudio } from "./audio/feedback";
 import { FactoryHost } from "./core/FactoryHost";
+import { nextAction } from "./core/guidance";
 import { BoundedInputQueue, MOVEMENT_KEYS, movementIntent } from "./core/input";
 import { TERRAIN_INFO, TERRAIN_ORDER, terrainAccess } from "./core/terrain";
 import type {
@@ -18,6 +20,7 @@ import type {
   NativeInputCommand,
   PlacementPreview,
   RecipeDefinition,
+  TechnologyDefinition,
   WorldParams,
   WorldPoint,
 } from "./core/types";
@@ -43,8 +46,24 @@ type Tool = "inspect" | "erase" | "rotate" | "upgrade" | number;
  * definition version, which the old key did not carry at all, so a v0.16 save would have sat
  * under an unchanged key behind a Continue button that could only fail. Naming every number the
  * envelope refuses on retires an incompatible save instead of offering it.
+ *
+ * v0.18 stops writing three of them down. The definition, technology, and scenario catalogue
+ * versions are all published to the host, so the key reads them rather than restating them — a
+ * number a person has to remember to copy is a number that will eventually not be copied, and
+ * twice now it has not been. The scenario version joins them because the envelope refuses on that
+ * too, and the Founding Contract is exactly the kind of change that moves it. `SAVE_VERSION` stays
+ * a literal because native does not publish it; it is the headline of any save-format change, and
+ * `v8` is the Founding Contract's.
  */
-const SAVE_KEY = "hexfactory:hxf1:v7w6d8t4";
+function saveKey(): string {
+  return [
+    "hexfactory:hxf1:v8",
+    `w${snapshot.world_version}`,
+    `d${host.definitions.version}`,
+    `t${host.technologies.version}`,
+    `s${host.scenarios.version}`,
+  ].join("");
+}
 /**
  * The eight routing headings, in the core's own order. The six edges keep their indices; north and
  * south are appended, which is why every saved orientation still names the direction it always
@@ -101,6 +120,11 @@ const PANEL_KEYS: Record<string, string> = {
 const SILENT_EVENTS = new Set(["action cooling down"]);
 const canvas = required<HTMLCanvasElement>("factory-canvas");
 const playButton = required<HTMLButtonElement>("play");
+const soundButton = required<HTMLButtonElement>("sound");
+const muteInput = required<HTMLInputElement>("mute");
+const reduceMotionInput = required<HTMLInputElement>("reduce-motion");
+/** Comfort settings are preferences about a room, so they live beside the hotbar, not in a save. */
+const MOTION_KEY = "hexfactory:reduced-motion:v1";
 const speedInput = required<HTMLSelectElement>("speed");
 const scenarioInput = required<HTMLSelectElement>("scenario");
 const seedInput = required<HTMLInputElement>("seed");
@@ -112,6 +136,7 @@ const worldParameterFields = required<HTMLDivElement>("world-parameter-fields");
 const toolShelf = required<HTMLDivElement>("tool-shelf");
 const feedback = required<HTMLDivElement>("feedback");
 const input = new BoundedInputQueue();
+const audio = new FeedbackAudio();
 const host = await FactoryHost.create();
 const renderer = new CanvasFactoryRenderer(canvas, host.definitions);
 const minimap = new MinimapRenderer(
@@ -258,6 +283,9 @@ const DEFAULT_HOTBAR: (Tool | null)[] = [2, 1, 3, 4, 7, 8, 12, 13, 18];
 /** Which slot each definition sits in, or null for an empty slot. Presentation only — never saved
  * with the game, never hashed: it is a preference about a keyboard, not a fact about a factory. */
 let hotbar: (Tool | null)[] = loadHotbar();
+/** Panel scope, not game state: which side of progressive disclosure each catalogue is showing. */
+let showAllTechnologies = false;
+let showAllBuildings = false;
 /** The slot a drag is currently over, so the drop target can be shown before the pointer lands. */
 let hotbarDragOver: number | null = null;
 
@@ -316,10 +344,6 @@ function update(next: FactorySnapshot): void {
     snapshot.tick.toLocaleString();
   required<HTMLElement>("insight-value").textContent =
     snapshot.insight.toLocaleString();
-  required<HTMLElement>("objective-value").textContent =
-    snapshot.scenario === "factory-demo"
-      ? "LIVE"
-      : `${snapshot.objective.delivered} / ${snapshot.objective.required}`;
   required<HTMLElement>("position-value").textContent =
     `${(snapshot.player.x / 1024).toFixed(1)}, ${(snapshot.player.y / 1024).toFixed(1)}`;
   required<HTMLElement>("surveyed-value").textContent =
@@ -333,20 +357,25 @@ function update(next: FactorySnapshot): void {
   renderBuildPanel();
   renderTechnologies();
   renderInspector();
-  renderObjective();
+  renderContract();
   renderNextAction();
   const latestEvent = snapshot.events.at(-1) ?? "";
   if (
     latestEvent &&
     latestEvent !== lastEvent &&
     !SILENT_EVENTS.has(latestEvent)
-  )
+  ) {
     showFeedback(latestEvent);
+    // Sound comes from the same event the toast does, so a delivery made by a belt and one made
+    // by hand are the same thing heard as well as read.
+    const cue = cueForEvent(latestEvent);
+    if (cue) audio.play(cue);
+  }
   lastEvent = latestEvent;
   const victory = required<HTMLDivElement>("victory");
   victory.hidden = !snapshot.victory;
   if (!previousVictory && snapshot.victory)
-    showFeedback("Landing objective complete — free play continues");
+    showFeedback("Founding contract complete — free play continues");
 }
 
 /**
@@ -604,8 +633,39 @@ function renderHotbar(): void {
  * cards inside them are patched, and they are patched rather than rebuilt for the usual reason:
  * every card carries a Pin control.
  */
+/**
+ * Which buildings the catalogue leads with.
+ *
+ * Unlocked machines, plus what the next affordable research would unlock — the locks a player has
+ * a live reason to read. Every late machine at minute zero is a wall, not a catalogue, and the
+ * complete list is still one press away.
+ */
+function catalogueVisible(
+  definition: BuildingDefinition,
+  reach: Map<number, number>,
+): boolean {
+  if (showAllBuildings) return true;
+  const technology = definition.unlock_technology_id;
+  if (technology === undefined) return true;
+  return (reach.get(technology) ?? Number.MAX_SAFE_INTEGER) <= DISCLOSURE_REACH;
+}
+
 function renderBuildPanel(): void {
   const root = required<HTMLDivElement>("build-groups");
+  const buildable = host.definitions.buildings.filter(
+    (definition) => definition.buildable,
+  );
+  const reach = technologyReach();
+  const hidden = buildable.filter(
+    (definition) => !catalogueVisible(definition, reach),
+  ).length;
+  const scope = required<HTMLButtonElement>("build-scope");
+  scope.textContent = showAllBuildings
+    ? "Show what is in reach"
+    : hidden > 0
+      ? `Show everything (${hidden} locked)`
+      : "Show everything";
+  scope.setAttribute("aria-pressed", String(showAllBuildings));
   if (!root.childElementCount)
     for (const group of BUILD_GROUPS) {
       const section = document.createElement("section");
@@ -619,8 +679,9 @@ function renderBuildPanel(): void {
       `[data-group="${group.key}"]`,
     );
     if (!section) continue;
-    const definitions = host.definitions.buildings.filter(
-      (definition) => definition.buildable && group.holds(definition),
+    const definitions = buildable.filter(
+      (definition) =>
+        group.holds(definition) && catalogueVisible(definition, reach),
     );
     section.hidden = definitions.length === 0;
     const cards = syncChildren(
@@ -822,9 +883,73 @@ function describeRecipe(recipe: RecipeDefinition): string {
  * two reasons applies and how far off it is. A locked technology that explains nothing is the same
  * defect as a control that needs explaining.
  */
+/**
+ * How many unresearched technologies stand between the player and each one, counting itself.
+ *
+ * Zero is researched, one is available now, two is available after one more. This is the whole of
+ * progressive disclosure: both catalogues lead with what the player can reach, and both hand over
+ * everything behind one control. It is a distance over the shipped graph rather than a curated
+ * list, so a new technology needs no thought here at all.
+ */
+const DISCLOSURE_REACH = 2;
+
+function technologyReach(): Map<number, number> {
+  const all = host.technologies.technologies;
+  const researched = new Set(snapshot.researched);
+  const depth = new Map<number, number>();
+  const measure = (id: number, guard: Set<number>): number => {
+    const known = depth.get(id);
+    if (known !== undefined) return known;
+    if (researched.has(id)) {
+      depth.set(id, 0);
+      return 0;
+    }
+    // A cycle is refused natively, so this only guards against a catalogue that never loaded.
+    if (guard.has(id)) return Number.MAX_SAFE_INTEGER;
+    guard.add(id);
+    const technology = all.find((value) => value.id === id);
+    const behind = (technology?.prerequisites ?? []).reduce(
+      (deepest, prerequisite) =>
+        Math.max(deepest, measure(prerequisite, guard)),
+      0,
+    );
+    guard.delete(id);
+    const value = behind + 1;
+    depth.set(id, value);
+    return value;
+  };
+  for (const technology of all) measure(technology.id, new Set());
+  return depth;
+}
+
+/**
+ * Which technologies the research panel shows by default: everything the player has, everything
+ * they can take now, and everything one more breakthrough opens. What that leaves out is the far
+ * end of a tree they have no live choice about, which is what made minute zero read as the whole
+ * locked game. The full tree stays one press away, because planning is a real reason to want it
+ * and hiding it would be a different defect.
+ */
+function visibleTechnologies(): TechnologyDefinition[] {
+  const all = host.technologies.technologies;
+  if (showAllTechnologies) return all;
+  const reach = technologyReach();
+  return all.filter(
+    (technology) =>
+      (reach.get(technology.id) ?? Number.MAX_SAFE_INTEGER) <= DISCLOSURE_REACH,
+  );
+}
+
 function renderTechnologies(): void {
   const list = required<HTMLDivElement>("technology-list");
-  const technologies = host.technologies.technologies;
+  const technologies = visibleTechnologies();
+  const hidden = host.technologies.technologies.length - technologies.length;
+  const scope = required<HTMLButtonElement>("research-scope");
+  scope.textContent = showAllTechnologies
+    ? "Show what is in reach"
+    : hidden > 0
+      ? `Show the full tree (${hidden} more)`
+      : "Show the full tree";
+  scope.setAttribute("aria-pressed", String(showAllTechnologies));
   const buttons = syncChildren(
     list,
     technologies.map(({ id }) => String(id)),
@@ -842,7 +967,9 @@ function renderTechnologies(): void {
     const missing = technology.prerequisites
       .filter((id) => !snapshot.researched.includes(id))
       .map(
-        (id) => technologies.find((value) => value.id === id)?.name ?? `#${id}`,
+        (id) =>
+          host.technologies.technologies.find((value) => value.id === id)
+            ?.name ?? `#${id}`,
       );
     const unlocks = technology.unlocks
       .map(
@@ -1362,100 +1489,105 @@ function renderRecipePicker(): void {
   select.value = String(recipeFor(tool) ?? choices[0]?.id ?? "");
 }
 
-function renderObjective(): void {
-  const item = host.definitions.items.find(
-    ({ id }) => id === snapshot.objective.item_id,
-  );
-  const detail = snapshot.victory
-    ? `Complete: ${snapshot.objective.delivered} ${item?.name ?? "items"} delivered. Continue building freely.`
-    : `Deliver ${snapshot.objective.required} ${item?.name ?? "items"} to the landing hub. Progress: ${snapshot.objective.delivered}.`;
-  // The same sentence in both places it belongs: the completion banner and the objective panel.
-  required<HTMLElement>("objective-detail").textContent = detail;
-  required<HTMLElement>("quest-detail").textContent = detail;
-  const progress = Math.min(
-    100,
-    (snapshot.objective.delivered / Math.max(1, snapshot.objective.required)) *
-      100,
-  );
-  required<HTMLElement>("mission-progress-fill").style.width =
-    snapshot.scenario === "factory-demo" ? "100%" : `${progress}%`;
-  required<HTMLElement>("mission-title").textContent = snapshot.victory
-    ? "Landing directive complete — free build enabled"
-    : snapshot.scenario === "factory-demo"
+/**
+ * The contract, in the three places it belongs: the permanent mission header, the panel that
+ * explains it, and the completion banner.
+ *
+ * Every number here is published. The bar is the mean of the stage's lines against their own
+ * requirements — both halves of each proportion come from native, so the host never infers a
+ * maximum by watching a value climb.
+ */
+function renderContract(): void {
+  const contract = snapshot.contract;
+  const demo = snapshot.scenario === "factory-demo";
+  const lines = contract.requirements.map((need) => {
+    const item = host.definitions.items.find(({ id }) => id === need.item_id);
+    return {
+      need,
+      name: item?.name ?? `Item ${need.item_id}`,
+      color: item?.color ?? "#8fd4ff",
+    };
+  });
+
+  const progress = contract.complete
+    ? 1
+    : lines.length === 0
+      ? 0
+      : lines.reduce(
+          (total, { need }) =>
+            total + need.delivered / Math.max(1, need.required),
+          0,
+        ) / lines.length;
+
+  required<HTMLElement>("mission-kicker").textContent = contract.complete
+    ? contract.name
+    : `${contract.name} · ${contract.stage + 1} of ${contract.stages}`;
+  required<HTMLElement>("mission-title").textContent = contract.complete
+    ? `${contract.name} complete — free build enabled`
+    : demo
       ? "Observe the compiled production line"
-      : "Establish component production";
+      : contract.stage_name;
+  // The header names the thing behind the number. `0 / 3` on its own never said what the three
+  // were, which is the whole complaint the playtest recorded against it.
+  required<HTMLElement>("objective-value").textContent = demo
+    ? "LIVE"
+    : contract.complete
+      ? "DONE"
+      : lines
+          .map(
+            ({ need, name }) => `${need.delivered} / ${need.required} ${name}`,
+          )
+          .join(" · ");
+  required<HTMLElement>("mission-progress-fill").style.width = demo
+    ? "100%"
+    : `${Math.min(100, progress * 100)}%`;
+
+  const detail = contract.complete
+    ? `${contract.name} complete. The landing hub is built and the world stays open — expand, optimize, or start something larger.`
+    : contract.stage_brief;
+  required<HTMLElement>("objective-detail").textContent = contract.complete
+    ? "Free play continues."
+    : `${contract.stage_name} · ${lines.map(({ need, name }) => `${need.delivered}/${need.required} ${name}`).join(", ")}`;
+  required<HTMLElement>("contract-kicker").textContent = contract.complete
+    ? contract.name
+    : `${contract.name} · stage ${contract.stage + 1} of ${contract.stages}`;
+  required<HTMLElement>("quest-detail").textContent = detail;
+
+  const bill = required<HTMLElement>("contract-bill");
+  const rows = syncChildren(
+    bill,
+    lines.map(({ need }) => String(need.item_id)),
+    () => {
+      const row = document.createElement("li");
+      row.className = "contract-line";
+      row.innerHTML = `<span class="swatch"></span><strong></strong><span class="contract-count"></span><i class="contract-bar"><b></b></i>`;
+      return row;
+    },
+  );
+  lines.forEach(({ need, name, color }, index) => {
+    const row = rows[index];
+    if (!row) return;
+    part<HTMLElement>(row, ".swatch").style.background = color;
+    part(row, "strong").textContent = name;
+    part(row, ".contract-count").textContent =
+      `${need.delivered} / ${need.required}`;
+    part<HTMLElement>(row, ".contract-bar b").style.width =
+      `${Math.min(100, (need.delivered / Math.max(1, need.required)) * 100)}%`;
+  });
 }
 
+/**
+ * The next step, in the panel and in the permanent chrome, from one derivation.
+ *
+ * `nextAction` reads the contract and the catalogues rather than a branch ladder, so this is only
+ * layout. See `src/core/guidance.ts` for why the script had to go.
+ */
 function renderNextAction(): void {
-  const ore = snapshot.player.inventory["1"] ?? 0;
-  const components = snapshot.player.inventory["2"] ?? 0;
-  const crystals = snapshot.player.inventory["3"] ?? 0;
-  const researched = new Set(snapshot.researched);
-  let title = "Survey the landing zone";
-  let detail =
-    "The hatched fog is unsurveyed world. Walk toward it to reveal terrain, then gather from an ore or crystal field.";
-  if (snapshot.victory) {
-    title = "Factory online";
-    detail =
-      "The landing directive is complete. Expand, optimize, or inspect the running line.";
-  } else if (snapshot.scenario === "factory-demo") {
-    title = "Trace the material flow";
-    detail =
-      "Follow cargo from extractor to receiver. Pause or single-step to inspect arbitration.";
-  } else if (
-    snapshot.player.carry_stacks.length >= snapshot.player.carry_slots
-  ) {
-    // A full pack blocks gathering and recovery both, so it outranks whatever came next.
-    title = "Your pack is full";
-    detail =
-      "Deliver at the landing hub, or build a container and take stacks back out of it from the inspector.";
-  } else if (!researched.has(1) && snapshot.insight >= 3) {
-    title = "Unlock Field Logistics";
-    detail =
-      "You have enough insight. Research Field Logistics to add belts to the construction dock.";
-  } else if (!researched.has(1) && ore + crystals === 0) {
-    title = "Gather your first material";
-    detail =
-      "Walk onto an ore or crystal field, then gather. Hover a field to read its name and remaining amount.";
-  } else if (!researched.has(1)) {
-    title = "Deliver materials for insight";
-    detail =
-      "Return to the gold landing hub and deliver your cargo. Three ore fund the first breakthrough.";
-  } else if (!researched.has(2) && snapshot.insight >= 5) {
-    title = "Automate extraction";
-    detail =
-      "Research Automated Extraction, then place an extractor on a field hex. It harvests every cell within one step.";
-  } else if (!researched.has(2)) {
-    title = "Fund Automated Extraction";
-    detail =
-      "Gather and deliver more raw material until you have five insight.";
-  } else if (!researched.has(3) && snapshot.insight >= 8) {
-    title = "Unlock Composition";
-    detail =
-      "Research Composition to unlock the two-hex composer and the final production path.";
-  } else if (!researched.has(3)) {
-    title = "Build the supply line";
-    detail =
-      "Use extractors and directional belts to automate deliveries and earn eight insight.";
-  } else if (components > 0) {
-    title = "Deliver completed components";
-    detail =
-      "Bring components to the landing hub and deliver them to finish the directive.";
-  } else if (!researched.has(5) && snapshot.insight >= 6) {
-    title = "Unlock Material Processing";
-    detail =
-      "Research it for the smelter and the kiln. A kiln chars wood into fuel, and that fuel is what a smelter burns to make plate.";
-  } else if (!researched.has(5)) {
-    title = "Compose three components";
-    detail =
-      "Route ore into a composer, point its output toward the hub, and keep the line supplied. Six insight also unlocks smelting.";
-  } else {
-    title = "Build the material base";
-    detail =
-      "Terrain is the material map: iron and coal in highland, copper in hills, sand and clay on shores, stone at cliffs, wood in moist lowland. Belt fuel into a smelter and it burns whatever arrives.";
-  }
-  required<HTMLElement>("next-action-title").textContent = title;
-  required<HTMLElement>("next-action-detail").textContent = detail;
+  const guidance = nextAction(snapshot, host.definitions, host.technologies);
+  required<HTMLElement>("next-action-title").textContent = guidance.title;
+  required<HTMLElement>("next-action-detail").textContent = guidance.detail;
+  required<HTMLElement>("next-step-title").textContent = guidance.title;
+  required<HTMLElement>("next-step-detail").textContent = guidance.detail;
 }
 
 function showFeedback(message: string): void {
@@ -1467,6 +1599,43 @@ function showFeedback(message: string): void {
     () => feedback.classList.remove("visible"),
     2200,
   );
+}
+
+/**
+ * Sound is optional to the player, never absent from the product. The control is in permanent
+ * chrome beside pause for the same reason: a game that only makes noise is a game somebody has to
+ * mute by leaving.
+ */
+function setMuted(value: boolean): void {
+  audio.setMuted(value);
+  muteInput.checked = value;
+  soundButton.textContent = value ? "♪̸" : "♪";
+  soundButton.setAttribute("aria-pressed", String(!value));
+  soundButton.setAttribute(
+    "aria-label",
+    value ? "Unmute feedback sounds" : "Mute feedback sounds",
+  );
+  soundButton.title = value
+    ? "Unmute feedback sounds (M)"
+    : "Mute feedback sounds (M)";
+}
+
+function setReducedMotion(value: boolean): void {
+  reduceMotionInput.checked = value;
+  renderer.setReducedMotion(value);
+  try {
+    window.localStorage.setItem(MOTION_KEY, value ? "1" : "0");
+  } catch {
+    // The preference is lost, the session is not.
+  }
+}
+
+function loadReducedMotion(): boolean {
+  try {
+    return window.localStorage.getItem(MOTION_KEY) === "1";
+  } catch {
+    return false;
+  }
 }
 
 function setPlaying(value: boolean): void {
@@ -1548,6 +1717,19 @@ async function flushHoverPreview(): Promise<void> {
 }
 
 playButton.addEventListener("click", () => setPlaying(!playing));
+soundButton.addEventListener("click", () => setMuted(!audio.isMuted));
+muteInput.addEventListener("change", () => setMuted(muteInput.checked));
+reduceMotionInput.addEventListener("change", () =>
+  setReducedMotion(reduceMotionInput.checked),
+);
+required<HTMLButtonElement>("research-scope").addEventListener("click", () => {
+  showAllTechnologies = !showAllTechnologies;
+  renderTechnologies();
+});
+required<HTMLButtonElement>("build-scope").addEventListener("click", () => {
+  showAllBuildings = !showAllBuildings;
+  renderBuildPanel();
+});
 required<HTMLButtonElement>("step").addEventListener("click", () => {
   setPlaying(false);
   void host.tick(1).then(update).catch(reportWorkerError);
@@ -1734,7 +1916,7 @@ required<HTMLButtonElement>("new-game").addEventListener("click", async () => {
 });
 required<HTMLButtonElement>("save").addEventListener("click", async () => {
   try {
-    localStorage.setItem(SAVE_KEY, await host.save());
+    localStorage.setItem(saveKey(), await host.save());
     updateContinueState("HXF1 save stored locally.");
     showFeedback("Game saved");
   } catch (error) {
@@ -1742,7 +1924,7 @@ required<HTMLButtonElement>("save").addEventListener("click", async () => {
   }
 });
 required<HTMLButtonElement>("continue").addEventListener("click", async () => {
-  const save = localStorage.getItem(SAVE_KEY);
+  const save = localStorage.getItem(saveKey());
   if (!save) return;
   try {
     input.clear();
@@ -1959,8 +2141,14 @@ window.addEventListener("keydown", (event) => {
     event.preventDefault();
     if (!pressedMovement.has(event.code)) {
       pressedMovement.add(event.code);
-      enqueue(movementIntent(pressedMovement));
+      enqueue(movementIntent(pressedMovement, event.shiftKey));
     }
+    return;
+  }
+  // Shift is a walk speed, not a key: it changes an intent already in flight, so it has to resend
+  // one. Held on its own it does nothing, which is what makes it safe to press at any time.
+  if (event.code === "ShiftLeft" || event.code === "ShiftRight") {
+    if (pressedMovement.size) enqueue(movementIntent(pressedMovement, true));
     return;
   }
   if (event.code === "Escape") {
@@ -1971,6 +2159,7 @@ window.addEventListener("keydown", (event) => {
   // panned away needs most. Pause moved to T rather than fighting it for the key.
   else if (event.code === "Space") renderer.recenter();
   else if (event.code === "KeyT") setPlaying(!playing);
+  else if (event.code === "KeyM") setMuted(!audio.isMuted);
   else if (event.code in PANEL_KEYS)
     togglePanel(PANEL_KEYS[event.code] as string);
   else if (event.code === "KeyF") {
@@ -2001,11 +2190,15 @@ window.addEventListener("keydown", (event) => {
 
 window.addEventListener("keyup", (event) => {
   if (event.code === "KeyF") gatherHeld = false;
+  if (event.code === "ShiftLeft" || event.code === "ShiftRight") {
+    if (pressedMovement.size) enqueue(movementIntent(pressedMovement, false));
+    return;
+  }
   if (!pressedMovement.delete(event.code)) return;
   event.preventDefault();
   // Stopping is sent on the same frame the key comes up. Coalescing the release made every stop
   // read as a slide, which is the kind of latency a player feels without being able to name it.
-  enqueue(movementIntent(pressedMovement));
+  enqueue(movementIntent(pressedMovement, event.shiftKey));
 });
 
 window.addEventListener("blur", () => {
@@ -2455,7 +2648,8 @@ function frame(now: number): void {
 }
 
 function updateContinueState(message?: string): void {
-  const hasSave = localStorage.getItem(SAVE_KEY)?.startsWith("HXF1\n") ?? false;
+  const hasSave =
+    localStorage.getItem(saveKey())?.startsWith("HXF1\n") ?? false;
   required<HTMLButtonElement>("continue").disabled = !hasSave;
   required<HTMLElement>("save-status").textContent =
     message ??
@@ -2542,6 +2736,8 @@ function part<T extends HTMLElement>(root: HTMLElement, selector: string): T {
 }
 
 renderTerrainLegend();
+setMuted(audio.isMuted);
+setReducedMotion(loadReducedMotion());
 update(snapshot);
 syncSessionInputs(snapshot);
 updateContinueState();

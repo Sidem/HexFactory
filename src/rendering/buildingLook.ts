@@ -11,7 +11,14 @@ import type {
   PowerSource,
 } from "../core/types";
 import { hexPath } from "./hexDraw";
-import { applyTier, drawParts, isStill, type ShapePart } from "./shapeGrammar";
+import {
+  applyLadder,
+  applyTier,
+  drawParts,
+  HUB_LADDER,
+  isStill,
+  type ShapePart,
+} from "./shapeGrammar";
 
 export type SilhouetteKey =
   | BuildingKind
@@ -209,9 +216,19 @@ export const PLAYER_BODY: readonly ShapePart[] = [
   { part: "rotor", x: 0, y: 0, scale: 0.62, count: 0 },
 ];
 
-/** The shape a definition draws at: its base list, wearing every tier step it has earned. */
-export function partsFor(key: SilhouetteKey, tier = 0): readonly ShapePart[] {
-  return applyTier(BUILDING_SHAPES[key], tier);
+/**
+ * The shape a definition draws at: its base list, wearing every tier step it has earned, and then
+ * every contract stage the hub has finished.
+ *
+ * Growth is only ever non-zero for the landing hub, and it is the same kind of thing a tier is —
+ * a modifier on a part list — so it goes through the same walker rather than a second one.
+ */
+export function partsFor(
+  key: SilhouetteKey,
+  tier = 0,
+  growth = 0,
+): readonly ShapePart[] {
+  return applyLadder(applyTier(BUILDING_SHAPES[key], tier), HUB_LADDER, growth);
 }
 
 /* --------------------------------------------------------------- baked stills */
@@ -230,8 +247,12 @@ const bakes = new Map<string, HTMLCanvasElement>();
  * buildings. What is left to draw per entity per frame is only the parts that actually move, so
  * the grammar's indirection is paid at startup instead of at 60 Hz.
  */
-function bakedStills(key: SilhouetteKey, tier: number): HTMLCanvasElement {
-  const cacheKey = `${BUILDING_SHAPE_VERSION}|${key}|${tier}`;
+function bakedStills(
+  key: SilhouetteKey,
+  tier: number,
+  growth: number,
+): HTMLCanvasElement {
+  const cacheKey = `${BUILDING_SHAPE_VERSION}|${key}|${tier}|${growth}`;
   const cached = bakes.get(cacheKey);
   if (cached) return cached;
   const canvas = document.createElement("canvas");
@@ -239,7 +260,7 @@ function bakedStills(key: SilhouetteKey, tier: number): HTMLCanvasElement {
   canvas.height = BAKE_HALF * 2;
   const ctx = canvas.getContext("2d");
   if (ctx) {
-    const still = partsFor(key, tier).filter(isStill);
+    const still = partsFor(key, tier, growth).filter(isStill);
     drawParts(
       ctx,
       still,
@@ -263,6 +284,8 @@ export interface BuildingLookInput {
   reducedMotion: boolean;
   /** The definition's tier. Absent is the base tier, which is what every v0.13 building was. */
   tier?: number;
+  /** Completed contract stages, for the landing hub. Absent is the hub as it was landed. */
+  growth?: number;
 }
 
 export function drawBuildingLook(
@@ -272,6 +295,7 @@ export function drawBuildingLook(
   const { building, definition, center, size, color, now, reducedMotion } =
     input;
   const tier = input.tier ?? 0;
+  const growth = input.growth ?? 0;
   const trim = trimOf(tier);
   const key = silhouetteOf(
     building.kind,
@@ -288,7 +312,7 @@ export function drawBuildingLook(
   ctx.strokeStyle = trim.stroke;
   ctx.lineWidth = trim.width;
   ctx.stroke();
-  drawShape(ctx, key, center, size, tier, cycle);
+  drawShape(ctx, key, center, size, tier, cycle, growth);
   ctx.restore();
 }
 
@@ -303,12 +327,13 @@ function drawShape(
   size: number,
   tier: number,
   cycle: number,
+  growth: number,
 ): void {
-  const parts = partsFor(key, tier);
+  const parts = partsFor(key, tier, growth);
   if (parts.length === 0) return;
   const dim = BAKE_HALF * 2 * (size / BAKE_HEX);
   ctx.drawImage(
-    bakedStills(key, tier),
+    bakedStills(key, tier, growth),
     center.x - dim / 2,
     center.y - dim / 2,
     dim,
@@ -322,6 +347,31 @@ function drawShape(
     trimOf(tier).stroke,
     cycle,
   );
+}
+
+/**
+ * What a stalled machine is stalled *by*, as a colour.
+ *
+ * A machine that is working and a machine that has been starved for ten minutes drew identically:
+ * both were a shape with a stamp on it, and the only way to tell them apart was to click one. The
+ * status string was already published and already exact, so this is a table over it rather than a
+ * new rule — and it splits by cause, because "feed me" and "I am blocked downstream" are different
+ * problems and a player fixes them in different places.
+ *
+ * `no power` and `brownout` are deliberately absent: they already read as a dimmed machine, and a
+ * second mark for the same cause would be noise.
+ */
+export const STALL_MARKS: Record<string, string> = {
+  "waiting for inputs": "#f5d572",
+  "out of fuel": "#ff9440",
+  "no boiler": "#ff9440",
+  "output blocked": "#ff6b5e",
+  "deposit depleted": "#9aa7a2",
+  "no water in reach": "#9aa7a2",
+};
+
+export function stallMark(status: string): string | undefined {
+  return STALL_MARKS[status];
 }
 
 export function cargoTravel(

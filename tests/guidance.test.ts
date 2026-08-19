@@ -1,0 +1,320 @@
+import { describe, expect, it } from "vitest";
+
+import { nextAction } from "../src/core/guidance";
+import type {
+  Definitions,
+  FactorySnapshot,
+  Technologies,
+} from "../src/core/types";
+import definitionsJson from "../src/data/definitions.json";
+import scenariosJson from "../src/data/scenarios.json";
+import technologiesJson from "../src/data/technologies.json";
+
+const definitions = definitionsJson as unknown as Definitions;
+const technologies = technologiesJson as unknown as Technologies;
+
+interface ScenarioStage {
+  key: string;
+  name: string;
+  brief: string;
+  requirements: { item_id: number; quantity: number }[];
+}
+
+interface ScenarioShape {
+  key: string;
+  contract: { key: string; name: string; stages: ScenarioStage[] };
+}
+
+function shippedScenario(key: string): ScenarioShape {
+  const found = (
+    scenariosJson as unknown as { scenarios: ScenarioShape[] }
+  ).scenarios.find((scenario) => scenario.key === key);
+  if (!found) throw new Error(`the ${key} scenario is missing`);
+  return found;
+}
+
+const newGame = shippedScenario("new-game");
+
+/**
+ * A snapshot is a large object and this suite only reads a corner of it, so the rest is a fixed
+ * empty world. What varies between cases is exactly what the guidance is allowed to look at.
+ */
+function snapshotAt(state: {
+  stage: number;
+  researched: number[];
+  insight: number;
+  inventory: Record<string, number>;
+  buildings: { definition_id: number; kind: string }[];
+  delivered?: Record<number, number>;
+}): FactorySnapshot {
+  const stage = newGame.contract.stages[state.stage];
+  const carry = Object.entries(state.inventory).map(([item, quantity]) => ({
+    item_id: Number(item),
+    quantity,
+  }));
+  return {
+    scenario: "new-game",
+    scenario_name: "New game",
+    world_version: 6,
+    seed: 1,
+    tick: 0,
+    checksum: 0,
+    delivered: 0,
+    delivered_by_item: [],
+    insight: state.insight,
+    victory: stage === undefined,
+    contract: {
+      key: newGame.contract.key,
+      name: newGame.contract.name,
+      stage: state.stage,
+      stages: newGame.contract.stages.length,
+      stage_key: stage?.key ?? "",
+      stage_name: stage?.name ?? "",
+      stage_brief: stage?.brief ?? "",
+      requirements: (stage?.requirements ?? []).map((need) => ({
+        item_id: need.item_id,
+        delivered: Math.min(
+          need.quantity,
+          state.delivered?.[need.item_id] ?? 0,
+        ),
+        required: need.quantity,
+      })),
+      complete: stage === undefined,
+    },
+    player: {
+      x: 0,
+      y: 0,
+      facing_x: 1000,
+      facing_y: 0,
+      move_x: 0,
+      move_y: 0,
+      inventory: state.inventory,
+      action_cooldown: 0,
+      build_range: 8870,
+      carry_slots: 8,
+      carry_stacks: carry,
+      radius: 580,
+      action_cooldown_total: 15,
+    },
+    researched: state.researched,
+    chunks: [],
+    terrain: [],
+    resources: [],
+    buildings: state.buildings.map((building, index) => ({
+      id: index + 1,
+      q: index,
+      r: 0,
+      x: 0,
+      y: 0,
+      radius: 1024,
+      definition_id: building.definition_id,
+      kind: building.kind as FactorySnapshot["buildings"][number]["kind"],
+      orientation: 0,
+      status: "idle",
+      progress: 0,
+      progress_total: 0,
+      inventory: [],
+      cargo: null,
+      recipe_id: null,
+      scenario_owned: false,
+      footprint: [{ q: index, r: 0 }],
+    })),
+    events: [],
+  };
+}
+
+describe("guidance derived from the rules rather than scripted against them", () => {
+  /**
+   * The defect this milestone is built around: after Automated Extraction the old script told the
+   * player to build a supply line out of extractors and belts, and an extractor draws four power.
+   * `power_progress` returns zero off a network and On-site Power is a separate branch the script
+   * never named, so the game recommended a factory that could not run.
+   *
+   * This walks the guide the way a player would — doing exactly what it says, one step at a time —
+   * and refuses to accept any step whose prerequisites are not already met in the state that
+   * produced it. A guide that outruns its own rules cannot survive the loop.
+   */
+  it("never names a step the rules would refuse in the state that produced it", () => {
+    const state = {
+      stage: 0,
+      researched: [] as number[],
+      insight: 0,
+      inventory: {} as Record<string, number>,
+      buildings: [] as { definition_id: number; kind: string }[],
+      delivered: {} as Record<number, number>,
+    };
+    const researched = new Set<number>();
+    const seen: string[] = [];
+
+    for (let step = 0; step < 40; step += 1) {
+      const snapshot = snapshotAt(state);
+      const guidance = nextAction(snapshot, definitions, technologies);
+      seen.push(guidance.key);
+      expect(guidance.title.length).toBeGreaterThan(0);
+      expect(guidance.detail.length).toBeGreaterThan(0);
+
+      if (guidance.key.startsWith("research:")) {
+        const key = guidance.key.slice("research:".length);
+        const technology = technologies.technologies.find(
+          (value) => value.key === key,
+        );
+        expect(
+          technology,
+          `guidance named an unknown technology ${key}`,
+        ).toBeDefined();
+        if (!technology) break;
+        // Achievable in this state: prerequisites met, and paid for.
+        for (const prerequisite of technology.prerequisites)
+          expect(researched.has(prerequisite)).toBe(true);
+        expect(state.insight).toBeGreaterThanOrEqual(technology.cost);
+        researched.add(technology.id);
+        state.researched = [...researched];
+        state.insight -= technology.cost;
+        continue;
+      }
+
+      if (guidance.key.startsWith("build:") || guidance.key === "power") {
+        const key = guidance.key.startsWith("build:")
+          ? guidance.key.slice("build:".length)
+          : "burner-generator";
+        const building = definitions.buildings.find(
+          (value) => value.key === key,
+        );
+        expect(
+          building,
+          `guidance named an unknown building ${key}`,
+        ).toBeDefined();
+        if (!building) break;
+        expect(building.buildable).toBe(true);
+        // The whole point: a build step may only be named once its technology is researched.
+        if (building.unlock_technology_id !== undefined)
+          expect(researched.has(building.unlock_technology_id)).toBe(true);
+        state.buildings = [
+          ...state.buildings,
+          { definition_id: building.id, kind: building.kind },
+        ];
+        continue;
+      }
+
+      if (
+        guidance.key.startsWith("gather-for:") ||
+        guidance.key.startsWith("gather:")
+      ) {
+        // Gathering is always available to a player with a free slot, which is the state the loop
+        // is in here. It buys insight and material.
+        state.insight += 4;
+        state.inventory = { ...state.inventory, "1": 8, "8": 8 };
+        continue;
+      }
+
+      if (guidance.key.startsWith("deliver-for:")) {
+        state.insight += 4;
+        state.inventory = {};
+        continue;
+      }
+
+      if (guidance.key === "deliver" || guidance.key === "supply") {
+        const line = snapshot.contract.requirements.find(
+          (need) => need.delivered < need.required,
+        );
+        if (!line) break;
+        state.delivered = {
+          ...state.delivered,
+          [line.item_id]: line.required,
+        };
+        const outstanding = snapshot.contract.requirements.some(
+          (need) =>
+            need.item_id !== line.item_id && need.delivered < need.required,
+        );
+        if (!outstanding) {
+          state.stage += 1;
+          state.delivered = {};
+        }
+        state.inventory = { ...state.inventory, [String(line.item_id)]: 4 };
+        continue;
+      }
+
+      if (guidance.key === "complete") break;
+      throw new Error(`unhandled guidance step ${guidance.key}`);
+    }
+
+    // The walk has to actually finish the contract, or the loop above proved nothing.
+    expect(seen).toContain("complete");
+    // And it has to have gone through power before any machine that draws it. On-site Power is
+    // not any recipe's category, so nothing but a deliberate rule puts it in the chain at all.
+    const power = seen.indexOf("research:on-site-power");
+    const composer = seen.indexOf("build:composer");
+    expect(power).toBeGreaterThanOrEqual(0);
+    expect(composer).toBeGreaterThan(power);
+  });
+
+  it("names the physical action rather than the accounting behind it", () => {
+    // "Fund Field Logistics" is not something a player can do. Gathering is.
+    const opening = nextAction(
+      snapshotAt({
+        stage: 0,
+        researched: [],
+        insight: 0,
+        inventory: {},
+        buildings: [],
+      }),
+      definitions,
+      technologies,
+    );
+    expect(opening.key).toBe("gather-for:field-logistics");
+    expect(opening.detail).toContain("landing hub");
+
+    // Carrying something changes the answer, because now the hub is one walk away.
+    const carrying = nextAction(
+      snapshotAt({
+        stage: 0,
+        researched: [],
+        insight: 0,
+        inventory: { "1": 6 },
+        buildings: [],
+      }),
+      definitions,
+      technologies,
+    );
+    expect(carrying.key).toBe("deliver-for:field-logistics");
+  });
+
+  it("stops asking for anything once the contract is finished", () => {
+    const done = nextAction(
+      snapshotAt({
+        stage: newGame.contract.stages.length,
+        researched: [1, 2, 3],
+        insight: 40,
+        inventory: {},
+        buildings: [],
+      }),
+      definitions,
+      technologies,
+    );
+    expect(done.key).toBe("complete");
+  });
+
+  it("puts a full pack ahead of everything, because it blocks the rest", () => {
+    const full = nextAction(
+      snapshotAt({
+        stage: 0,
+        researched: [],
+        insight: 0,
+        inventory: {
+          "1": 20,
+          "3": 10,
+          "4": 20,
+          "5": 20,
+          "6": 20,
+          "7": 20,
+          "8": 20,
+          "9": 20,
+        },
+        buildings: [],
+      }),
+      definitions,
+      technologies,
+    );
+    expect(full.key).toBe("pack-full");
+  });
+});

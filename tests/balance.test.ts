@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import fixture from "../fixtures/balance.json";
 import definitions from "../src/data/definitions.json";
+import scenarios from "../src/data/scenarios.json";
 import type { Definitions, Ingredient } from "../src/core/types";
 
 /**
@@ -299,6 +300,64 @@ describe("the economy's stated curve", () => {
             catalogue.buildings.find(({ id }) => id === upgrades_to)?.key ?? "",
         )
         .sort(),
+    );
+  });
+
+  it("prices the landing hub's own contract through the same tree", () => {
+    // The bill a founding project states is a claim about the whole tree under it, and the tree is
+    // where the claim can be wrong: `16 iron plate` says nothing about the thirty-two ore beneath
+    // it. TypeScript expands the shipped scenario independently and has to reach the same numbers,
+    // so the fixture is pinned by two expansions rather than by Rust agreeing with itself.
+    const stages = (
+      scenarios as unknown as {
+        scenarios: {
+          key: string;
+          contract: {
+            key: string;
+            stages: { key: string; requirements: Ingredient[] }[];
+          };
+        }[];
+      }
+    ).scenarios.flatMap((scenario) =>
+      scenario.contract.stages
+        .filter((stage) =>
+          stage.requirements.every((need) => need.quantity <= 10_000),
+        )
+        .map((stage) => ({ scenario: scenario.key, stage })),
+    );
+    expect(fixture.contracts).toHaveLength(stages.length);
+    for (const { scenario, stage } of stages) {
+      const row = fixture.contracts.find(
+        (value) => value.scenario === scenario && value.stage === stage.key,
+      );
+      expect(
+        row,
+        `${scenario}/${stage.key} is missing from the fixture`,
+      ).toBeDefined();
+      if (!row) continue;
+      expect(row.bill).toEqual(
+        stage.requirements.map((need) => ({
+          item: keyOf(need.item_id),
+          quantity: need.quantity,
+        })),
+      );
+      const expansion = expand(stage.requirements);
+      expect(row.raw_materials).toBe(expansion.raw.size);
+      expect(row.opening.machine_ticks).toBe(expansion.batchTicks);
+      expect(row.opening.fuel_energy).toBe(expansion.batchEnergy);
+    }
+
+    // And the project the hub actually builds is a project: more than one landscape, and dearer
+    // than the beat that proves the line.
+    const founding = fixture.contracts.filter(
+      (row) => row.scenario === "new-game",
+    );
+    expect(founding.length).toBeGreaterThanOrEqual(2);
+    const first = founding[0];
+    const last = founding[founding.length - 1];
+    expect(last?.raw_materials).toBeGreaterThanOrEqual(2);
+    expect(last?.opening.gather_total).toBeGreaterThan(
+      first?.opening.gather_total ?? 0,
     );
   });
 

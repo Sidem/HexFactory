@@ -36,10 +36,22 @@ decides whether the economy works — machine rates, what a generator carries an
 drinks to carry it, fuel conversions, and the full raw-material cost of every building expanded
 through its whole recipe tree — computed by `factory-wasm/src/balance.rs` from the shipped
 catalogues, printed by `npm run balance`, and pinned in both languages. The first tuning pass moved
-six numbers, each traceable to a printed figure; definition version is 8 and the browser save key
-is `hexfactory:hxf1:v7w6d8t4`. Read the shipped record in `docs/HEXFACTORY-PLAN.md` before changing
-a cost, a cadence, or a power figure, and `docs/ART.md` Stage D before touching
-`src/rendering/buildingLook.ts` or the grammar.
+six numbers, each traceable to a printed figure; definition version is 8. Read the shipped record in
+`docs/HEXFACTORY-PLAN.md` before changing a cost, a cadence, or a power figure, and `docs/ART.md`
+Stage D before touching `src/rendering/buildingLook.ts` or the grammar.
+
+Founding Contract shipped as **v0.18**, the first milestone of the pivot from substrate to motive. A
+scenario carries a `contract`: ordered stages, each a bill of materials with a name, a brief, and a
+sentence about what finishing it does to the hub. `new-game` ships two — the founding three
+components, then a foundry module of `16 Iron plate` and `20 Brick` from two landscapes. The stage
+and what the hub holds against the current bill are saved and checksummed, so save version is 8 and
+scenario version 5; the browser key reads the definition, technology, and scenario catalogue
+versions rather than restating them, and only `SAVE_VERSION` is still written down. The wire format
+is version 3: the objective group became the contract group. `fixtures/balance.json` gained a
+`contracts` section, and an opening that needs a machine drawing power now prices the generator too.
+The scripted next action is gone — `src/core/guidance.ts` derives it from the contract, the recipe
+tree, and the technology graph, and `tests/guidance.test.ts` walks it step by step and refuses any
+step the rules would refuse.
 
 ## Workspace boundary
 
@@ -182,8 +194,16 @@ a cost, a cadence, or a power figure, and `docs/ART.md` Stage D before touching
   ladder, and never enters the wasm artifact. What TypeScript does recompute is the pure arithmetic
   over `definitions.json`, in `tests/balance.test.ts`, so the fixture is pinned by two independent
   expansions rather than by one implementation agreeing with itself.
-- The browser `SAVE_KEY` names every version the envelope refuses a load on — save, world generator,
-  definition, and technology. A bump the key cannot see is a Continue button that can only fail.
+- The browser save key names every version the envelope refuses a load on — save, world generator,
+  definition, technology, and scenario. A bump the key cannot see is a Continue button that can only
+  fail, and it has been exactly that twice. Four of the five are now read from what native publishes
+  or from the catalogue the host already holds, so they cannot fall out of step; `SAVE_VERSION` is
+  the one literal, because native does not publish it.
+- No scripted guide may outrun the rules it is explaining. The next step is derived — the contract's
+  outstanding bill, expanded through the recipe tree, plus the technologies those machines sit
+  behind and the power branch none of them names — so every step it can produce is achievable in the
+  state that produced it. A machine that draws power with nothing generating it is a factory that
+  cannot run, and both the guidance and the balance openings now price that.
 - Arbitration is stable by native entity ID. Initial entity IDs derive from sorted coordinates, so
   JSON insertion order cannot change a run.
 - Derived caches never become truth. Resolved extractor deposit references are rebuilt from tiles,

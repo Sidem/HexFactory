@@ -805,6 +805,100 @@
       "unlock_technology": "machine-tiers"
     }
   ],
+  "contracts": [
+    {
+      "bill": [
+        {
+          "item": "component",
+          "quantity": 3
+        }
+      ],
+      "contract": "founding",
+      "opening": {
+        "buildings": ["burner-generator", "composer"],
+        "fuel_energy": 0,
+        "fuel_items": 0,
+        "gather_total": 32,
+        "gathers": [
+          {
+            "item": "ore",
+            "quantity": 15
+          },
+          {
+            "item": "crystal",
+            "quantity": 3
+          },
+          {
+            "item": "stone",
+            "quantity": 4
+          }
+        ],
+        "hand_seconds_milli": 16000,
+        "insight": 20,
+        "insight_items": 10,
+        "machine_seconds_milli": 2400,
+        "machine_ticks": 24,
+        "name": "new-game: components",
+        "technologies": [
+          "field-logistics",
+          "automated-extraction",
+          "composition",
+          "on-site-power"
+        ]
+      },
+      "raw_materials": 1,
+      "scenario": "new-game",
+      "stage": "components"
+    },
+    {
+      "bill": [
+        {
+          "item": "iron-plate",
+          "quantity": 16
+        },
+        {
+          "item": "brick",
+          "quantity": 20
+        }
+      ],
+      "contract": "founding",
+      "opening": {
+        "buildings": ["burner-generator", "kiln", "smelter"],
+        "fuel_energy": 92,
+        "fuel_items": 12,
+        "gather_total": 97,
+        "gathers": [
+          {
+            "item": "ore",
+            "quantity": 40
+          },
+          {
+            "item": "stone",
+            "quantity": 18
+          },
+          {
+            "item": "clay",
+            "quantity": 18
+          }
+        ],
+        "hand_seconds_milli": 48500,
+        "insight": 18,
+        "insight_items": 9,
+        "machine_seconds_milli": 24400,
+        "machine_ticks": 244,
+        "name": "new-game: foundry",
+        "technologies": [
+          "field-logistics",
+          "automated-extraction",
+          "material-processing",
+          "on-site-power"
+        ]
+      },
+      "raw_materials": 2,
+      "scenario": "new-game",
+      "stage": "foundry"
+    }
+  ],
   "curve": [
     {
       "building": "container-ii",
@@ -1821,30 +1915,31 @@
   ],
   "openings": [
     {
-      "buildings": ["smelter"],
+      "buildings": ["burner-generator", "smelter"],
       "fuel_energy": 0,
       "fuel_items": 0,
-      "gather_total": 19,
+      "gather_total": 29,
       "gathers": [
         {
           "item": "ore",
-          "quantity": 4
+          "quantity": 8
         },
         {
           "item": "stone",
-          "quantity": 8
+          "quantity": 12
         }
       ],
-      "hand_seconds_milli": 9500,
-      "insight": 14,
-      "insight_items": 7,
+      "hand_seconds_milli": 14500,
+      "insight": 18,
+      "insight_items": 9,
       "machine_seconds_milli": 0,
       "machine_ticks": 0,
       "name": "first smelter",
       "technologies": [
         "field-logistics",
         "automated-extraction",
-        "material-processing"
+        "material-processing",
+        "on-site-power"
       ]
     },
     {
@@ -1871,14 +1966,14 @@
       "technologies": ["field-logistics", "on-site-power"]
     },
     {
-      "buildings": ["composer", "smelter"],
+      "buildings": ["burner-generator", "composer", "smelter"],
       "fuel_energy": 13,
       "fuel_items": 2,
-      "gather_total": 39,
+      "gather_total": 49,
       "gathers": [
         {
           "item": "ore",
-          "quantity": 9
+          "quantity": 13
         },
         {
           "item": "crystal",
@@ -1890,16 +1985,16 @@
         },
         {
           "item": "stone",
-          "quantity": 8
+          "quantity": 12
         },
         {
           "item": "sand",
           "quantity": 2
         }
       ],
-      "hand_seconds_milli": 19500,
-      "insight": 22,
-      "insight_items": 11,
+      "hand_seconds_milli": 24500,
+      "insight": 26,
+      "insight_items": 13,
       "machine_seconds_milli": 5800,
       "machine_ticks": 58,
       "name": "first circuit",
@@ -1907,7 +2002,8 @@
         "field-logistics",
         "automated-extraction",
         "composition",
-        "material-processing"
+        "material-processing",
+        "on-site-power"
       ]
     }
   ],

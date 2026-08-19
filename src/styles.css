@@ -1473,6 +1473,127 @@ canvas {
   max-width: none;
 }
 
+/*
+ * The next step, in permanent chrome. It sits above where the left-hand panels open, so opening
+ * one covers the world under it rather than the sentence itself, and it reads as a card the player
+ * can press rather than as a toast that will go away.
+ */
+.next-step {
+  position: absolute;
+  z-index: 6;
+  top: 14px;
+  left: 14px;
+  display: grid;
+  gap: 3px;
+  width: min(336px, calc(100% - 340px));
+  padding: 9px 12px;
+  border: 1px solid #45605a;
+  border-radius: 12px;
+  background: #0b1a17e6;
+  box-shadow: 0 14px 40px #0009;
+  backdrop-filter: blur(12px);
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.next-step:hover,
+.next-step[aria-expanded="true"] {
+  border-color: var(--gold);
+}
+.next-step strong {
+  font-size: 0.88rem;
+  line-height: 1.25;
+}
+.next-step small {
+  color: #b9ccc5;
+  font-size: 0.72rem;
+  line-height: 1.45;
+}
+
+/* The bill, as lines rather than a sentence: one row per item, each with both its numbers. */
+.contract-bill {
+  display: grid;
+  gap: 6px;
+  margin: 9px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.contract-line {
+  display: grid;
+  grid-template-columns: 12px 1fr auto;
+  align-items: center;
+  gap: 4px 8px;
+}
+.contract-line .swatch {
+  width: 11px;
+  aspect-ratio: 1;
+  border-radius: 3px;
+}
+.contract-line strong {
+  font-size: 0.78rem;
+}
+.contract-count {
+  color: var(--gold);
+  font-size: 0.74rem;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+.contract-bar {
+  grid-column: 2 / 4;
+  overflow: hidden;
+  height: 3px;
+  border-radius: 3px;
+  background: #29403a;
+}
+.contract-bar b {
+  display: block;
+  width: 0%;
+  height: 100%;
+  background: linear-gradient(90deg, var(--gold), #fff09b);
+  transition: width 280ms ease;
+}
+
+.comfort-settings {
+  display: grid;
+  gap: 7px;
+}
+.comfort-settings .switch {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #cfe0da;
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+.comfort-settings .switch input {
+  width: 15px;
+  height: 15px;
+  accent-color: var(--gold);
+}
+.comfort-note {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.68rem;
+  line-height: 1.45;
+}
+
+/* Progressive disclosure: the control that says what is being held back, and hands it over. */
+.scope-toggle {
+  width: 100%;
+  margin-bottom: 10px;
+  padding: 0.4rem 0.6rem;
+  border: 1px dashed #4a625c;
+  border-radius: 9px;
+  background: #10201cc0;
+  color: #b9ccc5;
+  font-size: 0.72rem;
+  cursor: pointer;
+}
+.scope-toggle:hover {
+  border-color: var(--gold);
+  color: #fff3c8;
+}
+
 .feedback {
   position: absolute;
   z-index: 18;
@@ -1554,6 +1675,11 @@ canvas {
 @media (max-width: 720px) {
   .app-shell {
     grid-template-rows: 58px minmax(0, 1fr);
+  }
+  /* Narrow enough that the card would cover the world it is describing. The same sentence is one
+     press away behind P, and the header still names the stage. */
+  .next-step {
+    display: none;
   }
   .command-bar {
     grid-template-columns: auto 1fr auto;

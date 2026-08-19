@@ -30,13 +30,26 @@ minute, what a generator carries, and the full raw-material cost of every buildi
 through its whole recipe tree — computed from the shipped catalogues and pinned in both languages.
 Definition version is 8, because the first pass at the numbers moved six of them.
 
-The play candidates the deferred list already holds — animals/biomatter/waste as one milestone,
-fluid networks, intermittent generation with accumulators, plus tunnels, which v0.14 left out and
-which now cost one match arm in the trace loop that already routes eight directions — are unchanged
-and follow this arc. The argument for taking the generators first is the one Look Systems already
-made and won: the roster multiplies in every one of those milestones, and a generator makes the
-next building a data row while an atlas makes it a drawing. The same is now true of the world
-itself, and of the numbers.
+**The roadmap pivoted from substrate to motive, and the first milestone of that pivot is shipped.**
+A 2026-08-19 hands-on play review found a responsive editor and a clean factory substrate, but the
+playable purpose was still the founding vertical slice: three Components made from Iron ore,
+followed by free build. Most of the material base, power choices, tiers, and world variation could
+be ignored before that finish, and the opening exposed the whole locked roster before the player
+had a reason to want it. The next three milestones spend the generators on play, in order:
+**Founding Contract v0.18** repairs the first twenty minutes and makes the landing hub visibly grow;
+**Living Lattice v0.19** turns animals/biomatter/waste into one coupled ecological system;
+**Regional Discovery v0.20** makes an unbounded world something the player must read and travel
+through rather than a larger background. Fluid networks and intermittency remain behind those
+milestones. Tunnels are still small enough to ride a version bump rather than claim one.
+
+**Founding Contract shipped as v0.18.** The landing hub asks for an ordered contract rather than a
+delivered total: stage one is the founding three components, stage two is a foundry module of
+smelted plate and fired brick from two landscapes, and finishing a stage visibly builds the hub. The
+scripted guidance is gone — the next step is derived from the contract, the recipe tree, and the
+technology graph, so it cannot recommend a factory the rules refuse, which the old script did every
+time it named an extractor without naming power. Save version 8, scenario version 5, and the browser
+save key now reads the catalogue versions instead of restating them. The shipped record is the
+section below.
 
 **North-south belts are resolved and have left the longer horizon.** Due north is a lattice vector
 on this grid — `(q + 1, r - 2)` shares a world-x with `(q, r)` — and `compile_graph_target` is
@@ -505,38 +518,336 @@ reaching the player where they are read (hydro `+24 power`, wind `×2 Iron plate
 button, and the save behaviour above. The cooldown itself is asserted natively, by a test that
 already existed and one that is new.
 
-## Next session — the first play system after the arc
+## Roadmap decision — play after the generator arc
 
-The generator arc is finished and it was taken first for one reason: every deferred milestone
-multiplies a roster, and against a generator each addition is a data row rather than a drawing, a
-threshold, or a guess about a number. All three generators now exist — a shape grammar, a world
-parameter table, and a balance fixture — so the next milestone should be one that spends them.
+Decided 2026-08-19 after a hands-on pass through the opening, the panels, the Factory demo, the
+construction drag, and the generated-shape sheet. The build is already a strong editor: native
+preview and placement agree, a dragged belt run is one precise gesture, the inspector is readable,
+the world remains the main surface, and the runtime is clean. Those are not the next problem.
 
-The candidates are the deferred list's, unchanged, with what each is waiting for named there.
-**Animals, biomatter, and waste is the one the list names first, and it is the one to take**: it is
-a genuine play system rather than an improvement on a working one, its consumer and its producer
-have to be designed together or they get designed twice, and it is what brings
-`outputs: Vec<Ingredient>` into `RecipeDefinition`. Fluid networks and intermittency are both
-improvements on things that already work, and both read better after there is more economy to
-improve.
+The problem is motive. `new-game` still ends at three Components, and a Component is two Iron ore.
+That objective proves the original transport slice and almost none of the game that now exists.
+Delivering arbitrary material for one generic insight currency also makes the opening's eight raw
+materials differ less than their geography claims, while guaranteeing all eight in the landing
+clearing answers exploration before the player has asked it. Open-ended play is still the goal, but
+**open-ended must not mean aimless**: a victory may be a milestone rather than a wall only when the
+world continues to offer visible things worth choosing.
 
-Two things that milestone should know before it starts:
+One correctness defect is part of this diagnosis, not an unrelated polish item. After Automated
+Extraction, `renderNextAction` says to build a supply line with extractors and belts. An extractor
+draws power, `power_progress` returns zero without a network, and On-site Power is a separate branch
+the guidance never names. The game can therefore recommend a factory that cannot run. No scripted
+guide is allowed to outrun the rules it is explaining.
 
-- **A multi-output recipe breaks the balance expansion, deliberately and loudly.**
-  `Economy::recipe_for` asserts that exactly one recipe produces each item, because "what does a
-  plate cost" has no answer otherwise — and a byproduct is precisely a second producer. That assert
-  is the handoff: expanding a tree through a recipe with several outputs needs a stated rule for how
-  a craft's cost divides between them, and picking one is part of designing byproducts rather than a
-  detail of the fixture. Pick it deliberately and write it down beside the rule.
-- **Tunnels are still cheap and still not a milestone of their own.** v0.14 left them out, and they
-  now cost one match arm in the trace loop that already routes eight directions. They can ride any
-  milestone that is already paying for a version bump.
+The next work is three milestones in dependency order. v0.18 gives the existing economy a purpose
+and proves the first twenty minutes. v0.19 adds the first genuinely new play system and makes the
+world answer the factory. v0.20 makes distance and regional difference earn the unbounded map. Do
+not pull fluids, intermittency, a day cycle, or 3D in front of them.
 
-Whatever comes next, `fixtures/balance.json` is now the thing a new building or recipe has to face:
-a definition that never reaches it is a definition nothing has compared against the curve, and both
-test suites say so.
+## Shipped milestone — Founding Contract v0.18
 
-## Next session — Balance v0.17
+Shipped 2026-08-19. The brief below is kept as written; this section records what it became.
+
+**The hub asks for a project, and the project is native truth.** A scenario now carries a
+`contract`: an ordered list of stages, each a bill of materials with a name, a one-paragraph brief,
+and a sentence saying what completing it does to the hub. `new-game` ships two. Stage one is the
+founding `3 Component` delivery, kept deliberately — it is the whole loop in miniature and it is now
+the _first beat_ rather than the whole game. Stage two is the foundry module: `16 Iron plate` and
+`20 Brick`. Every hub delivery accumulates in `contract_contributed`; a stage closes when its whole
+bill is met, consumes exactly that bill, and carries the surplus forward, so a player who automates
+a line early is credited for it when the stage that wants it arrives. `advance_contract` loops
+rather than closing one stage per delivery, because a stage a previous surplus already covers must
+close in the same delivery instead of waiting for one more item to re-ask the question. Victory is
+"every stage done", and it still opens free play rather than ending anything.
+
+**The bill was chosen from `fixtures/balance.json`, not from the catalogue rows.** The balance
+report gained a `contracts` section that expands every shipped stage through its whole recipe tree
+and prices it exactly the way an opening is priced: research, the machines the tree needs, the raw
+units, and the fuel. The foundry module reports `40 ore + 18 stone + 18 clay`, 97 gathers, 12 fuel
+items, a 48.5-second hand floor and a 24.4-second machine floor, and — the number the milestone was
+actually asking for — **2 raw materials**, which is the assertion that a founding project needs more
+than one landscape. Iron is highland and clay is wet shore, so the bill is two chains in two
+geographies, and both machines draw power. Stage one reports 32 gathers and 1 raw material, and a
+Rust test pins that the last stage costs strictly more than the first.
+
+**The balance tool found the defect the milestone was named after, in data.** An opening that needs
+a machine drawing power now also prices the cheapest generator, because `power_progress` returns
+zero off a network and a plan naming a smelter with no generator is a plan for a factory that stands
+still. That rule moved three existing rows: `first smelter`, `first circuit`, and both contract
+stages now all name `on-site-power` and a burner generator. **Even three components need power** —
+a composer draws 8 — which is exactly what the old scripted guidance never said. One generator and
+not a generator plus a pole: a generator's own `power_reach` already covers what stands beside it,
+so a pole is what _distance_ costs rather than what power costs.
+
+**The scripted next action is gone, and what replaced it is a dependency walk.** `src/core/guidance.ts`
+reads the contract's outstanding bill, expands it through the shipped recipe tree, collects the
+machines those recipes need and the technologies those machines sit behind — adding the power branch
+explicitly, since it is nobody's recipe category — and reports the first prerequisite the player has
+not met, in a fixed order: research, then power, then machines, then material, then the delivery. So
+every answer it can give is achievable in the state that produced it: a research whose prerequisites
+hold and whose cost is paid, or a building whose technology is already researched. It also names the
+physical action rather than the accounting behind it — "Gather material for insight", not "Fund
+Field Logistics" — because funding is not something a player can do.
+
+`tests/guidance.test.ts` walks the guide the way a player would, doing exactly what it says one step
+at a time for forty steps, and refuses any step whose prerequisites are not already met in the state
+that produced it. It has to reach `complete`, and On-site Power has to appear before any machine
+that draws it. **Deleting the one line that adds the power branch reproduces the v0.17 defect and
+the test fails**, which is how the test is known to be load-bearing rather than descriptive.
+
+**The next step is permanent chrome.** A `#next-step` card sits at the top-left of the world from
+the first frame with the same title and sentence the panel carries, and pressing it opens the full
+brief behind the same `P` toggle. The mission header names the thing behind the number: `0 / 3
+Component`, `0 / 16 Iron plate · 0 / 20 Brick`, with the contract name and the stage index in the
+kicker and the stage's own name as the title. The panel carries the bill as lines — one row per
+item, each with both its published numbers and its own bar. Below 720px the card is hidden, because
+there it would cover the world it is describing, and the header still names the stage.
+
+**Progressive disclosure is a distance over the technology graph, not a curated list.**
+`technologyReach()` measures how many unresearched technologies stand between the player and each
+one; both catalogues lead with everything within two. At minute zero that is five technologies of
+twelve and six buildings of eighteen — the belt, riser, extractor, container, pole, and burner
+generator, which is the whole early game — and each panel carries a control that says exactly how
+many it is holding back and hands them over. A new technology needs no thought here at all.
+
+**The hub grows through the same vocabulary a tier does.** `HUB_LADDER` is a second `TierStep` list
+applied by completed stage count, and `applyTier` is now one call into a general `applyLadder`. A
+finished stage makes the hub's outline about a quarter taller and adds seams, plating, and a second
+mast — the same order of change a tier step makes, which is the legibility standard v0.15 already
+shipped and documented. Growth reads the published `contract.stage`, so the drawing, the sentence,
+and the saved state are one number.
+
+**The world says why a machine is doing nothing.** A working machine and one starved for ten minutes
+drew identically, and the only way to tell them apart was to click one. `STALL_MARKS` is a table
+over the status string the wire already carries, split by cause — waiting for inputs, out of fuel,
+output blocked, nothing left to take — and drawn as one dot on the hex. `no power` and `brownout`
+are deliberately absent, because a dimmed machine already says that. And the three-letter stamp
+moved: it was drawn across the middle in bright white, covering the anatomy it was labelling and
+doing all the identifying work at ordinary zoom. It is smaller, quieter, and under the body now, so
+the shape is what the eye reaches first.
+
+**Feedback has a voice, and it is synthesised rather than shipped.** `src/audio/feedback.ts` is six
+cues — gather, place, reject, deliver, unlock, project — as a table of specs over one envelope, the
+same shape as the shape grammar: a new cue is a data row, not an asset. Pitch direction carries the
+meaning, up for progress and down for refusal. The cue is chosen from the native event, so a
+delivery made by a belt and one made by hand sound the same, and refusals are picked out by the
+convention the core already follows: native writes what happened in sentence case and what was
+refused in lower case. Mute is on the command bar, on `M`, and in the menu; reduced motion joins it
+there and can only ever quieten further than the system preference, never argue with it.
+
+**The single-hex overshoot is a walk speed, not a native change.** At `PLAYER_SPEED` 242 over 30
+steps a second the player crosses a hex column in about a quarter of a second, which is a human
+reaction time — so holding a direction overshoots one hex, every time. Holding `Shift` sends an
+intent at 0.4 magnitude, which native's `move_intent` has always accepted, so the host sends a
+smaller intent and never a smaller step. No rule about the player's clock moved.
+
+**Versions, and the save key that stopped being copied by hand.** Save version 8 and scenario
+version 5: contract stage and contributions are saved and checksummed state, and a version-7
+envelope carries neither. The browser key now _reads_ the definition, technology, and scenario
+catalogue versions instead of restating them, because a number a person has to remember to copy is a
+number that will eventually not be copied, and twice now it has not been. Only `SAVE_VERSION` stays
+a literal, since native does not publish it. Verified in the browser: a v0.17 save sits under the
+old key with Continue disabled and "No local save yet", and a new save round-trips at an identical
+checksum. The wire format is version 3 — the objective group became the contract group and carries
+names and a bill — regenerated in `fixtures/snapshot-delta-wire.json` and read back by TypeScript.
+
+**What was verified, and what could not be.** A stage-one save generated natively and loaded in the
+real browser advanced the header to "Raise the foundry module", rendered both bill lines, and
+produced correct guidance; two saves differing only in contract stage produced a measurably different
+hub on the canvas at the same player position. `npm run quality` is green — 85 TypeScript tests, 86
+Rust tests, the production build, and no audit findings. **The timed keyboard-and-pointer playtest
+the brief asks for was not done**, and the reason is the same one v0.17 recorded: the browser pane
+does not composite, so the frame loop never runs and nothing on the player's own clock — walking,
+gathering, the cooldown, the new precision walk — can be exercised here. The material floor is
+measured and written down above; the interaction cost is not, and no claim is made about it. That
+playtest is the first thing v0.19 should do, and it should be done by a person.
+
+**The capacity ladder was not re-run.** The world generator, the item roster, and the entity snapshot
+are all exactly what v0.17 measured, so no trigger fired. The pinned workload checksum moved from
+`2402899979` to `1679299541` because the contract is in the checksum; `docs/BENCHMARKS.md` says which
+of its numbers that invalidates and which it does not.
+
+## Historical brief — Founding Contract v0.18
+
+The landing hub stops being a gold delivery counter and becomes the first visible project in the
+world. The three-Component delivery may survive as its first beat, but not as the whole arc. The
+player establishes a powered, automated material base and completes one **founding module** whose
+construction visibly changes the hub. The exact bill is chosen from `fixtures/balance.json` and a
+timed first-run playtest, not guessed from catalogue rows; it must require automation, power, and at
+least two geographically distinct material chains without demanding the whole roster.
+
+This is one bounded contract, not an infinite quest generator. Later contracts may branch and large
+projects may keep a mature world purposeful, but v0.18 proves that a demand can be native truth,
+saved, checksummed, visible on the hub, and completed without closing free play. The hub's growth
+uses the existing generated-shape vocabulary or another systematic modifier; it is not a one-off
+sprite.
+
+### The first twenty minutes are part of the milestone
+
+- **Repair the dependency path.** Guidance must lead through every prerequisite a running first
+  factory actually needs, including power. The default answer is an explicit On-site Power step.
+  If a timed playtest proves that the resulting hand-gather phase is too long, a deliberately
+  limited landing-hub bootstrap supply may replace it — never silent free power, and never a host
+  exception to `power_progress`.
+- **Put the next action in permanent chrome.** A new player should not have to know that `P` hides
+  the useful sentence. The mission header names the item or project behind `0 / 3`, and the one next
+  actionable dependency is visible without opening the full controls reference.
+- **Progressively disclose complexity.** Research defaults to completed, available, and immediate
+  dependants; the full tree remains one explicit view for planning. Construction leads with
+  unlocked buildings and the next relevant locks rather than every late machine at minute zero.
+  Empty hotbar slots remain configurable but must not make the opening read as nine disabled tools.
+- **Make manual work short and physical.** Gathering remains the bootstrap, not the primary source
+  of insight after automation. Fix the recorded single-hex movement overshoot, and give gather,
+  delivery, placement, blockage, completion, and a running machine distinct audio/visual responses.
+  Prefer a small generated or procedural sound vocabulary over an unmaintainable pile of one-off
+  assets. Reduced-motion and mute controls are part of the same pass.
+- **Let the scene carry identity.** At ordinary play zoom, motion and anatomy must compete with the
+  three-letter stamp rather than disappear under it. The stamp remains a useful label; it is not
+  allowed to be the only reliable difference between machines. The Factory demo starts framed on
+  the production line and makes flow or throughput legible without selecting every entity.
+
+### Acceptance
+
+- A fresh player can reach a powered automated line by following only the permanent next action;
+  every instruction is achievable in the state that displays it.
+- The first completed project uses more than the founding `2 Iron ore -> 1 Component` chain and
+  visibly changes the landing hub. Completion still leaves the world playable.
+- A timed keyboard-and-pointer playtest records time spent gathering, walking, choosing research,
+  placing the first powered machine, and completing the contract. `fixtures/balance.json` predicts
+  the material work; the playtest states the interaction cost it cannot measure.
+- Default research and construction views do not present the whole locked roster at minute zero,
+  while an explicit full view still supports long-term planning.
+- Gather, place, reject, deliver, project-complete, machine-working, and machine-starved states are
+  distinguishable with the world visible. Audio is optional to the player, not absent from the
+  product.
+- The old three-Component save/objective contract moves only with an explicit save/scenario version
+  decision. The browser save key still names every native version the envelope refuses.
+
+## Next session — Living Lattice v0.19
+
+The brief below is unchanged and is the milestone. Four things it should know before it starts, all
+of them handed over by v0.18 rather than invented here:
+
+- **Play the opening first, with hands, and time it.** v0.18 repaired the first twenty minutes
+  against the rules and could not measure them against a person: the frame loop does not run in the
+  agent's browser, so nothing on the player's clock was exercised. `fixtures/balance.json` predicts
+  the material work — 32 gathers to stage one, 97 to stage two, a 65-second combined hand floor —
+  and says nothing about walking, choosing, or placing. Before adding a system, find out whether the
+  contract's second stage takes five minutes or forty. A number from a person outranks every number
+  in that file.
+- **`Economy::recipe_for` still asserts one recipe per item, and ecology is what breaks it.** That
+  assert is the handoff v0.17 named and v0.18 did not touch: a byproduct is a second producer, and
+  "what does a plate cost" has no answer without a stated rule for dividing a craft's cost between
+  its outputs. Pick the rule deliberately and write it down beside the fixture. The new `contracts`
+  section expands bills through the same tree, so it breaks in the same place and for the same
+  reason.
+- **A new contract stage is a data row, and the hub already knows how to grow into it.** Stages
+  live in `scenarios.json`; `HUB_LADDER` has one entry per stage the hub can finish, and
+  `tests/look.test.ts` fails if a shipped contract can complete a stage the ladder cannot draw. If
+  Living Lattice wants the hub to ask for biomatter, that is a stage and a ladder row, not a system.
+- **Guidance follows the contract for free, but only through recipes.** `nextAction` walks recipe
+  inputs and recipe categories. An ecological input that is _harvested from a population_ rather
+  than crafted will fall out of the walk as a raw material, which is right; an ecological _process_
+  with no recipe row will not appear at all. Whatever v0.19 adds, give it a recipe row or teach the
+  walk about it deliberately — the one thing that must not happen is a hub asking for something the
+  next step cannot explain.
+
+## Following milestone — Living Lattice v0.19
+
+Animals, biomatter, and waste remain one milestone, but their purpose is now sharper: this is the
+first system that makes HexFactory something other than a factory game drawn on hexes. A living
+population moves, feeds, breeds, recovers, and can be depleted past recovery across hex
+neighbourhoods. Biomatter comes from that population rather than from a renamed static field.
+Waste is a byproduct with a visible destination: it can feed a recovery loop, damage a habitat, or
+be refined. Producer, byproduct, and consumer are designed together so none is a decorative item.
+
+This is **not** a Factorio pollution/enemy-wave substitute. The pressure is ecological consequence
+and opportunity, not a timer that periodically sends attackers. A player should be able to preserve
+a productive migration, intensify it carefully, exhaust it for an urgent contract, or repair a
+region they damaged. The landscape answers the factory, and the answer is visible where it happens.
+
+Hex topology earns itself here. Movement and propagation use six neighbours; a herd or recovery
+front has a perimeter; extraction reach is a ring; machines expose meaningful faces when a process
+has directional intake, output, heat, or waste. Do not add generic adjacency percentages that
+collapse into one solved blueprint. A hex mechanic belongs only when rings, faces, fronts, or
+multiple approach directions change a decision the player can see.
+
+Rust/Wasm still owns every ecological tick. Use sparse scheduled populations or active fronts, not
+a JavaScript cell loop and not HexLife source imports. `@hexlife/embed/hex` remains the host geometry
+contract; it does not become the simulation kernel merely to justify the name.
+
+### Balance and data handoff
+
+`outputs: Vec<Ingredient>` arrives here because the economy now needs a real byproduct. That breaks
+`Economy::recipe_for` deliberately: a tree-expanded cost through a multi-output craft needs a stated
+allocation rule. Choose and document that rule beside the fixture; do not make the secondary output
+free, charge every output the full craft, or silently select one producer. Every new definition must
+reach `fixtures/balance.json`, and any ecological yield claim needs a measured fixture analogous to
+the world survey.
+
+### Acceptance
+
+- One complete loop produces useful biomatter and a waste stream, and the player has at least two
+  legible responses to that waste with different ecological outcomes.
+- The same installation in two habitat states does not have the same answer, and the reason is
+  visible in the world rather than hidden in a modifier panel.
+- A population can recover, migrate, and collapse deterministically; saves and checksums reproduce
+  each outcome exactly.
+- The founding hub asks for something from the loop, so the new system has a motive on arrival.
+- The native capacity ladder and complete browser frame are re-measured if the entity or world
+  snapshot changes. No claim is made beyond the measured tier.
+
+## Later milestone — Regional Discovery v0.20
+
+v0.16 made world shape parameterized; v0.20 makes that variation a play system. The landing
+clearing guarantees only the bootstrap path established by v0.18. Advanced materials and ecological
+opportunities belong to readable regions that require travel, surveying, and eventually outposts.
+The current assertion that every preset puts all eight raw materials near the landing site must be
+replaced deliberately, not accidentally weakened: every preset remains completable, but
+"completable" no longer means "sample platter at spawn."
+
+A third low-frequency generation channel may create dry and wet variants of the same elevation
+band, but generation is not the milestone by itself. A region has to announce itself through shape,
+colour, life, sound, and material behaviour; the player needs a survey tool that hints rather than
+reveals the entire answer; and a distant discovery must create a reason to establish a specialized
+site rather than carry one stack home and forget the place. Landing contracts and later hub modules
+provide that reason.
+
+Signal crystal is the strongest candidate for a later hex-native automation language: relays along
+faces, triangular links, or closed rings can make spatial control distinct from conventional circuit
+combinators. It stays a candidate until Living Lattice proves which signals the player actually
+needs; do not build a programmable system in search of a problem.
+
+### Acceptance
+
+- A new world begins with a complete bootstrap path but not every advanced raw material in the
+  landing clearing.
+- Every preset remains completable, measured by an updated survey that reports bootstrap reach,
+  first advanced-region distance, regional extent, and access from buildable ground.
+- Crossing into a region is recognisable without opening the game menu or reading coordinates.
+- At least one founding-hub project requires a sustained distant site, not a one-time hand trip.
+- The minimap and home bearing support the expedition without revealing unsurveyed world or
+  re-deriving native generation truth.
+
+## Longer play horizon after v0.20
+
+- **Hub programmes.** Player-chosen modules grow around the landing hub's rings and create different
+  material demands. They are finite authored systems and visible construction, not endless random
+  chores. Large projects give an established factory a reason to expand without turning one victory
+  into a wall.
+- **Six-face machines.** Ports, heat, exhaust, or control may attach to named faces where direction
+  creates a readable routing choice. Closed loops and triads are available shapes, not mandatory
+  bonuses on every machine.
+- **Fluid networks, intermittency, accumulators, and the day cycle** remain improvements on systems
+  that already work. They follow the motive, ecology, and regional spine rather than preceding it.
+- **Tunnels** still cost one trace-loop match arm and may ride any compatible version bump; they do
+  not become a milestone by themselves.
+
+Whatever comes next, `fixtures/balance.json` remains the thing every new building or recipe has to
+face: a definition that never reaches it is a definition nothing has compared against the curve,
+and both test suites say so.
+
+## Historical brief — Balance v0.17
 
 The first deliberate pass at the numbers, and the reason it is third: balance is tuned against
 resource density, and v0.16 is what turns density into a parameter. Tuning before that would be
@@ -725,12 +1036,29 @@ what that session should not lose, still open:
 - Gather and deliver copy is honest (`stand on or beside a field hex to gather`, `Gathered
 Iron ore`). The guide loop (gather → gold hub → research) is the one thing that already
   coaches. The header `Establish component production 0 / 3` never explains the 3.
-- Walking overshoots a single hex easily at hold-to-move speed.
+- ~~Walking overshoots a single hex easily at hold-to-move speed.~~ Closed by v0.18, below.
 - Console was clean except `favicon.ico` 404.
 - Belts-on-fields may stay legal; paving the rare landing crystal without a read should not.
 - ~~**The inspector is a wall of text.**~~ Closed by Inspector Readability: a clicked hex is
   cards, not a `textContent` dump. Coordinates are a chip, facing is a compass plus
   `DIRECTION_NAMES`, and every meter writes both published numbers.
+- ~~**The scripted next action can recommend an impossible powered line.**~~ Closed by Founding
+  Contract v0.18: there is no script. The step is a dependency walk over the contract, the recipe
+  tree, and the technology graph, and `tests/guidance.test.ts` fails if the power branch leaves it.
+- ~~**The objective proves only the founding slice.**~~ Closed by v0.18. Three Components are stage
+  one of a two-stage contract; the project the hub actually builds needs two chains from two
+  landscapes, and `fixtures/balance.json` is where that claim is checked rather than asserted.
+- ~~**Minute zero shows the whole locked game.**~~ Closed by v0.18. Both catalogues lead with
+  everything within two unresearched technologies — five of twelve and six of eighteen at minute
+  zero — and each says how many it is holding back, behind one control.
+- ~~**The world is clean but quiet.**~~ Closed by v0.18: six synthesised cues chosen from native
+  events, a stall mark that says _why_ a machine is idle, and a stamp that no longer covers the
+  anatomy it labels. Mute and reduced motion are controls, not assumptions.
+- ~~**Walking overshoots a single hex easily at hold-to-move speed.**~~ Closed by v0.18. `Shift`
+  walks at 0.4 magnitude through the intent field native already accepted.
+- **The landing clearing answers exploration too early.** All eight raw materials at spawn make the
+  terrain legible but make four presets and an unbounded map less consequential. v0.20 replaces the
+  sample platter with a measured bootstrap guarantee and regional discovery.
 
 ## Presentation pass — Inspector Readability v0.13.2
 
@@ -1687,11 +2015,10 @@ efficient generators follow the same pattern.
 
 Named here so they are decisions rather than omissions, each with the thing it is waiting for:
 
-- **Animals, biomatter, and waste.** One milestone, not three. A living population is what gives
-  biomatter a source that behaves unlike a field — it grows, it can be depleted past recovery, it
-  moves — and it is what gives waste somewhere to go besides a void. Designing the byproduct economy
-  before its consumer exists would mean designing it twice. This is also what brings
-  `outputs: Vec<Ingredient>` into `RecipeDefinition`.
+- ~~**Animals, biomatter, and waste.**~~ Promoted to **Living Lattice v0.19** above, still one
+  milestone rather than three. The promoted brief adds the missing purpose: ecology is the first
+  system in which the world answers the factory, and the first player-facing reason hex
+  neighbourhoods must matter.
 - **Fluid networks.** Water ships as a belted item in v0.13; the real network is an improvement on a
   working game rather than a second network model built in the same milestone as the first.
 - **Intermittent generation and accumulators.** They arrive together. Intermittency has to be a
@@ -1701,14 +2028,10 @@ Named here so they are decisions rather than omissions, each with the thing it i
   and should be chosen for what it does to the game's feel, not smuggled in as a power source.
 - **Terraforming.** Cliffs are unbuildable until mined in v0.11; whether the player may reshape
   elevation, and what that costs, is a question the world has to exist before anyone can answer.
-- **Regional biomes — a third generation channel.** v0.16 parameterizes how large and how common
-  each band is, which is what the direction that named it asked for. What it does not do is let the
-  _same_ band differ by region: a dry highland here and a forested highland there. That needs a
-  third low-frequency channel — temperature, or a categorical region noise — layered under
-  elevation and moisture, and it is its own design pass rather than another parameter, because the
-  open question is not how to generate it. It is how a region announces itself to a player walking
-  into one, and what changes about the materials when it does. Waiting on v0.16, whose parameter
-  table and histogram tool are what a region would be expressed and measured in.
+- ~~**Regional biomes — a third generation channel.**~~ Promoted to **Regional Discovery v0.20**
+  above. The generation channel remains an implementation option; the milestone is the readable
+  expedition, the sustained distant site, and the measured replacement for "all materials near
+  spawn," not another noise field by itself.
 
 ### Longer horizon — 3D, north-south belts, organic generation
 
@@ -2066,9 +2389,17 @@ branding imitation is unchanged.
 - **The world should reward looking at it.** Readability first — resources, machine identity,
   direction, throughput, and blockage legible at a glance — and beauty close behind it. The fog
   frontier, the surveyed world, and a running factory should all be things a player wants to watch.
-- **Open-ended, not scripted.** Progression opens options rather than prescribing a route. The world
+- **Open-ended, not aimless.** Progression opens options rather than prescribing a route. The world
   is unbounded and the player decides what to build, where, and how large. Victory is a milestone in
-  a longer game, never a wall.
+  a longer game, never a wall; visible hub programmes, regional discoveries, and consequences give
+  that longer game reasons without turning it into a script.
+- **The world and the factory answer each other.** Terrain is more than a placement mask and the
+  factory is more than an overlay. Geography, living populations, extraction, waste, and recovery
+  change one another in ways the player can see and choose around.
+- **Hexagonal space earns its place.** The package dependency is already real geometry, but a
+  player-facing system becomes hex-native only when faces, rings, fronts, or multiple approach
+  directions change a legible decision. Never force the factory into a cellular-automaton kernel or
+  add invisible adjacency bonuses merely to justify the grid.
 - **Nothing may stutter.** Frame stability, instant response to input, and saves that always restore
   exactly are player-experience features. This is what the measured capacity ladder is protecting.
 

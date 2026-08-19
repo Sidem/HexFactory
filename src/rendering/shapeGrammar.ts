@@ -182,7 +182,8 @@ export type ModifierName =
   | "addRotorBlade"
   | "segmentVessel"
   | "platingBand"
-  | "widenMouth";
+  | "widenMouth"
+  | "raiseMast";
 
 type Modifier = (parts: readonly ShapePart[]) => ShapePart[];
 
@@ -240,12 +241,38 @@ const widenMouth: Modifier = (parts) =>
     part.part === "mouth" ? { ...part, scale: part.scale * 1.22 } : { ...part },
   );
 
+/**
+ * Grows what a shape already reaches upward, and puts a second one beside it. A structure that has
+ * been built onto reads as taller and busier at the top, which is the one difference legible at
+ * ordinary play zoom without changing the footprint the world is drawn on.
+ */
+const raiseMast: Modifier = (parts) => {
+  const grown = parts.map((part) =>
+    part.part === "mast"
+      ? { ...part, scale: part.scale * 1.28, y: part.y - 0.03 }
+      : { ...part },
+  );
+  const masts = grown.filter((part) => part.part === "mast");
+  return [
+    ...grown,
+    ...masts.map(
+      (mast): ShapePart => ({
+        ...mast,
+        x: mast.x + 0.15,
+        y: mast.y + 0.05,
+        scale: mast.scale * 0.7,
+      }),
+    ),
+  ];
+};
+
 const MODIFIERS: Record<ModifierName, Modifier> = {
   addStack,
   addRotorBlade,
   segmentVessel,
   platingBand,
   widenMouth,
+  raiseMast,
 };
 
 export interface TierStep {
@@ -275,23 +302,51 @@ export const TIER_LADDER: readonly TierStep[] = [
 ];
 
 /**
- * Applies the ladder up to `tier`. Tiers past the ladder wear every step it has: the trim keeps
- * climbing, so a definition that outgrows the documented set is visibly odd rather than silently
- * identical to the tier below it.
+ * One row per completed contract stage. The landing hub is the one building in the game the player
+ * does not place, and a founding project that changed nothing on screen would be a number in a
+ * panel: this is what makes finishing one visible from across the map.
+ *
+ * It is a ladder rather than a drawing for the same reason `TIER_LADDER` is. A later contract with
+ * a third stage costs a row here, not an artist.
  */
-export function applyTier(
+export const HUB_LADDER: readonly TierStep[] = [
+  {
+    name: "certified",
+    reads: "a wider seamed body, plated around the base, under a second mast",
+    modifiers: ["segmentVessel", "platingBand", "raiseMast"],
+  },
+  {
+    name: "foundry",
+    reads: "segmented again and vented, standing well above what landed here",
+    modifiers: ["segmentVessel", "platingBand", "addStack", "raiseMast"],
+  },
+];
+
+/**
+ * Applies a ladder's first `steps` rows. Steps past its end wear every row it has, so a building
+ * that outgrows a documented set is visibly odd rather than silently identical to the step below.
+ */
+export function applyLadder(
   base: readonly ShapePart[],
-  tier: number,
+  ladder: readonly TierStep[],
+  steps: number,
 ): readonly ShapePart[] {
-  if (tier <= 0 || base.length === 0) return base;
+  if (steps <= 0 || base.length === 0) return base;
   let parts: readonly ShapePart[] = base;
-  for (const step of TIER_LADDER.slice(0, tier)) {
+  for (const step of ladder.slice(0, steps)) {
     for (const name of step.modifiers) {
       const modifier = MODIFIERS[name];
       parts = modifier(parts);
     }
   }
   return parts;
+}
+
+export function applyTier(
+  base: readonly ShapePart[],
+  tier: number,
+): readonly ShapePart[] {
+  return applyLadder(base, TIER_LADDER, tier);
 }
 
 /* ------------------------------------------------------------------- walker */

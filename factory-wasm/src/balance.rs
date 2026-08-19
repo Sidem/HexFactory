@@ -35,6 +35,7 @@ use super::*;
 
 const DEFINITIONS: &str = include_str!("../../src/data/definitions.json");
 const TECHNOLOGIES: &str = include_str!("../../src/data/technologies.json");
+const SCENARIOS: &str = include_str!("../../src/data/scenarios.json");
 
 /// The simulation rate every per-minute figure here is quoted at: the `index.html` default, which
 /// is the pace a player who never touches the speed control plays at. It is a unit on the numbers,
@@ -357,6 +358,27 @@ pub struct Opening {
     pub machine_seconds_milli: u64,
 }
 
+/// What the landing hub is asking for, priced the same way an opening is.
+///
+/// This is the row a founding contract has to face. A bill written from the catalogue alone is a
+/// bill argued from a quarter of the numbers: `16 iron plate` says nothing about the thirty-two ore
+/// under it, the fuel that smelts them, the machines the chain needs, or the research those
+/// machines sit behind. A stage that never reaches this section is a demand nothing has compared
+/// against the curve.
+#[derive(Clone, Debug, Serialize)]
+pub struct ContractCost {
+    pub scenario: String,
+    pub contract: String,
+    pub stage: String,
+    /// The bill exactly as the scenario states it, before any expansion.
+    pub bill: Vec<Amount>,
+    /// How many distinct raw materials the whole tree bottoms out in. A founding project is meant
+    /// to need more than one landscape, and this is the number that says whether it does.
+    pub raw_materials: usize,
+    /// Everything the stage costs from a standing start, priced exactly like an opening.
+    pub opening: Opening,
+}
+
 #[derive(Clone, Debug, Serialize)]
 pub struct BalanceReport {
     pub reference: Reference,
@@ -369,6 +391,7 @@ pub struct BalanceReport {
     pub access: Vec<MaterialAccess>,
     pub extraction: Vec<SiteYield>,
     pub openings: Vec<Opening>,
+    pub contracts: Vec<ContractCost>,
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -378,6 +401,7 @@ pub struct BalanceReport {
 struct Economy {
     definitions: DefinitionsInput,
     technologies: TechnologiesInput,
+    scenarios: ScenariosInput,
 }
 
 impl Economy {
@@ -385,6 +409,7 @@ impl Economy {
         Economy {
             definitions: serde_json::from_str(DEFINITIONS).expect("shipped definitions parse"),
             technologies: serde_json::from_str(TECHNOLOGIES).expect("shipped technologies parse"),
+            scenarios: serde_json::from_str(SCENARIOS).expect("shipped scenarios parse"),
         }
     }
 
@@ -629,6 +654,7 @@ pub(crate) fn compute_from(
     report(&Economy {
         definitions,
         technologies,
+        scenarios: serde_json::from_str(SCENARIOS).expect("shipped scenarios parse"),
     })
 }
 
@@ -646,6 +672,7 @@ fn report(economy: &Economy) -> BalanceReport {
         access: access(economy),
         extraction: extraction(economy),
         openings: openings(economy, best_fuel_value),
+        contracts: contracts(economy, best_fuel_value),
     }
 }
 
@@ -1184,37 +1211,83 @@ fn openings(economy: &Economy, best_fuel_value: u32) -> Vec<Opening> {
     targets
         .into_iter()
         .map(|(name, building_keys, item_keys)| {
-            opening(economy, best_fuel_value, name, &building_keys, &item_keys)
+            let wanted = item_keys
+                .iter()
+                .filter_map(|&(key, quantity)| {
+                    economy
+                        .definitions
+                        .items
+                        .iter()
+                        .find(|item| item.key == key)
+                        .map(|item| Ingredient {
+                            item_id: item.id,
+                            quantity,
+                        })
+                })
+                .collect();
+            opening(economy, best_fuel_value, name, &building_keys, wanted)
         })
         .collect()
 }
+
+/// Every contract stage the shipped scenarios state, priced through its whole tree.
+fn contracts(economy: &Economy, best_fuel_value: u32) -> Vec<ContractCost> {
+    let mut rows = Vec::new();
+    for scenario in &economy.scenarios.scenarios {
+        // A synthetic bill exists to never be met, so expanding it would price a workload rather
+        // than a game. The threshold is deliberately generous: a real founding stage is tens of
+        // items, not tens of thousands.
+        for stage in &scenario.contract.stages {
+            if stage
+                .requirements
+                .iter()
+                .any(|need| need.quantity > CONTRACT_BILL_LIMIT)
+            {
+                continue;
+            }
+            let expansion = economy.cost_of(&stage.requirements);
+            rows.push(ContractCost {
+                scenario: scenario.key.clone(),
+                contract: scenario.contract.key.clone(),
+                stage: stage.key.clone(),
+                bill: stage
+                    .requirements
+                    .iter()
+                    .map(|need| Amount {
+                        item: economy.item_key(need.item_id),
+                        quantity: u64::from(need.quantity),
+                    })
+                    .collect(),
+                raw_materials: expansion.batch_raw.len(),
+                opening: opening(
+                    economy,
+                    best_fuel_value,
+                    &format!("{}: {}", scenario.key, stage.key),
+                    &[],
+                    stage.requirements.clone(),
+                ),
+            });
+        }
+    }
+    rows
+}
+
+/// Above this, a stage's line is a sentinel rather than a bill. `u32::MAX` and the demo's standing
+/// observation both sit far above it.
+const CONTRACT_BILL_LIMIT: u32 = 10_000;
 
 fn opening(
     economy: &Economy,
     best_fuel_value: u32,
     name: &str,
     building_keys: &[&str],
-    item_keys: &[(&str, u32)],
+    wanted: Vec<Ingredient>,
 ) -> Opening {
-    let mut wanted: Vec<Ingredient> = Vec::new();
     let mut needed: BTreeSet<DefinitionId> = building_keys
         .iter()
         .filter_map(|key| economy.building_by_key(key))
         .map(|building| building.id)
         .collect();
-    for &(key, quantity) in item_keys {
-        if let Some(item) = economy
-            .definitions
-            .items
-            .iter()
-            .find(|item| item.key == key)
-        {
-            wanted.push(Ingredient {
-                item_id: item.id,
-                quantity,
-            });
-        }
-    }
 
     // A machine is needed for every recipe category the tree touches, and that machine's own cost
     // may touch another. Iterate to a fixed point rather than guessing the depth.
@@ -1254,12 +1327,41 @@ fn opening(
                 grew = true;
             }
         }
+        // A machine that draws power and has nothing generating it is a factory that cannot run,
+        // and an opening that did not price the generator would be quoting a plan the rules refuse.
+        // This is the same defect the scripted guidance had. One generator is the minimum, not one
+        // generator and a pole: a generator's own `power_reach` already covers what stands beside
+        // it, and the pole is what a *distance* costs rather than what power costs.
+        let draws = needed
+            .iter()
+            .filter_map(|&id| economy.building(id))
+            .any(|building| building.power_draw.unwrap_or(0) > 0);
+        let supplies = needed
+            .iter()
+            .filter_map(|&id| economy.building(id))
+            .any(|building| building.power_output.unwrap_or(0) > 0);
+        if draws && !supplies {
+            let generator = economy
+                .definitions
+                .buildings
+                .iter()
+                .filter(|building| building.buildable && building.power_output.unwrap_or(0) > 0)
+                .min_by_key(|building| {
+                    economy
+                        .cost_of(&building.construction_cost)
+                        .effort(best_fuel_value)
+                });
+            if let Some(generator) = generator {
+                needed.insert(generator.id);
+                grew = true;
+            }
+        }
         if !grew {
             break;
         }
     }
 
-    let mut ingredients = wanted;
+    let mut ingredients = wanted.clone();
     for &id in &needed {
         if let Some(building) = economy.building(id) {
             ingredients.extend(building.construction_cost.iter().copied());
@@ -1539,6 +1641,31 @@ pub fn format_report(report: &BalanceReport) -> String {
             opening.insight,
             milli(opening.hand_seconds_milli),
             milli(opening.machine_seconds_milli)
+        ));
+    }
+
+    out.push_str("\ncontract stages, what the landing hub is asking for\n");
+    for stage in &report.contracts {
+        let bill: Vec<String> = stage
+            .bill
+            .iter()
+            .map(|line| format!("{} {}", line.quantity, line.item))
+            .collect();
+        out.push_str(&format!(
+            "  {}/{}: {} | {} raw material(s)\n",
+            stage.scenario,
+            stage.stage,
+            bill.join(" + "),
+            stage.raw_materials
+        ));
+        out.push_str(&format!(
+            "      {} gathers ({} for research, {} fuel) | buildings: {} | hand {}s + machine {}s\n",
+            stage.opening.gather_total,
+            stage.opening.insight_items,
+            stage.opening.fuel_items,
+            stage.opening.buildings.join(", "),
+            milli(stage.opening.hand_seconds_milli),
+            milli(stage.opening.machine_seconds_milli)
         ));
     }
     out

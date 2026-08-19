@@ -1,12 +1,12 @@
 {
-  "version": 1,
+  "version": 2,
   "scenarios": [
     {
       "id": 1,
       "key": "new-game",
       "name": "New game",
-      "description": "Explore, gather, research, automate, and deliver three components.",
-      "version": 4,
+      "description": "Explore, gather, research, automate, and raise the landing hub's first module.",
+      "version": 5,
       "seed": 1213486160,
       "world_preset": "continental",
       "chunk_size": 8,
@@ -15,8 +15,29 @@
       "player_facing": 0,
       "build_range": 5,
       "carry_slots": 8,
-      "objective_item_id": 2,
-      "objective_quantity": 3,
+      "contract": {
+        "key": "founding",
+        "name": "Founding contract",
+        "stages": [
+          {
+            "key": "components",
+            "name": "Prove the line",
+            "brief": "Deliver three components to the landing hub. Two iron ore make one, so this is the whole loop in miniature: find the material, deliver it for insight, research, and let a machine do it next time.",
+            "reads": "the hub plates its base and raises a second mast",
+            "requirements": [{ "item_id": 2, "quantity": 3 }]
+          },
+          {
+            "key": "foundry",
+            "name": "Raise the foundry module",
+            "brief": "The hub can build its own foundry, but only from smelted plate and fired brick. Iron sits in the highland and clay on the wet shore, so this is two chains in two landscapes, and neither machine turns without a powered network.",
+            "reads": "the foundry body segments, vents, and rises above the landing pad",
+            "requirements": [
+              { "item_id": 11, "quantity": 16 },
+              { "item_id": 14, "quantity": 20 }
+            ]
+          }
+        ]
+      },
       "resources": [],
       "buildings": [
         {
@@ -33,7 +54,7 @@
       "key": "factory-demo",
       "name": "Factory demo",
       "description": "The founding prebuilt turning-belt architecture proof.",
-      "version": 4,
+      "version": 5,
       "seed": 404112911,
       "chunk_size": 8,
       "generated_environment": false,
@@ -41,8 +62,19 @@
       "player_facing": 1,
       "build_range": 8,
       "carry_slots": 14,
-      "objective_item_id": 2,
-      "objective_quantity": 999,
+      "contract": {
+        "key": "observation",
+        "name": "Standing observation",
+        "stages": [
+          {
+            "key": "observe",
+            "name": "Observe the compiled line",
+            "brief": "A demonstration rather than a contract. The line runs, the hub counts, and nothing here ever finishes.",
+            "reads": "nothing — the demo hub never grows",
+            "requirements": [{ "item_id": 2, "quantity": 999999 }]
+          }
+        ]
+      },
       "initial_inventory": [
         { "item_id": 1, "quantity": 30 },
         { "item_id": 3, "quantity": 12 },

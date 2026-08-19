@@ -15,6 +15,15 @@ have moved.
 is what currently holds for both platforms. The v0.8 browser tables are retained because the
 current record's central comparison is drawn against them.
 
+**Founding Contract v0.18 moves every recorded checksum and no recorded timing.** The contract's
+stage and what the hub is holding against the current bill are saved, checksummed state, so the
+workload's pinned checksum changed from `2402899979` to `1679299541` — the same run, hashed over one
+more field. The ladder itself is untouched: the workload never delivers to a hub, its entity counts
+and delivered totals are unchanged, and the world generator, item roster, and entity snapshot are
+all exactly what v0.17 measured. So the ladder was not re-run, and **the timings below remain the
+current record while the tier checksums below are historical.** A checksum change invalidates
+checksum comparisons, not timing ones.
+
 The same ladder now runs in both places. Rust owns the measurement; only the clock differs — a
 native `Instant`, or `performance.now` inside the browser worker — so the two records are
 comparable by construction rather than by re-implementation. Both are recorded here, measured on

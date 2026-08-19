@@ -2,7 +2,9 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 import { TERRAIN_ORDER } from "../src/core/terrain";
+import wireFixture from "../fixtures/snapshot-delta-wire.json";
 import definitionData from "../src/data/definitions.json";
+import scenarios from "../src/data/scenarios.json";
 import {
   BUILDING_SHAPE_VERSION,
   BUILDING_SHAPES,
@@ -13,11 +15,14 @@ import {
   PLAYER_RING,
   silhouetteOf,
   spanEnd,
+  STALL_MARKS,
+  stallMark,
   trimOf,
   workCycle,
   type SilhouetteKey,
 } from "../src/rendering/buildingLook";
 import {
+  HUB_LADDER,
   isStill,
   profileTop,
   silhouetteSignature,
@@ -286,5 +291,82 @@ describe("Stage D shape grammar", () => {
     // Trim still climbs beside the shape, so the two agree rather than competing.
     expect(trimOf(1).width).toBeGreaterThan(trimOf(0).width);
     expect(trimOf(2).width).toBeGreaterThan(trimOf(1).width);
+  });
+
+  it("says why a machine is doing nothing, from the status it already publishes", () => {
+    // A working machine and one starved for ten minutes drew identically, and the only way to tell
+    // them apart was to click one. Every stalled status the wire can carry needs a mark, and no
+    // mark may name a status the core cannot produce — the wire fixture is the list of what it can.
+    const carried = new Set(
+      (wireFixture as { statuses: string[] }).statuses.map((value) => value),
+    );
+    for (const status of Object.keys(STALL_MARKS))
+      expect(carried.has(status), `${status} is not a native status`).toBe(
+        true,
+      );
+    const running = [
+      "extracting",
+      "pumping",
+      "composing",
+      "generating",
+      "carrying",
+      "receiving",
+      "landing hub",
+      "idle",
+      "buffered",
+    ];
+    for (const status of running) expect(stallMark(status)).toBeUndefined();
+    // Power is already a dimmed machine, so a second mark for the same cause would be noise.
+    expect(stallMark("no power")).toBeUndefined();
+    expect(stallMark("brownout")).toBeUndefined();
+    // Everything else the core can report while making nothing has to say so.
+    for (const status of carried)
+      if (
+        !running.includes(status) &&
+        !status.includes("power") &&
+        status !== "brownout"
+      )
+        expect(stallMark(status), `${status} stalls silently`).toBeDefined();
+  });
+
+  it("makes a finished contract stage visible on the hub itself", () => {
+    // A founding project that changed nothing on screen would be a number in a panel. Growth is a
+    // ladder over the same part vocabulary a tier uses, so each completed stage is a different
+    // silhouette and a taller one — the two properties that survive being read at play zoom.
+    for (let stage = 1; stage <= HUB_LADDER.length; stage += 1) {
+      const below = partsFor("hub", 0, stage - 1);
+      const at = partsFor("hub", 0, stage);
+      expect(silhouetteSignature(at)).not.toBe(silhouetteSignature(below));
+      expect(profileTop(at)).toBeLessThan(profileTop(below));
+      expect(at.length).toBeGreaterThan(below.length);
+    }
+    // Growth is the hub's alone in the shipped contract, but the walker is general, so a modifier
+    // that only worked on one shape would be a trap for whatever grows next.
+    for (const key of SHAPED_KEYS) {
+      const grown = partsFor(key, 0, HUB_LADDER.length);
+      expect(grown.length).toBeGreaterThanOrEqual(BUILDING_SHAPES[key].length);
+    }
+    // And the table itself is untouched by any of it, for the same reason a tier bake must not
+    // poison it.
+    expect(silhouetteSignature(BUILDING_SHAPES.hub)).toBe(
+      silhouetteSignature(partsFor("hub", 0, 0)),
+    );
+    for (const step of HUB_LADDER) {
+      expect(step.name).not.toBe("");
+      expect(step.reads).not.toBe("");
+      expect(step.modifiers.length).toBeGreaterThan(0);
+    }
+    // One row per stage the shipped contract can complete, or a stage would finish invisibly.
+    expect(HUB_LADDER.length).toBeGreaterThanOrEqual(
+      Math.max(
+        ...(
+          scenarios as unknown as {
+            scenarios: { contract: { stages: unknown[] } }[];
+          }
+        ).scenarios
+          .filter((scenario) => scenario.contract.stages.length < 10)
+          .map((scenario) => scenario.contract.stages.length),
+      ),
+    );
   });
 });

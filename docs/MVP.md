@@ -8,11 +8,14 @@ changes what it is made of; v0.13 adds a power network; Look Systems turns the m
 generated terrain and building silhouettes without moving a checksum. v0.12.4 times the two
 canvases the game draws; v0.13.1 re-measures them after Stage B and the first Stage C motion.
 Since this document was written the arc has continued and finished: v0.14 Upgrades and Tiers, v0.15
-Generated Shapes, v0.16 World Parameters, and v0.17 Balance. **`WORLD_GENERATOR_VERSION` is 6,
-`HXF1` save version is 7, and the definition version is 8**; earlier envelopes are rejected, and
-the browser save key names all four numbers native refuses on. v0.17 adds `fixtures/balance.json`,
-which is a test artifact and touches neither the wire nor the save. The capacity ladder is re-pinned; a generator bump invalidates
-checksum comparisons, not timing ones.
+Generated Shapes, v0.16 World Parameters, and v0.17 Balance, and then v0.18 Founding Contract began
+the pivot from substrate to motive. **`WORLD_GENERATOR_VERSION` is 6, `HXF1` save version is 8, the
+definition version is 8, and the scenario version is 5**; earlier envelopes are rejected, and the
+browser save key names every number native refuses on — four of them read from what is published
+rather than written down. v0.17 adds `fixtures/balance.json`, which is a test artifact and touches
+neither the wire nor the save. v0.18 replaces the single delivered objective with a staged contract
+that is saved and checksummed, and takes the wire format to version 3. The capacity ladder is
+re-pinned; a checksum change invalidates checksum comparisons, not timing ones.
 
 ## Binary delta contract
 
@@ -176,8 +179,11 @@ checksum comparisons, not timing ones.
   directive, progress, insight, pause state, and game menu visible without pushing play below the
   fold.
 - Snapshot-derived guidance names the next useful action across gathering, delivery, research,
-  automation, composition, victory, and the Factory demo. It is explanatory host presentation; it
-  does not mutate or reconstruct native state.
+  power, automation, composition, victory, and the Factory demo. It is explanatory host
+  presentation; it does not mutate or reconstruct native state. Since v0.18 it is derived from the
+  contract, the recipe tree, and the technology graph rather than scripted, so it cannot name a step
+  the rules would refuse in the state that produced it — and it is in permanent chrome as well as
+  behind `P`.
 - The inspector is the only panel that sits over the world. It answers a clicked hex as cards
   (identity, ground, field, machine) rather than as a paragraph. The cargo pack (`I`), research (`O`), and
   the objective-and-controls guide (`P`) open one at a time and close on `Escape`; Gather, Deliver,

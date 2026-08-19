@@ -40,8 +40,10 @@ use super::*;
 
 /// Head of every buffer, so a stale or foreign payload is rejected rather than misread.
 pub(crate) const WIRE_MAGIC: [u8; 4] = *b"HXFD";
-/// Bumped whenever the layout below changes in a way an old decoder would misread.
-pub(crate) const WIRE_VERSION: u8 = 2;
+/// Bumped whenever the layout below changes in a way an old decoder would misread. Version 3 is
+/// the Founding Contract: the objective group became the contract group, and it carries names and
+/// a bill rather than one item's three numbers.
+pub(crate) const WIRE_VERSION: u8 = 3;
 
 /// Which optional groups the buffer carries, in the order they are written.
 mod group {
@@ -53,7 +55,7 @@ mod group {
     pub(super) const DELIVERED_BY_ITEM: u32 = 1 << 5;
     pub(super) const INSIGHT: u32 = 1 << 6;
     pub(super) const VICTORY: u32 = 1 << 7;
-    pub(super) const OBJECTIVE: u32 = 1 << 8;
+    pub(super) const CONTRACT: u32 = 1 << 8;
     pub(super) const PLAYER: u32 = 1 << 9;
     pub(super) const RESEARCHED: u32 = 1 << 10;
     pub(super) const CHUNKS: u32 = 1 << 11;
@@ -211,7 +213,7 @@ pub(crate) fn encode_delta(delta: &SnapshotDelta) -> Vec<u8> {
     set(group::DELIVERED_BY_ITEM, delta.delivered_by_item.is_some());
     set(group::INSIGHT, delta.insight.is_some());
     set(group::VICTORY, delta.victory.is_some());
-    set(group::OBJECTIVE, delta.objective.is_some());
+    set(group::CONTRACT, delta.contract.is_some());
     set(group::PLAYER, delta.player.is_some());
     set(group::RESEARCHED, delta.researched.is_some());
     set(group::CHUNKS, delta.chunks.is_some());
@@ -249,10 +251,21 @@ pub(crate) fn encode_delta(delta: &SnapshotDelta) -> Vec<u8> {
     if let Some(victory) = delta.victory {
         writer.bool(victory);
     }
-    if let Some(objective) = &delta.objective {
-        writer.uvarint(u64::from(objective.item_id));
-        writer.uvarint(objective.delivered);
-        writer.uvarint(u64::from(objective.required));
+    if let Some(contract) = &delta.contract {
+        writer.string(&contract.key);
+        writer.string(&contract.name);
+        writer.uvarint(u64::from(contract.stage));
+        writer.uvarint(u64::from(contract.stages));
+        writer.string(&contract.stage_key);
+        writer.string(&contract.stage_name);
+        writer.string(&contract.stage_brief);
+        writer.uvarint(contract.requirements.len() as u64);
+        for need in &contract.requirements {
+            writer.uvarint(u64::from(need.item_id));
+            writer.uvarint(u64::from(need.delivered));
+            writer.uvarint(u64::from(need.required));
+        }
+        writer.bool(contract.complete);
     }
     if let Some(player) = &delta.player {
         write_player(&mut writer, player);
@@ -599,10 +612,22 @@ pub(crate) mod decode {
         });
         let insight = has(group::INSIGHT).then(|| reader.uvarint());
         let victory = has(group::VICTORY).then(|| reader.bool());
-        let objective = has(group::OBJECTIVE).then(|| ObjectiveSnapshot {
-            item_id: reader.uvarint() as ItemId,
-            delivered: reader.uvarint(),
-            required: reader.uvarint() as u32,
+        let contract = has(group::CONTRACT).then(|| ContractSnapshot {
+            key: reader.string(),
+            name: reader.string(),
+            stage: reader.uvarint() as u16,
+            stages: reader.uvarint() as u16,
+            stage_key: reader.string(),
+            stage_name: reader.string(),
+            stage_brief: reader.string(),
+            requirements: (0..reader.count())
+                .map(|_| ContractRequirement {
+                    item_id: reader.uvarint() as ItemId,
+                    delivered: reader.uvarint() as u32,
+                    required: reader.uvarint() as u32,
+                })
+                .collect(),
+            complete: reader.bool(),
         });
         let player = has(group::PLAYER).then(|| read_player(&mut reader));
         let researched = has(group::RESEARCHED).then(|| {
@@ -698,7 +723,7 @@ pub(crate) mod decode {
             delivered_by_item,
             insight,
             victory,
-            objective,
+            contract,
             player,
             researched,
             chunks,

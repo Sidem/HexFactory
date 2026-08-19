@@ -25,7 +25,12 @@ const SAVE_PREFIX: &str = "HXF1\n";
 /// directions rather than six. Both are checksum-affecting, so a v0.13 envelope is rejected rather
 /// than reinterpreted — an old save's orientation would still read correctly, but its definition
 /// table would not.
-const SAVE_VERSION: u16 = 7;
+///
+/// Bumped to 8 for the Founding Contract. A run's progress is no longer one delivered total against
+/// one item: the stage the hub has reached, and what it is holding against the current bill, are
+/// saved state and are in the checksum. A version-7 envelope carries neither, and inventing a stage
+/// for it would be the loader guessing at a founding project's history.
+const SAVE_VERSION: u16 = 8;
 /// Bumped to 6 for World Parameters. `WorldParams` is now part of a run's identity — it is in the
 /// save envelope and in the checksum — so a version-5 envelope carries no answer to the question
 /// "which world is this" and is rejected rather than assumed to be the default.
@@ -365,8 +370,10 @@ struct ScenarioDefinition {
     build_range: u32,
     /// How many stacks the player can carry at once. Containers exist to solve this.
     carry_slots: u32,
-    objective_item_id: ItemId,
-    objective_quantity: u32,
+    /// What the landing hub is actually asking for, in order. A scenario states a demand rather
+    /// than a single delivery total, because a founding project is the thing that gives an economy
+    /// a reason to exist and one item's counter cannot express it.
+    contract: ContractDefinition,
     #[serde(default)]
     initial_inventory: Vec<Ingredient>,
     #[serde(default)]
@@ -374,6 +381,31 @@ struct ScenarioDefinition {
     #[serde(default)]
     resources: Vec<ScenarioResource>,
     buildings: Vec<PlacedBuilding>,
+}
+
+/// The landing hub's standing demand: an ordered list of stages, each a bill of materials.
+///
+/// A stage is not a quest generator and not a wall. It is one bounded thing the hub is building,
+/// stated as data so it can be delivered against, saved, checksummed, and read on screen without
+/// any of the three re-deriving what the other two believe.
+#[derive(Clone, Deserialize)]
+struct ContractDefinition {
+    key: String,
+    name: String,
+    stages: Vec<ContractStage>,
+}
+
+#[derive(Clone, Deserialize)]
+struct ContractStage {
+    key: String,
+    name: String,
+    /// One paragraph the host can put in front of the player. Native owns it so the sentence and
+    /// the bill can never disagree about which stage is current.
+    brief: String,
+    /// What completing this stage does to the hub on screen, in words, so the drawing has
+    /// something to be checked against the same way `TierStep::reads` does.
+    reads: String,
+    requirements: Vec<Ingredient>,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq, PartialOrd, Ord)]
@@ -506,7 +538,7 @@ struct Snapshot {
     delivered_by_item: Vec<Ingredient64>,
     insight: u64,
     victory: bool,
-    objective: ObjectiveSnapshot,
+    contract: ContractSnapshot,
     player: PlayerSnapshot,
     researched: Vec<TechnologyId>,
     chunks: Vec<ChunkSnapshot>,
@@ -538,10 +570,31 @@ struct Ingredient64 {
     quantity: u64,
 }
 
+/// The contract as the host sees it: which stage is current, what that stage is asking for, and
+/// how much of each line the hub has already been given. `stage` is also how far the hub has grown,
+/// so the drawing and the sentence come from the same number.
+#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
+struct ContractSnapshot {
+    key: String,
+    name: String,
+    /// How many stages are finished, which is the index of the current one while any remain.
+    stage: u16,
+    stages: u16,
+    stage_key: String,
+    stage_name: String,
+    stage_brief: String,
+    /// Every line of the current stage's bill, with what the hub holds against it. Empty once the
+    /// whole contract is complete.
+    requirements: Vec<ContractRequirement>,
+    complete: bool,
+}
+
 #[derive(Clone, Copy, Debug, Serialize, PartialEq, Eq)]
-struct ObjectiveSnapshot {
+struct ContractRequirement {
     item_id: ItemId,
-    delivered: u64,
+    /// Contributed toward this stage, already clamped to what the line asks for. The host draws a
+    /// proportion from two published numbers rather than inferring a maximum.
+    delivered: u32,
     required: u32,
 }
 
@@ -762,7 +815,7 @@ struct SnapshotDelta {
     #[serde(skip_serializing_if = "Option::is_none")]
     victory: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    objective: Option<ObjectiveSnapshot>,
+    contract: Option<ContractSnapshot>,
     #[serde(skip_serializing_if = "Option::is_none")]
     player: Option<PlayerSnapshot>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -794,7 +847,7 @@ impl SnapshotDelta {
             delivered_by_item: Some(current.delivered_by_item.clone()),
             insight: Some(current.insight),
             victory: Some(current.victory),
-            objective: Some(current.objective),
+            contract: Some(current.contract.clone()),
             player: Some(current.player.clone()),
             researched: Some(current.researched.clone()),
             chunks: Some(current.chunks.clone()),
@@ -830,7 +883,7 @@ impl SnapshotDelta {
             delivered_by_item: changed(&previous.delivered_by_item, &current.delivered_by_item),
             insight: changed_copy(previous.insight, current.insight),
             victory: changed_copy(previous.victory, current.victory),
-            objective: changed_copy(previous.objective, current.objective),
+            contract: changed(&previous.contract, &current.contract),
             player: changed(&previous.player, &current.player),
             researched: changed(&previous.researched, &current.researched),
             chunks: changed(&previous.chunks, &current.chunks),
@@ -1082,6 +1135,13 @@ struct Core {
     delivered_by_item: BTreeMap<ItemId, u64>,
     insight: u64,
     victory: bool,
+    /// How many contract stages the hub has finished. Saved and checksummed: it is the state a
+    /// founding project consists of, and the host draws the hub's growth from it.
+    contract_stage: usize,
+    /// What the hub has been given since the contract started, less what completed stages consumed.
+    /// Every hub delivery lands here, not only the items the current stage names, so a player who
+    /// automates a line early is credited for it when the stage that wants it arrives.
+    contract_contributed: BTreeMap<ItemId, u64>,
     produced: BTreeMap<ItemId, u64>,
     events: Vec<String>,
     /// Derived presentation state: what has changed since the host's last delta. Never saved,
@@ -1164,6 +1224,8 @@ impl Core {
             delivered_by_item: BTreeMap::new(),
             insight: 0,
             victory: false,
+            contract_stage: 0,
+            contract_contributed: BTreeMap::new(),
             produced: BTreeMap::new(),
             events: vec![format!("{} ready", scenario.name)],
             dirty: SnapshotDirty::default(),
@@ -2494,10 +2556,12 @@ impl Core {
                     .or_default() += cargo.quantity;
             }
             BuildingKind::Consumer => {
+                // A consumer is a sink, not the landing hub. It records what left the factory and
+                // nothing more: the contract is what the *hub* was handed, so a scenario cannot
+                // finish a founding project by voiding cargo somewhere else on the map.
                 self.delivered += u64::from(cargo.quantity);
                 *self.delivered_by_item.entry(cargo.item_id).or_default() +=
                     u64::from(cargo.quantity);
-                self.check_victory();
             }
             BuildingKind::Hub => self.deliver_to_hub(cargo.item_id, cargo.quantity),
             BuildingKind::Extractor | BuildingKind::Pump | BuildingKind::Pole => {
@@ -2514,19 +2578,41 @@ impl Core {
             .map(|item| item.insight_value)
             .unwrap_or(0);
         self.insight += u64::from(value) * u64::from(quantity);
-        self.check_victory();
+        *self.contract_contributed.entry(item_id).or_default() += u64::from(quantity);
+        self.advance_contract();
     }
 
-    fn check_victory(&mut self) {
-        let delivered = self
-            .delivered_by_item
-            .get(&self.scenario.objective_item_id)
-            .copied()
-            .unwrap_or(0);
-        if !self.victory && delivered >= u64::from(self.scenario.objective_quantity) {
-            self.victory = true;
+    /// Close every stage the hub can now afford, in order.
+    ///
+    /// The loop is not decoration: contributions carry forward, so a stage whose bill a previous
+    /// surplus already covers must complete in the same delivery rather than wait for one more
+    /// item to arrive and re-ask the question.
+    fn advance_contract(&mut self) {
+        while let Some(stage) = self.scenario.contract.stages.get(self.contract_stage) {
+            let met = stage.requirements.iter().all(|need| {
+                self.contract_contributed
+                    .get(&need.item_id)
+                    .copied()
+                    .unwrap_or(0)
+                    >= u64::from(need.quantity)
+            });
+            if !met {
+                return;
+            }
+            let consumed = stage.requirements.clone();
+            let name = stage.name.clone();
+            for need in &consumed {
+                let held = self.contract_contributed.entry(need.item_id).or_default();
+                *held = held.saturating_sub(u64::from(need.quantity));
+            }
+            self.contract_stage += 1;
             self.events
-                .push("Landing objective complete — free play continues".into());
+                .push(format!("{name} complete — the landing hub grows"));
+            if self.contract_stage >= self.scenario.contract.stages.len() {
+                self.victory = true;
+                self.events
+                    .push("Founding contract complete — free play continues".into());
+            }
         }
     }
 
@@ -3825,15 +3911,39 @@ impl Core {
             .collect()
     }
 
-    fn objective_snapshot(&self) -> ObjectiveSnapshot {
-        ObjectiveSnapshot {
-            item_id: self.scenario.objective_item_id,
-            delivered: self
-                .delivered_by_item
-                .get(&self.scenario.objective_item_id)
-                .copied()
-                .unwrap_or(0),
-            required: self.scenario.objective_quantity,
+    fn contract_snapshot(&self) -> ContractSnapshot {
+        let contract = &self.scenario.contract;
+        let stage = contract.stages.get(self.contract_stage);
+        ContractSnapshot {
+            key: contract.key.clone(),
+            name: contract.name.clone(),
+            stage: self.contract_stage as u16,
+            stages: contract.stages.len() as u16,
+            stage_key: stage.map(|stage| stage.key.clone()).unwrap_or_default(),
+            stage_name: stage.map(|stage| stage.name.clone()).unwrap_or_default(),
+            stage_brief: stage.map(|stage| stage.brief.clone()).unwrap_or_default(),
+            requirements: stage
+                .map(|stage| {
+                    stage
+                        .requirements
+                        .iter()
+                        .map(|need| ContractRequirement {
+                            item_id: need.item_id,
+                            // Clamped natively, because the bar the host draws is a proportion and
+                            // a surplus carried forward is not progress against this line.
+                            delivered: self
+                                .contract_contributed
+                                .get(&need.item_id)
+                                .copied()
+                                .unwrap_or(0)
+                                .min(u64::from(need.quantity))
+                                as u32,
+                            required: need.quantity,
+                        })
+                        .collect()
+                })
+                .unwrap_or_default(),
+            complete: self.contract_stage >= contract.stages.len(),
         }
     }
 
@@ -3856,7 +3966,7 @@ impl Core {
             delivered_by_item: self.delivered_by_item_snapshot(),
             insight: self.insight,
             victory: self.victory,
-            objective: self.objective_snapshot(),
+            contract: self.contract_snapshot(),
             player: self.player_snapshot(),
             researched: self.researched.iter().copied().collect(),
             chunks,
@@ -3934,6 +4044,12 @@ impl Core {
             hash_u32(&mut hash, u32::from(item));
             hash_u64(&mut hash, quantity);
         }
+        hash_u32(&mut hash, u32::MAX - 2);
+        hash_u64(&mut hash, self.contract_stage as u64);
+        for (&item, &quantity) in &self.contract_contributed {
+            hash_u32(&mut hash, u32::from(item));
+            hash_u64(&mut hash, quantity);
+        }
         hash
     }
 
@@ -3956,6 +4072,8 @@ impl Core {
             delivered_by_item: self.delivered_by_item.clone(),
             insight: self.insight,
             victory: self.victory,
+            contract_stage: self.contract_stage,
+            contract_contributed: self.contract_contributed.clone(),
             produced: self.produced.clone(),
         };
         let envelope = SaveEnvelope {
@@ -4047,6 +4165,8 @@ impl Core {
         core.delivered_by_item = envelope.state.delivered_by_item;
         core.insight = envelope.state.insight;
         core.victory = envelope.state.victory;
+        core.contract_stage = envelope.state.contract_stage;
+        core.contract_contributed = envelope.state.contract_contributed;
         core.produced = envelope.state.produced;
         core.events = vec!["HXF1 save restored".into()];
         core.compile_graph();
@@ -4088,6 +4208,8 @@ struct SavedState {
     delivered_by_item: BTreeMap<ItemId, u64>,
     insight: u64,
     victory: bool,
+    contract_stage: usize,
+    contract_contributed: BTreeMap<ItemId, u64>,
     produced: BTreeMap<ItemId, u64>,
 }
 
@@ -4108,7 +4230,7 @@ struct SnapshotBaseline {
     delivered_by_item: Vec<Ingredient64>,
     insight: u64,
     victory: bool,
-    objective: ObjectiveSnapshot,
+    contract: ContractSnapshot,
     player: PlayerSnapshot,
     researched: Vec<TechnologyId>,
     chunks: Vec<ChunkSnapshot>,
@@ -4127,7 +4249,7 @@ impl SnapshotBaseline {
             delivered_by_item: snapshot.delivered_by_item.clone(),
             insight: snapshot.insight,
             victory: snapshot.victory,
-            objective: snapshot.objective,
+            contract: snapshot.contract.clone(),
             player: snapshot.player.clone(),
             researched: snapshot.researched.clone(),
             chunks: snapshot.chunks.clone(),
@@ -4252,7 +4374,7 @@ impl Factory {
             ),
             insight: take_changed_copy(&mut baseline.insight, core.insight),
             victory: take_changed_copy(&mut baseline.victory, core.victory),
-            objective: take_changed_copy(&mut baseline.objective, core.objective_snapshot()),
+            contract: take_changed(&mut baseline.contract, core.contract_snapshot()),
             player: take_changed(&mut baseline.player, core.player_snapshot()),
             researched: take_changed(
                 &mut baseline.researched,
@@ -4856,11 +4978,33 @@ fn validate_scenarios(
             || scenario.player_facing >= 6
             || scenario.build_range == 0
             || scenario.carry_slots == 0
-            || scenario.objective_quantity == 0
-            || !item_ids.contains(&scenario.objective_item_id)
             || !keys.insert(scenario.key.clone())
         {
             return Err(format!("scenario {} is incomplete", scenario.id));
+        }
+        // A contract is the scenario's whole purpose, so an empty stage, an empty bill, a zero
+        // line, or an item this build does not have is a scenario that can never be finished
+        // rather than a scenario that is merely odd.
+        let contract = &scenario.contract;
+        if contract.key.trim().is_empty()
+            || contract.name.trim().is_empty()
+            || contract.stages.is_empty()
+            || contract.stages.iter().any(|stage| {
+                stage.key.trim().is_empty()
+                    || stage.name.trim().is_empty()
+                    || stage.brief.trim().is_empty()
+                    || stage.reads.trim().is_empty()
+                    || stage.requirements.is_empty()
+                    || stage
+                        .requirements
+                        .iter()
+                        .any(|need| need.quantity == 0 || !item_ids.contains(&need.item_id))
+            })
+        {
+            return Err(format!(
+                "scenario {} has an unfinishable contract",
+                scenario.id
+            ));
         }
         let mut occupied = BTreeSet::new();
         for building in &scenario.buildings {
@@ -6196,9 +6340,23 @@ pub mod capacity {
             build_range: BUILD_RANGE_HEXES,
             // The workload's player never picks anything up, so this only has to be valid.
             carry_slots: 12,
-            objective_item_id: 2,
-            // Never reached, so victory cannot change the measured workload partway through.
-            objective_quantity: u32::MAX,
+            contract: ContractDefinition {
+                key: "capacity".into(),
+                name: "Capacity workload".into(),
+                stages: vec![ContractStage {
+                    key: "steady-state".into(),
+                    name: "Run the line".into(),
+                    brief: "A measured workload rather than a game.".into(),
+                    reads: "nothing — the harness draws no hub".into(),
+                    // Never reached, so a completed stage cannot change the measured workload
+                    // partway through. The harness delivers into a consumer in any case, and a
+                    // consumer is deliberately not the hub.
+                    requirements: vec![Ingredient {
+                        item_id: 2,
+                        quantity: u32::MAX,
+                    }],
+                }],
+            },
             initial_inventory: Vec::new(),
             initial_researched: vec![1, 2, 3, 4],
             resources,
@@ -8909,7 +9067,7 @@ mod tests {
     }
 
     #[test]
-    fn complete_native_progression_reaches_persistent_victory() {
+    fn the_founding_contract_advances_stage_by_stage_and_victory_is_persistent() {
         let mut core = game("new-game");
         core.power_unmetered = false;
         core.player.inventory.insert(1, 12);
@@ -8941,11 +9099,56 @@ mod tests {
             burner.inventory.insert(5, 16);
         }
         core.tick_many(500);
+        // The running line closes the first stage, and closing it is deliberately not the end of
+        // the contract: the hub has grown once, and free play has not been declared yet.
+        assert_eq!(core.contract_stage, 1);
+        assert!(!core.victory);
+        assert_eq!(core.contract_snapshot().stage_key, "foundry");
+        // The foundry module, delivered by hand. What this pins is the stage machinery, not a
+        // second smelting line: the bill is two items from two chains, and both have to arrive.
+        set_player_hex(&mut core, 0, -1);
+        core.player.inventory.insert(11, 16);
+        core.deposit_inventory().unwrap();
+        assert_eq!(core.contract_stage, 1, "half a bill is not a stage");
+        assert!(!core.victory);
+        core.player.inventory.insert(14, 20);
+        core.deposit_inventory().unwrap();
+        assert_eq!(core.contract_stage, 2);
         assert!(core.victory);
+        // Nothing is left to ask for, and the requirement list says so rather than repeating the
+        // last bill at full.
+        assert!(core.contract_snapshot().requirements.is_empty());
+        assert!(core.contract_snapshot().complete);
         let checksum = core.checksum();
         core.tick_many(1);
         assert!(core.victory);
         assert_ne!(core.checksum(), checksum);
+    }
+
+    #[test]
+    fn a_stage_consumes_its_bill_and_carries_the_surplus_to_the_next_one() {
+        let mut core = game("new-game");
+        set_player_hex(&mut core, 0, -1);
+        // Everything the whole contract asks for, in one delivery, plus one component too many.
+        core.player.inventory.insert(2, 4);
+        core.player.inventory.insert(11, 16);
+        core.player.inventory.insert(14, 20);
+        core.deposit_inventory().unwrap();
+        // Both stages close in the same delivery, which is the reason the advance loops rather
+        // than closing one stage per arriving item.
+        assert_eq!(core.contract_stage, 2);
+        assert!(core.victory);
+        // Each stage consumed exactly its own bill; the fourth component is still held.
+        assert_eq!(core.contract_contributed.get(&2), Some(&1));
+        assert_eq!(core.contract_contributed.get(&11), Some(&0));
+        assert_eq!(core.contract_contributed.get(&14), Some(&0));
+        // Delivering into a contract that is finished is still a delivery: insight and the
+        // delivered totals keep moving, and no stage index runs off the end of the list.
+        let insight = core.insight;
+        core.player.inventory.insert(1, 5);
+        core.deposit_inventory().unwrap();
+        assert!(core.insight > insight);
+        assert_eq!(core.contract_stage, 2);
     }
 
     #[test]
@@ -9101,7 +9304,7 @@ mod tests {
             delivered_by_item: None,
             insight: None,
             victory: None,
-            objective: None,
+            contract: None,
             player: None,
             researched: None,
             chunks: None,
@@ -9149,10 +9352,30 @@ mod tests {
             ]),
             insight: Some(64_000),
             victory: Some(true),
-            objective: Some(ObjectiveSnapshot {
-                item_id: 9,
-                delivered: 4,
-                required: 3,
+            // A multi-line bill with one line over-delivered and one untouched, so a decoder that
+            // loses the count, swaps `delivered` and `required`, or reads the trailing flag before
+            // the list cannot pass.
+            contract: Some(ContractSnapshot {
+                key: "founding".to_owned(),
+                name: "Founding contract".to_owned(),
+                stage: 1,
+                stages: 2,
+                stage_key: "foundry".to_owned(),
+                stage_name: "Raise the foundry module".to_owned(),
+                stage_brief: "Plate and brick, from two landscapes.".to_owned(),
+                requirements: vec![
+                    ContractRequirement {
+                        item_id: 11,
+                        delivered: 16,
+                        required: 16,
+                    },
+                    ContractRequirement {
+                        item_id: 14,
+                        delivered: 0,
+                        required: 20,
+                    },
+                ],
+                complete: false,
             }),
             player: Some(PlayerSnapshot {
                 state: PlayerState {
@@ -9566,6 +9789,90 @@ mod tests {
             .expect("water is a raw material");
         assert_eq!(water.landing_quantity, 0);
         assert!(water.nearest_generated.unwrap_or(u32::MAX) <= LANDING_CLEAR_RADIUS as u32);
+    }
+
+    /// The founding contract has to be a founding *project*, and that is a claim about its bill.
+    ///
+    /// Three components prove one chain out of one landscape, which was the whole of v0.13's
+    /// objective and is deliberately only the first stage now. What the milestone asserts is that
+    /// the project the hub actually builds cannot be paid for out of that chain: it needs more than
+    /// one raw material, it costs strictly more, and — like every powered machine in this game — it
+    /// cannot be run at all without an On-site Power branch nothing else forces.
+    #[test]
+    fn the_founding_project_needs_more_than_the_chain_it_starts_from() {
+        let report = balance::compute();
+        let founding: Vec<_> = report
+            .contracts
+            .iter()
+            .filter(|stage| stage.scenario == "new-game")
+            .collect();
+        assert!(
+            founding.len() >= 2,
+            "a single-stage contract is the old objective wearing a new name"
+        );
+        let first = founding.first().expect("a first stage");
+        let last = founding.last().expect("a last stage");
+        assert!(
+            last.raw_materials >= 2,
+            "the founding project bottoms out in {} raw material(s); a project that needs one \
+             landscape is a longer version of the opening",
+            last.raw_materials
+        );
+        assert!(
+            last.opening.gather_total > first.opening.gather_total,
+            "the project must cost more than the beat that proves the line"
+        );
+        for stage in &founding {
+            assert!(
+                stage
+                    .opening
+                    .technologies
+                    .iter()
+                    .any(|key| key == "on-site-power"),
+                "{} is payable without power, so the guidance may lead somewhere the rules refuse",
+                stage.stage
+            );
+        }
+    }
+
+    /// An opening that needs a machine the rules will not run is not an opening.
+    ///
+    /// `power_progress` returns zero off a network, so a plan naming a smelter and no generator is
+    /// a plan for a factory that stands still. This is the same defect the scripted next action
+    /// had, asserted here against the numbers rather than against the sentence.
+    #[test]
+    fn every_opening_that_draws_power_also_pays_for_it() {
+        let report = balance::compute();
+        let definitions: DefinitionsInput =
+            serde_json::from_str(include_str!("../../src/data/definitions.json")).unwrap();
+        let building = |key: &str| {
+            definitions
+                .buildings
+                .iter()
+                .find(|building| building.key == key)
+                .expect("opening names a shipped building")
+        };
+        let openings = report
+            .openings
+            .iter()
+            .chain(report.contracts.iter().map(|stage| &stage.opening));
+        for opening in openings {
+            let draws = opening
+                .buildings
+                .iter()
+                .any(|key| building(key).power_draw.unwrap_or(0) > 0);
+            if !draws {
+                continue;
+            }
+            assert!(
+                opening
+                    .buildings
+                    .iter()
+                    .any(|key| building(key).power_output.unwrap_or(0) > 0),
+                "{} draws power and generates none",
+                opening.name
+            );
+        }
     }
 
     /// A generator whose upkeep eats its own output is not a generator.
@@ -10335,7 +10642,7 @@ mod tests {
         // invalidate comparisons against previously recorded tier numbers. A generator-version
         // bump moves this number while the workload does not — which is why the delivered total
         // and the entity count below are the assertions that say the run is the same run.
-        assert_eq!(first.checksum(), 2_402_899_979);
+        assert_eq!(first.checksum(), 1_679_299_541);
         assert_eq!(first.entities.len(), spec.entities() as usize);
         // Every line must be running end to end, or the tiers would measure an idle blueprint.
         assert_eq!(first.delivered, u64::from(spec.lines) * 14);

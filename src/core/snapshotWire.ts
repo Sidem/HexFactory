@@ -2,6 +2,7 @@ import type {
   BuildingKind,
   BuildingsPatch,
   ChunkSnapshot,
+  ContractRequirement,
   EntitySnapshot,
   FactorySnapshotDelta,
   Ingredient,
@@ -31,7 +32,7 @@ import type {
  */
 
 const MAGIC = 0x48584644; // "HXFD"
-const VERSION = 2;
+const VERSION = 3;
 
 /** Wire code is the index. Pinned against Rust by `fixtures/snapshot-delta-wire.json`. */
 const KINDS: BuildingKind[] = [
@@ -86,7 +87,7 @@ const GROUP = {
   deliveredByItem: 1 << 5,
   insight: 1 << 6,
   victory: 1 << 7,
-  objective: 1 << 8,
+  contract: 1 << 8,
   player: 1 << 9,
   researched: 1 << 10,
   chunks: 1 << 11,
@@ -225,12 +226,36 @@ export function decodeSnapshotDelta(buffer: ArrayBuffer): FactorySnapshotDelta {
   }
   if (has(GROUP.insight)) delta.insight = reader.uvarint();
   if (has(GROUP.victory)) delta.victory = reader.bool();
-  if (has(GROUP.objective))
-    delta.objective = {
-      item_id: reader.uvarint(),
-      delivered: reader.uvarint(),
-      required: reader.uvarint(),
+  if (has(GROUP.contract)) {
+    const key = reader.string();
+    const name = reader.string();
+    const stage = reader.uvarint();
+    const stages = reader.uvarint();
+    const stage_key = reader.string();
+    const stage_name = reader.string();
+    const stage_brief = reader.string();
+    const count = reader.uvarint();
+    const requirements: ContractRequirement[] = new Array<ContractRequirement>(
+      count,
+    );
+    for (let index = 0; index < count; index += 1)
+      requirements[index] = {
+        item_id: reader.uvarint(),
+        delivered: reader.uvarint(),
+        required: reader.uvarint(),
+      };
+    delta.contract = {
+      key,
+      name,
+      stage,
+      stages,
+      stage_key,
+      stage_name,
+      stage_brief,
+      requirements,
+      complete: reader.bool(),
     };
+  }
   if (has(GROUP.player)) delta.player = readPlayer(reader);
   if (has(GROUP.researched)) {
     const count = reader.uvarint();
