@@ -557,6 +557,12 @@ milestone would have been built on top of it: a byproduct loop metered by a per-
 charges idle machines is a loop whose costs no player could read. It is the last substrate
 milestone, and it was asked for from play rather than from this document.
 
+It then gained three more, for the same reason and from the same source. **The numbers in the
+paragraph above are superseded** — see "Roadmap decision — the world the economy stands on" below,
+which renumbers Living Lattice to v0.24 and Regional Discovery to v0.25, and puts Landforms and
+Fields v0.21, Crossings and Canopy v0.22, and Earned Insight v0.23 in front of them. The reasoning in
+this section stands; only the ordering moved.
+
 ## Shipped milestone — Standing Requests v0.20
 
 Shipped 2026-08-19, and asked for from play rather than from this document: pressing `X` beside the
@@ -880,10 +886,711 @@ sprite.
 - The old three-Component save/objective contract moves only with an explicit save/scenario version
   decision. The browser save key still names every native version the envelope refuses.
 
-## Next session — Living Lattice v0.20
+## Where to start
 
-The brief below is unchanged and is the milestone. Four things it should know before it starts, all
-of them handed over by v0.18 rather than invented here:
+Two independent fronts, and picking either is correct:
+
+1. **Panels and Item Language v0.20.1**, immediately below. Host-only, no native code, no version
+   movement, independent of everything else in this document. Shortest path to a visible improvement,
+   and it is the one a session with limited room should take.
+2. **Landforms and Fields v0.21**, after the roadmap decision below. The milestone arc, and the
+   order v0.21 → v0.22 → v0.23 is load-bearing rather than a preference — read the roadmap decision
+   for why the world work has to precede the economy work.
+
+Do not start v0.23 first. It is written to be tuned against a world that v0.21 builds, and against
+transfer rows that v0.20.1 collapses into one function.
+
+Three decisions are deliberately left open for whoever implements, and each is marked where it sits:
+whether panels dock in rails or float freely (v0.20.1), whether one board slot is reserved for the
+deepest eligible request (v0.23), and whether `regrowth_ticks` moves when a forest cell drops to
+three wood (v0.21). Each says what would settle it. Decide them from measurement and write the answer
+down; do not leave them open a second time.
+
+## Presentation pass — Panels and Item Language v0.20.1
+
+A point release rather than a milestone, on the precedent Inspector Readability v0.13.2 and
+Construction Catalogue v0.14.1 already set: host-only work, no native change, no save, definition,
+generator, wire, or checksum movement. It is independent of the whole v0.21–v0.23 arc and can ship
+before, between, or after any of it.
+
+Asked for from play: _"the user has to tediously open the development and cargo panels separately to
+check if they have the right resource in the right amounts"_, and _"items in inventory should look
+the same everywhere"_. Both are true, and both have a cause more specific than the complaint.
+
+### Defect one — affordability is a boolean, and the reason is in another panel
+
+`buildingAvailability` computes `affordable` as **all or nothing**: every cost line is checked, and
+one `false` comes back. `fillBuildCard` renders it as a CSS class, `unaffordable`. So the card knows
+the answer and throws away the reason. A player told "no" has to open the cargo pack to find out
+which of the three lines they are short on, and by how much.
+
+**That is the whole of the tedium, and it does not need a panel to fix.** The build card already
+draws the cost through `fillIngredients`; it simply never says what is held against it. Give every
+ingredient a held count beside its required one, and the card answers its own question.
+
+- `BuildAvailability.affordable: boolean` becomes a per-ingredient shortfall. Keep the boolean as a
+  derived convenience if the call sites want it, but the shortfall is the value, because "you need 2
+  more Iron plate" is a different fact from "no".
+- `src/core/availability.ts` is plain TypeScript over a snapshot, so this is testable without a DOM,
+  and it should get a test. It is the only piece of this pass with any logic in it at all.
+- The same treatment goes everywhere the game names a quantity the player might be expected to
+  supply: recipe inputs, the contract bill, and the request board. One component, four call sites —
+  see below — not four features.
+
+### Defect two — four panels share one rectangle
+
+`togglePanel` calls `closePanels(target)`, so opening any panel closes every other. That is not a
+policy choice that can simply be deleted: in `src/styles.css`, the cargo, research, quest, **and**
+build panels are all `position: absolute; top: 108px; left: 14px`. Four panels at one origin. Remove
+the exclusivity and they stack on top of each other.
+
+So the fix is a layout, not a flag. **Two rails, each holding independently collapsible panels:**
+
+- **Left rail** — cargo, research, build, quest. Each opens and closes on its own; several open at
+  once flow down the rail, each scrolling inside its own box.
+- **Right rail** — inspector, session. The inspector keeps its standing exception: it is the one
+  panel that lives on the world rather than behind a key, and it stays open by default.
+- Open state is **presentation state in `localStorage`**, on exactly the terms the hotbar
+  arrangement already establishes: never saved with the game, never hashed, never sent. It is a
+  preference about a screen, not a fact about a factory.
+- `closePanels()` survives untouched as the **reset** it already is — `Escape`, a new game, and a
+  load all call it, and all three should still clear the screen. What changes is that opening a panel
+  stops calling it.
+- Below a viewport threshold the rails collapse back to one-at-a-time, so the mobile layout is
+  unregressed rather than newly cramped.
+
+**On draggable windows.** They were raised as a "maybe", and the recommendation is to hold them one
+step back. Free positioning brings saved coordinates, overlap policy, off-screen recovery, and a
+touch story where dragging fights the world pan that already owns the same gestures — a lot of
+machinery for a need whose actual shape is "let me see two of these at once", which the rail answers
+outright. The rail is also the honest prerequisite: once panels open independently and remember it,
+dragging is an increment on top rather than a rewrite. **This is a live decision point, not a settled
+one** — if free-floating panels are wanted as the goal, say so and the rail becomes their docked
+default position rather than the destination.
+
+### Defect three — an item is drawn eight different ways
+
+Every one of these renders the same conceptual object, "an item and a quantity", and no two agree:
+
+| Where                    | Markup                           | Icon                        | Quantity             |
+| ------------------------ | -------------------------------- | --------------------------- | -------------------- |
+| Cargo grid               | `.inventory-slot`                | SVG glyph                   | `3`                  |
+| Build cost, recipe sides | `.ingredient`                    | SVG glyph                   | `×3`                 |
+| Container Take rows      | `.inspect-stock-row`             | SVG glyph                   | `3`                  |
+| Container Put rows       | `.inspect-stock-row`, duplicated | SVG glyph                   | `3`                  |
+| A machine's cargo        | `.inspect-cargo`                 | SVG glyph                   | bare                 |
+| A field cell             | `.inspect-field`                 | SVG glyph                   | `3 / 20` and a meter |
+| Contract bill            | `.contract-line`                 | **colour swatch, no glyph** | `3 / 10` and a bar   |
+| Request board            | `.request-line`                  | **colour swatch, no glyph** | `3 / 10` and a bar   |
+
+Eight shapes, three orderings of glyph, name and count, three spellings of the same number, and two
+places where an item has no icon at all.
+
+**One component, `itemChip`, becomes the only way an item is ever drawn:**
+
+```html
+<span class="item-chip" data-item-id="11">
+  <span class="item-chip-glyph"></span>
+  <strong class="item-chip-name"></strong>
+  <span class="item-chip-count"></span>
+  <i class="item-chip-meter"><b></b></i>
+</span>
+```
+
+Variants are modifier classes on one markup — `.named`, `.metered`, `.short` — never a second shape.
+Three rules it exists to enforce:
+
+- **An item always shows its glyph.** The bare colour swatch goes. Colour alone is not an identity in
+  this catalogue: Iron plate `#c3ced6`, Gravel `#9a9188`, and Concrete `#9aa0a4` are three greys, and
+  the contract bill and request board are precisely the two places a player is being asked to fetch
+  something specific.
+- **One spelling per meaning.** `3` is an amount; `3 / 10` is progress toward a known target. `×3` is
+  a third spelling of the first and goes.
+- **A shortfall is a state of the chip**, not a class on a card. That is what makes defect one a
+  two-line change at four call sites instead of four bespoke treatments.
+
+Every chip is patched in place through `syncChildren`, so the "any host list carrying a control is
+patched in place, never rebuilt" invariant is satisfied by the component rather than remembered at
+each call site.
+
+### Defect four — Take and Put are the same function twice
+
+`renderInspectorActions` and `renderInspectorLoad` are near-identical: same row markup, same glyph
+call, same button class, differing only in the data source, the button label, and the command. They
+collapse into one `renderTransferRows(list, entries, direction)` where the direction supplies all
+three.
+
+**The fractional deposit moves here from v0.22**, because it is the same code and doing it twice is
+how the two halves drift. Native already carries a quantity on `store` and `withdraw`, already clamps
+it, and already reports how much moved; the host has only ever sent the maximum. Add a quantity
+control defaulting to the full amount, plus a half — once, in the one function.
+
+### Acceptance
+
+- A build card states what is held against every line of its cost, and names the shortfall. Opening
+  the cargo pack is never required to learn whether something can be built.
+- `src/core/availability.ts` returns per-ingredient shortfalls and has a test that does not touch the
+  DOM.
+- Cargo, research, build, and quest open and close independently, several at once, without
+  overlapping. `Escape`, a new game, and a load still clear the screen.
+- Panel open state survives a reload and never enters a save, a checksum, or a snapshot.
+- One `itemChip` component is the only place an item glyph, name, or count is written, and the
+  contract bill and request board show glyphs.
+- Take and Put are one function, and it moves a chosen quantity.
+- No native, save, definition, generator, wire, or checksum change. `npm run quality` green, and the
+  Rust suite untouched.
+
+## Roadmap decision — the world the economy stands on
+
+Decided 2026-08-19 from play, after Standing Requests v0.20 shipped. Two reviews ran in one session:
+the research economy, and the world it is played on. The economy review produced five notes and the
+world review produced one, and **the ordering between them is the decision**, because one depends on
+the other.
+
+The economy notes, verbatim from the session, are: fractional deposits into containers; insight that
+requires processed goods rather than only what can be mined; resources that require a building to
+extract, with hand-gathering rates that differ by material; extraction and effect radii that are
+apparent on every building that has one; and the fact that the entire technology tree can be
+unlocked by hand-mining alone. Every one of those was confirmed against the code and is written up
+in **Earned Insight v0.23** below.
+
+The world note is that resources arrive as scattered single cells of every kind at once, and it was
+asked for in the same session: fields of iron and coal, forests instead of lone high-yield wood
+hexes, rivers with clay on their banks and bridges to cross them, sand on ocean beaches, stone in
+mountains, and a world where standing an extractor next to a deposit is worth doing. That is
+**Landforms and Fields v0.21** below.
+
+**The world work comes first, and the dependency is real rather than tidy.** Making a hand gather
+slower per material only reads as "go and build an extractor" when there is a field worth putting an
+extractor on. Applied to today's generator — where a continental survey finds iron in 205 scattered
+cells and stone in 18 — slower hand mining is not an incentive, it is tedium. So the generator
+lands, then the economy is tuned against the world that exists rather than against the one being
+replaced.
+
+Numbering, since v0.20 was taken by Standing Requests while two later briefs still claimed it:
+
+| Milestone            | Number | Was                                        |
+| -------------------- | ------ | ------------------------------------------ |
+| Landforms and Fields | v0.21  | new                                        |
+| Crossings and Canopy | v0.22  | new                                        |
+| Earned Insight       | v0.23  | new                                        |
+| Living Lattice       | v0.24  | v0.20                                      |
+| Regional Discovery   | v0.25  | v0.21, generation half absorbed into v0.21 |
+
+Regional Discovery is not deleted. Its **generation** half — a landing clearing that guarantees a
+bootstrap path rather than a sample platter, and a survey that measures whether every preset still
+works — is exactly what v0.21 has to do anyway to make fields mean anything, so it moves forward.
+What stays at v0.25 is the half that is a play system rather than a generator: a region announcing
+itself through shape, colour, life and sound; an in-game survey that hints; and a distant discovery
+that creates a reason to establish a specialized site rather than carry one stack home.
+
+## Next session — Landforms and Fields v0.21
+
+### The defect, named, and measured before it is argued
+
+`npm run survey` at the shipped seed and the default radius of 96, continental preset, 27,937 hexes
+of which 26,307 are land:
+
+| material       | cells | per mille land | nearest |
+| -------------- | ----- | -------------- | ------- |
+| Iron ore       | 205   | 7              | 20      |
+| Copper ore     | 469   | 17             | 15      |
+| Coal           | 444   | 16             | 8       |
+| Clay           | 420   | 15             | 14      |
+| Sand           | 219   | 8              | 19      |
+| Wood           | 111   | 4              | 15      |
+| Signal crystal | 85    | 3              | 20      |
+| Stone          | 18    | 0              | 23      |
+
+Stone is eighteen cells in twenty-six thousand hexes of land. Wood is a hundred and eleven isolated
+cells holding ten to twenty-two units each, which is the opposite of a forest in both directions: too
+much in one hex and no continuity between hexes. And the survey reports none of what actually
+decides whether a deposit is worth automating, because **it has no measurement of patch size at
+all** — only totals, densities, and distances. That absence is why this has never been caught.
+
+### Why this is structural rather than a tuning pass
+
+`field_at` decides each hex independently. It reads three noise channels and walks the `FieldRule`
+table, first match wins. There is no object anywhere in the generator that means "a deposit", so a
+patch's size and a patch's purity are emergent accidents of channel cell size and gate height —
+neither controllable, nor defaultable, nor measurable.
+
+The mixed-material case is the clearest proof. In Highland, iron gates on `richness > 54_000` and
+coal on `vein > 56_000`, and those are two **independent** channels. Wherever both run high the row
+order decides, so along every iron/coal boundary the two alternate hex by hex, and an extractor
+placed there covers both and cleanly works neither. No amount of moving those two numbers fixes it,
+because the two numbers are not asking one question.
+
+So the model changes, and the bands stay. Terrain remains the material map and the reason a landscape
+can be read; what stops being per-hex is the decision about what a patch is made of.
+
+### First commit: measure patches against the current generator
+
+Before a generation rule moves, grow `survey` a `PatchCount` per material, reported alongside
+`MaterialCount` and computed by the same flood fill `water_shape` already uses over `DIRECTIONS`:
+
+- `patches` — connected runs of one material.
+- `mean_patch`, `largest_patch` — in hexes.
+- `mean_patch_yield` — total units in a patch, which is what an extractor is actually being offered.
+- `nearest_patch_of_at_least(7)` — the distance to the first patch a base extractor could fill its
+  own disc from, which is a different and more useful number than `nearest`.
+- `purity` — the share of resource hexes whose radius-1 disc holds exactly **one** material. This is
+  the number the whole milestone is for. Target after the change: **at least 950 per mille**.
+- `truncated_patches`, on the same reasoning as `truncated_bodies`: a patch touching the sample edge
+  is a floor, not a measurement.
+
+Record the before figures in this document in the same commit. A tuning claim without a before
+number is the failure mode `fixtures/balance.json` exists to prevent, and generation deserves the
+same treatment.
+
+### A site is the unit of a deposit
+
+Partition the world by a `site_cell` lattice, exactly as the noise channels are partitioned. Each
+site cell hashes to at most one **site**: a jittered center, one material, and one radius. A hex
+belongs to the nearest site whose disc covers it and whose member gate it satisfies. Yield falls off
+from core to rim.
+
+`FieldRule` becomes `SiteRule`:
+
+```rust
+struct SiteRule {
+    /// The band the site's *center* must stand in for this rule to be eligible.
+    terrain: Terrain,
+    item_id: ItemId,
+    /// Relative share among the eligible rules for a band. Zero means never.
+    weight: u32,
+    /// Inclusive radius range, in hexes. A disc of radius R holds 3R² + 3R + 1 hexes:
+    /// 7, 19, 37, 61, 91, 127 at radius 1 through 6.
+    radius_min: u32,
+    radius_max: u32,
+    /// Exclusive lower gate on the richness channel at the *center*, so the world still has rich
+    /// and poor country. `ANY` disables it, on the same reasoning `ANY` already carries.
+    site_min: i32,
+    /// Yield at the center and at the rim. Interpolated linearly by distance, then jittered.
+    yield_core: u32,
+    yield_rim: u32,
+    /// Per-hex jitter on the interpolated yield. At least 1; `base + hash % spread` semantics.
+    yield_jitter: u32,
+    /// Bands a hex must itself be in to belong to this site. Empty means the rule's own band.
+    /// This is the clipping that makes a beach a strip and a scree field hug its cliffs.
+    member: Vec<Terrain>,
+    /// If set, a member hex must also be within this many hexes of water. `0` disables it.
+    member_water_within: u32,
+}
+```
+
+The evaluation, which must stay a pure function of `(params, seed, q, r)`:
+
+1. `reach = ceil(max_radius_max / site_cell) + 1`, over the whole rule table.
+2. For every site cell within `reach` of the cell containing `(q, r)`, in a fixed iteration order:
+   - `h = coordinate_hash(seed ^ SITE_SALT, cell_q, cell_r)`.
+   - The center is the cell origin offset by two independent fields of `h`, each taken modulo
+     `2 * site_jitter + 1` and shifted down by `site_jitter`.
+   - The band is `terrain_at` at the center. Eligible rules are those whose `terrain` matches and
+     whose `site_min` the richness channel at the center clears. No eligible rule means no site.
+   - A weighted pick over the eligible rules, by a third field of `h` against the summed weights.
+   - `radius = radius_min + (fourth field of h) % (radius_max - radius_min + 1)`.
+   - The cell is a candidate when `axial_distance(center, (q, r)) <= radius` **and** `(q, r)`
+     satisfies the rule's `member` bands and `member_water_within`.
+3. Among candidates take the smallest `axial_distance(center, (q, r))`; break ties by `(cell_q,
+cell_r)` in that order. Ties must be broken explicitly — a tie resolved by iteration order is a
+   tie resolved by nothing, and this is a checksum input.
+4. `yield = yield_rim + (yield_core - yield_rim) * (radius - distance) / radius`, then
+   `+ coordinate_hash(seed, q, r) % yield_jitter`, clamped to at least 1. Keep the jitter small
+   enough that the core still reads as a core.
+
+That gives, by construction rather than by tuning: **one material per patch**, a patch size that is a
+parameter, and a rich middle worth aiming an extractor at.
+
+### The cost of this, and the cache that pays it
+
+`Core::field_at` is not only called during `generate_chunk` — `deposit_candidates`, `resource_at_world`,
+both gathers, and every snapshot build reach it, and `deposit_candidates` walks a whole disc. The
+naive form evaluates up to `(2·reach + 1)²` site cells per hex and each one calls `terrain_at`, which
+itself samples seven elevations. That is roughly 350 noise samples per hex and it is not shippable.
+
+Cache the **site lattice**, not the field: a `BTreeMap<(i32, i32), Option<Site>>` on `Core`, filled
+lazily per site cell. A site cell is ~144 hexes, so the map is small and every hex in a chunk hits it
+warm. It is derived state under the existing invariant — never saved, never hashed, never
+checksummed, cleared whenever the world changes, exactly as `deposit_links` is. The free `field_at`
+keeps an uncached path so the survey and the tests can call it without a `Core`, and one test asserts
+the cached and uncached answers are identical over a disc. Re-run `npm run bench` before shipping:
+this touches the world generator, so the ladder is not optional.
+
+### Rivers are ridge noise, not a simulation
+
+A flow simulation is refused: the map is unbounded and generated lazily, so nothing may depend on
+knowing where the water upstream went. A river is instead where a dedicated channel runs near its
+midpoint — `abs(value_noise(river_cell) - NOISE_MAX / 2) < river_width` — gated to
+`elevation < river_max_elevation` so rivers do not run over summits. That is O(1) per hex, purely
+local, and fits the existing contract exactly.
+
+A river hex reads as `Terrain::ShallowWater`, evaluated **after** the band cut and before the cliff
+test, so a river cuts through lowland and hills and stops where the highland gate says it does. Three
+consequences the milestone wants and should not be surprised by:
+
+- Shallow water stops being an accident of sea level and becomes **common and linear**, which is what
+  makes a bridge a necessity rather than an ornament.
+- `PlacementRule::Water` — buildable ground with open water inside `PUMP_RADIUS` — starts matching
+  inland. Pumps, hydro, and boilers gain sites everywhere, which is a real balance change and belongs
+  in `fixtures/balance.json`'s access section, not in a footnote.
+- The survey's water figures start mixing bodies and rivers. Report river hexes, river runs, and mean
+  run length separately, or the existing `largest_body` claim quietly stops meaning ocean.
+
+### Beaches need an ocean, and an ocean cannot be flood-filled here
+
+Sand should sit on real coast, not on the rim of every pond, and the generator cannot flood-fill to
+find out which is which. Use the split v0.16 already established and proved: **coarse-octave water is
+what makes a body big**. A sand site therefore requires the coarse elevation octave alone — not the
+blended elevation — to sit below `water_level` across the center's neighbourhood. Pond edges, which
+exist only in the fine octave, fail it; ocean coasts pass it.
+
+State plainly in the code comment that this is a proxy rather than a measurement, and let the survey
+be what verifies it: the flood fill in `water_shape` already knows body sizes, so report the mean
+size of the body nearest each sand patch. If that number is small, the proxy is wrong and the survey
+said so.
+
+### The resource table, resource by resource
+
+Starting points, not shipped numbers. Every one of them is chosen against the survey the way
+`cliff_step` was chosen in v0.16, and the survey is what settles them.
+
+| Material       | Center band          | Radius               | Yield core → rim | Member clipping                     | What it is for                                                                                                                                                                                      |
+| -------------- | -------------------- | -------------------- | ---------------- | ----------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Iron ore       | Hills, Highland      | 3–4 (37–61)          | 20 → 8           | own bands                           | The flagship early field. One is guaranteed near spawn; it is what the first extractor and the first smelter are for.                                                                               |
+| Coal           | Highland, some Hills | 2–4 (19–61)          | 18 → 8           | own bands                           | Its own patch, often the next valley from iron. A smelting site is two neighbouring fields, never one mixed hex.                                                                                    |
+| Copper ore     | Hills only           | 2–3 (19–37)          | 18 → 8           | own band                            | Keeps "copper belongs to rolling ground, iron and coal to the tops", which is what the `Hills` doc comment already promises.                                                                        |
+| Stone          | Highland             | 3–5 (37–91)          | 12 flat          | Highland + Cliff                    | Scree around mountains. Cliff hexes are members and are unworkable; the buildable rim is where you quarry — so v0.11's extraction-radius lesson survives intact, at fifty times the current supply. |
+| Wood           | Lowland              | 4–6 (61–127)         | **3 → 1**        | own band                            | A forest: roughly 150–250 units across a large area, renewable through the `regrowth_ticks` the item already carries, with a soft edge.                                                             |
+| Clay           | Lowland, Shore       | 2–3 (19–37)          | 14 flat          | own bands, `member_water_within: 2` | Riverbanks and lake shores. Depends on rivers existing, which is why the two ship together.                                                                                                         |
+| Sand           | Shore                | 3–5, heavily clipped | 16 flat          | Shore only, ocean gate              | The disc clipped to coastline yields a beach strip rather than a blob.                                                                                                                              |
+| Signal crystal | Highland             | 1 (7)                | 10 flat          | own band                            | Rare, finite, remote, and never guaranteed near spawn. With v0.23 making it machine-only, it is a genuine prize.                                                                                    |
+
+Two notes the next session should not have to rediscover:
+
+- **Wood at 3 per cell is a rate change, not only a shape change.** A base extractor covers seven
+  hexes, so it drains 21 wood and then runs at whatever regrowth supplies across those seven cells;
+  at `regrowth_ticks: 90` that is one unit per ~13 ticks against an extraction cadence of 5. The
+  extractor spends most of its life starved. That is not obviously wrong — it makes forestry a
+  question of area rather than of throughput, and it makes the deep extractor's nineteen cells the
+  forestry upgrade — but it **must be measured before it is called a design**, and it is the reason
+  `regrowth_ticks` may need to move in this milestone rather than in v0.23.
+- **Stone is deliberately the cheapest material to find and the least valuable per hex.** It is
+  structural, it is in every construction cost, and the current 18-cell figure is why nobody builds
+  with it. Flat 12 across a 37–91 hex field is the fix.
+
+### The landing clearing stops being a supermarket
+
+`LANDING_FIELD` is a hardcoded list of eight single cells, one of every material, inside
+`LANDING_CLEAR_RADIUS`. That, and not the generator, is why every material is visible in the first
+minute. It is the sample platter the roadmap decision already named, sitting in a constant.
+
+Replace it with a **bootstrap pass**: a pure function `bootstrap_sites(params, seed) -> BTreeMap<(i32,
+i32), SiteOverride>` that spirals outward from the landing site over site cells in a fixed order and,
+for each guaranteed material, claims the first cell whose center band admits that material and whose
+distance falls inside a stated window. A claimed cell is forced to that material at `radius_max`.
+
+| Guarantee      | Window                | Why that window                                                      |
+| -------------- | --------------------- | -------------------------------------------------------------------- |
+| Iron patch     | 9–14                  | The first extractor, in sight of the hub.                            |
+| Forest edge    | 9–14                  | Fuel and timber, and the first thing a player walks into.            |
+| Coal field     | 15–25                 | A short walk, chosen rather than stumbled on.                        |
+| Stone field    | 15–25                 | Same.                                                                |
+| Clay on water  | 15–25                 | Carries a river or shore with it, which is also the first pump site. |
+| Copper field   | 25–40                 | The second metal is an expedition, not an errand.                    |
+| Sand           | wherever the coast is | Not guaranteed by distance; the ocean gate decides.                  |
+| Signal crystal | **never**             | It is the reason to leave.                                           |
+
+Constraints that make this correct rather than merely deterministic:
+
+- A window is a floor as well as a ceiling. Centers sit at `distance >= radius + 8` so a guaranteed
+  disc cannot reach inside the clearing, whose field suppression stays exactly as it is.
+- If a window finds nothing, widen it in fixed steps to a hard cap and then **fail loudly**. A preset
+  that cannot bootstrap is the failure the survey exists to make visible, not something to paper over
+  — `highlands` has almost no Shore band and is the case that will find this.
+- The table is derived state on the same terms as the site cache: recomputed from `(params, seed)`,
+  never saved, never hashed. The free function is shared by `Core` and by `survey`, so a surveyed
+  world and a played world cannot disagree.
+
+### Parameters, presets, and the control surface
+
+New scalars on `WorldParams`, all hashed by `hash_world_params`, all validated by
+`WorldParams::validate`, all bounded the way `MAX_FEATURE_CELL` bounds the existing cells:
+`site_cell`, `site_jitter`, `river_cell`, `river_width`, `river_max_elevation`, and the coarse-octave
+threshold the sand gate reads.
+
+The host cannot fall behind by accident: `WorldScalar` is `Exclude<keyof WorldParams, "field_rules">`,
+so every scalar added in Rust is a **typecheck failure** in `src/main.ts` until
+`WORLD_PARAMETER_FIELDS` grows a labelled, range-checked control for it. Keep it that way; do not
+widen the type to make the error go away.
+
+`relaxed()` goes. It eased per-hex gates on one band, and there are no per-hex gates left to ease. A
+preset that makes a band scarce now compensates by raising that band's `weight` and `radius_max` in
+its own rule rows, which is both more direct and more honest — the survey can see it.
+
+All four presets are re-authored against the new survey, `continental` included. The default is the
+world being complained about, so "the shipped default is version 5's frozen numbers" stops being a
+virtue here and becomes the thing to fix.
+
+### What moves
+
+- `WORLD_GENERATOR_VERSION` 6 → 7. Every existing save is refused, which is the established and
+  correct behaviour, and the named-save catalog already shows the row rather than hiding it.
+- `fixtures/balance.json`: the `access` section, and every site-yield figure. Rivers make water and
+  hydro available far more widely, so the openings move too.
+- Rust tests that must be rewritten rather than nudged: `every_material_is_generated_where_its_geography_says_it_should_be`,
+  `every_preset_reaches_every_material_from_the_landing_site` (becomes a bootstrap-window assertion
+  per preset), `generated_fields_follow_terrain_and_only_the_overlay_is_state`,
+  `parameter_sets_that_are_not_worlds_are_refused`, `feature_scale_makes_seas_and_sea_level_only_makes_more_ponds`,
+  `every_recipe_input_is_reachable_from_the_landing_site`, and
+  `cut_flora_grows_back_to_what_generation_gave_it_and_then_stops`.
+  `field_rule_order_decides_which_band_holds_what` is retired — row order stops being a generation
+  input in that sense — and a purity test replaces it.
+- `a_save_restores_the_parameters_its_world_was_generated_from` must cover the new scalars and the
+  rule table's new fields, or a parameter can drift across a save without anything noticing.
+- `chunk_generation_is_order_independent_and_seeded` is the test that catches a site cache leaking
+  order-dependence into generation. Do not let it stay unchanged and unexamined.
+
+### Acceptance
+
+- The survey reports patch statistics, and **purity is at least 950 per mille** on every shipped
+  preset. The before figures are recorded in this document alongside the after.
+- Every preset produces iron, coal, copper, and stone patches of at least 19 hexes, and forests of at
+  least 61, within the sample.
+- Standing one base extractor anywhere inside a patch of at least 19 hexes yields one material only.
+- Rivers appear, reach water or terminate at the highland gate, and are reported separately from
+  bodies in the survey.
+- Sand patches sit against measurably large water; the survey prints the nearest body size per sand
+  patch and it is not a pond.
+- A new world guarantees iron and forest within 14 hexes and coal, stone, and clay within 25, on
+  every preset and on ten sampled seeds — and no preset guarantees crystal.
+- Generation stays a pure function of parameters, seed, and hex. The site cache and the bootstrap
+  table are never saved, hashed, or checksummed, and a test asserts the cached and uncached generators
+  agree.
+- `npm run bench` is re-run and recorded, because the world generator moved. No claim beyond a
+  measured tier.
+
+## Following milestone — Crossings and Canopy v0.22
+
+v0.21 makes the world; v0.22 makes it legible and crossable. It is deliberately second because a
+bridge over no river and a forest renderer with no forest are both untestable.
+
+### A bridge is an entity override, never a terrain change
+
+`Terrain::blocks_movement` is pinned in both languages by `fixtures/terrain-passability.json`, and
+that rule stays **literally unchanged**. A bridge does not turn shallow water into land. It is an
+entity whose presence `player_blocked` and the placement path consult — both already walk entities —
+so the pinned table keeps saying exactly what it says today and gains a note explaining that a
+bridged hex is passable by entity, not by band.
+
+- `BuildingKind::Bridge` is **appended** after `Boiler`. Kinds travel as their declaration index, so
+  inserting it anywhere else is a silent mistranslation rather than a decode failure; the wire
+  fixture's enum table is what catches that, and it must be regenerated and its diff read.
+- A new `PlacementRule::Shallows` — _on_ a shallow-water hex. Do not reuse `Water`, which means
+  buildable ground _beside_ water and is what the pump uses. Deep water takes no bridge, so deep
+  water finally becomes a real barrier and the deep/shallow split earns itself.
+- Adding to `BuildingKind` forces a `BUILDING_SHAPES` entry, since the table is total over
+  `SilhouetteKey` and `SilhouetteKey` includes `BuildingKind`. That is the compiler asking for the
+  drawing, and `docs/ART.md` Stage D is what it should be answered from.
+- Belts and risers may be built on a bridged hex. That is the point of it.
+- Cost stone and timber, behind its own cheap technology after Field Logistics. Crossing the first
+  river should be an early, satisfying unlock rather than a late convenience.
+
+### A forest has to look like a forest
+
+Today every resource cell draws identically: a pulsing hex outline plus the item's icon glyph, one
+per hex, whatever the quantity. A forest of 1–3 wood per cell drawn that way is a field of log icons.
+
+Draw **one tree per remaining unit**, deterministically jittered inside the hex from the same shape
+vocabulary the buildings use, so a forest visibly thins as it is cut and thickens as it regrows.
+`quantity` and `initial_quantity` are already in the resource snapshot, so this costs no new wire and
+no new native state — it is presentation over numbers that already cross. Rivers and bridges get the
+same treatment: a river should read as a river at ordinary zoom, not as a line of ponds.
+
+### Every radius that exists is drawn
+
+`drawPowerCoverage` draws exactly two rings and both come from `supply_radius` — the pending pole
+under the cursor, and the selected pole. Extractors and pumps draw nothing, and it is worse than a
+missing ring: the catalogue chip "Reaches N" is conditional on `extract_radius` being present, and
+the **base** extractor omits the field entirely, so the first extractor a player ever builds states no
+reach anywhere in the UI. The pump's radius is `PUMP_RADIUS`, a bare native constant that reaches no
+definition and no panel.
+
+Fix it in the order that matters, and fix the data first:
+
+1. `extract_radius: 1` on the base extractor and on the pump in `definitions.json`, with native
+   reading the field instead of the constants. `EXTRACT_RADIUS` survives as the **hand's** reach
+   only. This is the v0.19 pole lesson applied where it was not: reach is a property of the thing
+   that has it, never a default the host guesses.
+2. Generalize `drawPowerCoverage` into a reach pass over **every radius a definition states**, for
+   the pending tool and for the selection, colour-coded by meaning, because two rings that mean
+   different things must not look the same. The complete list, and a definition growing a radius
+   later must join it:
+
+   | Field            | Building        | What it means                       | Treatment                                                                                                                                     |
+   | ---------------- | --------------- | ----------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+   | `extract_radius` | Extractor, Pump | Cells this machine can draw from    | Filled disc, bright rim                                                                                                                       |
+   | `supply_radius`  | Pole            | Machines this pole powers           | The existing blue disc                                                                                                                        |
+   | `pole_reach`     | Pole            | How far the **next pole** may stand | Rim only, no fill — it is a distance to another pole, not an area of effect, and drawing it as a disc would claim it powers everything inside |
+   | `EXTRACT_RADIUS` | The player      | What the hand can take              | Drawn on the player, see 3                                                                                                                    |
+
+   `pole_reach` is the one that is currently invisible everywhere — no ring, no chip, nothing — and
+   it is the number that decides whether a grid can be extended at all. A player laying a line of
+   poles is guessing at it.
+
+3. Draw the hand's own reach around the player while the harvest key is held. After v0.23 that ring
+   is the question the opening is about.
+4. Every radius in that table also states itself as a chip on the catalogue card. "Supplies 3" ships
+   today; "Reaches 1" and "Links 6" do not.
+
+`extraction_reach_comes_from_the_definition_and_the_hand_keeps_its_own` is the test that already
+guards half of this and must be extended, not replaced.
+
+### What moved out of this milestone
+
+**Fractional deposits into containers** are in Panels and Item Language v0.20.1, not here. They are
+the Take and Put rows, those two renderers collapse into one function in that pass, and adding a
+quantity control to two near-identical copies is how the two halves drift apart. If v0.20.1 has not
+shipped when this milestone starts, do that pass first rather than duplicating it.
+
+The radius **chips** in step 4 below share v0.20.1's `itemChip`-era markup conventions but are a
+building's stat line rather than an item, so they stay here with the rings they belong to.
+
+### Acceptance
+
+- A bridge crosses shallow water, carries a belt, refuses deep water, and `fixtures/terrain-passability.json`
+  is unchanged.
+- The wire fixture is regenerated, its diff read, and `Bridge` sits last in `BuildingKind`.
+- A forest reads as trees at ordinary zoom, thins as it is cut, and recovers as it regrows.
+- Every radius any definition states is drawn as a ring when pending and when selected, and is
+  stated as a number on the catalogue card — `extract_radius` on the base extractor and the pump,
+  and `pole_reach` on all three poles, none of which appear anywhere today.
+- A pole's supply disc and its link distance are visually distinguishable, because one is an area of
+  effect and the other is not.
+
+## Following milestone — Earned Insight v0.23
+
+The five economy notes, tuned against the world v0.21 and v0.22 built.
+
+### The measured defect
+
+The whole technology tree costs **113 insight**. One full cycle of the eight raw request rows pays
+**73 insight for 72 hand gathers**. `GATHER_COOLDOWN_STEPS` is 15 at `PLAYER_TICKS_PER_SECOND` 30, so
+a gather is 0.5 s flat for every material. `carry_slots` is 8 and raw stacks are 20, so ten each of
+the eight raw materials is exactly eight slots — **one pack-load is one full cycle**.
+
+112 gathers is therefore about **56 seconds of held right-click and two walks to the hub for the
+entire tree**. It is not an exploit; it is the shortest path the data describes. And it is available
+because `next_request` reposts raw rows forever — raw materials are always `item_reachable`, since no
+building outputs them and the walk short-circuits.
+
+`fixtures/balance.json` already prices this honestly: raw pays 1000 `insight_per_gather_milli`,
+processed 1300–1867. Under 2× for a machine, its research, its power, and its fuel, against a raw row
+that never runs out.
+
+### Gathering becomes a property of the material
+
+Move the cooldown out of the constant and into `ItemDefinition` as `hand_gather_steps`, where
+**absent means the hand cannot take it at all**.
+
+| Material                   | Steps | Seconds | Reading                                            |
+| -------------------------- | ----- | ------- | -------------------------------------------------- |
+| Wood                       | 15    | 0.5     | Flora, cut by hand. The bootstrap fuel stays fast. |
+| Clay, Sand                 | 20    | 0.67    | Loose surface earth.                               |
+| Stone                      | 30    | 1.0     | Cut off a cliff face.                              |
+| Iron ore, Copper ore, Coal | 45    | 1.5     | A hard rock seam.                                  |
+| Signal crystal             | —     | —       | **Machine only.** The deep extractor, tier 1.      |
+
+Water is already machine-only and needs no rule: it is terrain rather than a field cell, so
+`resource_at_world` never finds it and the pump is the only source. That is the existing precedent
+this table generalizes.
+
+### The invariant that moves, and the reason it is safe
+
+`AGENTS.md` and v0.17's record say the hand is worth **exactly** one extractor, both at 120 a minute,
+and `one_extractor_is_worth_exactly_the_hands_it_frees` pins it. Restate it as: **the hand is never
+faster than an extractor working the same cells, and on hard rock it is materially slower.**
+
+That keeps the guard v0.17 actually cared about — the curve inversion where the first machine a player
+builds is slower than the hands it replaces — and adds the incentive the notes asked for, because the
+new rule is strictly stronger in the direction that mattered. Move the invariant text, the test, and
+the fixture's extraction section together, and say in the shipped record that the equality was
+deliberately broken rather than lost.
+
+### A raw row pays once at full price
+
+Add `repeat_insight` to `RequestDefinition`. The first fill pays `insight`; every later fill pays
+`repeat_insight`. Raw rows get **2**. Processed rows keep their full value.
+
+`request_rounds` already counts fills and is already saved and checksummed, so nothing new enters the
+envelope. The eight surveys pay ~73 once, which comfortably funds the early tree — Field Logistics,
+Automated Extraction, On-site Power, Storage Planning, and Composition come to 30 — and the remaining
+83 has to come from a smelter or a kiln.
+
+A decayed repeat rather than an exhausted row, deliberately: a row that stops existing can strand a
+player who has no fuel and no power and no way back, and 2 insight for ten gathers is already a rate
+nobody will choose. The floor removes the soft-lock; the number removes the exploit.
+
+`every_processed_request_pays_better_per_gather_than_raw_material` needs a companion asserting that a
+**repeated** raw row pays worse per gather than every processed row, which is the claim that actually
+holds this together.
+
+### What replaces grinding, and why it is mostly already built
+
+Closing the raw loop only answers half the note it came from. The other half — insight should require
+items that are processed **according to how deep the player is in the tree**, so that funding research
+is what leads them to discover more — must not be built from scratch here, because v0.20 already
+built it and this milestone's job is to finish it.
+
+Two shipped mechanisms carry it:
+
+- **Eligibility is the recipe tree.** `Core::item_reachable` walks from a requested item down through
+  the recipes that make it, requiring a buildable machine for every category and an unlocked source
+  for every leaf. A row cannot be posted until the player could actually produce it, so the board
+  opens up as research does, without an unlock column anybody has to maintain.
+- **The reward curve is already depth-scaled**, in `insight_per_gather_milli`: raw 1000, crystal 1250,
+  one machine step 1300–1333, assembly 1533–1625, the deep chains 1778–1867. `fixtures/balance.json`
+  computes it from the shipped tree rather than from authored intent, which is how v0.20 caught its
+  own first pass putting glass at exactly 1000.
+
+So the depth ladder exists and is measured. What v0.23 owes it is the two things that currently
+undercut it:
+
+1. **A floor that makes the ladder the only way up.** Under 2× is a weak gradient when the bottom rung
+   is infinite; `repeat_insight` is what makes the gradient decisive, and it should be tuned against
+   the printed curve rather than picked. If 2 leaves any raw row competitive per _minute_ once the
+   new hand rates land, move it, and say which figure moved it.
+2. **A board that leads rather than waits.** `next_request` posts the least-used eligible row, so
+   fresh content does lead — but only in catalogue order, and nothing guarantees the three posted
+   slots are not all shallow rows the player has long outgrown. Consider reserving one slot for the
+   deepest eligible row. Consider it, measure it, and reject it in writing if a three-slot board
+   cannot afford the reservation: a player who cannot yet build a smelter must never face a board of
+   three things they cannot make, which is the trap `skip_request` exists to escape and which a
+   reserved slot could quietly recreate.
+
+Neither is a new system. Both are one predicate each, and both belong in this milestone rather than a
+later one, because they are what make the hand-rate change read as an invitation instead of a tax.
+
+### Acceptance
+
+- The technology tree cannot be completed from raw materials alone, demonstrated by a native test
+  that fills every raw row repeatedly and shows the reachable insight falling short of 113.
+- Hand-gathering rates come from the item definition; a material with no `hand_gather_steps` refuses
+  a hand gather with a message naming what does extract it.
+- No extractor is slower than the hand on the same cells, on any material, pinned in the fixture.
+- Signal crystal is obtainable only by machine, and the guidance says so rather than leaving the
+  player to discover it by failing.
+- `fixtures/balance.json` reports the per-material hand rate and the repeat rate, and both test
+  suites expand it independently.
+- A repeated raw row pays worse per gather **and per minute** than every processed row, measured
+  against the new hand rates rather than the old flat one.
+- The board never posts three rows the player cannot supply, whatever is decided about reserving a
+  slot for depth. If the reservation is rejected, the reason is written down.
+
+## Deferred milestone — Living Lattice v0.24
+
+Four things it should know before it starts, all of them handed over by v0.18 rather than invented
+here:
 
 - **Play the opening first, with hands, and time it.** v0.18 repaired the first twenty minutes
   against the rules and could not measure them against a person: the frame loop does not run in the
@@ -909,7 +1616,7 @@ of them handed over by v0.18 rather than invented here:
   walk about it deliberately — the one thing that must not happen is a hub asking for something the
   next step cannot explain.
 
-## Following milestone — Living Lattice v0.20
+### Living Lattice v0.24 — the brief
 
 Animals, biomatter, and waste remain one milestone, but their purpose is now sharper: this is the
 first system that makes HexFactory something other than a factory game drawn on hexes. A living
@@ -954,14 +1661,18 @@ the world survey.
 - The native capacity ladder and complete browser frame are re-measured if the entity or world
   snapshot changes. No claim is made beyond the measured tier.
 
-## Later milestone — Regional Discovery v0.21
+## Later milestone — Regional Discovery v0.25
 
-v0.16 made world shape parameterized; v0.21 makes that variation a play system. The landing
-clearing guarantees only the bootstrap path established by v0.18. Advanced materials and ecological
-opportunities belong to readable regions that require travel, surveying, and eventually outposts.
-The current assertion that every preset puts all eight raw materials near the landing site must be
-replaced deliberately, not accidentally weakened: every preset remains completable, but
-"completable" no longer means "sample platter at spawn."
+**Its generation half moved forward into Landforms and Fields v0.21.** The bootstrap guarantee that
+replaces the sample platter, and the survey that proves every preset still works, are what v0.21 has
+to build anyway for fields to mean anything, so they are specified there and are not repeated here.
+What remains at v0.25 is the half that is a play system rather than a generator, and it should be
+read as beginning from a world that already has readable landforms, rivers, and real deposits.
+
+v0.16 made world shape parameterized; this makes that variation a play system. Advanced materials and
+ecological opportunities belong to readable regions that require travel, surveying, and eventually
+outposts. Every preset remains completable, but "completable" no longer means "sample platter at
+spawn."
 
 A third low-frequency generation channel may create dry and wet variants of the same elevation
 band, but generation is not the milestone by itself. A region has to announce itself through shape,
@@ -977,16 +1688,15 @@ needs; do not build a programmable system in search of a problem.
 
 ### Acceptance
 
-- A new world begins with a complete bootstrap path but not every advanced raw material in the
-  landing clearing.
-- Every preset remains completable, measured by an updated survey that reports bootstrap reach,
-  first advanced-region distance, regional extent, and access from buildable ground.
+- Every preset remains completable, measured by an updated survey that reports first advanced-region
+  distance, regional extent, and access from buildable ground. The bootstrap half of this is v0.21's
+  and is asserted there.
 - Crossing into a region is recognisable without opening the game menu or reading coordinates.
 - At least one founding-hub project requires a sustained distant site, not a one-time hand trip.
 - The minimap and home bearing support the expedition without revealing unsurveyed world or
   re-deriving native generation truth.
 
-## Longer play horizon after v0.21
+## Longer play horizon after v0.25
 
 - **Hub programmes.** Player-chosen modules grow around the landing hub's rings and create different
   material demands. They are finite authored systems and visible construction, not endless random
@@ -1151,7 +1861,7 @@ compositing, so `requestAnimationFrame` never fired and the frame loop could not
 verified instead (no console errors, both catalogs validated at load, the new dock entries,
 compass spokes, and panels all present in the DOM).
 
-## Next session — Upgrades and Tiers v0.14
+## Historical next-session brief — Upgrades and Tiers v0.14
 
 The originally-deferred play milestone, now with materials to spend, a power budget to improve,
 and a generator that can paint a new tier without a new drawing. Begin in

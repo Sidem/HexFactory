@@ -29,7 +29,8 @@ is, the coarse elevation octave's cell size and blend share decide how big it is
 match arms are a `FieldRule` table evaluated in declared order. Four presets ship as data rows
 (`continental` is version 5's frozen numbers). `npm run survey` measures what a parameter set
 actually generates and is where every claim a preset makes comes from; `--set name=value` surveys
-one nobody shipped. The browser save key is `hexfactory:hxf1:v7w6`.
+one nobody shipped. v0.16's browser save key was `hexfactory:hxf1:v7w6`; see v0.20 below for what
+replaced it.
 
 Balance shipped as **v0.17**, finishing the arc. `fixtures/balance.json` is every figure that
 decides whether the economy works — machine rates, what a generator carries and what it burns and
@@ -52,6 +53,38 @@ is version 3: the objective group became the contract group. `fixtures/balance.j
 The scripted next action is gone — `src/core/guidance.ts` derives it from the contract, the recipe
 tree, and the technology graph, and `tests/guidance.test.ts` walks it step by step and refuses any
 step the rules would refuse.
+
+Power Grid shipped as **v0.19**, asked for from play rather than from the plan. `power_draw` kept its
+name and changed what it measures: energy spent per tick _of progress_, never per tick of the clock,
+so a blocked or starved machine costs nothing and a craft costs `power_draw × duration` however long
+it waited first. Each machine banks `POWER_BUFFER_CYCLES` whole cycles and asks for no more, which is
+what lets a grid be sized by average load. Plants burn only against energy actually delivered
+(`burn_for_output`, with `burn_progress` owing fractions of a fuel unit), so there is no throttle step
+anywhere. Coverage is the **pole's** — `supply_radius` and `pole_reach`, three data rows each — not
+the machine's, which is what makes it upgradable, and anything that draws or generates conducts to
+its touching neighbours while belts and containers deliberately do not. Save 9, definition 9,
+technology 5, wire 4; the per-entity flag field is a uvarint because ten flags do not fit in a byte.
+
+Standing Requests shipped as **v0.20**, also from play. **Insight is no longer a property of an
+item** — `insight_value` is gone from every row. The landing hub posts a board of `REQUEST_SLOTS`
+requests, each a named quantity of one item for a stated number of insight, and filling one is the
+only thing in the game that pays. Eligibility is `Core::item_reachable`, a walk of the recipe tree,
+not an unlock column; the draw order is `request_rounds` with no randomness in it, so a save restores
+the board exactly; and every row carries a Pass, which costs it a place in the queue and forfeits what
+was delivered against it. `hub_demand` is the board's outstanding units plus every remaining contract
+stage, and it is the same predicate a belt and `X` both use — so the hub takes what it asked for and
+nothing else, and a line pointed at a satisfied hub backs up visibly instead of voiding cargo for a
+coin. Save 10, definitions 10, wire 5 with a requests group between the contract and the player.
+**Named saves live in a version-independent catalog, `hexfactory:saves:v1`** — each slot records the
+envelope versions and the world it started with, an incompatible run stays visible on its row rather
+than being hidden by the storage key, and leftover `hexfactory:hxf1:` keys are imported and left in
+place. `SAVE_VERSION` is the one literal, because native does not publish it.
+
+**What to pick up next** is in `docs/HEXFACTORY-PLAN.md`, and there are two independent fronts. The
+host-only **Panels and Item Language v0.20.1** presentation pass touches no native code and can ship
+at any time. The milestone arc is **Landforms and Fields v0.21**, then Crossings and Canopy v0.22,
+then Earned Insight v0.23; that order is load-bearing and its reasoning is in the roadmap decision
+directly above the v0.21 brief. Read that decision before starting either.
 
 ## Workspace boundary
 
