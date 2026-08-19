@@ -2248,7 +2248,8 @@ required<HTMLDivElement>("inspector-actions").addEventListener(
 
 window.addEventListener("keydown", (event) => {
   if (isTypingTarget(event.target)) return;
-  // Space presses a button the keyboard tabbed to, and centres the camera every other time.
+  // Space presses a button the keyboard tabbed to. A mouse-focused button must not keep it:
+  // activation happens on keyup, so returning here would both skip recenter and click the control.
   if (event.code === "Space" && isKeyboardFocusedControl(event.target)) return;
   // Undo is the one binding that keeps its modifier, because every other application uses it.
   if ((event.ctrlKey || event.metaKey) && event.code === "KeyZ") {
@@ -2309,6 +2310,14 @@ window.addEventListener("keydown", (event) => {
 });
 
 window.addEventListener("keyup", (event) => {
+  if (
+    event.code === "Space" &&
+    !isTypingTarget(event.target) &&
+    !isKeyboardFocusedControl(event.target)
+  ) {
+    // Buttons fire on Space keyup. Recenter already handled keydown; this stops the click.
+    event.preventDefault();
+  }
   if (event.code === "KeyF") gatherHeld = false;
   if (event.code === "ShiftLeft" || event.code === "ShiftRight") {
     if (pressedMovement.size) enqueue(movementIntent(pressedMovement, false));
@@ -2961,18 +2970,34 @@ function isTypingTarget(target: EventTarget | null): boolean {
  * apart from a button the mouse merely left focused, which is the case the world takes back.
  */
 function isKeyboardFocusedControl(target: EventTarget | null): boolean {
-  if (
-    !(
-      target instanceof HTMLButtonElement || target instanceof HTMLAnchorElement
-    )
-  )
-    return false;
+  if (!(target instanceof HTMLElement)) return false;
+  if (!isPointerActivatedControl(target)) return false;
   try {
     return target.matches(":focus-visible");
   } catch {
     return false;
   }
 }
+
+function isPointerActivatedControl(target: EventTarget | null): boolean {
+  if (
+    target instanceof HTMLButtonElement ||
+    target instanceof HTMLAnchorElement
+  )
+    return true;
+  return (
+    target instanceof HTMLInputElement &&
+    (target.type === "checkbox" || target.type === "radio")
+  );
+}
+
+window.addEventListener("pointerup", (event) => {
+  // A clicked button keeps focus, and Space then activates it instead of recentring. Give the
+  // keys back to the world once the pointer is done; a tabbed control still has :focus-visible.
+  const target = event.target;
+  if (!isPointerActivatedControl(target) || isTypingTarget(target)) return;
+  if (target instanceof HTMLElement) target.blur();
+});
 
 function titleCase(value: string): string {
   return value.charAt(0).toUpperCase() + value.slice(1);

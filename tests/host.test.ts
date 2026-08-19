@@ -172,6 +172,19 @@ describe("public hex host contract", () => {
     const moved = camera.project(coordinate, 900, 650);
     expect(camera.pick(moved, 900, 650)).toEqual(coordinate);
   });
+
+  it("keeps a following camera on the player when the wheel zooms", () => {
+    const camera = new HexCamera();
+    const player = { x: 3550, y: -3072 };
+    camera.recenter(player);
+    expect(camera.following).toBe(true);
+    camera.zoomAt(1.6, { x: 80, y: 40 }, 900, 650);
+    expect(camera.following).toBe(true);
+    expect(camera.pan).toEqual({ x: 0, y: 0 });
+    expect(camera.center).toEqual(player);
+    camera.follow({ x: 4000, y: 0 });
+    expect(camera.center).toEqual({ x: 4000, y: 0 });
+  });
 });
 
 describe("bounded host input", () => {
@@ -838,8 +851,11 @@ describe("availability and expanded snapshot adapter", () => {
     expect(main).toContain('KeyP: "quest-panel"');
     // The inspector is the exception: it has no key because it never leaves the world.
     expect(main).not.toContain('"inspector-panel"');
-    // Space centres the camera and pause moved off it.
+    // Space centres the camera and pause moved off it. A clicked button must not keep Space:
+    // activation is on keyup, so keydown alone would both skip recenter and press the control.
     expect(main).toContain('event.code === "Space") renderer.recenter()');
+    expect(main).toContain('event.code === "Space"');
+    expect(main).toContain("target.blur()");
     expect(main).toContain('event.code === "KeyT") setPlaying(!playing)');
     // Gather and deliver are permanent chrome in the dock, not a panel a new player has to find.
     expect(html).toContain('class="field-actions"');

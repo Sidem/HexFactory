@@ -160,12 +160,18 @@ export class HexCamera {
     width: number,
     height: number,
   ): void {
+    // A follow zoom is about the player, not the cursor. Anchoring to the pointer and dropping
+    // follow made the wheel feel like a pan, and Space had to put the camera back every time.
+    if (this.following) {
+      this.zoom = Math.max(0.55, Math.min(2.2, this.zoom * factor));
+      this.pan = { x: 0, y: 0 };
+      return;
+    }
     const before = this.pick(point, width, height);
     this.zoom = Math.max(0.55, Math.min(2.2, this.zoom * factor));
     const projected = this.project(before, width, height);
     this.pan.x += point.x - projected.x;
     this.pan.y += point.y - projected.y;
-    this.following = false;
   }
 }
 
