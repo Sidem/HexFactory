@@ -900,10 +900,20 @@ Two independent fronts, and picking either is correct:
 Do not start v0.23 first. It is written to be tuned against a world that v0.21 builds, and against
 transfer rows that v0.20.1 collapses into one function.
 
-Three decisions are deliberately left open for whoever implements, and each is marked where it sits:
-whether panels dock in rails or float freely (v0.20.1), whether one board slot is reserved for the
-deepest eligible request (v0.23), and whether `regrowth_ticks` moves when a forest cell drops to
-three wood (v0.21). Each says what would settle it. Decide them from measurement and write the answer
+**v0.21 and v0.22 are one version train.** v0.21 moves `WORLD_GENERATOR_VERSION` and rejects every
+existing save; v0.22's twelve-heading routing table wants a save break of its own and rides that one
+instead of spending a second. If they are ever split, v0.22 has to pay for its own break and the
+orientation-index decision in that brief reopens.
+
+Four decisions are deliberately left open for whoever implements, and each is marked where it sits:
+whether panels dock in rails or float freely (v0.20.1); whether `regrowth_ticks` moves when a forest
+cell drops to three wood (v0.21); whether the single-cell footprint restriction is lifted now that
+its stated reason is gone (v0.22 — the brief recommends **not** now, and says why); and whether one
+board slot is reserved for the deepest eligible request (v0.23). Each says what would settle it.
+
+One decision that is **not** open, and must not be reopened casually: `DIRECTIONS` stays six. Twelve
+headings are transport only. Widening adjacency would let a boiler reach a turbine two rows away and
+a pole span a distance no player can see. Decide them from measurement and write the answer
 down; do not leave them open a second time.
 
 ## Presentation pass — Panels and Item Language v0.20.1
@@ -1446,6 +1456,106 @@ Fix it in the order that matters, and fix the data first:
 `extraction_reach_comes_from_the_definition_and_the_hand_keeps_its_own` is the test that already
 guards half of this and must be extended, not replaced.
 
+### Twelve headings, not eight
+
+Asked for from play, and it is a generalization rather than an addition: **the eight-direction
+routing table is an irregular subset of the regular twelve, and due north is the only member of its
+family that was ever implemented.**
+
+A pointy-top hex has six neighbours through its edge midpoints, at 0°, 60°, 120°, 180°, 240°, 300°,
+and six vertices at 30°, 90°, 150°, 210°, 270°, 330°. `TRANSPORT_DIRECTIONS` holds the six edges plus
+`(1, -2)` and `(-1, 2)` — which are two of the six _vertex_ directions. The other four are simply
+absent, for no reason the geometry supplies.
+
+Applying the axial 60° clockwise rotation `(q, r) → (-r, q + r)` — the same rotation the six edges
+already follow in their table order — to due north closes the family:
+
+| Index | Axial      | Screen angle | World length     | Heading         |
+| ----- | ---------- | ------------ | ---------------- | --------------- |
+| 6     | `(1, -2)`  | 270°         | `3 · HEX_RADIUS` | North           |
+| 7     | `(2, -1)`  | 330°         | `3 · HEX_RADIUS` | East-north-east |
+| 8     | `(1, 1)`   | 30°          | `3 · HEX_RADIUS` | East-south-east |
+| 9     | `(-1, 2)`  | 90°          | `3 · HEX_RADIUS` | South           |
+| 10    | `(-2, 1)`  | 150°         | `3 · HEX_RADIUS` | West-south-west |
+| 11    | `(-1, -1)` | 210°         | `3 · HEX_RADIUS` | West-north-west |
+
+Every corner heading is exactly `3 · HEX_RADIUS` long against `√3 · HEX_RADIUS` for an edge step, so
+edges and corners together are a **uniform twelve-point rosette at 30° spacing with two alternating
+lengths**. Three edge axes and three corner axes, six headings each.
+
+**The straddle generalizes exactly**, which is what makes this safe. A north riser passes between
+`(q, r-1)` and `(q+1, r-1)` and leaves both free, buildable, and walkable. The midpoint of `(2, -1)`
+from the origin lands at `(1330.5, -768)` in world units, which is precisely the midpoint between the
+centres of `(1, 0)` and `(1, -1)`. Same structure on all six, so the "single-cell building whose belt
+spans a seam" note on `TRANSPORT_DIRECTIONS` holds unchanged.
+
+#### What this repairs, and what it deliberately does not
+
+`OrientationAxis::Vertical` requires a single-cell footprint, and both the Rust comment and
+`AGENTS.md` explain that as "`@hexlife/embed` rotates by 60° and the vertical headings have no 60°
+equivalent." That is true **only because there were two of them**: rotating north by 60° lands on
+`(2, -1)`, which was not in the table, so the only available turn was the 180° flip between north and
+south. With all six present the corner group is closed under 60° rotation and that explanation stops
+being true. `src/rendering/buildingLook.ts` already says the quiet part — _"There is no third
+vertical heading, so these are named rather than indexed"_ — and `DUE_NORTH` / `DUE_SOUTH` become an
+indexed table like the edges.
+
+**Do not lift the single-cell restriction in the same change.** No shipped definition wants a
+multi-cell corner-heading building, and lifting a constraint nobody is pushing against is how an
+untested path ships. What must change is the _reason_: replace the now-false explanation with "no
+definition needs it yet", in the Rust comment, in `src/core/definitions.ts`, and in `AGENTS.md`, so
+the next person does not inherit a justification that no longer holds. Whether to lift it is a
+separate, deliberate call with a definition asking for it.
+
+#### Three things to decide rather than assume
+
+1. **Index order versus saved orientations — settled by the release train.** `OrientationAxis::next`
+   advances by `offset + 1 % span`, so it assumes index order _is_ rotation order. Putting the six
+   corners in the rotational order above changes index 7 from South to ENE, and every saved riser at
+   orientation 7 would silently re-aim. **v0.21 and v0.22 ship as one version train** — v0.21 moves
+   `WORLD_GENERATOR_VERSION` and rejects every existing save already, so v0.22 rides that break and
+   the rotational ordering costs nothing. Take the clean order; do not build a lookup table to
+   preserve a compatibility that the train has already spent.
+2. **`hex_line_vertical`'s determinism argument does not survive.** It uses `.find()` over
+   `TRANSPORT_DIRECTIONS[NORTH..]` — first match wins — justified by _"north and south are opposites,
+   so at most one of them can ever close, and the choice cannot depend on iteration order."_ With six
+   corner headings that sentence is no longer a proof. A spot check of the 30° boundary suggests at
+   most one still closes by two, because a target 30° off a corner heading is an edge heading and
+   there neither corner closes — but **that is a spot check, not a proof.** Either prove it and write
+   the new argument into the comment, or add an explicit tie-break, and pin it with an exhaustive
+   test over the corner headings. This is the one place in the change where a wrong assumption makes
+   a drag depend on table order, which is exactly what the existing comment forbids.
+3. **`Vertical` is now the wrong name.** `Corner` or `Vertex` is what the axis is. That is an
+   `orientation_axis` value in `definitions.json` and a definition-version bump, plus the
+   `ORIENTATION_AXES` set in `src/core/definitions.ts`, the `OrientationAxis` union in
+   `src/core/types.ts`, the `"North / south"` catalogue chip, and the "risers run due north and
+   south" line in the transport tool's blurb.
+
+#### The fixture has to grow
+
+`fixtures/hex-directions.json` pins only the six edges. The two corner headings are currently
+duplicated by hand in `buildingLook.ts` as `DUE_NORTH` and `DUE_SOUTH`, and **nothing checks that
+they agree with Rust.** Widening to twelve is the moment to fix that: pin all twelve in the fixture,
+with index, name, and axial offset, asserted from both languages exactly as
+`public_direction_protocol_matches_cross_language_fixture` already asserts the six. Adding four
+hand-copied vectors to a host file with no cross-language guard would be the defect this milestone
+introduces.
+
+#### What does not change
+
+`hex_line_vertical` scans `TRANSPORT_DIRECTIONS[NORTH..]` generically rather than special-casing two
+entries, so it needs no structural change beyond point 2 above. `VERTICAL_TIP_SCALE = 1 / √3` is
+correct for all six, since the length ratio between a corner heading and an edge step is identical
+for every pair. `DIRECTIONS` stays six and must never widen — adjacency, power, boiler and turbine
+neighbours are unchanged, and only transport gets twelve.
+
+The economics are unchanged and should still be re-measured. A riser gains four headings at no extra
+cost, but the trade is the one north already offered and which was already accepted: travelling ENE
+is two belts for 2 iron ore across two hexes, or one riser for 2 iron ore across one hex with the
+straddled pair left free. That deal is being applied symmetrically rather than sweetened, so
+`fixtures/balance.json` is predicted not to move — run `npm run balance` and confirm the prediction
+rather than assuming it.
+
 ### What moved out of this milestone
 
 **Fractional deposits into containers** are in Panels and Item Language v0.20.1, not here. They are
@@ -1467,6 +1577,15 @@ building's stat line rather than an item, so they stay here with the rings they 
   and `pole_reach` on all three poles, none of which appear anywhere today.
 - A pole's supply disc and its link distance are visually distinguishable, because one is an area of
   effect and the other is not.
+- Transport routes on twelve headings: six edge steps at `√3 · HEX_RADIUS` and six corner steps at
+  `3 · HEX_RADIUS`, in rotational order, and a riser can be turned to all six corners.
+- `fixtures/hex-directions.json` pins all twelve with index, name, and axial offset, and both
+  languages assert against it. No routing vector is written by hand in a host file.
+- A corner drag resolves to the same cells every time, and the reason is a stated argument or an
+  explicit tie-break rather than the superseded "north and south are opposites".
+- The single-cell footprint rule still stands, and every comment explaining it says "no definition
+  needs it yet" rather than the 60°-rotation reason, which is no longer true.
+- `npm run balance` is re-run and the prediction that nothing moves is confirmed or corrected.
 
 ## Following milestone — Earned Insight v0.23
 

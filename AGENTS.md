@@ -149,6 +149,11 @@ directly above the v0.21 brief. Read that decision before starting either.
   requires a single-cell footprint, because `@hexlife/embed` rotates by 60° and the vertical
   headings have no 60° equivalent. Never widen `DIRECTIONS`: a boiler that reached two rows would
   be a silent rule change.
+  **v0.22 replaces the second sentence's reason and not its rule.** Routing widens to twelve — the
+  six edges plus all six vertex headings, which are closed under 60° rotation — so "no 60°
+  equivalent" stops being true while the single-cell restriction stays, on the narrower ground that
+  no definition needs otherwise. `DIRECTIONS` still stays six. See Crossings and Canopy v0.22 in the
+  plan before touching either table.
 - An upgrade edits the entity in place and never replaces it, which is what preserves contents,
   orientation, and connections without special handling. `validate_upgrade_ladders` pins kind,
   recipe category, footprint, and axis across every step, so the command does not have to re-ask
