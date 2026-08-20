@@ -121,8 +121,10 @@ const BUILDING_RADIUS: i32 = 690;
 /// was supposed to replace. That is a curve inversion at the very start of the game and no cost
 /// row could show it. At fifteen the hand is worth exactly one extractor working the same seven
 /// cells, so what automation buys is not a bigger number: it is that the player can walk away.
-/// `fixtures/balance.json` pins the equality, and v0.17's write-up in `docs/HEXFACTORY-PLAN.md`
-/// is where the reasoning lives.
+/// `fixtures/balance.json` pins the equality. **Earned Insight v0.23 deliberately breaks it** —
+/// see that brief in `docs/HEXFACTORY-PLAN.md`: the cooldown becomes `hand_gather_steps` on the
+/// item, and the invariant restates as "never faster than an extractor, and on hard rock
+/// materially slower", which keeps the guard above and adds the incentive it lacked.
 const GATHER_COOLDOWN_STEPS: u32 = 15;
 const HUB_RANGE: i32 = 1900;
 /// How many requests the landing hub posts at once.

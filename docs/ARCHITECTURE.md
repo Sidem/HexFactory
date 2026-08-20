@@ -9,12 +9,66 @@ HexFactory is not a cellular automaton. Exploration uses unbounded continuous fi
 space. Pointy-top axial coordinates exist only for construction anchors/footprints and compiled
 transport; the running simulation follows graph edges and sparse scheduled entities.
 
+## Non-negotiable
+
+Twelve rules. None of them may be traded away for convenience; where one genuinely conflicts with
+how the game feels to play, the architecture is what has to find another way.
+
+1. **Native hot path.** Rust/Wasm owns cargo movement, machine scheduling, inventories, recipes,
+   conflict resolution, production counters, and checksums. TypeScript owns UI, rendering, build
+   commands, and bounded orchestration. No per-cell or per-item JS tick loop.
+2. **Separate data dimensions.** Building identity, orientation, cargo, item identity, inventory,
+   recipe, and progress are separate fields. Never flatten their Cartesian product into one state
+   byte or lookup table.
+3. **Dynamic identities.** Items, recipes, and building definitions use dynamic integer IDs. Adding
+   an item or recipe adds definition data; it must not resize a global transition table.
+4. **Chunked, non-toroidal space.** Unbounded axial/cube coordinates and lazily allocated chunks. A
+   finite viewport is not a finite world contract. Empty map area costs almost nothing.
+5. **Compiled transport.** Directional belt tiles compile into directed paths between endpoints. The
+   simulation runs the compiled representation; it does not discover six neighbours for every belt
+   on every tick.
+6. **Sparse scheduled machines.** Idle entities do not execute a universal cell update. Wake them for
+   due completions, available input, released backpressure, power or topology changes, or edits.
+7. **Deterministic arbitration.** Simultaneous transfers may not depend on collection iteration
+   order. Use stable entity IDs and explicit priority rules.
+8. **Integer time and quantities.** The same definitions, blueprint, commands, and tick count must
+   produce the same checksum in browser and native tests.
+9. **Definitions, not callbacks.** Behaviours are native components fed by data-defined items,
+   recipes, and buildings. Do not call JS once per machine, item, or tick.
+10. **Simulation/render separation.** Rendering consumes compact snapshots or dirty deltas and never
+    owns simulation truth. The renderer must be replaceable without changing the engine.
+11. **Headless is first-class.** The same core runs without DOM or WebGL, so blueprints can be
+    evaluated in workers or Node.
+12. **No unmeasured claims.** Every performance or scale statement cites a recorded tier in
+    `docs/BENCHMARKS.md`.
+
 ## Dependency boundary
 
-`@hexlife/embed/hex@1.15.0` remains the only HexLife dependency and is exactly pinned. TypeScript
-uses its public, DOM-free entrypoint for clockwise directions, footprint rotation, construction
-coordinate conversion, picking, and Canvas centers. The independent Rust crate pins the same
-direction fixture and never reads HexLife source or `node_modules`. No package release was required.
+`@hexlife/embed/hex@1.15.0` is the only HexLife dependency and is exactly pinned. TypeScript uses
+its public, DOM-free entrypoint for clockwise directions, footprint rotation, construction
+coordinate conversion, picking, and render centers. The independent Rust crate pins the same
+direction fixture and never reads HexLife source or `node_modules`.
+
+The published `/hex` contract covers one documented clockwise six-direction ordering, axial
+neighbour lookup and rotation, axial/cube distance and rounding, axial-to-pixel and pixel-to-axial
+conversion, line traversal, and negative-coordinate-safe mapping to fixed-size chunks. Its pixel
+convention, origin, orientation, direction numbering, boundary rounding, and negative chunk division
+are public behaviour pinned by fixtures, not implementation trivia.
+
+**Nothing factory-shaped may enter that package.** Belts, recipes, inventories, scheduling,
+blueprint evolution, and factory codecs belong to HexFactory. Do not modify `/sim`, `/ca`,
+`/stochastic`, or `/hcp` for factory semantics, and do not broaden the binary `/render` into a
+multi-layer factory renderer. A future addition qualifies only if it is a generic hex-host primitive
+with at least one credible non-HexFactory consumer.
+
+If a milestone exposes a genuine gap in `/hex`, first prove the feature cannot be implemented with
+its existing public API. A blocking addition is authorized only when it is small, additive,
+DOM- and Wasm-free, and broadly reusable — and it then requires the complete HexLife release path
+(source, declarations, exports, build, declaration-copy list, tests, reference docs, README,
+changelog, an `embed-vX.Y.Z` publish) before HexFactory exact-pins the new version. That exception
+never permits factory, player, terrain, resource, inventory, recipe, or technology semantics, a
+public direction-convention break, or changes to HexLife's CA engines or renderer. Report such a
+blocker instead of bypassing the boundary.
 
 ## Native ownership
 
@@ -87,11 +141,12 @@ The Rust `Core` owns all state that can change a game result:
     inventory, and carry the recipe the drag will carry — legality depends on the recipe's category,
     so a preview asking without one would refuse a run the drag would build. Undo is a stack of
     constructed entity ids replayed through `erase`; like `deposit_links` it is derived state and is
-    never saved, hashed, or checksummed. A screen-vertical run on this pointy-top lattice has no
-    hex-edge direction and today zigzags NE/NW as a full tile on every cell; the longer-horizon
-    model anchors every second hex and half-covers the offset tiles between, and that change has
-    to land in native occupancy and in this same resolver, not as a draw trick. See
-    `docs/HEXFACTORY-PLAN.md` **North-south belts**.
+    never saved, hashed, or checksummed. A screen-vertical run has no hex-edge direction, which is
+    what `TRANSPORT_DIRECTIONS` answers: due north is the lattice vector `(q + 1, r - 2)`, a
+    non-unit step the ray-cast always handled, and the two straddled hexes stay free and walkable.
+    `hex_line_vertical` is the separate rule the drag resolver selects by the dragged definition's
+    orientation axis. Sub-hex occupancy was refused: it would change the placement predicate, the
+    compiled graph, and the checksum at once to buy a heading the lattice already contains.
 11. Extractors resolve their deposit by reference rather than by search. Each extractor's covering
     deposits are resolved once into a candidate list ordered exactly as a full scan would resolve
     it, cached against its stable entity id, and dropped whenever chunk generation adds tiles.
@@ -188,6 +243,13 @@ encoder is pinned against and as the capacity ladder's comparison; the game neve
 format is pinned in both languages by `fixtures/snapshot-delta-wire.json`, and in Rust by round
 tripping every delta the dirty-tracking test produces.
 
+Two properties of that encoding are easy to break and worth stating. The buffer is **transferred,
+not structured-cloned**, and the worker checks it owns the buffer whole before handing it over — a
+view into wasm memory would detach the module's heap. And entity status travels as an `EntityStatus`
+enum whose **serialized spelling is what the player reads**: the wire carries a byte where JSON
+carried up to nineteen characters per entity per delta, so renaming a variant is free and respelling
+one changes the game's text.
+
 Buildings and resources are the exceptions to group granularity. Buildings travel as a per-entity
 patch: `changed` carries inserted and modified entities, `removed` carries dropped ids, and both
 arrive in ascending stable entity id order so one linear host pass merges them without re-sorting.
@@ -246,21 +308,11 @@ build, so the deployed artifact carries none of it. That page adds the costs a n
 see, measured through the game's own paths: the worker RPC round trip, `applySnapshotDelta`
 merging the patch on the main thread, and the two canvases the game draws.
 
-v0.8 recorded the first browser tiers, and they moved the roadmap. The wasm engine costs about 1.2×
-native, so the native work of v0.6 and v0.7 transferred intact. The worker boundary cost roughly
-60% of a host frame and scaled with the JSON delta at about 10 µs per kilobyte, which made a compact
-binary encoding over a transferable buffer the next change worth making. The per-entity merge cost
-about 1% of a frame and needed nothing.
-
-v0.12.2 made that change and re-measured both platforms. The payload is 13.6× smaller at the largest
-tier, the boundary 21.7× cheaper, and a host frame there is 11.0% of 60 Hz rather than 62.1%. The
-boundary is no longer what a frame is mostly made of — the wasm frame is 78% of it — so the engine
-is the cost again, and the merge, unchanged, is now 6.3% of a much smaller frame.
-
-v0.12.4 measured the two canvases the game draws against the same tiers. A complete browser frame
-at 6,144 entities is 18.2% of 60 Hz; the world is 909 µs, the minimap 160 µs. The page times them
-through the game's own `draw` paths, at a pinned 1440×900 viewport, and they stay out of the
-shipped artifact the same way the rest of the harness does.
+The measurement has reordered the work three times: the first browser record priced the worker
+boundary and made a binary delta encoding the next milestone, that encoding took the boundary out of
+the frame and made the engine the cost again, and the renderer measurement that followed removed the
+last unmeasured 89% of a frame. `docs/BENCHMARKS.md` carries the records, the method, and the
+limits; nothing here restates a number it owns.
 
 ## Fog of war
 
@@ -269,6 +321,8 @@ world. Each chunk snapshot carries its native world-space origin and span, and t
 everything outside those bounds as fog: a hatched cool veil punched out by the surveyed rectangles
 on an offscreen layer, so overlapping chunk edges leave no seams, with a dashed frontier drawn along
 every surveyed edge whose neighbouring chunk does not exist yet. The inspector reports an unsurveyed
-selection and the game menu counts surveyed sectors. None of this is host-invented geography: the
+selection and the game menu counts surveyed sectors. **Lowland is the default fill and is
+deliberately not sent as terrain**, so a surveyed hex carrying no terrain entry is lowland rather
+than an unknown tile — the inspector names every surveyed hex on that basis. None of this is host-invented geography: the
 host derives only pixels and copy from native chunk bounds, and travelling generates the chunks that
 lift the fog.

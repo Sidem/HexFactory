@@ -5,105 +5,32 @@ fun to play and a pleasure to control, inspired by Factorio, Satisfactory, and M
 imitating their assets, names, or branding. The deterministic Rust/Wasm core and the sparse
 architecture are the means that make that game possible at scale, not the point of the project.
 
-Keep this file concise; the durable roadmap, design pillars, and implementation handoffs live in
-`docs/HEXFACTORY-PLAN.md`, architecture decisions in `docs/ARCHITECTURE.md`, shipped MVP status in
-`docs/MVP.md`, and measured capacity in `docs/BENCHMARKS.md`. Upgrades and Tiers shipped as
-**v0.14**: tiered definitions with an in-place `upgrade`, extraction reach as the flagship
-upgrade, north and south in the transport direction table as the riser, a right-click that
-harvests one named hex, and two-way hand transfer with containers. `HXF1` save version is 7,
-definition version 7, technology version 4; v0.13 saves are rejected.
+Keep this file concise. It carries the invariants and the commands, and nothing else: the goal, the
+shipped ledger, and the next milestones live in `docs/HEXFACTORY-PLAN.md`, architecture decisions in
+`docs/ARCHITECTURE.md`, art rules in `docs/ART.md`, and measured capacity in `docs/BENCHMARKS.md`.
 
-Generated Shapes shipped as **v0.15**: a building's drawing is a part list from an eight-part
-vocabulary in `src/rendering/shapeGrammar.ts`, `BUILDING_SHAPES` in `src/rendering/buildingLook.ts`
-is that table and is total over `SilhouetteKey`, and a tier is a modifier on the list through
-`TIER_LADDER` rather than a stroke colour. Still parts bake behind `BUILDING_SHAPE_VERSION`; only
-parts carrying a `phase` are walked per frame. The player draws from the same vocabulary. The
-contact sheet is `contact.html`, a dev entry point beside `bench.html` — dev-only, and like
-`bench.html` it must not become a dependency of the game, the production build, or the CI gate.
-Presentation only: no save, definition, generator, wire, or checksum movement.
+## Where things stand
 
-World Parameters shipped as **v0.16**: a world is a seed plus a `WorldParams`, which travels in the
-save envelope and the checksum, so `WORLD_GENERATOR_VERSION` is 6 and a version-5 envelope is
-rejected. Feature scale and threshold are separate axes — sea level decides how much water there
-is, the coarse elevation octave's cell size and blend share decide how big it is. `field_at`'s
-match arms are a `FieldRule` table evaluated in declared order. Four presets ship as data rows
-(`continental` is version 5's frozen numbers). `npm run survey` measures what a parameter set
-actually generates and is where every claim a preset makes comes from; `--set name=value` surveys
-one nobody shipped. v0.16's browser save key was `hexfactory:hxf1:v7w6`; see v0.20 below for what
-replaced it.
+Shipped through **v0.20.1**, plus an unversioned WebGL2 renderer pass. Current envelope versions,
+all five of which native refuses a load on: **save 10, definitions 10, technologies 5, scenarios 5,
+world generator 6**, and wire (snapshot delta) **5**. `SAVE_VERSION` is the one literal in the host,
+because native does not publish it; every other number the browser's save catalog shows is read from
+what native publishes.
 
-Balance shipped as **v0.17**, finishing the arc. `fixtures/balance.json` is every figure that
-decides whether the economy works — machine rates, what a generator carries and what it burns and
-drinks to carry it, fuel conversions, and the full raw-material cost of every building expanded
-through its whole recipe tree — computed by `factory-wasm/src/balance.rs` from the shipped
-catalogues, printed by `npm run balance`, and pinned in both languages. The first tuning pass moved
-six numbers, each traceable to a printed figure; definition version is 8. Read the shipped record in
-`docs/HEXFACTORY-PLAN.md` before changing a cost, a cadence, or a power figure, and `docs/ART.md`
-Stage D before touching `src/rendering/buildingLook.ts` or the grammar.
+**What to pick up next** is `docs/HEXFACTORY-PLAN.md`: the arc is **Landforms and Fields v0.21**,
+then Crossings and Canopy v0.22, then Earned Insight v0.23. That order is load-bearing, and the
+roadmap decision above the v0.21 brief is why. Read it before starting.
 
-Founding Contract shipped as **v0.18**, the first milestone of the pivot from substrate to motive. A
-scenario carries a `contract`: ordered stages, each a bill of materials with a name, a brief, and a
-sentence about what finishing it does to the hub. `new-game` ships two — the founding three
-components, then a foundry module of `16 Iron plate` and `20 Brick` from two landscapes. The stage
-and what the hub holds against the current bill are saved and checksummed, so save version is 8 and
-scenario version 5; the browser key reads the definition, technology, and scenario catalogue
-versions rather than restating them, and only `SAVE_VERSION` is still written down. The wire format
-is version 3: the objective group became the contract group. `fixtures/balance.json` gained a
-`contracts` section, and an opening that needs a machine drawing power now prices the generator too.
-The scripted next action is gone — `src/core/guidance.ts` derives it from the contract, the recipe
-tree, and the technology graph, and `tests/guidance.test.ts` walks it step by step and refuses any
-step the rules would refuse.
-
-Power Grid shipped as **v0.19**, asked for from play rather than from the plan. `power_draw` kept its
-name and changed what it measures: energy spent per tick _of progress_, never per tick of the clock,
-so a blocked or starved machine costs nothing and a craft costs `power_draw × duration` however long
-it waited first. Each machine banks `POWER_BUFFER_CYCLES` whole cycles and asks for no more, which is
-what lets a grid be sized by average load. Plants burn only against energy actually delivered
-(`burn_for_output`, with `burn_progress` owing fractions of a fuel unit), so there is no throttle step
-anywhere. Coverage is the **pole's** — `supply_radius` and `pole_reach`, three data rows each — not
-the machine's, which is what makes it upgradable, and anything that draws or generates conducts to
-its touching neighbours while belts and containers deliberately do not. Save 9, definition 9,
-technology 5, wire 4; the per-entity flag field is a uvarint because ten flags do not fit in a byte.
-
-Standing Requests shipped as **v0.20**, also from play. **Insight is no longer a property of an
-item** — `insight_value` is gone from every row. The landing hub posts a board of `REQUEST_SLOTS`
-requests, each a named quantity of one item for a stated number of insight, and filling one is the
-only thing in the game that pays. Eligibility is `Core::item_reachable`, a walk of the recipe tree,
-not an unlock column; the draw order is `request_rounds` with no randomness in it, so a save restores
-the board exactly; and every row carries a Pass, which costs it a place in the queue and forfeits what
-was delivered against it. `hub_demand` is the board's outstanding units plus every remaining contract
-stage, and it is the same predicate a belt and `X` both use — so the hub takes what it asked for and
-nothing else, and a line pointed at a satisfied hub backs up visibly instead of voiding cargo for a
-coin. Save 10, definitions 10, wire 5 with a requests group between the contract and the player.
-**Named saves live in a version-independent catalog, `hexfactory:saves:v1`** — each slot records the
-envelope versions and the world it started with, an incompatible run stays visible on its row rather
-than being hidden by the storage key, and leftover `hexfactory:hxf1:` keys are imported and left in
-place. `SAVE_VERSION` is the one literal, because native does not publish it.
-
-Panels and Item Language shipped as **v0.20.1**, a host-only presentation pass: no native, save,
-definition, generator, wire, or checksum movement, and the Rust suite untouched. Three things it
-established. **`src/rendering/itemChip.ts` is the only place an item is ever drawn** — glyph, name,
-count — replacing eight bespoke shapes; `count` spells a plain amount (`3`) and `progress` spells
-progress toward a known target (`3 / 10`), `×3` is gone, and there is no variant without a glyph,
-because colour alone is not an identity in a catalogue holding three greys. Static markup names a
-`.chip-host` and never spells the chip out. **Affordability is a per-line shortfall, not a boolean**:
-`BuildAvailability.cost` is a `CostLine[]` and `affordable` is derived from it, so a card names which
-line is short and by how much instead of sending the player to another panel. **Panels open
-independently in two rails** — `.panel-rail`, a flex column; the old exclusivity was covering for
-four panels sharing one origin, and it survives only below 720px where there is one rectangle to
-share. Take and Put are one `renderTransferRows`, and the fractional deposit it gained needed no
-native change: `store` and `withdraw` have always clamped `quantity` as a ceiling, and the host had
-only ever sent the maximum.
-
-**What to pick up next** is in `docs/HEXFACTORY-PLAN.md`: the milestone arc is **Landforms and
-Fields v0.21**, then Crossings and Canopy v0.22, then Earned Insight v0.23. That order is
-load-bearing and its reasoning is in the roadmap decision directly above the v0.21 brief. Read that
-decision before starting.
+Before changing a cost, a cadence, or a power figure, run `npm run balance` and read
+`fixtures/balance.json`. Before touching `src/rendering/buildingLook.ts` or the shape grammar, read
+`docs/ART.md` Stage D.
 
 ## Workspace boundary
 
 - All HexFactory code, plans, and durable project information belong in
   `X:\Programming\Projects\HexFactory`. Begin feature sessions here and read the plan first.
+- Repository `https://github.com/Sidem/HexFactory`, live at `https://sidem.github.io/HexFactory/`,
+  deployed from `main` by GitHub Actions. Vite's production base is `/HexFactory/`.
 - The source/reference checkout for the published geometry dependency is
   `X:\Programming\Projects\HexLife`. It is not part of this project and is read-only unless a
   separate task explicitly authorizes a generic package release.

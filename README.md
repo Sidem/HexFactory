@@ -20,18 +20,20 @@ founding prebuilt architecture proof remains available as the **Factory demo** s
 Rust/Wasm runs inside a dedicated module worker and owns environment features, resources, collision,
 continuous player movement, inventories, costs, research, objectives, saves, transport, machines,
 cargo, ticks, and checksums. TypeScript sends one bounded input batch per rendered frame, applies
-revision-checked native snapshot deltas, and owns only controls, camera, interface, and Canvas
-presentation.
+revision-checked native snapshot deltas, and owns only controls, camera, interface, and rendering.
+The world and the minimap draw on WebGL2 with a Canvas 2D overlay for the player, labels, and
+machine decorations.
 
 ## Controls
 
 - Move freely with `W/A/S/D` or the narrow-layout touch pad; movement is not snapped to building
   cells. Travelling past the dashed survey frontier generates new world and permanently lifts its
   fog.
-- Hold `F` to keep gathering a nearby deposit; deliver the complete player inventory while beside
-  the hub with `X`. Your pack holds a fixed number of stacks, so gathering — and recovering a
-  building with something inside it — stops when no slot is free. Select a container and use the
-  inspector's **Take** buttons to move stock back into your pack.
+- Hold `F` to keep gathering a nearby deposit, or right-click a hex to harvest that one by name.
+  Press `X` beside the hub to hand over what it has actually asked for — the posted requests and the
+  contract's outstanding bill. Your pack holds a fixed number of stacks, so gathering — and
+  recovering a building with something inside it — stops when no slot is free. Select a container
+  and use the inspector's **Take** and **Put** rows to move stock either way, in whole or in half.
 - Walking runs on its own cadence: it is unaffected by the simulation speed and continues while the
   factory is paused.
 - Select build tools with the hotbar or number keys `1`–`9`, and click to place on the construction
@@ -42,9 +44,13 @@ presentation.
   `Q` copies whatever is under the cursor, and `Ctrl`+`Z` takes back the last thing you built.
   Some definitions occupy multiple cells; those are placed one at a time. The grid appears during
   editing or via its toggle.
-- Drag, middle-drag, or right-drag the map to pan; use the wheel to zoom and **Recenter player** to
-  resume camera following.
-- Press `Space` to pause/resume and `Escape` to return to inspection and close open panels.
+- Middle-drag, or hold `Shift` and drag with the left button, to pan; use the wheel to zoom. `Space`
+  recentres the camera on the player and resumes following. The right button is only ever the
+  harvest.
+- `I` opens the cargo pack, `O` research, `B` the construction catalogue, and `P` the objective and
+  controls reference. They open independently and several at a time. `T` pauses, `M` mutes, and
+  `Escape` returns to inspection and clears the open panels.
+- Hold `Shift` while walking for a slower, precise step that does not overshoot a hex.
 
 ## Run locally
 
@@ -94,18 +100,19 @@ come from rather than from reading its numbers.
 - The host consumes exactly `@hexlife/embed/hex@1.15.0` for public pointy-top axial geometry. It
   never imports HexLife source or package internals.
 
-See the [roadmap and implementation handoff](docs/HEXFACTORY-PLAN.md),
-[architecture](docs/ARCHITECTURE.md), [current acceptance](docs/MVP.md),
+See the [goal, state, and roadmap](docs/HEXFACTORY-PLAN.md),
+[architecture](docs/ARCHITECTURE.md), [art direction](docs/ART.md),
 [measured capacity](docs/BENCHMARKS.md), and [agent invariants](AGENTS.md).
 
 ## Measured capacity
 
 Capacity is measured rather than asserted, and the measurement orders the work. The same
-deterministic ladder now runs natively and as wasm in the browser worker — the measurement lives in
-Rust and only the clock differs — so the record describes the artifact that ships. From v0.12.4
-the browser record also times the two canvases the game draws. Every tier from 12 to 6,144
-simultaneous buildings advances a tick, merges the result, and draws a 1440×900 frame inside
-60 Hz, with the largest using 18.2% of one. Every browser tier reproduces its native checksum.
+deterministic ladder runs natively and as wasm in the browser worker — the measurement lives in Rust
+and only the clock differs — so the record describes the artifact that ships. Every tier from 12 to
+6,144 simultaneous buildings advances a tick, merges the result, and draws a 1440×900 frame inside
+60 Hz, with the largest using 19.0% of one, and every browser tier reproduces its native checksum.
+That render figure was measured against the Canvas 2D renderer the WebGL2 pass replaced, and is owed
+a re-measurement.
 
 One Chromium version on one desktop is the whole browser evidence. No claim is made beyond the
 recorded ladder. Run the ladders with `npm run bench` and `npm run bench:browser`; see

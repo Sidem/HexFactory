@@ -1,18 +1,89 @@
-# HexFactory art direction — Stage A
+# HexFactory art direction
 
-Stage A is the palette and shape language the World Shape renderer needs, extended by v0.12 to the
-material roster. Buildings stay geometric hexes. The roster is now stable, Power has shipped, and
-**Stage B shipped as Look Systems v0.13.1** — a generator that emits the art, not an atlas
-somebody drew. The rule and what it buys are in "Stage B is a generator" below. Upgrades and Tiers
-shipped as v0.14, and **the next milestone is Generated Shapes v0.15** — Stage D below, which
-finishes Stage B's rule 4 by making the drawing itself a data row and making a tier visible as a
-machine rather than as a stroke colour. The session brief is at the top of
-`docs/HEXFACTORY-PLAN.md`.
+The art is a **generator, not an atlas**. Six numbered rules define it; every one of them holds
+today, and a new building, band, or tier costs a data row rather than a drawing.
+
+Rendering consumes snapshots and never owns simulation truth, so none of this can reach a checksum
+by construction. That invariant is what makes generated art free here rather than risky: a host-side
+hash, a noise field, and a baked tile are all presentation, and presentation may vary however it
+likes. The available input is also better than geometry — a hex knows its band, its neighbours'
+bands, its richness, and how much has been taken from it, because native already publishes all of
+it.
+
+## The rules
+
+1. **Transitions come from neighbours.** Where a hex's band differs from a neighbour's, draw a
+   fringe toward the lower band. Shore becomes a shoreline and a cliff becomes the edge of a
+   landform. This is what makes "terrain is the material map" true on screen rather than only in the
+   generator.
+2. **Variation comes from a hash.** Rotation, in-band value jitter, and scattered detail marks keyed
+   off `hash(q, r)` in the host, so a band stops reading as one repeated tile. The hash is
+   presentation-only and must never become an input to anything native.
+3. **Tiles and still shapes are baked, not shipped.** Value noise, threshold, and edge darkening run
+   once at startup into offscreen canvases behind a version constant — `TERRAIN_TILE_VERSION`,
+   `BUILDING_SHAPE_VERSION` — rather than PNGs in the bundle. Changing a constant regenerates the
+   set.
+4. **A building's look is derived from its definition.** Silhouette from `kind`, `recipe_category`,
+   and `power_source`; the facing tick that is already drawn. `silhouetteOf` in
+   `src/rendering/buildingLook.ts` does this with no per-id case.
+5. **Depletion is visible history.** `quantity` against `initial_quantity` desaturates and scars the
+   ground, so a worked-out region is legible from across the map. Flora regrowth runs the same
+   system in the other direction.
+6. **A shape is a part list, and a tier is a modifier on it.** See Stage D below.
+
+## Stage D — the shape grammar
+
+The vocabulary lives in `src/rendering/shapeGrammar.ts`: **vessel, chamber, stack, rotor, aperture,
+mast, band, mouth** — eight parts naming machine anatomy rather than geometry, each carrying anchor,
+scale, rotation, and animation `phase`, in units of the hex size rather than pixels. One renderer
+walks a declarative list of them; the list is data.
+
+Composition is three lookups and no cases:
+
+- `kind` / `recipe_category` / `power_source` selects the **base part list**. `BUILDING_SHAPES` in
+  `src/rendering/buildingLook.ts` is that table, and it is **total over `SilhouetteKey`** — so a new
+  silhouette is a compile error at its data row rather than a machine that silently draws nothing.
+- `tier` applies **shape modifiers** from `TIER_LADDER`, a named documented set: add a stack, add a
+  rotor blade, segment the vessel, add a plating band, widen the mouth. A tier changes the
+  silhouette, not the stroke colour. `HUB_LADDER` is a second such list applied by completed
+  contract stage, through the same `applyLadder`.
+- Terrain and the player draw from the same vocabulary, so the world reads as one visual system
+  rather than three that happen to share a palette. The walker takes whatever unit its caller works
+  in — hex size for a building, player radius for the player.
+
+`phase` (`spin`, `pulse`, `rise`, `grind`) is a property of a part, so a rotor turns because it is a
+rotor rather than because a `switch` arm reached for `Math.cos`. That is also what makes the bake
+safe to split: still parts are stamped from an offscreen canvas under rule 3, and only parts that
+actually move are walked per entity per frame. The grammar's indirection is paid at startup, not at
+60 Hz.
+
+**Two constraints worth knowing before extending it.** `addStack` anchors off `profileTop`
+deliberately — every other modifier needs a part of a particular kind to act on, so a step built
+only from those could find no target and produce a tier the map cannot show; anchoring one modifier
+to the profile makes every non-empty shape grow. And the ladder is cumulative and unbounded in
+principle but has **two steps**, so a definition at tier 3 would wear the same shape as one at
+tier 2. The roster ships nothing above tier 1; the day it does, the ladder needs a third row rather
+than a wider `trimOf`.
+
+**The contact sheet is `contact.html`**, a dev entry point beside `bench.html`: every definition ×
+every tier × every status on one grid, drawn by the shipped renderer rather than by a second
+illustration of it. It carries a **colour toggle**, because a silhouette judgement fails any test
+that keeps the palette — a gold stroke over an identical body would pass. It names two failures on
+the card itself: a definition whose silhouette has no base shape, and definitions that draw
+identically to each other. Both fire today on the belt and the riser, which is correct — a belt's
+look is its heading tick and the cargo riding it. Dev-only: like `bench.html` it must never become a
+dependency of the game, the production build, or the CI gate.
+
+**The acceptance standard is a measurement, not an eyeballing.** A tier-1 definition must be
+distinguishable from its tier-0 parent by silhouette, with colour removed, at normal zoom. That was
+verified by reading the contact sheet's cells back pixel by pixel inside a disc that **excludes the
+hex body's own tier-coloured stroke** — a first attempt that did not exclude it reported the
+shapeless belt changing by 32%. Isolating the silhouette is what makes the figure mean anything.
 
 ## Palette
 
-Surveyed lowland is the default fill and is not sent as terrain. Everything else is a hex
-cell with its own fill and edge.
+Surveyed lowland is the default fill and is not sent as terrain. Everything else is a hex cell with
+its own fill and edge.
 
 | Band          | Fill      | Edge      | Role                                     |
 | ------------- | --------- | --------- | ---------------------------------------- |
@@ -26,8 +97,8 @@ cell with its own fill and edge.
 | Fog           | `#18242f` | `#7fe0c0` | Unsurveyed world                         |
 
 Hills sits between lowland and highland and is deliberately close to both: the bands read as one
-rising landform, not as three unrelated colours. v0.12 added it because copper belongs to rolling
-ground and iron to the tops, and a player who cannot see the difference cannot choose a site.
+rising landform, not as three unrelated colours. Copper belongs to rolling ground and iron to the
+tops, and a player who cannot see the difference cannot choose a site.
 
 **Impassability outranks the band.** Deep water, shallow water, and cliff each keep the fill above,
 but all three carry one shared treatment — a diagonal hatch and a bright rim — so a player reads
@@ -42,8 +113,8 @@ grey means cliff.
 
 Items keep their identity colours, and the glyph set names material _forms_ rather than individual
 items — iron and copper ore share the faceted-hex `ore` glyph and differ by colour, as do every
-plate and every kind of grit. Twelve glyphs carry twenty-three items, and Stage B's generator
-inherits the same rule.
+plate and every kind of grit. **Twelve glyphs carry twenty-three items**, which is the generator's
+rule applied to items before it was applied to buildings.
 
 | Glyph       | Items                                                   |
 | ----------- | ------------------------------------------------------- |
@@ -60,153 +131,34 @@ inherits the same rule.
 | `crystal`   | signal crystal                                          |
 | `component` | component                                               |
 
+An item is drawn one way, by `src/rendering/itemChip.ts`, and never by a second shape. Every variant
+is a modifier class on one markup, every chip shows its glyph — colour alone is not an identity in a
+catalogue holding three greys — and `3` and `3 / 10` are the only two spellings of a quantity, one
+an amount and the other progress toward a known target.
+
 ## Shape language
 
-- Buildings are pointy-top hex prisms. Identity is a three-letter stamp and a facing tick,
-  not a pictorial silhouette.
+- Buildings are pointy-top hex prisms. Identity is the generated silhouette first; the three-letter
+  stamp is a label under the body, quieter than the anatomy it names.
 - A sprite, when one exists, occupies the inner 60% of the hex so neighbours never clip it.
 - The same glyph is used in the pack and on the field, so a field cell and the stack it becomes are
   visibly one material.
-- State that the player has to react to is drawn where it happens rather than written in the message
-  strip: a machine's progress arc, and the ring that closes around the player while a field action
-  is cooling down.
-
-## Stage B is a generator
-
-Stage B was originally written as "the full item icon set and static building sprites as an atlas".
-That is N drawings, and it used to sit immediately before v0.14 Upgrades and Tiers — the milestone
-whose whole job is multiplying the building roster. An atlas makes a tier cost a drawing; a
-generator makes a tier cost a data row. Pulled in front of v0.14 on 2026-08-18 so the generator
-exists before the roster multiplies, and so the colored mosaic is not what the next play session
-stares at. The item glyphs already follow the generator's logic — twelve glyphs carry twenty-three
-items — so Stage B extends that rule to buildings rather than abandoning it.
-
-Rendering consumes snapshots and never owns simulation truth, so none of this can reach a checksum by
-construction. That invariant is what makes generated art free here rather than risky: a host-side
-hash, a noise field, and a baked tile are all presentation, and presentation may vary however it
-likes. The available input is also better than geometry — a hex knows its band, its neighbours'
-bands, its richness, and how much has been taken from it, because native already publishes all of it.
-
-### The rules
-
-1. **Transitions come from neighbours.** A hex is currently a flat fill and a stroke, which reads as
-   a colour-block mosaic. Where a hex's band differs from a neighbour's, draw a fringe toward the
-   lower band. Shore becomes a shoreline and a cliff becomes the edge of a landform. No new art and
-   no new native data. This is the largest readability return available, and it is what makes
-   "terrain is the material map" true on screen rather than only in the generator.
-2. **Variation comes from a hash.** Rotation, in-band value jitter, and a few scattered detail marks
-   keyed off `hash(q, r)` in the host, so a band stops reading as one repeated tile. The hash is
-   presentation-only and must never become an input to anything native.
-3. **Tiles are baked, not shipped.** Value noise, threshold, and edge darkening, run once at startup
-   into offscreen canvases behind a version constant, rather than PNGs in the bundle. `veilCanvas()`
-   in the renderer is already this pattern. Changing a constant regenerates the whole set.
-4. **A building's look is derived from its definition.** Silhouette from `recipe_category`, which
-   already distinguishes smelter, kiln, cutter, crusher, and composer; trim from tier; the facing
-   tick that is already drawn. This is the rule that makes v0.14 cheap.
-5. **Depletion is visible history.** `quantity` against `initial_quantity` is already stored, saved,
-   and read by the renderer — today only to decide whether to draw a number. Let it desaturate and
-   scar the ground as well, so a worked-out region is legible from across the map. Flora regrowth
-   runs the same system in the other direction: a cut forest visibly recovering is already simulated,
-   and needs only to be drawn.
-
-### Sequencing
-
-Shipped as Look Systems v0.13.1, before v0.14. Order of work was in `docs/HEXFACTORY-PLAN.md`
-under **Next session — Look Systems**: fringes, baked tiles, hash variation, depletion, building
-silhouettes, one Stage C motion pass, then `npm run bench:browser`.
-
-Rules 1, 2, and 5 add per-hex renderer work. v0.12.4 measured the frame this pass started from:
-the world was 909 µs at the largest tier and a complete browser frame was 18.2% of 60 Hz. The
-Look Systems re-measure is 991 µs for the world and 19.0% of 60 Hz. Stage B's per-hex work
-shipped with that number, not ahead of one.
-
-## Stage D — the shape grammar, shipped as Generated Shapes v0.15
-
-**Shipped 2026-08-18.** Directed 2026-08-18. Stage B established that a look is _derived_ and
-shipped that rule for terrain, for depletion, and for the choice of which building silhouette to
-draw. Stage D applies it to the drawing itself, which is the one place Stage B left imperative.
-
-The vocabulary lives in `src/rendering/shapeGrammar.ts` and the building table in
-`src/rendering/buildingLook.ts`. `BUILDING_SHAPES` is total over `SilhouetteKey`, so a new
-silhouette is a compile error at its data row rather than a machine that draws nothing, and
-`TIER_LADDER` carries two named steps. Still parts bake behind `BUILDING_SHAPE_VERSION` and only
-parts with a `phase` are walked per frame. The player draws from the same vocabulary; terrain keeps
-the baked-tile system it shipped with under rules 1–3.
-
-### What Stage B left behind
-
-`silhouetteOf` in `src/rendering/buildingLook.ts` is correct and stays: `recipe_category` splits the
-composer kinds and `power_source` splits the generators, from the definition, with no per-id case.
-Two things under it are not finished.
-
-- **`drawSilhouette` is a two-hundred-line `switch` of hand-written canvas calls.** A new building
-  costs a new arm. That is an atlas whose drawings happen to be written in TypeScript, and it fails
-  the same test Stage B was created to pass: a new definition should cost a data row.
-- **`trimOf` renders a tier as stroke colour and width only.** So a deep extractor is an extractor
-  with a gold outline. The milestone whose subject was growth in place produced no visible growth,
-  which makes rule 4 half-true: the look is derived from the definition, but not from the part of
-  the definition that changed.
-
-### The rule
-
-**6. A shape is a part list, and a tier is a modifier on it.** One renderer walks a declarative list
-of parts. The vocabulary is small and names machine anatomy rather than geometry — vessel, chamber,
-stack, rotor, aperture, mast, band, mouth — and each part carries anchor, scale, rotation, and
-animation phase. Phase is what keeps Stage C's motion inside the grammar instead of beside it: a
-rotor already turns on `workCycle`, and in a part list that is a property rather than a bespoke arm.
-
-Composition is three lookups and no cases. `kind` / `recipe_category` / `power_source` selects the
-base part list. `tier` applies modifiers from a named, documented set — add a stack, add a rotor
-blade, segment the vessel, add a plating band, widen the mouth — so **an upgrade changes the
-silhouette**. Terrain and the player draw from the same vocabulary, so the world reads as one system
-rather than three sharing a palette.
-
-The rules Stage B already set all still hold and are what make this safe: baked behind a version
-constant (rule 3), varied by host hash (rule 2), and presentation-only, so nothing here can reach a
-checksum by construction.
-
-### The contact sheet
-
-A dev page rendering **every definition × every tier × every status** on one grid, committed as an
-entry point. It reuses the renderer, so it costs little, and it is the only way to notice that two
-buildings read alike or that a tier modifier changed nothing visible without playing the game and
-happening to build both. The grammar is half of "maintained systematically"; this is the other half.
-
-### Acceptance
-
-A tier-1 definition must be distinguishable from its tier-0 parent **by silhouette, with colour
-removed**, at normal zoom. A new definition must render as a distinct readable machine with no new
-drawing code. And the grammar adds an indirection to a per-entity draw, so it ships with a
-`npm run bench:browser` re-measure against the v0.13.1 record — the same rule Stage B shipped under.
-
-**Met.** The silhouette criterion was measured rather than eyeballed: with colour off, the contact
-sheet's cells were read back pixel by pixel inside a disc that excludes the hex body's own
-tier-coloured stroke, and every shaped definition both gains ink and lifts its topmost drawn row at
-each tier step — the extractor from row 34 to 30 to 25, the smelter from 30 to 26 to 21. The belt
-and the riser measure zero at every tier, which is the deliberate blank the sheet flags on the card.
-A first pass at that measurement did **not** exclude the body stroke and reported the belt changing
-by 32%; the isolation is what makes the number mean the silhouette.
+- State the player has to react to is drawn where it happens rather than written in the message
+  strip: a machine's progress arc, the ring that closes around the player while a field action cools
+  down, and the `STALL_MARKS` dot that says _why_ a machine is idle.
+- A radius is drawn as a ring, and two rings that mean different things must not look the same. An
+  area of effect is a filled disc with a bright rim; a distance to another building is a rim only.
 
 ## Longer horizon
 
-Named 2026-08-18. Stage B's five rules — the 2D start of the organic item — shipped as Look
-Systems, and Stage D is the next step in the same programme rather than a detour from it. 3D
-presentation and the later tileable-texture systems are still the destination, not v0.15. Full
-write-up is in `docs/HEXFACTORY-PLAN.md` under **Longer horizon**.
+- **Organic tileables.** The rules above are the 2D start. The later systems produce tileable
+  textures and shapes so a hex lattice reads as organic terrain and organic objects — still
+  generated from published snapshot facts, still never a checksum input.
+- **3D presentation.** The camera tilts and orbits the player; terrain, buildings, and the player
+  gain shape. A 3D mesh hand-authored per definition is the atlas again; a mesh derived from
+  `recipe_category` and tier is this generator in another dimension. **Stage D is the cheapest
+  available preparation for it** — a part list with anchors and scales is a description of a machine
+  rather than a sequence of draw calls, and that description is what a mesh generator would consume.
+  The 2D walker is one consumer of the grammar, not the grammar itself.
 
-- **Organic tileables.** Stage B's five rules are the 2D start and have shipped. The later systems
-  produce tileable textures and shapes so a hex lattice reads as organic terrain and organic
-  objects, still generated from published snapshot facts, still never a checksum input.
-- **3D presentation.** The camera tilts and orbits the player; the player, terrain, and buildings
-  gain 3D shape. Canvas 2D stays replaceable presentation. A 3D mesh hand-authored per definition is
-  the atlas again; a mesh derived from `recipe_category` and tier is this generator in another
-  dimension. **Stage D is the cheapest available preparation for it**: a part list with anchors and
-  scales is a description of a machine rather than a sequence of canvas calls, and that description
-  is what a mesh generator would consume. The 2D walker is one consumer of the grammar, not the
-  grammar itself. A renderer replacement is still a measured decision; v0.12.4 is the baseline it is
-  measured against. Not this session.
-
-## Still
-
-`docs/art/world-shape-still.png` is the argument-piece mockup of a running factory on the
-new bands.
+`docs/art/world-shape-still.png` is the argument-piece mockup of a running factory on the bands.
