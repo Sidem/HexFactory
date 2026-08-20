@@ -49,10 +49,11 @@ This is permanent and is not a scope item.
 
 ## Where the project stands
 
-The engine arc, the generator arc, and the first four milestones of the pivot from substrate to
+The engine arc, the generator arc, and the first five milestones of the pivot from substrate to
 motive are all shipped. A run today looks like this: land beside a hub in a world chosen by preset
 or by raw parameters, walk out under fog across rivers and coastline, find **fields** of eight raw
-materials rather than scattered cells, gather, fill the hub's posted **requests** for insight and
+materials rather than scattered cells, cross rivers on **bridges**, gather from forests that visibly
+thin and regrow, fill the hub's posted **requests** for insight and
 its staged founding **contract** for hub growth, research a twelve-technology tree, and build a
 powered, automated line of twenty buildings and fourteen recipes across five machine categories.
 Buildings are drawn by a shape grammar, so a tier is a data row. Power is energy bought per unit of
@@ -64,11 +65,11 @@ catalog shows which one moved rather than hiding the row:
 | Envelope              | Version |
 | --------------------- | ------: |
 | `HXF1` save           |      10 |
-| Definitions           |      10 |
-| Technologies          |       5 |
+| Definitions           |      11 |
+| Technologies          |       6 |
 | Scenarios             |       5 |
 | World generator       |       8 |
-| Wire (snapshot delta) |       5 |
+| Wire (snapshot delta) |       6 |
 
 **Current measured capacity.** A complete browser frame at 6,144 entities is 19.0% of 60 Hz
 (v0.13.1 record, Canvas 2D — the WebGL2 pass has not been re-measured). Generation costs at most
@@ -81,23 +82,9 @@ to change.
 
 ## What to do next
 
-**Crossings and Canopy v0.22.** The order v0.21 → v0.22 → v0.23 is load-bearing rather than a
-preference; the roadmap decision below is why, and v0.21 has now shipped.
-
-**v0.22 is the second half of a version train and it is owed a debt.** v0.21 put rivers in the
-world and there is no bridge yet. Shallows are now a 1 m/s ford rather than a wall, so inland
-water is a slog instead of a closed door — eight hexes of river is still several seconds of
-wading, and a belt still cannot cross. That is the argument the bridge still has. Rivers are
-8–10 hexes thick and a few hundred hexes apart. `archipelago` ships with `river_width: 0` because
-scattered water everywhere plus a river network would have left its walkable ground in shreds.
-**Do not raise the share of river hexes until the bridge exists.** Thickness is not density.
-
-v0.22 was written to ride v0.21's save break rather than spend a second one. That break has now been
-spent — the world generator is at 8 — so if v0.22 changes the wire's orientation index it pays for
-its own bump, and the orientation-index decision in that brief reopens on those terms.
-
-Do not start v0.23 first. It is written to be tuned against the world v0.21 has now built, and the
-figures it should be tuned against are in the shipped ledger's v0.21 entry.
+**Earned Insight v0.23.** The world and its crossings now exist, so the research economy can be
+tuned against the geography the player actually walks. The five economy notes in that brief are
+the next load-bearing sequence; do not start Living Lattice first.
 
 ### Open decisions, each with what would settle it
 
@@ -106,8 +93,6 @@ figures it should be tuned against are in the shipped ledger's v0.21 entry.
   measured is an extractor's starve rate over seven cells against a `regrowth_ticks` of 90. The
   balance report's `mean_same_material` for wood is 5–11 units at the base reach and 11–26 at the
   deep one, which says forestry is a question of area, but says nothing about the cadence.)
-- **Is the single-cell footprint restriction lifted** now that its stated reason is gone? (v0.22 —
-  the brief recommends **not** now, and says why. It needs a definition asking for it.)
 - **Is one board slot reserved for the deepest eligible request?** (v0.23 — consider it, measure it,
   and reject it in writing if a three-slot board cannot afford the reservation.)
 - **Rails or free-floating panels** was settled by shipping the rail. What would reopen it: wanting
@@ -159,8 +144,8 @@ The world note is that resources arrive as scattered single cells of every kind 
 asked for in the same session: fields of iron and coal, forests instead of lone high-yield wood
 hexes, rivers with clay on their banks and bridges to cross them, sand on ocean beaches, stone in
 mountains, and a world where standing an extractor next to a deposit is worth doing. That was
-**Landforms and Fields v0.21**, which has shipped; the bridges are the one part of it that did not,
-and they are v0.22.
+**Landforms and Fields v0.21**, followed by the bridges and canopy treatment in v0.22; both have
+shipped.
 
 **The world work came first, and the dependency was real rather than tidy.** Making a hand gather
 slower per material only reads as "go and build an extractor" when there is a field worth putting an
@@ -174,211 +159,6 @@ guarantees a bootstrap path rather than a sample platter, and a survey that prov
 works — was exactly what v0.21 had to do anyway for fields to mean anything, so it moved forward into
 v0.21 and shipped there. What stays at v0.25 is the half that is a play system rather than a
 generator.
-
-## Then — Crossings and Canopy v0.22
-
-v0.21 makes the world; v0.22 makes it legible and crossable. It is deliberately second because a
-bridge over no river and a forest renderer with no forest are both untestable.
-
-### A bridge is an entity override, never a terrain change
-
-`Terrain::blocks_movement` is pinned in both languages by `fixtures/terrain-passability.json`.
-Shallows are already a ford (passable, not buildable, 1 m/s); deep water and cliff still block.
-A bridge does not turn shallow water into land. It is an entity whose presence `player_blocked`
-and the placement path consult — both already walk entities — so the pinned table keeps saying
-exactly what it says and gains a note explaining that a bridged hex is passable by entity, not by
-band, which is what lets a belt cross what a player can already wade.
-
-- `BuildingKind::Bridge` is **appended** after `Boiler`. Kinds travel as their declaration index, so
-  inserting it anywhere else is a silent mistranslation rather than a decode failure; the wire
-  fixture's enum table is what catches that, and it must be regenerated and its diff read.
-- A new `PlacementRule::Shallows` — _on_ a shallow-water hex. Do not reuse `Water`, which means
-  buildable ground _beside_ water and is what the pump uses. Deep water takes no bridge, so deep
-  water finally becomes a real barrier and the deep/shallow split earns itself.
-- Adding to `BuildingKind` forces a `BUILDING_SHAPES` entry, since the table is total over
-  `SilhouetteKey` and `SilhouetteKey` includes `BuildingKind`. That is the compiler asking for the
-  drawing, and `docs/ART.md` Stage D is what it should be answered from.
-- Belts and risers may be built on a bridged hex. That is the point of it.
-- Cost stone and timber, behind its own cheap technology after Field Logistics. Crossing the first
-  river should be an early, satisfying unlock rather than a late convenience.
-
-### A forest has to look like a forest
-
-Today every resource cell draws identically: a pulsing hex outline plus the item's icon glyph, one
-per hex, whatever the quantity. A forest of 1–3 wood per cell drawn that way is a field of log icons.
-
-Draw **one tree per remaining unit**, deterministically jittered inside the hex from the same shape
-vocabulary the buildings use, so a forest visibly thins as it is cut and thickens as it regrows.
-`quantity` and `initial_quantity` are already in the resource snapshot, so this costs no new wire and
-no new native state — it is presentation over numbers that already cross. Rivers and bridges get the
-same treatment: a river should read as a river at ordinary zoom, not as a line of ponds.
-
-### Every radius that exists is drawn
-
-`drawPowerCoverage` draws exactly two rings and both come from `supply_radius` — the pending pole
-under the cursor, and the selected pole. Extractors and pumps draw nothing, and it is worse than a
-missing ring: the catalogue chip "Reaches N" is conditional on `extract_radius` being present, and
-the **base** extractor omits the field entirely, so the first extractor a player ever builds states no
-reach anywhere in the UI. The pump's radius is `PUMP_RADIUS`, a bare native constant that reaches no
-definition and no panel.
-
-Fix it in the order that matters, and fix the data first:
-
-1. `extract_radius: 1` on the base extractor and on the pump in `definitions.json`, with native
-   reading the field instead of the constants. `EXTRACT_RADIUS` survives as the **hand's** reach
-   only. This is the v0.19 pole lesson applied where it was not: reach is a property of the thing
-   that has it, never a default the host guesses.
-2. Generalize `drawPowerCoverage` into a reach pass over **every radius a definition states**, for
-   the pending tool and for the selection, colour-coded by meaning, because two rings that mean
-   different things must not look the same. The complete list, and a definition growing a radius
-   later must join it:
-
-   | Field            | Building        | What it means                       | Treatment                                                                                                                                     |
-   | ---------------- | --------------- | ----------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
-   | `extract_radius` | Extractor, Pump | Cells this machine can draw from    | Filled disc, bright rim                                                                                                                       |
-   | `supply_radius`  | Pole            | Machines this pole powers           | The existing blue disc                                                                                                                        |
-   | `pole_reach`     | Pole            | How far the **next pole** may stand | Rim only, no fill — it is a distance to another pole, not an area of effect, and drawing it as a disc would claim it powers everything inside |
-   | `EXTRACT_RADIUS` | The player      | What the hand can take              | Drawn on the player, see 3                                                                                                                    |
-
-   `pole_reach` is the one that is currently invisible everywhere — no ring, no chip, nothing — and
-   it is the number that decides whether a grid can be extended at all. A player laying a line of
-   poles is guessing at it.
-
-3. Draw the hand's own reach around the player while the harvest key is held. After v0.23 that ring
-   is the question the opening is about.
-4. Every radius in that table also states itself as a chip on the catalogue card. "Supplies 3" ships
-   today; "Reaches 1" and "Links 6" do not.
-
-`extraction_reach_comes_from_the_definition_and_the_hand_keeps_its_own` is the test that already
-guards half of this and must be extended, not replaced.
-
-### Twelve headings, not eight
-
-Asked for from play, and it is a generalization rather than an addition: **the eight-direction
-routing table is an irregular subset of the regular twelve, and due north is the only member of its
-family that was ever implemented.**
-
-A pointy-top hex has six neighbours through its edge midpoints, at 0°, 60°, 120°, 180°, 240°, 300°,
-and six vertices at 30°, 90°, 150°, 210°, 270°, 330°. `TRANSPORT_DIRECTIONS` holds the six edges plus
-`(1, -2)` and `(-1, 2)` — which are two of the six _vertex_ directions. The other four are simply
-absent, for no reason the geometry supplies.
-
-Applying the axial 60° clockwise rotation `(q, r) → (-r, q + r)` — the same rotation the six edges
-already follow in their table order — to due north closes the family:
-
-| Index | Axial      | Screen angle | World length     | Heading         |
-| ----- | ---------- | ------------ | ---------------- | --------------- |
-| 6     | `(1, -2)`  | 270°         | `3 · HEX_RADIUS` | North           |
-| 7     | `(2, -1)`  | 330°         | `3 · HEX_RADIUS` | East-north-east |
-| 8     | `(1, 1)`   | 30°          | `3 · HEX_RADIUS` | East-south-east |
-| 9     | `(-1, 2)`  | 90°          | `3 · HEX_RADIUS` | South           |
-| 10    | `(-2, 1)`  | 150°         | `3 · HEX_RADIUS` | West-south-west |
-| 11    | `(-1, -1)` | 210°         | `3 · HEX_RADIUS` | West-north-west |
-
-Every corner heading is exactly `3 · HEX_RADIUS` long against `√3 · HEX_RADIUS` for an edge step, so
-edges and corners together are a **uniform twelve-point rosette at 30° spacing with two alternating
-lengths**. Three edge axes and three corner axes, six headings each.
-
-**The straddle generalizes exactly**, which is what makes this safe. A north riser passes between
-`(q, r-1)` and `(q+1, r-1)` and leaves both free, buildable, and walkable. The midpoint of `(2, -1)`
-from the origin lands at `(1330.5, -768)` in world units, which is precisely the midpoint between the
-centres of `(1, 0)` and `(1, -1)`. Same structure on all six, so the "single-cell building whose belt
-spans a seam" note on `TRANSPORT_DIRECTIONS` holds unchanged.
-
-#### What this repairs, and what it deliberately does not
-
-`OrientationAxis::Vertical` requires a single-cell footprint, and both the Rust comment and
-`AGENTS.md` explain that as "`@hexlife/embed` rotates by 60° and the vertical headings have no 60°
-equivalent." That is true **only because there were two of them**: rotating north by 60° lands on
-`(2, -1)`, which was not in the table, so the only available turn was the 180° flip between north and
-south. With all six present the corner group is closed under 60° rotation and that explanation stops
-being true. `src/rendering/buildingLook.ts` already says the quiet part — _"There is no third
-vertical heading, so these are named rather than indexed"_ — and `DUE_NORTH` / `DUE_SOUTH` become an
-indexed table like the edges.
-
-**Do not lift the single-cell restriction in the same change.** No shipped definition wants a
-multi-cell corner-heading building, and lifting a constraint nobody is pushing against is how an
-untested path ships. What must change is the _reason_: replace the now-false explanation with "no
-definition needs it yet", in the Rust comment, in `src/core/definitions.ts`, and in `AGENTS.md`, so
-the next person does not inherit a justification that no longer holds. Whether to lift it is a
-separate, deliberate call with a definition asking for it.
-
-#### Three things to decide rather than assume
-
-1. **Index order versus saved orientations — settled by the release train.** `OrientationAxis::next`
-   advances by `offset + 1 % span`, so it assumes index order _is_ rotation order. Putting the six
-   corners in the rotational order above changes index 7 from South to ENE, and every saved riser at
-   orientation 7 would silently re-aim. **v0.21 and v0.22 ship as one version train** — v0.21 moves
-   `WORLD_GENERATOR_VERSION` and rejects every existing save already, so v0.22 rides that break and
-   the rotational ordering costs nothing. Take the clean order; do not build a lookup table to
-   preserve a compatibility that the train has already spent.
-2. **`hex_line_vertical`'s determinism argument does not survive.** It uses `.find()` over
-   `TRANSPORT_DIRECTIONS[NORTH..]` — first match wins — justified by _"north and south are opposites,
-   so at most one of them can ever close, and the choice cannot depend on iteration order."_ With six
-   corner headings that sentence is no longer a proof. A spot check of the 30° boundary suggests at
-   most one still closes by two, because a target 30° off a corner heading is an edge heading and
-   there neither corner closes — but **that is a spot check, not a proof.** Either prove it and write
-   the new argument into the comment, or add an explicit tie-break, and pin it with an exhaustive
-   test over the corner headings. This is the one place in the change where a wrong assumption makes
-   a drag depend on table order, which is exactly what the existing comment forbids.
-3. **`Vertical` is now the wrong name.** `Corner` or `Vertex` is what the axis is. That is an
-   `orientation_axis` value in `definitions.json` and a definition-version bump, plus the
-   `ORIENTATION_AXES` set in `src/core/definitions.ts`, the `OrientationAxis` union in
-   `src/core/types.ts`, the `"North / south"` catalogue chip, and the "risers run due north and
-   south" line in the transport tool's blurb.
-
-#### The fixture has to grow
-
-`fixtures/hex-directions.json` pins only the six edges. The two corner headings are currently
-duplicated by hand in `buildingLook.ts` as `DUE_NORTH` and `DUE_SOUTH`, and **nothing checks that
-they agree with Rust.** Widening to twelve is the moment to fix that: pin all twelve in the fixture,
-with index, name, and axial offset, asserted from both languages exactly as
-`public_direction_protocol_matches_cross_language_fixture` already asserts the six. Adding four
-hand-copied vectors to a host file with no cross-language guard would be the defect this milestone
-introduces.
-
-#### What does not change
-
-`hex_line_vertical` scans `TRANSPORT_DIRECTIONS[NORTH..]` generically rather than special-casing two
-entries, so it needs no structural change beyond point 2 above. `VERTICAL_TIP_SCALE = 1 / √3` is
-correct for all six, since the length ratio between a corner heading and an edge step is identical
-for every pair. `DIRECTIONS` stays six and must never widen — adjacency, power, boiler and turbine
-neighbours are unchanged, and only transport gets twelve.
-
-The economics are unchanged and should still be re-measured. A riser gains four headings at no extra
-cost, but the trade is the one north already offered and which was already accepted: travelling ENE
-is two belts for 2 iron ore across two hexes, or one riser for 2 iron ore across one hex with the
-straddled pair left free. That deal is being applied symmetrically rather than sweetened, so
-`fixtures/balance.json` is predicted not to move — run `npm run balance` and confirm the prediction
-rather than assuming it.
-
-### What moved out of this milestone
-
-**Fractional deposits into containers shipped in v0.20.1** and are not here. The radius **chips** in
-step 4 above share that pass's `itemChip` markup conventions but are a building's stat line rather
-than an item, so they stay here with the rings they belong to.
-
-### Acceptance
-
-- A bridge crosses shallow water, carries a belt, refuses deep water, and
-  `fixtures/terrain-passability.json`
-  is unchanged.
-- The wire fixture is regenerated, its diff read, and `Bridge` sits last in `BuildingKind`.
-- A forest reads as trees at ordinary zoom, thins as it is cut, and recovers as it regrows.
-- Every radius any definition states is drawn as a ring when pending and when selected, and is
-  stated as a number on the catalogue card — `extract_radius` on the base extractor and the pump,
-  and `pole_reach` on all three poles, none of which appear anywhere today.
-- A pole's supply disc and its link distance are visually distinguishable, because one is an area of
-  effect and the other is not.
-- Transport routes on twelve headings: six edge steps at `√3 · HEX_RADIUS` and six corner steps at
-  `3 · HEX_RADIUS`, in rotational order, and a riser can be turned to all six corners.
-- `fixtures/hex-directions.json` pins all twelve with index, name, and axial offset, and both
-  languages assert against it. No routing vector is written by hand in a host file.
-- A corner drag resolves to the same cells every time, and the reason is a stated argument or an
-  explicit tie-break rather than the superseded "north and south are opposites".
-- The single-cell footprint rule still stands, and every comment explaining it says "no definition
-  needs it yet" rather than the 60°-rotation reason, which is no longer true.
-- `npm run balance` is re-run and the prediction that nothing moves is confirmed or corrected.
 
 ## Then — Earned Insight v0.23
 
@@ -633,6 +413,15 @@ both test suites say so.
 
 One line per release, newest first. The reasoning behind a shipped rule lives in the git history of
 this file and in the code that implements it; what follows is the index.
+
+- **v0.22** Crossings and Canopy — A bridge is a stone-and-timber support entity on shallow water;
+  belts and risers may share its cell, and both layers survive a save while deep water remains a
+  barrier. Forest cells draw one deterministic tree per remaining wood unit, so harvesting and
+  regrowth change the canopy. Extractor, pump, pole supply, pole link, and the hand's native-published
+  reach are visible as meaning-specific overlays and catalogue figures. Transport is a twelve-point
+  rosette: the six unchanged adjacency edges plus all six corner headings, pinned in rotational
+  order by one cross-language fixture; `DIRECTIONS` remains six. Definitions 11, technologies 6,
+  wire 6.
 
 - **World scale** (2026-08-20) — One hexagon is 1 m². The walk is 3 m/s; Shift runs at 5 m/s.
   Shallows are a 1 m/s ford; deep water still blocks. Landform cells moved from 5–20 to 128–960

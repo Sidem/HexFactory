@@ -85,23 +85,23 @@ shapeless belt changing by 32%. Isolating the silhouette is what makes the figur
 Surveyed lowland is the default fill and is not sent as terrain. Everything else is a hex cell with
 its own fill and edge.
 
-| Band          | Fill      | Edge      | Role                                     |
-| ------------- | --------- | --------- | ---------------------------------------- |
-| Deep water    | `#0f3550` | `#3f9ad0` | Impassable basin; pumped from the shore  |
-| Shallow water | `#1a5474` | `#5cb6d8` | Impassable shore water                   |
-| Shore         | `#c4a56a` | `#e0c88a` | Walkable, buildable; sand and clay       |
-| Lowland       | `#1a3a32` | —         | Default surveyed ground; flora and clay  |
-| Hills         | `#48604d` | `#6f8a6c` | Walkable, buildable; copper ore and coal |
-| Highland      | `#5c6b58` | `#8a9a84` | Walkable, buildable; iron ore and coal   |
-| Cliff         | `#57493e` | `#c19a72` | Impassable landform edge; stone          |
-| Fog           | `#18242f` | `#7fe0c0` | Unsurveyed world                         |
+| Band          | Fill      | Edge      | Role                                           |
+| ------------- | --------- | --------- | ---------------------------------------------- |
+| Deep water    | `#0f3550` | `#3f9ad0` | Impassable basin; pumped from the shore        |
+| Shallow water | `#1a5474` | `#5cb6d8` | Walkable 1 m/s ford; bridgeable, not buildable |
+| Shore         | `#c4a56a` | `#e0c88a` | Walkable, buildable; sand and clay             |
+| Lowland       | `#1a3a32` | —         | Default surveyed ground; flora and clay        |
+| Hills         | `#48604d` | `#6f8a6c` | Walkable, buildable; copper ore and coal       |
+| Highland      | `#5c6b58` | `#8a9a84` | Walkable, buildable; iron ore and coal         |
+| Cliff         | `#57493e` | `#c19a72` | Impassable landform edge; stone                |
+| Fog           | `#18242f` | `#7fe0c0` | Unsurveyed world                               |
 
 Hills sits between lowland and highland and is deliberately close to both: the bands read as one
 rising landform, not as three unrelated colours. Copper belongs to rolling ground and iron to the
 tops, and a player who cannot see the difference cannot choose a site.
 
-**Impassability outranks the band.** Deep water, shallow water, and cliff each keep the fill above,
-but all three carry one shared treatment — a diagonal hatch and a bright rim — so a player reads
+**Impassability outranks the band.** Deep water and cliff each keep the fill above, but both carry
+one shared treatment — a diagonal hatch and a bright rim — so a player reads
 "cannot stand here" before they read which material it is. That is deliberately not a fourth colour:
 cliff against highland was two greys a step apart and the only way to tell them apart was to walk
 into one, and tuning those greys would have kept the answer in the palette when the question is a

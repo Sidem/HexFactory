@@ -38,7 +38,7 @@
       "material": "stone",
       "nearest_generated": 12,
       "reachable": true,
-      "required_by": 9
+      "required_by": 10
     },
     {
       "guaranteed_hexes": 0,
@@ -62,7 +62,7 @@
       "material": "wood",
       "nearest_generated": 8,
       "reachable": true,
-      "required_by": 3
+      "required_by": 4
     },
     {
       "guaranteed_hexes": 0,
@@ -696,7 +696,7 @@
       ],
       "raw_units_milli": 2000,
       "tier": 0,
-      "unlock_technology": "vertical-transport"
+      "unlock_technology": "corner-transport"
     },
     {
       "batch": [
@@ -909,6 +909,49 @@
       "raw_units_milli": 21000,
       "tier": 2,
       "unlock_technology": "grid-engineering"
+    },
+    {
+      "batch": [
+        {
+          "item": "stone",
+          "quantity": 2
+        },
+        {
+          "item": "wood",
+          "quantity": 1
+        }
+      ],
+      "batch_fuel_energy": 0,
+      "batch_units": 3,
+      "building": "bridge",
+      "depth": 1,
+      "direct": [
+        {
+          "item": "stone",
+          "quantity": 2
+        },
+        {
+          "item": "timber",
+          "quantity": 2
+        }
+      ],
+      "effort_milli": 3000,
+      "fuel_energy_milli": 0,
+      "kind": "bridge",
+      "machine_ticks": 6,
+      "raw": [
+        {
+          "item": "stone",
+          "quantity_milli": 2000
+        },
+        {
+          "item": "wood",
+          "quantity_milli": 1000
+        }
+      ],
+      "raw_units_milli": 3000,
+      "tier": 0,
+      "unlock_technology": "shallow-crossings"
     }
   ],
   "contracts": [
@@ -2386,7 +2429,7 @@
     "best_fuel_item": "coal",
     "best_fuel_value": 8,
     "cells_in_reach": [7, 19],
-    "definition_version": 10,
+    "definition_version": 11,
     "gather_cooldown_steps": 15,
     "guaranteed_opening": [
       {
@@ -2422,7 +2465,7 @@
     ],
     "hand_items_per_minute": 120,
     "player_ticks_per_second": 30,
-    "technology_version": 5,
+    "technology_version": 6,
     "ticks_per_second": 10
   },
   "requests": [

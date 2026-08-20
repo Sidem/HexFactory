@@ -41,10 +41,11 @@ describe("data-defined content", () => {
       "on-site-power",
       "sited-generation",
       "steam-works",
-      "vertical-transport",
+      "corner-transport",
       "machine-tiers",
       "transmission",
       "grid-engineering",
+      "shallow-crossings",
     ]);
   });
 
@@ -76,7 +77,7 @@ describe("data-defined content", () => {
 
   it("lets only a single-cell definition claim the two-row period", () => {
     const riser = typedDefinitions.buildings.find(({ key }) => key === "riser");
-    expect(riser?.orientation_axis).toBe("vertical");
+    expect(riser?.orientation_axis).toBe("corner");
     expect(riser?.footprint).toHaveLength(1);
     // And it is priced for the reach it buys: twice a belt, for twice a belt's span.
     const belt = typedDefinitions.buildings.find(({ key }) => key === "belt");
@@ -111,9 +112,25 @@ describe("data-defined content", () => {
       ).toBe(true);
     const pump = definitions.buildings.find(({ key }) => key === "pump");
     expect(pump?.placement_rule).toBe("water");
+    expect(pump?.extract_radius).toBe(1);
     expect(pump?.output_item_id).toBe(
       definitions.items.find(({ key }) => key === "water")?.id,
     );
+    expect(
+      definitions.buildings.find(({ key }) => key === "extractor")
+        ?.extract_radius,
+    ).toBe(1);
+    expect(definitions.buildings.at(-1)).toMatchObject({
+      key: "bridge",
+      kind: "bridge",
+      placement_rule: "shallows",
+    });
+    for (const pole of definitions.buildings.filter(
+      ({ kind }) => kind === "pole",
+    )) {
+      expect(pole.supply_radius).toBeGreaterThan(0);
+      expect(pole.pole_reach).toBeGreaterThan(pole.supply_radius ?? 0);
+    }
 
     // Fuel is a property of the item, so no recipe may name one as the thing it burns.
     const fuels = definitions.items.filter(({ fuel_value }) => fuel_value);

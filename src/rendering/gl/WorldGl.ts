@@ -55,6 +55,12 @@ const CHUNK_STRIDE = 3;
 
 export type BuildingColorTable = Record<EntitySnapshot["kind"], string>;
 
+export interface ReachRadii {
+  extract: number | null;
+  supply: number | null;
+  link: number | null;
+}
+
 export interface WorldGlOverlays {
   hover: AxialCoordinate | null;
   selection: AxialCoordinate | null;
@@ -63,7 +69,8 @@ export interface WorldGlOverlays {
   buildMode: boolean;
   gridToggled: boolean;
   buildFootprint: AxialCoordinate[];
-  buildSupplyRadius: number | null;
+  buildReach: ReachRadii | null;
+  gathering: boolean;
 }
 
 /**
@@ -269,6 +276,7 @@ export class WorldGl {
     for (const resource of snapshot.resources) {
       if (resource.quantity <= 0) continue;
       const item = this.itemsById.get(resource.item_id);
+      if (item?.key === "wood") continue;
       const color = parseRgba(item?.color ?? "#ffffff");
       const fill: [number, number, number, number] = [
         color[0],
@@ -346,7 +354,8 @@ export class WorldGl {
       overlays.hover !== null ||
       overlays.selection !== null ||
       overlays.dragPath.length > 0 ||
-      overlays.buildSupplyRadius !== null;
+      overlays.buildReach !== null ||
+      overlays.gathering;
     if (need)
       this.packOverlayHexes(snapshot, origin, width, height, zoom, overlays);
     this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.overlayInstances);
@@ -399,31 +408,75 @@ export class WorldGl {
         }
       }
     }
-    const rings: { center: AxialCoordinate; radius: number }[] = [];
+    const rings: {
+      center: AxialCoordinate;
+      radius: number;
+      kind: "extract" | "supply" | "link";
+    }[] = [];
     if (
-      overlays.buildSupplyRadius !== null &&
+      overlays.buildReach !== null &&
       overlays.hover &&
       !overlays.dragPath.length
-    )
-      rings.push({
-        center: overlays.hover,
-        radius: overlays.buildSupplyRadius,
-      });
+    ) {
+      const { extract, supply, link } = overlays.buildReach;
+      if (extract !== null)
+        rings.push({
+          center: overlays.hover,
+          radius: extract,
+          kind: "extract",
+        });
+      if (supply !== null)
+        rings.push({ center: overlays.hover, radius: supply, kind: "supply" });
+      if (link !== null)
+        rings.push({ center: overlays.hover, radius: link, kind: "link" });
+    }
     if (overlays.selection) {
-      const selected = snapshot.buildings.find((building) =>
+      const selected = snapshot.buildings.findLast((building) =>
         building.footprint.some(
           (cell) =>
             cell.q === overlays.selection!.q &&
             cell.r === overlays.selection!.r,
         ),
       );
-      const radius = selected
-        ? this.buildingsById.get(selected.definition_id)?.supply_radius
+      const definition = selected
+        ? this.buildingsById.get(selected.definition_id)
         : undefined;
-      if (selected && radius !== undefined)
-        rings.push({ center: { q: selected.q, r: selected.r }, radius });
+      const center = selected ? { q: selected.q, r: selected.r } : null;
+      if (center && definition?.extract_radius !== undefined)
+        rings.push({
+          center,
+          radius: definition.extract_radius,
+          kind: "extract",
+        });
+      if (center && definition?.supply_radius !== undefined)
+        rings.push({
+          center,
+          radius: definition.supply_radius,
+          kind: "supply",
+        });
+      if (center && definition?.pole_reach !== undefined)
+        rings.push({ center, radius: definition.pole_reach, kind: "link" });
+    }
+    if (overlays.gathering) {
+      rings.push({
+        center: pixelToAxial(snapshot.player, WORLD_SCALE, { x: 0, y: 0 }),
+        radius: snapshot.player.extract_radius,
+        kind: "extract",
+      });
     }
     for (const ring of rings) {
+      const fill =
+        ring.kind === "extract"
+          ? parseRgba("#76e0aa16")
+          : ring.kind === "supply"
+            ? parseRgba("#8fd4ff10")
+            : parseRgba("#00000000");
+      const rim =
+        ring.kind === "extract"
+          ? parseRgba("#76e0aa88")
+          : ring.kind === "supply"
+            ? parseRgba("#8fd4ff70")
+            : parseRgba("#f5d572aa");
       for (let dq = -ring.radius; dq <= ring.radius; dq += 1) {
         for (let dr = -ring.radius; dr <= ring.radius; dr += 1) {
           const cell = { q: ring.center.q + dq, r: ring.center.r + dr };
@@ -437,10 +490,8 @@ export class WorldGl {
           this.pushOverlay(
             world.x,
             world.y,
-            parseRgba("#8fd4ff10"),
-            distance === ring.radius
-              ? parseRgba("#8fd4ff5c")
-              : parseRgba("#00000000"),
+            fill,
+            distance === ring.radius ? rim : parseRgba("#00000000"),
             0.95,
             0,
             0,
@@ -563,6 +614,7 @@ export class WorldGl {
     for (const resource of snapshot.resources) {
       if (resource.quantity <= 0) continue;
       const item = this.itemsById.get(resource.item_id);
+      if (item?.key === "wood") continue;
       const uv = this.iconIndex.get(item?.icon ?? "ore");
       if (!uv) continue;
       this.pushSprite(

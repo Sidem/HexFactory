@@ -1,5 +1,5 @@
 {
-  "version": 5,
+  "version": 6,
   "technologies": [
     {
       "id": 1,
@@ -93,9 +93,9 @@
     },
     {
       "id": 11,
-      "key": "vertical-transport",
-      "name": "Vertical Transport",
-      "description": "Unlock the riser, which carries cargo due north and due south. Both screen axes, on the same hex lattice.",
+      "key": "corner-transport",
+      "name": "Corner Transport",
+      "description": "Unlock the riser, which carries cargo along all six vertex headings between the ordinary hex edges.",
       "prerequisites": [1],
       "cost": 6,
       "unlocks": [18]
@@ -126,6 +126,15 @@
       "prerequisites": [13, 12],
       "cost": 16,
       "unlocks": [22]
+    },
+    {
+      "id": 15,
+      "key": "shallow-crossings",
+      "name": "Shallow Crossings",
+      "description": "Unlock stone-and-timber bridge decks for carrying transport across shallow water.",
+      "prerequisites": [1],
+      "cost": 4,
+      "unlocks": [23]
     }
   ]
 }

@@ -102,6 +102,7 @@ const snapshot: FactorySnapshot = {
     carry_stacks: [{ item_id: 1, quantity: 3 }],
     radius: 580,
     action_cooldown_total: 6,
+    extract_radius: 1,
   },
   researched: [1],
   chunks: [
@@ -155,8 +156,19 @@ const snapshot: FactorySnapshot = {
 };
 
 describe("public hex host contract", () => {
-  it("pins TypeScript and Rust to the clockwise six-direction fixture", () => {
-    expect(HEX_DIRECTIONS).toEqual(directionFixture);
+  it("pins TypeScript and Rust to the clockwise twelve-heading fixture", () => {
+    expect(HEX_DIRECTIONS.map(({ q, r }) => ({ q, r }))).toEqual(
+      directionFixture.slice(0, 6).map(({ q, r }) => ({ q, r })),
+    );
+    expect(directionFixture).toHaveLength(12);
+    for (let index = 6; index < 12; index += 1) {
+      const current = directionFixture[index]!;
+      const next = directionFixture[index === 11 ? 6 : index + 1]!;
+      expect({ q: -current.r, r: current.q + current.r }).toEqual({
+        q: next.q,
+        r: next.r,
+      });
+    }
     expect(axialNeighbor({ q: -2, r: 0 }, 1)).toEqual({ q: -2, r: 1 });
     expect(rotateHexDirection(5, 1)).toBe(0);
   });
@@ -413,6 +425,12 @@ describe("bounded host input", () => {
     // The dock no longer enumerates every buildable definition: that list is the catalogue's job
     // and it grew to twenty stamps by v0.14.
     expect(main).not.toMatch(/toolShelf\.append/);
+    // Grouping is exhaustive over kinds, so adding a buildable kind cannot compile while silently
+    // dropping its card. The bridge belongs beside the transport it supports.
+    expect(main).toContain(
+      "satisfies Record<BuildingKind, BuildGroupKey | null>",
+    );
+    expect(main).toContain('bridge: "transport"');
     // Both new lists carry controls, so both are patched rather than rebuilt.
     for (const fn of ["renderHotbarSlots", "renderBuildPanel"]) {
       const region = main.slice(
@@ -938,9 +956,11 @@ describe("availability and expanded snapshot adapter", () => {
     expect(
       entries.filter(({ passable }) => !passable).map((e) => e.terrain),
     ).toEqual(["deep_water", "cliff"]);
-    expect(
-      entries.find((entry) => entry.terrain === "shallow_water"),
-    ).toEqual({ terrain: "shallow_water", passable: true, buildable: false });
+    expect(entries.find((entry) => entry.terrain === "shallow_water")).toEqual({
+      terrain: "shallow_water",
+      passable: true,
+      buildable: false,
+    });
 
     const renderer = readFileSync(
       new URL("../src/rendering/CanvasFactoryRenderer.ts", import.meta.url),

@@ -11,15 +11,14 @@ shipped ledger, and the next milestones live in `docs/HEXFACTORY-PLAN.md`, archi
 
 ## Where things stand
 
-Shipped through **v0.21**, plus an unversioned WebGL2 renderer pass. Current envelope versions,
-all five of which native refuses a load on: **save 10, definitions 10, technologies 5, scenarios 5,
-world generator 8**, and wire (snapshot delta) **5**. `SAVE_VERSION` is the one literal in the host,
+Shipped through **v0.22**, plus an unversioned WebGL2 renderer pass. Current envelope versions,
+all five of which native refuses a load on: **save 10, definitions 11, technologies 6, scenarios 5,
+world generator 8**, and wire (snapshot delta) **6**. `SAVE_VERSION` is the one literal in the host,
 because native does not publish it; every other number the browser's save catalog shows is read from
 what native publishes.
 
-**What to pick up next** is `docs/HEXFACTORY-PLAN.md`: the arc is **Landforms and Fields v0.21**,
-then Crossings and Canopy v0.22, then Earned Insight v0.23. That order is load-bearing, and the
-roadmap decision above the v0.21 brief is why. Read it before starting.
+**What to pick up next** is `docs/HEXFACTORY-PLAN.md`: **Earned Insight v0.23**. The world and its
+crossings had to ship before that economy pass; the roadmap decision above the brief is why.
 
 Before changing a cost, a cadence, or a power figure, run `npm run balance` and read
 `fixtures/balance.json`. Before touching `src/rendering/buildingLook.ts` or the shape grammar, read
@@ -85,16 +84,11 @@ Before changing a cost, a cadence, or a power figure, run `npm run balance` and 
   A tier that changes reach must drop that entity's `deposit_links`, which were resolved against the
   old radius.
 - Orientation is an axis the definition owns. `DIRECTIONS` (six) is adjacency and power;
-  `TRANSPORT_DIRECTIONS` (eight) is routing, and the six keep their indices so every saved
-  orientation still means what it meant. `OrientationAxis::Vertical` is the two-row period and
-  requires a single-cell footprint, because `@hexlife/embed` rotates by 60° and the vertical
-  headings have no 60° equivalent. Never widen `DIRECTIONS`: a boiler that reached two rows would
-  be a silent rule change.
-  **v0.22 replaces the second sentence's reason and not its rule.** Routing widens to twelve — the
-  six edges plus all six vertex headings, which are closed under 60° rotation — so "no 60°
-  equivalent" stops being true while the single-cell restriction stays, on the narrower ground that
-  no definition needs otherwise. `DIRECTIONS` still stays six. See Crossings and Canopy v0.22 in the
-  plan before touching either table.
+  `TRANSPORT_DIRECTIONS` (twelve) is routing, and the six edge headings keep their indices.
+  `OrientationAxis::Corner` is the six vertex headings, closed under 60° rotation. It still requires
+  a single-cell footprint because no definition needs otherwise; lift that rule only with a real
+  definition that tests the wider path. Never widen `DIRECTIONS`: a boiler that reached two rows
+  would be a silent rule change.
 - An upgrade edits the entity in place and never replaces it, which is what preserves contents,
   orientation, and connections without special handling. `validate_upgrade_ladders` pins kind,
   recipe category, footprint, and axis across every step, so the command does not have to re-ask

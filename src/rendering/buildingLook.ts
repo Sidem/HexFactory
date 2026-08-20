@@ -1,8 +1,4 @@
-import {
-  axialNeighbor,
-  axialToPixel,
-  type PixelPoint,
-} from "@hexlife/embed/hex";
+import { axialToPixel, type PixelPoint } from "@hexlife/embed/hex";
 
 import type {
   BuildingDefinition,
@@ -10,6 +6,7 @@ import type {
   EntitySnapshot,
   PowerSource,
 } from "../core/types";
+import { CORNER_START, TRANSPORT_DIRECTIONS } from "../core/directions";
 import { hexPath } from "./hexDraw";
 import {
   applyLadder,
@@ -199,6 +196,11 @@ export const BUILDING_SHAPES: Record<SilhouetteKey, readonly ShapePart[]> = {
       phase: "rise",
       glow: STEAM,
     },
+  ],
+  bridge: [
+    { part: "band", x: 0, y: -0.18, scale: 0.3, count: 4 },
+    { part: "band", x: 0, y: 0, scale: 0.32, count: 4 },
+    { part: "band", x: 0, y: 0.18, scale: 0.3, count: 4 },
   ],
 };
 
@@ -410,10 +412,7 @@ export function workCycle(
 }
 
 /** The first orientation index off the six-edge table. Matches `NORTH` in the core. */
-export const NORTH = 6;
-/** The two-row period. There is no third vertical heading, so these are named rather than indexed. */
-const DUE_NORTH = { q: 1, r: -2 };
-const DUE_SOUTH = { q: -1, r: 2 };
+export const NORTH = CORNER_START;
 /**
  * A two-row step spans `3 · size` of world distance against `√3 · size` for a unit step, so a
  * vertical heading drawn at the edge scale would reach √3 times as far. The tip is a heading
@@ -424,10 +423,8 @@ const VERTICAL_TIP_SCALE = 1 / Math.sqrt(3);
 /**
  * Where a building's heading points, in pixels.
  *
- * The six edge headings are the package's own neighbours. The two vertical ones are not neighbours
- * at all, so they are named here rather than asked of `axialNeighbor`, which only knows six. Both
- * go through the same `axialToPixel`, which is what puts a riser's tip on the same screen column
- * as its own centre — the property the whole direction is for.
+ * Every routing vector comes from the cross-language fixture. The package owns the conversion to
+ * pixels; the fixture owns the six edge and six corner indices native sends.
  */
 export function facingTip(
   center: PixelPoint,
@@ -435,13 +432,11 @@ export function facingTip(
   orientation: number,
   reach = 0.39,
 ): PixelPoint {
-  if (orientation >= NORTH) {
-    const direction = orientation === NORTH ? DUE_NORTH : DUE_SOUTH;
-    return axialToPixel(direction, size * reach * VERTICAL_TIP_SCALE, center);
-  }
+  const direction =
+    TRANSPORT_DIRECTIONS[orientation] ?? TRANSPORT_DIRECTIONS[0]!;
   return axialToPixel(
-    axialNeighbor({ q: 0, r: 0 }, orientation),
-    size * reach,
+    direction,
+    size * reach * (orientation >= NORTH ? VERTICAL_TIP_SCALE : 1),
     center,
   );
 }
@@ -457,7 +452,7 @@ export function spanEnd(
   orientation: number,
 ): PixelPoint {
   return axialToPixel(
-    orientation === NORTH ? DUE_NORTH : DUE_SOUTH,
+    TRANSPORT_DIRECTIONS[orientation] ?? TRANSPORT_DIRECTIONS[NORTH]!,
     size,
     center,
   );

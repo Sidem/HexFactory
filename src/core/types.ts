@@ -10,7 +10,8 @@ export type BuildingKind =
   | "pump"
   | "pole"
   | "generator"
-  | "boiler";
+  | "boiler"
+  | "bridge";
 export type Terrain =
   | "deep_water"
   | "shallow_water"
@@ -19,13 +20,18 @@ export type Terrain =
   | "hills"
   | "highland"
   | "cliff";
-export type PlacementRule = "ground" | "resource" | "water" | "elevated";
+export type PlacementRule =
+  | "ground"
+  | "resource"
+  | "water"
+  | "elevated"
+  | "shallows";
 export type PowerSource = "burner" | "wind" | "hydro" | "turbine";
 /**
  * Which routing headings a definition may be built at. `edge` is the six hex edges and the
- * default; `vertical` is due north and due south, the two-row period a riser spans.
+ * default; `corner` is the six vertex headings, each spanning the two-row period.
  */
-export type OrientationAxis = "edge" | "vertical";
+export type OrientationAxis = "edge" | "corner";
 
 export interface Ingredient {
   item_id: number;
@@ -90,7 +96,7 @@ export interface BuildingDefinition {
   tier?: number;
   /** The definition an `upgrade` turns this one into, if it has a next tier. */
   upgrades_to?: number;
-  /** How many hexes this extractor reaches, counting its own. Absent means one. */
+  /** How many hexes this extractor or pump reaches, counting its own. */
   extract_radius?: number;
   construction_cost: Ingredient[];
   unlock_technology_id?: number;
@@ -323,6 +329,8 @@ export interface PlayerSnapshot extends WorldPoint {
    * so the host never infers the maximum by watching the value fall.
    */
   action_cooldown_total: number;
+  /** How many hexes the hand can gather across, published by native for the held-action ring. */
+  extract_radius: number;
 }
 
 /**

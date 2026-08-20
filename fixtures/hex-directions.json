@@ -1,8 +1,14 @@
 [
-  { "index": 0, "name": "east", "q": 1, "r": 0 },
-  { "index": 1, "name": "southeast", "q": 0, "r": 1 },
-  { "index": 2, "name": "southwest", "q": -1, "r": 1 },
-  { "index": 3, "name": "west", "q": -1, "r": 0 },
-  { "index": 4, "name": "northwest", "q": 0, "r": -1 },
-  { "index": 5, "name": "northeast", "q": 1, "r": -1 }
+  { "index": 0, "name": "East", "q": 1, "r": 0 },
+  { "index": 1, "name": "Southeast", "q": 0, "r": 1 },
+  { "index": 2, "name": "Southwest", "q": -1, "r": 1 },
+  { "index": 3, "name": "West", "q": -1, "r": 0 },
+  { "index": 4, "name": "Northwest", "q": 0, "r": -1 },
+  { "index": 5, "name": "Northeast", "q": 1, "r": -1 },
+  { "index": 6, "name": "North", "q": 1, "r": -2 },
+  { "index": 7, "name": "East-northeast", "q": 2, "r": -1 },
+  { "index": 8, "name": "East-southeast", "q": 1, "r": 1 },
+  { "index": 9, "name": "South", "q": -1, "r": 2 },
+  { "index": 10, "name": "West-southwest", "q": -2, "r": 1 },
+  { "index": 11, "name": "West-northwest", "q": -1, "r": -1 }
 ]

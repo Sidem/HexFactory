@@ -127,6 +127,7 @@ function snapshotAt(state: {
       carry_stacks: carry,
       radius: 580,
       action_cooldown_total: 15,
+      extract_radius: 1,
     },
     researched: state.researched,
     chunks: [],

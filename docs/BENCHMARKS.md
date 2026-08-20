@@ -4,7 +4,7 @@ Capacity is measured, never asserted, and the measurement orders the work. Every
 produced by the committed harness; the raw reports live in `docs/benchmarks/` and are the source for
 any table that was trimmed out of this document.
 
-**Current records.** Native: **Landforms and Fields v0.21**. Browser frame: **Look Systems v0.13.1**.
+**Current records.** Native: **Crossings and Canopy v0.22**. Browser frame: **Look Systems v0.13.1**.
 Generation: **v0.21**. Payload: **Binary Delta v0.12.2**.
 
 **Two caveats travel with those records.**
@@ -14,9 +14,10 @@ Generation: **v0.21**. Payload: **Binary Delta v0.12.2**.
   record still holds; the `world`, `minimap`, `render`, and `browser frame` columns do not, and no
   frame claim may be made until the ladder is re-run.
 - **Every tier checksum below is historical.** v0.18, v0.19, v0.20, v0.21, and the world-scale
-  pass each moved the pinned workload checksum: `2402899979` → `1679299541` → `914129621` →
-  `780276626` → `325426962` → `3745973835`. The first three added saved, checksummed state; v0.21
-  and the scale pass moved `WORLD_GENERATOR_VERSION`, which the checksum reads. None of them
+  pass, and v0.22 each moved the pinned workload checksum: `2402899979` → `1679299541` →
+  `914129621` → `780276626` → `325426962` → `3745973835` → `1543489001`. The first three added
+  saved, checksummed state; v0.21 and the scale pass moved `WORLD_GENERATOR_VERSION`, and v0.22
+  moved the definition protocol and entity roster, all of which the checksum reads. None of them
   changed the workload's shape, entity counts, or delivered totals, so **the timings remain
   comparable while the checksums do not.** A checksum change invalidates checksum comparisons, not
   timing ones — say which of the two a record claims.
@@ -91,28 +92,31 @@ a mean per tick, per frame, or per edit, so the two remain comparable; the workl
 and each tier's checksum comes from a separate core advanced exactly once through its tick budget so
 extra samples cannot move it.
 
-## Native — the current record (v0.21)
+## Native — the current record (v0.22)
 
 Host: AMD Ryzen 7 5800X (8 cores / 16 threads), Windows 11 Pro 10.0.26200, rustc 1.87.0,
 `factory-wasm` built with the shipped release profile (`opt-level = "s"`, LTO, `wasm-opt -Oz`).
 Recorded 2026-08-20. Raw report:
-[`benchmarks/capacity-v0.21-native.json`](benchmarks/capacity-v0.21-native.json).
+[`benchmarks/capacity-v0.22-native.json`](benchmarks/capacity-v0.22-native.json).
 
 | tier   | entities | tick µs | snapshot µs | checksum µs | frame µs | compile µs | recompile µs |
 | ------ | -------: | ------: | ----------: | ----------: | -------: | ---------: | -----------: |
-| line   |       12 |     0.6 |        12.9 |         1.7 |      6.2 |        2.3 |          6.3 |
-| small  |      192 |     8.7 |        63.7 |        12.0 |     83.9 |       32.8 |         93.3 |
-| medium |      768 |    41.3 |       360.0 |        47.5 |    188.3 |      140.6 |        385.2 |
-| wide   |    1,536 |    76.0 |       613.5 |        92.5 |    382.0 |      307.4 |        734.9 |
-| large  |    3,072 |   168.3 |     1,172.1 |       177.7 |    797.4 |      644.9 |      1,426.0 |
-| xlarge |    6,144 |   361.2 |     2,504.1 |       376.0 |  1,541.3 |    1,331.0 |      2,786.3 |
+| line   |       12 |     0.6 |         9.8 |         1.5 |      4.9 |        2.2 |          6.0 |
+| small  |      192 |     7.4 |        55.0 |        11.3 |     41.2 |       25.2 |         64.0 |
+| medium |      768 |    31.1 |       252.7 |        42.3 |    167.5 |      127.4 |        302.4 |
+| wide   |    1,536 |    64.9 |       522.5 |        83.3 |    347.3 |      284.4 |        666.4 |
+| large  |    3,072 |   146.9 |     1,003.4 |       165.7 |    724.5 |      587.6 |      1,332.2 |
+| xlarge |    6,144 |   327.2 |     2,083.2 |       334.4 |  1,433.6 |    1,205.3 |      2,545.0 |
 
-Every tier is within noise of the v0.16 record. **The noise floor is stated rather than hidden**:
+The v0.22 bridge, twelve-heading routing, and player reach field introduce no regression at any
+tier; the xlarge tier still advances 3,056 ticks/s and produces 697 complete native frames/s.
+**The noise floor is stated rather than hidden**:
 the v0.16 ladder was run twice on its build and xlarge gave tick 359.7 / frame 1,439.5 on one run
 against 378.1 / 1,416.8 on the other, so a 5% swing between runs is what this host resolves and
-nothing smaller is a finding. xlarge tick moved 378.1 → 361.2 and frame 1,416.8 → 1,541.3, both
-inside that band. The `line` tier's absolute numbers are microseconds and are dominated by timer
-resolution; read the larger tiers.
+nothing smaller is a finding. Against v0.21, xlarge tick moved 361.2 → 327.2 and frame 1,541.3 →
+1,433.6; both moved faster, so the record supports only the claim needed here: v0.22 did not reduce
+the measured envelope. The `line` tier's absolute numbers are microseconds and are dominated by
+timer resolution; read the larger tiers.
 
 What this deliberately does **not** say is anything about the v0.21 generator. The ladder's scenario
 sets `generated_environment: false` and never calls `terrain_at` or `field_at`, which is exactly why

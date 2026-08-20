@@ -11,7 +11,7 @@ exact.
 What is playable today is deliberately small. Its full-viewport command surface keeps the current directive, next useful action, cargo, research,
 and construction costs close to the world on desktop and touch layouts. A
 new game starts beside a landing hub inside a small surveyed clearing, with the rest of the world
-under fog: explore to lift it, walk across rivers, coastline, basins, and highlands, find the fields
+under fog: explore to lift it, ford rivers or bridge them for transport, cross coastline, basins, and highlands, find the fields
 of ore, coal, stone, clay, and forest the world guarantees within sight of the hub, fill the hub's
 posted requests for insight, unlock a short technology tree, build a compiled transport
 line, compose three components, and win. Pick the **world** as well as the seed — Continental,
@@ -52,7 +52,7 @@ machine decorations.
   controls reference. They open independently and several at a time. `T` pauses, `M` mutes, and
   `Escape` returns to inspection and clears the open panels.
 - Hold `Shift` while walking to run. One hexagon is about 1 m²; the walk is 3 m/s and the run is
-  5 m/s. Shallow water is a 1 m/s ford; deep water still blocks.
+  5 m/s. Shallow water is a 1 m/s ford and can carry bridge-supported transport; deep water still blocks.
 
 ## Run locally
 

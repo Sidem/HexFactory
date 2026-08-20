@@ -1,5 +1,5 @@
 {
-  "version": 10,
+  "version": 11,
   "items": [
     {
       "id": 1,
@@ -501,6 +501,7 @@
       "description": "Harvests every field cell within one hex and emits one item at a time.",
       "icon": "EXT",
       "cadence": 5,
+      "extract_radius": 1,
       "power_draw": 4,
       "upgrades_to": 19,
       "construction_cost": [
@@ -785,6 +786,7 @@
       "description": "Draws water from a basin it stands beside. The basin never runs dry.",
       "icon": "PMP",
       "cadence": 2,
+      "extract_radius": 1,
       "power_draw": 4,
       "output_item_id": 10,
       "construction_cost": [
@@ -989,9 +991,9 @@
       "key": "riser",
       "name": "Riser",
       "kind": "belt",
-      "description": "A short gantry over the seam between two hexes, carrying cargo due north or due south. Twice a belt's cost for twice a belt's reach; the hexes it spans stay free to build on and to walk through.",
+      "description": "A short gantry over the seam between two hexes, carrying cargo along any of the six corner headings. Twice a belt's cost for twice a belt's reach; the hexes it spans stay free to build on and to walk through.",
       "icon": "RSR",
-      "orientation_axis": "vertical",
+      "orientation_axis": "corner",
       "construction_cost": [
         {
           "item_id": 1,
@@ -1141,6 +1143,34 @@
       ],
       "unlock_technology_id": 14,
       "placement_rule": "ground",
+      "buildable": true,
+      "blocks_movement": false,
+      "footprint": [
+        {
+          "q": 0,
+          "r": 0
+        }
+      ]
+    },
+    {
+      "id": 23,
+      "key": "bridge",
+      "name": "Bridge",
+      "kind": "bridge",
+      "description": "Decks one shallow-water hex so a belt or riser can cross it. Deep water remains a barrier.",
+      "icon": "BRG",
+      "construction_cost": [
+        {
+          "item_id": 6,
+          "quantity": 2
+        },
+        {
+          "item_id": 16,
+          "quantity": 2
+        }
+      ],
+      "unlock_technology_id": 15,
+      "placement_rule": "shallows",
       "buildable": true,
       "blocks_movement": false,
       "footprint": [

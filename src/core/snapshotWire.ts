@@ -33,7 +33,7 @@ import type {
  */
 
 const MAGIC = 0x48584644; // "HXFD"
-const VERSION = 5;
+const VERSION = 6;
 
 /** Wire code is the index. Pinned against Rust by `fixtures/snapshot-delta-wire.json`. */
 const KINDS: BuildingKind[] = [
@@ -47,6 +47,7 @@ const KINDS: BuildingKind[] = [
   "pole",
   "generator",
   "boiler",
+  "bridge",
 ];
 
 const TERRAIN: Terrain[] = [
@@ -323,6 +324,7 @@ function readPlayer(reader: Reader): FactorySnapshotDelta["player"] {
   const carry_stacks = reader.ingredients();
   const radius = reader.svarint();
   const action_cooldown_total = reader.uvarint();
+  const extract_radius = reader.uvarint();
   return {
     x,
     y,
@@ -337,6 +339,7 @@ function readPlayer(reader: Reader): FactorySnapshotDelta["player"] {
     carry_stacks,
     radius,
     action_cooldown_total,
+    extract_radius,
   };
 }
 

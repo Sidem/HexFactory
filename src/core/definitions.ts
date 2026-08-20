@@ -11,10 +11,17 @@ const KINDS = new Set([
   "pole",
   "generator",
   "boiler",
+  "bridge",
 ]);
-const PLACEMENT_RULES = new Set(["ground", "resource", "water", "elevated"]);
+const PLACEMENT_RULES = new Set([
+  "ground",
+  "resource",
+  "water",
+  "elevated",
+  "shallows",
+]);
 const POWER_SOURCES = new Set(["burner", "wind", "hydro", "turbine"]);
-const ORIENTATION_AXES = new Set(["edge", "vertical"]);
+const ORIENTATION_AXES = new Set(["edge", "corner"]);
 /** Matches `MAX_EXTRACT_RADIUS` in the core. The rule itself is native's. */
 const MAX_EXTRACT_RADIUS = 4;
 
@@ -148,6 +155,10 @@ export function validateDefinitions(
       )
     )
       throw new TypeError(`generator ${building.id} needs a source and output`);
+    if (building.placement_rule === "shallows" && building.kind !== "bridge")
+      throw new TypeError(
+        `building ${building.id} places on shallows but is not a bridge`,
+      );
     if (
       building.orientation_axis !== undefined &&
       !ORIENTATION_AXES.has(building.orientation_axis)
@@ -155,19 +166,19 @@ export function validateDefinitions(
       throw new TypeError(
         `building ${building.id} has an unknown orientation axis`,
       );
-    // A vertical heading has no 60° rotation, so there is no correct way to turn a footprint into
-    // one. Native refuses this too; the catalog should not reach it.
+    // No shipped definition needs a multi-cell corner-heading footprint yet. Native keeps the
+    // same deliberately narrow rule; the catalog should not reach an untested combination.
     if (
-      building.orientation_axis === "vertical" &&
+      building.orientation_axis === "corner" &&
       building.footprint.length !== 1
     )
       throw new TypeError(
         `building ${building.id} spans the two-row period, which only a single-cell footprint can do`,
       );
     if (building.extract_radius !== undefined) {
-      if (building.kind !== "extractor")
+      if (building.kind !== "extractor" && building.kind !== "pump")
         throw new TypeError(
-          `building ${building.id} claims an extraction reach but does not extract`,
+          `building ${building.id} claims a source reach but is not an extractor or pump`,
         );
       if (
         !positiveInteger(building.extract_radius) ||

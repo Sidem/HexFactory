@@ -974,13 +974,24 @@ canvas {
 .inspect-facing-tick.dir-5 {
   transform: rotate(30deg) translateY(-18px);
 }
-/* The two-row period. Up is 0deg on this dial, which is what makes north and south read as the
-   screen axes they are. */
+/* The six corner headings occupy the 30° gaps between the six edge headings. */
 .inspect-facing-tick.dir-6 {
   transform: rotate(0deg) translateY(-18px);
 }
 .inspect-facing-tick.dir-7 {
+  transform: rotate(60deg) translateY(-18px);
+}
+.inspect-facing-tick.dir-8 {
+  transform: rotate(120deg) translateY(-18px);
+}
+.inspect-facing-tick.dir-9 {
   transform: rotate(180deg) translateY(-18px);
+}
+.inspect-facing-tick.dir-10 {
+  transform: rotate(240deg) translateY(-18px);
+}
+.inspect-facing-tick.dir-11 {
+  transform: rotate(300deg) translateY(-18px);
 }
 .inspect-coord {
   display: grid;
@@ -1190,10 +1201,8 @@ canvas {
 .inspect-compass i[data-dir="5"] {
   transform: rotate(30deg);
 }
-/* Due north and due south sit on the dial's own vertical, longer than the six edge spokes because
-   the step they stand for covers more ground. */
-.inspect-compass i[data-dir="6"],
-.inspect-compass i[data-dir="7"] {
+/* Corner steps cover more ground, so all six are the longer alternating spokes. */
+.inspect-compass i:nth-child(n + 7) {
   height: 13px;
   margin-top: -22px;
   transform-origin: 50% 22px;
@@ -1202,7 +1211,19 @@ canvas {
   transform: rotate(0deg);
 }
 .inspect-compass i[data-dir="7"] {
+  transform: rotate(60deg);
+}
+.inspect-compass i[data-dir="8"] {
+  transform: rotate(120deg);
+}
+.inspect-compass i[data-dir="9"] {
   transform: rotate(180deg);
+}
+.inspect-compass i[data-dir="10"] {
+  transform: rotate(240deg);
+}
+.inspect-compass i[data-dir="11"] {
+  transform: rotate(300deg);
 }
 .inspect-compass i.on {
   background: var(--gold);

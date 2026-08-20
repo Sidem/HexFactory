@@ -31,9 +31,10 @@ import {
   workCycle,
 } from "./buildingLook";
 import { isStill, drawParts } from "./shapeGrammar";
+import type { ShapePart } from "./shapeGrammar";
 import { drawItemIcon } from "./icons";
 import { WORLD_SCALE, homeBearing } from "./landmarks";
-import { WorldGl } from "./gl/WorldGl";
+import { WorldGl, type ReachRadii } from "./gl/WorldGl";
 
 export const BASE_HEX_SIZE = 22;
 /** Cap backing-store resolution. A 2× display otherwise costs four times the fill. */
@@ -51,7 +52,15 @@ export const BUILDING_COLORS: Record<EntitySnapshot["kind"], string> = {
   pole: "#c8b56b",
   generator: "#d4a017",
   boiler: "#a85c32",
+  bridge: "#8f7655",
 };
+
+const TREE_TRUNK: readonly ShapePart[] = [
+  { part: "mast", x: 0, y: 0.16, scale: 0.18 },
+];
+const TREE_CANOPY: readonly ShapePart[] = [
+  { part: "rotor", x: 0, y: -0.1, scale: 0.3, count: 5 },
+];
 
 /**
  * True when a world point lies inside a chunk the native simulation has generated. Chunks are the
@@ -194,7 +203,8 @@ export class CanvasFactoryRenderer {
   private buildMode = false;
   private gridToggled = false;
   private buildFootprint: AxialCoordinate[] = [{ q: 0, r: 0 }];
-  private buildSupplyRadius: number | null = null;
+  private buildReach: ReachRadii | null = null;
+  private gathering = false;
   private dragPath: LinePreviewCell[] = [];
   private now = 0;
   private needsDraw = true;
@@ -285,16 +295,21 @@ export class CanvasFactoryRenderer {
     this.markDirty();
   }
 
-  /**
-   * How far the pole being placed would supply, or `null` for any other tool.
-   *
-   * Coverage was invisible until v0.19: a pole's reach was a number in a data file and nothing on
-   * screen, so the only way to find the edge of a network was to build a machine and watch it stay
-   * dark. Read straight off `supply_radius`, which every pole definition states, so the ring drawn
-   * is the ring the simulation will honour.
-   */
-  setBuildSupplyRadius(radius: number | null): void {
-    this.buildSupplyRadius = radius;
+  /** Every reach the pending definition states, passed through without deriving a default. */
+  setBuildReach(definition: BuildingDefinition | null): void {
+    this.buildReach = definition
+      ? {
+          extract: definition.extract_radius ?? null,
+          supply: definition.supply_radius ?? null,
+          link: definition.pole_reach ?? null,
+        }
+      : null;
+    this.markDirty();
+  }
+
+  setGathering(active: boolean): void {
+    if (this.gathering === active) return;
+    this.gathering = active;
     this.markDirty();
   }
 
@@ -405,10 +420,12 @@ export class CanvasFactoryRenderer {
         buildMode: this.buildMode,
         gridToggled: this.gridToggled,
         buildFootprint: this.buildFootprint,
-        buildSupplyRadius: this.buildSupplyRadius,
+        buildReach: this.buildReach,
+        gathering: this.gathering,
       },
     );
     if (this.buildMode) this.drawBuildRange(width, height);
+    this.drawForest(width, height, size);
     for (const building of this.snapshot.buildings)
       this.drawBuilding(building, width, height, size);
     this.drawFog(width, height);
@@ -464,6 +481,28 @@ export class CanvasFactoryRenderer {
         );
       } else if (drawnFrom && size >= 16) {
         this.drawFieldLabel(center, size, null, resource.quantity, false);
+      }
+    }
+  }
+
+  /** One deterministic tree per remaining wood unit, so cutting and regrowth redraw the forest. */
+  private drawForest(width: number, height: number, size: number): void {
+    if (!this.snapshot) return;
+    for (const resource of this.snapshot.resources) {
+      const item = this.itemsById.get(resource.item_id);
+      if (item?.key !== "wood" || resource.quantity <= 0) continue;
+      const center = this.camera.project(resource, width, height);
+      if (!visible(center, size, width, height)) continue;
+      for (let unit = 0; unit < resource.quantity; unit += 1) {
+        const angle = forestHash(resource.q, resource.r, unit) * Math.PI * 2;
+        const distance =
+          (0.08 + forestHash(resource.r, resource.q, unit + 31) * 0.28) * size;
+        const tree = {
+          x: center.x + Math.cos(angle) * distance,
+          y: center.y + Math.sin(angle) * distance,
+        };
+        drawParts(this.context, TREE_TRUNK, tree, size * 0.68, "#7c5a34", 0);
+        drawParts(this.context, TREE_CANOPY, tree, size * 0.68, "#8fc56a", 0);
       }
     }
   }
@@ -843,4 +882,11 @@ function visible(
     point.x <= width + margin &&
     point.y <= height + margin
   );
+}
+
+function forestHash(q: number, r: number, unit: number): number {
+  let value = Math.imul(q, 0x45d9f3b) ^ Math.imul(r, 0x119de1f3) ^ unit;
+  value = Math.imul(value ^ (value >>> 16), 0x45d9f3b);
+  value ^= value >>> 16;
+  return (value >>> 0) / 0x1_0000_0000;
 }

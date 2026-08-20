@@ -36,8 +36,10 @@ import {
   type SaveSlot,
 } from "./core/saveSlots";
 import { TERRAIN_INFO, TERRAIN_ORDER, terrainAccess } from "./core/terrain";
+import { CORNER_START, DIRECTION_NAMES } from "./core/directions";
 import type {
   BuildingDefinition,
+  BuildingKind,
   EntitySnapshot,
   FactorySnapshot,
   ItemDefinition,
@@ -85,23 +87,8 @@ function currentBuild(): CurrentBuild {
     worldPresets: host.worldPresets,
   };
 }
-/**
- * The eight routing headings, in the core's own order. The six edges keep their indices; north and
- * south are appended, which is why every saved orientation still names the direction it always
- * did. The integer never reaches the player — this table is the only thing they read.
- */
-const DIRECTION_NAMES = [
-  "East",
-  "Southeast",
-  "Southwest",
-  "West",
-  "Northwest",
-  "Northeast",
-  "North",
-  "South",
-];
 /** The first orientation index off the six-edge table. Matches `NORTH` in the core. */
-const NORTH = 6;
+const NORTH = CORNER_START;
 const FOG_FILL = "#18242f";
 const FOG_STROKE = "#7fe0c0";
 const STATUS_TONE: Record<string, "live" | "wait" | "stop" | "hub"> = {
@@ -258,8 +245,27 @@ let previewRevision = 0;
  * derived from `kind`, so a new definition lands in the right section by being what it is; nothing
  * here is a per-building special case.
  */
+type BuildGroupKey =
+  | "extraction"
+  | "transport"
+  | "processing"
+  | "storage"
+  | "power";
+const BUILD_GROUP_BY_KIND = {
+  extractor: "extraction",
+  belt: "transport",
+  composer: "processing",
+  container: "storage",
+  consumer: null,
+  hub: null,
+  pump: "extraction",
+  pole: "power",
+  generator: "power",
+  boiler: "power",
+  bridge: "transport",
+} satisfies Record<BuildingKind, BuildGroupKey | null>;
 const BUILD_GROUPS: {
-  key: string;
+  key: BuildGroupKey;
   title: string;
   blurb: string;
   holds: (definition: BuildingDefinition) => boolean;
@@ -268,35 +274,34 @@ const BUILD_GROUPS: {
     key: "extraction",
     title: "Extraction",
     blurb: "Take raw material out of the ground and the water.",
-    holds: ({ kind }) => kind === "extractor" || kind === "pump",
+    holds: ({ kind }) => BUILD_GROUP_BY_KIND[kind] === "extraction",
   },
   {
     key: "transport",
     title: "Transport",
     blurb:
-      "Move cargo. Belts run along the hex edges; risers run due north and south.",
-    holds: ({ kind }) => kind === "belt",
+      "Move cargo. Belts run along hex edges; risers use the six corner headings between them.",
+    holds: ({ kind }) => BUILD_GROUP_BY_KIND[kind] === "transport",
   },
   {
     key: "processing",
     title: "Processing",
     blurb:
       "Turn one material into another. Each machine runs one category of recipe.",
-    holds: ({ kind }) => kind === "composer",
+    holds: ({ kind }) => BUILD_GROUP_BY_KIND[kind] === "processing",
   },
   {
     key: "storage",
     title: "Storage",
     blurb: "Buffer a line, and hold stock you can take back by hand.",
-    holds: ({ kind }) => kind === "container",
+    holds: ({ kind }) => BUILD_GROUP_BY_KIND[kind] === "storage",
   },
   {
     key: "power",
     title: "Power",
     blurb:
       "Make electricity and carry it. Machines draw; belts and boxes do not.",
-    holds: ({ kind }) =>
-      kind === "generator" || kind === "boiler" || kind === "pole",
+    holds: ({ kind }) => BUILD_GROUP_BY_KIND[kind] === "power",
   },
 ];
 const HOTBAR_SLOTS = 9;
@@ -841,11 +846,13 @@ function fillBuildCard(
     labels.push(`Reaches ${definition.extract_radius}`);
   if (definition.supply_radius !== undefined)
     labels.push(`Supplies ${definition.supply_radius}`);
+  if (definition.pole_reach !== undefined)
+    labels.push(`Links ${definition.pole_reach}`);
   if (definition.capacity !== undefined)
     labels.push(`Holds ${definition.capacity}`);
   if (definition.power_output) labels.push(`+${definition.power_output} power`);
   if (definition.power_draw) labels.push(`−${definition.power_draw} power`);
-  if (definition.orientation_axis === "vertical") labels.push("North / south");
+  if (definition.orientation_axis === "corner") labels.push("Six corners");
   const chipNodes = syncChildren(chips, labels, () => {
     const chip = document.createElement("span");
     chip.className = "build-chip";
@@ -1304,9 +1311,7 @@ function renderInspector(): void {
     renderInspectorRecipe(undefined);
     return;
   }
-  const building = snapshot.buildings.find(({ footprint }) =>
-    footprint.some(({ q, r }) => q === selected?.q && r === selected?.r),
-  );
+  const building = selected ? buildingAt(selected) : undefined;
   const selectedWorld = axialToPixel(selected, 1024, { x: 0, y: 0 });
   // Field cells are addressed by their tile key, exactly as the native patch addresses them.
   const resource = snapshot.resources.find(
@@ -2676,12 +2681,7 @@ function rotateUnderCursorOrPending(): void {
   if (typeof tool === "number" || tool === "inspect") {
     const target = hover ?? selected;
     const existing =
-      typeof tool === "number"
-        ? null
-        : target &&
-          snapshot.buildings.find(({ footprint }) =>
-            footprint.some(({ q, r }) => q === target.q && r === target.r),
-          );
+      typeof tool === "number" ? null : target && buildingAt(target);
     if (existing && target) {
       enqueue({ type: "rotate", q: target.q, r: target.r });
       return;
@@ -2696,11 +2696,7 @@ function rotateUnderCursorOrPending(): void {
  */
 function pickToolUnderCursor(): void {
   const target = hover ?? selected;
-  const building =
-    target &&
-    snapshot.buildings.find(({ footprint }) =>
-      footprint.some(({ q, r }) => q === target.q && r === target.r),
-    );
+  const building = target ? buildingAt(target) : undefined;
   if (!building) {
     showFeedback("Nothing under the cursor to copy");
     return;
@@ -2717,6 +2713,16 @@ function pickToolUnderCursor(): void {
   showFeedback(`Copied ${definition.name}`);
 }
 
+/** The top entity at a cell; bridge supports are placed before the transport they carry. */
+function buildingAt(coordinate: {
+  q: number;
+  r: number;
+}): EntitySnapshot | undefined {
+  return snapshot.buildings.findLast(({ footprint }) =>
+    footprint.some(({ q, r }) => q === coordinate.q && r === coordinate.r),
+  );
+}
+
 function setOrientation(next: number): void {
   orientation = next;
   required<HTMLElement>("orientation-value").textContent =
@@ -2727,13 +2733,13 @@ function setOrientation(next: number): void {
       : undefined;
   renderer.setBuildFootprint(
     definition?.footprint ?? [{ q: 0, r: 0 }],
-    // A vertical heading has no 60° rotation, and the footprint that carries one is a single cell
-    // by definition, so the preview asks for no turns rather than an impossible number of them.
-    orientation >= NORTH ? 0 : orientation,
+    // Corner headings are closed under 60° rotation. Definitions remain single-cell until one
+    // genuinely needs a wider footprint, so this is currently exact and future-proof.
+    orientation >= NORTH ? orientation - NORTH : orientation,
   );
   // Placing a pole shows what it would light before it is paid for, which is the difference
   // between choosing where a pole goes and finding out afterwards.
-  renderer.setBuildSupplyRadius(definition?.supply_radius ?? null);
+  renderer.setBuildReach(definition ?? null);
   refreshHoverPreview();
 }
 
@@ -2746,7 +2752,7 @@ function orientationRange(tool: Tool): { start: number; end: number } {
     typeof tool === "number"
       ? host.definitions.buildings.find(({ id }) => id === tool)
       : undefined;
-  return definition?.orientation_axis === "vertical"
+  return definition?.orientation_axis === "corner"
     ? { start: NORTH, end: DIRECTION_NAMES.length }
     : { start: 0, end: NORTH };
 }
@@ -2754,7 +2760,7 @@ function orientationRange(tool: Tool): { start: number; end: number } {
 function rotateNewBuilding(): void {
   const { start, end } = orientationRange(tool);
   // Rotation stays on the tool's own axis: a belt walks the six edges and a riser flips between
-  // north and south. `rotateHexDirection` still turns the six, so the package keeps owning the
+  // six corners. `rotateHexDirection` still turns the six edges, so the package keeps owning the
   // geometry it knows.
   setOrientation(
     start === 0
@@ -2937,6 +2943,7 @@ function frame(now: number): void {
         });
     }
   }
+  renderer.setGathering(gatherHeld || harvestPointer !== null);
   renderer.renderFrame(now);
   requestAnimationFrame(frame);
 }

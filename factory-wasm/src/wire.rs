@@ -52,7 +52,11 @@ pub(crate) const WIRE_MAGIC: [u8; 4] = *b"HXFD";
 /// Version 5 is Standing Requests. A new group carries the hub's request board, and it is written
 /// between the contract and the player — so a version-4 decoder that skipped the group bit would
 /// read the board's first string as a player and mis-frame the rest of the buffer.
-pub(crate) const WIRE_VERSION: u8 = 5;
+///
+/// Version 6 is Crossings and Canopy. `Bridge` is appended to the kind table and the player group
+/// publishes the hand's extraction radius, so an older decoder would leave a trailing byte and
+/// could not draw the held-action reach native actually uses.
+pub(crate) const WIRE_VERSION: u8 = 6;
 
 /// Which optional groups the buffer carries, in the order they are written.
 mod group {
@@ -113,6 +117,7 @@ fn kind_code(kind: BuildingKind) -> u8 {
         BuildingKind::Pole => 7,
         BuildingKind::Generator => 8,
         BuildingKind::Boiler => 9,
+        BuildingKind::Bridge => 10,
     }
 }
 
@@ -357,6 +362,7 @@ fn write_player(writer: &mut Writer, player: &PlayerSnapshot) {
     writer.ingredients(&player.carry_stacks);
     writer.svarint(i64::from(player.radius));
     writer.uvarint(u64::from(player.action_cooldown_total));
+    writer.uvarint(u64::from(player.extract_radius));
 }
 
 fn write_chunks(writer: &mut Writer, chunks: &[ChunkSnapshot]) {
@@ -820,6 +826,7 @@ pub(crate) mod decode {
         let carry_stacks = reader.ingredients();
         let radius = reader.svarint() as i32;
         let action_cooldown_total = reader.uvarint() as u32;
+        let extract_radius = reader.uvarint() as u32;
         PlayerSnapshot {
             state: PlayerState {
                 x,
@@ -836,6 +843,7 @@ pub(crate) mod decode {
             carry_stacks,
             radius,
             action_cooldown_total,
+            extract_radius,
         }
     }
 

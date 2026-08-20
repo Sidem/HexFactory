@@ -65,8 +65,8 @@ const GRAPH_TRACE_LIMIT: i32 = 8;
 /// The six hex edges: east, then clockwise. This is the *adjacency* table. Power reach, boiler and
 /// turbine neighbours, and every "what is next to this hex" question use it and only it.
 const DIRECTIONS: [(i32, i32); 6] = [(1, 0), (0, 1), (-1, 1), (-1, 0), (0, -1), (1, -1)];
-/// The eight *routing* directions: the six unit steps, unchanged and at their original indices,
-/// then due north and due south.
+/// The twelve *routing* directions: the six unit edge steps, unchanged and at their original
+/// indices, then all six vertex headings in clockwise rotational order.
 ///
 /// North and south are lattice vectors on this grid and always were. Pointy-top world-x is
 /// proportional to `q + r/2`, so `(q + 1, r - 2)` sits at exactly the same world-x as `(q, r)`,
@@ -76,12 +76,12 @@ const DIRECTIONS: [(i32, i32); 6] = [(1, 0), (0, 1), (-1, 1), (-1, 0), (0, -1), 
 ///
 /// This is deliberately a second table rather than a longer `DIRECTIONS`. Conflating them would
 /// silently let a boiler reach a turbine two rows away, and a pole span a distance the player
-/// cannot see. Only transport gets eight.
+/// cannot see. Only transport gets twelve.
 ///
 /// The two straddled hexes `(q, r - 1)` and `(q + 1, r - 1)` are never occupied by a riser: it is
 /// a single-cell building whose belt spans the seam where those two hexes meet, so both stay free,
 /// buildable, and walkable.
-const TRANSPORT_DIRECTIONS: [(i32, i32); 8] = [
+const TRANSPORT_DIRECTIONS: [(i32, i32); 12] = [
     (1, 0),
     (0, 1),
     (-1, 1),
@@ -89,10 +89,14 @@ const TRANSPORT_DIRECTIONS: [(i32, i32); 8] = [
     (0, -1),
     (1, -1),
     (1, -2),
+    (2, -1),
+    (1, 1),
     (-1, 2),
+    (-2, 1),
+    (-1, -1),
 ];
 /// Orientation index of due north in `TRANSPORT_DIRECTIONS`, and the first index off the six-edge
-/// table. An orientation below this is an edge heading; at or above it, a vertical one.
+/// table. An orientation below this is an edge heading; at or above it, a corner one.
 const NORTH: u8 = 6;
 const HEX_X: i32 = 1774;
 const HEX_Y: i32 = 1536;
@@ -153,8 +157,7 @@ const MAX_RECIPE_DEPTH: u32 = 8;
 /// squared distance an aim resolves through has to stay inside an `i64`, and a forged aim is
 /// refused for the same reason a forged movement intent is.
 const MAX_AIM_DISTANCE: i64 = 1 << 30;
-/// How far a pump reaches for open water. One hex, like every other radius in the game, so a pump
-/// stands on buildable ground at the edge of a basin rather than in it.
+/// Default reach for a water-sited definition that predates data-defined source reach.
 const PUMP_RADIUS: i32 = 1;
 /// How far a pole supplies machines around it, and how far it links to the next pole, for a pole
 /// definition that names neither. Coverage is a property of the *pole*: before v0.19 the distance a
@@ -349,6 +352,9 @@ enum BuildingKind {
     Pole,
     Generator,
     Boiler,
+    /// A support deck on shallow water. Terrain stays water; this entity is what permits a
+    /// transport building to occupy an otherwise unbuildable ford.
+    Bridge,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
@@ -360,22 +366,22 @@ enum PowerSource {
     Turbine,
 }
 
-/// Which of the eight routing headings a definition may be built at.
+/// Which of the twelve routing headings a definition may be built at.
 ///
 /// `Edge` is the six hex edges and the default, so every definition that predates tiers keeps
-/// exactly the orientations it had. `Vertical` is due north and due south — the riser, and
-/// anything later that spans the two-row period.
+/// exactly the orientations it had. `Corner` is the six vertex headings — the riser, and anything
+/// later that spans the two-row period.
 ///
 /// Two axes rather than one free range, because the split is also the price. A riser covers
 /// `3 · size` of world distance against `√3 · size` for a unit step; letting a belt take a
-/// vertical heading would make a riser strictly dominant at a belt's cost. Separate axes mean
+/// corner heading would make a riser strictly dominant at a belt's cost. Separate axes mean
 /// separate definitions, and separate definitions mean separate `construction_cost` rows.
 #[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 enum OrientationAxis {
     #[default]
     Edge,
-    Vertical,
+    Corner,
 }
 
 impl OrientationAxis {
@@ -383,7 +389,7 @@ impl OrientationAxis {
     fn range(self) -> std::ops::Range<u8> {
         match self {
             Self::Edge => 0..NORTH,
-            Self::Vertical => NORTH..TRANSPORT_DIRECTIONS.len() as u8,
+            Self::Corner => NORTH..TRANSPORT_DIRECTIONS.len() as u8,
         }
     }
 
@@ -391,8 +397,8 @@ impl OrientationAxis {
         self.range().contains(&orientation)
     }
 
-    /// The next orientation one `rotate` along. Rotation stays inside the axis, so turning a riser
-    /// flips it between north and south and turning a belt walks the six edges.
+    /// The next orientation one `rotate` along. Rotation stays inside the axis, so edge and corner
+    /// definitions each walk six headings in clockwise order.
     fn next(self, orientation: u8) -> u8 {
         let range = self.range();
         let span = range.end - range.start;
@@ -410,6 +416,8 @@ enum PlacementRule {
     Water,
     /// Hills or highland — the same bands iron, coal, and copper already occupy.
     Elevated,
+    /// On a shallow-water hex. Deep water remains a barrier and terrain itself is unchanged.
+    Shallows,
 }
 
 #[derive(Clone, Deserialize)]
@@ -657,6 +665,8 @@ struct PlayerSnapshot {
     /// What a fresh action cooldown is worth. The host draws the wait as a proportion of this, so
     /// it never has to infer the maximum by watching a number count down.
     action_cooldown_total: u32,
+    /// What the hand can gather, in hexes. Published so its held-action ring is native truth.
+    extract_radius: u32,
 }
 
 #[derive(Clone, Copy, Debug, Serialize, PartialEq, Eq)]
@@ -1467,6 +1477,7 @@ impl Core {
             carry_stacks: self.carry_stacks(),
             radius: PLAYER_RADIUS,
             action_cooldown_total: GATHER_COOLDOWN_STEPS,
+            extract_radius: EXTRACT_RADIUS as u32,
         }
     }
 
@@ -1520,11 +1531,9 @@ impl Core {
                     .footprint
                     .iter()
                     .map(|offset| {
-                        // `@hexlife/embed` rotates a footprint by 60° a turn, and the vertical
-                        // orientations have no 60° equivalent — which is exactly why a definition
-                        // on the vertical axis is required to be single-cell. A single cell is
-                        // `(0, 0)`, so leaving it unrotated is both correct and the only honest
-                        // thing to do with a turn count that does not exist.
+                        // No definition needs a multi-cell corner-heading footprint yet, and the
+                        // validator keeps that axis single-cell. A single `(0, 0)` cell is
+                        // invariant under rotation, so leaving it unrotated is exact.
                         let offset = match orientation {
                             NORTH.. => *offset,
                             turns => rotate_coordinate(*offset, turns),
@@ -1558,10 +1567,22 @@ impl Core {
     }
 
     fn entity_at(&self, q: i32, r: i32) -> Option<usize> {
-        self.entities.iter().position(|entity| {
+        // Supports sit below transport, so the most recently placed entity is the one a click,
+        // erase, rotate, or copy action reaches first on a shared bridge hex.
+        self.entities.iter().rposition(|entity| {
             self.entity_footprint(entity)
                 .iter()
                 .any(|cell| cell.q == q && cell.r == r)
+        })
+    }
+
+    fn bridge_at(&self, q: i32, r: i32) -> bool {
+        self.entities.iter().any(|entity| {
+            entity.kind == BuildingKind::Bridge
+                && self
+                    .entity_footprint(entity)
+                    .iter()
+                    .any(|cell| cell.q == q && cell.r == r)
         })
     }
 
@@ -1723,10 +1744,10 @@ impl Core {
         }
     }
 
-    /// Whether open water sits inside `PUMP_RADIUS` of a hex. Terrain is a pure function of the
-    /// seed, so this needs no generated tile and works at the frontier.
-    fn water_within_reach(&self, q: i32, r: i32) -> bool {
-        hexes_in_radius((q, r), PUMP_RADIUS)
+    /// Whether open water sits inside the caller's data-defined reach. Terrain is a pure function
+    /// of the seed, so this needs no generated tile and works at the frontier.
+    fn water_within_reach(&self, q: i32, r: i32, radius: i32) -> bool {
+        hexes_in_radius((q, r), radius)
             .into_iter()
             .any(|(cell_q, cell_r)| self.terrain_at(cell_q, cell_r).is_water())
     }
@@ -1887,10 +1908,10 @@ impl Core {
         occupied: &BTreeMap<(i32, i32), usize>,
     ) -> Option<usize> {
         let entity = &self.entities[index];
-        // Routing, so eight. The loop below is unchanged and always was a ray-cast: it steps
+        // Routing, so twelve. The loop below is unchanged and always was a ray-cast: it steps
         // `(dq, dr)` up to `GRAPH_TRACE_LIMIT`, skipping its own footprint, and returns the first
         // other occupied cell. Nothing in it ever assumed the step was a unit vector, which is why
-        // north and south cost a table row here and nothing else.
+        // the six corner headings cost table rows here and nothing else.
         let (dq, dr) = TRANSPORT_DIRECTIONS
             [usize::from(entity.placed.orientation) % TRANSPORT_DIRECTIONS.len()];
         let mut q = entity.placed.q + dq;
@@ -2301,7 +2322,8 @@ impl Core {
             Some(PowerSource::Wind) => output,
             Some(PowerSource::Hydro) => {
                 let placed = self.entities[index].placed;
-                if self.water_within_reach(placed.q, placed.r) {
+                let radius = definition.extract_radius.unwrap_or(PUMP_RADIUS as u32) as i32;
+                if self.water_within_reach(placed.q, placed.r, radius) {
                     output
                 } else {
                     0
@@ -2660,7 +2682,10 @@ impl Core {
         let Some(item_id) = definition.and_then(|value| value.output_item_id) else {
             return;
         };
-        if !self.water_within_reach(q, r) {
+        let radius = definition
+            .and_then(|value| value.extract_radius)
+            .unwrap_or(PUMP_RADIUS as u32) as i32;
+        if !self.water_within_reach(q, r, radius) {
             self.entities[index].progress = 0;
             return;
         }
@@ -2869,7 +2894,10 @@ impl Core {
             // pointed at it backs up once the board and the contract are satisfied, which is a
             // legible answer — the belt shows it — where silently voiding the cargo was not.
             BuildingKind::Hub => self.hub_demand(cargo.item_id) >= u64::from(cargo.quantity),
-            BuildingKind::Extractor | BuildingKind::Pump | BuildingKind::Pole => false,
+            BuildingKind::Extractor
+            | BuildingKind::Pump
+            | BuildingKind::Pole
+            | BuildingKind::Bridge => false,
             BuildingKind::Generator | BuildingKind::Boiler => {
                 let burns = self
                     .item_definition(cargo.item_id)
@@ -2907,7 +2935,10 @@ impl Core {
                     u64::from(cargo.quantity);
             }
             BuildingKind::Hub => self.deliver_to_hub(cargo.item_id, cargo.quantity),
-            BuildingKind::Extractor | BuildingKind::Pump | BuildingKind::Pole => {
+            BuildingKind::Extractor
+            | BuildingKind::Pump
+            | BuildingKind::Pole
+            | BuildingKind::Bridge => {
                 unreachable!("sources reject cargo")
             }
         }
@@ -3499,7 +3530,12 @@ impl Core {
             return Err("placement is outside build range".into());
         }
         for cell in &footprint {
-            if self.entity_at(cell.q, cell.r).is_some() {
+            let supported_transport = definition.kind == BuildingKind::Belt
+                && self.bridge_at(cell.q, cell.r)
+                && self
+                    .entity_at(cell.q, cell.r)
+                    .is_some_and(|index| self.entities[index].kind == BuildingKind::Bridge);
+            if self.entity_at(cell.q, cell.r).is_some() && !supported_transport {
                 return Err("building footprint overlaps an occupied hex".into());
             }
             let (cell_x, cell_y) = axial_world(cell.q, cell.r);
@@ -3513,7 +3549,13 @@ impl Core {
             ) {
                 return Err("the player blocks this footprint".into());
             }
-            if self.terrain_at(cell.q, cell.r).blocks_construction() {
+            let terrain = self.terrain_at(cell.q, cell.r);
+            let shallow_support = definition.placement_rule == PlacementRule::Shallows
+                && terrain == Terrain::ShallowWater;
+            let bridged_transport = definition.kind == BuildingKind::Belt
+                && terrain == Terrain::ShallowWater
+                && self.bridge_at(cell.q, cell.r);
+            if terrain.blocks_construction() && !shallow_support && !bridged_transport {
                 return Err("environment blocks construction".into());
             }
         }
@@ -3522,7 +3564,10 @@ impl Core {
         {
             return Err("extractors require a non-empty deposit".into());
         }
-        if definition.placement_rule == PlacementRule::Water && !self.water_within_reach(q, r) {
+        let source_radius = definition.extract_radius.unwrap_or(PUMP_RADIUS as u32) as i32;
+        if definition.placement_rule == PlacementRule::Water
+            && !self.water_within_reach(q, r, source_radius)
+        {
             return Err("must be placed beside open water".into());
         }
         if definition.placement_rule == PlacementRule::Elevated {
@@ -3530,6 +3575,11 @@ impl Core {
             if !matches!(terrain, Terrain::Hills | Terrain::Highland) {
                 return Err("wind turbines must stand on hills or highland".into());
             }
+        }
+        if definition.placement_rule == PlacementRule::Shallows
+            && self.terrain_at(q, r) != Terrain::ShallowWater
+        {
+            return Err("bridges require shallow water".into());
         }
         if definition.kind == BuildingKind::Composer {
             let id = recipe_id.ok_or("this machine requires a recipe")?;
@@ -4186,8 +4236,8 @@ impl Core {
         let old_links = self.graph_links_by_id();
         let old_footprint = self.entity_footprint(&self.entities[index]);
         let id = self.entities[index].id;
-        // Rotation stays on the definition's own axis: a belt walks the six edges, a riser flips
-        // between north and south. A building can never be turned into a heading it could not have
+        // Rotation stays on the definition's own axis: a belt walks the six edges and a riser the
+        // six corners. A building can never be turned into a heading it could not have
         // been built at.
         let axis = self
             .building_definition(self.entities[index].placed.definition_id)
@@ -4195,9 +4245,11 @@ impl Core {
             .unwrap_or_default();
         let next_orientation = axis.next(self.entities[index].placed.orientation);
         let next_footprint = self.footprint_for(self.entities[index].placed, next_orientation);
+        let rotating_kind = self.entities[index].kind;
         if next_footprint.iter().any(|cell| {
             self.entities.iter().enumerate().any(|(other, entity)| {
                 other != index
+                    && !(rotating_kind == BuildingKind::Belt && entity.kind == BuildingKind::Bridge)
                     && self
                         .entity_footprint(entity)
                         .iter()
@@ -4395,7 +4447,11 @@ impl Core {
             // question is whether one is in reach at all.
             BuildingKind::Pump => {
                 let placed = self.entities[index].placed;
-                self.water_within_reach(placed.q, placed.r)
+                let radius = self
+                    .building_definition(placed.definition_id)
+                    .and_then(|definition| definition.extract_radius)
+                    .unwrap_or(PUMP_RADIUS as u32) as i32;
+                self.water_within_reach(placed.q, placed.r, radius)
             }
             _ => false,
         };
@@ -5457,6 +5513,14 @@ fn validate_definitions(definitions: &DefinitionsInput) -> Result<(), String> {
                 building.id
             ));
         }
+        if building.placement_rule == PlacementRule::Shallows
+            && building.kind != BuildingKind::Bridge
+        {
+            return Err(format!(
+                "building {} places on shallows but is not a bridge",
+                building.id
+            ));
+        }
         if building.kind == BuildingKind::Generator
             && (building.power_source.is_none() || building.power_output.unwrap_or(0) == 0)
         {
@@ -5476,19 +5540,18 @@ fn validate_definitions(definitions: &DefinitionsInput) -> Result<(), String> {
         {
             return Err(format!("building {} has an invalid footprint", building.id));
         }
-        // A vertical heading has no 60° equivalent, so `@hexlife/embed` cannot rotate a footprint
-        // into one. Single-cell is therefore not a style rule but the condition that makes the
-        // axis representable at all.
-        if building.orientation_axis == OrientationAxis::Vertical && building.footprint.len() != 1 {
+        // No shipped definition needs a multi-cell corner-heading footprint yet. Keep the narrow
+        // rule until a real definition asks for the extra path and can test it.
+        if building.orientation_axis == OrientationAxis::Corner && building.footprint.len() != 1 {
             return Err(format!(
                 "building {} spans the two-row period, which only a single-cell footprint can do",
                 building.id
             ));
         }
         if let Some(radius) = building.extract_radius {
-            if building.kind != BuildingKind::Extractor {
+            if !matches!(building.kind, BuildingKind::Extractor | BuildingKind::Pump) {
                 return Err(format!(
-                    "building {} claims an extraction reach but does not extract",
+                    "building {} claims a source reach but is not an extractor or pump",
                     building.id
                 ));
             }
@@ -5751,12 +5814,18 @@ fn validate_scenarios(
                 .find(|definition| definition.id == building.definition_id);
             let footprint_clear = definition.map(|definition| {
                 definition.footprint.iter().all(|offset| {
-                    let offset = rotate_coordinate(*offset, building.orientation);
+                    let turns = if building.orientation >= NORTH {
+                        building.orientation - NORTH
+                    } else {
+                        building.orientation
+                    };
+                    let offset = rotate_coordinate(*offset, turns);
                     occupied.insert((building.q + offset.q, building.r + offset.r))
                 })
             });
             if !building_ids.contains(&building.definition_id)
-                || building.orientation >= 6
+                || !definition
+                    .is_some_and(|value| value.orientation_axis.allows(building.orientation))
                 || footprint_clear != Some(true)
                 || building
                     .recipe_id
@@ -5822,7 +5891,7 @@ fn validate_saved_state(
         .iter()
         .map(|value| value.id)
         .collect();
-    let mut coordinates = BTreeSet::new();
+    let mut coordinates = BTreeMap::new();
     let mut entity_ids = BTreeSet::new();
     for entity in &state.entities {
         let definition = definitions
@@ -5831,11 +5900,29 @@ fn validate_saved_state(
             .find(|value| value.id == entity.placed.definition_id)
             .ok_or("save references an unknown building")?;
         let footprint_valid = definition.footprint.iter().all(|offset| {
-            let offset = rotate_coordinate(*offset, entity.placed.orientation);
-            coordinates.insert((entity.placed.q + offset.q, entity.placed.r + offset.r))
+            let turns = if entity.placed.orientation >= NORTH {
+                entity.placed.orientation - NORTH
+            } else {
+                entity.placed.orientation
+            };
+            let offset = rotate_coordinate(*offset, turns);
+            let cell = (entity.placed.q + offset.q, entity.placed.r + offset.r);
+            match coordinates.get(&cell).copied() {
+                None => {
+                    coordinates.insert(cell, entity.kind);
+                    true
+                }
+                Some(BuildingKind::Bridge) if entity.kind == BuildingKind::Belt => {
+                    coordinates.insert(cell, entity.kind);
+                    true
+                }
+                _ => false,
+            }
         });
         if entity.kind != definition.kind
-            || entity.placed.orientation >= 6
+            || !definition
+                .orientation_axis
+                .allows(entity.placed.orientation)
             || !footprint_valid
             || !entity_ids.insert(entity.id)
         {
@@ -6007,7 +6094,7 @@ fn step_direction(from: (i32, i32), to: (i32, i32)) -> Option<u8> {
 
 /// The cells one drag covers, resolved on the axis the dragged definition builds on.
 ///
-/// The two rules are kept apart rather than merged into one greedy loop over eight directions,
+/// The two rules are kept apart rather than merged into one greedy loop over twelve directions,
 /// because a unit step almost always closes the distance and a two-row step closes it only from
 /// inside a narrow cone — so a single greedy loop would never select north or south at all. The
 /// consequence of splitting them is the property that matters most: `hex_line` is untouched, so
@@ -6015,11 +6102,11 @@ fn step_direction(from: (i32, i32), to: (i32, i32)) -> Option<u8> {
 fn line_between(from: (i32, i32), to: (i32, i32), axis: OrientationAxis) -> Vec<(i32, i32)> {
     match axis {
         OrientationAxis::Edge => hex_line(from, to),
-        OrientationAxis::Vertical => hex_line_vertical(from, to),
+        OrientationAxis::Corner => hex_line_corner(from, to),
     }
 }
 
-/// The cells one vertical drag covers — the explicit rule the two-row period needs.
+/// The cells one corner-heading drag covers — the explicit rule the two-row period needs.
 ///
 /// A step is taken only when it closes the full two rows it spans. That single condition *is* the
 /// angle rule, and it needs no tuned constant to say so: in the hex norm, `(1, -2)` is the sum of
@@ -6031,16 +6118,19 @@ fn line_between(from: (i32, i32), to: (i32, i32), axis: OrientationAxis) -> Vec<
 /// A drag that leaves the cone stops rather than wandering: the run builds the risers it can and
 /// the player places the corner themselves, which is the same "build what is legal and say where
 /// it stopped" contract `place_line` already keeps for cost and for terrain.
-fn hex_line_vertical(from: (i32, i32), to: (i32, i32)) -> Vec<(i32, i32)> {
+fn hex_line_corner(from: (i32, i32), to: (i32, i32)) -> Vec<(i32, i32)> {
     let mut cells = vec![from];
     let mut current = from;
     while current != to && cells.len() < MAX_LINE_CELLS {
         let remaining = axial_distance(current, to);
-        // North and south are opposites, so at most one of them can ever close, and the choice
-        // cannot depend on iteration order.
+        // The lexicographic minimum is an explicit tie-break. The exhaustive lattice test below
+        // also pins that the shipped rosette presents no ties, but determinism does not rely on it.
         let Some(&(dq, dr)) = TRANSPORT_DIRECTIONS[usize::from(NORTH)..]
             .iter()
-            .find(|(dq, dr)| axial_distance((current.0 + dq, current.1 + dr), to) == remaining - 2)
+            .filter(|(dq, dr)| {
+                axial_distance((current.0 + dq, current.1 + dr), to) == remaining - 2
+            })
+            .min_by_key(|(dq, dr)| (*dq, *dr))
         else {
             break;
         };
@@ -9692,7 +9782,7 @@ mod tests {
                 )
             })
             .collect();
-        assert_eq!(actual, DIRECTIONS);
+        assert_eq!(actual, TRANSPORT_DIRECTIONS);
     }
 
     /// Which bands the player cannot stand on is native's rule, and since v0.12.3 the renderer
@@ -10787,6 +10877,75 @@ mod tests {
             .contains("beside open water"));
     }
 
+    #[test]
+    fn a_bridge_supports_transport_on_shallows_and_refuses_deep_water() {
+        let mut core = game("new-game");
+        core.researched.extend([1, 11, 15]);
+        core.player.inventory.insert(1, 10);
+        core.player.inventory.insert(6, 10);
+        core.player.inventory.insert(16, 10);
+        let shallow = (-24..=24)
+            .flat_map(|q| (-24..=24).map(move |r| (q, r)))
+            .find(|&(q, r)| core.terrain_at(q, r) == Terrain::ShallowWater)
+            .expect("the new-game landscape has shallow water");
+        let deep = (-512..=512)
+            .flat_map(|q| (-512..=512).map(move |r| (q, r)))
+            .find(|&(q, r)| core.terrain_at(q, r) == Terrain::DeepWater)
+            .expect("the new-game landscape has deep water");
+
+        set_player_hex(&mut core, shallow.0 + 2, shallow.1);
+        core.place(shallow.0, shallow.1, 23, 0, None).unwrap();
+        core.place(shallow.0, shallow.1, 2, 0, None).unwrap();
+        assert_eq!(
+            core.entities
+                .iter()
+                .filter(|entity| { entity.placed.q == shallow.0 && entity.placed.r == shallow.1 })
+                .count(),
+            2,
+            "the support and transport are distinct entities"
+        );
+        core.rotate(shallow.0, shallow.1).unwrap();
+        assert_eq!(
+            core.entities[core.entity_at(shallow.0, shallow.1).unwrap()]
+                .placed
+                .orientation,
+            1
+        );
+        let (definitions, technologies, scenarios) = catalogs();
+        let save = core.save_string().unwrap();
+        let restored = Core::from_save(&definitions, &technologies, &scenarios, &save).unwrap();
+        assert_eq!(
+            restored
+                .entities
+                .iter()
+                .filter(|entity| entity.placed.q == shallow.0 && entity.placed.r == shallow.1)
+                .count(),
+            2,
+            "a bridge and its transport survive a save"
+        );
+        assert_eq!(
+            core.entities[core.entity_at(shallow.0, shallow.1).unwrap()].kind,
+            BuildingKind::Belt
+        );
+        core.erase(shallow.0, shallow.1).unwrap();
+        core.place(shallow.0, shallow.1, 18, NORTH, None).unwrap();
+        assert_eq!(
+            core.entities[core.entity_at(shallow.0, shallow.1).unwrap()]
+                .placed
+                .definition_id,
+            18
+        );
+        core.erase(shallow.0, shallow.1).unwrap();
+        assert_eq!(
+            core.entities[core.entity_at(shallow.0, shallow.1).unwrap()].kind,
+            BuildingKind::Bridge
+        );
+
+        set_player_hex(&mut core, deep.0 + 2, deep.1);
+        assert!(core.place(deep.0, deep.1, 23, 0, None).is_err());
+        assert_eq!(Terrain::ShallowWater.blocks_construction(), true);
+    }
+
     /// A kiln and a smelter are the same `BuildingKind` running different recipe categories, so the
     /// rule that keeps a circuit out of a kiln is one field and one check — asked once at placement
     /// and again at reassignment, because a machine that could be reassigned past the rule would
@@ -11159,20 +11318,13 @@ mod tests {
             .contains("player"));
     }
 
-    /// North and south are lattice vectors, not new geometry. This pins the claim the whole
-    /// milestone rests on: a two-row step lands on exactly the same world-x, two rows away.
+    /// The six corner vectors are one rotational family, not six hand-written special cases.
     #[test]
-    fn due_north_and_south_share_a_world_column_with_their_origin() {
-        for &(q, r) in &[(0, 0), (3, -1), (-4, 5), (12, 7)] {
-            let (x, y) = axial_world(q, r);
-            let (north_dq, north_dr) = TRANSPORT_DIRECTIONS[usize::from(NORTH)];
-            let (north_x, north_y) = axial_world(q + north_dq, r + north_dr);
-            assert_eq!(north_x, x, "due north must not move world-x");
-            assert!(north_y < y, "due north must move up the screen");
-            let (south_dq, south_dr) = TRANSPORT_DIRECTIONS[usize::from(NORTH) + 1];
-            let (south_x, south_y) = axial_world(q + south_dq, r + south_dr);
-            assert_eq!(south_x, x);
-            assert_eq!(south_y - y, y - north_y, "the period is symmetric");
+    fn corner_headings_form_a_clockwise_six_point_rosette() {
+        let corners = &TRANSPORT_DIRECTIONS[usize::from(NORTH)..];
+        for index in 0..corners.len() {
+            let (q, r) = corners[index];
+            assert_eq!(corners[(index + 1) % corners.len()], (-r, q + r));
         }
         // The six edges keep their indices, which is what makes every saved orientation, every
         // fixture, and every existing drag mean the same thing after the table grew.
@@ -11181,48 +11333,30 @@ mod tests {
         assert_eq!(DIRECTIONS.len(), 6);
     }
 
-    /// The vertical drag rule, and the reason it needs no tuned angle constant: a two-row step is
-    /// taken exactly when it closes the full two rows it spans, which is true precisely inside the
-    /// 60° wedge between NE and NW — 30° either side of vertical.
+    /// Every corner heading resolves symmetrically, and no target in a wide lattice window gives
+    /// two headings the same full two-row close. The resolver still carries an explicit tie-break.
     #[test]
-    fn a_vertical_drag_uses_the_two_row_period_only_within_thirty_degrees_of_vertical() {
-        use OrientationAxis::{Edge, Vertical};
-        // Straight up: three risers, no zigzag. The six-direction rule needed five cells for this.
-        assert_eq!(
-            line_between((0, 0), (3, -6), Vertical),
-            vec![(0, 0), (1, -2), (2, -4), (3, -6)]
-        );
-        assert_eq!(hex_line((0, 0), (3, -6)).len(), 7);
-        // Straight down.
-        assert_eq!(
-            line_between((0, 0), (-2, 4), Vertical),
-            vec![(0, 0), (-1, 2), (-2, 4)]
-        );
-        // Inside the wedge: it rises as far as the period reaches, then stops rather than
-        // wandering off-axis. The player places the corner.
-        assert_eq!(
-            line_between((0, 0), (2, -3), Vertical),
-            vec![(0, 0), (1, -2)]
-        );
-        // The wedge edges are NE and NW themselves, and both are still inside it.
-        for &corner in &[(2, -3), (1, -3)] {
-            assert!(
-                line_between((0, 0), corner, Vertical).len() > 1,
-                "{corner:?} is on the wedge boundary and must still rise"
+    fn a_corner_drag_uses_the_two_row_period_only_within_thirty_degrees_of_a_heading() {
+        use OrientationAxis::{Corner, Edge};
+        for &(dq, dr) in &TRANSPORT_DIRECTIONS[usize::from(NORTH)..] {
+            assert_eq!(
+                line_between((0, 0), (dq * 3, dr * 3), Corner),
+                vec![(0, 0), (dq, dr), (dq * 2, dr * 2), (dq * 3, dr * 3)]
             );
         }
-        // Outside the wedge, a vertical drag refuses to travel at all: due east is not something a
-        // riser can approach, so the run is the single anchor cell.
-        for &away in &[(4, 0), (-4, 0), (2, -2), (-2, 2), (0, 3)] {
-            assert_eq!(
-                line_between((0, 0), away, Vertical),
-                vec![(0, 0)],
-                "{away:?} is outside the vertical cone"
-            );
+        for q in -64..=64 {
+            for r in -64..=64 {
+                let remaining = axial_distance((0, 0), (q, r));
+                let candidates = TRANSPORT_DIRECTIONS[usize::from(NORTH)..]
+                    .iter()
+                    .filter(|&&(dq, dr)| axial_distance((dq, dr), (q, r)) == remaining - 2)
+                    .count();
+                assert!(candidates <= 1, "corner drag tie at {q},{r}");
+            }
         }
         // Bounded like every other drag.
         assert_eq!(
-            line_between((0, 0), (900, -1800), Vertical).len(),
+            line_between((0, 0), (900, -1800), Corner).len(),
             MAX_LINE_CELLS
         );
         // And the property that keeps every existing test meaningful: the edge axis is the old
@@ -12268,7 +12402,7 @@ mod tests {
         (EntityStatus::NoBoiler, "no boiler"),
     ];
 
-    const WIRE_KINDS: [(BuildingKind, &str); 10] = [
+    const WIRE_KINDS: [(BuildingKind, &str); 11] = [
         (BuildingKind::Extractor, "extractor"),
         (BuildingKind::Belt, "belt"),
         (BuildingKind::Composer, "composer"),
@@ -12279,6 +12413,7 @@ mod tests {
         (BuildingKind::Pole, "pole"),
         (BuildingKind::Generator, "generator"),
         (BuildingKind::Boiler, "boiler"),
+        (BuildingKind::Bridge, "bridge"),
     ];
 
     const WIRE_TERRAIN: [(Terrain, &str); 7] = [
@@ -12449,6 +12584,7 @@ mod tests {
                 ],
                 radius: 580,
                 action_cooldown_total: 6,
+                extract_radius: 1,
             }),
             researched: Some(vec![1, 2, 3, 4]),
             chunks: Some(vec![
@@ -13428,14 +13564,16 @@ mod tests {
         // The riser occupies exactly one hex.
         assert_eq!(core.entity_footprint(&core.entities[riser]).len(), 1);
 
-        // South is the same period the other way.
-        core.rotate(0, 3).unwrap();
-        assert_eq!(
-            core.entities[core.entity_at(0, 3).unwrap()]
-                .placed
-                .orientation,
-            NORTH + 1
-        );
+        // Rotation visits all six corners and returns to north.
+        for expected in (NORTH + 1)..(NORTH + 6) {
+            core.rotate(0, 3).unwrap();
+            assert_eq!(
+                core.entities[core.entity_at(0, 3).unwrap()]
+                    .placed
+                    .orientation,
+                expected
+            );
+        }
         core.rotate(0, 3).unwrap();
         assert_eq!(
             core.entities[core.entity_at(0, 3).unwrap()]
@@ -13447,7 +13585,7 @@ mod tests {
     }
 
     /// Orientation is an axis the definition owns, and that is what prices the riser. A belt may
-    /// never take a vertical heading, because a belt that could would reach twice as far for a
+    /// never take a corner heading, because a belt that could would reach twice as far for a
     /// belt's cost.
     #[test]
     fn orientation_axes_keep_the_riser_priced_and_the_belt_horizontal() {
@@ -13463,7 +13601,7 @@ mod tests {
         assert!(core
             .placement_legality(0, 3, 18, 0, None, true)
             .unwrap_err()
-            .contains("oriented in 6..8"));
+            .contains("oriented in 6..12"));
         assert!(core.placement_legality(0, 3, 18, NORTH, None, true).is_ok());
 
         // And the price is a data row, not a mechanism: the riser simply costs twice the belt.
@@ -13483,8 +13621,8 @@ mod tests {
             assert_eq!(riser.quantity, belt.quantity * 2);
         }
 
-        // A vertical heading has no 60° rotation, so a definition claiming one with a footprint to
-        // rotate is refused at load rather than silently drawn wrong.
+        // No definition needs a multi-cell corner footprint yet, so that untested combination is
+        // still refused at load.
         let (mut definitions, _, _) = catalogs();
         let index = definitions
             .buildings
@@ -13620,6 +13758,12 @@ mod tests {
         );
         assert_eq!(core.extract_radius_of(1), EXTRACT_RADIUS);
         assert_eq!(core.extract_radius_of(19), 2);
+        assert_eq!(core.building_definition(1).unwrap().extract_radius, Some(1));
+        assert_eq!(
+            core.building_definition(11).unwrap().extract_radius,
+            Some(1)
+        );
+        assert_eq!(core.player_snapshot().extract_radius, EXTRACT_RADIUS as u32);
 
         // The hand is unchanged. A gather still reaches exactly one hex, whatever is built on it.
         let (x, y) = axial_world(3, 0);

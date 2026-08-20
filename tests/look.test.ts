@@ -135,6 +135,28 @@ describe("Stage B look generator", () => {
     );
   });
 
+  it("draws forests from remaining units and every published reach with its own meaning", () => {
+    const renderer = readFileSync(
+      new URL("../src/rendering/CanvasFactoryRenderer.ts", import.meta.url),
+      "utf8",
+    );
+    const world = readFileSync(
+      new URL("../src/rendering/gl/WorldGl.ts", import.meta.url),
+      "utf8",
+    );
+    expect(renderer).toContain("unit < resource.quantity");
+    expect(renderer).toContain("TREE_TRUNK");
+    expect(renderer).toContain("TREE_CANOPY");
+    expect(world.match(/item\?\.key === "wood"/g)).toHaveLength(2);
+    expect(world).toContain("definition?.extract_radius");
+    expect(world).toContain("definition?.supply_radius");
+    expect(world).toContain("definition?.pole_reach");
+    expect(world).toContain("snapshot.player.extract_radius");
+    expect(world).toContain('ring.kind === "extract"');
+    expect(world).toContain('ring.kind === "supply"');
+    expect(world).toContain('kind: "link"');
+  });
+
   it("derives a building silhouette from recipe_category and reserves trim for tier", () => {
     expect(silhouetteOf("composer", "smelting")).toBe("smelting");
     expect(silhouetteOf("composer", "firing")).toBe("firing");
@@ -147,24 +169,29 @@ describe("Stage B look generator", () => {
     expect(trimOf().stroke).toBe(trimOf(0).stroke);
   });
 
-  it("draws the two-row headings on the hex column they actually reach", () => {
+  it("draws all six corner headings from the vectors native routes", () => {
     const center = { x: 100, y: 100 };
     // The point of due north is that it does not move world-x. The drawing has to agree, or the
     // riser would look like it leans while the simulation routes it straight up.
-    for (const orientation of [NORTH, NORTH + 1]) {
+    for (const orientation of [NORTH, NORTH + 3]) {
       expect(facingTip(center, 40, orientation).x).toBeCloseTo(center.x, 6);
       expect(spanEnd(center, 40, orientation).x).toBeCloseTo(center.x, 6);
     }
     expect(facingTip(center, 40, NORTH).y).toBeLessThan(center.y);
-    expect(facingTip(center, 40, NORTH + 1).y).toBeGreaterThan(center.y);
+    expect(facingTip(center, 40, NORTH + 3).y).toBeGreaterThan(center.y);
     // The heading tick reads the same length whatever axis it is on, because it is an indicator
     // and not a measurement — the span is what carries the distance.
     const east = facingTip(center, 40, 0);
-    const north = facingTip(center, 40, NORTH);
+    const corners = Array.from({ length: 6 }, (_, index) =>
+      facingTip(center, 40, NORTH + index),
+    );
     const length = (point: { x: number; y: number }): number =>
       Math.hypot(point.x - center.x, point.y - center.y);
-    expect(length(north)).toBeCloseTo(length(east), 6);
-    expect(length(spanEnd(center, 40, NORTH))).toBeGreaterThan(length(north));
+    for (const corner of corners)
+      expect(length(corner)).toBeCloseTo(length(east), 2);
+    expect(length(spanEnd(center, 40, NORTH))).toBeGreaterThan(
+      length(corners[0]!),
+    );
     // The six edges are untouched.
     expect(facingTip(center, 40, 0).x).toBeGreaterThan(center.x);
   });
