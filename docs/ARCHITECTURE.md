@@ -79,10 +79,41 @@ The Rust `Core` owns all state that can change a game result:
    the sparse depletion overlay, the generated chunk set, and ordinary simulation state are
    checksum inputs. Collision and placement read the hex under the point. Each raw resource is
    generated only in the band its geography names, so terrain is the material map rather than a
-   colour: iron and coal on highland, copper on hills, sand and clay on shores, stone on cliffs,
-   flora in moist lowland. Flora is the one source that comes back — an item's `regrowth_ticks`
-   makes a cut cell climb toward what generation gave it, walked from a derived set of cut cells so
-   that an untouched forest and a fully regrown one both cost nothing.
+   colour: iron and coal on the tops and the ground below them, copper on hills and never above,
+   sand and clay on shores, stone against cliffs, forest in lowland. Flora is the one source that
+   comes back — an item's `regrowth_ticks` makes a cut cell climb toward what generation gave it,
+   walked from a derived set of cut cells so that an untouched forest and a fully regrown one both
+   cost nothing.
+
+   **The unit of a deposit is a site, not a hex.** The world is partitioned by a `site_cell`
+   lattice exactly as the noise channels are; each cell hashes to at most one site — a jittered
+   centre, one rule, one radius — and a hex belongs to the nearest site whose disc covers it and
+   whose member bands it satisfies, ties broken by lattice cell rather than by iteration order.
+   Yield falls from core to rim. This is what makes **one material per patch** a property of the
+   model instead of a number that was tuned: rows no longer compete hex by hex, so two independent
+   noise channels can no longer alternate two materials under one extractor disc.
+
+   The **site lattice** is cached on `Core`, and the field never is. `field_at` is on the hot path
+   — `deposit_candidates` walks a whole disc, and `resource_at_world`, both gathers, and every
+   snapshot build reach it — and the uncached form evaluates every lattice cell within reach per
+   hex, each deciding a band. A site cell is `site_cell²` hexes, so the map stays small and every
+   hex of a chunk hits it warm. Like `deposit_links`, it is derived state: never saved, never
+   hashed, never checksummed, rebuilt whenever the parameters or the seed move.
+
+   The **guaranteed opening** is derived on the same terms. A bootstrap pass spirals outward over
+   lattice cells and claims one for each guaranteed material whose patch falls inside a stated
+   window and is large enough to stand an extractor in; a window that finds nothing widens in fixed
+   steps and then the world is **refused**. It replaced a hardcoded list of eight single cells
+   inside the clearing, which was why every material used to be visible in the first minute. The
+   clearing itself still generates nothing, and no guaranteed disc may reach into it.
+
+   Rivers are ridge noise rather than a simulation, because the map is unbounded and generated
+   lazily and nothing may depend on knowing where the water upstream went: a river is where a
+   dedicated channel runs near its own midpoint, gated below an elevation so none runs over a
+   summit. Beaches ask the coarse elevation octave alone whether a centre stands against ocean —
+   coarse-octave water is what makes a body big — which is a proxy, stated as one in the code, and
+   verified by the survey reporting the size of the body nearest each patch.
+
 2. The player has native integer `x/y`, facing and bounded movement intent vectors, action cooldown,
    world-unit build range, a carrying slot count, and an ordered `item_id → quantity` inventory.
    Gathering, delivery, construction costs, erasing, withdrawal, and research are native.

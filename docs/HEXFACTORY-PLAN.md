@@ -49,13 +49,14 @@ This is permanent and is not a scope item.
 
 ## Where the project stands
 
-The engine arc, the generator arc, and the first three milestones of the pivot from substrate to
+The engine arc, the generator arc, and the first four milestones of the pivot from substrate to
 motive are all shipped. A run today looks like this: land beside a hub in a world chosen by preset
-or by raw parameters, walk out under fog, read the terrain for eight raw materials, gather, fill the
-hub's posted **requests** for insight and its staged founding **contract** for hub growth, research a
-twelve-technology tree, and build a powered, automated line of twenty buildings and fourteen recipes
-across five machine categories. Buildings are drawn by a shape grammar, so a tier is a data row.
-Power is energy bought per unit of work. The world and the minimap render on WebGL2.
+or by raw parameters, walk out under fog across rivers and coastline, find **fields** of eight raw
+materials rather than scattered cells, gather, fill the hub's posted **requests** for insight and
+its staged founding **contract** for hub growth, research a twelve-technology tree, and build a
+powered, automated line of twenty buildings and fourteen recipes across five machine categories.
+Buildings are drawn by a shape grammar, so a tier is a data row. Power is energy bought per unit of
+work. The world and the minimap render on WebGL2.
 
 **Current envelope numbers** — native refuses a load on all five, and the browser's named-save
 catalog shows which one moved rather than hiding the row:
@@ -66,12 +67,13 @@ catalog shows which one moved rather than hiding the row:
 | Definitions           |      10 |
 | Technologies          |       5 |
 | Scenarios             |       5 |
-| World generator       |       6 |
+| World generator       |       7 |
 | Wire (snapshot delta) |       5 |
 
 **Current measured capacity.** A complete browser frame at 6,144 entities is 19.0% of 60 Hz
 (v0.13.1 record, Canvas 2D — the WebGL2 pass has not been re-measured). Generation costs at most
-0.35 µs per hex. See `docs/BENCHMARKS.md`; no claim beyond a recorded tier is supported.
+1.42 µs per hex on the v0.21 site lattice, against 0.52 µs for the model it replaced on the same
+harness. See `docs/BENCHMARKS.md`; no claim beyond a recorded tier is supported.
 
 **The shipped ledger is at the bottom of this document**, one line per release. Read it for what
 exists; read the section a milestone names when you need the reasoning behind a rule you are about
@@ -79,22 +81,31 @@ to change.
 
 ## What to do next
 
-**Landforms and Fields v0.21.** The order v0.21 → v0.22 → v0.23 is load-bearing rather than a
-preference; the roadmap decision below is why.
+**Crossings and Canopy v0.22.** The order v0.21 → v0.22 → v0.23 is load-bearing rather than a
+preference; the roadmap decision below is why, and v0.21 has now shipped.
 
-Do not start v0.23 first. It is written to be tuned against a world that v0.21 builds. Its other
-prerequisite is already met: v0.20.1 collapsed the transfer rows into one function, so the
-fractional deposit that arrived with them is not waiting on anything.
+**v0.22 is the second half of a version train and it is owed a debt.** v0.21 put rivers in the
+world and there is no bridge yet, so inland water is currently a wall the player walks around. That
+is the strongest argument the bridge will ever have and it is also a live regression: rivers ship at
+roughly one hex of water per `river_cell` hexes walked, deliberately sparse for exactly this reason,
+and `archipelago` ships with `river_width: 0` because scattered water everywhere plus a river
+network would have left its walkable ground in shreds. **Do not tune river density up until the
+bridge exists.**
 
-**v0.21 and v0.22 are one version train.** v0.21 moves `WORLD_GENERATOR_VERSION` and rejects every
-existing save; v0.22's twelve-heading routing table wants a save break of its own and rides that one
-instead of spending a second. If they are ever split, v0.22 has to pay for its own break and the
-orientation-index decision in that brief reopens.
+v0.22 was written to ride v0.21's save break rather than spend a second one. That break has now been
+spent — the world generator is at 7 — so if v0.22 changes the wire's orientation index it pays for
+its own bump, and the orientation-index decision in that brief reopens on those terms.
+
+Do not start v0.23 first. It is written to be tuned against the world v0.21 has now built, and the
+figures it should be tuned against are in the shipped ledger's v0.21 entry.
 
 ### Open decisions, each with what would settle it
 
-- **Does `regrowth_ticks` move** when a forest cell drops to three wood? (v0.21 — measure the
-  extractor's starve rate over seven cells before calling it a design.)
+- **Does `regrowth_ticks` move** now that a forest cell holds one to four wood instead of ten to
+  twenty-two? (v0.23 — the shape change shipped and the rate change with it; what has _not_ been
+  measured is an extractor's starve rate over seven cells against a `regrowth_ticks` of 90. The
+  balance report's `mean_same_material` for wood is 5–11 units at the base reach and 11–26 at the
+  deep one, which says forestry is a question of area, but says nothing about the cadence.)
 - **Is the single-cell footprint restriction lifted** now that its stated reason is gone? (v0.22 —
   the brief recommends **not** now, and says why. It needs a definition asking for it.)
 - **Is one board slot reserved for the deepest eligible request?** (v0.23 — consider it, measure it,
@@ -119,8 +130,14 @@ a pole span a distance no player can see.
 - **The WebGL2 renderer has not been benchmarked.** It replaced the Canvas 2D world and minimap
   draws that `docs/BENCHMARKS.md` records, so the current browser-frame record describes a renderer
   the game no longer ships. Re-measure before quoting a frame number.
-- **Belts on field cells stay legal, but paving the rare landing crystal without reading it first
-  should not.**
+- **Belts on field cells stay legal, but paving a crystal field without reading it first should
+  not.** The clearing no longer holds a crystal cell to pave, so this is now about the highland
+  disc a player walked to rather than about the first minute.
+- **The opening has not been walked since it stopped being a supermarket.** Every material used to
+  be inside the clearing; now the nearest guaranteed patch is nine hexes out, coal and stone and
+  clay are fifteen to twenty-five, and copper is twenty-five to forty. `fixtures/balance.json`
+  prices the gathers and says nothing about the walking. This is the same debt as the playtest item
+  above, and v0.21 made it bigger rather than smaller.
 - **The header `Establish component production 0 / 3` never explained the 3.** Largely answered by
   v0.18's contract bill and v0.20.1's item chips; confirm in a real session before closing it.
 
@@ -141,354 +158,22 @@ in **Earned Insight v0.23** below.
 The world note is that resources arrive as scattered single cells of every kind at once, and it was
 asked for in the same session: fields of iron and coal, forests instead of lone high-yield wood
 hexes, rivers with clay on their banks and bridges to cross them, sand on ocean beaches, stone in
-mountains, and a world where standing an extractor next to a deposit is worth doing. That is
-**Landforms and Fields v0.21** below.
+mountains, and a world where standing an extractor next to a deposit is worth doing. That was
+**Landforms and Fields v0.21**, which has shipped; the bridges are the one part of it that did not,
+and they are v0.22.
 
-**The world work comes first, and the dependency is real rather than tidy.** Making a hand gather
+**The world work came first, and the dependency was real rather than tidy.** Making a hand gather
 slower per material only reads as "go and build an extractor" when there is a field worth putting an
-extractor on. Applied to today's generator — where a continental survey finds iron in 205 scattered
-cells and stone in 18 — slower hand mining is not an incentive, it is tedium. So the generator
-lands, then the economy is tuned against the world that exists rather than against the one being
-replaced.
+extractor on. Applied to the generator this replaced — where a continental survey found iron in 205
+scattered cells and stone in 18, and where **stone had no workable patch anywhere in 26,307 land
+hexes** — slower hand mining would not have been an incentive, it would have been tedium. So the
+generator landed first, and the economy is now tuned against the world that exists.
 
 **Regional Discovery is split, not deleted.** Its _generation_ half — a landing clearing that
 guarantees a bootstrap path rather than a sample platter, and a survey that proves every preset still
-works — is exactly what v0.21 has to do anyway for fields to mean anything, so it moves forward into
-v0.21. What stays at v0.25 is the half that is a play system rather than a generator.
-
-## Next — Landforms and Fields v0.21
-
-### The defect, named, and measured before it is argued
-
-`npm run survey` at the shipped seed and the default radius of 96, continental preset, 27,937 hexes
-of which 26,307 are land:
-
-| material       | cells | per mille land | nearest |
-| -------------- | ----- | -------------- | ------- |
-| Iron ore       | 205   | 7              | 20      |
-| Copper ore     | 469   | 17             | 15      |
-| Coal           | 444   | 16             | 8       |
-| Clay           | 420   | 15             | 14      |
-| Sand           | 219   | 8              | 19      |
-| Wood           | 111   | 4              | 15      |
-| Signal crystal | 85    | 3              | 20      |
-| Stone          | 18    | 0              | 23      |
-
-Stone is eighteen cells in twenty-six thousand hexes of land. Wood is a hundred and eleven isolated
-cells holding ten to twenty-two units each, which is the opposite of a forest in both directions: too
-much in one hex and no continuity between hexes. And the survey reports none of what actually
-decides whether a deposit is worth automating, because **it has no measurement of patch size at
-all** — only totals, densities, and distances. That absence is why this has never been caught.
-
-### Why this is structural rather than a tuning pass
-
-`field_at` decides each hex independently. It reads three noise channels and walks the `FieldRule`
-table, first match wins. There is no object anywhere in the generator that means "a deposit", so a
-patch's size and a patch's purity are emergent accidents of channel cell size and gate height —
-neither controllable, nor defaultable, nor measurable.
-
-The mixed-material case is the clearest proof. In Highland, iron gates on `richness > 54_000` and
-coal on `vein > 56_000`, and those are two **independent** channels. Wherever both run high the row
-order decides, so along every iron/coal boundary the two alternate hex by hex, and an extractor
-placed there covers both and cleanly works neither. No amount of moving those two numbers fixes it,
-because the two numbers are not asking one question.
-
-So the model changes, and the bands stay. Terrain remains the material map and the reason a landscape
-can be read; what stops being per-hex is the decision about what a patch is made of.
-
-### First commit: measure patches against the current generator
-
-Before a generation rule moves, grow `survey` a `PatchCount` per material, reported alongside
-`MaterialCount` and computed by the same flood fill `water_shape` already uses over `DIRECTIONS`:
-
-- `patches` — connected runs of one material.
-- `mean_patch`, `largest_patch` — in hexes.
-- `mean_patch_yield` — total units in a patch, which is what an extractor is actually being offered.
-- `nearest_patch_of_at_least(7)` — the distance to the first patch a base extractor could fill its
-  own disc from, which is a different and more useful number than `nearest`.
-- `purity` — the share of resource hexes whose radius-1 disc holds exactly **one** material. This is
-  the number the whole milestone is for. Target after the change: **at least 950 per mille**.
-- `truncated_patches`, on the same reasoning as `truncated_bodies`: a patch touching the sample edge
-  is a floor, not a measurement.
-
-Record the before figures in this document in the same commit. A tuning claim without a before
-number is the failure mode `fixtures/balance.json` exists to prevent, and generation deserves the
-same treatment.
-
-#### The before figures, measured 2026-08-20
-
-`npm run survey` now reports all of the above. Shipped seed, default radius 96, `continental` — the
-same sample the material table at the top of this section came from:
-
-| material       | patches | mean | largest | mean yield | nearest workable | purity | truncated |
-| -------------- | ------: | ---: | ------: | ---------: | ---------------: | -----: | --------: |
-| Iron ore       |      62 |    3 |      14 |         84 |               33 |    278 |         4 |
-| Copper ore     |     138 |    3 |      23 |         87 |               20 |    424 |         3 |
-| Coal           |     130 |    3 |      20 |         67 |               12 |    880 |         8 |
-| Clay           |     120 |    3 |      24 |         68 |               19 |    542 |         6 |
-| Sand           |      96 |    2 |      13 |         66 |               29 |    762 |         2 |
-| Stone          |      12 |    1 |       3 |         57 |         **none** |      0 |         0 |
-| Wood           |      64 |    1 |       9 |         28 |               67 |     36 |         4 |
-| Signal crystal |      35 |    2 |      10 |         41 |               50 |     35 |         0 |
-
-**Whole-sample purity, against the 950 target: `continental` 532, `archipelago` 474, `highlands`
-662, `basin` 631.** Every preset fails, and the wettest fails hardest.
-
-Five things the old figures could not have said, and which the milestone should be argued from:
-
-- **Stone has no workable patch anywhere in 26,307 land hexes on `continental`.** Its nearest cell
-  is 23 hexes away and its largest patch is 3, so there is nowhere in the sample a base extractor
-  can be stood on stone at all. "18 cells" understated this: the defect is not that stone is scarce,
-  it is that stone is _unautomatable_. `archipelago` has 89 stone cells and also no workable patch.
-- **Wood is 64 patches averaging one hex, at purity 36.** The forest claim is quantified: it is not
-  that wood is thin, it is that a wood hex is almost always sitting next to something else.
-  `archipelago` likewise reaches no workable forest.
-- **Coal is the one material that already forms its own country** — purity 866 to 908 on every
-  preset. Iron, in the same bands, sits at 278. That asymmetry is the mixed-material case seen from
-  the inside: iron is rare enough to appear _inside_ coal, so iron hexes are mixed while most coal
-  hexes are not. A purity figure averaged over materials would have hidden it, which is why the
-  whole-sample number and the per-material rows are both reported.
-- **Signal crystal is at purity 28 to 71.** It is meant to be the prize and it is currently a
-  contaminant in someone else's patch.
-- **`highlands` is the best of the four at 662**, and it is also the preset the bootstrap windows
-  are expected to strain. Those two facts are unrelated today and should not be allowed to become
-  an argument for each other.
-
-`nearest` and `nearest workable` disagree by a lot — 20 against 33 for iron, 15 against 67 for wood,
-23 against nothing at all for stone — which is the clearest evidence that the number the survey used
-to print was answering a question nobody was asking.
-
-### A site is the unit of a deposit
-
-Partition the world by a `site_cell` lattice, exactly as the noise channels are partitioned. Each
-site cell hashes to at most one **site**: a jittered center, one material, and one radius. A hex
-belongs to the nearest site whose disc covers it and whose member gate it satisfies. Yield falls off
-from core to rim.
-
-`FieldRule` becomes `SiteRule`:
-
-```rust
-struct SiteRule {
-    /// The band the site's *center* must stand in for this rule to be eligible.
-    terrain: Terrain,
-    item_id: ItemId,
-    /// Relative share among the eligible rules for a band. Zero means never.
-    weight: u32,
-    /// Inclusive radius range, in hexes. A disc of radius R holds 3R² + 3R + 1 hexes:
-    /// 7, 19, 37, 61, 91, 127 at radius 1 through 6.
-    radius_min: u32,
-    radius_max: u32,
-    /// Exclusive lower gate on the richness channel at the *center*, so the world still has rich
-    /// and poor country. `ANY` disables it, on the same reasoning `ANY` already carries.
-    site_min: i32,
-    /// Yield at the center and at the rim. Interpolated linearly by distance, then jittered.
-    yield_core: u32,
-    yield_rim: u32,
-    /// Per-hex jitter on the interpolated yield. At least 1; `base + hash % spread` semantics.
-    yield_jitter: u32,
-    /// Bands a hex must itself be in to belong to this site. Empty means the rule's own band.
-    /// This is the clipping that makes a beach a strip and a scree field hug its cliffs.
-    member: Vec<Terrain>,
-    /// If set, a member hex must also be within this many hexes of water. `0` disables it.
-    member_water_within: u32,
-}
-```
-
-The evaluation, which must stay a pure function of `(params, seed, q, r)`:
-
-1. `reach = ceil(max_radius_max / site_cell) + 1`, over the whole rule table.
-2. For every site cell within `reach` of the cell containing `(q, r)`, in a fixed iteration order:
-   - `h = coordinate_hash(seed ^ SITE_SALT, cell_q, cell_r)`.
-   - The center is the cell origin offset by two independent fields of `h`, each taken modulo
-     `2 * site_jitter + 1` and shifted down by `site_jitter`.
-   - The band is `terrain_at` at the center. Eligible rules are those whose `terrain` matches and
-     whose `site_min` the richness channel at the center clears. No eligible rule means no site.
-   - A weighted pick over the eligible rules, by a third field of `h` against the summed weights.
-   - `radius = radius_min + (fourth field of h) % (radius_max - radius_min + 1)`.
-   - The cell is a candidate when `axial_distance(center, (q, r)) <= radius` **and** `(q, r)`
-     satisfies the rule's `member` bands and `member_water_within`.
-3. Among candidates take the smallest `axial_distance(center, (q, r))`; break ties by `(cell_q,
-cell_r)` in that order. Ties must be broken explicitly — a tie resolved by iteration order is a
-   tie resolved by nothing, and this is a checksum input.
-4. `yield = yield_rim + (yield_core - yield_rim) * (radius - distance) / radius`, then
-   `+ coordinate_hash(seed, q, r) % yield_jitter`, clamped to at least 1. Keep the jitter small
-   enough that the core still reads as a core.
-
-That gives, by construction rather than by tuning: **one material per patch**, a patch size that is a
-parameter, and a rich middle worth aiming an extractor at.
-
-### The cost of this, and the cache that pays it
-
-`Core::field_at` is not only called during `generate_chunk` — `deposit_candidates`, `resource_at_world`,
-both gathers, and every snapshot build reach it, and `deposit_candidates` walks a whole disc. The
-naive form evaluates up to `(2·reach + 1)²` site cells per hex and each one calls `terrain_at`, which
-itself samples seven elevations. That is roughly 350 noise samples per hex and it is not shippable.
-
-Cache the **site lattice**, not the field: a `BTreeMap<(i32, i32), Option<Site>>` on `Core`, filled
-lazily per site cell. A site cell is ~144 hexes, so the map is small and every hex in a chunk hits it
-warm. It is derived state under the existing invariant — never saved, never hashed, never
-checksummed, cleared whenever the world changes, exactly as `deposit_links` is. The free `field_at`
-keeps an uncached path so the survey and the tests can call it without a `Core`, and one test asserts
-the cached and uncached answers are identical over a disc. Re-run `npm run bench` before shipping:
-this touches the world generator, so the ladder is not optional.
-
-### Rivers are ridge noise, not a simulation
-
-A flow simulation is refused: the map is unbounded and generated lazily, so nothing may depend on
-knowing where the water upstream went. A river is instead where a dedicated channel runs near its
-midpoint — `abs(value_noise(river_cell) - NOISE_MAX / 2) < river_width` — gated to
-`elevation < river_max_elevation` so rivers do not run over summits. That is O(1) per hex, purely
-local, and fits the existing contract exactly.
-
-A river hex reads as `Terrain::ShallowWater`, evaluated **after** the band cut and before the cliff
-test, so a river cuts through lowland and hills and stops where the highland gate says it does. Three
-consequences the milestone wants and should not be surprised by:
-
-- Shallow water stops being an accident of sea level and becomes **common and linear**, which is
-  what
-  makes a bridge a necessity rather than an ornament.
-- `PlacementRule::Water` — buildable ground with open water inside `PUMP_RADIUS` — starts matching
-  inland. Pumps, hydro, and boilers gain sites everywhere, which is a real balance change and belongs
-  in `fixtures/balance.json`'s access section, not in a footnote.
-- The survey's water figures start mixing bodies and rivers. Report river hexes, river runs, and
-  mean
-  run length separately, or the existing `largest_body` claim quietly stops meaning ocean.
-
-### Beaches need an ocean, and an ocean cannot be flood-filled here
-
-Sand should sit on real coast, not on the rim of every pond, and the generator cannot flood-fill to
-find out which is which. Use the split v0.16 already established and proved: **coarse-octave water is
-what makes a body big**. A sand site therefore requires the coarse elevation octave alone — not the
-blended elevation — to sit below `water_level` across the center's neighbourhood. Pond edges, which
-exist only in the fine octave, fail it; ocean coasts pass it.
-
-State plainly in the code comment that this is a proxy rather than a measurement, and let the survey
-be what verifies it: the flood fill in `water_shape` already knows body sizes, so report the mean
-size of the body nearest each sand patch. If that number is small, the proxy is wrong and the survey
-said so.
-
-### The resource table, resource by resource
-
-Starting points, not shipped numbers. Every one of them is chosen against the survey the way
-`cliff_step` was chosen in v0.16, and the survey is what settles them.
-
-| Material       | Center band          | Radius               | Yield core → rim | Member clipping                     | What it is for                                                                                                                                                                                      |
-| -------------- | -------------------- | -------------------- | ---------------- | ----------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Iron ore       | Hills, Highland      | 3–4 (37–61)          | 20 → 8           | own bands                           | The flagship early field. One is guaranteed near spawn; it is what the first extractor and the first smelter are for.                                                                               |
-| Coal           | Highland, some Hills | 2–4 (19–61)          | 18 → 8           | own bands                           | Its own patch, often the next valley from iron. A smelting site is two neighbouring fields, never one mixed hex.                                                                                    |
-| Copper ore     | Hills only           | 2–3 (19–37)          | 18 → 8           | own band                            | Keeps "copper belongs to rolling ground, iron and coal to the tops", which is what the `Hills` doc comment already promises.                                                                        |
-| Stone          | Highland             | 3–5 (37–91)          | 12 flat          | Highland + Cliff                    | Scree around mountains. Cliff hexes are members and are unworkable; the buildable rim is where you quarry — so v0.11's extraction-radius lesson survives intact, at fifty times the current supply. |
-| Wood           | Lowland              | 4–6 (61–127)         | **3 → 1**        | own band                            | A forest: roughly 150–250 units across a large area, renewable through the `regrowth_ticks` the item already carries, with a soft edge.                                                             |
-| Clay           | Lowland, Shore       | 2–3 (19–37)          | 14 flat          | own bands, `member_water_within: 2` | Riverbanks and lake shores. Depends on rivers existing, which is why the two ship together.                                                                                                         |
-| Sand           | Shore                | 3–5, heavily clipped | 16 flat          | Shore only, ocean gate              | The disc clipped to coastline yields a beach strip rather than a blob.                                                                                                                              |
-| Signal crystal | Highland             | 1 (7)                | 10 flat          | own band                            | Rare, finite, remote, and never guaranteed near spawn. With v0.23 making it machine-only, it is a genuine prize.                                                                                    |
-
-Two notes the next session should not have to rediscover:
-
-- **Wood at 3 per cell is a rate change, not only a shape change.** A base extractor covers seven
-  hexes, so it drains 21 wood and then runs at whatever regrowth supplies across those seven cells;
-  at `regrowth_ticks: 90` that is one unit per ~13 ticks against an extraction cadence of 5. The
-  extractor spends most of its life starved. That is not obviously wrong — it makes forestry a
-  question of area rather than of throughput, and it makes the deep extractor's nineteen cells the
-  forestry upgrade — but it **must be measured before it is called a design**, and it is the reason
-  `regrowth_ticks` may need to move in this milestone rather than in v0.23.
-- **Stone is deliberately the cheapest material to find and the least valuable per hex.** It is
-  structural, it is in every construction cost, and the current 18-cell figure is why nobody builds
-  with it. Flat 12 across a 37–91 hex field is the fix.
-
-### The landing clearing stops being a supermarket
-
-`LANDING_FIELD` is a hardcoded list of eight single cells, one of every material, inside
-`LANDING_CLEAR_RADIUS`. That, and not the generator, is why every material is visible in the first
-minute. It is the sample platter the roadmap decision already named, sitting in a constant.
-
-Replace it with a **bootstrap pass**: a pure function `bootstrap_sites(params, seed) -> BTreeMap<(i32,
-i32), SiteOverride>` that spirals outward from the landing site over site cells in a fixed order and,
-for each guaranteed material, claims the first cell whose center band admits that material and whose
-distance falls inside a stated window. A claimed cell is forced to that material at `radius_max`.
-
-| Guarantee      | Window                | Why that window                                                      |
-| -------------- | --------------------- | -------------------------------------------------------------------- |
-| Iron patch     | 9–14                  | The first extractor, in sight of the hub.                            |
-| Forest edge    | 9–14                  | Fuel and timber, and the first thing a player walks into.            |
-| Coal field     | 15–25                 | A short walk, chosen rather than stumbled on.                        |
-| Stone field    | 15–25                 | Same.                                                                |
-| Clay on water  | 15–25                 | Carries a river or shore with it, which is also the first pump site. |
-| Copper field   | 25–40                 | The second metal is an expedition, not an errand.                    |
-| Sand           | wherever the coast is | Not guaranteed by distance; the ocean gate decides.                  |
-| Signal crystal | **never**             | It is the reason to leave.                                           |
-
-Constraints that make this correct rather than merely deterministic:
-
-- A window is a floor as well as a ceiling. Centers sit at `distance >= radius + 8` so a guaranteed
-  disc cannot reach inside the clearing, whose field suppression stays exactly as it is.
-- If a window finds nothing, widen it in fixed steps to a hard cap and then **fail loudly**. A
-  preset
-  that cannot bootstrap is the failure the survey exists to make visible, not something to paper over
-  — `highlands` has almost no Shore band and is the case that will find this.
-- The table is derived state on the same terms as the site cache: recomputed from `(params, seed)`,
-  never saved, never hashed. The free function is shared by `Core` and by `survey`, so a surveyed
-  world and a played world cannot disagree.
-
-### Parameters, presets, and the control surface
-
-New scalars on `WorldParams`, all hashed by `hash_world_params`, all validated by
-`WorldParams::validate`, all bounded the way `MAX_FEATURE_CELL` bounds the existing cells:
-`site_cell`, `site_jitter`, `river_cell`, `river_width`, `river_max_elevation`, and the coarse-octave
-threshold the sand gate reads.
-
-The host cannot fall behind by accident: `WorldScalar` is `Exclude<keyof WorldParams, "field_rules">`,
-so every scalar added in Rust is a **typecheck failure** in `src/main.ts` until
-`WORLD_PARAMETER_FIELDS` grows a labelled, range-checked control for it. Keep it that way; do not
-widen the type to make the error go away.
-
-`relaxed()` goes. It eased per-hex gates on one band, and there are no per-hex gates left to ease. A
-preset that makes a band scarce now compensates by raising that band's `weight` and `radius_max` in
-its own rule rows, which is both more direct and more honest — the survey can see it.
-
-All four presets are re-authored against the new survey, `continental` included. The default is the
-world being complained about, so "the shipped default is version 5's frozen numbers" stops being a
-virtue here and becomes the thing to fix.
-
-### What moves
-
-- `WORLD_GENERATOR_VERSION` 6 → 7. Every existing save is refused, which is the established and
-  correct behaviour, and the named-save catalog already shows the row rather than hiding it.
-- `fixtures/balance.json`: the `access` section, and every site-yield figure. Rivers make water and
-  hydro available far more widely, so the openings move too.
-- Rust tests that must be rewritten rather than nudged:
-  `every_material_is_generated_where_its_geography_says_it_should_be`,
-  `every_preset_reaches_every_material_from_the_landing_site` (becomes a bootstrap-window assertion
-  per preset), `generated_fields_follow_terrain_and_only_the_overlay_is_state`,
-  `parameter_sets_that_are_not_worlds_are_refused`, `feature_scale_makes_seas_and_sea_level_only_makes_more_ponds`,
-  `every_recipe_input_is_reachable_from_the_landing_site`, and
-  `cut_flora_grows_back_to_what_generation_gave_it_and_then_stops`.
-  `field_rule_order_decides_which_band_holds_what` is retired — row order stops being a generation
-  input in that sense — and a purity test replaces it.
-- `a_save_restores_the_parameters_its_world_was_generated_from` must cover the new scalars and the
-  rule table's new fields, or a parameter can drift across a save without anything noticing.
-- `chunk_generation_is_order_independent_and_seeded` is the test that catches a site cache leaking
-  order-dependence into generation. Do not let it stay unchanged and unexamined.
-
-### Acceptance
-
-- The survey reports patch statistics, and **purity is at least 950 per mille** on every shipped
-  preset. The before figures are recorded in this document alongside the after.
-- Every preset produces iron, coal, copper, and stone patches of at least 19 hexes, and forests of
-  at
-  least 61, within the sample.
-- Standing one base extractor anywhere inside a patch of at least 19 hexes yields one material only.
-- Rivers appear, reach water or terminate at the highland gate, and are reported separately from
-  bodies in the survey.
-- Sand patches sit against measurably large water; the survey prints the nearest body size per sand
-  patch and it is not a pond.
-- A new world guarantees iron and forest within 14 hexes and coal, stone, and clay within 25, on
-  every preset and on ten sampled seeds — and no preset guarantees crystal.
-- Generation stays a pure function of parameters, seed, and hex. The site cache and the bootstrap
-  table are never saved, hashed, or checksummed, and a test asserts the cached and uncached generators
-  agree.
-- `npm run bench` is re-run and recorded, because the world generator moved. No claim beyond a
-  measured tier.
+works — was exactly what v0.21 had to do anyway for fields to mean anything, so it moved forward into
+v0.21 and shipped there. What stays at v0.25 is the half that is a play system rather than a
+generator.
 
 ## Then — Crossings and Canopy v0.22
 
@@ -948,6 +633,42 @@ both test suites say so.
 One line per release, newest first. The reasoning behind a shipped rule lives in the git history of
 this file and in the code that implements it; what follows is the index.
 
+- **v0.21** Landforms and Fields — **A deposit is a site, not a hex.** The world is partitioned by a
+  `site_cell` lattice; each cell hashes to at most one site — a jittered centre, one weighted rule,
+  one radius — and a hex belongs to the nearest site whose disc covers it and whose `member` bands
+  it satisfies, ties broken by lattice cell. Yield falls from core to rim. `FieldRule` became
+  `SiteRule`, row order stopped being a generation input, and `relaxed()` went with the per-hex
+  gates it eased — a preset now compensates in `weight` and `radius_max`, which the survey can see
+  and a gate never could. The lattice is cached on `Core`; the field never is.
+
+  Rivers are ridge noise rather than a simulation, `ShallowWater` cut after the band test and before
+  the cliff test. Beaches ask the coarse elevation octave alone whether a coast is ocean. The eight
+  hardcoded clearing cells are gone: a `bootstrap` pass spirals over lattice cells and guarantees
+  iron and forest within 14, coal, stone, and clay within 25, and copper within 40 — never sand,
+  never crystal — widening a window in fixed steps and then refusing the world. Generator 7.
+
+  **What it was measured against.** Purity is the share of resource hexes whose radius-1 disc holds
+  one material, which is what decides whether an extractor works a field or straddles two. Target
+  950; the shipped seed at radius 96:
+
+  | preset        | purity before | purity after | worst before | worst after              |
+  | ------------- | ------------: | -----------: | ------------ | ------------------------ |
+  | `continental` |           532 |          971 | stone 0      | sand 895                 |
+  | `archipelago` |           474 |          965 | wood 36      | sand 940                 |
+  | `highlands`   |           662 |          990 | crystal 28   | clay 977                 |
+  | `basin`       |           631 |          992 | crystal 71   | crystal 809 _(21 cells)_ |
+
+  Stone had **no workable patch anywhere in 26,307 land hexes** on `continental` before this — its
+  largest patch was 3 hexes against a base extractor's 7 — and neither did wood on `archipelago`.
+  Every preset now clears 19 hexes for iron, coal, copper, and stone and 61 for forests, and every
+  material has a patch an extractor can be stood on. `archipelago`'s landform scale moved from 4 to
+  5 and its blend from 45 to 52, because at the old numbers no band held a contiguous run wider than
+  a deposit and every disc came out a crescent.
+
+  Generation cost 1.42 µs/hex against 0.52 µs for the model it replaced, on the same harness — the
+  site lattice cache is what keeps that from being ~350 noise samples per hex. The capacity ladder is
+  flat, as it must be: its scenario never generates.
+
 - **WebGL2 renderer** (unreleased, 2026-08-20) — The world and the minimap draw as instanced GPU
   geometry with the camera as a uniform, so walking no longer restamps the terrain mosaic; a Canvas
   2D overlay keeps the player, labels, and machine decorations. Fixes the 4 tps sluggishness
@@ -1064,19 +785,32 @@ this file and in the code that implements it; what follows is the index.
 
 ## Reference — the shipped presets, as measured
 
-From `npm run survey` at seed 1,213,486,160 and radius 96 (27,937 hexes). Bands in parts per
-thousand; water as bodies / mean body / largest body; "furthest" is the distance from the landing
-site to the most distant of the eight materials. **v0.21 re-authors all four presets**, so this table
-is the before-figure that change is measured against.
+From `npm run survey` at seed 1,213,486,160 and radius 96 (27,937 hexes), as re-authored for v0.21.
+Bands in parts per thousand; water as bodies / mean body / largest body, **rivers excluded** so that
+`largest body` still means ocean; rivers as hexes / runs / longest run.
 
-| preset      | water | shore | lowland | hills | highland | cliff |   water bodies | furthest material |
-| ----------- | ----: | ----: | ------: | ----: | -------: | ----: | -------------: | ----------------: |
-| Continental |    57 |   126 |     345 |   324 |      138 |     7 |  191 / 8 / 104 |                23 |
-| Archipelago |   230 |   175 |     274 |   207 |       81 |    29 | 575 / 11 / 179 |                23 |
-| Highlands   |    10 |    26 |     216 |   398 |      315 |    32 |    41 / 7 / 46 |                32 |
-| Basin       |   103 |   131 |     365 |   260 |      106 |    31 | 28 / 103 / 997 |                25 |
+| preset      | water | shore | lowland | hills | highland | cliff |   water bodies |          rivers | purity |
+| ----------- | ----: | ----: | ------: | ----: | -------: | ----: | -------------: | --------------: | -----: |
+| Continental |    91 |   126 |     330 |   305 |      138 |     7 |  191 / 8 / 104 |   949 / 82 / 46 |    971 |
+| Archipelago |   245 |   178 |     265 |   214 |       85 |    10 | 449 / 15 / 410 |               — |    965 |
+| Highlands   |    54 |    26 |     201 |   371 |      315 |    30 |    41 / 7 / 46 | 1223 / 61 / 162 |    990 |
+| Basin       |   132 |   131 |     350 |   248 |      106 |    30 | 28 / 103 / 997 |   810 / 40 / 86 |    992 |
+
+Two things this table is the evidence for, and one it is a warning about.
 
 `cliff_step` is a gradient threshold and a gradient scales with feature size, so a step tuned for
 Continental's cell 8 means "sheer" at cell 4 and "nothing is ever steep" at cell 20. That is what
 made Basin generate zero stone and Archipelago read 182 per mille cliff on their first draft, and it
 is the class of error the survey exists to catch.
+
+The beach proxy is doing what it claims. `basin` is the ocean preset — 28 bodies, mean 103, largest
+997 — and the mean size of the body nearest one of its sand patches is **336**. `continental` has no
+ocean to find (191 bodies, mean 8) and its sand sits against a mean nearest body of **27**, which is
+still three times the sample mean but is a large pond rather than a sea. The gate is honest; that
+preset simply has no coast worth the name, and if that is ever to change it is `elevation_coarse_cell`
+and `elevation_coarse_weight` that have to move, not `ocean_level`.
+
+`highlands` carries `ocean_level: 22_000` against a `water_level` of 12_000, which reads wrong until
+you count its water: 41 bodies, the largest 46 hexes. A gate its own basins cannot clear does not
+make its beaches rarer, it deletes sand from the world — and it did, in the first draft. The cut
+sits where the largest water this preset has will pass it.

@@ -152,20 +152,34 @@ export interface Scenarios {
 }
 
 /**
- * One row of the generator's resource table. Rows are evaluated in declared order and the first
- * match wins, so the order is part of the world: clay is the leftover of the band wood takes
- * first, and it says so by being the later row.
+ * One row of the generator's resource table: what a *deposit* is made of, how wide it is, and
+ * where its centre may stand.
  *
- * `-1` on a gate means the rule is not asking about that channel at all.
+ * A deposit is a **site** rather than a per-hex decision, so a row no longer competes with the
+ * others hex by hex — the lattice picks one rule per site, which is what makes a patch one
+ * material by construction. Row order is not a generation input.
+ *
+ * `-1` on `site_min` means the rule is not asking about the richness channel at all.
  */
-export interface FieldRule {
+export interface SiteRule {
   terrain: Terrain;
   item_id: number;
-  moisture_min: number;
-  richness_min: number;
-  vein_min: number;
-  base: number;
-  spread: number;
+  /** Relative share among the rules eligible for a band. Zero means never. */
+  weight: number;
+  /** Inclusive radius range in hexes. A disc of radius R holds 3R² + 3R + 1 hexes. */
+  radius_min: number;
+  radius_max: number;
+  site_min: number;
+  /** Yield at the centre and at the rim, interpolated by distance and then jittered. */
+  yield_core: number;
+  yield_rim: number;
+  yield_jitter: number;
+  /** Bands a hex must itself be in to belong to the site. Empty means the rule's own band. */
+  member: Terrain[];
+  /** A member hex must also be this many hexes from water. `0` disables it. */
+  member_water_within: number;
+  /** The centre must stand against ocean rather than against any pond. */
+  center_ocean: boolean;
 }
 
 /**
@@ -182,14 +196,22 @@ export interface WorldParams {
   elevation_coarse_weight: number;
   moisture_cell: number;
   richness_cell: number;
-  vein_cell: number;
   water_level: number;
   shore_level: number;
   hills_level: number;
   highland_level: number;
   cliff_step: number;
   deep_water_moisture: number;
-  field_rules: FieldRule[];
+  /** How far apart deposits stand, and how far a site centre may wander inside its own cell. */
+  site_cell: number;
+  site_jitter: number;
+  /** How far apart rivers run, how wide one is (`0` is a world without them), where they stop. */
+  river_cell: number;
+  river_width: number;
+  river_max_elevation: number;
+  /** The cut the coarse elevation octave alone is read against when a rule asks for ocean. */
+  ocean_level: number;
+  site_rules: SiteRule[];
 }
 
 /** A named parameter set. The preset is what a player picks; the parameters are behind it. */

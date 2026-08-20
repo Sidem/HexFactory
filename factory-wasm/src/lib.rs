@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::cell::RefCell;
 #[cfg(test)]
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet};
@@ -47,7 +48,13 @@ const SAVE_VERSION: u16 = 10;
 /// Bumped to 6 for World Parameters. `WorldParams` is now part of a run's identity — it is in the
 /// save envelope and in the checksum — so a version-5 envelope carries no answer to the question
 /// "which world is this" and is rejected rather than assumed to be the default.
-const WORLD_GENERATOR_VERSION: u16 = 6;
+///
+/// Bumped to 7 for Landforms and Fields. A deposit is a **site** now rather than a per-hex
+/// decision, rivers cut inland water, and the guaranteed opening is placed by the generator instead
+/// of by a hardcoded list of eight cells inside the clearing. Every one of those changes what a
+/// seed generates, so a version-6 envelope describes a landscape this build cannot reproduce and is
+/// rejected rather than reinterpreted. The named-save catalog shows the row rather than hiding it.
+const WORLD_GENERATOR_VERSION: u16 = 7;
 const MAX_COMMANDS_PER_BATCH: usize = 8;
 /// A drag is one bounded command, so the run it expands into has to be bounded too. This is the
 /// native cap on cells a single `place_line` or `erase_line` may touch.
@@ -1216,6 +1223,10 @@ struct Core {
     /// What the world is generated from. Saved and checksummed beside the seed, because the two
     /// answer the same question together and neither answers it alone.
     world_params: WorldParams,
+    /// The resource field derived from `world_params` and `seed`, with its site lattice and its
+    /// bootstrap table cached. Derived state under the same rule as `deposit_links`: never saved,
+    /// never hashed, never checksummed, and rebuilt whenever the world it is derived from changes.
+    fields: WorldFields,
     generated_chunks: BTreeSet<(i32, i32)>,
     tiles: BTreeMap<(i32, i32), TileState>,
     /// Deposit references resolved per extractor entity id, so a running extractor never scans the
@@ -1296,6 +1307,18 @@ impl Core {
                 .unwrap_or_else(default_world_params),
         };
         world_params.validate(definitions)?;
+        let fields = WorldFields::new(&world_params, seed);
+        // A world whose opening cannot be placed is refused here rather than papered over. It is
+        // the one generator failure a validator cannot see — `validate` is asked before a seed
+        // exists — and shipping it would mean a run that cannot reach its own first extractor.
+        if scenario.generated_environment {
+            if let Some(&(item_id, gave_up_at)) = fields.unmet.first() {
+                return Err(format!(
+                    "this world guarantees no item {item_id} within {gave_up_at} hexes of the \
+                     landing site"
+                ));
+            }
+        }
         let mut inventory = BTreeMap::new();
         add_ingredients(&mut inventory, &scenario.initial_inventory);
         let mut core = Self {
@@ -1304,6 +1327,7 @@ impl Core {
             scenario: scenario.clone(),
             seed,
             world_params,
+            fields,
             generated_chunks: BTreeSet::new(),
             tiles: BTreeMap::new(),
             deposit_links: BTreeMap::new(),
@@ -1807,13 +1831,8 @@ impl Core {
         if let Some(resource) = self.scenario_resources.get(&(q, r)) {
             return Some(resource.clone());
         }
-        field_at(
-            &self.world_params,
-            self.seed,
-            q,
-            r,
-            self.scenario.generated_environment,
-        )
+        self.fields
+            .field_at(q, r, self.scenario.generated_environment)
     }
 
     fn ensure_tile(&mut self, q: i32, r: i32) {
@@ -4745,6 +4764,9 @@ impl Core {
         validate_saved_state(definitions, technologies, scenario, &envelope.state)?;
         core.seed = envelope.state.seed;
         core.world_params = envelope.state.world_params;
+        // The lattice and the bootstrap table are derived from exactly these two, so they are
+        // rebuilt the moment either moves rather than carried in the file.
+        core.fields = WorldFields::new(&core.world_params, core.seed);
         core.generated_chunks = envelope
             .state
             .generated_chunks
@@ -6170,30 +6192,104 @@ const NOISE_MAX: i32 = 65_535;
 /// that shows up once in a billion hexes and never reproduces.
 const ANY: i32 = -1;
 
-/// One row of the resource table: the band it applies to, the gates a hex must clear, and what it
-/// then holds. Rows are evaluated in declared order and the first match wins, so the order is
-/// load-bearing — clay's richness gate sits below wood's, and if wood were asked second it would
-/// take every cell clay is meant to be the leftover of. That used to be a comment on a `match`
-/// arm; as a table it is the row order itself, and `validate` says so out loud.
-#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
-struct FieldRule {
+/// One row of the resource table: what a *deposit* is made of, how wide it is, and where its
+/// centre is allowed to stand.
+///
+/// v0.21 moved the unit of a deposit from the hex to the **site**. The row this replaced decided
+/// each hex on its own from three noise channels, so a patch's size and a patch's purity were
+/// emergent accidents of channel cell size and gate height — neither controllable, nor
+/// defaultable, nor measurable. The mixed-material case was the proof: iron gated on richness and
+/// coal on vein, two *independent* channels, so wherever both ran high the two alternated hex by
+/// hex and an extractor placed there covered both and cleanly worked neither. No pair of numbers
+/// fixes that, because the two numbers are not asking one question.
+///
+/// Rows no longer compete per hex. The lattice picks one rule per site, so **one material per
+/// patch** is a property of the model rather than a figure that was tuned into place.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+struct SiteRule {
+    /// The band the site's *centre* must stand in for this rule to be eligible.
     terrain: Terrain,
     item_id: ItemId,
-    /// Exclusive lower gates on the three channels. `ANY` disables one.
+    /// Relative share among the eligible rules for a band. Zero means never — which is how a
+    /// preset drops a material from a band without deleting the row that documents it.
+    weight: u32,
+    /// Inclusive radius range, in hexes. A disc of radius R holds 3R² + 3R + 1 hexes: 7, 19, 37,
+    /// 61, 91, 127 at radius 1 through 6.
+    radius_min: u32,
+    radius_max: u32,
+    /// Exclusive lower gate on the richness channel at the *centre*, so the world still has rich
+    /// and poor country. `ANY` disables it, on the same reasoning `ANY` already carries.
     #[serde(default = "any_gate")]
-    moisture_min: i32,
-    #[serde(default = "any_gate")]
-    richness_min: i32,
-    #[serde(default = "any_gate")]
-    vein_min: i32,
-    /// Quantity is `base + hash % spread`, so `spread` is at least 1.
-    base: u32,
-    spread: u32,
+    site_min: i32,
+    /// Yield at the centre and at the rim, interpolated linearly by distance and then jittered.
+    yield_core: u32,
+    yield_rim: u32,
+    /// Per-hex jitter on the interpolated yield, at least 1: `base + hash % spread` semantics.
+    /// Keep it small enough that the core still reads as a core.
+    yield_jitter: u32,
+    /// Bands a hex must itself be in to belong to this site. Empty means the rule's own band. This
+    /// is the clipping that makes a beach a strip and a scree field hug its cliffs.
+    #[serde(default)]
+    member: Vec<Terrain>,
+    /// If set, a member hex must also be within this many hexes of water. `0` disables it.
+    #[serde(default)]
+    member_water_within: u32,
+    /// If set, the centre must stand against *ocean* rather than against any pond: the coarse
+    /// elevation octave alone — which is what makes a body big, established and proved in v0.16 —
+    /// has to dip below `ocean_level` within `OCEAN_PROBE_RADIUS` of the centre.
+    ///
+    /// This is a proxy rather than a measurement, deliberately. The map is unbounded and generated
+    /// lazily, so nothing here may flood-fill to find out how large a body is. The survey is what
+    /// verifies it: it reports the size of the water body nearest each patch of an ocean-gated
+    /// material, and a pond-sized number there means the proxy is wrong.
+    #[serde(default)]
+    center_ocean: bool,
 }
 
 fn any_gate() -> i32 {
     ANY
 }
+
+/// The guaranteed opening, keyed by the lattice cell each promise claimed.
+type BootstrapTable = BTreeMap<(i32, i32), Site>;
+
+/// One step of the bootstrap pass's outward spiral: how far a lattice cell's centre stands from the
+/// landing site, the cell, and that centre. Sorted, so the distance leads and the cell breaks ties.
+type SpiralStep = (i32, (i32, i32), (i32, i32));
+
+/// One deposit, resolved from the lattice cell that owns it. Derived from `(params, seed, cell)`
+/// and nothing else, which is what lets the lattice be cached.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Site {
+    center: (i32, i32),
+    /// Index into the parameter set's rule table.
+    rule: usize,
+    radius: i32,
+}
+
+/// The salt the site lattice hashes under, kept clear of every noise octave so which material a
+/// deposit holds never correlates with the elevation under it.
+const SITE_SALT: u32 = 0x5175E;
+/// The row every derived field of a cell hash is drawn on.
+const SITE_FIELD_ROW: i32 = 0x517E;
+/// The octave the river channel is sampled on.
+const RIVER_OCTAVE: u32 = 0xF10DE;
+/// The octave the richness channel is sampled on. It gates a site's *centre* now rather than every
+/// hex, which is what leaves the world with rich and poor country without deciding materials.
+const RICHNESS_OCTAVE: u32 = 0x0E55;
+/// How far from an ocean-gated centre the coarse octave is probed for open sea.
+const OCEAN_PROBE_RADIUS: i32 = 2;
+/// The largest radius a rule may claim, and the largest wander a centre may take inside its cell.
+/// `field_at` scans every lattice cell within reach of a hex and reach grows with both, so a
+/// parameter set is not allowed to make that scan unbounded — the same judgement `MAX_FEATURE_CELL`
+/// already makes about a lattice stride.
+const MAX_SITE_RADIUS: u32 = 8;
+const MAX_SITE_JITTER: i32 = 16;
+/// The hexes a base extractor covers, and so the smallest patch worth standing one on: a disc of
+/// radius R holds 3R² + 3R + 1 hexes, which is 7 at the reach the hand and the base extractor
+/// share. Derived from the reach rather than written down, so raising one moves the other.
+const WORKABLE_PATCH_HEXES: u32 =
+    (3 * EXTRACT_RADIUS * EXTRACT_RADIUS + 3 * EXTRACT_RADIUS + 1) as u32;
 
 /// The knobs a world is generated from.
 ///
@@ -6217,7 +6313,6 @@ struct WorldParams {
     elevation_coarse_weight: i32,
     moisture_cell: i32,
     richness_cell: i32,
-    vein_cell: i32,
     /// Band cuts on the noise scale, in ascending order.
     water_level: i32,
     shore_level: i32,
@@ -6227,7 +6322,21 @@ struct WorldParams {
     cliff_step: i32,
     /// Water wetter than this is deep.
     deep_water_moisture: i32,
-    field_rules: Vec<FieldRule>,
+    /// The lattice a deposit is drawn on. One site cell holds at most one site, so this is how far
+    /// apart deposits stand; `site_jitter` is how far a centre may wander inside its own cell, so
+    /// that a world of deposits is not a world on a visible grid.
+    site_cell: i32,
+    site_jitter: i32,
+    /// Rivers. `river_cell` is how far apart they run, `river_width` is the half-width of the band
+    /// the channel is read against and so how wide a river is — `0` is a world without rivers —
+    /// and `river_max_elevation` is where they stop, so no river runs over a summit.
+    river_cell: i32,
+    river_width: i32,
+    river_max_elevation: i32,
+    /// The cut the *coarse* elevation octave alone is read against when a rule asks for ocean.
+    /// A pond exists only in the fine octave and fails it; an ocean coast passes.
+    ocean_level: i32,
+    site_rules: Vec<SiteRule>,
 }
 
 impl WorldParams {
@@ -6240,7 +6349,8 @@ impl WorldParams {
             ("elevation_fine_cell", self.elevation_fine_cell),
             ("moisture_cell", self.moisture_cell),
             ("richness_cell", self.richness_cell),
-            ("vein_cell", self.vein_cell),
+            ("site_cell", self.site_cell),
+            ("river_cell", self.river_cell),
         ];
         for (name, cell) in cells {
             if !(1..=MAX_FEATURE_CELL).contains(&cell) {
@@ -6277,21 +6387,57 @@ impl WorldParams {
         if !(ANY..=NOISE_MAX).contains(&self.deep_water_moisture) {
             return Err("world parameter deep_water_moisture is outside the noise range".into());
         }
-        if self.field_rules.is_empty() {
-            return Err("world parameters need at least one field rule".into());
+        if !(0..=MAX_SITE_JITTER).contains(&self.site_jitter) {
+            return Err(format!(
+                "world parameter site_jitter must be between 0 and {MAX_SITE_JITTER}"
+            ));
         }
-        for rule in &self.field_rules {
+        for (name, level) in [
+            ("river_width", self.river_width),
+            ("river_max_elevation", self.river_max_elevation),
+            ("ocean_level", self.ocean_level),
+        ] {
+            if !(0..=NOISE_MAX).contains(&level) {
+                return Err(format!("world parameter {name} is outside the noise range"));
+            }
+        }
+        if self.site_rules.is_empty() {
+            return Err("world parameters need at least one site rule".into());
+        }
+        // A site rule that could name a water band would make the cheap water test `field_at`
+        // opens with unsound, and a deposit in a basin is not a thing a pump or an extractor can
+        // reach anyway. Refusing it here is what lets the fast path skip the band decision.
+        let dry = |terrain: Terrain| !terrain.is_water();
+        let mut placeable = false;
+        for rule in &self.site_rules {
             if !definitions.items.iter().any(|item| item.id == rule.item_id) {
-                return Err(format!("field rule names unknown item {}", rule.item_id));
+                return Err(format!("site rule names unknown item {}", rule.item_id));
             }
-            if rule.spread == 0 {
-                return Err("field rule spread must be at least 1".into());
+            if !dry(rule.terrain) || !rule.member.iter().copied().all(dry) {
+                return Err("a site rule may not name a water band".into());
             }
-            for gate in [rule.moisture_min, rule.richness_min, rule.vein_min] {
-                if !(ANY..=NOISE_MAX).contains(&gate) {
-                    return Err("field rule gate is outside the noise range".into());
-                }
+            if rule.radius_min == 0 || rule.radius_min > rule.radius_max {
+                return Err("site rule radii must ascend from at least 1".into());
             }
+            if rule.radius_max > MAX_SITE_RADIUS {
+                return Err(format!(
+                    "site rule radius_max may not exceed {MAX_SITE_RADIUS}"
+                ));
+            }
+            // Yield is `interpolated + hash % yield_jitter`, so a zero jitter is a division by zero.
+            if rule.yield_jitter == 0 {
+                return Err("site rule yield_jitter must be at least 1".into());
+            }
+            if rule.yield_core == 0 || rule.yield_rim == 0 {
+                return Err("site rule yields must be at least 1".into());
+            }
+            if !(ANY..=NOISE_MAX).contains(&rule.site_min) {
+                return Err("site rule gate is outside the noise range".into());
+            }
+            placeable |= rule.weight > 0;
+        }
+        if !placeable {
+            return Err("every site rule is weighted zero, so the world holds nothing".into());
         }
         Ok(())
     }
@@ -6342,6 +6488,9 @@ fn terrain_at(
     if elevation < params.shore_level {
         return Terrain::Shore;
     }
+    if is_river(params, seed, q, r, elevation) {
+        return Terrain::ShallowWater;
+    }
     let mut max_step = 0;
     for &(dq, dr) in &DIRECTIONS {
         max_step = max_step.max((elevation - elevation_at(params, seed, q + dq, r + dr)).abs());
@@ -6358,8 +6507,38 @@ fn terrain_at(
     }
 }
 
+/// A river hex, which is inland `ShallowWater` rather than an accident of sea level.
+///
+/// A flow simulation is refused outright: the map is unbounded and generated lazily, so nothing
+/// here may depend on knowing where the water upstream went. A river is instead where a dedicated
+/// channel runs near its own midpoint, which is O(1) per hex, purely local, and fits the pure
+/// `(params, seed, q, r)` contract exactly. `elevation` is passed in because every caller has just
+/// computed it, and it is the gate that stops a river at the highland cut.
+fn is_river(params: &WorldParams, seed: u32, q: i32, r: i32, elevation: i32) -> bool {
+    if params.river_width == 0 || elevation >= params.river_max_elevation {
+        return false;
+    }
+    let channel = value_noise(seed, q, r, params.river_cell, RIVER_OCTAVE);
+    (channel - NOISE_MAX / 2).abs() < params.river_width
+}
+
+/// Water, asked the cheap way.
+///
+/// `terrain_at` samples seven elevations to answer the cliff question and a water test needs none
+/// of them, so the hot paths that only want "is this wet" — the clay clipping and the barren
+/// early-out in `field_at` — ask here instead. It mirrors `terrain_at` exactly, clearing included,
+/// and a test asserts the two never disagree.
+fn is_water_at(params: &WorldParams, seed: u32, q: i32, r: i32) -> bool {
+    if axial_distance((0, 0), (q, r)) <= LANDING_CLEAR_RADIUS {
+        return matches!((q, r), (2, 1) | (2, 2) | (1, 2));
+    }
+    let elevation = elevation_at(params, seed, q, r);
+    elevation < params.water_level
+        || (elevation >= params.shore_level && is_river(params, seed, q, r, elevation))
+}
+
 /// Item ids the generator writes into the world. Generation is content, so these name the shipped
-/// catalog the same way the guaranteed landing cells below do.
+/// catalog the same way the guaranteed opening below does.
 const IRON_ORE: ItemId = 1;
 const CRYSTAL: ItemId = 3;
 const COPPER_ORE: ItemId = 4;
@@ -6369,74 +6548,149 @@ const SAND: ItemId = 7;
 const CLAY: ItemId = 8;
 const WOOD: ItemId = 9;
 
-/// The cells the landing clearing is guaranteed to hold, so the first hour of any seed can reach
-/// every tier-1 recipe on foot. One cell of each material — a site, not a supermarket. Stone sits
-/// on a cliff the player cannot stand on — it is taken from the hex beside it, which is the
-/// cheapest possible lesson in what the extraction radius means.
-const LANDING_FIELD: [(i32, i32, ItemId, u32); 8] = [
-    (3, 0, IRON_ORE, 48),
-    (-2, 2, CRYSTAL, 32),
-    (0, -3, COPPER_ORE, 40),
-    (2, -3, COAL, 28),
-    (1, -1, STONE, 40),
-    (1, 3, SAND, 30),
-    (-1, 3, CLAY, 26),
-    (-3, 1, WOOD, 14),
-];
-
-/// The shipped resource table, in evaluation order. Version 5 carried these as `match` arms and
-/// their numbers are unchanged here, so `continental` is the world the game shipped with.
-fn default_field_rules() -> Vec<FieldRule> {
-    let rule = |terrain, item_id, moisture_min, richness_min, vein_min, base, spread| FieldRule {
-        terrain,
-        item_id,
-        moisture_min,
-        richness_min,
-        vein_min,
-        base,
-        spread,
-    };
+/// The shipped resource table. Order is no longer a generation input — the lattice weights one
+/// rule against the others eligible for a band rather than taking the first that matches — so this
+/// reads top to bottom as the bands do, from the tops to the coast.
+///
+/// Every number here was chosen against `npm run survey`, the way `cliff_step` was chosen in v0.16.
+fn default_site_rules() -> Vec<SiteRule> {
+    let rule =
+        |terrain, item_id, weight, radius_min, radius_max, site_min, core, rim, jitter| SiteRule {
+            terrain,
+            item_id,
+            weight,
+            radius_min,
+            radius_max,
+            site_min,
+            yield_core: core,
+            yield_rim: rim,
+            yield_jitter: jitter,
+            member: Vec::new(),
+            member_water_within: 0,
+            center_ocean: false,
+        };
+    // Iron and coal both belong to the tops and the rolling ground under them, so both name the
+    // pair as members and neither is clipped to the band its centre happened to land in. That is
+    // the whole mixed-material fix seen from the data side: they are separate *sites* now, so two
+    // neighbouring fields is what a smelting site looks like, never one alternating hex.
+    let ore_bands = vec![Terrain::Hills, Terrain::Highland];
     vec![
-        // Cliffs are the exposed rock of a landform, so they are where stone is quarried from.
-        rule(Terrain::Cliff, STONE, ANY, 50_000, ANY, 24, 25),
-        rule(Terrain::Highland, CRYSTAL, 46_000, 56_000, ANY, 10, 15),
-        rule(Terrain::Highland, IRON_ORE, ANY, 54_000, ANY, 16, 21),
-        rule(Terrain::Highland, COAL, ANY, ANY, 56_000, 14, 19),
-        rule(Terrain::Hills, COPPER_ORE, ANY, 54_000, ANY, 16, 21),
-        rule(Terrain::Hills, COAL, ANY, ANY, 56_000, 12, 15),
-        rule(Terrain::Shore, CLAY, 40_000, 52_000, ANY, 14, 19),
-        rule(Terrain::Shore, SAND, ANY, 50_000, ANY, 18, 23),
-        rule(Terrain::Lowland, CRYSTAL, 48_000, 56_000, ANY, 10, 15),
-        // Flora, not a deposit: `regrowth_ticks` on the item is what makes this one renewable.
-        rule(Terrain::Lowland, WOOD, 42_000, 52_000, ANY, 10, 13),
-        // Wetter than the forest band, but not rich enough to grow one — clay is the leftover, so
-        // its richness gate has to sit below wood's, and being a later row is what says so.
-        rule(Terrain::Lowland, CLAY, 46_000, 40_000, ANY, 12, 15),
+        SiteRule {
+            member: ore_bands.clone(),
+            ..rule(Terrain::Highland, IRON_ORE, 34, 3, 4, 28_000, 20, 8, 3)
+        },
+        SiteRule {
+            member: ore_bands.clone(),
+            ..rule(Terrain::Highland, COAL, 26, 2, 4, ANY, 18, 8, 3)
+        },
+        // Scree around mountains. Cliff hexes are members and are unworkable, so the buildable rim
+        // is where you quarry — v0.11's extraction-radius lesson intact, at fifty times the supply
+        // the eighteen cliff cells of version 6 could offer.
+        SiteRule {
+            member: vec![Terrain::Highland, Terrain::Cliff],
+            ..rule(Terrain::Highland, STONE, 26, 3, 5, ANY, 12, 12, 2)
+        },
+        // Rare, finite, remote, and never guaranteed near the landing site. It is the reason to
+        // leave. The rarity is the *radius*: one disc of seven hexes, usually clipped to less. A
+        // richness gate on top of that read as scarcity on `continental` and as absence on
+        // `basin`, whose highland is a tenth of the world — and a material that a preset can
+        // simply not hold is not rare, it is missing.
+        rule(Terrain::Highland, CRYSTAL, 18, 1, 2, ANY, 10, 10, 2),
+        // Copper belongs to rolling ground and iron and coal to the tops, which is what the `Hills`
+        // doc comment already promises. The pair above may spill down into hills; copper never
+        // climbs.
+        rule(Terrain::Hills, COPPER_ORE, 34, 2, 3, 30_000, 18, 8, 3),
+        SiteRule {
+            member: ore_bands,
+            ..rule(Terrain::Hills, COAL, 16, 2, 3, 40_000, 18, 8, 3)
+        },
+        // A forest: 150–250 units across a large area, renewable through the `regrowth_ticks` the
+        // item already carries, with a soft edge. Three per cell is a rate change as well as a
+        // shape change — a base extractor drains its seven hexes and then runs at whatever regrowth
+        // supplies — which is why forestry is a question of area rather than of throughput.
+        rule(Terrain::Lowland, WOOD, 30, 5, 6, ANY, 3, 1, 2),
+        // Riverbanks and lake shores. Rivers are what make this common rather than decorative,
+        // which is why the two ship together.
+        SiteRule {
+            member: vec![Terrain::Lowland, Terrain::Shore],
+            member_water_within: 2,
+            ..rule(Terrain::Lowland, CLAY, 24, 2, 3, ANY, 14, 14, 3)
+        },
+        SiteRule {
+            member: vec![Terrain::Lowland, Terrain::Shore],
+            member_water_within: 2,
+            ..rule(Terrain::Shore, CLAY, 24, 2, 3, ANY, 14, 14, 3)
+        },
+        // Sand sits on real coast, not on the rim of every pond: the disc is clipped to the shore
+        // band, so what survives is a beach strip rather than a blob.
+        SiteRule {
+            center_ocean: true,
+            ..rule(Terrain::Shore, SAND, 40, 3, 5, ANY, 16, 16, 3)
+        },
+        // The same beach, reached from the land side. A shore band is a thin ribbon — 26 per mille
+        // of `highlands` — so a rule that can only start *on* it is a coin flip on how many of a
+        // handful of lattice cells happen to land in the ribbon, and `highlands` lost sand from
+        // the world entirely on that coin flip. A centre just inland clips to exactly the same
+        // strip, and the ocean gate still decides which coast qualifies.
+        SiteRule {
+            member: vec![Terrain::Shore],
+            center_ocean: true,
+            ..rule(Terrain::Lowland, SAND, 10, 3, 5, ANY, 16, 16, 3)
+        },
     ]
 }
 
-/// Lower every gate on one band's rows. A preset that makes a band scarce is not allowed to make
-/// the materials in it unfindable as well: the deposits inside the band it kept get correspondingly
-/// easier to hit. `relief` is in noise units, and `ANY` gates stay `ANY` because a rule that was
-/// not asking about a channel does not start asking now.
-fn relaxed(rules: Vec<FieldRule>, terrain: Terrain, relief: i32) -> Vec<FieldRule> {
-    let ease = |gate: i32| {
-        if gate == ANY {
-            ANY
-        } else {
-            (gate - relief).max(0)
-        }
-    };
+/// The opening a new world guarantees: a material, and the window its patch must fall in.
+///
+/// This replaced `LANDING_FIELD`, a hardcoded list of eight single cells — one of every material —
+/// sitting inside the clearing. That constant, and not the generator, is why every material used
+/// to be visible in the first minute; it was the sample platter the roadmap decision named.
+///
+/// A window is a distance from the landing site to the **nearest hex of the patch**, so it is what
+/// the player actually walks, and its floor is what keeps a guaranteed disc from reaching inside
+/// the clearing whose field suppression stays exactly as it was. Sand is not guaranteed by
+/// distance — the ocean gate decides where a coast is — and crystal is never guaranteed at all.
+const BOOTSTRAP_GUARANTEES: [(ItemId, i32, i32); 6] = [
+    // The first extractor and the first thing a player walks into, both in sight of the hub.
+    (IRON_ORE, 9, 14),
+    (WOOD, 9, 14),
+    // A short walk, chosen rather than stumbled on.
+    (COAL, 15, 25),
+    (STONE, 15, 25),
+    // Carries a river or a shore with it, which is also the first pump site.
+    (CLAY, 15, 25),
+    // The second metal is an expedition, not an errand.
+    (COPPER_ORE, 25, 40),
+];
+
+/// How far a window is widened, per step and in total, when a seed puts nothing inside it. Past
+/// the cap the world is refused rather than papered over: a preset that cannot bootstrap is the
+/// failure the survey exists to make visible.
+const BOOTSTRAP_WIDEN_STEP: i32 = 8;
+const BOOTSTRAP_WIDEN_CAP: i32 = 40;
+
+/// Make one band's deposits commoner and wider.
+///
+/// A preset that makes a band scarce is not allowed to make the materials in it unfindable as
+/// well. `relaxed()` used to buy that by lowering the per-hex gates on the band's rows, and there
+/// are no per-hex gates left to lower — a site is gated at its centre and nowhere else. Weight and
+/// radius are the direct form of the same compensation, and they are the honest one: `npm run
+/// survey` can see a patch that got wider or commoner, and could never see a gate that moved.
+fn favoured(
+    rules: Vec<SiteRule>,
+    terrain: Terrain,
+    weight_gain: u32,
+    radius_gain: u32,
+) -> Vec<SiteRule> {
     rules
         .into_iter()
         .map(|rule| {
-            if rule.terrain != terrain {
+            if rule.terrain != terrain || rule.weight == 0 {
                 return rule;
             }
-            FieldRule {
-                moisture_min: ease(rule.moisture_min),
-                richness_min: ease(rule.richness_min),
-                vein_min: ease(rule.vein_min),
+            SiteRule {
+                weight: rule.weight + weight_gain,
+                radius_max: (rule.radius_max + radius_gain).min(MAX_SITE_RADIUS),
                 ..rule
             }
         })
@@ -6471,14 +6725,23 @@ fn world_presets() -> Vec<WorldPreset> {
                 elevation_coarse_weight: 50,
                 moisture_cell: 7,
                 richness_cell: 5,
-                vein_cell: 4,
                 water_level: 18_000,
                 shore_level: 24_000,
                 hills_level: 33_000,
                 highland_level: 42_000,
                 cliff_step: 14_000,
                 deep_water_moisture: 40_000,
-                field_rules: default_field_rules(),
+                site_cell: 12,
+                site_jitter: 4,
+                // A river network is a wall until v0.22 builds a bridge over it, so density is a
+                // playability number and not only a look. One-hex rivers about `river_cell` apart
+                // means a walk of thirty hexes meets one, and every run still ends where the
+                // highland gate stops it.
+                river_cell: 32,
+                river_width: 1_000,
+                river_max_elevation: 42_000,
+                ocean_level: 15_000,
+                site_rules: default_site_rules(),
             },
         },
         WorldPreset {
@@ -6488,12 +6751,18 @@ fn world_presets() -> Vec<WorldPreset> {
             params: WorldParams {
                 // Small features at a raised sea level: the water is everywhere and none of it is
                 // large. This is the pond end of the scale the milestone rests on.
-                elevation_coarse_cell: 4,
+                //
+                // The scale moved from 4 to 5 and the blend from 45 to 52 when deposits became
+                // sites. At the old numbers no band held a contiguous run wide enough for a
+                // deposit to sit in — the largest copper patch in a 27,937-hex sample was fifteen
+                // hexes against a base extractor's seven — so every disc came out as a crescent
+                // and two neighbouring crescents shared a long seam. Still islands, still the
+                // small end of the scale; simply not shredded below the size of a deposit.
+                elevation_coarse_cell: 5,
                 elevation_fine_cell: 2,
-                elevation_coarse_weight: 45,
+                elevation_coarse_weight: 52,
                 moisture_cell: 6,
                 richness_cell: 5,
-                vein_cell: 4,
                 water_level: 26_000,
                 shore_level: 31_000,
                 hills_level: 38_000,
@@ -6504,8 +6773,33 @@ fn world_presets() -> Vec<WorldPreset> {
                 // feature scale produces, which is the whole reason it is a parameter.
                 cliff_step: 19_000,
                 deep_water_moisture: 44_000,
-                // Broken ground leaves little highland, so what highland survives is worth more.
-                field_rules: relaxed(default_field_rules(), Terrain::Highland, 6_000),
+                // Broken ground clips every disc, so two neighbouring sites meet along a ragged
+                // seam rather than a clean one and purity is what pays for it. A wider lattice is
+                // the direct fix: fewer sites, further apart, each keeping more of its own disc.
+                site_cell: 13,
+                site_jitter: 4,
+                // Scattered water everywhere already; a river network on top of it would leave the
+                // walkable ground in shreds.
+                river_cell: 14,
+                river_width: 0,
+                river_max_elevation: 46_000,
+                // The blend is nearly even here, so a coarse octave that clears the sea cut is the
+                // only thing separating a strait from a puddle.
+                ocean_level: 26_000,
+                // Every band here is scarce or shredded, so every band compensates in its own rows.
+                // The tops survive least, the rolling ground carries the copper nothing else can,
+                // and a forest on an island only reaches a workable size if its disc starts wider.
+                site_rules: favoured(
+                    favoured(
+                        favoured(default_site_rules(), Terrain::Highland, 12, 2),
+                        Terrain::Hills,
+                        8,
+                        2,
+                    ),
+                    Terrain::Lowland,
+                    0,
+                    2,
+                ),
             },
         },
         WorldPreset {
@@ -6518,7 +6812,6 @@ fn world_presets() -> Vec<WorldPreset> {
                 elevation_coarse_weight: 60,
                 moisture_cell: 8,
                 richness_cell: 5,
-                vein_cell: 4,
                 water_level: 12_000,
                 shore_level: 16_000,
                 hills_level: 26_000,
@@ -6528,8 +6821,22 @@ fn world_presets() -> Vec<WorldPreset> {
                 // stone 84 hexes from the landing site.
                 cliff_step: 8_000,
                 deep_water_moisture: 38_000,
+                // Broad slopes carry broad country, so deposits sit further apart and run wider.
+                site_cell: 14,
+                site_jitter: 5,
+                // The preset with the least standing water is the one rivers do the most for: they
+                // are where its clay, its pumps, and its hydro come from.
+                river_cell: 22,
+                river_width: 1_450,
+                river_max_elevation: 36_000,
+                // The one preset with no ocean at all: 41 bodies in a 27,937-hex sample and the
+                // largest of them 46 hexes. A gate its own basins cannot clear does not make its
+                // beaches rarer, it deletes sand from the world — so the cut sits where those
+                // basins pass it. "Sand sits on the largest water this world has" is the honest
+                // reading of the same rule, and the survey prints the body size that says so.
+                ocean_level: 22_000,
                 // Almost no shore band, so the sand and clay it does hold are common inside it.
-                field_rules: relaxed(default_field_rules(), Terrain::Shore, 14_000),
+                site_rules: favoured(default_site_rules(), Terrain::Shore, 40, 2),
             },
         },
         WorldPreset {
@@ -6544,7 +6851,6 @@ fn world_presets() -> Vec<WorldPreset> {
                 elevation_coarse_weight: 78,
                 moisture_cell: 9,
                 richness_cell: 5,
-                vein_cell: 4,
                 water_level: 22_000,
                 shore_level: 27_000,
                 hills_level: 36_000,
@@ -6554,7 +6860,16 @@ fn world_presets() -> Vec<WorldPreset> {
                 // That is exactly the unplayable parameter set the survey exists to catch.
                 cliff_step: 4_000,
                 deep_water_moisture: 40_000,
-                field_rules: default_field_rules(),
+                // The broadest landforms of the four, so a sea coast is long enough to carry a
+                // beach rather than a smear. The lattice stays close to the others: widening it
+                // here thinned the tops until a whole preset could hold no crystal at all.
+                site_cell: 13,
+                site_jitter: 5,
+                river_cell: 34,
+                river_width: 950,
+                river_max_elevation: 45_000,
+                ocean_level: 22_000,
+                site_rules: default_site_rules(),
             },
         },
     ]
@@ -6571,51 +6886,389 @@ fn default_world_params() -> WorldParams {
     preset_params(DEFAULT_PRESET_KEY).expect("the default preset is in the table")
 }
 
-/// The resource field at one hex: a pure function of parameters, seed, and hex, correlated with
-/// the terrain band so that reading the landscape is reading the material map. Only cells an
-/// extractor or a player has actually drawn from are stored; everything here is derived and costs
-/// nothing.
-fn field_at(
+/// One field of a lattice cell's hash. Four are drawn — two for the centre offset, one for the
+/// weighted pick, one for the radius — and they are separate hashes rather than bit slices of one
+/// value, so a weight sum that happens to sit near a power of two is not quietly biased. A site
+/// cell covers `site_cell²` hexes and the lattice is cached, so this is paid once per deposit
+/// rather than once per hex.
+fn site_field(hash: u32, index: i32) -> u32 {
+    coordinate_hash(hash, index, SITE_FIELD_ROW)
+}
+
+fn site_hash(seed: u32, cell: (i32, i32)) -> u32 {
+    coordinate_hash(seed ^ SITE_SALT, cell.0, cell.1)
+}
+
+/// Where in its own cell a site stands. The jitter is what keeps a world of deposits from reading
+/// as a world on a grid.
+fn site_center(params: &WorldParams, hash: u32, cell: (i32, i32)) -> (i32, i32) {
+    let span = (2 * params.site_jitter + 1) as u32;
+    let offset = |index: i32| (site_field(hash, index) % span) as i32 - params.site_jitter;
+    (
+        cell.0 * params.site_cell + offset(0),
+        cell.1 * params.site_cell + offset(1),
+    )
+}
+
+/// Whether the coarse elevation octave alone dips below `ocean_level` near a centre — the proxy
+/// `SiteRule::center_ocean` documents. Coarse-octave water is what makes a body big, so a pond
+/// edge, which exists only in the fine octave, fails this and an ocean coast passes.
+fn center_on_ocean(params: &WorldParams, seed: u32, center: (i32, i32)) -> bool {
+    hexes_in_radius(center, OCEAN_PROBE_RADIUS)
+        .into_iter()
+        .any(|(q, r)| {
+            value_noise(seed, q, r, params.elevation_coarse_cell, 0xA11CE) < params.ocean_level
+        })
+}
+
+/// The rules a centre is eligible for, and the pick among them. Returns an index into the rule
+/// table. `None` means this cell holds no site at all, which is how barren ground stays the common
+/// case.
+fn eligible_rule(params: &WorldParams, seed: u32, hash: u32, center: (i32, i32)) -> Option<usize> {
+    let band = terrain_at(params, seed, center.0, center.1, true);
+    let richness = value_noise(
+        seed,
+        center.0,
+        center.1,
+        params.richness_cell,
+        RICHNESS_OCTAVE,
+    );
+    let mut ocean: Option<bool> = None;
+    let mut admits = |rule: &SiteRule| {
+        if rule.weight == 0 || rule.terrain != band || richness <= rule.site_min {
+            return false;
+        }
+        if rule.center_ocean {
+            // Asked at most once per cell, and only for a rule that got this far.
+            return *ocean.get_or_insert_with(|| center_on_ocean(params, seed, center));
+        }
+        true
+    };
+    let mut total = 0u32;
+    for rule in &params.site_rules {
+        if admits(rule) {
+            total += rule.weight;
+        }
+    }
+    if total == 0 {
+        return None;
+    }
+    let mut pick = site_field(hash, 2) % total;
+    for (index, rule) in params.site_rules.iter().enumerate() {
+        if !admits(rule) {
+            continue;
+        }
+        if pick < rule.weight {
+            return Some(index);
+        }
+        pick -= rule.weight;
+    }
+    None
+}
+
+/// The site a lattice cell holds before the bootstrap pass has its say. A pure function of
+/// `(params, seed, cell)`, which is exactly what lets the lattice be cached.
+fn natural_site(params: &WorldParams, seed: u32, cell: (i32, i32)) -> Option<Site> {
+    let hash = site_hash(seed, cell);
+    let center = site_center(params, hash, cell);
+    let index = eligible_rule(params, seed, hash, center)?;
+    let rule = &params.site_rules[index];
+    let span = rule.radius_max - rule.radius_min + 1;
+    Some(Site {
+        center,
+        rule: index,
+        radius: (rule.radius_min + site_field(hash, 3) % span) as i32,
+    })
+}
+
+/// Whether a site admits one hex, and how far that hex is from its centre.
+///
+/// `band` is passed in because every caller has just computed it and a band decision costs seven
+/// elevation samples. The member test is the clipping that makes a beach a strip rather than a
+/// blob and keeps a scree field against its cliffs.
+fn site_covers(
     params: &WorldParams,
     seed: u32,
+    site: &Site,
     q: i32,
     r: i32,
-    generated_environment: bool,
-) -> Option<ResourceState> {
-    if let Some(&(_, _, item_id, quantity)) = LANDING_FIELD
-        .iter()
-        .find(|&&(cell_q, cell_r, _, _)| cell_q == q && cell_r == r)
+    band: Terrain,
+) -> Option<i32> {
+    let distance = axial_distance(site.center, (q, r));
+    if distance > site.radius {
+        return None;
+    }
+    let rule = &params.site_rules[site.rule];
+    let admitted = if rule.member.is_empty() {
+        band == rule.terrain
+    } else {
+        rule.member.contains(&band)
+    };
+    if !admitted {
+        return None;
+    }
+    if rule.member_water_within > 0
+        && !hexes_in_radius((q, r), rule.member_water_within as i32)
+            .into_iter()
+            .any(|(cell_q, cell_r)| is_water_at(params, seed, cell_q, cell_r))
     {
-        return Some(ResourceState {
-            item_id,
+        return None;
+    }
+    Some(distance)
+}
+
+/// The guaranteed opening, resolved once from `(params, seed)`.
+///
+/// Spirals outward over lattice cells in a fixed order and, for each guarantee, claims the first
+/// unclaimed cell whose centre band admits that material, whose forced disc lands inside the
+/// window, and which actually holds a workable patch once the member test has clipped it. A
+/// claimed cell is forced to that rule at `radius_max`.
+///
+/// Two things make this correct rather than merely deterministic. The window is a floor as well as
+/// a ceiling, so a guaranteed disc can never reach inside the clearing. And a window that finds
+/// nothing widens in fixed steps to a hard cap and then reports the guarantee as unmet, which
+/// `Core::new` refuses the world over — `highlands` has almost no Shore band and is the preset that
+/// will find this.
+///
+/// Derived state on the same terms as the site cache: recomputed from `(params, seed)`, never
+/// saved, never hashed. The free function is shared by `Core`, the survey, and the balance report,
+/// so a surveyed world and a played world cannot disagree about the opening.
+fn bootstrap_sites(params: &WorldParams, seed: u32) -> (BootstrapTable, Vec<(ItemId, i32)>) {
+    let mut claimed: BootstrapTable = BTreeMap::new();
+    let mut unmet = Vec::new();
+    let furthest = BOOTSTRAP_GUARANTEES
+        .iter()
+        .map(|&(_, _, ceiling)| ceiling)
+        .max()
+        .unwrap_or(0)
+        + BOOTSTRAP_WIDEN_CAP;
+    let span = (furthest + MAX_SITE_RADIUS as i32) / params.site_cell + 2;
+    // The spiral, written as a sort rather than as a ring walk. The order has to be fixed and a
+    // hand-rolled ring walk is exactly where that goes wrong; the centre distance is what makes it
+    // a spiral, and the cell breaks every tie so nothing is decided by iteration order.
+    let mut cells: Vec<SpiralStep> = Vec::new();
+    for cell_q in -span..=span {
+        for cell_r in -span..=span {
+            let cell = (cell_q, cell_r);
+            let center = site_center(params, site_hash(seed, cell), cell);
+            cells.push((axial_distance((0, 0), center), cell, center));
+        }
+    }
+    cells.sort_unstable();
+    for &(item_id, floor, ceiling) in &BOOTSTRAP_GUARANTEES {
+        let mut reach = ceiling;
+        let placed = loop {
+            let found = cells.iter().find_map(|&(distance, cell, center)| {
+                if claimed.contains_key(&cell) {
+                    return None;
+                }
+                let index = bootstrap_rule(params, seed, center, item_id)?;
+                let site = Site {
+                    center,
+                    rule: index,
+                    radius: params.site_rules[index].radius_max as i32,
+                };
+                let edge = distance - site.radius;
+                if edge < floor || edge > reach {
+                    return None;
+                }
+                (member_hexes(params, seed, &site) >= WORKABLE_PATCH_HEXES).then_some((cell, site))
+            });
+            if let Some(found) = found {
+                break Some(found);
+            }
+            if reach >= ceiling + BOOTSTRAP_WIDEN_CAP {
+                break None;
+            }
+            reach += BOOTSTRAP_WIDEN_STEP;
+        };
+        match placed {
+            Some((cell, site)) => {
+                claimed.insert(cell, site);
+            }
+            None => unmet.push((item_id, ceiling + BOOTSTRAP_WIDEN_CAP)),
+        }
+    }
+    (claimed, unmet)
+}
+
+/// The rule a guaranteed cell is forced to: the first row for this material whose band the centre
+/// stands in and whose ocean gate it clears. The richness gate is deliberately *not* asked — a
+/// guarantee that poor country could veto is not a guarantee.
+fn bootstrap_rule(
+    params: &WorldParams,
+    seed: u32,
+    center: (i32, i32),
+    item_id: ItemId,
+) -> Option<usize> {
+    let band = terrain_at(params, seed, center.0, center.1, true);
+    params.site_rules.iter().position(|rule| {
+        rule.weight > 0
+            && rule.item_id == item_id
+            && rule.terrain == band
+            && (!rule.center_ocean || center_on_ocean(params, seed, center))
+    })
+}
+
+/// How many hexes a site actually admits once its member test has clipped the disc. A guarantee
+/// that lands a highland rule on a peak with nothing around it is not a guarantee, so the
+/// bootstrap pass asks this before it claims a cell.
+fn member_hexes(params: &WorldParams, seed: u32, site: &Site) -> u32 {
+    hexes_in_radius(site.center, site.radius)
+        .into_iter()
+        .filter(|&(q, r)| {
+            !is_water_at(params, seed, q, r)
+                && axial_distance((0, 0), (q, r)) > LANDING_CLEAR_RADIUS
+                && site_covers(
+                    params,
+                    seed,
+                    site,
+                    q,
+                    r,
+                    terrain_at(params, seed, q, r, true),
+                )
+                .is_some()
+        })
+        .count() as u32
+}
+
+/// The resource field of one world: a pure function of parameters, seed, and hex, with the lattice
+/// those answers are derived from cached.
+///
+/// The cache is the site lattice and never the field. `field_at` is not only called during
+/// `generate_chunk` — `deposit_candidates` walks a whole disc, and `resource_at_world`, both
+/// gathers, and every snapshot build reach it — and the naive form evaluates every lattice cell
+/// within reach per hex, each one deciding a band, which is roughly 350 noise samples per hex and
+/// is not shippable. A site cell is `site_cell²` hexes, so the map stays small and every hex in a
+/// chunk hits it warm.
+///
+/// Both the lattice and the bootstrap table are derived state under the existing invariant: never
+/// saved, never hashed, never checksummed, rebuilt whenever the world changes, exactly as
+/// `deposit_links` is.
+struct WorldFields {
+    params: WorldParams,
+    seed: u32,
+    /// How far from the cell holding a hex a site may still reach it, in lattice cells.
+    ///
+    /// A site's centre sits inside its own cell plus `site_jitter`, and `axial_distance <= radius`
+    /// implies each axial component is at most `radius`, so a cell more than
+    /// `(radius_max + site_jitter + site_cell - 1) / site_cell` away cannot cover the hex. That is
+    /// a derivation rather than a margin: a reach one cell short loses deposits silently.
+    reach: i32,
+    bootstrap: BootstrapTable,
+    /// Guarantees the bootstrap pass could not place, with the distance it gave up at, so a caller
+    /// can refuse the world instead of shipping a world that cannot be opened.
+    unmet: Vec<(ItemId, i32)>,
+    sites: RefCell<BTreeMap<(i32, i32), Option<Site>>>,
+}
+
+impl WorldFields {
+    fn new(params: &WorldParams, seed: u32) -> Self {
+        let (bootstrap, unmet) = bootstrap_sites(params, seed);
+        let radius_max = params
+            .site_rules
+            .iter()
+            .map(|rule| rule.radius_max as i32)
+            .max()
+            .unwrap_or(0);
+        Self {
+            reach: (radius_max + params.site_jitter + params.site_cell - 1) / params.site_cell,
+            params: params.clone(),
+            seed,
+            bootstrap,
+            unmet,
+            sites: RefCell::new(BTreeMap::new()),
+        }
+    }
+
+    fn site_at(&self, cell: (i32, i32)) -> Option<Site> {
+        if let Some(&site) = self.sites.borrow().get(&cell) {
+            return site;
+        }
+        let site = self.site_uncached(cell);
+        self.sites.borrow_mut().insert(cell, site);
+        site
+    }
+
+    /// The same answer with the cache bypassed. The survey and the tests call the generator without
+    /// a warm lattice, and one test asserts the two paths agree over a disc.
+    fn site_uncached(&self, cell: (i32, i32)) -> Option<Site> {
+        self.bootstrap
+            .get(&cell)
+            .copied()
+            .or_else(|| natural_site(&self.params, self.seed, cell))
+    }
+
+    /// What the bootstrap pass actually placed, per guaranteed material: the walk from the landing
+    /// site to the nearest hex of the patch, and how many hexes the patch holds once the member
+    /// test has clipped it. A guarantee the pass gave up on is simply absent, which is the shape
+    /// every caller wants — the survey prints it as `none` and `Core::new` refuses the world.
+    fn guarantees(&self) -> Vec<(ItemId, u32, u32)> {
+        self.bootstrap
+            .values()
+            .map(|site| {
+                (
+                    self.params.site_rules[site.rule].item_id,
+                    (axial_distance((0, 0), site.center) - site.radius).max(0) as u32,
+                    member_hexes(&self.params, self.seed, site),
+                )
+            })
+            .collect()
+    }
+
+    fn field_at(&self, q: i32, r: i32, generated_environment: bool) -> Option<ResourceState> {
+        if !generated_environment {
+            return None;
+        }
+        // The clearing is a promise rather than a landscape, and its field suppression is what the
+        // bootstrap windows are measured against.
+        if axial_distance((0, 0), (q, r)) <= LANDING_CLEAR_RADIUS {
+            return None;
+        }
+        // No rule may name a water band — `validate` refuses one that tries — so the cheap water
+        // test comes before the lattice scan and before the seven elevations a band costs.
+        if is_water_at(&self.params, self.seed, q, r) {
+            return None;
+        }
+        let band = terrain_at(&self.params, self.seed, q, r, true);
+        let cell = (
+            floor_div(q, self.params.site_cell),
+            floor_div(r, self.params.site_cell),
+        );
+        let mut best: Option<((i32, i32, i32), Site)> = None;
+        for step_q in -self.reach..=self.reach {
+            for step_r in -self.reach..=self.reach {
+                let candidate = (cell.0 + step_q, cell.1 + step_r);
+                let Some(site) = self.site_at(candidate) else {
+                    continue;
+                };
+                let Some(distance) = site_covers(&self.params, self.seed, &site, q, r, band) else {
+                    continue;
+                };
+                // Nearest centre wins, and the lattice cell breaks the tie. Ties must be broken
+                // explicitly: a tie resolved by iteration order is a tie resolved by nothing, and
+                // this is a checksum input.
+                let key = (distance, candidate.0, candidate.1);
+                if best.as_ref().is_none_or(|(current, _)| key < *current) {
+                    best = Some((key, site));
+                }
+            }
+        }
+        let ((distance, _, _), site) = best?;
+        let rule = &self.params.site_rules[site.rule];
+        // Linear from core to rim, so the middle of a field is worth aiming an extractor at.
+        let span = site.radius.max(1);
+        let core = rule.yield_core as i32;
+        let rim = rule.yield_rim as i32;
+        let interpolated = rim + (core - rim) * (span - distance) / span;
+        let quantity =
+            interpolated.max(1) as u32 + coordinate_hash(self.seed, q, r) % rule.yield_jitter;
+        Some(ResourceState {
+            item_id: rule.item_id,
             quantity,
             initial_quantity: quantity,
-        });
+        })
     }
-    if !generated_environment {
-        return None;
-    }
-    if axial_distance((0, 0), (q, r)) <= LANDING_CLEAR_RADIUS {
-        return None;
-    }
-    let terrain = terrain_at(params, seed, q, r, true);
-    let richness = value_noise(seed, q, r, params.richness_cell, 0x0E55);
-    let moisture = moisture_at(params, seed, q, r);
-    // A second richness channel, so which of two resources a band holds is not the same question
-    // as whether it holds one at all. Sharing one channel made coal a rind around every iron field.
-    let vein = value_noise(seed, q, r, params.vein_cell, 0x0C0A1);
-    let rule = params.field_rules.iter().find(|rule| {
-        rule.terrain == terrain
-            && moisture > rule.moisture_min
-            && richness > rule.richness_min
-            && vein > rule.vein_min
-    })?;
-    let quantity = rule.base + (coordinate_hash(seed, q, r) % rule.spread);
-    Some(ResourceState {
-        item_id: rule.item_id,
-        quantity,
-        initial_quantity: quantity,
-    })
 }
 
 fn inventory_total(inventory: &BTreeMap<ItemId, u32>) -> u32 {
@@ -6682,24 +7335,37 @@ fn hash_world_params(hash: &mut u32, params: &WorldParams) {
         params.elevation_coarse_weight,
         params.moisture_cell,
         params.richness_cell,
-        params.vein_cell,
         params.water_level,
         params.shore_level,
         params.hills_level,
         params.highland_level,
         params.cliff_step,
         params.deep_water_moisture,
+        params.site_cell,
+        params.site_jitter,
+        params.river_cell,
+        params.river_width,
+        params.river_max_elevation,
+        params.ocean_level,
     ] {
         hash_i32(hash, value);
     }
-    for rule in &params.field_rules {
+    for rule in &params.site_rules {
         hash_u32(hash, rule.terrain as u32);
         hash_u32(hash, u32::from(rule.item_id));
-        hash_i32(hash, rule.moisture_min);
-        hash_i32(hash, rule.richness_min);
-        hash_i32(hash, rule.vein_min);
-        hash_u32(hash, rule.base);
-        hash_u32(hash, rule.spread);
+        hash_u32(hash, rule.weight);
+        hash_u32(hash, rule.radius_min);
+        hash_u32(hash, rule.radius_max);
+        hash_i32(hash, rule.site_min);
+        hash_u32(hash, rule.yield_core);
+        hash_u32(hash, rule.yield_rim);
+        hash_u32(hash, rule.yield_jitter);
+        for &band in &rule.member {
+            hash_u32(hash, band as u32);
+        }
+        hash_u32(hash, u32::MAX);
+        hash_u32(hash, rule.member_water_within);
+        hash_u32(hash, u32::from(rule.center_ocean));
     }
     hash_u32(hash, u32::MAX);
 }
@@ -7606,12 +8272,6 @@ pub mod survey {
         pub mean_distance: Option<u32>,
     }
 
-    /// The hexes a base extractor covers, and so the smallest patch worth standing one on. Derived
-    /// from the reach rather than written down: a disc of radius R holds 3R² + 3R + 1 hexes, which
-    /// is 7 at the radius the hand and the base extractor share today.
-    const WORKABLE_PATCH_HEXES: u32 =
-        (3 * EXTRACT_RADIUS * EXTRACT_RADIUS + 3 * EXTRACT_RADIUS + 1) as u32;
-
     /// Connected runs of one material, which is what an extractor is actually offered and what the
     /// survey has never reported. Totals, densities, and distances all look healthy for a world of
     /// scattered single cells, so a generator that mixes two materials under one extractor disc can
@@ -7643,6 +8303,12 @@ pub mod survey {
         /// Patches touching the edge of the sample, on the same reasoning as `truncated_bodies`: a
         /// patch the sample cuts off is a floor, not a measurement.
         pub truncated_patches: u32,
+        /// The size of the water body nearest each patch, averaged over patches. This is what
+        /// verifies the beach proxy: a sand rule asks the coarse elevation octave alone whether a
+        /// centre stands against ocean, and the generator may not flood-fill to check. The survey
+        /// can, so a small number here means the proxy is wrong. `None` means the sample holds no
+        /// water at all.
+        pub mean_nearest_body: Option<u32>,
     }
 
     /// The running totals a patch flood fill accumulates, before names and means are attached.
@@ -7655,11 +8321,16 @@ pub mod survey {
         nearest_workable_patch: Option<u32>,
         pure_hexes: u32,
         truncated_patches: u32,
+        nearest_body_total: u64,
+        nearest_body_patches: u32,
     }
 
     /// Ponds or oceans, counted. This is the measurement the milestone's central claim rests on:
     /// sea level decides how *much* water there is, and feature scale decides how *big* it is, so
     /// the two are told apart by body size at a fixed `water_level`.
+    ///
+    /// Rivers are **not** counted here. They read as `ShallowWater` like everything else and are
+    /// common and linear, so folding them in would quietly stop `largest_body` from meaning ocean.
     #[derive(Clone, Debug, Serialize)]
     pub struct WaterShape {
         pub water_hexes: u32,
@@ -7669,6 +8340,32 @@ pub mod survey {
         /// Bodies reaching the edge of the sample, whose true size the sample cannot see. A
         /// largest-body figure carrying these is a floor, not a measurement.
         pub truncated_bodies: u32,
+    }
+
+    /// Inland water that is a line rather than a basin, reported on its own for the reason above.
+    /// Shallow water stops being an accident of sea level once rivers exist and becomes common and
+    /// linear, which is what makes a bridge a necessity rather than an ornament.
+    #[derive(Clone, Debug, Serialize)]
+    pub struct RiverShape {
+        pub river_hexes: u32,
+        /// Connected runs of river, and the mean length of one in hexes.
+        pub runs: u32,
+        pub mean_run: u32,
+        pub longest_run: u32,
+    }
+
+    /// One guaranteed material of the opening, as the generator actually placed it. The bootstrap
+    /// pass is a promise rather than geography, so it is reported here instead of being folded
+    /// into the counts — the same split the clearing already lives under.
+    #[derive(Clone, Debug, Serialize)]
+    pub struct BootstrapRow {
+        pub item_id: ItemId,
+        pub name: String,
+        /// Distance from the landing site to the nearest hex of the guaranteed patch, and how many
+        /// hexes that patch holds once its member test has clipped it. `None` means the pass gave
+        /// up, which is the failure the survey exists to make visible.
+        pub edge: Option<u32>,
+        pub hexes: u32,
     }
 
     #[derive(Clone, Debug, Serialize)]
@@ -7687,6 +8384,8 @@ pub mod survey {
         /// care which two materials it straddles.
         pub purity_per_mille: u32,
         pub water: WaterShape,
+        pub rivers: RiverShape,
+        pub bootstrap: Vec<BootstrapRow>,
     }
 
     /// Survey a shipped preset by key.
@@ -7712,13 +8411,18 @@ pub mod survey {
                 "elevation_coarse_weight" => &mut params.elevation_coarse_weight,
                 "moisture_cell" => &mut params.moisture_cell,
                 "richness_cell" => &mut params.richness_cell,
-                "vein_cell" => &mut params.vein_cell,
                 "water_level" => &mut params.water_level,
                 "shore_level" => &mut params.shore_level,
                 "hills_level" => &mut params.hills_level,
                 "highland_level" => &mut params.highland_level,
                 "cliff_step" => &mut params.cliff_step,
                 "deep_water_moisture" => &mut params.deep_water_moisture,
+                "site_cell" => &mut params.site_cell,
+                "site_jitter" => &mut params.site_jitter,
+                "river_cell" => &mut params.river_cell,
+                "river_width" => &mut params.river_width,
+                "river_max_elevation" => &mut params.river_max_elevation,
+                "ocean_level" => &mut params.ocean_level,
                 other => return Err(format!("unknown world parameter {other}")),
             };
             *slot = *value;
@@ -7743,9 +8447,13 @@ pub mod survey {
     pub(crate) fn run(label: &str, params: &WorldParams, seed: u32, radius: i32) -> WorldSurvey {
         let definitions: DefinitionsInput =
             serde_json::from_str(DEFINITIONS).expect("shipped definitions parse");
+        // The survey and a played world share one evaluator, so a surveyed world and a played one
+        // cannot disagree about either the lattice or the opening.
+        let fields = WorldFields::new(params, seed);
         let cells: Vec<(i32, i32)> = disc(radius);
         let mut bands: BTreeMap<Terrain, u32> = BTreeMap::new();
         let mut terrain_of: BTreeMap<(i32, i32), Terrain> = BTreeMap::new();
+        let mut river_cells: BTreeSet<(i32, i32)> = BTreeSet::new();
         let mut land_hexes = 0u32;
         let mut found: BTreeMap<ItemId, (u32, u32, u32)> = BTreeMap::new();
         let mut field_of: BTreeMap<(i32, i32), (ItemId, u32)> = BTreeMap::new();
@@ -7755,8 +8463,10 @@ pub mod survey {
             *bands.entry(terrain).or_default() += 1;
             if !terrain.is_water() {
                 land_hexes += 1;
+            } else if is_survey_river(params, seed, q, r) {
+                river_cells.insert((q, r));
             }
-            if let Some((item_id, quantity)) = surveyed_field(params, seed, q, r) {
+            if let Some((item_id, quantity)) = surveyed_field(&fields, q, r) {
                 field_of.insert((q, r), (item_id, quantity));
                 let distance = axial_distance((0, 0), (q, r)) as u32;
                 let entry = found.entry(item_id).or_insert((0, u32::MAX, 0));
@@ -7774,7 +8484,8 @@ pub mod survey {
                 per_mille: per_mille(count, hexes),
             })
             .collect();
-        let (totals, pure_hexes) = patch_shape(params, seed, &field_of, radius);
+        let (water, body_of) = water_shape(&terrain_of, &river_cells, radius);
+        let (totals, pure_hexes) = patch_shape(&fields, &field_of, &body_of, radius);
         let name_of = |item_id: ItemId| {
             definitions
                 .items
@@ -7809,6 +8520,9 @@ pub mod survey {
                 nearest_workable_patch: totals.nearest_workable_patch,
                 purity_per_mille: per_mille(totals.pure_hexes, totals.hexes),
                 truncated_patches: totals.truncated_patches,
+                mean_nearest_body: (totals.nearest_body_patches > 0).then(|| {
+                    (totals.nearest_body_total / u64::from(totals.nearest_body_patches)) as u32
+                }),
             });
             let stats = found.get(&item_id).copied();
             materials.push(MaterialCount {
@@ -7833,18 +8547,83 @@ pub mod survey {
             materials,
             patches,
             purity_per_mille: per_mille(pure_hexes, field_of.len() as u32),
-            water: water_shape(&terrain_of, radius),
+            water,
+            rivers: river_shape(&river_cells),
+            bootstrap: bootstrap_rows(&fields, &name_of),
         }
     }
 
-    /// What the survey counts as a generated cell. The guaranteed clearing is a promise, not
-    /// geography, so it is no evidence about what a parameter set generates — it is asserted
-    /// separately and excluded here, from the counts and from the purity neighbourhood alike.
-    fn surveyed_field(params: &WorldParams, seed: u32, q: i32, r: i32) -> Option<(ItemId, u32)> {
+    /// What the survey counts as a generated cell. The clearing is a promise, not geography, so it
+    /// is no evidence about what a parameter set generates — `field_at` already suppresses it, and
+    /// the guaranteed opening is reported on its own in `bootstrap`.
+    fn surveyed_field(fields: &WorldFields, q: i32, r: i32) -> Option<(ItemId, u32)> {
+        fields
+            .field_at(q, r, true)
+            .map(|field| (field.item_id, field.quantity))
+    }
+
+    /// A river hex, told apart from sea and lake by the test that made it one. Both read as
+    /// `ShallowWater`, and the whole point of reporting them apart is that a linear inland water
+    /// and an ocean are different facts about a world.
+    fn is_survey_river(params: &WorldParams, seed: u32, q: i32, r: i32) -> bool {
         if axial_distance((0, 0), (q, r)) <= LANDING_CLEAR_RADIUS {
-            return None;
+            return false;
         }
-        field_at(params, seed, q, r, true).map(|field| (field.item_id, field.quantity))
+        let elevation = elevation_at(params, seed, q, r);
+        elevation >= params.shore_level && is_river(params, seed, q, r, elevation)
+    }
+
+    /// Connected runs of river, filled over the same six directions everything else here uses.
+    fn river_shape(river_cells: &BTreeSet<(i32, i32)>) -> RiverShape {
+        let mut unvisited = river_cells.clone();
+        let river_hexes = unvisited.len() as u32;
+        let mut runs = Vec::new();
+        while let Some(&start) = unvisited.iter().next() {
+            unvisited.remove(&start);
+            let mut stack = vec![start];
+            let mut length = 0u32;
+            while let Some((q, r)) = stack.pop() {
+                length += 1;
+                for (dq, dr) in DIRECTIONS {
+                    if unvisited.remove(&(q + dq, r + dr)) {
+                        stack.push((q + dq, r + dr));
+                    }
+                }
+            }
+            runs.push(length);
+        }
+        RiverShape {
+            river_hexes,
+            runs: runs.len() as u32,
+            mean_run: if runs.is_empty() {
+                0
+            } else {
+                river_hexes / runs.len() as u32
+            },
+            longest_run: runs.into_iter().max().unwrap_or(0),
+        }
+    }
+
+    /// The opening the generator promised, measured rather than assumed: how far the player walks
+    /// to each guaranteed patch, and how much of it survived the member clipping.
+    fn bootstrap_rows(
+        fields: &WorldFields,
+        name_of: &dyn Fn(ItemId) -> String,
+    ) -> Vec<BootstrapRow> {
+        let placed: BTreeMap<ItemId, (u32, u32)> = fields
+            .guarantees()
+            .into_iter()
+            .map(|(item_id, walk, hexes)| (item_id, (walk, hexes)))
+            .collect();
+        BOOTSTRAP_GUARANTEES
+            .iter()
+            .map(|&(item_id, _, _)| BootstrapRow {
+                item_id,
+                name: name_of(item_id),
+                edge: placed.get(&item_id).map(|&(walk, _)| walk),
+                hexes: placed.get(&item_id).map_or(0, |&(_, hexes)| hexes),
+            })
+            .collect()
     }
 
     /// Patches, flood filled over the six adjacency directions exactly as `water_shape` fills
@@ -7855,11 +8634,12 @@ pub mod survey {
     /// than followed out of the disc — but purity reads `surveyed_field` directly, so a hex on the
     /// rim is judged against its real neighbours rather than against a sample boundary.
     fn patch_shape(
-        params: &WorldParams,
-        seed: u32,
+        fields: &WorldFields,
         field_of: &BTreeMap<(i32, i32), (ItemId, u32)>,
+        body_of: &BTreeMap<(i32, i32), u32>,
         radius: i32,
     ) -> (BTreeMap<ItemId, PatchTotals>, u32) {
+        let nearest_body = nearest_body_size(body_of, radius);
         let mut totals: BTreeMap<ItemId, PatchTotals> = BTreeMap::new();
         let mut unvisited: BTreeSet<(i32, i32)> = field_of.keys().copied().collect();
         while let Some(&start) = unvisited.iter().next() {
@@ -7870,6 +8650,9 @@ pub mod survey {
             let mut yield_total = 0u64;
             let mut nearest = u32::MAX;
             let mut touches_edge = false;
+            // The body nearest the patch is the body nearest whichever of its hexes is closest to
+            // one, which is what the multi-source walk below already answers per hex.
+            let mut body: Option<(u32, u32)> = None;
             while let Some((q, r)) = stack.pop() {
                 hexes += 1;
                 yield_total += u64::from(field_of[&(q, r)].1);
@@ -7877,6 +8660,11 @@ pub mod survey {
                 nearest = nearest.min(distance as u32);
                 if distance >= radius {
                     touches_edge = true;
+                }
+                if let Some(&(reach, size)) = nearest_body.get(&(q, r)) {
+                    if body.is_none_or(|(best, _)| reach < best) {
+                        body = Some((reach, size));
+                    }
                 }
                 for (dq, dr) in DIRECTIONS {
                     let next = (q + dq, r + dr);
@@ -7899,6 +8687,10 @@ pub mod survey {
             if touches_edge {
                 entry.truncated_patches += 1;
             }
+            if let Some((_, size)) = body {
+                entry.nearest_body_total += u64::from(size);
+                entry.nearest_body_patches += 1;
+            }
             if hexes >= WORKABLE_PATCH_HEXES {
                 entry.nearest_workable_patch = Some(
                     entry
@@ -7911,8 +8703,7 @@ pub mod survey {
         let mut pure_hexes = 0u32;
         for (&(q, r), &(item_id, _)) in field_of {
             let mixed = DIRECTIONS.iter().any(|&(dq, dr)| {
-                surveyed_field(params, seed, q + dq, r + dr)
-                    .is_some_and(|(other, _)| other != item_id)
+                surveyed_field(fields, q + dq, r + dr).is_some_and(|(other, _)| other != item_id)
             });
             if !mixed {
                 pure_hexes += 1;
@@ -7922,23 +8713,67 @@ pub mod survey {
         (totals, pure_hexes)
     }
 
+    /// For every hex in the sample, how far the nearest water body is and how big that body is.
+    ///
+    /// One multi-source walk out from every body hex at once, rather than a scan per patch: the
+    /// per-patch form is patches × water hexes and this is hexes × six.
+    fn nearest_body_size(
+        body_of: &BTreeMap<(i32, i32), u32>,
+        radius: i32,
+    ) -> BTreeMap<(i32, i32), (u32, u32)> {
+        let mut reached: BTreeMap<(i32, i32), (u32, u32)> = body_of
+            .iter()
+            .map(|(&cell, &size)| (cell, (0, size)))
+            .collect();
+        let mut frontier: Vec<(i32, i32)> = reached.keys().copied().collect();
+        let mut distance = 0u32;
+        while !frontier.is_empty() {
+            distance += 1;
+            let mut next = Vec::new();
+            for (q, r) in frontier {
+                let size = reached[&(q, r)].1;
+                for (dq, dr) in DIRECTIONS {
+                    let cell = (q + dq, r + dr);
+                    if axial_distance((0, 0), cell) > radius || reached.contains_key(&cell) {
+                        continue;
+                    }
+                    reached.insert(cell, (distance, size));
+                    next.push(cell);
+                }
+            }
+            frontier = next;
+        }
+        reached
+    }
+
     /// Connected water bodies inside the sample, by flood fill over the six adjacency directions.
-    fn water_shape(terrain_of: &BTreeMap<(i32, i32), Terrain>, radius: i32) -> WaterShape {
+    /// Returns the shape and, per body hex, the size of the body it belongs to — which is what
+    /// verifies the beach proxy the generator is not allowed to measure for itself.
+    ///
+    /// River hexes are excluded. They read as `ShallowWater` like a lake does, and folding a
+    /// continent-spanning line into the body fill would join every basin it touches into one and
+    /// call the result an ocean.
+    fn water_shape(
+        terrain_of: &BTreeMap<(i32, i32), Terrain>,
+        river_cells: &BTreeSet<(i32, i32)>,
+        radius: i32,
+    ) -> (WaterShape, BTreeMap<(i32, i32), u32>) {
         let mut unvisited: BTreeSet<(i32, i32)> = terrain_of
             .iter()
-            .filter(|(_, terrain)| terrain.is_water())
+            .filter(|(cell, terrain)| terrain.is_water() && !river_cells.contains(cell))
             .map(|(&cell, _)| cell)
             .collect();
         let water_hexes = unvisited.len() as u32;
         let mut sizes = Vec::new();
         let mut truncated = 0u32;
+        let mut body_of: BTreeMap<(i32, i32), u32> = BTreeMap::new();
         while let Some(&start) = unvisited.iter().next() {
             unvisited.remove(&start);
             let mut stack = vec![start];
-            let mut size = 0u32;
+            let mut members = Vec::new();
             let mut touches_edge = false;
             while let Some((q, r)) = stack.pop() {
-                size += 1;
+                members.push((q, r));
                 if axial_distance((0, 0), (q, r)) >= radius {
                     touches_edge = true;
                 }
@@ -7952,16 +8787,23 @@ pub mod survey {
             if touches_edge {
                 truncated += 1;
             }
+            let size = members.len() as u32;
+            for cell in members {
+                body_of.insert(cell, size);
+            }
             sizes.push(size);
         }
         let bodies = sizes.len() as u32;
-        WaterShape {
-            water_hexes,
-            bodies,
-            largest_body: sizes.iter().copied().max().unwrap_or(0),
-            mean_body: if bodies == 0 { 0 } else { water_hexes / bodies },
-            truncated_bodies: truncated,
-        }
+        (
+            WaterShape {
+                water_hexes,
+                bodies,
+                largest_body: sizes.iter().copied().max().unwrap_or(0),
+                mean_body: if bodies == 0 { 0 } else { water_hexes / bodies },
+                truncated_bodies: truncated,
+            },
+            body_of,
+        )
     }
 
     fn disc(radius: i32) -> Vec<(i32, i32)> {
@@ -8017,14 +8859,15 @@ pub mod survey {
             ));
         }
         out.push_str(
-            "  material       patches    mean   largest   mean yield   workable   purity   cut\n",
+            "  material       patches    mean   largest   mean yield   workable   purity   cut   \
+             near body\n",
         );
         for patch in &survey.patches {
             let show = |value: Option<u32>| {
                 value.map_or_else(|| "  none".to_string(), |value| format!("{value:>6}"))
             };
             out.push_str(&format!(
-                "  {:<14} {:>7}  {:>6}   {:>7}   {:>10}     {}   {:>6}  {:>4}\n",
+                "  {:<14} {:>7}  {:>6}   {:>7}   {:>10}     {}   {:>6}  {:>4}   {}\n",
                 patch.name,
                 patch.patches,
                 patch.mean_patch,
@@ -8032,13 +8875,24 @@ pub mod survey {
                 patch.mean_patch_yield,
                 show(patch.nearest_workable_patch),
                 patch.purity_per_mille,
-                patch.truncated_patches
+                patch.truncated_patches,
+                show(patch.mean_nearest_body)
             ));
         }
         out.push_str(&format!(
             "  purity: {} per mille of resource hexes stand in a single-material disc\n",
             survey.purity_per_mille
         ));
+        out.push_str("  guaranteed     walk   hexes\n");
+        for row in &survey.bootstrap {
+            out.push_str(&format!(
+                "  {:<14} {}  {:>6}\n",
+                row.name,
+                row.edge
+                    .map_or_else(|| "  none".to_string(), |value| format!("{value:>6}")),
+                row.hexes
+            ));
+        }
         out.push_str(&format!(
             "  water: {} hexes in {} bodies | largest {} | mean {} | {} reach the sample edge\n",
             survey.water.water_hexes,
@@ -8046,6 +8900,13 @@ pub mod survey {
             survey.water.largest_body,
             survey.water.mean_body,
             survey.water.truncated_bodies
+        ));
+        out.push_str(&format!(
+            "  rivers: {} hexes in {} runs | mean {} | longest {}\n",
+            survey.rivers.river_hexes,
+            survey.rivers.runs,
+            survey.rivers.mean_run,
+            survey.rivers.longest_run
         ));
         out
     }
@@ -8559,7 +9420,30 @@ mod tests {
             .unwrap()
     }
 
-    fn game(key: &str) -> Core {
+    /// The cells the mechanics suite draws from, and the reason they are a fixture.
+    ///
+    /// These are the eight the landing clearing used to guarantee. They stopped being geography in
+    /// v0.21 — the generator places the opening outside the clearing now, and inside it there is
+    /// nothing at all — but a test about belts, power, gathering reach, or an upgrade wants a
+    /// deposit at a hex it can *name*. Standing those on generated ground would turn every one of
+    /// them into a test about the generator, and a tuning pass would break forty tests that are
+    /// not about tuning. Writing them into the overlay is exactly what "only the overlay is state"
+    /// already means, and it is what a scenario file does for a hand-authored map.
+    ///
+    /// Stone sits on the cliff at `(1, -1)`, which nothing can stand on: it is taken from the hex
+    /// beside it, and that is what `extraction_reach_comes_from_the_definition` is checking.
+    const TEST_FIELD: [(i32, i32, ItemId, u32); 8] = [
+        (3, 0, IRON_ORE, 48),
+        (-2, 2, CRYSTAL, 32),
+        (0, -3, COPPER_ORE, 40),
+        (2, -3, COAL, 28),
+        (1, -1, STONE, 40),
+        (1, 3, SAND, 30),
+        (-1, 3, CLAY, 26),
+        (-3, 1, WOOD, 14),
+    ];
+
+    fn bare_game(key: &str) -> Core {
         let (definitions, technologies, scenarios) = catalogs();
         let scenario = scenarios
             .scenarios
@@ -8569,6 +9453,15 @@ mod tests {
         let mut core = Core::new(&definitions, &technologies, scenario, None, None).unwrap();
         // Isolated machine tests are not the power suite. They opt into the constraint.
         core.power_unmetered = true;
+        core
+    }
+
+    fn game(key: &str) -> Core {
+        let mut core = bare_game(key);
+        for &(q, r, item_id, quantity) in &TEST_FIELD {
+            core.write_overlay(q, r, item_id, quantity, quantity);
+        }
+        core.dirty = SnapshotDirty::default();
         core
     }
 
@@ -8715,6 +9608,47 @@ mod tests {
             coordinate_hash(1213486160, 81, -33),
             coordinate_hash(1213486161, 81, -33)
         );
+        // The site lattice is a cache, and a cache is exactly where order-dependence gets into a
+        // generator: `a` walked one chunk first and `b` the other, so their lattices were filled
+        // in different orders. Every cell they both hold has to agree, and the cached answer has
+        // to be the uncached one — the two halves of "derived state, and derived from what".
+        for (&cell, &site) in a.fields.sites.borrow().iter() {
+            assert_eq!(site, a.fields.site_uncached(cell));
+            if let Some(&other) = b.fields.sites.borrow().get(&cell) {
+                assert_eq!(site, other);
+            }
+        }
+    }
+
+    /// The cache pays for the site model and must not change it. `field_at` is asked over a disc
+    /// wide enough to cross many lattice cells, warm and cold, and the two must never disagree.
+    #[test]
+    fn the_site_cache_answers_exactly_what_the_uncached_generator_does() {
+        let params = preset_params("continental").unwrap();
+        let seed = survey::default_seed();
+        let warm = WorldFields::new(&params, seed);
+        for (q, r) in hexes_in_radius((14, -9), 24) {
+            let cold = WorldFields::new(&params, seed);
+            assert_eq!(
+                warm.field_at(q, r, true),
+                cold.field_at(q, r, true),
+                "the cache changed the world at {q},{r}"
+            );
+            let cell = (
+                floor_div(q, params.site_cell),
+                floor_div(r, params.site_cell),
+            );
+            assert_eq!(warm.site_at(cell), warm.site_uncached(cell));
+        }
+        // And the cheap water test the fast path opens with agrees with the band decision it
+        // skips, clearing included. If it ever did not, `field_at` would drop deposits silently.
+        for (q, r) in hexes_in_radius((0, 0), 40) {
+            assert_eq!(
+                is_water_at(&params, seed, q, r),
+                terrain_at(&params, seed, q, r, true).is_water(),
+                "the cheap water test disagrees at {q},{r}"
+            );
+        }
     }
 
     #[test]
@@ -8731,24 +9665,49 @@ mod tests {
 
     #[test]
     fn generated_fields_follow_terrain_and_only_the_overlay_is_state() {
-        let mut core = game("new-game");
+        // The one test that must see an untouched world: the claim is that an unmined field costs
+        // nothing stored, and a fixture that pre-writes eight tiles would answer it in advance.
+        let mut core = bare_game("new-game");
         assert_eq!(core.terrain_at(0, 0), Terrain::Lowland);
         assert_eq!(core.terrain_at(2, 1), Terrain::ShallowWater);
         assert_eq!(core.terrain_at(1, -1), Terrain::Cliff);
-        assert_eq!(core.deposit_quantity((3, 0)), 48);
-        assert_eq!(core.field_at(3, 0).unwrap().item_id, 1);
+        // The clearing holds no field at all now: the eight hardcoded cells it used to carry were
+        // a sample platter, and the opening is placed by the generator outside it.
+        for cell in hexes_in_radius((0, 0), LANDING_CLEAR_RADIUS) {
+            assert_eq!(core.field_at(cell.0, cell.1), None);
+        }
+        let cell = *core
+            .fields
+            .bootstrap
+            .values()
+            .map(|site| site.center)
+            .min()
+            .as_ref()
+            .expect("a new world guarantees an opening");
+        let quantity = core
+            .field_at(cell.0, cell.1)
+            .expect("a site centre")
+            .quantity;
+        assert!(quantity > 0);
+        assert_eq!(core.deposit_quantity(cell), quantity);
         // Unmined field is derived: the overlay is empty until something is taken, but the
         // snapshot still reports the cell so the host can draw it.
         assert!(core.tiles.is_empty());
+        core.ensure_neighborhood(axial_world(cell.0, cell.1).0, axial_world(cell.0, cell.1).1);
         assert!(core
             .resource_snapshots()
             .iter()
-            .any(|resource| resource.q == 3 && resource.r == 0 && resource.quantity == 48));
+            .any(|resource| resource.q == cell.0
+                && resource.r == cell.1
+                && resource.quantity == quantity));
         let before = core.checksum();
-        set_player_hex(&mut core, 3, 0);
+        set_player_hex(&mut core, cell.0, cell.1);
         core.gather().unwrap();
-        assert_eq!(core.deposit_quantity((3, 0)), 47);
-        assert_eq!(core.tiles[&(3, 0)].resource.as_ref().unwrap().quantity, 47);
+        assert_eq!(core.deposit_quantity(cell), quantity - 1);
+        assert_eq!(
+            core.tiles[&cell].resource.as_ref().unwrap().quantity,
+            quantity - 1
+        );
         assert_ne!(core.checksum(), before);
     }
 
@@ -8759,7 +9718,10 @@ mod tests {
         core.player.inventory.insert(1, 8);
         core.player.inventory.insert(3, 2);
         set_player_hex(&mut core, 3, 1);
-        // A neighbour of the guaranteed ore cell, still inside EXTRACT_RADIUS.
+        // Two ore cells one step apart, written into the overlay because the clearing generates
+        // none: this is a test about which cell inside a reach is drawn from first, and standing
+        // it on geography would make it a test about geography.
+        core.write_overlay(3, 0, 1, 48, 48);
         core.write_overlay(4, 0, 1, 3, 3);
         core.place(3, 0, 1, 0, None).unwrap();
         let index = core.entity_at(3, 0).unwrap();
@@ -8771,31 +9733,25 @@ mod tests {
         assert_eq!(core.extractor_deposit(index), Some((4, 0)));
     }
 
-    /// Geography is the material map. Every band holds only what belongs to it, so reading the
-    /// landscape is how a player decides where to build — and the landing clearing is guaranteed to
-    /// reach one cell of every tier-1 material on foot, whatever the seed does elsewhere.
+    /// Geography is still the material map. A deposit is a site rather than a per-hex decision now,
+    /// so what a band holds is the set of rules that may *reach* into it — the member table — and
+    /// this asserts that set exactly, band by band.
     #[test]
     fn every_material_is_generated_where_its_geography_says_it_should_be() {
         let core = game("new-game");
-        for &(q, r, item_id, quantity) in &LANDING_FIELD {
-            let field = core.field_at(q, r).expect("guaranteed landing cell");
-            assert_eq!((field.item_id, field.quantity), (item_id, quantity));
-        }
         // Stone is quarried from a cliff, which nothing can stand on or build on. It is reached
-        // from the hex beside it, through the same radius an extractor uses.
+        // from the hex beside it, through the same radius an extractor uses — the v0.11 lesson,
+        // which survives the model change because cliffs are still members of a scree field.
         assert_eq!(core.terrain_at(1, -1), Terrain::Cliff);
         assert!(core.terrain_at(1, -1).blocks_construction());
-        assert!(core
-            .deposit_candidates(1, 0, EXTRACT_RADIUS)
-            .contains(&(1, -1)));
 
         let mut seen: BTreeMap<Terrain, BTreeSet<ItemId>> = BTreeMap::new();
         let mut land = 0u32;
         let mut fields = 0u32;
         for q in -80..80 {
             for r in -80..80 {
-                // The guaranteed clearing is deliberately not geography, so it is not evidence
-                // about which band holds what.
+                // The clearing is deliberately not geography, so it is not evidence about which
+                // band holds what.
                 if axial_distance((0, 0), (q, r)) <= LANDING_CLEAR_RADIUS {
                     continue;
                 }
@@ -8803,15 +9759,15 @@ mod tests {
                 if !terrain.is_water() {
                     land += 1;
                 }
-                if let Some(field) = field_at(&core.world_params, core.seed, q, r, true) {
+                if let Some(field) = core.fields.field_at(q, r, true) {
                     fields += 1;
                     seen.entry(terrain).or_default().insert(field.item_id);
                 }
             }
         }
         // A field is a place. Barren ground has to be the common case, or the landscape is a
-        // carpet and a site is stumbled over rather than chosen. The floor keeps a threshold
-        // raise from emptying a band by accident.
+        // carpet and a site is stumbled over rather than chosen. The floor keeps a weight change
+        // from emptying a band by accident.
         assert!(land > 0);
         assert!(
             fields * 100 < land * 22,
@@ -8821,6 +9777,8 @@ mod tests {
             fields * 100 > land * 3,
             "fields too sparse: {fields} of {land} land hexes"
         );
+        // Iron and coal share the tops and the ground below them, copper never climbs, stone hugs
+        // its cliffs, clay follows water across two bands, and sand is clipped to the coast.
         assert_eq!(seen.get(&Terrain::Cliff), Some(&BTreeSet::from([STONE])));
         assert_eq!(
             seen.get(&Terrain::Shore),
@@ -8828,17 +9786,18 @@ mod tests {
         );
         assert_eq!(
             seen.get(&Terrain::Hills),
-            Some(&BTreeSet::from([COPPER_ORE, COAL]))
+            Some(&BTreeSet::from([IRON_ORE, COPPER_ORE, COAL]))
         );
         assert_eq!(
             seen.get(&Terrain::Highland),
-            Some(&BTreeSet::from([IRON_ORE, COAL, CRYSTAL]))
+            Some(&BTreeSet::from([IRON_ORE, COAL, STONE, CRYSTAL]))
         );
         assert_eq!(
             seen.get(&Terrain::Lowland),
-            Some(&BTreeSet::from([WOOD, CLAY, CRYSTAL]))
+            Some(&BTreeSet::from([WOOD, CLAY]))
         );
-        // Water is pumped, not mined, which is why a basin can never be emptied.
+        // Water is pumped, not mined, which is why a basin can never be emptied. `validate` refuses
+        // a rule that names a water band, and this is that refusal seen from the world.
         assert!(!seen.contains_key(&Terrain::DeepWater));
         assert!(!seen.contains_key(&Terrain::ShallowWater));
     }
@@ -8954,11 +9913,16 @@ mod tests {
         );
     }
 
-    /// The landing clearing guarantees one cell of each material, and under a parameter set that
-    /// makes a material rare that guarantee is doing more work than it used to. It is asserted, not
-    /// assumed — and so is the stronger claim that every preset generates all eight materials
-    /// within reach of the landing site, which is what makes the first hour playable rather than
-    /// just survivable.
+    /// What the opening promises, asserted rather than assumed.
+    ///
+    /// The eight hardcoded clearing cells are gone, so the guarantee is now something the
+    /// generator has to *find*: a patch of each material, in its window, big enough to stand an
+    /// extractor in. Every preset generates all eight materials somewhere in the sample, and the
+    /// six guaranteed ones land where they were promised — which is what makes the first hour
+    /// playable rather than just survivable.
+    ///
+    /// Sand and crystal are deliberately not guaranteed. Sand goes where the ocean gate says a
+    /// coast is, and crystal is the reason to leave.
     #[test]
     fn every_preset_reaches_every_material_from_the_landing_site() {
         let (definitions, _, _) = catalogs();
@@ -8967,11 +9931,6 @@ mod tests {
             params
                 .validate(&definitions)
                 .unwrap_or_else(|error| panic!("preset {} is invalid: {error}", preset.key));
-            for &(q, r, item_id, quantity) in &LANDING_FIELD {
-                let field = field_at(&params, survey::default_seed(), q, r, true)
-                    .unwrap_or_else(|| panic!("preset {} lost a landing cell", preset.key));
-                assert_eq!((field.item_id, field.quantity), (item_id, quantity));
-            }
             let report = survey::run(
                 preset.key,
                 &params,
@@ -8985,11 +9944,42 @@ mod tests {
                         preset.key, material.name, report.hexes
                     )
                 });
+                let ceiling = if material.item_id == CRYSTAL || material.item_id == SAND {
+                    survey::DEFAULT_RADIUS as u32
+                } else {
+                    40
+                };
                 assert!(
-                    nearest <= 40,
+                    nearest <= ceiling,
                     "preset {}: nearest {} is {nearest} hexes from the landing site",
                     preset.key,
                     material.name
+                );
+            }
+            for (row, &(item_id, _, ceiling)) in report.bootstrap.iter().zip(&BOOTSTRAP_GUARANTEES)
+            {
+                assert_eq!(row.item_id, item_id);
+                let walk = row.edge.unwrap_or_else(|| {
+                    panic!(
+                        "preset {} cannot place its guaranteed {}",
+                        preset.key, row.name
+                    )
+                });
+                // The ceiling is the window's, plus whatever widening the seed needed. The floor
+                // is what keeps a guaranteed disc out of the clearing and is never widened.
+                assert!(
+                    walk > LANDING_CLEAR_RADIUS as u32
+                        && walk <= (ceiling + BOOTSTRAP_WIDEN_CAP) as u32,
+                    "preset {}: guaranteed {} is {walk} hexes out",
+                    preset.key,
+                    row.name
+                );
+                assert!(
+                    row.hexes >= WORKABLE_PATCH_HEXES,
+                    "preset {}: guaranteed {} is {} hexes, which no extractor can fill from",
+                    preset.key,
+                    row.name,
+                    row.hexes
                 );
             }
             // Barren ground stays the common case under every preset, or a site is stumbled over
@@ -9098,46 +10088,221 @@ mod tests {
         }
     }
 
-    /// Rules are evaluated in declared order and the first match wins, so the order is a generation
-    /// input. Clay is the leftover of the band wood takes first; asking wood second is what makes
-    /// clay the row that never fires.
+    /// **The number this milestone exists for.**
+    ///
+    /// A deposit used to be decided per hex from independent noise channels, so along every
+    /// iron/coal boundary the two alternated hex by hex and an extractor covered both and cleanly
+    /// worked neither. Purity is the share of resource hexes whose radius-1 disc holds exactly one
+    /// material, and the measured before figures were `continental` 532, `archipelago` 474,
+    /// `highlands` 662, `basin` 631 — every preset failing, the wettest failing hardest.
+    ///
+    /// It is asserted at 950 rather than at whatever the presets happen to reach, because the
+    /// point is the model and not the tuning: a rule table that could not clear this bar would
+    /// mean the lattice had stopped being the thing that decides what a patch is made of.
     #[test]
-    fn field_rule_order_decides_which_band_holds_what() {
+    fn one_extractor_disc_holds_one_material() {
         let seed = survey::default_seed();
+        for preset in world_presets() {
+            let report = survey::run(preset.key, &preset.params, seed, survey::DEFAULT_RADIUS);
+            assert!(
+                report.purity_per_mille >= 950,
+                "preset {}: purity is {} per mille",
+                preset.key,
+                report.purity_per_mille
+            );
+            // A patch worth automating, per material an extractor is stood on for its own sake.
+            // Forests are the one that is measured in area rather than in throughput, so their
+            // bar is the deep extractor's disc rather than the base one's.
+            for (item_id, floor) in [
+                (IRON_ORE, 19),
+                (COAL, 19),
+                (COPPER_ORE, 19),
+                (STONE, 19),
+                (WOOD, 61),
+            ] {
+                let patch = report
+                    .patches
+                    .iter()
+                    .find(|entry| entry.item_id == item_id)
+                    .expect("every generated item has a row");
+                assert!(
+                    patch.largest_patch >= floor,
+                    "preset {}: the largest {} patch is {} hexes",
+                    preset.key,
+                    patch.name,
+                    patch.largest_patch
+                );
+            }
+        }
+    }
+
+    /// The opening is a promise about every seed, not about the shipped one.
+    ///
+    /// A guarantee that only holds on the seed it was tuned against is not a guarantee, and the
+    /// bootstrap pass is the one part of generation that can fail outright — it widens a window in
+    /// fixed steps and then gives up, and `Core::new` refuses a world it gave up on. So the claim
+    /// is checked where it would break: every preset, ten seeds, including the presets whose bands
+    /// are scarce enough to make a window hard to fill.
+    #[test]
+    fn every_preset_can_open_a_world_on_any_seed() {
+        let (definitions, technologies, scenarios) = catalogs();
+        let scenario = scenarios
+            .scenarios
+            .iter()
+            .find(|value| value.key == "new-game")
+            .unwrap();
+        for preset in world_presets() {
+            for step in 0..10u32 {
+                let seed = survey::default_seed().wrapping_add(step.wrapping_mul(0x9E3779B1));
+                let fields = WorldFields::new(&preset.params, seed);
+                assert!(
+                    fields.unmet.is_empty(),
+                    "preset {} on seed {seed} cannot place {:?}",
+                    preset.key,
+                    fields.unmet
+                );
+                let placed: BTreeMap<ItemId, (u32, u32)> = fields
+                    .guarantees()
+                    .into_iter()
+                    .map(|(item_id, walk, hexes)| (item_id, (walk, hexes)))
+                    .collect();
+                for &(item_id, floor, _) in &BOOTSTRAP_GUARANTEES {
+                    let (walk, hexes) = placed[&item_id];
+                    // The floor is never widened: a guaranteed disc that reached inside the
+                    // clearing would put a deposit where field suppression deletes it.
+                    assert!(
+                        walk >= floor as u32,
+                        "preset {} on seed {seed}: item {item_id} is {walk} hexes out, inside its \
+                         floor of {floor}",
+                        preset.key
+                    );
+                    assert!(
+                        hexes >= WORKABLE_PATCH_HEXES,
+                        "preset {} on seed {seed}: item {item_id} is {hexes} hexes",
+                        preset.key
+                    );
+                }
+                // Crystal is the reason to leave, so nothing may guarantee it.
+                assert!(!placed.contains_key(&CRYSTAL));
+                Core::new(
+                    &definitions,
+                    &technologies,
+                    scenario,
+                    Some(seed),
+                    Some(preset.params.clone()),
+                )
+                .unwrap_or_else(|error| {
+                    panic!(
+                        "preset {} on seed {seed} is unplayable: {error}",
+                        preset.key
+                    )
+                });
+            }
+        }
+    }
+
+    /// A world's identity is its seed *and* its parameters, so a scalar the checksum does not read
+    /// is a scalar two different worlds can silently share. Every one of them is moved, one at a
+    /// time, and the hash has to move with it.
+    #[test]
+    fn every_world_parameter_reaches_the_checksum() {
         let base = preset_params("continental").unwrap();
-        let mut swapped = base.clone();
-        let wood = swapped
-            .field_rules
-            .iter()
-            .position(|rule| rule.item_id == WOOD)
-            .unwrap();
-        let clay = swapped
-            .field_rules
-            .iter()
-            .rposition(|rule| rule.item_id == CLAY)
-            .unwrap();
-        swapped.field_rules.swap(wood, clay);
-        let before = survey::run("before", &base, seed, 48);
-        let after = survey::run("after", &swapped, seed, 48);
-        let cells = |report: &survey::WorldSurvey, item_id: ItemId| {
-            report
-                .materials
-                .iter()
-                .find(|entry| entry.item_id == item_id)
-                .map(|entry| entry.cells)
-                .unwrap_or(0)
+        let hash_of = |params: &WorldParams| {
+            let mut hash = 0x811c9dc5u32;
+            hash_world_params(&mut hash, params);
+            hash
         };
-        assert!(cells(&before, CLAY) > 0 && cells(&before, WOOD) > 0);
+        let baseline = hash_of(&base);
+        let mut moved: Vec<WorldParams> = Vec::new();
+        for shift in [
+            |p: &mut WorldParams| p.elevation_coarse_cell += 1,
+            |p: &mut WorldParams| p.elevation_fine_cell += 1,
+            |p: &mut WorldParams| p.elevation_coarse_weight += 1,
+            |p: &mut WorldParams| p.moisture_cell += 1,
+            |p: &mut WorldParams| p.richness_cell += 1,
+            |p: &mut WorldParams| p.water_level += 1,
+            |p: &mut WorldParams| p.shore_level += 1,
+            |p: &mut WorldParams| p.hills_level += 1,
+            |p: &mut WorldParams| p.highland_level += 1,
+            |p: &mut WorldParams| p.cliff_step += 1,
+            |p: &mut WorldParams| p.deep_water_moisture += 1,
+            |p: &mut WorldParams| p.site_cell += 1,
+            |p: &mut WorldParams| p.site_jitter += 1,
+            |p: &mut WorldParams| p.river_cell += 1,
+            |p: &mut WorldParams| p.river_width += 1,
+            |p: &mut WorldParams| p.river_max_elevation += 1,
+            |p: &mut WorldParams| p.ocean_level += 1,
+            |p: &mut WorldParams| p.site_rules[0].weight += 1,
+            |p: &mut WorldParams| p.site_rules[0].radius_min += 1,
+            |p: &mut WorldParams| p.site_rules[0].radius_max += 1,
+            |p: &mut WorldParams| p.site_rules[0].site_min += 1,
+            |p: &mut WorldParams| p.site_rules[0].yield_core += 1,
+            |p: &mut WorldParams| p.site_rules[0].yield_rim += 1,
+            |p: &mut WorldParams| p.site_rules[0].yield_jitter += 1,
+            |p: &mut WorldParams| p.site_rules[0].member_water_within += 1,
+            |p: &mut WorldParams| p.site_rules[0].center_ocean = true,
+            |p: &mut WorldParams| p.site_rules[0].member.push(Terrain::Cliff),
+            |p: &mut WorldParams| p.site_rules[0].item_id = CRYSTAL,
+            |p: &mut WorldParams| p.site_rules[0].terrain = Terrain::Shore,
+        ] {
+            let mut params = base.clone();
+            shift(&mut params);
+            assert_ne!(
+                hash_of(&params),
+                baseline,
+                "a world parameter changed and the checksum did not"
+            );
+            moved.push(params);
+        }
+        // And no two of them collide, which is the failure a per-field test on its own cannot see.
+        let mut hashes: Vec<u32> = moved.iter().map(hash_of).collect();
+        let total = hashes.len();
+        hashes.sort_unstable();
+        hashes.dedup();
+        assert_eq!(hashes.len(), total, "two parameter changes hash the same");
+    }
+
+    /// A site's yield falls from its core to its rim, which is what makes the middle of a field
+    /// worth aiming an extractor at rather than any hex of it being as good as any other.
+    #[test]
+    fn a_site_is_richest_at_its_core() {
+        let params = preset_params("continental").unwrap();
+        let seed = survey::default_seed();
+        let fields = WorldFields::new(&params, seed);
+        let mut compared = 0u32;
+        let mut core_wins = 0u32;
+        for cell in (-8..8).flat_map(|q| (-8..8).map(move |r| (q, r))) {
+            let Some(site) = fields.site_at(cell) else {
+                continue;
+            };
+            let rule = &params.site_rules[site.rule];
+            if rule.yield_core == rule.yield_rim || site.radius < 2 {
+                continue;
+            }
+            let Some(center) = fields.field_at(site.center.0, site.center.1, true) else {
+                continue;
+            };
+            for rim in hexes_in_radius(site.center, site.radius)
+                .into_iter()
+                .filter(|&cell| axial_distance(site.center, cell) == site.radius)
+            {
+                let Some(edge) = fields.field_at(rim.0, rim.1, true) else {
+                    continue;
+                };
+                if edge.item_id != center.item_id {
+                    continue;
+                }
+                compared += 1;
+                core_wins += u32::from(center.quantity > edge.quantity);
+            }
+        }
+        assert!(compared > 20, "only {compared} core/rim pairs to compare");
+        // Jitter is deliberately allowed to invert a single pair; a gradient it could hide would
+        // be a gradient no player could read.
         assert!(
-            cells(&after, CLAY) > cells(&before, CLAY),
-            "the earlier row takes the cells the later one used to"
+            core_wins * 100 > compared * 85,
+            "the core beat the rim in only {core_wins} of {compared} pairs"
         );
-        // The order is hashed, so two worlds that differ only by it are different worlds.
-        let mut a = 0x811c9dc5u32;
-        let mut b = 0x811c9dc5u32;
-        hash_world_params(&mut a, &base);
-        hash_world_params(&mut b, &swapped);
-        assert_ne!(a, b);
     }
 
     /// A parameter set that is not a world at all is refused before one is built from it. What this
@@ -9147,6 +10312,21 @@ mod tests {
     fn parameter_sets_that_are_not_worlds_are_refused() {
         let (definitions, technologies, scenarios) = catalogs();
         let base = preset_params("continental").unwrap();
+        // One valid row, so each case below differs from a world by exactly the thing it names.
+        let one_rule = || SiteRule {
+            terrain: Terrain::Hills,
+            item_id: IRON_ORE,
+            weight: 1,
+            radius_min: 1,
+            radius_max: 2,
+            site_min: ANY,
+            yield_core: 4,
+            yield_rim: 2,
+            yield_jitter: 1,
+            member: Vec::new(),
+            member_water_within: 0,
+            center_ocean: false,
+        };
         let scenario = scenarios
             .scenarios
             .iter()
@@ -9167,32 +10347,60 @@ mod tests {
                 ..base.clone()
             },
             WorldParams {
-                field_rules: Vec::new(),
+                site_rules: Vec::new(),
                 ..base.clone()
             },
             WorldParams {
-                field_rules: vec![FieldRule {
-                    terrain: Terrain::Hills,
+                site_rules: vec![SiteRule {
                     item_id: 9999,
-                    moisture_min: ANY,
-                    richness_min: ANY,
-                    vein_min: ANY,
-                    base: 1,
-                    spread: 1,
+                    ..one_rule()
                 }],
                 ..base.clone()
             },
-            // Quantity is `base + hash % spread`, so a zero spread is a division by zero.
+            // Yield is `interpolated + hash % yield_jitter`, so a zero jitter is a division by zero.
             WorldParams {
-                field_rules: vec![FieldRule {
-                    terrain: Terrain::Hills,
-                    item_id: IRON_ORE,
-                    moisture_min: ANY,
-                    richness_min: ANY,
-                    vein_min: ANY,
-                    base: 1,
-                    spread: 0,
+                site_rules: vec![SiteRule {
+                    yield_jitter: 0,
+                    ..one_rule()
                 }],
+                ..base.clone()
+            },
+            // A radius of zero is a deposit that is not anywhere, and an inverted range would make
+            // `radius_max - radius_min + 1` wrap.
+            WorldParams {
+                site_rules: vec![SiteRule {
+                    radius_min: 4,
+                    radius_max: 2,
+                    ..one_rule()
+                }],
+                ..base.clone()
+            },
+            WorldParams {
+                site_rules: vec![SiteRule {
+                    radius_max: MAX_SITE_RADIUS + 1,
+                    ..one_rule()
+                }],
+                ..base.clone()
+            },
+            // A water band would make the cheap water test `field_at` opens with unsound, and a
+            // deposit in a basin is nothing a pump or an extractor could reach anyway.
+            WorldParams {
+                site_rules: vec![SiteRule {
+                    member: vec![Terrain::Hills, Terrain::DeepWater],
+                    ..one_rule()
+                }],
+                ..base.clone()
+            },
+            // Every row weighted zero is a table that generates nothing at all.
+            WorldParams {
+                site_rules: vec![SiteRule {
+                    weight: 0,
+                    ..one_rule()
+                }],
+                ..base.clone()
+            },
+            WorldParams {
+                site_jitter: MAX_SITE_JITTER + 1,
                 ..base.clone()
             },
         ];
@@ -11404,20 +12612,29 @@ mod tests {
                 material.material, material.required_by
             );
             assert!(
-                material.landing_quantity > 0 || material.nearest_generated.is_some(),
+                material.nearest_generated.is_some(),
                 "{} is required by {} rows and the default world generates none",
                 material.material,
                 material.required_by
             );
+            // A guaranteed material is guaranteed as a *patch*, not as a cell: the clearing holds
+            // nothing now, so a promise that could be kept with one hex would be no promise.
+            assert!(
+                material.guaranteed_walk.is_none()
+                    || material.guaranteed_hexes >= WORKABLE_PATCH_HEXES,
+                "{} is guaranteed as {} hexes, which no extractor can fill from",
+                material.material,
+                material.guaranteed_hexes
+            );
         }
-        // Water is nobody's field: a pump makes it out of terrain, so it is the one material with
-        // no cell in the clearing and it still has to be within reach of it.
+        // Water is nobody's field: a pump makes it out of terrain, so it is the one raw material
+        // the opening does not guarantee and it still has to be within reach of the landing site.
         let water = report
             .access
             .iter()
             .find(|material| material.material == "water")
             .expect("water is a raw material");
-        assert_eq!(water.landing_quantity, 0);
+        assert_eq!(water.guaranteed_walk, None);
         assert!(water.nearest_generated.unwrap_or(u32::MAX) <= LANDING_CLEAR_RADIUS as u32);
     }
 
@@ -11665,6 +12882,10 @@ mod tests {
         factory.core.player.inventory.insert(3, 20);
         set_player_hex(&mut factory.core, 4, -2);
         factory.core.write_overlay(4, -2, 1, 2, 36);
+        // The clearing generates nothing since v0.21, so the deposit the extractor further down
+        // stands on is written here rather than found. Same reasoning as `TEST_FIELD`: this is a
+        // test about which marks a delta carries, not about where a generator puts iron.
+        factory.core.write_overlay(3, 0, 1, 48, 48);
         let surveyed_at_start = factory.core.generated_chunks.len();
 
         // Establish the baseline exactly as the worker does on its first frame.
@@ -12279,7 +13500,7 @@ mod tests {
         // invalidate comparisons against previously recorded tier numbers. A generator-version
         // bump moves this number while the workload does not — which is why the delivered total
         // and the entity count below are the assertions that say the run is the same run.
-        assert_eq!(first.checksum(), 780_276_626);
+        assert_eq!(first.checksum(), 325_426_962);
         assert_eq!(first.entities.len(), spec.entities() as usize);
         // Every line must be running end to end, or the tiers would measure an idle blueprint.
         assert_eq!(first.delivered, u64::from(spec.lines) * 14);

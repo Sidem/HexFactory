@@ -11,9 +11,9 @@ shipped ledger, and the next milestones live in `docs/HEXFACTORY-PLAN.md`, archi
 
 ## Where things stand
 
-Shipped through **v0.20.1**, plus an unversioned WebGL2 renderer pass. Current envelope versions,
+Shipped through **v0.21**, plus an unversioned WebGL2 renderer pass. Current envelope versions,
 all five of which native refuses a load on: **save 10, definitions 10, technologies 5, scenarios 5,
-world generator 6**, and wire (snapshot delta) **5**. `SAVE_VERSION` is the one literal in the host,
+world generator 7**, and wire (snapshot delta) **5**. `SAVE_VERSION` is the one literal in the host,
 because native does not publish it; every other number the browser's save catalog shows is read from
 what native publishes.
 
@@ -140,7 +140,21 @@ Before changing a cost, a cadence, or a power figure, run `npm run balance` and 
   deposit, and its basin never empties.
 - Terrain is the material map. Each raw resource is generated only in the band its geography names,
   because a landscape the player cannot read is decoration. A resource reachable from no buildable
-  hex is a defect — stone sits on impassable cliffs and is quarried from the hex beside them.
+  hex is a defect — stone sits against impassable cliffs and is quarried from the hex beside them.
+- **A deposit is a site, not a hex, and one patch is one material.** The `site_cell` lattice picks
+  one rule per site and a hex belongs to the nearest site that covers it, so purity is a property of
+  the model rather than a number that was tuned; `npm run survey` reports it and it may not fall
+  below 950 per mille on a shipped preset. Do not reintroduce a per-hex gate that decides _which_
+  material a hex holds — that is the defect the lattice exists to remove.
+- **The site lattice and the bootstrap table are derived state**, on exactly the terms
+  `deposit_links` is: never saved, never hashed, never checksummed, and rebuilt whenever the seed or
+  the parameters move. Generation stays a pure function of `(params, seed, q, r)`; a test asserts the
+  cached and uncached generators agree, and another asserts the cheap water test agrees with the band
+  decision it skips.
+- **The clearing generates nothing.** What a new world guarantees is placed by the bootstrap pass
+  outside it, as real patches at stated distances, and a world whose opening cannot be placed is
+  refused rather than shipped. Do not re-add a hardcoded list of cells inside the clearing; that was
+  the sample platter that made every material visible in the first minute.
 - Anything the host draws as a proportion must be given both numbers. The cooldown ring takes
   `action_cooldown` and a published `action_cooldown_total`; inferring a maximum by watching a value
   count down is the host re-deriving native truth.
@@ -235,13 +249,14 @@ Before changing a cost, a cadence, or a power figure, run `npm run balance` and 
 - `npm run bench` — native capacity ladder; deliberately outside the gate, since shared runners do
   not produce comparable timings
 - `npm run survey` — what a world parameter set actually generates: band histogram, field density
-  per material, distance from the landing site, water body sizes, and **patch statistics** — runs
-  of one material, their size and yield, the distance to the nearest patch a base extractor could
-  fill its disc from, and purity, the share of resource hexes standing in a single-material disc.
-  A threshold is not a proportion, so this is where a preset's claims about its own landscape come
-  from; and a total is not a deposit, which is why the patch table exists beside the material one.
-  Also outside the gate, and like the ladder it is native-only measurement code that never enters
-  the wasm artifact
+  per material, distance from the landing site, water body sizes, rivers reported apart from bodies,
+  the guaranteed opening the bootstrap pass placed, and **patch statistics** — runs of one material,
+  their size and yield, the distance to the nearest patch a base extractor could fill its disc from,
+  the size of the water body nearest each patch, and purity, the share of resource hexes standing in
+  a single-material disc. A threshold is not a proportion, so this is where a preset's claims about
+  its own landscape come from; and a total is not a deposit, which is why the patch table exists
+  beside the material one. Also outside the gate, and like the ladder it is native-only measurement
+  code that never enters the wasm artifact
 - `npm run balance` — what the shipped numbers add up to: machine rates, generator budgets, fuel
   conversions, tree-expanded building costs, the curve, material access, site yields, and the
   openings. A cost row says what a building costs and nothing about what its inputs cost to make, so

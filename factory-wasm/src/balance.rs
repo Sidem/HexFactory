@@ -175,10 +175,18 @@ pub struct Reference {
     /// items any amount of heat can be paid with.
     pub best_fuel_item: String,
     pub best_fuel_value: u32,
-    /// What the landing clearing guarantees on every seed: the whole bootstrap budget, before a
-    /// single belt exists.
-    pub landing_clearing: Vec<Amount>,
-    pub landing_clearing_total: u64,
+    /// What the opening guarantees on every seed, and how far the player walks for it. The
+    /// clearing used to carry a hardcoded unit count of every material at once; the generator
+    /// places real patches now, so what is fixed is the window and not the quantity.
+    pub guaranteed_opening: Vec<Guarantee>,
+}
+
+/// One promise the bootstrap pass makes, in the distance a player walks to keep it.
+#[derive(Clone, Debug, Serialize)]
+pub struct Guarantee {
+    pub item: String,
+    pub walk_min: u32,
+    pub walk_max: u32,
 }
 
 /// One machine running one thing, at its own cadence.
@@ -320,9 +328,12 @@ pub struct CurveStep {
 #[derive(Clone, Debug, Serialize)]
 pub struct MaterialAccess {
     pub material: String,
-    /// The guaranteed cell in the landing clearing, if the clearing holds this material.
-    pub landing_cell: Option<Vec<i32>>,
-    pub landing_quantity: u32,
+    /// How far the opening guarantees this material, if it guarantees it at all: the distance from
+    /// the landing site to the nearest hex of the patch the bootstrap pass placed, under the
+    /// default preset. This replaced a hardcoded cell inside the clearing — the generator makes
+    /// the promise now, so the promise is measured rather than written down.
+    pub guaranteed_walk: Option<u32>,
+    pub guaranteed_hexes: u32,
     /// Distance to the nearest generated cell outside the clearing, under the default preset.
     pub nearest_generated: Option<u32>,
     /// Whether something can stand where it reaches that material. Stone sits on cliffs nothing
@@ -734,11 +745,15 @@ fn reference(economy: &Economy, best_fuel_id: ItemId, best_fuel_value: u32) -> R
         }
     }
     reaches.sort_unstable();
-    let landing: Vec<Amount> = LANDING_FIELD
+    // What the opening promises, as a promise rather than as a measurement: the generator places
+    // these patches, so the quantity behind each one is a property of a seed and belongs in the
+    // survey. The window is the part that is fixed, and it is the part a balance pass argues from.
+    let opening: Vec<Guarantee> = BOOTSTRAP_GUARANTEES
         .iter()
-        .map(|&(_, _, item_id, quantity)| Amount {
+        .map(|&(item_id, floor, ceiling)| Guarantee {
             item: economy.item_key(item_id),
-            quantity: u64::from(quantity),
+            walk_min: floor as u32,
+            walk_max: ceiling as u32,
         })
         .collect();
     Reference {
@@ -751,8 +766,7 @@ fn reference(economy: &Economy, best_fuel_id: ItemId, best_fuel_value: u32) -> R
         cells_in_reach: reaches.into_iter().map(cells_in_radius).collect(),
         best_fuel_item: economy.item_key(best_fuel_id),
         best_fuel_value,
-        landing_clearing_total: landing.iter().map(|entry| entry.quantity).sum(),
-        landing_clearing: landing,
+        guaranteed_opening: opening,
     }
 }
 
@@ -1128,25 +1142,25 @@ fn access(economy: &Economy) -> Vec<MaterialAccess> {
     // through concrete, and a boiler drinks it directly.
     required.entry(WATER_ITEM).or_insert(0);
 
+    let fields = WorldFields::new(&params, seed);
+    let guaranteed = guaranteed_patches(&fields);
     let mut rows = Vec::new();
     for (&item_id, &required_by) in &required {
-        let landing = LANDING_FIELD
-            .iter()
-            .find(|&&(_, _, id, _)| id == item_id)
-            .copied();
+        let promise = guaranteed.get(&item_id).copied();
         let (nearest, reachable) = if item_id == WATER_ITEM {
             nearest_water(&params, seed)
         } else {
-            nearest_field(&params, seed, item_id)
+            nearest_field(&fields, item_id)
         };
         rows.push(MaterialAccess {
             material: economy.item_key(item_id),
-            landing_cell: landing.map(|(q, r, _, _)| vec![q, r]),
-            landing_quantity: landing.map(|(_, _, _, quantity)| quantity).unwrap_or(0),
+            guaranteed_walk: promise.map(|(walk, _)| walk),
+            guaranteed_hexes: promise.map(|(_, hexes)| hexes).unwrap_or(0),
             nearest_generated: nearest,
-            // The clearing is a promise the generator does not make, so a material it holds is
-            // reachable whatever the geography says.
-            reachable: reachable || landing.is_some(),
+            // A guaranteed patch is placed by the generator and clipped by the same member test as
+            // every other, so unlike the old clearing cells it is reachable only if geography says
+            // so — which is why the bootstrap pass measures the patch before it claims a cell.
+            reachable,
             required_by,
         });
     }
@@ -1158,14 +1172,26 @@ fn standable(params: &WorldParams, seed: u32, cell: (i32, i32)) -> bool {
     !terrain_at(params, seed, cell.0, cell.1, true).blocks_movement()
 }
 
-fn nearest_field(params: &WorldParams, seed: u32, item_id: ItemId) -> (Option<u32>, bool) {
+/// What the bootstrap pass promised, per material: the walk to the nearest hex of the guaranteed
+/// patch, and how many hexes that patch holds.
+fn guaranteed_patches(fields: &WorldFields) -> BTreeMap<ItemId, (u32, u32)> {
+    fields
+        .guarantees()
+        .into_iter()
+        .map(|(item_id, walk, hexes)| (item_id, (walk, hexes)))
+        .collect()
+}
+
+fn nearest_field(fields: &WorldFields, item_id: ItemId) -> (Option<u32>, bool) {
+    let params = &fields.params;
+    let seed = fields.seed;
     let mut nearest = None;
     let mut reachable = false;
     for cell in hexes_in_radius((0, 0), YIELD_RADIUS) {
         if axial_distance((0, 0), cell) <= LANDING_CLEAR_RADIUS {
             continue;
         }
-        let Some(field) = field_at(params, seed, cell.0, cell.1, true) else {
+        let Some(field) = fields.field_at(cell.0, cell.1, true) else {
             continue;
         };
         if field.item_id != item_id {
@@ -1209,12 +1235,13 @@ fn extraction(economy: &Economy) -> Vec<SiteYield> {
     let seed = survey::default_seed();
     let mut rows = Vec::new();
     for preset in world_presets() {
+        let world = WorldFields::new(&preset.params, seed);
         let mut fields: BTreeMap<(i32, i32), ResourceState> = BTreeMap::new();
         for cell in hexes_in_radius((0, 0), YIELD_RADIUS) {
             if axial_distance((0, 0), cell) <= LANDING_CLEAR_RADIUS {
                 continue;
             }
-            if let Some(field) = field_at(&preset.params, seed, cell.0, cell.1, true) {
+            if let Some(field) = world.field_at(cell.0, cell.1, true) {
                 fields.insert(cell, field);
             }
         }
@@ -1480,15 +1507,15 @@ fn opening(
     // Insight stopped being a property of an item: it is paid for filling a request the hub posted.
     // So the cheapest way to fund the research is the standing request that reaches the total in the
     // fewest delivered items, counted over the rows the landing clearing can actually supply.
-    let landing: BTreeSet<ItemId> = LANDING_FIELD
+    let opening: BTreeSet<ItemId> = BOOTSTRAP_GUARANTEES
         .iter()
-        .map(|&(_, _, item_id, _)| item_id)
+        .map(|&(item_id, _, _)| item_id)
         .collect();
     let (insight_items, insight_request) = economy
         .definitions
         .requests
         .iter()
-        .filter(|request| landing.contains(&request.item_id))
+        .filter(|request| opening.contains(&request.item_id))
         .map(|request| {
             (
                 insight.div_ceil(request.insight.max(1)) * request.quantity,
@@ -1588,8 +1615,13 @@ pub fn format_report(report: &BalanceReport) -> String {
         reference.best_fuel_value
     ));
     out.push_str(&format!(
-        "landing clearing: {} units guaranteed on every seed\n\n",
-        reference.landing_clearing_total
+        "guaranteed opening: {}\n\n",
+        reference
+            .guaranteed_opening
+            .iter()
+            .map(|entry| format!("{} {}-{}", entry.item, entry.walk_min, entry.walk_max))
+            .collect::<Vec<_>>()
+            .join(" | ")
     ));
 
     out.push_str("machine rates\n");
@@ -1699,12 +1731,15 @@ pub fn format_report(report: &BalanceReport) -> String {
     }
 
     out.push_str("\nmaterial access, default preset\n");
-    out.push_str("  material     landing   nearest   reachable   required by\n");
+    out.push_str("  material        walk   hexes   nearest   reachable   required by\n");
     for material in &report.access {
         out.push_str(&format!(
-            "  {:<12} {:>7}   {:>7}   {:>9}   {:>11}\n",
+            "  {:<12} {:>7}  {:>6}   {:>7}   {:>9}   {:>11}\n",
             material.material,
-            material.landing_quantity,
+            material
+                .guaranteed_walk
+                .map_or_else(|| "none".to_string(), |value| value.to_string()),
+            material.guaranteed_hexes,
             material
                 .nearest_generated
                 .map_or_else(|| "none".to_string(), |value| value.to_string()),

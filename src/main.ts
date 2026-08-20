@@ -1968,7 +1968,7 @@ required<HTMLButtonElement>("toggle-grid").addEventListener(
  *
  * Ranges are the native validator's, restated so a form cannot offer a value native will refuse.
  */
-type WorldScalar = Exclude<keyof WorldParams, "field_rules">;
+type WorldScalar = Exclude<keyof WorldParams, "site_rules">;
 
 const WORLD_PARAMETER_FIELDS: {
   key: WorldScalar;
@@ -1986,13 +1986,18 @@ const WORLD_PARAMETER_FIELDS: {
   },
   { key: "moisture_cell", label: "Moisture scale", min: 1, max: 64 },
   { key: "richness_cell", label: "Richness scale", min: 1, max: 64 },
-  { key: "vein_cell", label: "Vein scale", min: 1, max: 64 },
   { key: "water_level", label: "Sea level", min: 0, max: 65535 },
   { key: "shore_level", label: "Shore level", min: 0, max: 65535 },
   { key: "hills_level", label: "Hills level", min: 0, max: 65535 },
   { key: "highland_level", label: "Highland level", min: 0, max: 65535 },
   { key: "cliff_step", label: "Cliff steepness", min: 1, max: 65535 },
   { key: "deep_water_moisture", label: "Deep water", min: -1, max: 65535 },
+  { key: "site_cell", label: "Deposit spacing", min: 1, max: 64 },
+  { key: "site_jitter", label: "Deposit wander", min: 0, max: 16 },
+  { key: "river_cell", label: "River spacing", min: 1, max: 64 },
+  { key: "river_width", label: "River width", min: 0, max: 65535 },
+  { key: "river_max_elevation", label: "River ceiling", min: 0, max: 65535 },
+  { key: "ocean_level", label: "Ocean cut", min: 0, max: 65535 },
 ];
 
 /** What Start scenario will generate. Native validates it again on arrival. */

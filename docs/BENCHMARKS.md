@@ -4,8 +4,8 @@ Capacity is measured, never asserted, and the measurement orders the work. Every
 produced by the committed harness; the raw reports live in `docs/benchmarks/` and are the source for
 any table that was trimmed out of this document.
 
-**Current records.** Native: **World Parameters v0.16**. Browser frame: **Look Systems v0.13.1**.
-Generation: **v0.16**. Payload: **Binary Delta v0.12.2**.
+**Current records.** Native: **Landforms and Fields v0.21**. Browser frame: **Look Systems v0.13.1**.
+Generation: **v0.21**. Payload: **Binary Delta v0.12.2**.
 
 **Two caveats travel with those records.**
 
@@ -13,11 +13,12 @@ Generation: **v0.16**. Payload: **Binary Delta v0.12.2**.
   pass (2026-08-20) replaced both Canvas 2D draws that v0.13.1 timed. The simulation half of that
   record still holds; the `world`, `minimap`, `render`, and `browser frame` columns do not, and no
   frame claim may be made until the ladder is re-run.
-- **Every tier checksum below is historical.** v0.18, v0.19, and v0.20 each added saved,
-  checksummed state, moving the pinned workload checksum `2402899979` → `1679299541` → `914129621` →
-  `780276626`. None of them changed the workload's shape, entity counts, or delivered totals, so
-  **the timings remain the current record while the checksums do not.** A checksum change
-  invalidates checksum comparisons, not timing ones — say which of the two a record claims.
+- **Every tier checksum below is historical.** v0.18, v0.19, v0.20, and v0.21 each moved the pinned
+  workload checksum: `2402899979` → `1679299541` → `914129621` → `780276626` → `325426962`. The
+  first three added saved, checksummed state; v0.21 moved `WORLD_GENERATOR_VERSION`, which the
+  checksum reads. None of them changed the workload's shape, entity counts, or delivered totals, so
+  **the timings remain comparable while the checksums do not.** A checksum change invalidates
+  checksum comparisons, not timing ones — say which of the two a record claims.
 
 Run the ladders:
 
@@ -89,30 +90,33 @@ a mean per tick, per frame, or per edit, so the two remain comparable; the workl
 and each tier's checksum comes from a separate core advanced exactly once through its tick budget so
 extra samples cannot move it.
 
-## Native — the current record (v0.16)
+## Native — the current record (v0.21)
 
 Host: AMD Ryzen 7 5800X (8 cores / 16 threads), Windows 11 Pro 10.0.26200, rustc 1.87.0,
-`factory-wasm` 0.16.0 built with the shipped release profile (`opt-level = "s"`, LTO,
-`wasm-opt -Oz`). Recorded 2026-08-18. Raw report:
-[`benchmarks/capacity-v0.16-native.json`](benchmarks/capacity-v0.16-native.json).
+`factory-wasm` built with the shipped release profile (`opt-level = "s"`, LTO, `wasm-opt -Oz`).
+Recorded 2026-08-20. Raw report:
+[`benchmarks/capacity-v0.21-native.json`](benchmarks/capacity-v0.21-native.json).
 
 | tier   | entities | tick µs | snapshot µs | checksum µs | frame µs | compile µs | recompile µs |
 | ------ | -------: | ------: | ----------: | ----------: | -------: | ---------: | -----------: |
-| line   |       12 |     1.9 |        15.5 |         1.2 |      3.9 |        1.7 |          6.1 |
-| small  |      192 |     7.9 |        58.5 |        11.6 |     48.4 |       19.2 |         60.7 |
-| medium |      768 |    35.3 |       260.5 |        40.1 |    178.4 |       97.2 |        255.1 |
-| wide   |    1,536 |    85.2 |       684.3 |        80.6 |    344.1 |      208.5 |        623.0 |
-| large  |    3,072 |   154.6 |     1,059.5 |       158.0 |    703.6 |      428.4 |      1,204.2 |
-| xlarge |    6,144 |   378.1 |     2,263.2 |       323.0 |  1,416.8 |      872.8 |      2,314.1 |
+| line   |       12 |     0.6 |        12.9 |         1.7 |      6.2 |        2.3 |          6.3 |
+| small  |      192 |     8.7 |        63.7 |        12.0 |     83.9 |       32.8 |         93.3 |
+| medium |      768 |    41.3 |       360.0 |        47.5 |    188.3 |      140.6 |        385.2 |
+| wide   |    1,536 |    76.0 |       613.5 |        92.5 |    382.0 |      307.4 |        734.9 |
+| large  |    3,072 |   168.3 |     1,172.1 |       177.7 |    797.4 |      644.9 |      1,426.0 |
+| xlarge |    6,144 |   361.2 |     2,504.1 |       376.0 |  1,541.3 |    1,331.0 |      2,786.3 |
 
-Every tier is within noise of the v0.13 record. **The noise floor is stated rather than hidden**:
-the ladder was run twice on this build and xlarge gave tick 359.7 / frame 1,439.5 on the other run,
-so a 5% swing between runs is what this host resolves and nothing smaller is a finding. The table is
-the second run, which is the JSON on disk.
+Every tier is within noise of the v0.16 record. **The noise floor is stated rather than hidden**:
+the v0.16 ladder was run twice on its build and xlarge gave tick 359.7 / frame 1,439.5 on one run
+against 378.1 / 1,416.8 on the other, so a 5% swing between runs is what this host resolves and
+nothing smaller is a finding. xlarge tick moved 378.1 → 361.2 and frame 1,416.8 → 1,541.3, both
+inside that band. The `line` tier's absolute numbers are microseconds and are dominated by timer
+resolution; read the larger tiers.
 
-What this says is that the v0.16 parameter indirection costs nothing in the tick, snapshot, and
-delta path. What it deliberately does not say is anything about generation: the ladder's scenario
-sets `generated_environment: false` and never calls `terrain_at`.
+What this deliberately does **not** say is anything about the v0.21 generator. The ladder's scenario
+sets `generated_environment: false` and never calls `terrain_at` or `field_at`, which is exactly why
+the site lattice needs its own measurement below — and the ladder being flat across a milestone that
+rewrote generation is the evidence that the two paths are as separate as that flag claims.
 
 ### Payload, from v0.12.2
 
@@ -132,24 +136,37 @@ The saving comes from varints instead of decimal text, one byte per closed-set e
 entity ids and tile coordinates, and a bit per absent option instead of a field name and a `null`.
 The encoder cost 3.7 KiB of shipped wasm, `snapshot_delta_json` retained as its oracle included.
 
-## Generation — the current record (v0.16)
+## Generation — the current record (v0.21)
 
-`terrain_at` and `field_at` read a `WorldParams` where version 5 read literals, so the cost of
-generating a hex is a number rather than an assurance. Measured with `survey.exe` at two radii, five
-runs each, taking medians and differencing to cancel process start-up:
+v0.21 made a deposit a **site** rather than a per-hex decision, so `field_at` stopped reading three
+noise channels at one hex and started scanning every lattice cell within reach of it. The naive form
+of that is roughly 350 noise samples per hex and was never shippable; the shipped form caches the
+site lattice, which is `site_cell²` hexes per entry, so every hex of a chunk hits it warm.
 
-| radius |  hexes | median wall time |
-| -----: | -----: | ---------------: |
-|     48 |  7,057 |          10.6 ms |
-|     96 | 27,937 |          18.0 ms |
+Measured with `survey.exe` on `continental` at two radii, five runs each, taking medians and
+differencing to cancel process start-up. **Both builds were measured on this host in the same
+session**, because the v0.16 figure below is not comparable to either: the survey itself grew patch
+statistics in v0.20.1 and river, beach, and bootstrap reporting in v0.21, and none of that is
+generation.
 
-20,880 hexes for 7.4 ms is **0.35 µs per hex**, covering terrain, field, and the survey's own
-bookkeeping — an upper bound on generation alone. A chunk is 64 hexes, so generating one costs at
-most ~23 µs and `ensure_neighborhood`'s seven chunks at most ~160 µs, paid only when the player
-walks into unsurveyed ground.
+| build                         | radius 48 (7,057) | radius 96 (27,937) | µs per hex |
+| ----------------------------- | ----------------: | -----------------: | ---------: |
+| v0.16, as recorded 2026-08-18 |           10.6 ms |            18.0 ms |       0.35 |
+| v0.20.1 (`535f8d8`)           |           15.2 ms |            26.0 ms |       0.52 |
+| **v0.21**                     |       **20.7 ms** |        **50.3 ms** |   **1.42** |
 
-**This is a first record, not a comparison.** No earlier milestone measured this path. **v0.21 has
-one**, and it changes the generator, so re-running this is not optional there.
+**2.7× against the model it replaced, and it buys the milestone's whole point.** The figure covers
+terrain, field, and the survey's own bookkeeping, so it is an upper bound on generation alone and
+the v0.21 row carries more bookkeeping than the v0.20.1 row does.
+
+What it means in the game: a chunk is 64 hexes, so generating one costs at most ~91 µs and
+`ensure_neighborhood`'s seven chunks at most ~640 µs — about 4% of a 60 Hz frame, paid only when the
+player walks into unsurveyed ground, and never in the tick.
+
+**What is still not measured** is the cache's hit rate under a real walk, as opposed to under a
+survey that sweeps a disc in lattice order. A walking player crosses cells in a worse order than
+that, and the map only ever grows. If chunk generation ever shows up in a frame, that is the first
+place to look.
 
 ## Browser frame — the current record (v0.13.1)
 
@@ -200,8 +217,12 @@ browser frame, render included, and exists only from v0.12.4.
 
 Each row is a full report in `docs/benchmarks/`. The headline is what the run was for.
 
-- v0.16 (native, 2026-08-18) — **Current native record.** Flat against v0.13; first measurement of
-  generation at 0.35 µs/hex.
+- v0.21 (native, 2026-08-20) — **Current native record.** Flat against v0.16, which is the point:
+  the ladder never generates, and a milestone that rewrote generation had to leave it untouched.
+  Generation itself moved 0.52 → 1.42 µs/hex, both re-measured on this host so the comparison is
+  against the same harness rather than against the v0.16 line.
+- v0.16 (native, 2026-08-18) — Flat against v0.13; first measurement of generation at 0.35 µs/hex,
+  on a survey that has since grown patch, river, and bootstrap reporting.
 - v0.15 (browser, 2026-08-18) — An A/B, **not a comparable record** — different browser and a
   non-compositing pane. World draw 1,767 µs for the shape grammar against 2,057 µs for the `switch`
   it replaced, ranges overlapping: no regression detectable, not demonstrably faster. The minimap,
@@ -266,9 +287,9 @@ Each row is a full report in `docs/benchmarks/`. The headline is what the run wa
    of anything on this list, because the others are read against it.
 2. **Extend the ladder past 6,144 entities**, so the record brackets a ceiling again instead of only
    showing headroom.
-3. **Re-run generation at v0.21.** The site lattice replaces per-hex field evaluation and adds a
-   cache; the naive form is roughly 350 noise samples per hex. The 0.35 µs/hex figure above is the
-   baseline it owes a comparison to.
+3. **Measure the site cache under a walk rather than under a survey.** The generation record sweeps
+   a disc in lattice order, which is the cache's best case. A walking player crosses cells in a worse
+   one, and `generate_chunk` is the path that pays for it. Nothing here resolves that today.
 4. **Measure `apply` properly.** The main-thread merge did not grow — everything around it shrank,
    taking it from 0.7–1.5% of a host frame to 6.3%. At 115 µs against a 100 µs clock step, what it
    needs first is a measurement that can resolve it, not an optimization.
