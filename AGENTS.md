@@ -282,7 +282,8 @@ decision before starting.
 - Fog of war is presentation over the generated chunk set. Chunk snapshots carry native world
   bounds; the host may draw and describe them but must not invent world outside them.
 - Time and quantities are integers. Any blocked transfer leaves its source unchanged.
-- Canvas 2D is replaceable presentation. Simulation truth comes only from native snapshots.
+- Presentation is replaceable. The world canvas is WebGL2 with a Canvas 2D overlay; the minimap is
+  WebGL2. Simulation truth comes only from native snapshots.
 - A milestone that changes the world generator, the item roster, or the entity snapshot re-runs
   `npm run bench` before it ships. v0.12's re-measurement found two regressions it had introduced —
   86 KB of delta payload and a 3.9× slower snapshot — and one 3.0× saving v0.11 had shipped without

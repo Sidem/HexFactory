@@ -231,6 +231,10 @@ canvas {
   touch-action: none;
 }
 
+.factory-overlay {
+  pointer-events: none;
+}
+
 /*
  * Panels are closed until asked for. The inspector is the exception and the reason: it is the one
  * surface that answers a question about the hex the player just clicked, so it stays on the world
@@ -1423,6 +1427,7 @@ canvas {
   height: 178px;
   border-radius: 8px;
   touch-action: none;
+  box-shadow: inset 0 0 0 1px #5d7a72;
 }
 .home-readout {
   margin: 0;

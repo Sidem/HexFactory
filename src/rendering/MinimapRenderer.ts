@@ -7,7 +7,19 @@ import type {
   ItemDefinition,
   WorldPoint,
 } from "../core/types";
-import { BUILDING_COLORS } from "./CanvasFactoryRenderer";
+import {
+  BUILDING_COLORS,
+  MAX_DEVICE_PIXEL_RATIO,
+} from "./CanvasFactoryRenderer";
+import { parseRgba } from "./gl/color";
+import {
+  compileProgram,
+  createBuffer,
+  createVertexArray,
+  QUAD,
+  Uniforms,
+} from "./gl/program";
+import { MAP_FS, MAP_VS } from "./gl/shaders";
 import { WORLD_SCALE, homeBearing } from "./landmarks";
 
 /**
@@ -15,29 +27,65 @@ import { WORLD_SCALE, homeBearing } from "./landmarks";
  * the ground it was sited on fit in one glance, narrow enough that a belt is still a belt.
  */
 const MINIMAP_RADIUS_HEXES = 32;
+const FOG = parseRgba("#18242f");
+const LOWLAND = parseRgba(TERRAIN_INFO.lowland.fill);
+const STRIDE = 10;
+const CELL_WORLD = WORLD_SCALE * 1.9;
 
 /**
  * The second view of the same snapshot. It derives nothing native has not published: surveyed
  * chunks, terrain bands, buildings, the landing hub, and the player.
  *
- * It draws when a snapshot arrives rather than on every animation frame. The player only moves when
- * a snapshot says so, so redrawing more often would cost frames to show the same picture — and the
- * unmeasured half of a browser frame is exactly the half a second canvas lands in.
+ * World geometry is GPU-instanced and rebuilt only when those lists change. Walking updates the
+ * player uniform, so the map recentres without restamping every cell.
  */
 export class MinimapRenderer {
-  private readonly context: CanvasRenderingContext2D;
+  private readonly gl: WebGL2RenderingContext;
   private readonly itemsById: ReadonlyMap<number, ItemDefinition>;
+  private readonly program: WebGLProgram;
+  private readonly uniforms: Uniforms;
+  private readonly vao: WebGLVertexArrayObject;
+  private readonly worldBuffer: WebGLBuffer;
+  private readonly markBuffer: WebGLBuffer;
+  private readonly markVao: WebGLVertexArrayObject;
   private snapshot: FactorySnapshot | null = null;
   private home: WorldPoint | null = null;
+  private worldData = new Float32Array(STRIDE * 256);
+  private worldCount = 0;
+  private markData = new Float32Array(STRIDE * 8);
+  private markCount = 0;
+  private lastChunks: FactorySnapshot["chunks"] | null = null;
+  private lastTerrain: FactorySnapshot["terrain"] | null = null;
+  private lastResources: FactorySnapshot["resources"] | null = null;
+  private lastBuildings: FactorySnapshot["buildings"] | null = null;
+  private lost = false;
 
   constructor(
     private readonly canvas: HTMLCanvasElement,
     definitions: Definitions,
   ) {
-    const context = canvas.getContext("2d");
-    if (!context) throw new Error("Canvas 2D is unavailable");
-    this.context = context;
+    const gl = canvas.getContext("webgl2", {
+      alpha: false,
+      antialias: false,
+      powerPreference: "low-power",
+      premultipliedAlpha: false,
+    });
+    if (!gl) throw new Error("WebGL2 is unavailable");
+    this.gl = gl;
     this.itemsById = new Map(definitions.items.map((item) => [item.id, item]));
+    this.program = compileProgram(gl, MAP_VS, MAP_FS, "minimap");
+    this.uniforms = new Uniforms(gl, this.program);
+    const quad = createBuffer(gl);
+    gl.bindBuffer(gl.ARRAY_BUFFER, quad);
+    gl.bufferData(gl.ARRAY_BUFFER, QUAD, gl.STATIC_DRAW);
+    this.worldBuffer = createBuffer(gl);
+    this.markBuffer = createBuffer(gl);
+    this.vao = this.makeVao(quad, this.worldBuffer);
+    this.markVao = this.makeVao(quad, this.markBuffer);
+    gl.canvas.addEventListener("webglcontextlost", (event) => {
+      event.preventDefault();
+      this.lost = true;
+    });
     new ResizeObserver(() => this.draw()).observe(canvas);
   }
 
@@ -48,144 +96,266 @@ export class MinimapRenderer {
   }
 
   draw(): void {
-    const ratio = window.devicePixelRatio || 1;
-    const size = Math.max(1, this.canvas.clientWidth);
-    if (this.canvas.width !== Math.floor(size * ratio)) {
-      this.canvas.width = Math.floor(size * ratio);
-      this.canvas.height = Math.floor(size * ratio);
-    }
-    const ctx = this.context;
-    ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
-    // Unsurveyed world is the ground state, exactly as it is in the main view: what is drawn on top
-    // of it is the part the simulation has actually generated.
-    ctx.fillStyle = "#18242f";
-    ctx.fillRect(0, 0, size, size);
+    if (this.lost) return;
     const snapshot = this.snapshot;
+    const gl = this.gl;
+    const css = Math.max(1, this.canvas.clientWidth);
+    const ratio = Math.min(
+      window.devicePixelRatio || 1,
+      MAX_DEVICE_PIXEL_RATIO,
+    );
+    const dw = Math.max(1, Math.floor(css * ratio));
+    if (gl.canvas.width !== dw || gl.canvas.height !== dw) {
+      gl.canvas.width = dw;
+      gl.canvas.height = dw;
+    }
+    gl.viewport(0, 0, dw, dw);
+    gl.disable(gl.DEPTH_TEST);
+    gl.enable(gl.BLEND);
+    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+    gl.clearColor(FOG[0], FOG[1], FOG[2], 1);
+    gl.clear(gl.COLOR_BUFFER_BIT);
     if (!snapshot) return;
 
-    const player = snapshot.player;
     const reach = axialToPixel({ q: MINIMAP_RADIUS_HEXES, r: 0 }, WORLD_SCALE, {
       x: 0,
       y: 0,
     }).x;
-    const scale = size / 2 / reach;
-    const half = size / 2;
-    const project = (point: WorldPoint): WorldPoint => ({
-      x: half + (point.x - player.x) * scale,
-      y: half + (point.y - player.y) * scale,
-    });
-    const onMap = (point: WorldPoint, margin: number): boolean =>
-      point.x >= -margin &&
-      point.y >= -margin &&
-      point.x <= size + margin &&
-      point.y <= size + margin;
+    const scale = dw / 2 / reach;
+    this.syncWorld(snapshot, scale);
+    this.packMarks(snapshot, scale, dw);
 
-    ctx.fillStyle = TERRAIN_INFO.lowland.fill;
-    for (const chunk of snapshot.chunks) {
-      const origin = project(chunk);
-      const span = chunk.span * scale;
-      if (!onMap(origin, span)) continue;
-      ctx.fillRect(origin.x, origin.y, span, span);
+    gl.useProgram(this.program);
+    this.uniforms.vec2("u_player", [snapshot.player.x, snapshot.player.y]);
+    this.uniforms.vec2("u_resolution", [dw, dw]);
+    this.uniforms.f("u_scale", scale);
+    if (this.worldCount > 0) {
+      gl.bindVertexArray(this.vao);
+      gl.drawArraysInstanced(gl.TRIANGLES, 0, 6, this.worldCount);
     }
-
-    // Impassable bands take their bright rim colour rather than their fill, so water and cliff read
-    // as edges of the walkable world at this size instead of as slightly different greys.
-    const cell = Math.max(2, WORLD_SCALE * 1.9 * scale);
-    for (const region of snapshot.terrain) {
-      const point = project(region);
-      if (!onMap(point, cell)) continue;
-      const band = TERRAIN_INFO[region.terrain];
-      ctx.fillStyle = band.passable ? band.fill : band.stroke;
-      ctx.fillRect(point.x - cell / 2, point.y - cell / 2, cell, cell);
-    }
-
-    for (const resource of snapshot.resources) {
-      const point = project(resource);
-      if (!onMap(point, cell)) continue;
-      const color = this.itemsById.get(resource.item_id)?.color ?? "#fff";
-      // A worked-out cell stays on the map as a dim scar so a depleted vein is still a place.
-      ctx.globalAlpha = resource.quantity === 0 ? 0.35 : 1;
-      ctx.fillStyle = resource.quantity === 0 ? "#6a6560" : color;
-      ctx.fillRect(point.x - cell / 4, point.y - cell / 4, cell / 2, cell / 2);
-      ctx.globalAlpha = 1;
-    }
-
-    const mark = Math.max(3, cell);
-    for (const building of snapshot.buildings) {
-      const point = project(
-        axialToPixel(building, WORLD_SCALE, { x: 0, y: 0 }),
-      );
-      if (!onMap(point, mark)) continue;
-      ctx.fillStyle = BUILDING_COLORS[building.kind];
-      const width = building.kind === "hub" ? mark * 2 : mark;
-      ctx.fillRect(point.x - width / 2, point.y - width / 2, width, width);
-      if (building.kind !== "hub") continue;
-      ctx.strokeStyle = "#fff3c0";
-      ctx.lineWidth = 1.5;
-      ctx.strokeRect(point.x - width / 2, point.y - width / 2, width, width);
-    }
-
-    this.drawPlayer(half, size);
-    this.drawHomeEdge(project, size);
-    ctx.strokeStyle = "#5d7a72";
-    ctx.lineWidth = 1;
-    ctx.strokeRect(0.5, 0.5, size - 1, size - 1);
+    gl.bindVertexArray(this.markVao);
+    gl.drawArraysInstanced(gl.TRIANGLES, 0, 6, this.markCount);
+    gl.bindVertexArray(null);
   }
 
-  private drawPlayer(half: number, size: number): void {
-    if (!this.snapshot) return;
-    const ctx = this.context;
-    const { facing_x: facingX, facing_y: facingY } = this.snapshot.player;
-    const reach = Math.max(6, size * 0.05);
-    ctx.strokeStyle = "#f4f7f2";
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.moveTo(half, half);
-    ctx.lineTo(
-      half + (facingX / 1000) * reach,
-      half + (facingY / 1000) * reach,
-    );
-    ctx.stroke();
-    ctx.fillStyle = "#f4f7f2";
-    ctx.strokeStyle = "#142028";
-    ctx.lineWidth = 1.5;
-    ctx.beginPath();
-    ctx.arc(half, half, Math.max(2.5, size * 0.022), 0, Math.PI * 2);
-    ctx.fill();
-    ctx.stroke();
-  }
-
-  /** A chevron at the edge when home is past it, so the minimap keeps answering out of range. */
-  private drawHomeEdge(
-    project: (point: WorldPoint) => WorldPoint,
-    size: number,
-  ): void {
-    if (!this.snapshot || !this.home) return;
-    const point = project(this.home);
-    const margin = 7;
+  private syncWorld(snapshot: FactorySnapshot, scale: number): void {
     if (
-      point.x >= margin &&
-      point.y >= margin &&
-      point.x <= size - margin &&
-      point.y <= size - margin
+      snapshot.chunks === this.lastChunks &&
+      snapshot.terrain === this.lastTerrain &&
+      snapshot.resources === this.lastResources &&
+      snapshot.buildings === this.lastBuildings
     )
       return;
-    const bearing = homeBearing(this.snapshot.player, this.home);
-    if (!bearing) return;
-    const ctx = this.context;
-    ctx.save();
-    ctx.translate(
-      Math.min(size - margin, Math.max(margin, point.x)),
-      Math.min(size - margin, Math.max(margin, point.y)),
+    this.lastChunks = snapshot.chunks;
+    this.lastTerrain = snapshot.terrain;
+    this.lastResources = snapshot.resources;
+    this.lastBuildings = snapshot.buildings;
+    this.worldCount = 0;
+    const minPx = 1 / scale;
+    for (const chunk of snapshot.chunks) {
+      const half = chunk.span / 2;
+      this.pushWorld(
+        chunk.x + half,
+        chunk.y + half,
+        Math.max(half, minPx),
+        Math.max(half, minPx),
+        LOWLAND,
+        0,
+        0,
+      );
+    }
+    const cell = Math.max(minPx, CELL_WORLD / 2);
+    for (const region of snapshot.terrain) {
+      const band = TERRAIN_INFO[region.terrain];
+      this.pushWorld(
+        region.x,
+        region.y,
+        cell,
+        cell,
+        parseRgba(band.passable ? band.fill : band.stroke),
+        0,
+        0,
+      );
+    }
+    for (const resource of snapshot.resources) {
+      const color =
+        resource.quantity === 0
+          ? parseRgba("#6a6560")
+          : parseRgba(this.itemsById.get(resource.item_id)?.color ?? "#fff");
+      if (resource.quantity === 0) color[3] = 0.35;
+      this.pushWorld(resource.x, resource.y, cell / 2, cell / 2, color, 0, 0);
+    }
+    const mark = Math.max(3 / scale, cell * 2);
+    for (const building of snapshot.buildings) {
+      const point = axialToPixel(building, WORLD_SCALE, { x: 0, y: 0 });
+      const width = building.kind === "hub" ? mark * 2 : mark;
+      const color = parseRgba(BUILDING_COLORS[building.kind]);
+      if (building.kind === "hub")
+        this.pushWorld(
+          point.x,
+          point.y,
+          width / 2 + 1 / scale,
+          width / 2 + 1 / scale,
+          parseRgba("#fff3c0"),
+          0,
+          0,
+        );
+      this.pushWorld(point.x, point.y, width / 2, width / 2, color, 0, 0);
+    }
+    this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.worldBuffer);
+    this.gl.bufferData(
+      this.gl.ARRAY_BUFFER,
+      this.worldData.subarray(0, this.worldCount * STRIDE),
+      this.gl.DYNAMIC_DRAW,
     );
-    ctx.rotate(Math.atan2(bearing.y, bearing.x));
-    ctx.fillStyle = "#f6c85f";
-    ctx.beginPath();
-    ctx.moveTo(6, 0);
-    ctx.lineTo(-4, 5);
-    ctx.lineTo(-4, -5);
-    ctx.closePath();
-    ctx.fill();
-    ctx.restore();
   }
+
+  private packMarks(
+    snapshot: FactorySnapshot,
+    scale: number,
+    dw: number,
+  ): void {
+    const player = snapshot.player;
+    const radius = Math.max(2.5, (dw / scale) * 0.022);
+    const reach = Math.max(6 / scale, (dw / scale) * 0.05);
+    const fx = player.facing_x / 1000;
+    const fy = player.facing_y / 1000;
+    const angle = Math.atan2(fy, fx);
+    this.markData.fill(0);
+    writeInstance(this.markData, 0, [
+      player.x + (fx * reach) / 2,
+      player.y + (fy * reach) / 2,
+      reach / 2,
+      1 / scale,
+      0.957,
+      0.969,
+      0.949,
+      1,
+      angle,
+      0,
+    ]);
+    writeInstance(this.markData, 1, [
+      player.x,
+      player.y,
+      radius,
+      radius,
+      0.957,
+      0.969,
+      0.949,
+      1,
+      0,
+      1,
+    ]);
+    this.markCount = 2;
+    const home = this.homeMarker(snapshot, scale, dw);
+    if (home) {
+      writeInstance(this.markData, 2, home);
+      this.markCount = 3;
+    }
+    this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.markBuffer);
+    this.gl.bufferData(
+      this.gl.ARRAY_BUFFER,
+      this.markData.subarray(0, this.markCount * STRIDE),
+      this.gl.DYNAMIC_DRAW,
+    );
+  }
+
+  private homeMarker(
+    snapshot: FactorySnapshot,
+    scale: number,
+    dw: number,
+  ): number[] | null {
+    if (!this.home) return null;
+    const dx = this.home.x - snapshot.player.x;
+    const dy = this.home.y - snapshot.player.y;
+    const half = dw / 2;
+    const sx = half + dx * scale;
+    const sy = half + dy * scale;
+    const margin = 7;
+    if (sx >= margin && sy >= margin && sx <= dw - margin && sy <= dw - margin)
+      return null;
+    const bearing = homeBearing(snapshot.player, this.home);
+    if (!bearing) return null;
+    const clampedX = Math.min(dw - margin, Math.max(margin, sx));
+    const clampedY = Math.min(dw - margin, Math.max(margin, sy));
+    const worldX = snapshot.player.x + (clampedX - half) / scale;
+    const worldY = snapshot.player.y + (clampedY - half) / scale;
+    return [
+      worldX,
+      worldY,
+      6 / scale,
+      5 / scale,
+      0.965,
+      0.784,
+      0.373,
+      1,
+      Math.atan2(bearing.y, bearing.x),
+      0,
+    ];
+  }
+
+  private pushWorld(
+    x: number,
+    y: number,
+    extX: number,
+    extY: number,
+    color: [number, number, number, number],
+    angle: number,
+    shape: number,
+  ): void {
+    this.worldData = grow(this.worldData, (this.worldCount + 1) * STRIDE);
+    writeInstance(this.worldData, this.worldCount, [
+      x,
+      y,
+      extX,
+      extY,
+      ...color,
+      angle,
+      shape,
+    ]);
+    this.worldCount += 1;
+  }
+
+  private makeVao(
+    quad: WebGLBuffer,
+    instances: WebGLBuffer,
+  ): WebGLVertexArrayObject {
+    const gl = this.gl;
+    const vao = createVertexArray(gl);
+    gl.bindVertexArray(vao);
+    gl.bindBuffer(gl.ARRAY_BUFFER, quad);
+    gl.enableVertexAttribArray(0);
+    gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+    gl.bindBuffer(gl.ARRAY_BUFFER, instances);
+    const stride = STRIDE * 4;
+    for (const [index, size, offset] of [
+      [1, 2, 0],
+      [2, 2, 2],
+      [3, 4, 4],
+      [4, 2, 8],
+    ] as const) {
+      gl.enableVertexAttribArray(index);
+      gl.vertexAttribPointer(index, size, gl.FLOAT, false, stride, offset * 4);
+      gl.vertexAttribDivisor(index, 1);
+    }
+    gl.bindVertexArray(null);
+    return vao;
+  }
+}
+
+function writeInstance(
+  data: Float32Array,
+  index: number,
+  values: number[],
+): void {
+  data.set(values, index * STRIDE);
+}
+
+function grow(data: Float32Array, need: number): Float32Array {
+  if (data.length >= need) return data;
+  let size = data.length || 32;
+  while (size < need) size *= 2;
+  const next = new Float32Array(size);
+  next.set(data);
+  return next;
 }

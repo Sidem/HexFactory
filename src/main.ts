@@ -359,6 +359,7 @@ function saveHotbar(): void {
 
 function update(next: FactorySnapshot): void {
   const previousVictory = snapshot.victory;
+  const previous = snapshot;
   snapshot = next;
   refreshLandingHub();
   renderer.setHome(landingHub);
@@ -378,14 +379,30 @@ function update(next: FactorySnapshot): void {
     .toString(16)
     .padStart(8, "0")
     .toUpperCase();
-  renderInventory();
-  renderHotbar();
-  renderBuildPanel();
-  renderTechnologies();
-  renderInspector();
-  renderContract();
-  renderRequests();
-  renderNextAction();
+  // Walking changes the player every frame. Rebuilding every panel for that is the hitch on a
+  // weak machine: the factory HUD only moves when the factory does.
+  const packChanged = !sameCarry(previous.player, next.player);
+  const factoryChanged =
+    previous === next ||
+    previous.tick !== next.tick ||
+    previous.insight !== next.insight ||
+    previous.victory !== next.victory ||
+    previous.buildings !== next.buildings ||
+    previous.resources !== next.resources ||
+    previous.researched !== next.researched ||
+    previous.contract !== next.contract ||
+    previous.requests !== next.requests ||
+    previous.events !== next.events;
+  if (packChanged || factoryChanged) {
+    renderInventory();
+    renderHotbar();
+    renderBuildPanel();
+    renderTechnologies();
+    renderContract();
+    renderRequests();
+    renderNextAction();
+  }
+  if (factoryChanged || selected) renderInspector();
   const latestEvent = snapshot.events.at(-1) ?? "";
   if (
     latestEvent &&
@@ -473,6 +490,21 @@ function syncChildren(
 }
 
 /** The item definition behind an id, or `undefined` when the catalogue has no such row. */
+function sameCarry(
+  previous: FactorySnapshot["player"],
+  next: FactorySnapshot["player"],
+): boolean {
+  const a = previous.carry_stacks;
+  const b = next.carry_stacks;
+  if (a === b) return true;
+  if (a.length !== b.length) return false;
+  return a.every(
+    (stack, index) =>
+      stack.item_id === b[index]?.item_id &&
+      stack.quantity === b[index]?.quantity,
+  );
+}
+
 function itemById(itemId: number | undefined): ItemDefinition | undefined {
   return itemId === undefined
     ? undefined

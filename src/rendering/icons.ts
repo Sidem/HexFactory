@@ -191,6 +191,16 @@ export function drawItemIcon(
   ctx.restore();
 }
 
+/** White glyph on a square, for the WebGL icon atlas to tint per item. */
+export function bakeItemIcon(icon: string, size = 64): HTMLCanvasElement {
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext("2d");
+  if (ctx) drawItemIcon(ctx, icon, "#ffffff", size / 2, size / 2, size);
+  return canvas;
+}
+
 function polygon(
   ctx: CanvasRenderingContext2D,
   points: Array<[number, number]>,

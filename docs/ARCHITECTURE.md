@@ -144,11 +144,12 @@ snapshot destroys the element the pointer went down on, the browser retargets th
 container, and a delegated handler resolves nothing — which is how research clicks were being
 silently dropped about once a second.
 
-The replaceable Canvas 2D renderer consumes snapshots and draws continuous regions/resources,
-multi-cell buildings, player, hover, selection, build radius, legality, definition labels, cargo
-layers, and the fog of war over ungenerated world. The longer-horizon replacement is a 3D
-renderer whose camera tilts and orbits the player and whose terrain, buildings, and player have
-shape — still presentation over the same snapshots, measured against the v0.12.4 baseline. The
+The replaceable world renderer is WebGL2: instanced terrain, resources, buildings, and fog, with
+the camera as a uniform so walking does not restamp the mosaic. A Canvas 2D overlay carries the
+player, labels, and machine decorations. The minimap is the same idea at 178 px: instanced
+rectangles, player-centred uniforms, rebuilt only when the surveyed world changes. The longer-horizon replacement is a 3D renderer whose camera
+tilts and orbits the player and whose terrain, buildings, and player have shape — still
+presentation over the same snapshots, measured against the v0.12.4 baseline. The
 construction grid is hidden outside editing unless explicitly toggled. The command bar,
 snapshot-derived next-action guidance, inventory/research panels, construction dock, held touch pad,
 camera following, pan/zoom, feedback, and reduced-motion behavior are presentation only. Touch and

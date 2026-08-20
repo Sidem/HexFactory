@@ -844,14 +844,20 @@ describe("availability and expanded snapshot adapter", () => {
       new URL("../src/rendering/CanvasFactoryRenderer.ts", import.meta.url),
       "utf8",
     );
+    const worldGl = readFileSync(
+      new URL("../src/rendering/gl/WorldGl.ts", import.meta.url),
+      "utf8",
+    );
     const main = readFileSync(
       new URL("../src/main.ts", import.meta.url),
       "utf8",
     );
     // Fog is presentation over native chunk truth: the renderer must not invent chunk geometry.
     expect(renderer).toContain("this.drawFog(");
-    expect(renderer).toContain("destination-out");
+    expect(renderer).toContain("chunk.span");
+    expect(worldGl).toContain("chunk.span");
     expect(renderer).not.toMatch(/span\s*=\s*\d/);
+    expect(worldGl).not.toMatch(/span\s*=\s*\d/);
     expect(renderer).toContain("player.radius");
     expect(main).toContain("isSurveyed(snapshot.chunks");
   });
@@ -928,9 +934,14 @@ describe("availability and expanded snapshot adapter", () => {
       new URL("../src/rendering/CanvasFactoryRenderer.ts", import.meta.url),
       "utf8",
     );
+    const worldGl = readFileSync(
+      new URL("../src/rendering/gl/WorldGl.ts", import.meta.url),
+      "utf8",
+    );
     // Impassability is drawn from the table, not from a second opinion about which grey is cliff.
-    expect(renderer).toContain("if (!band.passable) this.drawImpassable(");
+    expect(worldGl).toContain("info.passable ? 0 : 1");
     expect(renderer).not.toContain('case "cliff"');
+    expect(worldGl).not.toContain('case "cliff"');
   });
 
   it("always knows which way the landing hub is", () => {
@@ -1115,13 +1126,19 @@ describe("availability and expanded snapshot adapter", () => {
     );
     // Per-entity .find() inside the draw loops is the thing the renderer measurement should
     // not have to answer. Lookups are built once from the roster.
-    expect(renderer).toContain('from "./terrainLook"');
+    const worldGl = readFileSync(
+      new URL("../src/rendering/gl/WorldGl.ts", import.meta.url),
+      "utf8",
+    );
+    expect(worldGl).toContain('from "../terrainLook"');
     expect(renderer).toContain('from "./buildingLook"');
+    expect(renderer).toContain('getContext("webgl2"');
     expect(renderer).toContain("this.itemsById = new Map(");
     expect(renderer).toContain("this.buildingsById = new Map(");
     expect(renderer).not.toContain("definitions.items.find(");
     expect(renderer).not.toContain("definitions.buildings.find(");
     expect(minimap).toContain("this.itemsById = new Map(");
+    expect(minimap).toContain('getContext("webgl2"');
     expect(minimap).not.toContain("definitions.items.find(");
     expect(main).not.toMatch(/from ["'].*bench/);
     expect(renderer).not.toMatch(/from ["'].*bench/);

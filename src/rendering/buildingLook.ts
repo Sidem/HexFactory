@@ -247,6 +247,15 @@ const bakes = new Map<string, HTMLCanvasElement>();
  * buildings. What is left to draw per entity per frame is only the parts that actually move, so
  * the grammar's indirection is paid at startup instead of at 60 Hz.
  */
+/** Offscreen stamp of the still parts. The WebGL atlas uploads these; Canvas 2D draws them too. */
+export function buildingStamp(
+  key: SilhouetteKey,
+  tier: number,
+  growth: number,
+): HTMLCanvasElement {
+  return bakedStills(key, tier, growth);
+}
+
 function bakedStills(
   key: SilhouetteKey,
   tier: number,
