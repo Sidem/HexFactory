@@ -13,7 +13,7 @@ shipped ledger, and the next milestones live in `docs/HEXFACTORY-PLAN.md`, archi
 
 Shipped through **v0.21**, plus an unversioned WebGL2 renderer pass. Current envelope versions,
 all five of which native refuses a load on: **save 10, definitions 10, technologies 5, scenarios 5,
-world generator 7**, and wire (snapshot delta) **5**. `SAVE_VERSION` is the one literal in the host,
+world generator 8**, and wire (snapshot delta) **5**. `SAVE_VERSION` is the one literal in the host,
 because native does not publish it; every other number the browser's save catalog shows is read from
 what native publishes.
 

@@ -1,6 +1,6 @@
 [
   { "terrain": "deep_water", "passable": false, "buildable": false },
-  { "terrain": "shallow_water", "passable": false, "buildable": false },
+  { "terrain": "shallow_water", "passable": true, "buildable": false },
   { "terrain": "shore", "passable": true, "buildable": true },
   { "terrain": "lowland", "passable": true, "buildable": true },
   { "terrain": "hills", "passable": true, "buildable": true },

@@ -13,12 +13,13 @@ Generation: **v0.21**. Payload: **Binary Delta v0.12.2**.
   pass (2026-08-20) replaced both Canvas 2D draws that v0.13.1 timed. The simulation half of that
   record still holds; the `world`, `minimap`, `render`, and `browser frame` columns do not, and no
   frame claim may be made until the ladder is re-run.
-- **Every tier checksum below is historical.** v0.18, v0.19, v0.20, and v0.21 each moved the pinned
-  workload checksum: `2402899979` → `1679299541` → `914129621` → `780276626` → `325426962`. The
-  first three added saved, checksummed state; v0.21 moved `WORLD_GENERATOR_VERSION`, which the
-  checksum reads. None of them changed the workload's shape, entity counts, or delivered totals, so
-  **the timings remain comparable while the checksums do not.** A checksum change invalidates
-  checksum comparisons, not timing ones — say which of the two a record claims.
+- **Every tier checksum below is historical.** v0.18, v0.19, v0.20, v0.21, and the world-scale
+  pass each moved the pinned workload checksum: `2402899979` → `1679299541` → `914129621` →
+  `780276626` → `325426962` → `3745973835`. The first three added saved, checksummed state; v0.21
+  and the scale pass moved `WORLD_GENERATOR_VERSION`, which the checksum reads. None of them
+  changed the workload's shape, entity counts, or delivered totals, so **the timings remain
+  comparable while the checksums do not.** A checksum change invalidates checksum comparisons, not
+  timing ones — say which of the two a record claims.
 
 Run the ladders:
 

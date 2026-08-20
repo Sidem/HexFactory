@@ -9,20 +9,19 @@ export const MOVEMENT_KEYS = Object.freeze({
 } satisfies Readonly<Record<string, { x: number; y: number }>>);
 
 /**
- * How much of full speed a precision walk is worth.
+ * How much of full native speed an ordinary walk is worth.
  *
- * The recorded defect is that walking overshoots a single hex at hold-to-move speed, and the
- * arithmetic says why: at `PLAYER_SPEED` 242 over 30 steps a second the player crosses a hex
- * column in about a quarter of a second, which is a human reaction time. Slowing the walk outright
- * would fix the aim and ruin the travel, so precision is a modifier instead — and it is a modifier
- * native already accepts, because `move_intent` carries a magnitude in thousandths and always did.
- * No native rule moves for this: the host sends a smaller intent, not a smaller step.
+ * A hexagon is 1 m², so a neighbour step is √(2/√3) ≈ 1.075 m. Native `PLAYER_SPEED` 275 over 30
+ * steps a second is 5 m/s at intent 1000 — the run, held on Shift. The walk is 3 m/s, which is
+ * 3/5 of that, and it is a smaller intent rather than a smaller step: native already accepts a
+ * magnitude in thousandths and always did. No native rule moves for the gait; the host sends 600
+ * or 1000.
  */
-export const PRECISION_SCALE = 0.4;
+export const WALK_SCALE = 0.6;
 
 export function movementIntent(
   pressed: ReadonlySet<string>,
-  precise = false,
+  running = false,
 ): {
   type: "move_intent";
   x: number;
@@ -40,7 +39,7 @@ export function movementIntent(
   x = Math.max(-1, Math.min(1, x));
   y = Math.max(-1, Math.min(1, y));
   const diagonal = x !== 0 && y !== 0;
-  const magnitude = (diagonal ? 707 : 1000) * (precise ? PRECISION_SCALE : 1);
+  const magnitude = (diagonal ? 707 : 1000) * (running ? 1 : WALK_SCALE);
   return {
     type: "move_intent",
     x: Math.round(x * magnitude),

@@ -51,7 +51,8 @@ machine decorations.
 - `I` opens the cargo pack, `O` research, `B` the construction catalogue, and `P` the objective and
   controls reference. They open independently and several at a time. `T` pauses, `M` mutes, and
   `Escape` returns to inspection and clears the open panels.
-- Hold `Shift` while walking for a slower, precise step that does not overshoot a hex.
+- Hold `Shift` while walking to run. One hexagon is about 1 m²; the walk is 3 m/s and the run is
+  5 m/s. Shallow water is a 1 m/s ford; deep water still blocks.
 
 ## Run locally
 

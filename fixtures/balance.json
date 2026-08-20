@@ -1,10 +1,10 @@
 {
   "access": [
     {
-      "guaranteed_hexes": 54,
-      "guaranteed_walk": 10,
+      "guaranteed_hexes": 53,
+      "guaranteed_walk": 11,
       "material": "ore",
-      "nearest_generated": 10,
+      "nearest_generated": 11,
       "reachable": true,
       "required_by": 24
     },
@@ -12,31 +12,31 @@
       "guaranteed_hexes": 0,
       "guaranteed_walk": null,
       "material": "crystal",
-      "nearest_generated": 15,
+      "nearest_generated": 32,
       "reachable": true,
       "required_by": 3
     },
     {
-      "guaranteed_hexes": 22,
+      "guaranteed_hexes": 23,
       "guaranteed_walk": 25,
       "material": "copper-ore",
-      "nearest_generated": 24,
+      "nearest_generated": 25,
       "reachable": true,
       "required_by": 5
     },
     {
-      "guaranteed_hexes": 23,
-      "guaranteed_walk": 15,
+      "guaranteed_hexes": 22,
+      "guaranteed_walk": 20,
       "material": "coal",
-      "nearest_generated": 11,
+      "nearest_generated": 20,
       "reachable": true,
       "required_by": 2
     },
     {
-      "guaranteed_hexes": 39,
-      "guaranteed_walk": 17,
+      "guaranteed_hexes": 37,
+      "guaranteed_walk": 25,
       "material": "stone",
-      "nearest_generated": 18,
+      "nearest_generated": 12,
       "reachable": true,
       "required_by": 9
     },
@@ -44,23 +44,23 @@
       "guaranteed_hexes": 0,
       "guaranteed_walk": null,
       "material": "sand",
-      "nearest_generated": 11,
-      "reachable": true,
+      "nearest_generated": null,
+      "reachable": false,
       "required_by": 4
     },
     {
-      "guaranteed_hexes": 17,
+      "guaranteed_hexes": 14,
       "guaranteed_walk": 20,
       "material": "clay",
-      "nearest_generated": 20,
+      "nearest_generated": 8,
       "reachable": true,
       "required_by": 5
     },
     {
-      "guaranteed_hexes": 40,
-      "guaranteed_walk": 9,
+      "guaranteed_hexes": 47,
+      "guaranteed_walk": 11,
       "material": "wood",
-      "nearest_generated": 9,
+      "nearest_generated": 8,
       "reachable": true,
       "required_by": 3
     },
@@ -1141,258 +1141,226 @@
     {
       "material": "ore",
       "mean_cell_quantity": 12,
-      "mean_same_material": [75, 177],
-      "mean_site_yield": [75, 178],
+      "mean_same_material": [76, 180],
+      "mean_site_yield": [76, 180],
       "preset": "continental",
-      "sites": 201
+      "sites": 87
     },
     {
       "material": "crystal",
       "mean_cell_quantity": 10,
-      "mean_same_material": [44, 71],
-      "mean_site_yield": [44, 71],
+      "mean_same_material": [43, 64],
+      "mean_site_yield": [43, 64],
       "preset": "continental",
-      "sites": 36
+      "sites": 12
     },
     {
       "material": "copper-ore",
-      "mean_cell_quantity": 11,
-      "mean_same_material": [53, 106],
-      "mean_site_yield": [53, 107],
+      "mean_cell_quantity": 12,
+      "mean_same_material": [58, 123],
+      "mean_site_yield": [58, 123],
       "preset": "continental",
-      "sites": 449
+      "sites": 183
     },
     {
       "material": "coal",
       "mean_cell_quantity": 11,
-      "mean_same_material": [63, 140],
-      "mean_site_yield": [63, 142],
+      "mean_same_material": [64, 146],
+      "mean_site_yield": [65, 148],
       "preset": "continental",
-      "sites": 342
+      "sites": 245
     },
     {
       "material": "stone",
       "mean_cell_quantity": 12,
-      "mean_same_material": [60, 124],
-      "mean_site_yield": [61, 126],
+      "mean_same_material": [64, 141],
+      "mean_site_yield": [65, 143],
       "preset": "continental",
-      "sites": 301
-    },
-    {
-      "material": "sand",
-      "mean_cell_quantity": 17,
-      "mean_same_material": [62, 122],
-      "mean_site_yield": [62, 123],
-      "preset": "continental",
-      "sites": 239
+      "sites": 244
     },
     {
       "material": "clay",
       "mean_cell_quantity": 15,
-      "mean_same_material": [63, 114],
-      "mean_site_yield": [63, 114],
+      "mean_same_material": [63, 115],
+      "mean_site_yield": [63, 116],
       "preset": "continental",
-      "sites": 311
+      "sites": 318
     },
     {
       "material": "wood",
       "mean_cell_quantity": 1,
       "mean_same_material": [8, 18],
-      "mean_site_yield": [9, 21],
+      "mean_site_yield": [8, 19],
       "preset": "continental",
-      "sites": 1083
+      "sites": 1220
     },
     {
       "material": "ore",
-      "mean_cell_quantity": 12,
-      "mean_same_material": [65, 142],
-      "mean_site_yield": [65, 142],
+      "mean_cell_quantity": 13,
+      "mean_same_material": [76, 173],
+      "mean_site_yield": [76, 174],
       "preset": "archipelago",
-      "sites": 200
+      "sites": 57
     },
     {
       "material": "crystal",
       "mean_cell_quantity": 10,
-      "mean_same_material": [36, 62],
-      "mean_site_yield": [36, 63],
+      "mean_same_material": [57, 130],
+      "mean_site_yield": [57, 130],
       "preset": "archipelago",
-      "sites": 17
+      "sites": 43
     },
     {
       "material": "copper-ore",
       "mean_cell_quantity": 12,
-      "mean_same_material": [46, 95],
-      "mean_site_yield": [46, 95],
+      "mean_same_material": [56, 119],
+      "mean_site_yield": [56, 121],
       "preset": "archipelago",
-      "sites": 253
+      "sites": 76
     },
     {
       "material": "coal",
-      "mean_cell_quantity": 12,
-      "mean_same_material": [57, 120],
-      "mean_site_yield": [57, 123],
+      "mean_cell_quantity": 11,
+      "mean_same_material": [66, 155],
+      "mean_site_yield": [66, 156],
       "preset": "archipelago",
-      "sites": 335
+      "sites": 118
     },
     {
       "material": "stone",
       "mean_cell_quantity": 12,
-      "mean_same_material": [46, 85],
-      "mean_site_yield": [46, 88],
+      "mean_same_material": [64, 138],
+      "mean_site_yield": [64, 139],
       "preset": "archipelago",
-      "sites": 112
+      "sites": 175
     },
     {
       "material": "sand",
       "mean_cell_quantity": 17,
-      "mean_same_material": [46, 89],
-      "mean_site_yield": [46, 91],
+      "mean_same_material": [81, 169],
+      "mean_site_yield": [81, 169],
       "preset": "archipelago",
-      "sites": 401
+      "sites": 150
     },
     {
       "material": "clay",
       "mean_cell_quantity": 15,
-      "mean_same_material": [60, 120],
-      "mean_site_yield": [60, 122],
+      "mean_same_material": [65, 117],
+      "mean_site_yield": [65, 117],
       "preset": "archipelago",
-      "sites": 496
+      "sites": 418
     },
     {
       "material": "wood",
       "mean_cell_quantity": 1,
-      "mean_same_material": [5, 11],
-      "mean_site_yield": [6, 14],
+      "mean_same_material": [10, 24],
+      "mean_site_yield": [10, 25],
       "preset": "archipelago",
-      "sites": 1006
+      "sites": 2197
     },
     {
       "material": "ore",
       "mean_cell_quantity": 12,
-      "mean_same_material": [74, 178],
-      "mean_site_yield": [74, 178],
+      "mean_same_material": [71, 166],
+      "mean_site_yield": [71, 166],
       "preset": "highlands",
-      "sites": 234
+      "sites": 223
     },
     {
       "material": "crystal",
       "mean_cell_quantity": 10,
-      "mean_same_material": [51, 97],
-      "mean_site_yield": [51, 100],
+      "mean_same_material": [46, 80],
+      "mean_site_yield": [46, 80],
       "preset": "highlands",
-      "sites": 120
+      "sites": 78
     },
     {
       "material": "copper-ore",
       "mean_cell_quantity": 11,
-      "mean_same_material": [60, 124],
-      "mean_site_yield": [60, 124],
+      "mean_same_material": [47, 89],
+      "mean_site_yield": [47, 89],
       "preset": "highlands",
-      "sites": 499
+      "sites": 148
     },
     {
       "material": "coal",
       "mean_cell_quantity": 11,
       "mean_same_material": [66, 154],
-      "mean_site_yield": [67, 156],
+      "mean_site_yield": [67, 155],
       "preset": "highlands",
-      "sites": 482
+      "sites": 564
     },
     {
       "material": "stone",
       "mean_cell_quantity": 12,
-      "mean_same_material": [72, 167],
-      "mean_site_yield": [72, 168],
+      "mean_same_material": [66, 148],
+      "mean_site_yield": [66, 149],
       "preset": "highlands",
-      "sites": 787
-    },
-    {
-      "material": "sand",
-      "mean_cell_quantity": 17,
-      "mean_same_material": [67, 126],
-      "mean_site_yield": [67, 126],
-      "preset": "highlands",
-      "sites": 25
+      "sites": 428
     },
     {
       "material": "clay",
-      "mean_cell_quantity": 15,
-      "mean_same_material": [67, 126],
-      "mean_site_yield": [67, 126],
+      "mean_cell_quantity": 14,
+      "mean_same_material": [66, 118],
+      "mean_site_yield": [66, 121],
       "preset": "highlands",
-      "sites": 133
+      "sites": 51
     },
     {
       "material": "wood",
       "mean_cell_quantity": 1,
-      "mean_same_material": [10, 23],
-      "mean_site_yield": [10, 25],
+      "mean_same_material": [9, 19],
+      "mean_site_yield": [9, 21],
       "preset": "highlands",
-      "sites": 272
+      "sites": 506
     },
     {
       "material": "ore",
       "mean_cell_quantity": 12,
-      "mean_same_material": [72, 173],
-      "mean_site_yield": [72, 173],
+      "mean_same_material": [76, 183],
+      "mean_site_yield": [76, 184],
       "preset": "basin",
-      "sites": 143
-    },
-    {
-      "material": "crystal",
-      "mean_cell_quantity": 10,
-      "mean_same_material": [46, 73],
-      "mean_site_yield": [51, 95],
-      "preset": "basin",
-      "sites": 21
+      "sites": 50
     },
     {
       "material": "copper-ore",
       "mean_cell_quantity": 11,
-      "mean_same_material": [63, 134],
-      "mean_site_yield": [63, 135],
-      "preset": "basin",
-      "sites": 449
-    },
-    {
-      "material": "coal",
-      "mean_cell_quantity": 11,
-      "mean_same_material": [63, 139],
-      "mean_site_yield": [63, 139],
+      "mean_same_material": [57, 125],
+      "mean_site_yield": [57, 125],
       "preset": "basin",
       "sites": 186
     },
     {
-      "material": "stone",
-      "mean_cell_quantity": 12,
-      "mean_same_material": [72, 166],
-      "mean_site_yield": [72, 168],
+      "material": "coal",
+      "mean_cell_quantity": 11,
+      "mean_same_material": [62, 141],
+      "mean_site_yield": [62, 141],
       "preset": "basin",
-      "sites": 254
+      "sites": 113
     },
     {
-      "material": "sand",
-      "mean_cell_quantity": 16,
-      "mean_same_material": [89, 188],
-      "mean_site_yield": [89, 189],
+      "material": "stone",
+      "mean_cell_quantity": 12,
+      "mean_same_material": [66, 148],
+      "mean_site_yield": [66, 149],
       "preset": "basin",
-      "sites": 161
+      "sites": 78
     },
     {
       "material": "clay",
-      "mean_cell_quantity": 15,
-      "mean_same_material": [64, 115],
-      "mean_site_yield": [64, 115],
+      "mean_cell_quantity": 14,
+      "mean_same_material": [62, 112],
+      "mean_site_yield": [62, 112],
       "preset": "basin",
-      "sites": 259
+      "sites": 509
     },
     {
       "material": "wood",
       "mean_cell_quantity": 1,
-      "mean_same_material": [11, 26],
-      "mean_site_yield": [11, 27],
+      "mean_same_material": [8, 18],
+      "mean_site_yield": [8, 19],
       "preset": "basin",
-      "sites": 1908
+      "sites": 1490
     }
   ],
   "fuel": [

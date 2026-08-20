@@ -201,27 +201,32 @@ describe("bounded host input", () => {
     });
     expect(movementIntent(new Set(["KeyW", "KeyD"]))).toEqual({
       type: "move_intent",
-      x: 707,
-      y: -707,
+      x: 424,
+      y: -424,
     });
-    // Precision walking is a smaller intent, never a smaller step: the magnitude field native
-    // already accepts is what carries it, so no rule about the player's clock moves for it. At
-    // full speed a hex column takes about a quarter of a second, which is why holding a direction
-    // overshoots one; at 0.4 it is closer to two thirds of a second and a single hex is aimable.
+    // Walking is a smaller intent, never a smaller step: native `PLAYER_SPEED` is the 5 m/s run
+    // at intent 1000, and the host sends 600 for the 3 m/s walk. Shift is the run, not a precision
+    // crawl — the world is scaled so a biome takes minutes, and getting across it is what Shift is
+    // for.
+    expect(movementIntent(new Set(["KeyD"]))).toEqual({
+      type: "move_intent",
+      x: 600,
+      y: 0,
+    });
     expect(movementIntent(new Set(["KeyD"]), true)).toEqual({
       type: "move_intent",
-      x: 400,
+      x: 1000,
       y: 0,
     });
     expect(movementIntent(new Set(["KeyW", "KeyD"]), true)).toEqual({
       type: "move_intent",
-      x: 283,
-      y: -283,
+      x: 707,
+      y: -707,
     });
-    // Still bounded by what the command encoder will accept, precise or not.
-    for (const precise of [false, true])
+    // Still bounded by what the command encoder will accept, walking or running.
+    for (const running of [false, true])
       for (const keys of [["KeyW"], ["KeyW", "KeyD"], ["KeyA", "KeyS"]]) {
-        const intent = movementIntent(new Set(keys), precise);
+        const intent = movementIntent(new Set(keys), running);
         expect(Math.abs(intent.x)).toBeLessThanOrEqual(1000);
         expect(Math.abs(intent.y)).toBeLessThanOrEqual(1000);
         expect(Number.isInteger(intent.x)).toBe(true);
@@ -882,8 +887,8 @@ describe("availability and expanded snapshot adapter", () => {
     // The next step is permanent chrome, not something behind a key a new player has to find.
     expect(html).toContain('id="next-step-title"');
     expect(html).toContain('id="next-step-detail"');
-    // Comfort controls exist in the product, both on the bar and in the menu, and the precision
-    // walk that fixes single-hex overshoot is documented in the page rather than only in the repo.
+    // Comfort controls exist in the product, both on the bar and in the menu, and the run binding
+    // is documented in the page rather than only in the repo.
     expect(html).toContain('id="sound"');
     expect(html).toContain('id="reduce-motion"');
     expect(html).toContain('id="mute"');
@@ -922,13 +927,20 @@ describe("availability and expanded snapshot adapter", () => {
       expect(band.passable, entry.terrain).toBe(entry.passable);
       expect(band.buildable, entry.terrain).toBe(entry.buildable);
       expect(terrainAccess(band), entry.terrain).toBe(
-        entry.passable ? "Buildable" : "Impassable",
+        entry.passable
+          ? entry.buildable
+            ? "Buildable"
+            : "Walkable"
+          : "Impassable",
       );
     }
-    // The three the player keeps walking into, named rather than counted.
+    // Deep water and cliff are the wall. Shallows are a ford: walkable, not buildable.
     expect(
       entries.filter(({ passable }) => !passable).map((e) => e.terrain),
-    ).toEqual(["deep_water", "shallow_water", "cliff"]);
+    ).toEqual(["deep_water", "cliff"]);
+    expect(
+      entries.find((entry) => entry.terrain === "shallow_water"),
+    ).toEqual({ terrain: "shallow_water", passable: true, buildable: false });
 
     const renderer = readFileSync(
       new URL("../src/rendering/CanvasFactoryRenderer.ts", import.meta.url),

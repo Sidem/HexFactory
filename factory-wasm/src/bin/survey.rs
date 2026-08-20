@@ -12,7 +12,7 @@ use factory_wasm::survey;
 
 fn main() -> ExitCode {
     let mut json_path: Option<String> = None;
-    let mut radius = survey::DEFAULT_RADIUS;
+    let mut radius: Option<i32> = None;
     let mut seed = survey::default_seed();
     let mut keys: Vec<String> = Vec::new();
     let mut overrides: Vec<(String, i32)> = Vec::new();
@@ -29,7 +29,7 @@ fn main() -> ExitCode {
                 None => return usage("--set requires name=value"),
             },
             "--radius" => match arguments.next().and_then(|value| value.parse().ok()) {
-                Some(value) => radius = value,
+                Some(value) => radius = Some(value),
                 None => return usage("--radius requires an integer"),
             },
             "--seed" => match arguments.next().and_then(|value| value.parse().ok()) {
@@ -56,10 +56,24 @@ fn main() -> ExitCode {
         keys = survey::preset_keys();
     }
 
-    eprintln!("surveying {} presets at radius {radius}", keys.len());
+    eprintln!(
+        "surveying {} presets{}",
+        keys.len(),
+        match radius {
+            Some(value) => format!(" at radius {value}"),
+            None => " at each preset's landform radius".into(),
+        }
+    );
     let mut surveys = Vec::new();
     for key in &keys {
-        match survey::survey_overridden(key, &overrides, seed, radius) {
+        let coarse = overrides
+            .iter()
+            .find(|(name, _)| name == "elevation_coarse_cell")
+            .map(|&(_, cell)| cell)
+            .or_else(|| survey::preset_coarse_cell(key))
+            .unwrap_or(0);
+        let sample = radius.unwrap_or_else(|| survey::landscape_radius(coarse));
+        match survey::survey_overridden(key, &overrides, seed, sample) {
             Ok(result) => {
                 print!("{}", survey::format_report(&result));
                 println!();

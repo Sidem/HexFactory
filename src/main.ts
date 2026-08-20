@@ -1976,25 +1976,25 @@ const WORLD_PARAMETER_FIELDS: {
   min: number;
   max: number;
 }[] = [
-  { key: "elevation_coarse_cell", label: "Landform scale", min: 1, max: 64 },
-  { key: "elevation_fine_cell", label: "Detail scale", min: 1, max: 64 },
+  { key: "elevation_coarse_cell", label: "Landform scale", min: 1, max: 1024 },
+  { key: "elevation_fine_cell", label: "Detail scale", min: 1, max: 1024 },
   {
     key: "elevation_coarse_weight",
     label: "Landform share %",
     min: 0,
     max: 100,
   },
-  { key: "moisture_cell", label: "Moisture scale", min: 1, max: 64 },
-  { key: "richness_cell", label: "Richness scale", min: 1, max: 64 },
+  { key: "moisture_cell", label: "Moisture scale", min: 1, max: 1024 },
+  { key: "richness_cell", label: "Richness scale", min: 1, max: 1024 },
   { key: "water_level", label: "Sea level", min: 0, max: 65535 },
   { key: "shore_level", label: "Shore level", min: 0, max: 65535 },
   { key: "hills_level", label: "Hills level", min: 0, max: 65535 },
   { key: "highland_level", label: "Highland level", min: 0, max: 65535 },
   { key: "cliff_step", label: "Cliff steepness", min: 1, max: 65535 },
   { key: "deep_water_moisture", label: "Deep water", min: -1, max: 65535 },
-  { key: "site_cell", label: "Deposit spacing", min: 1, max: 64 },
+  { key: "site_cell", label: "Deposit spacing", min: 1, max: 1024 },
   { key: "site_jitter", label: "Deposit wander", min: 0, max: 16 },
-  { key: "river_cell", label: "River spacing", min: 1, max: 64 },
+  { key: "river_cell", label: "River spacing", min: 1, max: 1024 },
   { key: "river_width", label: "River width", min: 0, max: 65535 },
   { key: "river_max_elevation", label: "River ceiling", min: 0, max: 65535 },
   { key: "ocean_level", label: "Ocean cut", min: 0, max: 65535 },
@@ -2351,8 +2351,8 @@ window.addEventListener("keydown", (event) => {
     }
     return;
   }
-  // Shift is a walk speed, not a key: it changes an intent already in flight, so it has to resend
-  // one. Held on its own it does nothing, which is what makes it safe to press at any time.
+  // Shift is a gait, not a key: it changes an intent already in flight, so it has to resend one.
+  // Held on its own it does nothing, which is what makes it safe to press at any time.
   if (event.code === "ShiftLeft" || event.code === "ShiftRight") {
     if (pressedMovement.size) enqueue(movementIntent(pressedMovement, true));
     return;

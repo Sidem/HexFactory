@@ -67,7 +67,7 @@ catalog shows which one moved rather than hiding the row:
 | Definitions           |      10 |
 | Technologies          |       5 |
 | Scenarios             |       5 |
-| World generator       |       7 |
+| World generator       |       8 |
 | Wire (snapshot delta) |       5 |
 
 **Current measured capacity.** A complete browser frame at 6,144 entities is 19.0% of 60 Hz
@@ -85,15 +85,15 @@ to change.
 preference; the roadmap decision below is why, and v0.21 has now shipped.
 
 **v0.22 is the second half of a version train and it is owed a debt.** v0.21 put rivers in the
-world and there is no bridge yet, so inland water is currently a wall the player walks around. That
-is the strongest argument the bridge will ever have and it is also a live regression: rivers ship at
-roughly one hex of water per `river_cell` hexes walked, deliberately sparse for exactly this reason,
-and `archipelago` ships with `river_width: 0` because scattered water everywhere plus a river
-network would have left its walkable ground in shreds. **Do not tune river density up until the
-bridge exists.**
+world and there is no bridge yet. Shallows are now a 1 m/s ford rather than a wall, so inland
+water is a slog instead of a closed door — eight hexes of river is still several seconds of
+wading, and a belt still cannot cross. That is the argument the bridge still has. Rivers are
+8–10 hexes thick and a few hundred hexes apart. `archipelago` ships with `river_width: 0` because
+scattered water everywhere plus a river network would have left its walkable ground in shreds.
+**Do not raise the share of river hexes until the bridge exists.** Thickness is not density.
 
 v0.22 was written to ride v0.21's save break rather than spend a second one. That break has now been
-spent — the world generator is at 7 — so if v0.22 changes the wire's orientation index it pays for
+spent — the world generator is at 8 — so if v0.22 changes the wire's orientation index it pays for
 its own bump, and the orientation-index decision in that brief reopens on those terms.
 
 Do not start v0.23 first. It is written to be tuned against the world v0.21 has now built, and the
@@ -123,7 +123,7 @@ a pole span a distance no player can see.
 
 - **A timed keyboard-and-pointer playtest of the opening, done by a person.** Owed since v0.18 and
   still outstanding: the agent's browser pane does not composite, so `requestAnimationFrame` never
-  fires and nothing on the player's own clock — walking, gathering, the cooldown, the precision walk
+  fires and nothing on the player's own clock — walking, running, gathering, the cooldown
   — has ever been exercised. `fixtures/balance.json` predicts the material work (32 gathers to
   contract stage one, 97 to stage two, a 65-second combined hand floor) and says nothing about
   walking, choosing, or placing. A number from a person outranks every number in that file.
@@ -182,11 +182,12 @@ bridge over no river and a forest renderer with no forest are both untestable.
 
 ### A bridge is an entity override, never a terrain change
 
-`Terrain::blocks_movement` is pinned in both languages by `fixtures/terrain-passability.json`, and
-that rule stays **literally unchanged**. A bridge does not turn shallow water into land. It is an
-entity whose presence `player_blocked` and the placement path consult — both already walk entities —
-so the pinned table keeps saying exactly what it says today and gains a note explaining that a
-bridged hex is passable by entity, not by band.
+`Terrain::blocks_movement` is pinned in both languages by `fixtures/terrain-passability.json`.
+Shallows are already a ford (passable, not buildable, 1 m/s); deep water and cliff still block.
+A bridge does not turn shallow water into land. It is an entity whose presence `player_blocked`
+and the placement path consult — both already walk entities — so the pinned table keeps saying
+exactly what it says and gains a note explaining that a bridged hex is passable by entity, not by
+band, which is what lets a belt cross what a player can already wade.
 
 - `BuildingKind::Bridge` is **appended** after `Boiler`. Kinds travel as their declaration index, so
   inserting it anywhere else is a silent mistranslation rather than a decode failure; the wire
@@ -633,6 +634,12 @@ both test suites say so.
 One line per release, newest first. The reasoning behind a shipped rule lives in the git history of
 this file and in the code that implements it; what follows is the index.
 
+- **World scale** (2026-08-20) — One hexagon is 1 m². The walk is 3 m/s; Shift runs at 5 m/s.
+  Shallows are a 1 m/s ford; deep water still blocks. Landform cells moved from 5–20 to 128–960
+  so a biome takes minutes to cross, rivers are 8–10 hexes thick, and oceans come from the coarse
+  octave at last. A landing disc keeps the opening's bootstrap windows on a world that large.
+  Generator 8.
+
 - **v0.21** Landforms and Fields — **A deposit is a site, not a hex.** The world is partitioned by a
   `site_cell` lattice; each cell hashes to at most one site — a jittered centre, one weighted rule,
   one radius — and a hex belongs to the nearest site whose disc covers it and whose `member` bands
@@ -785,32 +792,27 @@ this file and in the code that implements it; what follows is the index.
 
 ## Reference — the shipped presets, as measured
 
-From `npm run survey` at seed 1,213,486,160 and radius 96 (27,937 hexes), as re-authored for v0.21.
-Bands in parts per thousand; water as bodies / mean body / largest body, **rivers excluded** so that
-`largest body` still means ocean; rivers as hexes / runs / longest run.
+From `npm run survey` at seed 1,213,486,160 after the world-scale pass. Each preset is sampled at
+its landform radius (continental / highlands / basin 768, archipelago 192), because a 96-hex disc
+is the opening, not a landform. Bands in parts per thousand; water as bodies / mean body / largest
+body, **rivers excluded** so that `largest body` still means ocean; rivers as hexes / runs / longest
+run.
 
-| preset      | water | shore | lowland | hills | highland | cliff |   water bodies |          rivers | purity |
-| ----------- | ----: | ----: | ------: | ----: | -------: | ----: | -------------: | --------------: | -----: |
-| Continental |    91 |   126 |     330 |   305 |      138 |     7 |  191 / 8 / 104 |   949 / 82 / 46 |    971 |
-| Archipelago |   245 |   178 |     265 |   214 |       85 |    10 | 449 / 15 / 410 |               — |    965 |
-| Highlands   |    54 |    26 |     201 |   371 |      315 |    30 |    41 / 7 / 46 | 1223 / 61 / 162 |    990 |
-| Basin       |   132 |   131 |     350 |   248 |      106 |    30 | 28 / 103 / 997 |   810 / 40 / 86 |    992 |
+| preset      | water | shore | lowland | hills | highland | cliff |    water bodies |              rivers | purity |
+| ----------- | ----: | ----: | ------: | ----: | -------: | ----: | --------------: | ------------------: | -----: |
+| Continental |    30 |    61 |     302 |   354 |      238 |    12 |  504 / 19 / 446 |  45604 / 129 / 8801 |    991 |
+| Archipelago |   110 |   190 |     317 |   142 |      202 |    35 | 253 / 48 / 2247 |                   — |    981 |
+| Highlands   |    35 |     0 |     113 |   410 |      416 |    23 |     85 / 3 / 25 | 63110 / 144 / 17988 |    995 |
+| Basin       |    45 |   198 |     524 |   211 |       16 |     2 | 717 / 58 / 7360 |  40103 / 98 / 19096 |    998 |
 
-Two things this table is the evidence for, and one it is a warning about.
+A hexagon is 1 m²; the walk is 3 m/s. Continental's 512-hex landform is a three-minute crossing,
+basin's 960-hex one is six, and a river of eight to ten hexes is a real river. The opening inside
+~80 hexes is still the cell-8 mix the bootstrap windows were tuned against, so the first minute
+does not wait on a coast.
 
-`cliff_step` is a gradient threshold and a gradient scales with feature size, so a step tuned for
-Continental's cell 8 means "sheer" at cell 4 and "nothing is ever steep" at cell 20. That is what
-made Basin generate zero stone and Archipelago read 182 per mille cliff on their first draft, and it
-is the class of error the survey exists to catch.
-
-The beach proxy is doing what it claims. `basin` is the ocean preset — 28 bodies, mean 103, largest
-997 — and the mean size of the body nearest one of its sand patches is **336**. `continental` has no
-ocean to find (191 bodies, mean 8) and its sand sits against a mean nearest body of **27**, which is
-still three times the sample mean but is a large pond rather than a sea. The gate is honest; that
-preset simply has no coast worth the name, and if that is ever to change it is `elevation_coarse_cell`
-and `elevation_coarse_weight` that have to move, not `ocean_level`.
-
-`highlands` carries `ocean_level: 22_000` against a `water_level` of 12_000, which reads wrong until
-you count its water: 41 bodies, the largest 46 hexes. A gate its own basins cannot clear does not
-make its beaches rarer, it deletes sand from the world — and it did, in the first draft. The cut
-sits where the largest water this preset has will pass it.
+`basin` is the ocean preset: largest standing body 7,360 hexes and truncated, and the water
+nearest a sand patch averages **2,494**. `archipelago` holds a 2,247-hex body inside a 192-hex
+sample. `continental` on this seed is inland — no sand in 768 hexes, largest standing body 446 —
+which is a continent, not a missing ocean; the coast is the walk. `highlands` still has no ocean
+worth the name (largest body 25) and keeps `ocean_level` where those basins pass it, so the little
+sand it holds (five patches, nearest 336 hexes) sits on the largest water it actually has.
