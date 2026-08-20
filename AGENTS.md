@@ -235,10 +235,13 @@ Before changing a cost, a cadence, or a power figure, run `npm run balance` and 
 - `npm run bench` — native capacity ladder; deliberately outside the gate, since shared runners do
   not produce comparable timings
 - `npm run survey` — what a world parameter set actually generates: band histogram, field density
-  per material, distance from the landing site, and water body sizes. A threshold is not a
-  proportion, so this is where a preset's claims about its own landscape come from. Also outside
-  the gate, and like the ladder it is native-only measurement code that never enters the wasm
-  artifact
+  per material, distance from the landing site, water body sizes, and **patch statistics** — runs
+  of one material, their size and yield, the distance to the nearest patch a base extractor could
+  fill its disc from, and purity, the share of resource hexes standing in a single-material disc.
+  A threshold is not a proportion, so this is where a preset's claims about its own landscape come
+  from; and a total is not a deposit, which is why the patch table exists beside the material one.
+  Also outside the gate, and like the ladder it is native-only measurement code that never enters
+  the wasm artifact
 - `npm run balance` — what the shipped numbers add up to: machine rates, generator budgets, fuel
   conversions, tree-expanded building costs, the curve, material access, site yields, and the
   openings. A cost row says what a building costs and nothing about what its inputs cost to make, so

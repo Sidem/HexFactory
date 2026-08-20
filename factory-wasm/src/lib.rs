@@ -7606,6 +7606,57 @@ pub mod survey {
         pub mean_distance: Option<u32>,
     }
 
+    /// The hexes a base extractor covers, and so the smallest patch worth standing one on. Derived
+    /// from the reach rather than written down: a disc of radius R holds 3R² + 3R + 1 hexes, which
+    /// is 7 at the radius the hand and the base extractor share today.
+    const WORKABLE_PATCH_HEXES: u32 =
+        (3 * EXTRACT_RADIUS * EXTRACT_RADIUS + 3 * EXTRACT_RADIUS + 1) as u32;
+
+    /// Connected runs of one material, which is what an extractor is actually offered and what the
+    /// survey has never reported. Totals, densities, and distances all look healthy for a world of
+    /// scattered single cells, so a generator that mixes two materials under one extractor disc can
+    /// pass every figure this tool printed before. `purity` is the number Landforms and Fields
+    /// v0.21 is for; the rest say whether a patch is worth walking to.
+    #[derive(Clone, Debug, Serialize)]
+    pub struct PatchCount {
+        pub item_id: ItemId,
+        pub name: String,
+        /// Connected runs of this material inside the sample.
+        pub patches: u32,
+        /// Hexes the fill visited. This must equal the material's `cells`, and it is carried
+        /// rather than inferred so a test can say so — a flood fill that loses or double-counts a
+        /// hex would otherwise quietly move every mean below it.
+        pub hexes: u32,
+        /// Hexes per patch, and the largest single patch, both in hexes.
+        pub mean_patch: u32,
+        pub largest_patch: u32,
+        /// Total units in a patch, averaged over patches. Size alone understates a rich small
+        /// deposit and overstates a wide thin one, and yield is what the extractor draws down.
+        pub mean_patch_yield: u32,
+        /// Axial distance from the landing site to the nearest patch of at least
+        /// `WORKABLE_PATCH_HEXES`, which is a different and more useful number than `nearest`: a
+        /// lone cell two hexes away is not a deposit an extractor can be stood on.
+        pub nearest_workable_patch: Option<u32>,
+        /// Share of this material's hexes whose radius-1 disc holds exactly one material, in parts
+        /// per thousand. An extractor on a mixed hex covers both and cleanly works neither.
+        pub purity_per_mille: u32,
+        /// Patches touching the edge of the sample, on the same reasoning as `truncated_bodies`: a
+        /// patch the sample cuts off is a floor, not a measurement.
+        pub truncated_patches: u32,
+    }
+
+    /// The running totals a patch flood fill accumulates, before names and means are attached.
+    #[derive(Clone, Copy, Debug, Default)]
+    struct PatchTotals {
+        patches: u32,
+        hexes: u32,
+        yield_total: u64,
+        largest_patch: u32,
+        nearest_workable_patch: Option<u32>,
+        pure_hexes: u32,
+        truncated_patches: u32,
+    }
+
     /// Ponds or oceans, counted. This is the measurement the milestone's central claim rests on:
     /// sea level decides how *much* water there is, and feature scale decides how *big* it is, so
     /// the two are told apart by body size at a fixed `water_level`.
@@ -7629,6 +7680,12 @@ pub mod survey {
         pub land_hexes: u32,
         pub bands: Vec<BandCount>,
         pub materials: Vec<MaterialCount>,
+        pub patches: Vec<PatchCount>,
+        /// Share of every generated resource hex, of any material, whose radius-1 disc holds
+        /// exactly one material. This is the single figure v0.21 is measured against, and it is
+        /// reported over the whole sample rather than per material because an extractor does not
+        /// care which two materials it straddles.
+        pub purity_per_mille: u32,
         pub water: WaterShape,
     }
 
@@ -7691,6 +7748,7 @@ pub mod survey {
         let mut terrain_of: BTreeMap<(i32, i32), Terrain> = BTreeMap::new();
         let mut land_hexes = 0u32;
         let mut found: BTreeMap<ItemId, (u32, u32, u32)> = BTreeMap::new();
+        let mut field_of: BTreeMap<(i32, i32), (ItemId, u32)> = BTreeMap::new();
         for &(q, r) in &cells {
             let terrain = terrain_at(params, seed, q, r, true);
             terrain_of.insert((q, r), terrain);
@@ -7698,14 +7756,10 @@ pub mod survey {
             if !terrain.is_water() {
                 land_hexes += 1;
             }
-            // The guaranteed clearing is a promise, not geography, so it is not evidence about
-            // what a parameter set generates. It is asserted separately and excluded here.
-            if axial_distance((0, 0), (q, r)) <= LANDING_CLEAR_RADIUS {
-                continue;
-            }
-            if let Some(field) = field_at(params, seed, q, r, true) {
+            if let Some((item_id, quantity)) = surveyed_field(params, seed, q, r) {
+                field_of.insert((q, r), (item_id, quantity));
                 let distance = axial_distance((0, 0), (q, r)) as u32;
-                let entry = found.entry(field.item_id).or_insert((0, u32::MAX, 0));
+                let entry = found.entry(item_id).or_insert((0, u32::MAX, 0));
                 entry.0 += 1;
                 entry.1 = entry.1.min(distance);
                 entry.2 += distance;
@@ -7720,16 +7774,42 @@ pub mod survey {
                 per_mille: per_mille(count, hexes),
             })
             .collect();
-        // Every generated item, whether or not this parameter set produced any — a material the
-        // table names and the world does not hold is the row a reader most needs to see.
-        let mut materials = Vec::new();
-        for &item_id in &[IRON_ORE, CRYSTAL, COPPER_ORE, COAL, STONE, SAND, CLAY, WOOD] {
-            let name = definitions
+        let (totals, pure_hexes) = patch_shape(params, seed, &field_of, radius);
+        let name_of = |item_id: ItemId| {
+            definitions
                 .items
                 .iter()
                 .find(|item| item.id == item_id)
                 .map(|item| item.name.clone())
-                .unwrap_or_else(|| format!("item {item_id}"));
+                .unwrap_or_else(|| format!("item {item_id}"))
+        };
+        // Every generated item, whether or not this parameter set produced any — a material the
+        // table names and the world does not hold is the row a reader most needs to see.
+        let mut materials = Vec::new();
+        let mut patches = Vec::new();
+        for &item_id in &[IRON_ORE, CRYSTAL, COPPER_ORE, COAL, STONE, SAND, CLAY, WOOD] {
+            let name = name_of(item_id);
+            let totals = totals.get(&item_id).copied().unwrap_or_default();
+            patches.push(PatchCount {
+                item_id,
+                name: name.clone(),
+                patches: totals.patches,
+                hexes: totals.hexes,
+                mean_patch: if totals.patches == 0 {
+                    0
+                } else {
+                    totals.hexes / totals.patches
+                },
+                largest_patch: totals.largest_patch,
+                mean_patch_yield: if totals.patches == 0 {
+                    0
+                } else {
+                    (totals.yield_total / u64::from(totals.patches)) as u32
+                },
+                nearest_workable_patch: totals.nearest_workable_patch,
+                purity_per_mille: per_mille(totals.pure_hexes, totals.hexes),
+                truncated_patches: totals.truncated_patches,
+            });
             let stats = found.get(&item_id).copied();
             materials.push(MaterialCount {
                 item_id,
@@ -7751,8 +7831,95 @@ pub mod survey {
             land_hexes,
             bands,
             materials,
+            patches,
+            purity_per_mille: per_mille(pure_hexes, field_of.len() as u32),
             water: water_shape(&terrain_of, radius),
         }
+    }
+
+    /// What the survey counts as a generated cell. The guaranteed clearing is a promise, not
+    /// geography, so it is no evidence about what a parameter set generates — it is asserted
+    /// separately and excluded here, from the counts and from the purity neighbourhood alike.
+    fn surveyed_field(params: &WorldParams, seed: u32, q: i32, r: i32) -> Option<(ItemId, u32)> {
+        if axial_distance((0, 0), (q, r)) <= LANDING_CLEAR_RADIUS {
+            return None;
+        }
+        field_at(params, seed, q, r, true).map(|field| (field.item_id, field.quantity))
+    }
+
+    /// Patches, flood filled over the six adjacency directions exactly as `water_shape` fills
+    /// bodies, plus the purity count. Returns the per-material totals and the number of resource
+    /// hexes of any material that stand in a single-material disc.
+    ///
+    /// The fill stays inside the sample — a patch reaching the edge is counted as truncated rather
+    /// than followed out of the disc — but purity reads `surveyed_field` directly, so a hex on the
+    /// rim is judged against its real neighbours rather than against a sample boundary.
+    fn patch_shape(
+        params: &WorldParams,
+        seed: u32,
+        field_of: &BTreeMap<(i32, i32), (ItemId, u32)>,
+        radius: i32,
+    ) -> (BTreeMap<ItemId, PatchTotals>, u32) {
+        let mut totals: BTreeMap<ItemId, PatchTotals> = BTreeMap::new();
+        let mut unvisited: BTreeSet<(i32, i32)> = field_of.keys().copied().collect();
+        while let Some(&start) = unvisited.iter().next() {
+            let item_id = field_of[&start].0;
+            unvisited.remove(&start);
+            let mut stack = vec![start];
+            let mut hexes = 0u32;
+            let mut yield_total = 0u64;
+            let mut nearest = u32::MAX;
+            let mut touches_edge = false;
+            while let Some((q, r)) = stack.pop() {
+                hexes += 1;
+                yield_total += u64::from(field_of[&(q, r)].1);
+                let distance = axial_distance((0, 0), (q, r));
+                nearest = nearest.min(distance as u32);
+                if distance >= radius {
+                    touches_edge = true;
+                }
+                for (dq, dr) in DIRECTIONS {
+                    let next = (q + dq, r + dr);
+                    // The material test comes first: a neighbour of another material must stay
+                    // unvisited so its own patch is still found.
+                    if field_of
+                        .get(&next)
+                        .is_some_and(|&(other, _)| other == item_id)
+                        && unvisited.remove(&next)
+                    {
+                        stack.push(next);
+                    }
+                }
+            }
+            let entry = totals.entry(item_id).or_default();
+            entry.patches += 1;
+            entry.hexes += hexes;
+            entry.yield_total += yield_total;
+            entry.largest_patch = entry.largest_patch.max(hexes);
+            if touches_edge {
+                entry.truncated_patches += 1;
+            }
+            if hexes >= WORKABLE_PATCH_HEXES {
+                entry.nearest_workable_patch = Some(
+                    entry
+                        .nearest_workable_patch
+                        .map_or(nearest, |best| best.min(nearest)),
+                );
+            }
+        }
+
+        let mut pure_hexes = 0u32;
+        for (&(q, r), &(item_id, _)) in field_of {
+            let mixed = DIRECTIONS.iter().any(|&(dq, dr)| {
+                surveyed_field(params, seed, q + dq, r + dr)
+                    .is_some_and(|(other, _)| other != item_id)
+            });
+            if !mixed {
+                pure_hexes += 1;
+                totals.entry(item_id).or_default().pure_hexes += 1;
+            }
+        }
+        (totals, pure_hexes)
     }
 
     /// Connected water bodies inside the sample, by flood fill over the six adjacency directions.
@@ -7849,6 +8016,29 @@ pub mod survey {
                 show(material.mean_distance)
             ));
         }
+        out.push_str(
+            "  material       patches    mean   largest   mean yield   workable   purity   cut\n",
+        );
+        for patch in &survey.patches {
+            let show = |value: Option<u32>| {
+                value.map_or_else(|| "  none".to_string(), |value| format!("{value:>6}"))
+            };
+            out.push_str(&format!(
+                "  {:<14} {:>7}  {:>6}   {:>7}   {:>10}     {}   {:>6}  {:>4}\n",
+                patch.name,
+                patch.patches,
+                patch.mean_patch,
+                patch.largest_patch,
+                patch.mean_patch_yield,
+                show(patch.nearest_workable_patch),
+                patch.purity_per_mille,
+                patch.truncated_patches
+            ));
+        }
+        out.push_str(&format!(
+            "  purity: {} per mille of resource hexes stand in a single-material disc\n",
+            survey.purity_per_mille
+        ));
         out.push_str(&format!(
             "  water: {} hexes in {} bodies | largest {} | mean {} | {} reach the sample edge\n",
             survey.water.water_hexes,
@@ -8810,6 +9000,100 @@ mod tests {
                 "preset {}: {fields} fields on {} land hexes",
                 preset.key,
                 report.land_hexes
+            );
+        }
+    }
+
+    /// The patch fill is a second pass over the same cells the material counts walked, and every
+    /// mean, the purity share, and the workable-patch distance are all divided out of its totals.
+    /// A fill that lost a hex, followed a neighbour of another material, or visited one twice would
+    /// move all of them at once and none of them visibly, so the accounting is asserted directly
+    /// rather than inferred from a figure looking plausible.
+    ///
+    /// This is the measurement Landforms and Fields v0.21 is tuned against. It has to be trusted
+    /// before the generator moves, which is why it lands in the same commit as the before figures
+    /// and ahead of any generation rule.
+    #[test]
+    fn patch_statistics_account_for_every_generated_cell() {
+        let seed = survey::default_seed();
+        for preset in world_presets() {
+            let report = survey::run(preset.key, &preset.params, seed, 48);
+            let mut counted = 0u32;
+            let mut pure = 0u32;
+            for (material, patch) in report.materials.iter().zip(&report.patches) {
+                assert_eq!(
+                    material.item_id, patch.item_id,
+                    "preset {}: the two material tables are in different orders",
+                    preset.key
+                );
+                assert_eq!(
+                    patch.hexes, material.cells,
+                    "preset {}: the {} fill visited {} hexes against {} counted cells",
+                    preset.key, material.name, patch.hexes, material.cells
+                );
+                assert_eq!(
+                    patch.patches == 0,
+                    patch.hexes == 0,
+                    "preset {}: {} has {} patches over {} hexes",
+                    preset.key,
+                    material.name,
+                    patch.patches,
+                    patch.hexes
+                );
+                assert!(
+                    patch.largest_patch <= patch.hexes && patch.truncated_patches <= patch.patches,
+                    "preset {}: {} reports a largest patch of {} and {} truncated of {} over {} \
+                     hexes",
+                    preset.key,
+                    material.name,
+                    patch.largest_patch,
+                    patch.truncated_patches,
+                    patch.patches,
+                    patch.hexes
+                );
+                // A workable patch is at least seven hexes, so claiming one means the largest
+                // patch is at least that big, and no patch can start nearer than the nearest cell.
+                match patch.nearest_workable_patch {
+                    Some(distance) => {
+                        assert!(
+                            patch.largest_patch >= 7,
+                            "preset {}: {} claims a workable patch with a largest patch of {}",
+                            preset.key,
+                            material.name,
+                            patch.largest_patch
+                        );
+                        assert!(
+                            distance >= material.nearest.expect("a patch implies a cell"),
+                            "preset {}: {} puts a workable patch at {distance}, nearer than its \
+                             nearest cell",
+                            preset.key,
+                            material.name
+                        );
+                    }
+                    None => assert!(
+                        patch.largest_patch < 7,
+                        "preset {}: {} has a {}-hex patch and reports none workable",
+                        preset.key,
+                        material.name,
+                        patch.largest_patch
+                    ),
+                }
+                counted += patch.hexes;
+                pure += patch.purity_per_mille * patch.hexes / 1000;
+            }
+            assert!(
+                counted > 0,
+                "preset {} generates nothing at all",
+                preset.key
+            );
+            // The whole-sample purity is the same count divided by the same denominator, so it has
+            // to agree with the per-material shares to within their rounding.
+            let overall = report.purity_per_mille * counted / 1000;
+            assert!(
+                overall.abs_diff(pure) <= report.patches.len() as u32,
+                "preset {}: whole-sample purity implies {overall} pure hexes against {pure} from \
+                 the material rows",
+                preset.key
             );
         }
     }

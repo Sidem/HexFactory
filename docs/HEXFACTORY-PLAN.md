@@ -215,6 +215,49 @@ Record the before figures in this document in the same commit. A tuning claim wi
 number is the failure mode `fixtures/balance.json` exists to prevent, and generation deserves the
 same treatment.
 
+#### The before figures, measured 2026-08-20
+
+`npm run survey` now reports all of the above. Shipped seed, default radius 96, `continental` — the
+same sample the material table at the top of this section came from:
+
+| material       | patches | mean | largest | mean yield | nearest workable | purity | truncated |
+| -------------- | ------: | ---: | ------: | ---------: | ---------------: | -----: | --------: |
+| Iron ore       |      62 |    3 |      14 |         84 |               33 |    278 |         4 |
+| Copper ore     |     138 |    3 |      23 |         87 |               20 |    424 |         3 |
+| Coal           |     130 |    3 |      20 |         67 |               12 |    880 |         8 |
+| Clay           |     120 |    3 |      24 |         68 |               19 |    542 |         6 |
+| Sand           |      96 |    2 |      13 |         66 |               29 |    762 |         2 |
+| Stone          |      12 |    1 |       3 |         57 |         **none** |      0 |         0 |
+| Wood           |      64 |    1 |       9 |         28 |               67 |     36 |         4 |
+| Signal crystal |      35 |    2 |      10 |         41 |               50 |     35 |         0 |
+
+**Whole-sample purity, against the 950 target: `continental` 532, `archipelago` 474, `highlands`
+662, `basin` 631.** Every preset fails, and the wettest fails hardest.
+
+Five things the old figures could not have said, and which the milestone should be argued from:
+
+- **Stone has no workable patch anywhere in 26,307 land hexes on `continental`.** Its nearest cell
+  is 23 hexes away and its largest patch is 3, so there is nowhere in the sample a base extractor
+  can be stood on stone at all. "18 cells" understated this: the defect is not that stone is scarce,
+  it is that stone is _unautomatable_. `archipelago` has 89 stone cells and also no workable patch.
+- **Wood is 64 patches averaging one hex, at purity 36.** The forest claim is quantified: it is not
+  that wood is thin, it is that a wood hex is almost always sitting next to something else.
+  `archipelago` likewise reaches no workable forest.
+- **Coal is the one material that already forms its own country** — purity 866 to 908 on every
+  preset. Iron, in the same bands, sits at 278. That asymmetry is the mixed-material case seen from
+  the inside: iron is rare enough to appear _inside_ coal, so iron hexes are mixed while most coal
+  hexes are not. A purity figure averaged over materials would have hidden it, which is why the
+  whole-sample number and the per-material rows are both reported.
+- **Signal crystal is at purity 28 to 71.** It is meant to be the prize and it is currently a
+  contaminant in someone else's patch.
+- **`highlands` is the best of the four at 662**, and it is also the preset the bootstrap windows
+  are expected to strain. Those two facts are unrelated today and should not be allowed to become
+  an argument for each other.
+
+`nearest` and `nearest workable` disagree by a lot — 20 against 33 for iron, 15 against 67 for wood,
+23 against nothing at all for stone — which is the clearest evidence that the number the survey used
+to print was answering a question nobody was asking.
+
 ### A site is the unit of a deposit
 
 Partition the world by a `site_cell` lattice, exactly as the noise channels are partitioned. Each
