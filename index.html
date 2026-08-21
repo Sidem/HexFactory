@@ -251,8 +251,7 @@
 
             <!--
               The board. It is the only thing in the game that pays insight, so it says what it pays
-              before anything is handed over — and every row carries a Pass, because a material you
-              cannot find yet must never be able to hold the whole economy.
+              before anything is handed over.
             -->
             <div class="quest-objective quest-requests">
               <span class="section-kicker">Hub requests · insight</span>
@@ -518,6 +517,17 @@
                       hidden
                     ></button>
                   </div>
+                </section>
+                <section class="inspect-hub" id="inspect-hub" hidden>
+                  <span class="inspect-kind">Standing requests</span>
+                  <p class="inspect-hub-note" id="inspect-hub-note">
+                    Select a request to deliver items from your pack and earn
+                    insight.
+                  </p>
+                  <ul
+                    id="inspect-hub-requests"
+                    class="inspect-hub-requests"
+                  ></ul>
                 </section>
               </article>
             </div>

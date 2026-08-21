@@ -1,5 +1,5 @@
 {
-  "version": 11,
+  "version": 12,
   "items": [
     {
       "id": 1,
@@ -8,7 +8,8 @@
       "color": "#e2a85f",
       "icon": "ore",
       "description": "Highland ore. Smelts into the plate everything else is built from.",
-      "stack_size": 20
+      "stack_size": 20,
+      "hand_gather_steps": 45
     },
     {
       "id": 2,
@@ -25,7 +26,7 @@
       "name": "Signal crystal",
       "color": "#b78cff",
       "icon": "crystal",
-      "description": "A finite secondary resource used by advanced machines.",
+      "description": "A finite highland seam no hand can cut. Place an extractor on the field; the deep arm is what a thin seam is for.",
       "stack_size": 10
     },
     {
@@ -35,7 +36,8 @@
       "color": "#c9743f",
       "icon": "ore",
       "description": "Hill ore. Becomes the plate and wire every circuit needs.",
-      "stack_size": 20
+      "stack_size": 20,
+      "hand_gather_steps": 45
     },
     {
       "id": 5,
@@ -45,7 +47,8 @@
       "icon": "lump",
       "description": "Dense highland fuel, and the carbon steel is made with.",
       "stack_size": 20,
-      "fuel_value": 8
+      "fuel_value": 8,
+      "hand_gather_steps": 45
     },
     {
       "id": 6,
@@ -54,7 +57,8 @@
       "color": "#96938c",
       "icon": "lump",
       "description": "Cut from cliff faces. The cheapest structural material there is.",
-      "stack_size": 20
+      "stack_size": 20,
+      "hand_gather_steps": 30
     },
     {
       "id": 7,
@@ -63,7 +67,8 @@
       "color": "#ded0a3",
       "icon": "grains",
       "description": "Shore grit. Melts into glass and binds into concrete.",
-      "stack_size": 20
+      "stack_size": 20,
+      "hand_gather_steps": 20
     },
     {
       "id": 8,
@@ -72,7 +77,8 @@
       "color": "#b0714c",
       "icon": "grains",
       "description": "Damp shore and lowland earth. Fires into brick.",
-      "stack_size": 20
+      "stack_size": 20,
+      "hand_gather_steps": 20
     },
     {
       "id": 9,
@@ -83,7 +89,8 @@
       "description": "Cut from lowland flora, which grows back. Burns, and cuts into timber.",
       "stack_size": 20,
       "fuel_value": 2,
-      "regrowth_ticks": 90
+      "regrowth_ticks": 90,
+      "hand_gather_steps": 15
     },
     {
       "id": 10,
@@ -510,8 +517,8 @@
           "quantity": 4
         },
         {
-          "item_id": 3,
-          "quantity": 1
+          "item_id": 6,
+          "quantity": 2
         }
       ],
       "unlock_technology_id": 2,
@@ -1189,7 +1196,8 @@
       "brief": "The survey wants a proper sample of the highland seam before the hub commits a foundry to it.",
       "item_id": 1,
       "quantity": 10,
-      "insight": 10
+      "insight": 10,
+      "repeat_insight": 2
     },
     {
       "id": 2,
@@ -1198,7 +1206,8 @@
       "brief": "Cut stone for the landing pad's apron. The cliff faces are the nearest source, and the nearest is what the hub is paying for.",
       "item_id": 6,
       "quantity": 10,
-      "insight": 10
+      "insight": 10,
+      "repeat_insight": 2
     },
     {
       "id": 3,
@@ -1207,7 +1216,8 @@
       "brief": "Lowland wood, unworked. The hub burns it while there is nothing better to burn, and the flora grows back.",
       "item_id": 9,
       "quantity": 10,
-      "insight": 10
+      "insight": 10,
+      "repeat_insight": 2
     },
     {
       "id": 4,
@@ -1216,7 +1226,8 @@
       "brief": "Wet shore earth, for a kiln nobody has built yet. Bring enough to prove the bed is worth siting on.",
       "item_id": 8,
       "quantity": 10,
-      "insight": 10
+      "insight": 10,
+      "repeat_insight": 2
     },
     {
       "id": 5,
@@ -1225,7 +1236,8 @@
       "brief": "Shore grit, for the glass that comes before circuits and the concrete that comes after them.",
       "item_id": 7,
       "quantity": 10,
-      "insight": 10
+      "insight": 10,
+      "repeat_insight": 2
     },
     {
       "id": 6,
@@ -1234,7 +1246,8 @@
       "brief": "Highland coal. Every furnace and every burner in this world eventually asks for it, so the hub wants its own pile.",
       "item_id": 5,
       "quantity": 8,
-      "insight": 8
+      "insight": 8,
+      "repeat_insight": 2
     },
     {
       "id": 7,
@@ -1243,7 +1256,8 @@
       "brief": "The hills carry copper as well as iron, and nothing here conducts a signal without it.",
       "item_id": 4,
       "quantity": 10,
-      "insight": 10
+      "insight": 10,
+      "repeat_insight": 2
     },
     {
       "id": 8,
@@ -1252,7 +1266,8 @@
       "brief": "Signal crystal is finite and no recipe makes more. The hub wants a reserve while the fields still hold some.",
       "item_id": 3,
       "quantity": 4,
-      "insight": 5
+      "insight": 5,
+      "repeat_insight": 2
     },
     {
       "id": 9,

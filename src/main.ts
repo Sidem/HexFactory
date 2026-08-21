@@ -1309,6 +1309,7 @@ function renderInspector(): void {
     renderInspectorLoad(undefined);
     renderInspectorTier(undefined);
     renderInspectorRecipe(undefined);
+    renderInspectorHub(undefined);
     return;
   }
   const building = selected ? buildingAt(selected) : undefined;
@@ -1437,8 +1438,8 @@ function renderInspector(): void {
   }
 
   const machine = required<HTMLElement>("inspect-machine");
-  machine.hidden = !building;
-  if (building) {
+  machine.hidden = !building || building.kind === "hub";
+  if (building && building.kind !== "hub") {
     setMeter(
       required<HTMLElement>("inspect-progress-meter"),
       required<HTMLElement>("inspect-progress-fill"),
@@ -1496,6 +1497,70 @@ function renderInspector(): void {
   renderInspectorLoad(building);
   renderInspectorTier(building);
   renderInspectorRecipe(building);
+  renderInspectorHub(building);
+}
+
+/**
+ * Standing requests menu when inspecting the landing hub.
+ *
+ * Lets the player review available requests, see their carried quantities, and complete requests
+ * directly from the landing hub's inspector panel.
+ */
+function renderInspectorHub(building: EntitySnapshot | undefined): void {
+  const hubCard = required<HTMLElement>("inspect-hub");
+  if (building?.kind !== "hub") {
+    hubCard.hidden = true;
+    return;
+  }
+  hubCard.hidden = false;
+  const list = required<HTMLElement>("inspect-hub-requests");
+  const requests = snapshot.requests;
+  const rows = syncChildren(
+    list,
+    requests.map((request) => request.key),
+    () => {
+      const row = document.createElement("li");
+      row.className = "inspect-hub-line";
+      row.innerHTML = `<span class="inspect-hub-item chip-host"></span><span class="inspect-hub-price"></span><button type="button" class="inspect-hub-deliver">Deliver</button><small class="inspect-hub-brief"></small>`;
+      return row;
+    },
+  );
+  requests.forEach((request, index) => {
+    const row = rows[index];
+    if (!row) return;
+    const carried =
+      snapshot.player.inventory[String(request.item_id)] ??
+      snapshot.player.inventory[request.item_id] ??
+      0;
+    const haveEnough = carried >= request.required;
+
+    paintChip(part<HTMLElement>(row, ".inspect-hub-item"), request.item_id, {
+      progress: { have: carried, need: request.required },
+      meter: true,
+      shortfall: Math.max(0, request.required - carried),
+    });
+
+    const definition = host.definitions.requests.find(
+      (value) => value.key === request.key,
+    );
+    const later = definition?.repeat_insight;
+    part(row, ".inspect-hub-price").textContent =
+      later !== undefined && later !== request.insight
+        ? `+${request.insight} ◆ then +${later}`
+        : `+${request.insight} ◆`;
+    part(row, ".inspect-hub-brief").textContent = request.brief;
+
+    const button = part<HTMLButtonElement>(row, ".inspect-hub-deliver");
+    button.dataset.itemId = String(request.item_id);
+    button.disabled = !haveEnough;
+    button.classList.toggle("ready", haveEnough);
+    button.textContent = haveEnough
+      ? "Complete"
+      : `Need ${request.required - carried}`;
+    button.title = haveEnough
+      ? `Deliver ${request.required} ${request.name} to earn insight`
+      : `You need ${request.required - carried} more ${request.name} in your pack`;
+  });
 }
 
 /**
@@ -1732,26 +1797,33 @@ function renderRequests(): void {
     () => {
       const row = document.createElement("li");
       row.className = "request-line";
-      row.innerHTML = `<span class="request-item chip-host"></span><span class="request-price"></span><button type="button" class="request-pass" data-slot>Pass</button><small class="request-brief"></small>`;
+      row.innerHTML = `<span class="request-item chip-host"></span><span class="request-price"></span><small class="request-brief"></small>`;
       return row;
     },
   );
   snapshot.requests.forEach((request, index) => {
     const row = rows[index];
     if (!row) return;
-    // Same chip as the bill and the pack: a board that asks for a specific grey has to draw the
-    // glyph that tells three greys apart.
+    const carried =
+      snapshot.player.inventory[String(request.item_id)] ??
+      snapshot.player.inventory[request.item_id] ??
+      0;
+    // Same chip as the bill and the pack: reflects how many units the player carries against
+    // what the request asks for, so it is obvious when you have enough to complete it.
     paintChip(part<HTMLElement>(row, ".request-item"), request.item_id, {
-      progress: { have: request.delivered, need: request.required },
+      progress: { have: carried, need: request.required },
       meter: true,
-      shortfall: Math.max(0, request.required - request.delivered),
+      shortfall: Math.max(0, request.required - carried),
     });
-    part(row, ".request-price").textContent = `+${request.insight} ◆`;
+    const definition = host.definitions.requests.find(
+      (value) => value.key === request.key,
+    );
+    const later = definition?.repeat_insight;
+    part(row, ".request-price").textContent =
+      later !== undefined && later !== request.insight
+        ? `+${request.insight} ◆ then +${later}`
+        : `+${request.insight} ◆`;
     part(row, ".request-brief").textContent = request.brief;
-    const pass = part<HTMLButtonElement>(row, ".request-pass");
-    pass.dataset.slot = String(index);
-    pass.title = `Pass on ${request.name}. It goes behind everything you have not been asked for yet, and anything already delivered against it is lost.`;
-    pass.setAttribute("aria-label", `Pass on ${request.name}`);
   });
   required<HTMLElement>("requests-detail").hidden = rows.length === 0;
 }
@@ -1938,16 +2010,22 @@ for (const button of document.querySelectorAll<HTMLButtonElement>(
     if (type === "gather" || type === "deposit") enqueue({ type });
   });
 }
-// Delegated, because the board is patched in place and its rows come and go with every fill.
-required<HTMLElement>("request-board").addEventListener("click", (event) => {
-  const pass = (event.target as HTMLElement).closest<HTMLButtonElement>(
-    ".request-pass",
-  );
-  if (!pass) return;
-  const slot = Number(pass.dataset.slot);
-  if (!Number.isInteger(slot)) return;
-  enqueue({ type: "skip_request", slot });
-});
+// Delegated, because the hub menu rows come and go with every fill.
+required<HTMLElement>("inspect-hub-requests").addEventListener(
+  "click",
+  (event) => {
+    const deliver = (event.target as HTMLElement).closest<HTMLButtonElement>(
+      ".inspect-hub-deliver",
+    );
+    if (!deliver || deliver.disabled) return;
+    const itemId = Number(deliver.dataset.itemId);
+    if (Number.isInteger(itemId)) {
+      enqueue({ type: "deposit", item_id: itemId });
+    } else {
+      enqueue({ type: "deposit" });
+    }
+  },
+);
 required<HTMLButtonElement>("recenter").addEventListener("click", () =>
   renderer.recenter(),
 );

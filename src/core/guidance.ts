@@ -260,6 +260,12 @@ function expand(
     );
     if (!recipe) {
       raw.push(itemId);
+      const item = definitions.items.find((value) => value.id === itemId);
+      if (!item?.hand_gather_steps) {
+        const extractor = cheapestExtractor(definitions);
+        if (extractor && !machines.some((value) => value.id === extractor.id))
+          machines.push(extractor);
+      }
       return;
     }
     const machine = cheapestFor(recipe.category, definitions);
@@ -332,6 +338,14 @@ function cheapestFor(
     .filter(
       (building) => building.buildable && building.recipe_category === category,
     )
+    .sort((a, b) => cost(a) - cost(b))[0];
+}
+
+function cheapestExtractor(
+  definitions: Definitions,
+): BuildingDefinition | undefined {
+  return definitions.buildings
+    .filter((building) => building.buildable && building.kind === "extractor")
     .sort((a, b) => cost(a) - cost(b))[0];
 }
 

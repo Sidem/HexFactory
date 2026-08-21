@@ -49,10 +49,16 @@ const CRAFTED = new Set(
  */
 function boardFor(filled: string[]): RequestSnapshot[] {
   return definitions.requests
-    .filter(
-      (request) =>
-        !CRAFTED.has(request.item_id) && !filled.includes(request.key),
-    )
+    .filter((request) => {
+      const item = definitions.items.find(
+        (value) => value.id === request.item_id,
+      );
+      return (
+        !CRAFTED.has(request.item_id) &&
+        Boolean(item?.hand_gather_steps) &&
+        !filled.includes(request.key)
+      );
+    })
     .slice(0, 3)
     .map((request) => ({
       key: request.key,

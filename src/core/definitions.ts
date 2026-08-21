@@ -55,7 +55,9 @@ export function validateDefinitions(
       !item.color ||
       !item.icon ||
       !item.description ||
-      !positiveInteger(item.stack_size)
+      !positiveInteger(item.stack_size) ||
+      (item.hand_gather_steps !== undefined &&
+        !positiveInteger(item.hand_gather_steps))
     )
       throw new TypeError(`item ${item.id} is incomplete`);
   }
@@ -70,7 +72,9 @@ export function validateDefinitions(
       !request.brief ||
       !itemIds.has(request.item_id) ||
       !positiveInteger(request.quantity) ||
-      !positiveInteger(request.insight)
+      !positiveInteger(request.insight) ||
+      (request.repeat_insight !== undefined &&
+        !positiveInteger(request.repeat_insight))
     )
       throw new TypeError(`request ${request.id} is incomplete`);
   }

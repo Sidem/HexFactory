@@ -1280,6 +1280,88 @@ canvas {
 .withdraw-button[hidden] {
   display: none;
 }
+.inspect-hub {
+  display: grid;
+  gap: 8px;
+  padding-top: 6px;
+  border-top: 1px solid #243832;
+}
+.inspect-hub[hidden] {
+  display: none;
+}
+.inspect-hub-note {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.7rem;
+  line-height: 1.4;
+}
+.inspect-hub-requests {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.inspect-hub-line {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 6px 8px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #24393450;
+}
+.inspect-hub-line:last-child {
+  padding-bottom: 0;
+  border-bottom: 0;
+}
+.inspect-hub-item {
+  min-width: 0;
+}
+.inspect-hub-price {
+  color: var(--gold);
+  font-size: 0.74rem;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.inspect-hub-deliver {
+  padding: 4px 9px;
+  border: 1px solid #38534c;
+  border-radius: 999px;
+  background: #1a322c;
+  color: #cfe0da;
+  font: inherit;
+  font-size: 0.68rem;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 140ms ease;
+}
+.inspect-hub-deliver:hover:not(:disabled),
+.inspect-hub-deliver:focus-visible:not(:disabled) {
+  border-color: var(--gold);
+  background: #25443c;
+  color: var(--gold);
+}
+.inspect-hub-deliver.ready {
+  border-color: var(--gold);
+  background: #334e44;
+  color: var(--gold);
+  box-shadow: 0 0 6px #f6c85f40;
+}
+.inspect-hub-deliver.ready:hover {
+  background: #416357;
+}
+.inspect-hub-deliver:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.inspect-hub-brief {
+  grid-column: 1 / -1;
+  color: #b9ccc5;
+  font-size: 0.68rem;
+  line-height: 1.4;
+}
 .placement-readout {
   min-height: 1.3em;
   margin: 6px 0 0;
@@ -1733,10 +1815,10 @@ canvas {
   list-style: none;
 }
 /* Two lines per row: the offer, then the sentence under it. The chip carries the item, the count,
-   and the bar, so the row only has to place the price and the Pass beside it. */
+   and the bar, and the price sits beside it. */
 .request-line {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: 5px 8px;
   padding-bottom: 8px;
@@ -1758,21 +1840,6 @@ canvas {
   font-weight: 800;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
-}
-.request-pass {
-  padding: 2px 7px;
-  border: 1px solid #38534c;
-  border-radius: 999px;
-  background: transparent;
-  color: #9fb5ae;
-  font: inherit;
-  font-size: 0.66rem;
-  cursor: pointer;
-}
-.request-pass:hover,
-.request-pass:focus-visible {
-  border-color: var(--gold);
-  color: var(--gold);
 }
 .request-brief {
   grid-column: 1 / -1;

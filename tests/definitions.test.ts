@@ -30,6 +30,12 @@ describe("data-defined content", () => {
     // Every item draws with a glyph the icon set actually has, rather than falling back to ore.
     for (const item of definitions.items)
       expect(isItemIconKey(item.icon), `${item.key} icon`).toBe(true);
+    const crystal = typedDefinitions.items.find(({ key }) => key === "crystal");
+    expect(crystal?.hand_gather_steps).toBeUndefined();
+    const wood = typedDefinitions.items.find(({ key }) => key === "wood");
+    expect(wood?.hand_gather_steps).toBe(15);
+    const ore = typedDefinitions.items.find(({ key }) => key === "ore");
+    expect(ore?.hand_gather_steps).toBe(45);
     expect(technologies.technologies.map(({ key }) => key)).toEqual([
       "field-logistics",
       "automated-extraction",

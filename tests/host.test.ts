@@ -308,6 +308,11 @@ describe("bounded host input", () => {
     expect(
       encodeCommand({ type: "erase_line", q: 2, r: 0, to_q: 4, to_r: 1 }),
     ).toEqual({ opcode: 8, args: [2, 0, 4, 1] });
+    expect(encodeCommand({ type: "deposit" })).toEqual({ opcode: 2, args: [] });
+    expect(encodeCommand({ type: "deposit", item_id: 1 })).toEqual({
+      opcode: 2,
+      args: [1],
+    });
     expect(encodeCommand({ type: "undo" })).toEqual({ opcode: 9, args: [] });
     expect(
       encodeCommand({ type: "withdraw", q: 1, r: 1, item_id: 2, quantity: 7 }),

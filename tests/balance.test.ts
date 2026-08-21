@@ -365,15 +365,58 @@ describe("the economy's stated curve", () => {
     const extractor = fixture.machines.find(
       ({ building }) => building === "extractor",
     );
-    expect(extractor?.per_minute_milli).toBe(
-      fixture.reference.hand_items_per_minute * 1000,
+    const wood = fixture.reference.hand_gathers.find(
+      ({ item }) => item === "wood",
     );
-    // The hand's rate is real time, not factory time, so it is the one figure the speed control
-    // does not move — which is exactly why it had to be written down beside one that it does.
-    expect(fixture.reference.gather_cooldown_steps).toBeGreaterThan(0);
+    expect(wood, "wood is the fastest hand").toBeDefined();
+    expect(extractor?.per_minute_milli).toBe(
+      (wood?.items_per_minute ?? 0) * 1000,
+    );
+    for (const gather of fixture.reference.hand_gathers) {
+      expect(
+        extractor?.per_minute_milli ?? 0,
+        `${gather.item} must not outrun the extractor`,
+      ).toBeGreaterThanOrEqual(gather.items_per_minute * 1000);
+      expect(
+        (60 * fixture.reference.player_ticks_per_second) / gather.steps,
+      ).toBe(gather.items_per_minute);
+    }
     expect(
-      (60 * fixture.reference.player_ticks_per_second) /
-        fixture.reference.gather_cooldown_steps,
-    ).toBe(fixture.reference.hand_items_per_minute);
+      fixture.reference.hand_gathers.some(({ item }) => item === "crystal"),
+    ).toBe(false);
+    // The fastest hand is still the wood/extractor ceiling, written down beside the factory rate
+    // the speed control does move.
+    expect(fixture.reference.gather_cooldown_steps).toBe(wood?.steps);
+    expect(fixture.reference.hand_items_per_minute).toBe(
+      wood?.items_per_minute,
+    );
+  });
+
+  it("prices a later fill of a raw row below every processed row", () => {
+    const handable = new Set(
+      fixture.reference.hand_gathers.map(({ item }) => item),
+    );
+    const raw = fixture.requests.filter(
+      (request) => request.machine_ticks === 0 && handable.has(request.item),
+    );
+    const processed = fixture.requests.filter(
+      (request) => request.machine_ticks > 0,
+    );
+    const bestRepeatGather = Math.max(
+      ...raw.map((request) => request.repeat_insight_per_gather_milli),
+    );
+    const bestRepeatMinute = Math.max(
+      ...raw.map((request) => request.repeat_insight_per_minute_milli),
+    );
+    for (const request of processed) {
+      expect(
+        request.insight_per_gather_milli,
+        `${request.request} per gather`,
+      ).toBeGreaterThan(bestRepeatGather);
+      expect(
+        request.insight_per_minute_milli,
+        `${request.request} per minute`,
+      ).toBeGreaterThan(bestRepeatMinute);
+    }
   });
 });

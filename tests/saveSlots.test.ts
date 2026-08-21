@@ -83,7 +83,7 @@ describe("parseHxf1", () => {
   it("reads the versions and starting world from an envelope", () => {
     const parsed = parseHxf1(envelope());
     expect(parsed).toMatchObject({
-      saveVersion: 10,
+      saveVersion: SAVE_VERSION,
       worldVersion: 6,
       definitionVersion: 10,
       technologyVersion: 5,
@@ -123,7 +123,7 @@ describe("compatibility", () => {
     const result = compatibility(parsed, build);
     expect(result.compatible).toBe(false);
     expect(describeMismatches(result.mismatches)).toContain(
-      "Save format is 9; this build is 10.",
+      `Save format is 9; this build is ${SAVE_VERSION}.`,
     );
     expect(describeMismatches(result.mismatches)).toContain(
       "Definitions is 9; this build is 10.",

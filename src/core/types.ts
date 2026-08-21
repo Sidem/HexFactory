@@ -51,6 +51,11 @@ export interface ItemDefinition {
   fuel_value?: number;
   /** Ticks between one unit of regrowth and the next, for a resource that is flora. */
   regrowth_ticks?: number;
+  /**
+   * Player-clock steps between hand gathers of this item. Absent means the hand cannot take it
+   * at all — water is pumped, signal crystal is extracted.
+   */
+  hand_gather_steps?: number;
 }
 
 export interface RecipeDefinition {
@@ -126,6 +131,11 @@ export interface RequestDefinition {
   item_id: number;
   quantity: number;
   insight: number;
+  /**
+   * What a later fill pays. Absent means later fills keep `insight`. Raw rows set this so the
+   * first survey funds the early tree and grinding the same row does not.
+   */
+  repeat_insight?: number;
 }
 
 export interface TechnologyDefinition {
@@ -463,7 +473,7 @@ export type NativeInputCommand =
    * Reach is still native's, and still the same predicate an extractor on that hex would use.
    */
   | { type: "gather_at"; q: number; r: number }
-  | { type: "deposit" }
+  | { type: "deposit"; item_id?: number }
   | {
       type: "place";
       q: number;

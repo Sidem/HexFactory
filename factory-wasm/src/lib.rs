@@ -44,7 +44,12 @@ const SAVE_PREFIX: &str = "HXF1\n";
 /// each request has been filled are saved and checksummed. A version-9 envelope carries neither, and
 /// a loader that drew a fresh board for it would hand a finished run three requests it may already
 /// have filled.
-const SAVE_VERSION: u16 = 10;
+///
+/// Bumped to 11 for Earned Insight. Skip and fill both leave a request off the board, but only a
+/// fill should decay the payout, so `request_fills` is saved and checksummed beside `request_rounds`.
+/// A version-10 envelope has no fill count, and treating its rounds as fills would turn a pass into
+/// a two-insight survey.
+const SAVE_VERSION: u16 = 11;
 /// Bumped to 6 for World Parameters. `WorldParams` is now part of a run's identity — it is in the
 /// save envelope and in the checksum — so a version-5 envelope carries no answer to the question
 /// "which world is this" and is rejected rather than assumed to be the default.
@@ -127,20 +132,16 @@ const PLAYER_SPEED: i32 = 275;
 const PLAYER_TICKS_PER_SECOND: u32 = 30;
 const PLAYER_RADIUS: i32 = 580;
 const BUILDING_RADIUS: i32 = 690;
-/// Player steps between one gather and the next. Counted on the player's own cadence like the
+/// Fastest hand gather, in player-clock steps: wood. Counted on the player's own cadence like the
 /// walk, so holding the action key harvests at one rate whether the factory is paused, running at
 /// 4 tps, or running at 60.
 ///
-/// **Fifteen steps is one extractor.** The value was six — 0.2s, inherited from a two-tick
-/// cooldown — which is 300 items a minute against an extractor's 120 at the default simulation
-/// speed, so the first machine a player built was two and a half times slower than the hands it
-/// was supposed to replace. That is a curve inversion at the very start of the game and no cost
-/// row could show it. At fifteen the hand is worth exactly one extractor working the same seven
-/// cells, so what automation buys is not a bigger number: it is that the player can walk away.
-/// `fixtures/balance.json` pins the equality. **Earned Insight v0.23 deliberately breaks it** —
-/// see that brief in `docs/HEXFACTORY-PLAN.md`: the cooldown becomes `hand_gather_steps` on the
-/// item, and the invariant restates as "never faster than an extractor, and on hard rock
-/// materially slower", which keeps the guard above and adds the incentive it lacked.
+/// **Fifteen steps is one extractor**, and it is now the *ceiling* rather than the only rate.
+/// The value was six — 0.2s — which is 300 items a minute against an extractor's 120, so the first
+/// machine a player built was two and a half times slower than the hands it was supposed to
+/// replace. At fifteen the hand is never faster than an extractor working the same cells, and on
+/// hard rock it is materially slower. The per-item figure lives on `ItemDefinition::hand_gather_steps`;
+/// this constant is wood, the bootstrap fuel, and the rate the cooldown helper falls back to.
 const GATHER_COOLDOWN_STEPS: u32 = 15;
 const HUB_RANGE: i32 = 1900;
 /// How many requests the landing hub posts at once.
@@ -212,9 +213,13 @@ struct RequestDefinition {
     brief: String,
     item_id: ItemId,
     quantity: u32,
-    /// What filling it pays. Priced against the raw gathers underneath the item — see the
+    /// What the first fill pays. Priced against the raw gathers underneath the item — see the
     /// `requests` section of `fixtures/balance.json`, which reports exactly that ratio.
     insight: u32,
+    /// What every later fill pays. Absent means later fills keep `insight`. Raw rows set this so
+    /// the first survey funds the early tree and grinding the same row does not.
+    #[serde(default)]
+    repeat_insight: Option<u32>,
 }
 
 #[derive(Clone, Deserialize)]
@@ -240,6 +245,11 @@ struct ItemDefinition {
     /// which is what makes wood renewable while every ore field is finite.
     #[serde(default)]
     regrowth_ticks: Option<u32>,
+    /// Player-clock steps between hand gathers of this item. Absent means the hand cannot take it
+    /// at all: water is pumped, signal crystal is extracted. Fifteen is wood, and no material is
+    /// faster — that is the restated invariant `fixtures/balance.json` pins.
+    #[serde(default)]
+    hand_gather_steps: Option<u32>,
 }
 
 #[derive(Clone, Deserialize)]
@@ -1160,7 +1170,10 @@ enum InputCommand {
         q: i32,
         r: i32,
     },
-    Deposit,
+    Deposit {
+        #[serde(default)]
+        item_id: Option<ItemId>,
+    },
     Place {
         q: i32,
         r: i32,
@@ -1294,7 +1307,15 @@ struct Core {
     /// order: the least-used eligible row is posted first, so fresh content leads and old standing
     /// orders come round again once there is nothing new left to post.
     request_rounds: BTreeMap<RequestId, u32>,
+    /// How many times each request has been *paid*. Skip increments `request_rounds` so the row
+    /// goes behind unseen content; it must not burn the first-fill bonus, so fills are counted
+    /// apart. Saved and checksummed: what a later fill pays depends on it.
+    request_fills: BTreeMap<RequestId, u32>,
     produced: BTreeMap<ItemId, u64>,
+    /// What the current (or last) action cooldown was worth when it started. Snapshot-only: the
+    /// host draws remaining against this, and a save mid-gather republishes the remaining count so
+    /// the ring starts full of what is left. Never saved, hashed, or checksummed.
+    last_action_cooldown_total: u32,
     events: Vec<String>,
     /// Derived presentation state: what has changed since the host's last delta. Never saved,
     /// hashed, or checksummed.
@@ -1393,7 +1414,9 @@ impl Core {
             contract_contributed: BTreeMap::new(),
             requests: Vec::new(),
             request_rounds: BTreeMap::new(),
+            request_fills: BTreeMap::new(),
             produced: BTreeMap::new(),
+            last_action_cooldown_total: 0,
             events: vec![format!("{} ready", scenario.name)],
             dirty: SnapshotDirty::default(),
             undo_stack: Vec::new(),
@@ -1472,11 +1495,17 @@ impl Core {
     }
 
     fn player_snapshot(&self) -> PlayerSnapshot {
+        let cooldown_total = if self.player.action_cooldown > 0 {
+            self.last_action_cooldown_total
+                .max(self.player.action_cooldown)
+        } else {
+            self.last_action_cooldown_total.max(GATHER_COOLDOWN_STEPS)
+        };
         PlayerSnapshot {
             state: self.player.clone(),
             carry_stacks: self.carry_stacks(),
             radius: PLAYER_RADIUS,
-            action_cooldown_total: GATHER_COOLDOWN_STEPS,
+            action_cooldown_total: cooldown_total,
             extract_radius: EXTRACT_RADIUS as u32,
         }
     }
@@ -2994,11 +3023,13 @@ impl Core {
                 slot += 1;
                 continue;
             }
-            self.insight += u64::from(definition.insight);
+            let pay = self.request_payout(&definition);
+            self.insight += u64::from(pay);
             *self.request_rounds.entry(definition.id).or_default() += 1;
+            *self.request_fills.entry(definition.id).or_default() += 1;
             self.events.push(format!(
                 "{} complete — the hub pays {} insight",
-                definition.name, definition.insight
+                definition.name, pay
             ));
             let posted = self.posted_requests(Some(slot));
             match self.next_request(&posted) {
@@ -3029,17 +3060,50 @@ impl Core {
             .collect()
     }
 
-    /// The row that should be posted next: the least-used one the player can actually supply.
+    /// The row that should be posted next: the least-used one the player can actually supply,
+    /// unless the board currently holds no row at the deepest reachable depth — then that depth
+    /// is reserved, so a three-slot board still leads once processing unlocks rather than cycling
+    /// eight raw surveys first.
     ///
     /// There is no randomness here, and that is deliberate. A board that is a pure function of
     /// state is a board a save restores exactly, a checksum agrees about, and a test can walk —
-    /// and one whose progression a player can learn rather than reroll.
+    /// and one whose progression a player can learn rather than reroll. Reservation still walks
+    /// `item_reachable`, so a player who cannot yet build a smelter never faces a board of three
+    /// things they cannot make.
     fn next_request(&self, posted: &BTreeSet<RequestId>) -> Option<RequestId> {
-        self.definitions
+        let eligible: Vec<&RequestDefinition> = self
+            .definitions
             .requests
             .iter()
             .filter(|request| !posted.contains(&request.id))
             .filter(|request| self.item_reachable(request.item_id, 0))
+            .collect();
+        if eligible.is_empty() {
+            return None;
+        }
+        let max_depth = self
+            .definitions
+            .requests
+            .iter()
+            .filter(|request| self.item_reachable(request.item_id, 0))
+            .map(|request| self.item_depth(request.item_id))
+            .max()
+            .unwrap_or(0);
+        let posted_has_max = self
+            .definitions
+            .requests
+            .iter()
+            .filter(|request| posted.contains(&request.id))
+            .any(|request| self.item_depth(request.item_id) == max_depth);
+        let pool = if posted_has_max {
+            eligible
+        } else {
+            eligible
+                .into_iter()
+                .filter(|request| self.item_depth(request.item_id) == max_depth)
+                .collect()
+        };
+        pool.into_iter()
             .min_by_key(|request| {
                 (
                     self.request_rounds
@@ -3050,6 +3114,51 @@ impl Core {
                 )
             })
             .map(|request| request.id)
+    }
+
+    /// Recipe-tree depth of an item: zero for something that comes out of the ground or a source
+    /// building, one plus the deepest input for a craft. The reserved board slot is this number,
+    /// not catalogue order, so a plate leads a second ore assay once a smelter is unlocked.
+    fn item_depth(&self, item: ItemId) -> u32 {
+        self.item_depth_at(item, 0)
+    }
+
+    fn item_depth_at(&self, item: ItemId, guard: u32) -> u32 {
+        if guard > MAX_RECIPE_DEPTH {
+            return 0;
+        }
+        match self
+            .definitions
+            .recipes
+            .iter()
+            .find(|recipe| recipe.output.item_id == item)
+        {
+            Some(recipe) => {
+                let inner = recipe
+                    .inputs
+                    .iter()
+                    .map(|input| self.item_depth_at(input.item_id, guard + 1))
+                    .max()
+                    .unwrap_or(0);
+                inner + 1
+            }
+            None => 0,
+        }
+    }
+
+    /// What filling this row pays *now*: the first completion is `insight`, every later one is
+    /// `repeat_insight` (or `insight` again, when the row does not decay). Skip does not count.
+    fn request_payout(&self, definition: &RequestDefinition) -> u32 {
+        let fills = self
+            .request_fills
+            .get(&definition.id)
+            .copied()
+            .unwrap_or_default();
+        if fills == 0 {
+            definition.insight
+        } else {
+            definition.repeat_insight.unwrap_or(definition.insight)
+        }
     }
 
     /// Post requests into every empty slot.
@@ -3098,7 +3207,23 @@ impl Core {
                     .iter()
                     .filter(|building| building.output_item_id == Some(item))
                     .peekable();
-                sources.peek().is_none() || sources.any(|building| self.technology_met(building))
+                if sources.peek().is_some() {
+                    return sources.any(|building| self.technology_met(building));
+                }
+                // A field item the hand can take is reachable from a standing start. A field item
+                // it cannot — signal crystal — is reachable once an extractor is unlocked, the
+                // same way water waits on a pump.
+                match self
+                    .item_definition(item)
+                    .and_then(|definition| definition.hand_gather_steps)
+                {
+                    Some(_) => true,
+                    None => self.definitions.buildings.iter().any(|building| {
+                        building.kind == BuildingKind::Extractor
+                            && building.buildable
+                            && self.technology_met(building)
+                    }),
+                }
             }
         }
     }
@@ -3383,6 +3508,16 @@ impl Core {
         if self.player_room_for(field.item_id) == 0 {
             return Err("carrying capacity is full".into());
         }
+        let name = self
+            .item_definition(field.item_id)
+            .map(|item| item.name.clone())
+            .unwrap_or_else(|| format!("item {}", field.item_id));
+        let steps = self
+            .item_definition(field.item_id)
+            .and_then(|item| item.hand_gather_steps)
+            .ok_or_else(|| {
+                format!("{name} cannot be gathered by hand — place an extractor on the field")
+            })?;
         let remaining = self.deposit_quantity(key) - 1;
         self.write_overlay(
             key.0,
@@ -3394,13 +3529,10 @@ impl Core {
         let (item_id, depleted) = (field.item_id, remaining == 0);
         self.dirty.resources.push(key);
         *self.player.inventory.entry(item_id).or_default() += 1;
-        self.player.action_cooldown = GATHER_COOLDOWN_STEPS;
+        self.player.action_cooldown = steps;
+        self.last_action_cooldown_total = steps;
         // Named, not numbered. "Gathered item 6" was serviceable when the world held three items;
         // against a material base of twenty-three it tells the player nothing they can act on.
-        let name = self
-            .item_definition(item_id)
-            .map(|item| item.name.clone())
-            .unwrap_or_else(|| format!("item {item_id}"));
         self.events.push(format!("Gathered {name}"));
         if depleted {
             // Any extractor covering this deposit may now report a different status.
@@ -3410,7 +3542,12 @@ impl Core {
         Ok(())
     }
 
+    #[allow(dead_code)]
     fn deposit_inventory(&mut self) -> Result<(), String> {
+        self.deposit_item(None)
+    }
+
+    fn deposit_item(&mut self, target_item: Option<ItemId>) -> Result<(), String> {
         let hub = self
             .entities
             .iter()
@@ -3427,22 +3564,27 @@ impl Core {
         if self.player.inventory.is_empty() {
             return Err("inventory is empty".into());
         }
-        // Only what the hub is actually asking for, and only as much of it as is still wanted. The
-        // key used to empty the whole pack into the hub whatever it held — which is how a player
-        // loses a stack they were carrying home for a machine they had not built yet.
+        if let Some(target) = target_item {
+            if !self.player.inventory.contains_key(&target) {
+                return Err("you are not carrying that item".into());
+            }
+        }
+        // Only what the hub is actually asking for, and only as much of it as is still wanted. If
+        // a target item was specified, deliver only that item; otherwise deliver all demanded items.
         let cargo: Vec<(ItemId, u32)> = self
             .player
             .inventory
             .iter()
+            .filter(|(&item, _)| target_item.map_or(true, |target| item == target))
             .map(|(&item, &carried)| (item, self.hub_demand(item).min(u64::from(carried)) as u32))
             .filter(|&(_, quantity)| quantity > 0)
             .collect();
         if cargo.is_empty() {
+            if target_item.is_some() {
+                return Err("the landing hub is not asking for that item".into());
+            }
             return Err("the landing hub is not asking for anything you carry".into());
         }
-        // Announced before the deliveries rather than after them, so that a request this hand-off
-        // completes has the last word. "Delivered 10" is the smaller of the two things that just
-        // happened, and the host shows the player the latest event.
         let handed: u32 = cargo.iter().map(|&(_, quantity)| quantity).sum();
         self.events
             .push(format!("Delivered {handed} to the landing hub"));
@@ -4313,7 +4455,7 @@ impl Core {
                 InputCommand::Aim { x, y } => self.set_aim(x, y),
                 InputCommand::Gather => self.gather(),
                 InputCommand::GatherAt { q, r } => self.gather_at(q, r),
-                InputCommand::Deposit => self.deposit_inventory(),
+                InputCommand::Deposit { item_id } => self.deposit_item(item_id),
                 InputCommand::Place {
                     q,
                     r,
@@ -4653,7 +4795,7 @@ impl Core {
                     item_id: definition.item_id,
                     delivered: state.delivered.min(definition.quantity),
                     required: definition.quantity,
-                    insight: definition.insight,
+                    insight: self.request_payout(definition),
                 })
             })
             .collect()
@@ -4774,6 +4916,11 @@ impl Core {
             hash_u32(&mut hash, u32::from(request));
             hash_u32(&mut hash, rounds);
         }
+        hash_u32(&mut hash, u32::MAX - 5);
+        for (&request, &fills) in &self.request_fills {
+            hash_u32(&mut hash, u32::from(request));
+            hash_u32(&mut hash, fills);
+        }
         hash
     }
 
@@ -4800,6 +4947,7 @@ impl Core {
             contract_contributed: self.contract_contributed.clone(),
             requests: self.requests.clone(),
             request_rounds: self.request_rounds.clone(),
+            request_fills: self.request_fills.clone(),
             produced: self.produced.clone(),
         };
         let envelope = SaveEnvelope {
@@ -4901,6 +5049,8 @@ impl Core {
         // filled, and the checksum below would be the first thing to say so.
         core.requests = envelope.state.requests;
         core.request_rounds = envelope.state.request_rounds;
+        core.request_fills = envelope.state.request_fills;
+        core.last_action_cooldown_total = core.player.action_cooldown;
         core.produced = envelope.state.produced;
         core.events = vec!["HXF1 save restored".into()];
         core.compile_graph();
@@ -4946,6 +5096,8 @@ struct SavedState {
     contract_contributed: BTreeMap<ItemId, u64>,
     requests: Vec<RequestState>,
     request_rounds: BTreeMap<RequestId, u32>,
+    #[serde(default)]
+    request_fills: BTreeMap<RequestId, u32>,
     produced: BTreeMap<ItemId, u64>,
 }
 
@@ -5420,6 +5572,7 @@ fn validate_definitions(definitions: &DefinitionsInput) -> Result<(), String> {
             || request.brief.trim().is_empty()
             || request.quantity == 0
             || request.insight == 0
+            || request.repeat_insight == Some(0)
             || !item_ids.contains(&request.item_id)
         {
             return Err(format!("request {} is incomplete", request.id));
@@ -5441,8 +5594,14 @@ fn validate_definitions(definitions: &DefinitionsInput) -> Result<(), String> {
     }
     // A fuel item has to be worth burning, or a machine could consume one for nothing.
     for item in &definitions.items {
-        if item.fuel_value == Some(0) || item.regrowth_ticks == Some(0) {
-            return Err(format!("item {} has a zero fuel or regrowth rate", item.id));
+        if item.fuel_value == Some(0)
+            || item.regrowth_ticks == Some(0)
+            || item.hand_gather_steps == Some(0)
+        {
+            return Err(format!(
+                "item {} has a zero fuel, regrowth, or hand gather rate",
+                item.id
+            ));
         }
     }
     let categories: BTreeSet<&str> = definitions
@@ -5964,6 +6123,10 @@ fn validate_saved_state(
     if state.requests.len() > REQUEST_SLOTS
         || state
             .request_rounds
+            .keys()
+            .any(|id| !definitions.requests.iter().any(|request| request.id == *id))
+        || state
+            .request_fills
             .keys()
             .any(|id| !definitions.requests.iter().any(|request| request.id == *id))
     {
@@ -9712,9 +9875,11 @@ mod tests {
     }
 
     /// Wait out a gather cooldown the way a player does — on their own clock, with the factory
-    /// untouched.
+    /// untouched. Drains whatever the last gather actually cost, so a coal seam and a wood cell
+    /// share one helper.
     fn cooldown(core: &mut Core) {
-        core.advance_player_steps(GATHER_COOLDOWN_STEPS);
+        let remaining = core.player.action_cooldown.max(1);
+        core.advance_player_steps(remaining);
     }
 
     fn set_player_hex(core: &mut Core, q: i32, r: i32) {
@@ -9962,7 +10127,7 @@ mod tests {
         let mut core = game("new-game");
         core.researched.insert(2);
         core.player.inventory.insert(1, 8);
-        core.player.inventory.insert(3, 2);
+        core.player.inventory.insert(6, 2);
         set_player_hex(&mut core, 3, 1);
         // Two ore cells one step apart, written into the overlay because the clearing generates
         // none: this is a test about which cell inside a reach is drawn from first, and standing
@@ -11250,7 +11415,9 @@ mod tests {
         core.gather().unwrap();
         assert!(core.gather().is_err(), "the cooldown has to hold at all");
         // The factory is paused for the whole of this: not one tick is advanced.
-        core.advance_player_steps(GATHER_COOLDOWN_STEPS - 1);
+        let total = core.player.action_cooldown;
+        assert!(total > 1, "iron ore is slower than a single step");
+        core.advance_player_steps(total - 1);
         assert!(core.gather().is_err(), "cleared early");
         core.advance_player_steps(1);
         core.gather().unwrap();
@@ -11290,12 +11457,9 @@ mod tests {
             .contains("Iron ore"));
         core.player.inventory.insert(1, 8);
         core.player.inventory.insert(8, 7);
-        // Extractor wants iron, clay, and one crystal. Naming the missing item is the message;
+        // Extractor wants iron ore and stone. Naming the missing item is the message;
         // "construction cost is not available" did not say which.
-        assert!(core
-            .place(3, 0, 1, 0, None)
-            .unwrap_err()
-            .contains("Signal crystal"));
+        assert!(core.place(3, 0, 1, 0, None).unwrap_err().contains("Stone"));
         core.player.inventory.clear();
         core.player.inventory.insert(1, 3);
         core.place(2, 0, 2, 0, None).unwrap();
@@ -11592,7 +11756,7 @@ mod tests {
         let mut core = game("new-game");
         core.researched.extend([1, 2, 3, 4]);
         core.player.inventory.insert(1, 20);
-        core.player.inventory.insert(3, 10);
+        core.player.inventory.insert(6, 4);
 
         let (hex_x, hex_y) = axial_world(3, 0);
         set_player_hex(&mut core, 3, 1);
@@ -11772,7 +11936,7 @@ mod tests {
         let mut core = game("new-game");
         core.researched.insert(2);
         core.player.inventory.insert(1, 4);
-        core.player.inventory.insert(3, 1);
+        core.player.inventory.insert(6, 2);
         set_player_hex(&mut core, 3, 1);
         core.write_overlay(3, 0, 1, 2, 48);
         core.place(3, 0, 1, 0, None).unwrap();
@@ -11802,7 +11966,7 @@ mod tests {
         let mut core = game("new-game");
         core.researched.insert(2);
         core.player.inventory.insert(1, 8);
-        core.player.inventory.insert(3, 2);
+        core.player.inventory.insert(6, 2);
         set_player_hex(&mut core, 3, 1);
         core.place(3, 0, 1, 0, None).unwrap();
         let index = core
@@ -12183,6 +12347,51 @@ mod tests {
         // shuffle, and it does not repost the row that was just paid for while others are unseen.
         assert_eq!(board(&core), ["clay-survey", "cliff-stone", "cordwood"]);
         assert_eq!(core.request_rounds.get(&1), Some(&1));
+        assert_eq!(core.request_fills.get(&1), Some(&1));
+    }
+
+    /// Passing a row costs it a place in the queue, not its first-fill bonus. Skip used to share
+    /// `request_rounds` with payment, which would have turned "I have not found this yet" into
+    /// two insight for ten gathers.
+    #[test]
+    fn passing_a_request_does_not_burn_the_first_fill_bonus() {
+        let mut core = game("new-game");
+        set_player_hex(&mut core, 1, 0);
+        core.skip_request(0).unwrap();
+        assert_eq!(core.request_rounds.get(&1), Some(&1));
+        assert!(core.request_fills.get(&1).is_none());
+        core.requests[0] = RequestState {
+            request_id: 1,
+            delivered: 0,
+        };
+        let before = core.insight;
+        core.player.inventory.insert(1, 10);
+        core.deposit_inventory().unwrap();
+        assert_eq!(
+            core.insight - before,
+            10,
+            "a skipped row still pays its first fill"
+        );
+        assert_eq!(core.request_fills.get(&1), Some(&1));
+    }
+
+    /// A later fill of a raw row pays `repeat_insight`, not the opening survey.
+    #[test]
+    fn a_repeated_raw_request_pays_the_decayed_rate() {
+        let mut core = game("new-game");
+        set_player_hex(&mut core, 1, 0);
+        core.player.inventory.insert(1, 10);
+        core.deposit_inventory().unwrap();
+        assert_eq!(core.insight, 10);
+        // Force ore-assay back onto the board and fill it again.
+        core.requests[0] = RequestState {
+            request_id: 1,
+            delivered: 0,
+        };
+        core.player.inventory.insert(1, 10);
+        core.deposit_inventory().unwrap();
+        assert_eq!(core.insight, 12);
+        assert_eq!(core.request_fills.get(&1), Some(&2));
     }
 
     /// The hub takes what it asked for and leaves the rest in the pack — by hand and by belt, at one
@@ -12241,6 +12450,10 @@ mod tests {
             !core.item_reachable(10, 0),
             "water needs a pump, and water is nobody's field"
         );
+        assert!(
+            !core.item_reachable(CRYSTAL, 0),
+            "signal crystal is machine only until an extractor is unlocked"
+        );
         // Passing every slot repeatedly walks the whole eligible list. Nothing that needs a machine
         // may appear in it, however far up the catalogue that row stands.
         for _ in 0..12 {
@@ -12258,6 +12471,10 @@ mod tests {
             core.research(technology).unwrap();
         }
         assert!(core.item_reachable(11, 0), "the smelter unlocks the plate");
+        assert!(
+            core.item_reachable(CRYSTAL, 0),
+            "an extractor unlocks the crystal field"
+        );
     }
 
     /// Passing a row costs it a place in the queue, and costs the player whatever they had already
@@ -12276,6 +12493,83 @@ mod tests {
         assert!(core.skip_request(9).unwrap_err().contains("no request"));
     }
 
+    /// Once a smelter is unlocked, a free slot is reserved for the deepest reachable row rather
+    /// than the next unseen ore assay. The other two slots still cycle, and nothing unmakeable is
+    /// posted — reservation walks the same `item_reachable` predicate the rest of the board does.
+    #[test]
+    fn the_board_reserves_one_slot_for_the_deepest_reachable_row() {
+        let mut core = game("new-game");
+        set_player_hex(&mut core, 1, 0);
+        core.insight = 100;
+        for technology in [1, 2, 5] {
+            core.research(technology).unwrap();
+        }
+        assert!(core.item_reachable(11, 0));
+        let before: Vec<String> = core
+            .request_snapshots()
+            .iter()
+            .map(|request| request.key.clone())
+            .collect();
+        assert!(
+            before.iter().all(|key| {
+                let item = core
+                    .definitions
+                    .requests
+                    .iter()
+                    .find(|request| request.key == *key)
+                    .map(|request| request.item_id)
+                    .unwrap();
+                core.item_depth(item) == 0
+            }),
+            "the opening board is raw, got {before:?}"
+        );
+        core.player.inventory.insert(1, 10);
+        core.deposit_inventory().unwrap();
+        let after: Vec<String> = core
+            .request_snapshots()
+            .iter()
+            .map(|request| request.key.clone())
+            .collect();
+        let depths: Vec<u32> = after
+            .iter()
+            .map(|key| {
+                let item = core
+                    .definitions
+                    .requests
+                    .iter()
+                    .find(|request| request.key == *key)
+                    .map(|request| request.item_id)
+                    .unwrap();
+                core.item_depth(item)
+            })
+            .collect();
+        assert!(
+            depths.iter().any(|&depth| depth > 0),
+            "the freed slot should post the deepest reachable row, got {after:?} at {depths:?}"
+        );
+        for request in core.request_snapshots() {
+            assert!(
+                core.item_reachable(request.item_id, 0),
+                "reserved slot posted item {}, which cannot be produced",
+                request.item_id
+            );
+        }
+    }
+
+    #[test]
+    fn deposit_can_deliver_an_individual_item_leaving_other_demanded_items_in_pack() {
+        let mut core = game("new-game");
+        // Give player iron ore (id 1) and wood (id 8). Both are standing requests in new game.
+        core.player.inventory.insert(1, 10);
+        core.player.inventory.insert(8, 10);
+        set_player_hex(&mut core, 0, 1);
+        // Deliver only iron ore
+        core.deposit_item(Some(1)).unwrap();
+        // Iron ore was delivered, wood remains in pack
+        assert_eq!(core.player.inventory.get(&1), None);
+        assert_eq!(core.player.inventory.get(&8), Some(&10));
+    }
+
     /// A board is saved state, restored rather than redrawn.
     #[test]
     fn a_save_restores_the_board_it_was_holding() {
@@ -12290,6 +12584,7 @@ mod tests {
         let restored = Core::from_save(&definitions, &technologies, &scenarios, &save).unwrap();
         assert_eq!(restored.request_snapshots(), before);
         assert_eq!(restored.request_rounds, core.request_rounds);
+        assert_eq!(restored.request_fills, core.request_fills);
         assert_eq!(restored.insight, 10);
         // A row this build does not ship would survive the file and then be drawn as a request
         // nobody can read, so the loader refuses it before the checksum ever gets the chance.
@@ -12904,20 +13199,57 @@ mod tests {
     ///
     /// These are measured against the same wall clock and they must not invert. Through v0.16 the
     /// hand ran at 300 items a minute against an extractor's 120, so the first automation in the
-    /// game was two and a half times slower than doing it yourself — invisible in every cost row,
-    /// because it is not a cost. At `GATHER_COOLDOWN_STEPS` of fifteen they are equal, and what an
-    /// extractor buys is that the player can walk away from it.
+    /// game was two and a half times slower than doing it yourself. v0.17 made them equal at
+    /// fifteen steps. v0.23 keeps the guard and adds the incentive: the hand is never *faster*
+    /// than an extractor on the same cells, wood still matches it, and hard rock is materially
+    /// slower. Crystal has no hand rate.
     #[test]
-    fn one_extractor_is_worth_exactly_the_hands_it_frees() {
+    fn no_extractor_is_slower_than_the_hand_on_the_same_cells() {
         let report = balance::compute();
         let extractor = report
             .machines
             .iter()
             .find(|machine| machine.building == "extractor")
             .expect("the extractor is a machine");
+        assert!(
+            !report.reference.hand_gathers.is_empty(),
+            "the hand still takes something"
+        );
+        for gather in &report.reference.hand_gathers {
+            assert!(
+                extractor.per_minute_milli >= u64::from(gather.items_per_minute) * 1000,
+                "{} at {} /min is faster than the extractor at {}",
+                gather.item,
+                gather.items_per_minute,
+                extractor.per_minute_milli
+            );
+        }
+        let wood = report
+            .reference
+            .hand_gathers
+            .iter()
+            .find(|gather| gather.item == "wood")
+            .expect("wood is the fastest hand");
         assert_eq!(
-            u64::from(report.reference.hand_items_per_minute) * 1000,
+            u64::from(wood.items_per_minute) * 1000,
             extractor.per_minute_milli
+        );
+        assert!(
+            report
+                .reference
+                .hand_gathers
+                .iter()
+                .any(|gather| gather.item == "ore"
+                    && gather.items_per_minute < wood.items_per_minute),
+            "hard rock has to be slower than wood"
+        );
+        assert!(
+            !report
+                .reference
+                .hand_gathers
+                .iter()
+                .any(|gather| gather.item == "crystal"),
+            "signal crystal is machine only"
         );
         // Both work the same seven cells: reach is what an upgrade buys, never what a hand grows.
         assert_eq!(report.reference.cells_in_reach.first(), Some(&7));
@@ -12986,6 +13318,89 @@ mod tests {
                 best_raw
             );
         }
+    }
+
+    /// The first cycle of every raw row is what funds the early tree. Repeating those rows is
+    /// a floor, not a path: worse per gather *and* per minute than every processed row, measured
+    /// against the new hand rates. Machine-only raw (crystal) is not a hand grind and is not in
+    /// this comparison.
+    #[test]
+    fn a_repeated_raw_row_pays_worse_than_every_processed_row() {
+        let report = balance::compute();
+        let handable: BTreeSet<_> = report
+            .reference
+            .hand_gathers
+            .iter()
+            .map(|gather| gather.item.as_str())
+            .collect();
+        let raw: Vec<_> = report
+            .requests
+            .iter()
+            .filter(|request| {
+                request.machine_ticks == 0 && handable.contains(request.item.as_str())
+            })
+            .collect();
+        let processed: Vec<_> = report
+            .requests
+            .iter()
+            .filter(|request| request.machine_ticks > 0)
+            .collect();
+        assert!(
+            raw.len() >= 7,
+            "the eight opening materials, less water and crystal"
+        );
+        let best_repeat_gather = raw
+            .iter()
+            .map(|request| request.repeat_insight_per_gather_milli)
+            .max()
+            .expect("a raw request");
+        let best_repeat_minute = raw
+            .iter()
+            .map(|request| request.repeat_insight_per_minute_milli)
+            .max()
+            .expect("a raw request");
+        for request in processed {
+            assert!(
+                request.insight_per_gather_milli > best_repeat_gather,
+                "{} pays {} /gather against a repeated raw row at {}",
+                request.request,
+                request.insight_per_gather_milli,
+                best_repeat_gather
+            );
+            assert!(
+                request.insight_per_minute_milli > best_repeat_minute,
+                "{} pays {} /min against a repeated raw row at {}",
+                request.request,
+                request.insight_per_minute_milli,
+                best_repeat_minute
+            );
+        }
+    }
+
+    /// One cycle of every raw request, first fill, is less than the technology tree. Repeats exist
+    /// so a player without fuel is not stranded; they are not a way to finish research.
+    #[test]
+    fn the_technology_tree_cannot_be_funded_by_one_cycle_of_raw_requests() {
+        let report = balance::compute();
+        let tree: u32 = {
+            let technologies: TechnologiesInput = serde_json::from_str(TECHNOLOGIES).unwrap();
+            technologies
+                .technologies
+                .iter()
+                .map(|technology| technology.cost)
+                .sum()
+        };
+        let raw_cycle: u32 = report
+            .requests
+            .iter()
+            .filter(|request| request.machine_ticks == 0)
+            .map(|request| request.insight)
+            .sum();
+        assert!(
+            raw_cycle < tree,
+            "one cycle of raw requests pays {raw_cycle} and the tree costs {tree}"
+        );
+        assert!(tree >= 113, "the tree grew, it must not have shrunk");
     }
 
     /// Every material the economy bottoms out in can actually be had, from the site the game
@@ -13225,7 +13640,7 @@ mod tests {
         let mut core = game("new-game");
         core.researched.insert(2);
         core.player.inventory.insert(1, 12);
-        core.player.inventory.insert(3, 4);
+        core.player.inventory.insert(6, 4);
         set_player_hex(&mut core, 3, 1);
         core.place(3, 0, 1, 0, None).unwrap();
         add_test_belt(&mut core, 4, 1, 0);
@@ -13278,6 +13693,7 @@ mod tests {
         // pack stays inside the carrying rule, or the gathering steps below would be refused.
         factory.core.player.inventory.insert(1, 40);
         factory.core.player.inventory.insert(3, 20);
+        factory.core.player.inventory.insert(6, 8);
         set_player_hex(&mut factory.core, 4, -2);
         factory.core.write_overlay(4, -2, 1, 2, 36);
         // The clearing generates nothing since v0.21, so the deposit the extractor further down
@@ -13304,7 +13720,7 @@ mod tests {
         for round in 0..3 {
             factory
                 .core
-                .advance(r#"[{"type":"gather"}]"#, 2, GATHER_COOLDOWN_STEPS)
+                .advance(r#"[{"type":"gather"}]"#, 2, 60)
                 .unwrap();
             check(&mut factory, &format!("gather attempt {round}"));
         }
@@ -13338,6 +13754,7 @@ mod tests {
         // Kept inside the carrying rule, so the erase further down still has somewhere to refund to.
         factory.core.player.inventory.insert(1, 60);
         factory.core.player.inventory.insert(3, 10);
+        factory.core.player.inventory.insert(6, 8);
         check(&mut factory, "restocking the player");
 
         // Construction: inserted entities, recompiled transport, and per-chunk entity counts.
@@ -13441,7 +13858,7 @@ mod tests {
         let mut core = game("new-game");
         core.researched.insert(2);
         core.player.inventory.insert(1, 8);
-        core.player.inventory.insert(3, 2);
+        core.player.inventory.insert(6, 2);
         set_player_hex(&mut core, 3, 1);
         core.place(3, 0, 1, 0, None).unwrap();
         let index = core.entity_at(3, 0).unwrap();
@@ -13469,7 +13886,7 @@ mod tests {
         let mut core = game("new-game");
         core.researched.extend([1, 2]);
         core.player.inventory.insert(1, 40);
-        core.player.inventory.insert(3, 20);
+        core.player.inventory.insert(6, 8);
         set_player_hex(&mut core, 3, 1);
         core.place(3, 0, 1, 0, None).unwrap();
         let index = core.entity_at(3, 0).unwrap();
@@ -13824,6 +14241,21 @@ mod tests {
         core.write_overlay(2, 0, 1, 0, 20);
         assert!(core.gather_at(2, 0).unwrap_err().contains("worked out"));
 
+        // Signal crystal is in the world, and the hand still cannot take it.
+        cooldown(&mut core);
+        core.write_overlay(4, 0, CRYSTAL, 8, 8);
+        let refusal = core.gather_at(4, 0).unwrap_err();
+        assert!(
+            refusal.contains("cannot be gathered by hand"),
+            "crystal refusal was {refusal}"
+        );
+        assert!(
+            refusal.contains("extractor"),
+            "name the machine, got {refusal}"
+        );
+        assert_eq!(core.deposit_quantity((4, 0)), 8);
+        assert!(core.player.inventory.get(&CRYSTAL).is_none());
+
         // Every reachable field cell is nameable, and nothing outside the reach is.
         let origin = (3, 0);
         for &(dq, dr) in &DIRECTIONS {
@@ -13833,11 +14265,16 @@ mod tests {
                     continue;
                 }
                 cooldown(&mut core);
+                let can_hand = core
+                    .field_at(cell.0, cell.1)
+                    .and_then(|res| core.item_definition(res.item_id))
+                    .is_some_and(|i| i.hand_gather_steps.is_some());
                 let named = core.gather_at(cell.0, cell.1).is_ok();
                 assert_eq!(
                     named,
                     core.field_covered_at(origin, cell, EXTRACT_RADIUS)
-                        && core.deposit_quantity(cell) > 0,
+                        && core.deposit_quantity(cell) > 0
+                        && can_hand,
                     "named gather at {cell:?} disagreed with the shared reach predicate"
                 );
             }
@@ -13906,7 +14343,7 @@ mod tests {
         // invalidate comparisons against previously recorded tier numbers. A generator-version
         // bump moves this number while the workload does not — which is why the delivered total
         // and the entity count below are the assertions that say the run is the same run.
-        assert_eq!(first.checksum(), 3_745_973_835);
+        assert_eq!(first.checksum(), 798_893_689);
         assert_eq!(first.entities.len(), spec.entities() as usize);
         // Every line must be running end to end, or the tiers would measure an idle blueprint.
         assert_eq!(first.delivered, u64::from(spec.lines) * 14);

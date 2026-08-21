@@ -49,7 +49,10 @@ export function encodeCommand(command: NativeInputCommand): EncodedCommand {
     case "gather":
       return { opcode: 1, args: [] };
     case "deposit":
-      return { opcode: 2, args: [] };
+      return {
+        opcode: 2,
+        args: command.item_id !== undefined ? [command.item_id] : [],
+      };
     case "place":
       return {
         opcode: 3,

@@ -5,10 +5,10 @@
  * stay visible, and native still refuses a load the numbers cannot support.
  *
  * `SAVE_VERSION` is the one literal because native does not publish it. Keep it aligned with
- * `factory-wasm/src/lib.rs`.
+ * `factory-wasm/src/lib.rs`. v11 carries `request_fills` beside `request_rounds`.
  */
 
-export const SAVE_VERSION = 10;
+export const SAVE_VERSION = 11;
 export const SAVE_CATALOG_KEY = "hexfactory:saves:v1";
 export const LEGACY_SAVE_PREFIX = "hexfactory:hxf1:";
 export const HXF1_PREFIX = "HXF1\n";

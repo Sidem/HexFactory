@@ -165,10 +165,12 @@ pub struct Reference {
     pub ticks_per_second: u32,
     pub player_ticks_per_second: u32,
     pub gather_cooldown_steps: u32,
-    /// What the player's own hands are worth, against the same wall clock the factory runs on.
-    /// The first machine a player builds is measured against this, and an automation that is
-    /// slower than the hand it replaces is a curve inversion no cost row can show.
+    /// What the player's own hands are worth at the *fastest* material, against the same wall
+    /// clock the factory runs on. Wood matches an extractor; everything harder is slower, and
+    /// signal crystal has no hand rate at all. `hand_gathers` is the per-material table.
     pub hand_items_per_minute: u32,
+    /// One row per item the hand can take, with its own cooldown. Crystal is absent.
+    pub hand_gathers: Vec<HandGather>,
     /// Field cells one hex covers at the hand's reach, and at each shipped extractor reach.
     pub cells_in_reach: Vec<u32>,
     /// The densest fuel item. Energy costs are quoted in units of it, because that is the fewest
@@ -187,6 +189,14 @@ pub struct Guarantee {
     pub item: String,
     pub walk_min: u32,
     pub walk_max: u32,
+}
+
+/// One material the hand can take, priced on the player's own clock.
+#[derive(Clone, Debug, Serialize)]
+pub struct HandGather {
+    pub item: String,
+    pub steps: u32,
+    pub items_per_minute: u32,
 }
 
 /// One machine running one thing, at its own cadence.
@@ -420,6 +430,8 @@ pub struct RequestCost {
     pub item: String,
     pub quantity: u32,
     pub insight: u32,
+    /// What a later fill pays. Equal to `insight` when the row does not decay.
+    pub repeat_insight: u32,
     /// The raw materials the bill bottoms out in.
     pub gathers: Vec<Amount>,
     /// Units of the densest fuel the crafting energy is paid with, counted into the gather total.
@@ -428,6 +440,11 @@ pub struct RequestCost {
     /// Insight per thousand gathers. A raw request sits at about a thousand — one insight for one
     /// gather, which is the rate the old per-item currency paid for everything.
     pub insight_per_gather_milli: u64,
+    pub repeat_insight_per_gather_milli: u64,
+    /// First-fill insight per minute of hand time (and machine time, for a processed row), using
+    /// each material's own `hand_gather_steps`.
+    pub insight_per_minute_milli: u64,
+    pub repeat_insight_per_minute_milli: u64,
     pub machine_ticks: u64,
     pub machine_seconds_milli: u64,
 }
@@ -725,9 +742,9 @@ fn report(economy: &Economy) -> BalanceReport {
         curve: curve(economy, best_fuel_value),
         access: access(economy),
         extraction: extraction(economy),
-        openings: openings(economy, best_fuel_value),
-        contracts: contracts(economy, best_fuel_value),
-        requests: requests(economy, best_fuel_value),
+        openings: openings(economy, best_fuel_id, best_fuel_value),
+        contracts: contracts(economy, best_fuel_id, best_fuel_value),
+        requests: requests(economy, best_fuel_id, best_fuel_value),
     }
 }
 
@@ -762,12 +779,68 @@ fn reference(economy: &Economy, best_fuel_id: ItemId, best_fuel_value: u32) -> R
         ticks_per_second: REFERENCE_TICKS_PER_SECOND,
         player_ticks_per_second: PLAYER_TICKS_PER_SECOND,
         gather_cooldown_steps: GATHER_COOLDOWN_STEPS,
-        hand_items_per_minute: 60 * PLAYER_TICKS_PER_SECOND / GATHER_COOLDOWN_STEPS.max(1),
+        hand_items_per_minute: hand_items_per_minute(GATHER_COOLDOWN_STEPS),
+        hand_gathers: hand_gathers(economy),
         cells_in_reach: reaches.into_iter().map(cells_in_radius).collect(),
         best_fuel_item: economy.item_key(best_fuel_id),
         best_fuel_value,
         guaranteed_opening: opening,
     }
+}
+
+fn hand_items_per_minute(steps: u32) -> u32 {
+    60 * PLAYER_TICKS_PER_SECOND / steps.max(1)
+}
+
+fn hand_gathers(economy: &Economy) -> Vec<HandGather> {
+    economy
+        .definitions
+        .items
+        .iter()
+        .filter_map(|item| {
+            item.hand_gather_steps.map(|steps| HandGather {
+                item: item.key.clone(),
+                steps,
+                items_per_minute: hand_items_per_minute(steps),
+            })
+        })
+        .collect()
+}
+
+/// Player-clock steps the hand spends on this bill: each raw unit at its own gather rate, plus
+/// fuel items at the densest fuel's rate. A machine-only material (crystal) uses the wood/extractor
+/// ceiling so a number still exists; the request test that compares grinding to processing skips
+/// those rows.
+fn hand_ticks_for(
+    economy: &Economy,
+    raw: &BTreeMap<ItemId, u64>,
+    fuel_items: u64,
+    best_fuel_id: ItemId,
+) -> u64 {
+    let steps_of = |id: ItemId| {
+        economy
+            .item(id)
+            .and_then(|item| item.hand_gather_steps)
+            .unwrap_or(GATHER_COOLDOWN_STEPS)
+    };
+    let mut ticks = 0u64;
+    for (&item_id, &quantity) in raw {
+        ticks += quantity * u64::from(steps_of(item_id));
+    }
+    ticks += fuel_items * u64::from(steps_of(best_fuel_id));
+    ticks
+}
+
+fn insight_per_minute_milli(insight: u32, hand_ticks: u64, machine_ticks: u64) -> u64 {
+    let seconds =
+        Ratio::new(i128::from(hand_ticks), i128::from(PLAYER_TICKS_PER_SECOND)).add(Ratio::new(
+            i128::from(machine_ticks),
+            i128::from(REFERENCE_TICKS_PER_SECOND),
+        ));
+    if seconds.is_zero() {
+        return 0;
+    }
+    Ratio::new(i128::from(insight) * 60 * seconds.den, seconds.num).milli()
 }
 
 /// Outputs per minute, from a cycle length in ticks.
@@ -1286,7 +1359,7 @@ fn extraction(economy: &Economy) -> Vec<SiteYield> {
 }
 
 /// What the opening actually costs, in the two currencies a player pays it in.
-fn openings(economy: &Economy, best_fuel_value: u32) -> Vec<Opening> {
+fn openings(economy: &Economy, best_fuel_id: ItemId, best_fuel_value: u32) -> Vec<Opening> {
     let targets: Vec<(&str, Vec<&str>, Vec<(&str, u32)>)> = vec![
         ("first smelter", vec!["smelter"], Vec::new()),
         ("first power", vec!["burner-generator", "pole"], Vec::new()),
@@ -1309,13 +1382,20 @@ fn openings(economy: &Economy, best_fuel_value: u32) -> Vec<Opening> {
                         })
                 })
                 .collect();
-            opening(economy, best_fuel_value, name, &building_keys, wanted)
+            opening(
+                economy,
+                best_fuel_id,
+                best_fuel_value,
+                name,
+                &building_keys,
+                wanted,
+            )
         })
         .collect()
 }
 
 /// Every standing request the hub can post, priced through its whole tree.
-fn requests(economy: &Economy, best_fuel_value: u32) -> Vec<RequestCost> {
+fn requests(economy: &Economy, best_fuel_id: ItemId, best_fuel_value: u32) -> Vec<RequestCost> {
     economy
         .definitions
         .requests
@@ -1327,11 +1407,15 @@ fn requests(economy: &Economy, best_fuel_value: u32) -> Vec<RequestCost> {
             }]);
             let fuel_items = divide_up(expansion.batch_energy, u64::from(best_fuel_value.max(1)));
             let gather_total = expansion.batch_raw.values().sum::<u64>() + fuel_items;
+            let repeat = request.repeat_insight.unwrap_or(request.insight);
+            let hand_ticks =
+                hand_ticks_for(economy, &expansion.batch_raw, fuel_items, best_fuel_id);
             RequestCost {
                 request: request.key.clone(),
                 item: economy.item_key(request.item_id),
                 quantity: request.quantity,
                 insight: request.insight,
+                repeat_insight: repeat,
                 gathers: amounts(economy, &expansion.batch_raw),
                 fuel_items,
                 gather_total,
@@ -1340,6 +1424,21 @@ fn requests(economy: &Economy, best_fuel_value: u32) -> Vec<RequestCost> {
                     i128::from(gather_total.max(1)),
                 )
                 .milli(),
+                repeat_insight_per_gather_milli: Ratio::new(
+                    i128::from(repeat),
+                    i128::from(gather_total.max(1)),
+                )
+                .milli(),
+                insight_per_minute_milli: insight_per_minute_milli(
+                    request.insight,
+                    hand_ticks,
+                    expansion.batch_ticks,
+                ),
+                repeat_insight_per_minute_milli: insight_per_minute_milli(
+                    repeat,
+                    hand_ticks,
+                    expansion.batch_ticks,
+                ),
                 machine_ticks: expansion.batch_ticks,
                 machine_seconds_milli: Ratio::new(
                     i128::from(expansion.batch_ticks),
@@ -1352,7 +1451,7 @@ fn requests(economy: &Economy, best_fuel_value: u32) -> Vec<RequestCost> {
 }
 
 /// Every contract stage the shipped scenarios state, priced through its whole tree.
-fn contracts(economy: &Economy, best_fuel_value: u32) -> Vec<ContractCost> {
+fn contracts(economy: &Economy, best_fuel_id: ItemId, best_fuel_value: u32) -> Vec<ContractCost> {
     let mut rows = Vec::new();
     for scenario in &economy.scenarios.scenarios {
         // A synthetic bill exists to never be met, so expanding it would price a workload rather
@@ -1382,6 +1481,7 @@ fn contracts(economy: &Economy, best_fuel_value: u32) -> Vec<ContractCost> {
                 raw_materials: expansion.batch_raw.len(),
                 opening: opening(
                     economy,
+                    best_fuel_id,
                     best_fuel_value,
                     &format!("{}: {}", scenario.key, stage.key),
                     &[],
@@ -1399,6 +1499,7 @@ const CONTRACT_BILL_LIMIT: u32 = 10_000;
 
 fn opening(
     economy: &Economy,
+    best_fuel_id: ItemId,
     best_fuel_value: u32,
     name: &str,
     building_keys: &[&str],
@@ -1528,7 +1629,18 @@ fn opening(
     let fuel_items = divide_up(expansion.batch_energy, u64::from(best_fuel_value.max(1)));
     let gather_total: u64 =
         expansion.batch_raw.values().sum::<u64>() + fuel_items + u64::from(insight_items);
-    let hand_ticks = gather_total * u64::from(GATHER_COOLDOWN_STEPS);
+    let mut opening_raw = expansion.batch_raw.clone();
+    if insight_items > 0 {
+        if let Some(request) = economy
+            .definitions
+            .requests
+            .iter()
+            .find(|request| request.key == insight_request)
+        {
+            *opening_raw.entry(request.item_id).or_default() += u64::from(insight_items);
+        }
+    }
+    let hand_ticks = hand_ticks_for(economy, &opening_raw, fuel_items, best_fuel_id);
 
     let mut names: Vec<String> = needed
         .iter()
@@ -1614,6 +1726,12 @@ pub fn format_report(report: &BalanceReport) -> String {
         reference.best_fuel_item,
         reference.best_fuel_value
     ));
+    for gather in &reference.hand_gathers {
+        out.push_str(&format!(
+            "  {:<12} {:>3} steps  {:>3} /min\n",
+            gather.item, gather.steps, gather.items_per_minute
+        ));
+    }
     out.push_str(&format!(
         "guaranteed opening: {}\n\n",
         reference
