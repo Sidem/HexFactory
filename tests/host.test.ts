@@ -587,13 +587,43 @@ describe("bounded host input", () => {
       "renderTechnologies",
       "renderInventory",
       "renderTransferRows",
+      "renderSaveSlots",
+      "renderTitleSaveSlots",
     ]) {
       const body = main.slice(
         main.indexOf(`function ${renderer}(`),
         main.indexOf("\n}", main.indexOf(`function ${renderer}(`)),
       );
-      expect(body).toContain("syncChildren(");
+      expect(body, `${renderer} reconciles in place`).toContain(
+        "syncChildren(",
+      );
     }
+  });
+
+  it("provides a Title Screen overlay with dedicated saves catalog and new factory launch", () => {
+    const main = readFileSync(
+      new URL("../src/main.ts", import.meta.url),
+      "utf8",
+    );
+    const html = readFileSync(
+      new URL("../index.html", import.meta.url),
+      "utf8",
+    );
+    const css = readFileSync(
+      new URL("../src/styles.css", import.meta.url),
+      "utf8",
+    );
+    expect(html).toContain('id="title-screen"');
+    expect(html).toContain('id="title-continue"');
+    expect(html).toContain('id="title-save-slots"');
+    expect(html).toContain('id="title-start-game"');
+    expect(html).toContain('id="session-main-menu"');
+    expect(css).toContain(".title-screen");
+    expect(css).toContain(".title-modal");
+    expect(css).toContain(".title-save-slots");
+    expect(main).toContain("function openTitleScreen(");
+    expect(main).toContain("function closeTitleScreen(");
+    expect(main).toContain("function switchTitleTab(");
   });
 });
 

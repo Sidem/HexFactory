@@ -611,7 +611,8 @@
             /></label>
             <div class="session-actions">
               <button id="save" type="button">Save</button
-              ><button id="continue" type="button">Continue</button>
+              ><button id="continue" type="button">Continue</button
+              ><button id="session-main-menu" type="button">Main menu</button>
             </div>
             <p id="save-status" class="save-status" role="status">
               No local save yet.
@@ -867,6 +868,212 @@
             ><small id="objective-detail">Free play continues.</small>
           </div>
         </div>
+
+        <section
+          id="title-screen"
+          class="title-screen open"
+          aria-modal="true"
+          role="dialog"
+          aria-label="HexFactory Title Screen"
+        >
+          <div class="title-modal">
+            <header class="title-header">
+              <div class="title-brand">
+                <span class="brand-mark title-brand-mark" aria-hidden="true"
+                  >HF</span
+                >
+                <div>
+                  <h1 class="title-heading">HexFactory</h1>
+                  <p class="title-tagline">
+                    Continuous hexagonal factory automation
+                  </p>
+                </div>
+              </div>
+            </header>
+
+            <div class="title-body">
+              <nav class="title-nav" aria-label="Title navigation">
+                <button
+                  id="title-continue"
+                  class="title-hero-action"
+                  type="button"
+                  disabled
+                >
+                  <strong class="title-hero-title">Continue</strong>
+                  <span id="title-continue-sub" class="title-hero-sub"
+                    >No saved game found</span
+                  >
+                </button>
+
+                <div class="title-nav-tabs" role="tablist">
+                  <button
+                    id="title-tab-saves"
+                    class="title-tab active"
+                    type="button"
+                    role="tab"
+                    aria-selected="true"
+                    aria-controls="title-saves-view"
+                  >
+                    <span aria-hidden="true">▤</span>
+                    <span>Saved games</span>
+                    <span id="title-saves-badge" class="title-badge">0</span>
+                  </button>
+                  <button
+                    id="title-tab-new"
+                    class="title-tab"
+                    type="button"
+                    role="tab"
+                    aria-selected="false"
+                    aria-controls="title-new-game-view"
+                  >
+                    <span aria-hidden="true">✦</span>
+                    <span>New factory</span>
+                  </button>
+                  <button
+                    id="title-resume"
+                    class="title-tab title-resume-tab"
+                    type="button"
+                    hidden
+                  >
+                    <span aria-hidden="true">▶</span>
+                    <span>Resume session</span>
+                  </button>
+                </div>
+
+                <div class="title-comfort-dock">
+                  <span class="section-kicker">Comfort</span>
+                  <label class="switch">
+                    <input id="title-reduce-motion" type="checkbox" />Reduce
+                    motion
+                  </label>
+                  <label class="switch">
+                    <input id="title-mute" type="checkbox" />Mute sounds
+                  </label>
+                </div>
+              </nav>
+
+              <div class="title-views">
+                <!-- Saved Games Catalog View -->
+                <div
+                  id="title-saves-view"
+                  class="title-view active"
+                  role="tabpanel"
+                  aria-labelledby="title-tab-saves"
+                >
+                  <div class="title-view-header">
+                    <h3>Saved games</h3>
+                    <p id="title-saves-note" class="title-view-note">
+                      Pick a saved factory run to restore or delete.
+                    </p>
+                  </div>
+                  <ul
+                    id="title-save-slots"
+                    class="save-slots title-save-slots"
+                    aria-label="Saved games catalog"
+                  ></ul>
+                </div>
+
+                <!-- New Game Setup View -->
+                <div
+                  id="title-new-game-view"
+                  class="title-view"
+                  role="tabpanel"
+                  aria-labelledby="title-tab-new"
+                  hidden
+                >
+                  <div class="title-view-header">
+                    <h3>Configure new factory</h3>
+                    <p class="title-view-note">
+                      Choose your landing conditions and world seed.
+                    </p>
+                  </div>
+
+                  <div class="title-new-game-form">
+                    <label
+                      >Scenario
+                      <select id="title-scenario" aria-label="Scenario">
+                        <option value="new-game">New game</option>
+                        <option value="factory-demo">Factory demo</option>
+                      </select>
+                    </label>
+
+                    <div class="title-seed-group">
+                      <label
+                        >World seed
+                        <input
+                          id="title-seed"
+                          type="number"
+                          min="0"
+                          max="4294967295"
+                          value="1213486160"
+                        />
+                      </label>
+                      <button
+                        id="title-seed-random"
+                        class="icon-button title-seed-random"
+                        type="button"
+                        title="Randomize seed"
+                        aria-label="Randomize seed"
+                      >
+                        🎲
+                      </button>
+                    </div>
+
+                    <label
+                      >World preset
+                      <select
+                        id="title-world-preset"
+                        aria-label="World preset"
+                      ></select>
+                    </label>
+                    <p
+                      id="title-world-preset-description"
+                      class="world-preset-description"
+                    >
+                      &nbsp;
+                    </p>
+
+                    <details
+                      id="title-world-parameters"
+                      class="world-parameters"
+                    >
+                      <summary>Custom world parameters</summary>
+                      <p class="world-parameters-note">
+                        Feature scale is how big a landform is; a band level is
+                        how much of the world it covers.
+                      </p>
+                      <div id="title-world-parameter-fields"></div>
+                      <button id="title-world-parameters-reset" type="button">
+                        Back to preset
+                      </button>
+                    </details>
+
+                    <button
+                      id="title-start-game"
+                      class="primary-action title-start-btn"
+                      type="button"
+                    >
+                      Start Scenario
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <footer class="title-footer">
+              <span id="title-envelope-info"
+                >Save 11 · Definitions 11 · World 8</span
+              >
+              <a
+                href="https://github.com/Sidem/HexFactory"
+                target="_blank"
+                rel="noopener noreferrer"
+                class="title-link"
+                >GitHub</a
+              >
+            </footer>
+          </div>
+        </section>
       </section>
     </main>
     <script type="module" src="/src/main.ts"></script>

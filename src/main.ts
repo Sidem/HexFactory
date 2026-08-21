@@ -144,6 +144,35 @@ const worldPresetDescription = required<HTMLParagraphElement>(
 const worldParameterFields = required<HTMLDivElement>("world-parameter-fields");
 const toolShelf = required<HTMLDivElement>("tool-shelf");
 const feedback = required<HTMLDivElement>("feedback");
+
+const titleScreen = required<HTMLElement>("title-screen");
+const titleContinue = required<HTMLButtonElement>("title-continue");
+const titleContinueSub = required<HTMLElement>("title-continue-sub");
+const titleTabSaves = required<HTMLButtonElement>("title-tab-saves");
+const titleTabNew = required<HTMLButtonElement>("title-tab-new");
+const titleResume = required<HTMLButtonElement>("title-resume");
+const titleSavesBadge = required<HTMLElement>("title-saves-badge");
+const titleSavesView = required<HTMLElement>("title-saves-view");
+const titleNewGameView = required<HTMLElement>("title-new-game-view");
+const titleScenarioInput = required<HTMLSelectElement>("title-scenario");
+const titleSeedInput = required<HTMLInputElement>("title-seed");
+const titleSeedRandom = required<HTMLButtonElement>("title-seed-random");
+const titleWorldPresetInput = required<HTMLSelectElement>("title-world-preset");
+const titleWorldPresetDescription = required<HTMLParagraphElement>(
+  "title-world-preset-description",
+);
+const titleWorldParameterFields = required<HTMLDivElement>(
+  "title-world-parameter-fields",
+);
+const titleWorldParametersReset = required<HTMLButtonElement>(
+  "title-world-parameters-reset",
+);
+const titleStartGame = required<HTMLButtonElement>("title-start-game");
+const titleMuteInput = required<HTMLInputElement>("title-mute");
+const titleReduceMotionInput = required<HTMLInputElement>(
+  "title-reduce-motion",
+);
+const sessionMainMenu = required<HTMLButtonElement>("session-main-menu");
 const input = new BoundedInputQueue();
 const audio = new FeedbackAudio();
 const host = await FactoryHost.create();
@@ -1861,6 +1890,7 @@ function showFeedback(message: string): void {
 function setMuted(value: boolean): void {
   audio.setMuted(value);
   muteInput.checked = value;
+  titleMuteInput.checked = value;
   soundButton.textContent = value ? "♪̸" : "♪";
   soundButton.setAttribute("aria-pressed", String(!value));
   soundButton.setAttribute(
@@ -1874,6 +1904,7 @@ function setMuted(value: boolean): void {
 
 function setReducedMotion(value: boolean): void {
   reduceMotionInput.checked = value;
+  titleReduceMotionInput.checked = value;
   renderer.setReducedMotion(value);
   try {
     window.localStorage.setItem(MOTION_KEY, value ? "1" : "0");
@@ -1903,7 +1934,9 @@ function setPlaying(value: boolean): void {
 
 function syncSessionInputs(next: FactorySnapshot): void {
   scenarioInput.value = next.scenario;
+  titleScenarioInput.value = next.scenario;
   seedInput.value = String(next.seed);
+  titleSeedInput.value = String(next.seed);
   void syncWorldInputs();
 }
 
@@ -2086,12 +2119,18 @@ const WORLD_PARAMETER_FIELDS: {
 /** What Start scenario will generate. Native validates it again on arrival. */
 let pendingWorld: WorldParams | null = null;
 const worldParameterInputs = new Map<WorldScalar, HTMLInputElement>();
+const titleWorldParameterInputs = new Map<WorldScalar, HTMLInputElement>();
 
 for (const preset of host.worldPresets) {
   const option = document.createElement("option");
   option.value = preset.key;
   option.textContent = preset.name;
   worldPresetInput.append(option);
+
+  const titleOption = document.createElement("option");
+  titleOption.value = preset.key;
+  titleOption.textContent = preset.name;
+  titleWorldPresetInput.append(titleOption);
 }
 // A hand-edited parameter set is no preset, and saying so is what keeps the picker honest about
 // what is about to be generated.
@@ -2100,6 +2139,12 @@ customOption.value = "custom";
 customOption.textContent = "Custom";
 customOption.hidden = true;
 worldPresetInput.append(customOption);
+
+const titleCustomOption = document.createElement("option");
+titleCustomOption.value = "custom";
+titleCustomOption.textContent = "Custom";
+titleCustomOption.hidden = true;
+titleWorldPresetInput.append(titleCustomOption);
 
 // Built once and only ever written to. A form rebuilt under a pointer loses the control it was
 // rebuilt for, which is the same rule the catalogue and the research list live under.
@@ -2117,11 +2162,38 @@ for (const field of WORLD_PARAMETER_FIELDS) {
     if (!Number.isSafeInteger(value)) return;
     pendingWorld = { ...pendingWorld, [field.key]: value };
     customOption.hidden = false;
+    titleCustomOption.hidden = false;
     worldPresetInput.value = "custom";
+    titleWorldPresetInput.value = "custom";
+    const matching = titleWorldParameterInputs.get(field.key);
+    if (matching && matching !== control) matching.value = String(value);
   });
   label.append(control);
   worldParameterFields.append(label);
   worldParameterInputs.set(field.key, control);
+
+  const titleLabel = document.createElement("label");
+  titleLabel.textContent = field.label;
+  const titleControl = document.createElement("input");
+  titleControl.type = "number";
+  titleControl.min = String(field.min);
+  titleControl.max = String(field.max);
+  titleControl.setAttribute("aria-label", field.label);
+  titleControl.addEventListener("input", () => {
+    if (!pendingWorld) return;
+    const value = Number(titleControl.value);
+    if (!Number.isSafeInteger(value)) return;
+    pendingWorld = { ...pendingWorld, [field.key]: value };
+    customOption.hidden = false;
+    titleCustomOption.hidden = false;
+    worldPresetInput.value = "custom";
+    titleWorldPresetInput.value = "custom";
+    const matching = worldParameterInputs.get(field.key);
+    if (matching && matching !== titleControl) matching.value = String(value);
+  });
+  titleLabel.append(titleControl);
+  titleWorldParameterFields.append(titleLabel);
+  titleWorldParameterInputs.set(field.key, titleControl);
 }
 
 function showWorldParams(params: WorldParams): void {
@@ -2129,17 +2201,31 @@ function showWorldParams(params: WorldParams): void {
   for (const [key, control] of worldParameterInputs) {
     control.value = String(params[key]);
   }
+  for (const [key, control] of titleWorldParameterInputs) {
+    control.value = String(params[key]);
+  }
   const preset = host.presetKeyFor(params);
   customOption.hidden = preset !== undefined;
+  titleCustomOption.hidden = preset !== undefined;
   worldPresetInput.value = preset ?? "custom";
-  worldPresetDescription.textContent =
-    host.worldPresets.find((entry) => entry.key === worldPresetInput.value)
+  titleWorldPresetInput.value = preset ?? "custom";
+  const desc =
+    host.worldPresets.find((entry) => entry.key === (preset ?? "custom"))
       ?.description ?? "Hand-tuned parameters.";
+  worldPresetDescription.textContent = desc;
+  titleWorldPresetDescription.textContent = desc;
 }
 
 worldPresetInput.addEventListener("change", () => {
   const preset = host.worldPresets.find(
     (entry) => entry.key === worldPresetInput.value,
+  );
+  if (preset) showWorldParams(structuredClone(preset.params));
+});
+
+titleWorldPresetInput.addEventListener("change", () => {
+  const preset = host.worldPresets.find(
+    (entry) => entry.key === titleWorldPresetInput.value,
   );
   if (preset) showWorldParams(structuredClone(preset.params));
 });
@@ -2162,6 +2248,108 @@ required<HTMLButtonElement>("world-parameters-reset").addEventListener(
     if (preset) showWorldParams(structuredClone(preset.params));
   },
 );
+
+titleWorldParametersReset.addEventListener("click", () => {
+  const preset =
+    host.worldPresets.find(
+      (entry) => entry.key === titleWorldPresetInput.value,
+    ) ?? host.worldPresets[0];
+  if (preset) showWorldParams(structuredClone(preset.params));
+});
+
+scenarioInput.addEventListener("input", () => {
+  titleScenarioInput.value = scenarioInput.value;
+});
+titleScenarioInput.addEventListener("input", () => {
+  scenarioInput.value = titleScenarioInput.value;
+});
+seedInput.addEventListener("input", () => {
+  titleSeedInput.value = seedInput.value;
+});
+titleSeedInput.addEventListener("input", () => {
+  seedInput.value = titleSeedInput.value;
+});
+titleSeedRandom.addEventListener("click", () => {
+  const randomized = Math.floor(Math.random() * 4294967295);
+  seedInput.value = String(randomized);
+  titleSeedInput.value = String(randomized);
+});
+
+function openTitleScreen(): void {
+  titleScreen.classList.add("open");
+  titleResume.hidden = false;
+  setPlaying(false);
+  updateContinueState();
+}
+
+function closeTitleScreen(): void {
+  titleScreen.classList.remove("open");
+  titleResume.hidden = false;
+  canvas.focus();
+  setPlaying(true);
+}
+
+function switchTitleTab(tab: "saves" | "new"): void {
+  const showSaves = tab === "saves";
+  titleTabSaves.classList.toggle("active", showSaves);
+  titleTabSaves.setAttribute("aria-selected", String(showSaves));
+  titleTabNew.classList.toggle("active", !showSaves);
+  titleTabNew.setAttribute("aria-selected", String(!showSaves));
+  titleSavesView.hidden = !showSaves;
+  titleSavesView.classList.toggle("active", showSaves);
+  titleNewGameView.hidden = showSaves;
+  titleNewGameView.classList.toggle("active", !showSaves);
+}
+
+titleTabSaves.addEventListener("click", () => switchTitleTab("saves"));
+titleTabNew.addEventListener("click", () => switchTitleTab("new"));
+titleResume.addEventListener("click", () => closeTitleScreen());
+sessionMainMenu.addEventListener("click", () => {
+  closePanels();
+  openTitleScreen();
+});
+titleMuteInput.addEventListener("change", () =>
+  setMuted(titleMuteInput.checked),
+);
+titleReduceMotionInput.addEventListener("change", () =>
+  setReducedMotion(titleReduceMotionInput.checked),
+);
+
+titleContinue.addEventListener("click", () => {
+  const slot = latestCompatible(
+    readCatalog(localStorage).slots,
+    currentBuild(),
+  );
+  if (slot) {
+    void loadSlot(slot);
+    closeTitleScreen();
+  }
+});
+
+titleStartGame.addEventListener("click", async () => {
+  input.clear();
+  const parsedSeed = Number(titleSeedInput.value);
+  const seed =
+    Number.isSafeInteger(parsedSeed) &&
+    parsedSeed >= 0 &&
+    parsedSeed <= 0xffffffff
+      ? parsedSeed
+      : undefined;
+  try {
+    const next = await host.newGame(
+      titleScenarioInput.value,
+      seed,
+      pendingWorld ?? undefined,
+    );
+    update(next);
+    syncSessionInputs(next);
+    renderer.recenter();
+    closeTitleScreen();
+    closePanels();
+  } catch (error) {
+    reportWorkerError(error);
+  }
+});
 
 required<HTMLButtonElement>("new-game").addEventListener("click", async () => {
   input.clear();
@@ -2441,6 +2629,10 @@ window.addEventListener("keydown", (event) => {
     return;
   }
   if (event.code === "Escape") {
+    if (titleScreen.classList.contains("open") && !titleResume.hidden) {
+      closeTitleScreen();
+      return;
+    }
     selectTool("inspect");
     closePanels();
   }
@@ -3043,7 +3235,13 @@ function updateContinueState(message?: string): void {
   }
   const compatible = latestCompatible(slots, build);
   required<HTMLButtonElement>("continue").disabled = !compatible;
+  titleContinue.disabled = !compatible;
+  titleContinueSub.textContent = compatible
+    ? `Restore “${compatible.name}”`
+    : "No saved factory found";
+  titleSavesBadge.textContent = String(slots.length);
   renderSaveSlots(slots, build);
+  renderTitleSaveSlots(slots, build);
   const importedNote =
     imported > 0
       ? `Imported ${imported} previous run${imported === 1 ? "" : "s"} from an older slot. `
@@ -3118,6 +3316,60 @@ function renderSaveSlots(slots: SaveSlot[], build: CurrentBuild): void {
   });
 }
 
+function renderTitleSaveSlots(slots: SaveSlot[], build: CurrentBuild): void {
+  const board = required<HTMLElement>("title-save-slots");
+  const ordered = slotsNewestFirst(slots);
+  const rows = syncChildren(
+    board,
+    ordered.map((slot) => slot.id),
+    () => {
+      const row = document.createElement("li");
+      row.className = "save-slot title-save-slot";
+      row.innerHTML = `<button type="button" class="save-slot-select"><strong></strong><span class="save-slot-when"></span><span class="save-slot-config"></span><span class="save-slot-versions"></span><span class="save-slot-issue"></span></button><button type="button" class="save-slot-load">Load</button><button type="button" class="save-slot-delete">Delete</button>`;
+      return row;
+    },
+  );
+  ordered.forEach((slot, index) => {
+    const row = rows[index];
+    if (!row) return;
+    const envelope = parseHxf1(slot.payload);
+    const check = envelope
+      ? compatibility(envelope, build)
+      : {
+          compatible: false,
+          mismatches: [
+            {
+              field: "save",
+              expected: "a readable HXF1 file",
+              found: "unreadable",
+            },
+          ],
+        };
+    row.classList.toggle("selected", slot.id === selectedSaveId);
+    row.classList.toggle("incompatible", !check.compatible);
+    part(row, "strong").textContent = slot.name;
+    part(row, ".save-slot-when").textContent = formatSavedAt(slot.savedAt);
+    part(row, ".save-slot-config").textContent = formatConfig(slot.config);
+    part(row, ".save-slot-versions").textContent = formatVersions(
+      slot.versions,
+    );
+    part(row, ".save-slot-issue").textContent = check.compatible
+      ? ""
+      : describeMismatches(check.mismatches);
+    const select = part<HTMLButtonElement>(row, ".save-slot-select");
+    select.dataset.slotId = slot.id;
+    select.setAttribute("aria-pressed", String(slot.id === selectedSaveId));
+    select.setAttribute("aria-label", `Select save ${slot.name}`);
+    const load = part<HTMLButtonElement>(row, ".save-slot-load");
+    load.dataset.slotId = slot.id;
+    load.disabled = !check.compatible;
+    load.setAttribute("aria-label", `Load ${slot.name}`);
+    const remove = part<HTMLButtonElement>(row, ".save-slot-delete");
+    remove.dataset.slotId = slot.id;
+    remove.setAttribute("aria-label", `Delete ${slot.name}`);
+  });
+}
+
 async function loadSlot(slot: SaveSlot): Promise<void> {
   try {
     input.clear();
@@ -3129,6 +3381,7 @@ async function loadSlot(slot: SaveSlot): Promise<void> {
     saveNameInput.value = slot.name;
     showFeedback(`Restored “${slot.name}”`);
     closePanels();
+    closeTitleScreen();
     updateContinueState(`Restored “${slot.name}”.`);
   } catch (error) {
     updateContinueState(`Load rejected: ${String(error)}`);
@@ -3136,6 +3389,41 @@ async function loadSlot(slot: SaveSlot): Promise<void> {
 }
 
 required<HTMLElement>("save-slots").addEventListener("click", (event) => {
+  const target = event.target as HTMLElement;
+  const load = target.closest<HTMLButtonElement>(".save-slot-load");
+  const remove = target.closest<HTMLButtonElement>(".save-slot-delete");
+  const select = target.closest<HTMLButtonElement>(".save-slot-select");
+  const id = (load ?? remove ?? select)?.dataset.slotId;
+  if (!id) return;
+  const { slots, error } = readCatalog(localStorage);
+  if (error) {
+    updateContinueState(error);
+    return;
+  }
+  const slot = slots.find((entry) => entry.id === id);
+  if (!slot) return;
+  if (load) {
+    void loadSlot(slot);
+    return;
+  }
+  if (remove) {
+    if (!window.confirm(`Delete “${slot.name}”? This cannot be undone.`))
+      return;
+    if (slot.sourceKey) localStorage.removeItem(slot.sourceKey);
+    writeCatalog(localStorage, removeSlot(slots, slot.id));
+    if (selectedSaveId === slot.id) {
+      selectedSaveId = null;
+      if (saveNameInput.value === slot.name) saveNameInput.value = "";
+    }
+    updateContinueState(`Deleted “${slot.name}”.`);
+    return;
+  }
+  selectedSaveId = slot.id;
+  saveNameInput.value = slot.name;
+  updateContinueState();
+});
+
+required<HTMLElement>("title-save-slots").addEventListener("click", (event) => {
   const target = event.target as HTMLElement;
   const load = target.closest<HTMLButtonElement>(".save-slot-load");
   const remove = target.closest<HTMLButtonElement>(".save-slot-delete");
@@ -3324,6 +3612,15 @@ setReducedMotion(loadReducedMotion());
 update(snapshot);
 syncSessionInputs(snapshot);
 updateContinueState();
+const initialCompatible = latestCompatible(
+  readCatalog(localStorage).slots,
+  currentBuild(),
+);
+if (initialCompatible) {
+  switchTitleTab("saves");
+} else {
+  switchTitleTab("new");
+}
 selectTool("inspect");
 requestAnimationFrame(frame);
 
