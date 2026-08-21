@@ -624,6 +624,10 @@ describe("bounded host input", () => {
     expect(main).toContain("function openTitleScreen(");
     expect(main).toContain("function closeTitleScreen(");
     expect(main).toContain("function switchTitleTab(");
+    expect(main).toContain("function triggerAutoSave(");
+    expect(main).toContain("visibilitychange");
+    expect(main).toContain("beforeunload");
+    expect(main).toContain("AUTOSAVE_INTERVAL_MS");
   });
 });
 

@@ -16,6 +16,7 @@ import { FactoryHost } from "./core/FactoryHost";
 import { nextAction } from "./core/guidance";
 import { BoundedInputQueue, MOVEMENT_KEYS, movementIntent } from "./core/input";
 import {
+  AUTOSAVE_SLOT_NAME,
   compatibility,
   describeMismatches,
   formatConfig,
@@ -202,6 +203,9 @@ let playerAccumulator = 0;
 let previousTime = performance.now();
 let feedbackTimer = 0;
 let lastEvent = "";
+let autoSavePending = false;
+let lastAutoSaveTime = performance.now();
+const AUTOSAVE_INTERVAL_MS = 60_000;
 /**
  * The button-held camera gesture. The middle button, or shift with the left — never the right one.
  *
@@ -3213,10 +3217,66 @@ function frame(now: number): void {
         });
     }
   }
+  if (
+    playing &&
+    !titleScreen.classList.contains("open") &&
+    now - lastAutoSaveTime >= AUTOSAVE_INTERVAL_MS
+  ) {
+    lastAutoSaveTime = now;
+    void triggerAutoSave();
+  }
   renderer.setGathering(gatherHeld || harvestPointer !== null);
   renderer.renderFrame(now);
   requestAnimationFrame(frame);
 }
+
+async function triggerAutoSave(silent = true): Promise<void> {
+  if (autoSavePending || titleScreen.classList.contains("open")) return;
+  autoSavePending = true;
+  try {
+    const payload = await host.save();
+    const build = currentBuild();
+    const drafted = slotFromPayload(
+      payload,
+      AUTOSAVE_SLOT_NAME,
+      build,
+      Date.now(),
+    );
+    if (!drafted) return;
+    const { slots, error } = readCatalog(localStorage);
+    if (error) return;
+    const nextSlots = replaceNamedSlot(slots, drafted);
+    writeCatalog(localStorage, nextSlots);
+    lastAutoSaveTime = performance.now();
+    updateContinueState();
+    if (!silent) showFeedback("Factory auto-saved");
+  } catch {
+    // Non-fatal if auto-save fails (e.g. quota or blocked storage)
+  } finally {
+    autoSavePending = false;
+  }
+}
+
+document.addEventListener("visibilitychange", () => {
+  if (
+    document.visibilityState === "hidden" &&
+    !titleScreen.classList.contains("open")
+  ) {
+    void triggerAutoSave();
+  }
+});
+
+window.addEventListener("pagehide", () => {
+  if (!titleScreen.classList.contains("open")) {
+    void triggerAutoSave();
+  }
+});
+
+window.addEventListener("beforeunload", () => {
+  if (!titleScreen.classList.contains("open")) {
+    void triggerAutoSave();
+  }
+});
 
 function updateContinueState(message?: string): void {
   const build = currentBuild();

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  AUTOSAVE_SLOT_NAME,
   compatibility,
   configFromEnvelope,
   describeMismatches,
@@ -153,6 +154,44 @@ describe("catalog", () => {
     expect(slots).toHaveLength(1);
     expect(slots[0]?.id).toBe("a");
     expect(slots[0]?.savedAt).toBe(2000);
+  });
+
+  it("updates Auto-save slot without overwriting other named slots", () => {
+    const storage = memoryStorage();
+    const manual = slotFromPayload(
+      envelope(),
+      "Landing run",
+      build,
+      1000,
+      "m1",
+    )!;
+    const auto1 = slotFromPayload(
+      envelope(),
+      AUTOSAVE_SLOT_NAME,
+      build,
+      1500,
+      "a1",
+    )!;
+    const auto2 = slotFromPayload(
+      envelope(),
+      AUTOSAVE_SLOT_NAME,
+      build,
+      2500,
+      "a2",
+    )!;
+    const initial = [manual, auto1];
+    writeCatalog(storage, initial);
+    const updated = replaceNamedSlot(readCatalog(storage).slots, auto2);
+    writeCatalog(storage, updated);
+    const { slots } = readCatalog(storage);
+    expect(slots).toHaveLength(2);
+    expect(slots.find((slot) => slot.name === "Landing run")?.savedAt).toBe(
+      1000,
+    );
+    expect(
+      slots.find((slot) => slot.name === AUTOSAVE_SLOT_NAME)?.savedAt,
+    ).toBe(2500);
+    expect(latestCompatible(slots, build)?.name).toBe(AUTOSAVE_SLOT_NAME);
   });
 
   it("Continue is the newest compatible slot, not the newest row", () => {

@@ -12,6 +12,7 @@ export const SAVE_VERSION = 11;
 export const SAVE_CATALOG_KEY = "hexfactory:saves:v1";
 export const LEGACY_SAVE_PREFIX = "hexfactory:hxf1:";
 export const HXF1_PREFIX = "HXF1\n";
+export const AUTOSAVE_SLOT_NAME = "Auto-save";
 
 export interface StorageLike {
   readonly length: number;
