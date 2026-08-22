@@ -49,7 +49,7 @@ const SAVE_PREFIX: &str = "HXF1\n";
 /// fill should decay the payout, so `request_fills` is saved and checksummed beside `request_rounds`.
 /// A version-10 envelope has no fill count, and treating its rounds as fills would turn a pass into
 /// a two-insight survey.
-const SAVE_VERSION: u16 = 11;
+const SAVE_VERSION: u16 = 12;
 /// Bumped to 6 for World Parameters. `WorldParams` is now part of a run's identity — it is in the
 /// save envelope and in the checksum — so a version-5 envelope carries no answer to the question
 /// "which world is this" and is rejected rather than assumed to be the default.
@@ -250,6 +250,22 @@ struct ItemDefinition {
     /// faster — that is the restated invariant `fixtures/balance.json` pins.
     #[serde(default)]
     hand_gather_steps: Option<u32>,
+    /// Simulation ticks a tier-one extractor spends on one unit of this material, before its own
+    /// `extract_speed` scales it. Extraction rate is a property of what is being dug, for the same
+    /// reason `hand_gather_steps` is: coal and sand are not the same work, and a single building
+    /// cadence said they were.
+    ///
+    /// The figures are set against the hand at the default ten ticks per second, where a tier-one
+    /// extractor takes twice as long as a hand on the same material. That inverts the rule v0.23
+    /// shipped — the hand used to be the thing that could never outrun a machine. A slower machine
+    /// that works unattended is still the better deal, and it makes automation a question of how
+    /// many you can afford to run rather than of raw speed.
+    ///
+    /// Absent means an extractor cannot resolve a rate for it and falls back to the building's own
+    /// `cadence`, which is what a pump does: water is the one source with no per-material figure
+    /// because the pump is the only thing that draws it.
+    #[serde(default)]
+    extract_steps: Option<u32>,
 }
 
 #[derive(Clone, Deserialize)]
@@ -336,6 +352,15 @@ struct BuildingDefinition {
     /// in this file, visible on the map, changing a decision the player already made.
     #[serde(default)]
     extract_radius: Option<u32>,
+    /// How fast this extractor works its material, as a percentage of the item's `extract_steps`.
+    /// Absent or 100 is the tier-one baseline: twice as long as the hand. 200 halves the cycle and
+    /// puts the machine level with the hand; anything above that beats it.
+    ///
+    /// A percentage rather than a per-tier cadence because the ladder is the point — the same
+    /// eight material figures are shared by every tier, so a new extractor is one number here and
+    /// never a second table that can drift out of step with the first.
+    #[serde(default)]
+    extract_speed: Option<u32>,
     construction_cost: Vec<Ingredient>,
     #[serde(default)]
     unlock_technology_id: Option<TechnologyId>,
@@ -636,6 +661,17 @@ struct Entity {
     /// where the other nine tenths of the unit waits rather than being rounded away.
     #[serde(default)]
     burn_progress: u32,
+    /// Switched off by hand. Real state, saved and hashed: a smelter the player deliberately
+    /// stopped is not the same machine as one that happens to be out of inputs this tick, and the
+    /// difference has to survive a save or every reload would silently restart the factory.
+    ///
+    /// Suspension is *total and free*. A disabled machine does no work, draws no electricity, asks
+    /// for none to bank, and burns no fuel — which is the whole point of the switch: it is how a
+    /// player stops a burner eating coal while they rebuild the line it feeds. What it keeps is
+    /// everything it was holding: stock, reserved inputs, part-finished progress, banked charge.
+    /// Switching back on resumes rather than restarts.
+    #[serde(default)]
+    disabled: bool,
 }
 
 #[derive(Clone, Debug, Serialize, PartialEq, Eq)]
@@ -818,6 +854,11 @@ enum EntityStatus {
     Brownout,
     #[serde(rename = "no boiler")]
     NoBoiler,
+    /// Switched off by hand. It outranks every other reason a machine is not working, because it
+    /// is the only one the player chose: "out of fuel" on a burner they deliberately stopped would
+    /// send them looking for a problem that is not there.
+    #[serde(rename = "switched off")]
+    SwitchedOff,
 }
 
 #[derive(Clone, Debug, Serialize, PartialEq, Eq)]
@@ -1240,6 +1281,16 @@ enum InputCommand {
     Research {
         technology_id: TechnologyId,
     },
+    /// Switch a machine off, or back on. Bounded and range-checked like every other edit.
+    ///
+    /// The state is carried, not toggled: the host sends what it wants the machine to *be*, so a
+    /// press that arrives twice — a doubled tap, a replayed frame — lands on the same answer. A
+    /// toggle would not, and this queue is allowed to coalesce.
+    SetEnabled {
+        q: i32,
+        r: i32,
+        enabled: bool,
+    },
     /// Pass on one posted request, so the hub asks for something else in that slot.
     SkipRequest {
         slot: usize,
@@ -1451,6 +1502,7 @@ impl Core {
                 fuel_charge: 0,
                 power_charge: 0,
                 burn_progress: 0,
+                disabled: false,
             });
             core.next_entity_id += 1;
         }
@@ -1798,6 +1850,44 @@ impl Core {
             .find(|&key| self.deposit_quantity(key) > 0)
     }
 
+    /// The material an extractor is working right now, read without touching the cache.
+    ///
+    /// `extractor_deposit` resolves the same answer but has to be able to populate `deposit_links`,
+    /// so it needs `&mut self` and cannot be called from a snapshot. This reads the cache and
+    /// answers `None` when it is cold, which is only ever true before the entity's first tick.
+    fn extractor_material(&self, index: usize) -> Option<ItemId> {
+        self.deposit_links
+            .get(&self.entities[index].id)?
+            .iter()
+            .copied()
+            .find(|&key| self.deposit_quantity(key) > 0)
+            .and_then(|key| self.field_at(key.0, key.1))
+            .map(|field| field.item_id)
+    }
+
+    /// One extraction cycle in ticks: the material's own figure, scaled by what is digging it.
+    ///
+    /// Resolved per tick from the deposit actually being worked, so an arm spanning two materials
+    /// runs each at its own rate rather than at whichever one it happened to see first. Falls back
+    /// to the building's `cadence` when the material names no figure — that is the pump and water.
+    fn extract_cycle(&self, definition_id: DefinitionId, item_id: Option<ItemId>) -> u32 {
+        let definition = self.building_definition(definition_id);
+        let fallback = definition.and_then(|value| value.cadence).unwrap_or(1);
+        let Some(steps) = item_id
+            .and_then(|id| self.item_definition(id))
+            .and_then(|item| item.extract_steps)
+        else {
+            return fallback;
+        };
+        let speed = definition
+            .and_then(|value| value.extract_speed)
+            .unwrap_or(100)
+            .max(1);
+        // Rounded up, and never zero: a tier makes a cycle shorter, not free. A zero-length cycle
+        // would emit one unit every tick whatever the material said.
+        ((steps * 100 + speed - 1) / speed).max(1)
+    }
+
     /// What one full cycle of this entity costs in ticks — a source's cadence, a composer's recipe
     /// duration, and zero for everything that does not run a cycle at all. Published as
     /// `progress_total` so the host draws a proportion it was given, and asked again by `upgrade`,
@@ -1805,7 +1895,10 @@ impl Core {
     fn progress_total(&self, index: usize) -> u32 {
         let entity = &self.entities[index];
         match entity.kind {
-            BuildingKind::Extractor | BuildingKind::Pump => self
+            BuildingKind::Extractor => {
+                self.extract_cycle(entity.placed.definition_id, self.extractor_material(index))
+            }
+            BuildingKind::Pump => self
                 .building_definition(entity.placed.definition_id)
                 .and_then(|definition| definition.cadence)
                 .unwrap_or(1),
@@ -2148,6 +2241,11 @@ impl Core {
     /// separate "throttle the generator" step anywhere, because there is nothing to throttle.
     fn power_work_wanted(&self, index: usize) -> bool {
         let entity = &self.entities[index];
+        // A machine switched off has no work its next tick of power would buy, so it asks for
+        // none — and by the rule above, nothing burns anywhere to supply it.
+        if entity.disabled {
+            return false;
+        }
         match entity.kind {
             // A blocked extractor or pump has produced something nobody has taken. It is not
             // waiting on power and must not hold a share of it.
@@ -2332,6 +2430,11 @@ impl Core {
     }
 
     fn generator_output_now(&self, index: usize) -> u32 {
+        // A plant switched off offers nothing to its network, which is what stops a burner eating
+        // coal on behalf of a line the player has deliberately stopped.
+        if self.entities[index].disabled {
+            return 0;
+        }
         let Some(definition) = self.building_definition(self.entities[index].placed.definition_id)
         else {
             return 0;
@@ -2376,7 +2479,10 @@ impl Core {
 
     fn boiler_live(&self, index: usize) -> bool {
         let entity = &self.entities[index];
-        entity.inventory.get(&WATER_ITEM).copied().unwrap_or(0) >= 1
+        // A boiler switched off raises no steam, so the turbines beside it read as having no
+        // boiler at all — the switch travels the pair the same way fuel and water do.
+        !entity.disabled
+            && entity.inventory.get(&WATER_ITEM).copied().unwrap_or(0) >= 1
             && (entity.fuel_charge > 0 || self.burnable_item(&entity.inventory, &[]).is_some())
     }
 
@@ -2624,6 +2730,12 @@ impl Core {
         let mut order: Vec<usize> = (0..self.entities.len()).collect();
         order.sort_by_key(|&index| self.entities[index].id);
         for index in order {
+            // A machine the player switched off does nothing at all — one check here rather than a
+            // guard at the head of each `advance_*`, so a new machine kind cannot be added and quietly
+            // ignore the switch.
+            if !self.entity_running(index) {
+                continue;
+            }
             match self.entities[index].kind {
                 BuildingKind::Extractor => self.advance_extractor(index),
                 BuildingKind::Composer => self.advance_composer(index),
@@ -2655,18 +2767,17 @@ impl Core {
         if add == 0 {
             return;
         }
-        let cadence = self
-            .building_definition(definition_id)
-            .and_then(|definition| definition.cadence)
-            .unwrap_or(1);
-        self.entities[index].progress += add;
-        if self.entities[index].progress < cadence {
-            return;
-        }
         let resource_key = resource_key.expect("available resource key exists");
         let field = self
             .field_at(resource_key.0, resource_key.1)
             .expect("available resource exists");
+        // The cycle is read from the material under the arm, so an extractor that finishes a coal
+        // deposit and falls through to the clay beside it changes rate with it.
+        let cadence = self.extract_cycle(definition_id, Some(field.item_id));
+        self.entities[index].progress += add;
+        if self.entities[index].progress < cadence {
+            return;
+        }
         let remaining = self.deposit_quantity(resource_key) - 1;
         self.write_overlay(
             resource_key.0,
@@ -2880,66 +2991,71 @@ impl Core {
         }
     }
 
-    fn can_accept(&self, target: usize, cargo: Cargo) -> bool {
+    /// Whether this building has any use for that item, ignoring whether it has room for one.
+    ///
+    /// Split from `can_accept` so the two questions a delivery asks — *would you want this* and
+    /// *have you space* — can be asked apart. A belt only ever needs both at once, but a hand
+    /// transfer has to tell "a burner does not eat iron" from "the burner is full", and answering
+    /// with one bit made those the same refusal.
+    fn accepts_item(&self, target: usize, item_id: ItemId) -> bool {
         let entity = &self.entities[target];
         match entity.kind {
-            BuildingKind::Belt => entity.cargo.is_none(),
+            BuildingKind::Belt | BuildingKind::Container | BuildingKind::Consumer => true,
             BuildingKind::Composer => {
-                let Some(recipe_id) = entity.placed.recipe_id else {
-                    return false;
-                };
-                let Some(recipe) = self.recipe(recipe_id) else {
+                let Some(recipe) = entity.placed.recipe_id.and_then(|id| self.recipe(id)) else {
                     return false;
                 };
                 // A machine takes its recipe's inputs, and — when the recipe needs heat — anything
                 // that burns. Fuel is not in `inputs`, so this is where a belt of coal is allowed
                 // into a smelter without every smelting recipe having to name a fuel.
-                let burns = recipe.fuel > 0
-                    && self
-                        .item_definition(cargo.item_id)
-                        .and_then(|item| item.fuel_value)
-                        .unwrap_or(0)
-                        > 0;
-                let accepts = burns
-                    || recipe
-                        .inputs
-                        .iter()
-                        .any(|input| input.item_id == cargo.item_id);
-                let capacity = self
-                    .building_definition(entity.placed.definition_id)
-                    .and_then(|definition| definition.capacity)
-                    .unwrap_or(u32::MAX);
-                accepts && inventory_total(&entity.inventory) + cargo.quantity <= capacity
+                let burns = recipe.fuel > 0 && self.fuel_value(item_id) > 0;
+                burns || recipe.inputs.iter().any(|input| input.item_id == item_id)
             }
-            BuildingKind::Container => {
-                let capacity = self
-                    .building_definition(entity.placed.definition_id)
-                    .and_then(|definition| definition.capacity)
-                    .unwrap_or(u32::MAX);
-                inventory_total(&entity.inventory) + cargo.quantity <= capacity
-            }
-            BuildingKind::Consumer => true,
             // The hub takes what it asked for and nothing else, by belt exactly as by hand. A line
             // pointed at it backs up once the board and the contract are satisfied, which is a
             // legible answer — the belt shows it — where silently voiding the cargo was not.
-            BuildingKind::Hub => self.hub_demand(cargo.item_id) >= u64::from(cargo.quantity),
+            BuildingKind::Hub => self.hub_demand(item_id) > 0,
             BuildingKind::Extractor
             | BuildingKind::Pump
             | BuildingKind::Pole
             | BuildingKind::Bridge => false,
+            // Fuel goes only where fuel is burned. A wind turbine keeps an `inventory` like every
+            // other generator and has no firebox to spend it in, so coal delivered to one used to
+            // sit there forever — a belt could quietly bury a stack in a machine that would never
+            // touch it. A boiler additionally drinks, and that is the only thing it does not burn.
             BuildingKind::Generator | BuildingKind::Boiler => {
-                let burns = self
-                    .item_definition(cargo.item_id)
-                    .and_then(|item| item.fuel_value)
-                    .unwrap_or(0)
-                    > 0;
-                let water = entity.kind == BuildingKind::Boiler && cargo.item_id == WATER_ITEM;
-                let capacity = self
-                    .building_definition(entity.placed.definition_id)
-                    .and_then(|definition| definition.capacity)
-                    .unwrap_or(u32::MAX);
-                (burns || water) && inventory_total(&entity.inventory) + cargo.quantity <= capacity
+                let burns = self.fuel_value(item_id) > 0
+                    && matches!(
+                        self.building_definition(entity.placed.definition_id)
+                            .and_then(|definition| definition.power_source),
+                        Some(PowerSource::Burner) | None
+                    );
+                burns || (entity.kind == BuildingKind::Boiler && item_id == WATER_ITEM)
             }
+        }
+    }
+
+    /// How much more stock this building's store will hold. `u32::MAX` for a kind that keeps none,
+    /// which is exactly the "unbounded" the capacity lookup has always fallen back to.
+    fn room_for_stock(&self, target: usize) -> u32 {
+        let entity = &self.entities[target];
+        let capacity = self
+            .building_definition(entity.placed.definition_id)
+            .and_then(|definition| definition.capacity)
+            .unwrap_or(u32::MAX);
+        capacity.saturating_sub(inventory_total(&entity.inventory))
+    }
+
+    fn can_accept(&self, target: usize, cargo: Cargo) -> bool {
+        let entity = &self.entities[target];
+        if !self.accepts_item(target, cargo.item_id) {
+            return false;
+        }
+        match entity.kind {
+            BuildingKind::Belt => entity.cargo.is_none(),
+            BuildingKind::Consumer => true,
+            BuildingKind::Hub => self.hub_demand(cargo.item_id) >= u64::from(cargo.quantity),
+            _ => self.room_for_stock(target) >= cargo.quantity,
         }
     }
 
@@ -3805,6 +3921,7 @@ impl Core {
             fuel_charge: 0,
             power_charge: 0,
             burn_progress: 0,
+            disabled: false,
         });
         self.next_entity_id += 1;
         self.undo_stack.push(id);
@@ -4108,28 +4225,55 @@ impl Core {
         refund
     }
 
-    /// Move stock out of a container and into the player's pack. A new bounded command beside
-    /// `place` and `erase`, range-checked exactly as they are. The requested quantity is a ceiling,
-    /// not a demand: what actually moves is limited by what the container holds and by what the
-    /// player can still carry, so a partial withdrawal succeeds and destroys nothing.
-    fn withdraw(&mut self, q: i32, r: i32, item_id: ItemId, quantity: u32) -> Result<(), String> {
+    /// Whether a building's stock is the player's to reach into.
+    ///
+    /// Every kind that keeps an `inventory` a hand could sensibly hold: a box, and the three
+    /// machines that stand around holding fuel and inputs. A belt's cargo is a position on a lane
+    /// rather than a store, the hub's intake is the contract, and an extractor, pole, or bridge
+    /// keeps nothing — so those are refused rather than silently doing nothing.
+    fn stock_is_reachable_by_hand(kind: BuildingKind) -> bool {
+        matches!(
+            kind,
+            BuildingKind::Container
+                | BuildingKind::Composer
+                | BuildingKind::Generator
+                | BuildingKind::Boiler
+        )
+    }
+
+    /// Resolve the building a hand transfer names, at the range every other edit is held to.
+    fn hand_transfer_target(&self, q: i32, r: i32, verb: &str) -> Result<usize, String> {
         let (target_x, target_y) = axial_world(q, r);
         if squared_distance(self.player.x, self.player.y, target_x, target_y)
             > i64::from(self.player.build_range).pow(2)
         {
-            return Err("withdraw target is outside build range".into());
+            return Err(format!("{verb} target is outside build range"));
         }
-        let index = self.entity_at(q, r).ok_or("no building to unload")?;
-        if self.entities[index].kind != BuildingKind::Container {
-            return Err("only containers can be unloaded by hand".into());
+        let index = self.entity_at(q, r).ok_or("nothing to reach into there")?;
+        if !Self::stock_is_reachable_by_hand(self.entities[index].kind) {
+            return Err("that building has no stock you can reach".into());
         }
+        Ok(index)
+    }
+
+    /// Move stock out of a building and into the player's pack. A bounded command beside `place`
+    /// and `erase`, range-checked exactly as they are. The requested quantity is a ceiling, not a
+    /// demand: what actually moves is limited by what the building holds and by what the player can
+    /// still carry, so a partial withdrawal succeeds and destroys nothing.
+    ///
+    /// **Only free stock comes back.** `inventory` is exactly that — inputs a running craft has
+    /// claimed have already moved to `reserved_inputs`, and energy already released from a coal
+    /// sits in `fuel_charge`. Neither is reachable, which is what keeps "take the coal back out of
+    /// a burner" honest: the unburned lumps are yours, the heat already in the firebox is spent.
+    fn withdraw(&mut self, q: i32, r: i32, item_id: ItemId, quantity: u32) -> Result<(), String> {
+        let index = self.hand_transfer_target(q, r, "withdraw")?;
         let stored = self.entities[index]
             .inventory
             .get(&item_id)
             .copied()
             .unwrap_or(0);
         if stored == 0 {
-            return Err("this container holds none of that item".into());
+            return Err("this building holds none of that item".into());
         }
         let moved = quantity.min(stored).min(self.player_room_for(item_id));
         if moved == 0 {
@@ -4274,36 +4418,29 @@ impl Core {
         Ok(())
     }
 
-    /// Put stock from the player's pack into a container. The exact mirror of `withdraw`, and it
+    /// Put stock from the player's pack into a building. The exact mirror of `withdraw`, and it
     /// keeps the same contract: the requested quantity is a ceiling, not a demand, so what actually
-    /// moves is limited by what the player holds and by the room the container has left. A partial
+    /// moves is limited by what the player holds and by the room the building has left. A partial
     /// store succeeds and destroys nothing.
     ///
-    /// Containers only. A machine's inputs belong to the recipe that reserved them — the same
-    /// reason composers still cannot be unloaded by hand.
+    /// **What a building will take is `accepts_item` — the same predicate a belt is held to.** A
+    /// hand feeding a smelter is the same event as a lane feeding it, so a machine that refuses
+    /// iron ore off a belt refuses it off a palm too, and there is one place where "a furnace takes
+    /// its recipe's inputs and anything that burns" is written down. The room is asked separately,
+    /// which is what lets a refusal say whether the building had no use for the item or simply no
+    /// space left — two different problems the player fixes two different ways.
     fn store(&mut self, q: i32, r: i32, item_id: ItemId, quantity: u32) -> Result<(), String> {
-        let (target_x, target_y) = axial_world(q, r);
-        if squared_distance(self.player.x, self.player.y, target_x, target_y)
-            > i64::from(self.player.build_range).pow(2)
-        {
-            return Err("store target is outside build range".into());
-        }
-        let index = self.entity_at(q, r).ok_or("no building to load")?;
-        if self.entities[index].kind != BuildingKind::Container {
-            return Err("only containers can be loaded by hand".into());
-        }
+        let index = self.hand_transfer_target(q, r, "store")?;
         let held = self.player.inventory.get(&item_id).copied().unwrap_or(0);
         if held == 0 {
             return Err("you are not carrying any of that item".into());
         }
-        let capacity = self
-            .building_definition(self.entities[index].placed.definition_id)
-            .and_then(|definition| definition.capacity)
-            .unwrap_or(0);
-        let room = capacity.saturating_sub(inventory_total(&self.entities[index].inventory));
-        let moved = quantity.min(held).min(room);
+        if !self.accepts_item(index, item_id) {
+            return Err("this building has no use for that".into());
+        }
+        let moved = quantity.min(held).min(self.room_for_stock(index));
         if moved == 0 {
-            return Err("this container is full".into());
+            return Err("this building is full".into());
         }
         subtract_item(&mut self.player.inventory, item_id, moved);
         *self.entities[index].inventory.entry(item_id).or_default() += moved;
@@ -4323,7 +4460,8 @@ impl Core {
     ///
     /// A machine mid-craft is refused rather than reassigned: its reserved inputs belong to the job
     /// it is running, and deciding what happens to a part-finished one is a question worth its own
-    /// pass — the same reason composers still cannot be unloaded.
+    /// pass — the same reason `withdraw` reaches into a machine's free stock and never into
+    /// `reserved_inputs`.
     fn set_recipe(&mut self, q: i32, r: i32, recipe_id: RecipeId) -> Result<(), String> {
         let (target_x, target_y) = axial_world(q, r);
         if squared_distance(self.player.x, self.player.y, target_x, target_y)
@@ -4362,6 +4500,72 @@ impl Core {
         self.dirty.entities.push(id);
         self.events.push(format!("Set recipe to {}", recipe.name));
         Ok(())
+    }
+
+    /// Switch the machine at this hex off, or back on. Bounded and range-checked like every other
+    /// edit, and protected objects are protected here too.
+    ///
+    /// **Only buildings that do work can be switched**, because only they have anything to stop. A
+    /// belt is a lane, a container is a shelf, a pole is a wire — none of them consume, produce, or
+    /// burn, so a switch on them would be a control that changes nothing. Refusing is more honest
+    /// than a dead toggle.
+    ///
+    /// Nothing is discarded. Progress, stock, reserved inputs, and banked charge all survive being
+    /// switched off, so this is a pause and never a partial `erase`.
+    fn set_enabled(&mut self, q: i32, r: i32, enabled: bool) -> Result<(), String> {
+        let (target_x, target_y) = axial_world(q, r);
+        if squared_distance(self.player.x, self.player.y, target_x, target_y)
+            > i64::from(self.player.build_range).pow(2)
+        {
+            return Err("switch target is outside build range".into());
+        }
+        let index = self.entity_at(q, r).ok_or("no building at that hex")?;
+        if !Self::can_be_switched(self.entities[index].kind) {
+            return Err("that building has no work to switch off".into());
+        }
+        if self.entities[index].placed.scenario_owned {
+            return Err("scenario-owned objects are protected".into());
+        }
+        if self.entities[index].disabled != enabled {
+            return Err(if enabled {
+                "this building is already running".into()
+            } else {
+                "this building is already switched off".into()
+            });
+        }
+        self.entities[index].disabled = !enabled;
+        let id = self.entities[index].id;
+        self.dirty.entities.push(id);
+        let name = self
+            .building_definition(self.entities[index].placed.definition_id)
+            .map(|definition| definition.name.clone())
+            .unwrap_or_else(|| "Building".into());
+        self.events.push(if enabled {
+            format!("Switched {name} on")
+        } else {
+            format!("Switched {name} off")
+        });
+        Ok(())
+    }
+
+    /// The kinds that have work a switch can suspend: anything that extracts, crafts, pumps, or
+    /// burns. The same list every arm of the tick consults through `entity_running`.
+    fn can_be_switched(kind: BuildingKind) -> bool {
+        matches!(
+            kind,
+            BuildingKind::Extractor
+                | BuildingKind::Pump
+                | BuildingKind::Composer
+                | BuildingKind::Generator
+                | BuildingKind::Boiler
+        )
+    }
+
+    /// Whether this entity is doing its job at all. One predicate, asked by every arm of the tick
+    /// that could otherwise forget the switch — the extractor, the pump, the composer, the plant,
+    /// and the power network's demand.
+    fn entity_running(&self, index: usize) -> bool {
+        !self.entities[index].disabled
     }
 
     fn rotate(&mut self, q: i32, r: i32) -> Result<(), String> {
@@ -4491,6 +4695,7 @@ impl Core {
                     quantity,
                 } => self.store(q, r, item_id, quantity),
                 InputCommand::SetRecipe { q, r, recipe_id } => self.set_recipe(q, r, recipe_id),
+                InputCommand::SetEnabled { q, r, enabled } => self.set_enabled(q, r, enabled),
                 InputCommand::Undo => self.undo(),
                 InputCommand::Research { technology_id } => self.research(technology_id),
                 InputCommand::SkipRequest { slot } => self.skip_request(slot),
@@ -4528,6 +4733,9 @@ impl Core {
         brownout: bool,
     ) -> EntityStatus {
         let entity = &self.entities[index];
+        if entity.disabled {
+            return EntityStatus::SwitchedOff;
+        }
         match entity.kind {
             BuildingKind::Extractor if entity.cargo.is_some() => EntityStatus::OutputBlocked,
             BuildingKind::Extractor if !deposit_available => EntityStatus::DepositDepleted,
@@ -4887,6 +5095,7 @@ impl Core {
             hash_u32(&mut hash, entity.fuel_charge);
             hash_u32(&mut hash, entity.power_charge);
             hash_u32(&mut hash, entity.burn_progress);
+            hash_u32(&mut hash, u32::from(entity.disabled));
             hash_inventory(&mut hash, &entity.inventory);
             hash_inventory(&mut hash, &entity.reserved_inputs);
             if let Some(cargo) = entity.cargo {
@@ -5597,10 +5806,46 @@ fn validate_definitions(definitions: &DefinitionsInput) -> Result<(), String> {
         if item.fuel_value == Some(0)
             || item.regrowth_ticks == Some(0)
             || item.hand_gather_steps == Some(0)
+            || item.extract_steps == Some(0)
         {
             return Err(format!(
-                "item {} has a zero fuel, regrowth, or hand gather rate",
+                "item {} has a zero fuel, regrowth, hand gather, or extract rate",
                 item.id
+            ));
+        }
+    }
+    // Every material the world can actually generate must name an extraction rate, because an
+    // extractor may be stood on any of them. Without this a new site rule would silently inherit
+    // whatever cadence its building carried, which is exactly the flat rate this replaced — and it
+    // would do it quietly, on one material, long after the row was written.
+    let generated: BTreeSet<ItemId> = world_presets()
+        .iter()
+        .flat_map(|preset| preset.params.site_rules.iter())
+        .map(|rule| rule.item_id)
+        .collect();
+    for item_id in generated {
+        let Some(item) = definitions.items.iter().find(|item| item.id == item_id) else {
+            return Err(format!("world presets name unknown item {item_id}"));
+        };
+        if item.extract_steps.is_none() {
+            return Err(format!(
+                "item {} ({}) can be generated as a field but names no extract_steps",
+                item.id, item.key
+            ));
+        }
+    }
+    for building in &definitions.buildings {
+        if building.extract_speed == Some(0) {
+            return Err(format!("building {} has a zero extract speed", building.id));
+        }
+        // Anything a belt or a hand can load has to say how much it holds. The capacity lookup
+        // falls back to "unbounded", which is a sensible default for a kind that stores nothing and
+        // a silent one for a kind that stores plenty — a burner-generator shipped without this line
+        // and swallowed an unlimited stack of coal, because nothing anywhere had to notice.
+        if Core::stock_is_reachable_by_hand(building.kind) && building.capacity.is_none() {
+            return Err(format!(
+                "building {} ({}) holds stock but names no capacity",
+                building.id, building.key
             ));
         }
     }
@@ -6703,8 +6948,21 @@ impl WorldParams {
         let dry = |terrain: Terrain| !terrain.is_water();
         let mut placeable = false;
         for rule in &self.site_rules {
-            if !definitions.items.iter().any(|item| item.id == rule.item_id) {
+            let named = definitions
+                .items
+                .iter()
+                .find(|item| item.id == rule.item_id);
+            let Some(named) = named else {
                 return Err(format!("site rule names unknown item {}", rule.item_id));
+            };
+            // An extractor can be stood on anything a rule can place, so anything a rule can place
+            // has to price extraction. Custom parameters come through here too, which is why the
+            // check lives beside the rule rather than only beside the built-in presets.
+            if named.extract_steps.is_none() {
+                return Err(format!(
+                    "site rule names item {} ({}), which has no extract_steps",
+                    named.id, named.key
+                ));
             }
             if !dry(rule.terrain) || !rule.member.iter().copied().all(dry) {
                 return Err("a site rule may not name a water band".into());
@@ -8054,8 +8312,10 @@ pub mod capacity {
             lines,
             belt_span: 6,
             // Long enough for the first components to reach the consumer, so every tier is timed
-            // with cargo actually moving.
-            warmup_ticks: 40,
+            // with cargo actually moving. Extraction sets this floor: a tier-one extractor spends
+            // 30 ticks on one ore and a component eats two, so the first delivery cannot happen
+            // before 60 ticks of digging plus the belt run and the craft.
+            warmup_ticks: 150,
             measured_ticks,
             frames,
             snapshots,
@@ -9433,7 +9693,9 @@ mod tests {
             .position(|entity| entity.kind == BuildingKind::Generator)
             .unwrap();
         lit.entities[burner].inventory.insert(5, 8);
-        lit.tick_many(20);
+        // Past one whole ore cycle, so the extractor is holding cargo rather than mid-dig. Ore is
+        // 30 ticks now that the rate comes from the material rather than the building.
+        lit.tick_many(35);
         let extractor = lit
             .entities
             .iter()
@@ -9522,11 +9784,16 @@ mod tests {
             taken,
             "a plant burns for what it handed over"
         );
-        // And what one extractor asks for over forty ticks is nowhere near what this plant could
-        // have made in them. The old rule charged a unit of fuel energy per tick regardless —
-        // forty — where this is a handful.
+        // And what one extractor asks for over forty ticks is still less than this plant could
+        // have made in them. The old rule charged a unit of fuel energy per tick regardless, so
+        // forty is what burning for the clock costs.
+        //
+        // The margin used to be far wider. `power_capacity` is `POWER_BUFFER_CYCLES` whole cycles,
+        // and an ore cycle went from 5 ticks to 30, so a single extractor now banks six times as
+        // much before it runs steadily — most of what this plant burned is sitting in that buffer
+        // rather than having been turned into ore.
         assert!(
-            spent_working * 4 < 40,
+            spent_working < 40,
             "one extractor must not cost a burner its full output: spent {spent_working}"
         );
     }
@@ -9773,14 +10040,19 @@ mod tests {
     fn grid_energy_received(core: &Core) -> u32 {
         core.entities
             .iter()
-            .map(|entity| {
+            .enumerate()
+            .map(|(index, entity)| {
                 let Some(definition) = core.building_definition(entity.placed.definition_id) else {
                     return entity.power_charge;
                 };
                 let draw = definition.power_draw.unwrap_or(0);
-                let finished = match (entity.cargo, definition.cadence) {
-                    (Some(_), Some(cycle)) => cycle * draw,
-                    _ => 0,
+                // A finished cycle cost whatever that entity's cycle actually is. Asking
+                // `progress_total` rather than the building's `cadence` is what keeps this honest
+                // now that an extractor's cycle comes from the material it is standing on: the
+                // flat cadence would price a coal cycle at a fifth of what the machine paid.
+                let finished = match entity.cargo {
+                    Some(_) => core.progress_total(index) * draw,
+                    None => 0,
                 };
                 entity.power_charge + entity.progress * draw + finished
             })
@@ -9930,6 +10202,7 @@ mod tests {
             fuel_charge: 0,
             power_charge: 0,
             burn_progress: 0,
+            disabled: false,
         });
         id
     }
@@ -11872,13 +12145,15 @@ mod tests {
         let index = core.entity_at(2, 0).unwrap();
         core.entities[index].inventory.insert(2, 12);
 
-        // Out of range, wrong building, and an item the container does not hold are all refused.
+        // Out of range, a building with no reachable store, and an item the container does not
+        // hold are all refused. The hub is the interesting refusal: it has an intake, but that
+        // intake is the contract, not a shelf.
         assert!(core.withdraw(2, 0, 1, 1).unwrap_err().contains("none"));
         assert!(core.withdraw(9, 9, 2, 1).unwrap_err().contains("range"));
         assert!(core
             .withdraw(0, 0, 2, 1)
             .unwrap_err()
-            .contains("only containers"));
+            .contains("no stock you can reach"));
 
         // The request is a ceiling: what moves is limited by the stock and by carrying space.
         core.withdraw(2, 0, 2, 5).unwrap();
@@ -11904,6 +12179,148 @@ mod tests {
         assert_eq!(core.player.inventory.get(&2), Some(&core.stack_size(2)));
         assert_eq!(core.entities[index].inventory.get(&2), Some(&3));
         assert_eq!(core.events.last().unwrap(), "Withdrew 4 × Component");
+    }
+
+    /// The hand reaches into working machines, not only into boxes.
+    ///
+    /// Before v0.24 a burner was a one-way slot: coal went in, and the only way to get it back was
+    /// to demolish the building. That made a mis-aimed belt permanently expensive and made the
+    /// obvious recovery — take the fuel back out and put it somewhere useful — impossible. This
+    /// pins the rule that replaced it: the four kinds that hold stock a player can see are the four
+    /// a player can reach into, in both directions, and a firebox is one of them.
+    #[test]
+    fn a_hand_reaches_into_the_machines_that_hold_stock() {
+        let mut core = game("new-game");
+        core.researched.extend([1, 2, 3, 8]);
+        core.player.build_range = 1 << 20;
+        core.player.inventory.insert(1, 60);
+        core.player.inventory.insert(3, 20);
+        core.player.inventory.insert(6, 20);
+        set_player_hex(&mut core, 0, 0);
+        core.place(3, 0, 13, 0, None).unwrap();
+        core.place(5, 0, 2, 0, None).unwrap();
+        let burner = core.entity_at(3, 0).unwrap();
+        let capacity = core.building_definition(13).unwrap().capacity.unwrap();
+        assert_eq!(capacity, 12, "the firebox is bounded, not a well");
+
+        // A firebox takes fuel by hand and gives it back — the recovery that demolition used to be
+        // the only route to.
+        core.player.inventory.clear();
+        core.player.inventory.insert(5, 20);
+        core.store(3, 0, 5, 999).unwrap();
+        assert_eq!(core.entities[burner].inventory.get(&5), Some(&capacity));
+        assert_eq!(core.player.inventory.get(&5), Some(&(20 - capacity)));
+        // Bounded: the thirteenth lump has nowhere to go and says so.
+        assert!(core.store(3, 0, 5, 1).unwrap_err().contains("full"));
+        core.withdraw(3, 0, 5, 5).unwrap();
+        assert_eq!(
+            core.entities[burner].inventory.get(&5),
+            Some(&(capacity - 5))
+        );
+
+        // A refusal distinguishes "wrong item" from "no space": ore is not fuel, and a burner that
+        // cannot burn it should never have been able to swallow it.
+        core.player.inventory.insert(1, 5);
+        assert!(core.store(3, 0, 1, 1).unwrap_err().contains("no use for"));
+        // A belt is a lane, not a shelf. Nothing to reach into, in either direction.
+        assert!(core
+            .store(5, 0, 5, 1)
+            .unwrap_err()
+            .contains("no stock you can reach"));
+        assert!(core
+            .withdraw(5, 0, 5, 1)
+            .unwrap_err()
+            .contains("no stock you can reach"));
+    }
+
+    /// The switch is a pause, not a partial demolition.
+    ///
+    /// A burner with coal in it burns that coal whether or not anything downstream wants the power,
+    /// so "stop this machine while I rebuild the line it feeds" had no answer except erasing it and
+    /// paying to rebuild. This pins the answer: switched off is real saved state, it suspends the
+    /// work *and* the draw, it keeps everything the machine was holding, and switching back on
+    /// resumes rather than restarts.
+    #[test]
+    fn switching_a_machine_off_suspends_its_work_without_losing_what_it_holds() {
+        let mut core = game("new-game");
+        core.researched.extend([1, 2, 3, 8]);
+        // Kept, because a save is only valid at the scenario's own reach: the long arm is a
+        // scaffold for building the scene, and the scene has to be put back before it is saved.
+        let scenario_reach = core.player.build_range;
+        core.player.build_range = 1 << 20;
+        core.player.inventory.insert(1, 60);
+        core.player.inventory.insert(3, 20);
+        core.player.inventory.insert(6, 20);
+        set_player_hex(&mut core, 0, 0);
+        core.place(3, 0, 13, 0, None).unwrap();
+        core.place(5, 0, 2, 0, None).unwrap();
+        let burner = core.entity_at(3, 0).unwrap();
+        core.player.inventory.clear();
+        core.player.inventory.insert(5, 12);
+        core.store(3, 0, 5, 12).unwrap();
+
+        // Only work can be switched: a belt has none, so the toggle refuses rather than lying.
+        assert!(core
+            .set_enabled(5, 0, false)
+            .unwrap_err()
+            .contains("no work to switch off"));
+        // Bounded and range-checked like every other edit.
+        core.player.build_range = scenario_reach;
+        assert!(core
+            .set_enabled(99, 99, false)
+            .unwrap_err()
+            .contains("range"));
+        core.player.build_range = 1 << 20;
+
+        core.set_enabled(3, 0, false).unwrap();
+        assert!(core.entities[burner].disabled);
+        // The flags say "fuelled, powered, running well" — the switch still wins, because it is
+        // the one status the player chose rather than one the factory fell into.
+        assert_eq!(
+            core.status_of(burner, true, true, true, false),
+            EntityStatus::SwitchedOff
+        );
+        assert_eq!(core.events.last().unwrap(), "Switched Burner generator off");
+        // Idempotent by construction: the command carries the state it wants, so a doubled press
+        // is refused instead of flipping the machine back on.
+        assert!(core
+            .set_enabled(3, 0, false)
+            .unwrap_err()
+            .contains("already switched off"));
+
+        // The point of the switch: a stopped burner stops eating.
+        let fuel_before = core.entities[burner].inventory.get(&5).copied().unwrap();
+        let charge_before = core.entities[burner].fuel_charge;
+        core.tick_many(200);
+        assert_eq!(
+            core.entities[burner].inventory.get(&5).copied().unwrap(),
+            fuel_before,
+            "a switched-off burner burns nothing"
+        );
+        assert_eq!(core.entities[burner].fuel_charge, charge_before);
+
+        // And it survives a save, because a factory that silently restarted on reload would be a
+        // worse bug than the one the switch fixes.
+        let (definitions, technologies, scenarios) = catalogs();
+        core.player.build_range = scenario_reach;
+        let saved = core.save_string().unwrap();
+        let restored = Core::from_save(&definitions, &technologies, &scenarios, &saved).unwrap();
+        let reloaded = restored.entity_at(3, 0).unwrap();
+        assert!(restored.entities[reloaded].disabled);
+        assert_eq!(restored.checksum(), core.checksum());
+
+        // Switching back on resumes: the fuel that was held is still there to burn.
+        core.player.build_range = 1 << 20;
+        core.set_enabled(3, 0, true).unwrap();
+        assert_eq!(core.events.last().unwrap(), "Switched Burner generator on");
+        assert_ne!(
+            core.status_of(burner, true, true, true, false),
+            EntityStatus::SwitchedOff
+        );
+        assert_eq!(
+            core.entities[burner].inventory.get(&5).copied().unwrap(),
+            fuel_before
+        );
     }
 
     #[test]
@@ -11940,8 +12357,10 @@ mod tests {
         set_player_hex(&mut core, 3, 1);
         core.write_overlay(3, 0, 1, 2, 48);
         core.place(3, 0, 1, 0, None).unwrap();
+        // Iron's own figure, not the building's cadence: a tier-one extractor spends 30 ticks on
+        // one unit of ore, which is twice what the hand spends on the same cell.
         for _ in 0..2 {
-            core.tick_many(5);
+            core.tick_many(30);
             let index = core
                 .entities
                 .iter()
@@ -12677,7 +13096,7 @@ mod tests {
 
     /// Every status spelling the host can render. The wire carries the index, so a reordering here
     /// is a wire break; the fixture is what makes that break visible in both languages at once.
-    const WIRE_STATUSES: [(EntityStatus, &str); 17] = [
+    const WIRE_STATUSES: [(EntityStatus, &str); 18] = [
         (EntityStatus::OutputBlocked, "output blocked"),
         (EntityStatus::DepositDepleted, "deposit depleted"),
         (EntityStatus::Extracting, "extracting"),
@@ -12695,6 +13114,7 @@ mod tests {
         (EntityStatus::Generating, "generating"),
         (EntityStatus::Brownout, "brownout"),
         (EntityStatus::NoBoiler, "no boiler"),
+        (EntityStatus::SwitchedOff, "switched off"),
     ];
 
     const WIRE_KINDS: [(BuildingKind, &str); 11] = [
@@ -13197,43 +13617,66 @@ mod tests {
     /// The two rates a player compares without being told they are comparing them: their own
     /// hands, and the first machine that replaces them.
     ///
-    /// These are measured against the same wall clock and they must not invert. Through v0.16 the
-    /// hand ran at 300 items a minute against an extractor's 120, so the first automation in the
-    /// game was two and a half times slower than doing it yourself. v0.17 made them equal at
-    /// fifteen steps. v0.23 keeps the guard and adds the incentive: the hand is never *faster*
-    /// than an extractor on the same cells, wood still matches it, and hard rock is materially
-    /// slower. Crystal has no hand rate.
+    /// These are measured against the same wall clock, and the order between them is a design
+    /// decision that has now been made twice in opposite directions. Through v0.16 the hand ran at
+    /// 300 items a minute against an extractor's 120, so the first automation in the game was two
+    /// and a half times slower than doing it yourself, which read as a punishment. v0.17 made them
+    /// equal and v0.23 pinned the hand as never faster.
+    ///
+    /// This inverts that on purpose. A tier-one extractor is *half* the hand on the same material
+    /// and the deep extractor is what draws level. The trade is no longer speed — it is that the
+    /// machine works while the player is somewhere else, so automation becomes a question of how
+    /// many you can afford to run and to power rather than of raw rate. The reason the old rule
+    /// existed still holds and is still guarded: what must never happen is an upgrade that leaves
+    /// a player slower than their own hands with no way up.
     #[test]
-    fn no_extractor_is_slower_than_the_hand_on_the_same_cells() {
+    fn a_tier_one_extractor_is_half_the_hand_and_the_upgrade_draws_level() {
         let report = balance::compute();
-        let extractor = report
-            .machines
-            .iter()
-            .find(|machine| machine.building == "extractor")
-            .expect("the extractor is a machine");
+        let rate_for = |building: &str, item: &str| -> u64 {
+            report
+                .machines
+                .iter()
+                .find(|machine| {
+                    machine.building == building && machine.output_item.as_deref() == Some(item)
+                })
+                .map(|machine| machine.per_minute_milli)
+                .unwrap_or(0)
+        };
         assert!(
             !report.reference.hand_gathers.is_empty(),
             "the hand still takes something"
         );
         for gather in &report.reference.hand_gathers {
+            let hand = u64::from(gather.items_per_minute) * 1000;
+            let tier_one = rate_for("extractor", &gather.item);
+            let deep = rate_for("extractor-ii", &gather.item);
+            // Half, within what a whole number of ticks allows: sand and clay want 13.33 ticks and
+            // are given 13, which is the only material pair the ladder does not hit exactly.
             assert!(
-                extractor.per_minute_milli >= u64::from(gather.items_per_minute) * 1000,
-                "{} at {} /min is faster than the extractor at {}",
-                gather.item,
-                gather.items_per_minute,
-                extractor.per_minute_milli
+                tier_one * 100 > hand * 45 && tier_one * 100 < hand * 55,
+                "{} tier one at {tier_one} is not half the hand at {hand}",
+                gather.item
+            );
+            // The way up has to exist, or this is the v0.16 punishment again with extra steps.
+            assert!(
+                deep * 100 > hand * 94,
+                "{} deep extractor at {deep} does not reach the hand at {hand}",
+                gather.item
             );
         }
+        // Crystal is the one material with an extraction rate and no hand rate, and it is the
+        // slowest thing dug: twice the ore it shares the highland with.
+        assert_eq!(
+            rate_for("extractor", "crystal") * 2,
+            rate_for("extractor", "ore"),
+            "crystal takes twice as long as iron"
+        );
         let wood = report
             .reference
             .hand_gathers
             .iter()
             .find(|gather| gather.item == "wood")
             .expect("wood is the fastest hand");
-        assert_eq!(
-            u64::from(wood.items_per_minute) * 1000,
-            extractor.per_minute_milli
-        );
         assert!(
             report
                 .reference
@@ -14314,12 +14757,15 @@ mod tests {
             0
         );
 
-        // Only containers, and only what the player is actually carrying.
+        // Only what the player is actually carrying, and only into something actually there.
         assert!(core
             .store(0, 3, 99, 1)
             .unwrap_err()
             .contains("not carrying"));
-        assert!(core.store(2, 3, 1, 1).unwrap_err().contains("no building"));
+        assert!(core
+            .store(2, 3, 1, 1)
+            .unwrap_err()
+            .contains("nothing to reach into"));
         // Bounded and range-checked like every other edit.
         assert!(core.store(9, 9, 1, 1).unwrap_err().contains("build range"));
     }
@@ -14343,10 +14789,15 @@ mod tests {
         // invalidate comparisons against previously recorded tier numbers. A generator-version
         // bump moves this number while the workload does not — which is why the delivered total
         // and the entity count below are the assertions that say the run is the same run.
-        assert_eq!(first.checksum(), 798_893_689);
+        assert_eq!(first.checksum(), 58_181_312);
         assert_eq!(first.entities.len(), spec.entities() as usize);
         // Every line must be running end to end, or the tiers would measure an idle blueprint.
-        assert_eq!(first.delivered, u64::from(spec.lines) * 14);
+        // Four per line rather than fourteen: the line is now extraction-bound, because a
+        // tier-one extractor spends 30 ticks per ore against the 5 this workload was calibrated
+        // against. The ladder still times the same entity count moving the same cargo, but a tier
+        // number recorded before this change was measured at a different cargo cadence and is not
+        // comparable — `docs/BENCHMARKS.md` says so beside the affected rows.
+        assert_eq!(first.delivered, u64::from(spec.lines) * 4);
     }
 
     /// A clock that advances a fixed amount per reading, so the ladder's arithmetic can be pinned

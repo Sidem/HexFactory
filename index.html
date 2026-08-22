@@ -493,6 +493,12 @@
                     >
                       Protected
                     </span>
+                    <button
+                      type="button"
+                      id="inspect-power-switch"
+                      class="withdraw-button inspect-switch"
+                      hidden
+                    ></button>
                   </div>
                   <div class="inspect-cargo" id="inspect-cargo" hidden>
                     <span class="inspect-kind">On the belt</span>
@@ -503,7 +509,7 @@
                     <div
                       id="inspector-actions"
                       class="inspect-stock-list"
-                      aria-label="Container contents"
+                      aria-label="What this building is holding"
                     ></div>
                   </div>
                   <div class="inspect-stock" id="inspect-load" hidden>
@@ -511,7 +517,7 @@
                     <div
                       id="inspector-load"
                       class="inspect-stock-list"
-                      aria-label="Items you can load into this container"
+                      aria-label="Items you can load into this building"
                     ></div>
                   </div>
                   <div class="inspect-tier" id="inspect-tier" hidden>
@@ -1111,9 +1117,8 @@
             </div>
 
             <footer class="title-footer">
-              <span id="title-envelope-info"
-                >Save 11 · Definitions 11 · World 8</span
-              >
+              <!-- Filled from the running build; a literal here only ever goes stale. -->
+              <span id="title-envelope-info"></span>
               <a
                 href="https://github.com/Sidem/HexFactory"
                 target="_blank"

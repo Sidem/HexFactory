@@ -859,9 +859,39 @@ fn machines(economy: &Economy) -> Vec<MachineRate> {
         }
         let power_draw = building.power_draw.unwrap_or(0);
         match building.kind {
-            // A source runs on its own cadence and takes nothing but power. What it emits is
-            // whatever the world put under it, so an extractor names no output item.
-            BuildingKind::Extractor | BuildingKind::Pump => {
+            // An extractor no longer has one rate. Its cycle comes from the material under it,
+            // scaled by its own `extract_speed`, so it gets one row per material it can work —
+            // which is the only way this file can still answer "is a machine worth building" now
+            // that the answer is different for coal than it is for wood.
+            BuildingKind::Extractor => {
+                let speed = building.extract_speed.unwrap_or(100).max(1);
+                for item in &economy.definitions.items {
+                    let Some(steps) = item.extract_steps else {
+                        continue;
+                    };
+                    let cadence = ((steps * 100 + speed - 1) / speed).max(1);
+                    let rate = per_minute(1, cadence);
+                    rows.push(MachineRate {
+                        building: building.key.clone(),
+                        recipe: None,
+                        ticks_per_cycle: cadence,
+                        output_item: Some(item.key.clone()),
+                        output_per_cycle: 1,
+                        per_minute_milli: rate.milli(),
+                        inputs_per_minute: Vec::new(),
+                        power_draw,
+                        grid_energy_per_cycle: power_draw * cadence,
+                        grid_energy_per_minute_milli: rate
+                            .mul(Ratio::whole(power_draw * cadence))
+                            .milli(),
+                        fuel_energy_per_cycle: 0,
+                        fuel_energy_per_minute_milli: 0,
+                    });
+                }
+            }
+            // A pump keeps one rate, because water is the one source with no per-material figure:
+            // nothing else draws it and it is never anything but water.
+            BuildingKind::Pump => {
                 let cadence = building.cadence.unwrap_or(1);
                 let rate = per_minute(1, cadence);
                 rows.push(MachineRate {

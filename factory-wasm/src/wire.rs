@@ -56,7 +56,11 @@ pub(crate) const WIRE_MAGIC: [u8; 4] = *b"HXFD";
 /// Version 6 is Crossings and Canopy. `Bridge` is appended to the kind table and the player group
 /// publishes the hand's extraction radius, so an older decoder would leave a trailing byte and
 /// could not draw the held-action reach native actually uses.
-pub(crate) const WIRE_VERSION: u8 = 6;
+///
+/// Version 7 is the hand switch. `SwitchedOff` is appended to the status table, and a status code
+/// is one byte with no length beside it — an older decoder would not mis-frame the buffer, it
+/// would simply fail on a code it has no name for, which is a worse way to learn the same thing.
+pub(crate) const WIRE_VERSION: u8 = 7;
 
 /// Which optional groups the buffer carries, in the order they are written.
 mod group {
@@ -152,6 +156,7 @@ fn status_code(status: EntityStatus) -> u8 {
         EntityStatus::Generating => 14,
         EntityStatus::Brownout => 15,
         EntityStatus::NoBoiler => 16,
+        EntityStatus::SwitchedOff => 17,
     }
 }
 
@@ -633,6 +638,7 @@ pub(crate) mod decode {
             EntityStatus::Generating,
             EntityStatus::Brownout,
             EntityStatus::NoBoiler,
+            EntityStatus::SwitchedOff,
         ][usize::from(code)]
     }
 

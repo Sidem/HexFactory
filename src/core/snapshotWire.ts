@@ -33,7 +33,7 @@ import type {
  */
 
 const MAGIC = 0x48584644; // "HXFD"
-const VERSION = 6;
+const VERSION = 7;
 
 /** Wire code is the index. Pinned against Rust by `fixtures/snapshot-delta-wire.json`. */
 const KINDS: BuildingKind[] = [
@@ -78,6 +78,7 @@ const STATUSES: string[] = [
   "generating",
   "brownout",
   "no boiler",
+  "switched off",
 ];
 
 const GROUP = {

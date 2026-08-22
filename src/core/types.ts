@@ -56,6 +56,12 @@ export interface ItemDefinition {
    * at all — water is pumped, signal crystal is extracted.
    */
   hand_gather_steps?: number;
+  /**
+   * Simulation ticks a tier-one extractor spends on one unit of this material, before the
+   * building's own `extract_speed` scales it. Absent means no extractor prices it and the machine
+   * falls back to its own cadence, which is water and the pump.
+   */
+  extract_steps?: number;
 }
 
 export interface RecipeDefinition {
@@ -103,6 +109,11 @@ export interface BuildingDefinition {
   upgrades_to?: number;
   /** How many hexes this extractor or pump reaches, counting its own. */
   extract_radius?: number;
+  /**
+   * How fast this extractor works its material, as a percentage of the item's `extract_steps`.
+   * 100 is the tier-one baseline of twice the hand's time; 200 is level with the hand.
+   */
+  extract_speed?: number;
   construction_cost: Ingredient[];
   unlock_technology_id?: number;
   placement_rule: PlacementRule;
@@ -507,8 +518,13 @@ export type NativeInputCommand =
    */
   | { type: "upgrade"; q: number; r: number }
   /**
-   * Take stock out of a container by hand. `quantity` is a ceiling: native moves what the
-   * container holds and what the player can still carry, and reports how much actually moved.
+   * Take stock out of a building by hand. `quantity` is a ceiling: native moves what the building
+   * holds and what the player can still carry, and reports how much actually moved.
+   *
+   * Not containers only: a hand reaches into anything that holds stock the player can see — a
+   * container, a composer, a burner, a boiler — so coal can come back out of a firebox that has
+   * not spent it yet. What never comes back is stock the machine has already committed: reserved
+   * inputs and banked fuel charge are not inventory, and native does not offer them.
    */
   | {
       type: "withdraw";
@@ -518,8 +534,9 @@ export type NativeInputCommand =
       quantity: number;
     }
   /**
-   * Put stock into a container by hand — the mirror of `withdraw`, on the same contract. `quantity`
-   * is a ceiling: native moves what the player holds and what the container has room for.
+   * Put stock into a building by hand — the mirror of `withdraw`, on the same contract. `quantity`
+   * is a ceiling: native moves what the player holds and what the building has room for, and
+   * refuses an item the building has no use for separately from one it simply has no room for.
    */
   | {
       type: "store";
@@ -533,6 +550,15 @@ export type NativeInputCommand =
    * refuses a machine that is mid-craft.
    */
   | { type: "set_recipe"; q: number; r: number; recipe_id: number }
+  /**
+   * Switch a working machine off, or back on. Carries the state it wants rather than a toggle, so
+   * a doubled press or a replayed command lands on the same answer instead of flipping the
+   * machine back. Native refuses the kinds that have no work to stop — a belt, a shelf, a wire.
+   *
+   * Off is total and free: no work, no draw, no fuel burned. What it keeps is everything the
+   * machine was holding, so switching back on resumes rather than restarts.
+   */
+  | { type: "set_enabled"; q: number; r: number; enabled: boolean }
   | { type: "undo" }
   | { type: "research"; technology_id: number }
   /**

@@ -94,6 +94,15 @@ extra samples cannot move it.
 
 ## Native — the current record (v0.22)
 
+> **These rows predate per-material extraction and are not comparable to a run measured after it.**
+> Extraction rate moved from a flat building cadence of 5 ticks to a figure carried by the
+> material — 30 ticks for ore against the 5 every recorded tier was measured at. The workload
+> builds the same entities and moves the same cargo, so the tick, snapshot, and checksum costs
+> should hold, but cargo now changes hands roughly six times less often, and the capacity ladder's
+> warm-up had to grow from 40 ticks to 150 for a line to be delivering at all. Re-measure before
+> quoting any number below against a current build. The entity counts and the shape of the ladder
+> are unaffected.
+
 Host: AMD Ryzen 7 5800X (8 cores / 16 threads), Windows 11 Pro 10.0.26200, rustc 1.87.0,
 `factory-wasm` built with the shipped release profile (`opt-level = "s"`, LTO, `wasm-opt -Oz`).
 Recorded 2026-08-20. Raw report:

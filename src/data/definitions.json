@@ -1,5 +1,5 @@
 {
-  "version": 12,
+  "version": 13,
   "items": [
     {
       "id": 1,
@@ -9,7 +9,8 @@
       "icon": "ore",
       "description": "Highland ore. Smelts into the plate everything else is built from.",
       "stack_size": 20,
-      "hand_gather_steps": 45
+      "hand_gather_steps": 45,
+      "extract_steps": 30
     },
     {
       "id": 2,
@@ -27,7 +28,8 @@
       "color": "#b78cff",
       "icon": "crystal",
       "description": "A finite highland seam no hand can cut. Place an extractor on the field; the deep arm is what a thin seam is for.",
-      "stack_size": 10
+      "stack_size": 10,
+      "extract_steps": 60
     },
     {
       "id": 4,
@@ -37,7 +39,8 @@
       "icon": "ore",
       "description": "Hill ore. Becomes the plate and wire every circuit needs.",
       "stack_size": 20,
-      "hand_gather_steps": 45
+      "hand_gather_steps": 45,
+      "extract_steps": 30
     },
     {
       "id": 5,
@@ -48,7 +51,8 @@
       "description": "Dense highland fuel, and the carbon steel is made with.",
       "stack_size": 20,
       "fuel_value": 8,
-      "hand_gather_steps": 45
+      "hand_gather_steps": 45,
+      "extract_steps": 30
     },
     {
       "id": 6,
@@ -58,7 +62,8 @@
       "icon": "lump",
       "description": "Cut from cliff faces. The cheapest structural material there is.",
       "stack_size": 20,
-      "hand_gather_steps": 30
+      "hand_gather_steps": 30,
+      "extract_steps": 20
     },
     {
       "id": 7,
@@ -68,7 +73,8 @@
       "icon": "grains",
       "description": "Shore grit. Melts into glass and binds into concrete.",
       "stack_size": 20,
-      "hand_gather_steps": 20
+      "hand_gather_steps": 20,
+      "extract_steps": 13
     },
     {
       "id": 8,
@@ -78,7 +84,8 @@
       "icon": "grains",
       "description": "Damp shore and lowland earth. Fires into brick.",
       "stack_size": 20,
-      "hand_gather_steps": 20
+      "hand_gather_steps": 20,
+      "extract_steps": 13
     },
     {
       "id": 9,
@@ -90,7 +97,8 @@
       "stack_size": 20,
       "fuel_value": 2,
       "regrowth_ticks": 90,
-      "hand_gather_steps": 15
+      "hand_gather_steps": 15,
+      "extract_steps": 10
     },
     {
       "id": 10,
@@ -505,10 +513,11 @@
       "key": "extractor",
       "name": "Extractor",
       "kind": "extractor",
-      "description": "Harvests every field cell within one hex and emits one item at a time.",
+      "description": "Harvests every field cell within one hex and emits one item at a time. Slower than your own hands on the same material — but it never stops, and you can walk away.",
       "icon": "EXT",
       "cadence": 5,
       "extract_radius": 1,
+      "extract_speed": 100,
       "power_draw": 4,
       "upgrades_to": 19,
       "construction_cost": [
@@ -850,8 +859,9 @@
       "key": "burner-generator",
       "name": "Burner generator",
       "kind": "generator",
-      "description": "Burns any fuel item into electricity. The first way a factory keeps running.",
+      "description": "Burns any fuel item into electricity. Holds 12 fuel — feed it by belt or by hand.",
       "icon": "BRN",
+      "capacity": 12,
       "power_output": 20,
       "power_source": "burner",
       "construction_cost": [
@@ -882,6 +892,7 @@
       "kind": "generator",
       "description": "Fuel-free power on hills and highland — the same ground the ore sits on.",
       "icon": "WND",
+      "capacity": 0,
       "power_output": 12,
       "power_source": "wind",
       "construction_cost": [
@@ -912,6 +923,7 @@
       "kind": "generator",
       "description": "High output at a basin edge. Scarce, because the shore is scarce.",
       "icon": "HYD",
+      "capacity": 0,
       "power_output": 24,
       "power_source": "hydro",
       "construction_cost": [
@@ -942,6 +954,7 @@
       "kind": "boiler",
       "description": "Burns fuel and water into steam for an adjacent turbine. Belt water in; this is not a fluid network.",
       "icon": "BLR",
+      "capacity": 24,
       "construction_cost": [
         {
           "item_id": 11,
@@ -970,6 +983,7 @@
       "kind": "generator",
       "description": "Turns an adjacent boiler into the mid-game workhorse. Place it beside the boiler.",
       "icon": "TRB",
+      "capacity": 0,
       "power_output": 48,
       "power_source": "turbine",
       "construction_cost": [
@@ -1023,11 +1037,12 @@
       "key": "extractor-ii",
       "name": "Deep extractor",
       "kind": "extractor",
-      "description": "Reaches two hexes instead of one and works a shade faster. The arm is visible on the map: one deep extractor works a field a ring of shallow ones could not.",
+      "description": "Reaches two hexes instead of one and works twice as fast, which is the moment a machine finally matches your own hands. The arm is visible on the map: one deep extractor works a field a ring of shallow ones could not.",
       "icon": "EX2",
       "tier": 1,
       "cadence": 4,
       "extract_radius": 2,
+      "extract_speed": 200,
       "power_draw": 7,
       "construction_cost": [
         {

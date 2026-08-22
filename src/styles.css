@@ -1259,8 +1259,8 @@ canvas {
 .inspect-stock-row:has(.transfer-controls[hidden]) {
   grid-template-columns: 1fr;
 }
-/* Full amount and half, side by side. The full one keeps the label because it is what the gesture
-   has always meant; half is the increment beside it. */
+/* Full amount, half, and one, side by side. The full one keeps the label because it is what the
+   gesture has always meant; the partials are the increments beside it, and read as quieter. */
 .transfer-controls {
   display: flex;
   flex: none;
@@ -1273,12 +1273,24 @@ canvas {
   padding: 5px 9px;
   font-size: 0.66rem;
 }
-.transfer-half {
+.transfer-half,
+.transfer-one {
   padding: 5px 7px;
   color: var(--muted);
 }
 .withdraw-button[hidden] {
   display: none;
+}
+/* The machine's own switch, sharing the small-button shape with the transfer controls. A stopped
+   machine wears the stop tone, so the button and the status line beside it agree at a glance. */
+.inspect-switch {
+  justify-self: end;
+  white-space: nowrap;
+}
+.inspect-switch.is-off {
+  border-color: #875c57;
+  background: #3a1f1c;
+  color: var(--danger);
 }
 .inspect-hub {
   display: grid;

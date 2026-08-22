@@ -31,6 +31,7 @@ import {
   MOVEMENT_KEYS,
   movementIntent,
 } from "../src/core/input";
+import { SAVE_VERSION } from "../src/core/saveSlots";
 import {
   applyBuildingsPatch,
   applyResourcesPatch,
@@ -336,6 +337,15 @@ describe("bounded host input", () => {
     expect(
       encodeCommand({ type: "store", q: 1, r: 1, item_id: 2, quantity: 7 }),
     ).toEqual({ opcode: 15, args: [1, 1, 2, 7] });
+    // The switch carries the state it wants rather than a flip. Two presses of "off" have to be
+    // one answer, not none — a toggle opcode would make the stream order-dependent and let a
+    // coalesced or replayed pair cancel out.
+    expect(
+      encodeCommand({ type: "set_enabled", q: 3, r: -1, enabled: false }),
+    ).toEqual({ opcode: 17, args: [3, -1, 0] });
+    expect(
+      encodeCommand({ type: "set_enabled", q: 3, r: -1, enabled: true }),
+    ).toEqual({ opcode: 17, args: [3, -1, 1] });
     // An aim carries the world point under the cursor, not a heading: native resolves the facing
     // vector, because facing is a checksum input and normalizing it here would decide one.
     expect(encodeCommand({ type: "aim", x: -4200, y: 1774 })).toEqual({
@@ -628,6 +638,86 @@ describe("bounded host input", () => {
     expect(main).toContain("visibilitychange");
     expect(main).toContain("beforeunload");
     expect(main).toContain("AUTOSAVE_INTERVAL_MS");
+  });
+
+  it("mirrors native's reach and switch rules rather than inventing its own", () => {
+    const main = readFileSync(
+      new URL("../src/main.ts", import.meta.url),
+      "utf8",
+    );
+    const html = readFileSync(
+      new URL("../index.html", import.meta.url),
+      "utf8",
+    );
+    const rust = readFileSync(
+      new URL("../factory-wasm/src/lib.rs", import.meta.url),
+      "utf8",
+    );
+    // Two lists of building kinds exist in both languages, and they decide different things: native
+    // decides whether a transfer happens, the host decides whether a button is drawn. Drifting
+    // apart shows a control that earns a refusal, or hides one that would have worked — neither is
+    // caught by a type. So the host's copies are read back out of the Rust that defines them.
+    const kindsOf = (source: string, fn: string): string[] => {
+      const body = source.slice(
+        source.indexOf(`fn ${fn}(`),
+        source.indexOf("\n    }", source.indexOf(`fn ${fn}(`)),
+      );
+      return [...body.matchAll(/BuildingKind::(\w+)/g)]
+        .map((match) => match[1]!.toLowerCase())
+        .sort();
+    };
+    const setOf = (name: string): string[] => {
+      const body = main.slice(
+        main.indexOf(`const ${name} = new Set<string>([`),
+        main.indexOf("]);", main.indexOf(`const ${name} = new Set<string>([`)),
+      );
+      return [...body.matchAll(/"([a-z]+)"/g)].map((match) => match[1]!).sort();
+    };
+    expect(setOf("HAND_REACHABLE")).toEqual(
+      kindsOf(rust, "stock_is_reachable_by_hand"),
+    );
+    expect(setOf("SWITCHABLE")).toEqual(kindsOf(rust, "can_be_switched"));
+
+    // The switch sends the state it wants, never a flip read off the machine: by the time the
+    // command lands the snapshot may have moved, and a toggle would then land the wrong way up.
+    expect(main).toContain('type: "set_enabled"');
+    expect(main).not.toMatch(/enabled:\s*!/);
+    expect(html).toContain('id="inspect-power-switch"');
+    // Take is offered on whatever the building freely holds. It is safe on a mid-craft machine only
+    // because native keeps reserved inputs in a different map from `inventory` — so the host must
+    // keep reading `inventory` and must never try to net the reservation out itself.
+    const actions = main.slice(
+      main.indexOf("function renderInspectorActions("),
+      main.indexOf("\n}", main.indexOf("function renderInspectorActions(")),
+    );
+    expect(actions).toContain("building?.inventory");
+    expect(actions).not.toMatch(/reserved/);
+  });
+
+  it("keeps the save envelope number the host reports level with native's", () => {
+    // Native does not publish `SAVE_VERSION`, so the host copies it, and a copy drifts silently:
+    // the slot catalog went on advertising 11 after native moved to 12, which makes a save this
+    // build wrote look like one from a build that no longer exists. Read native's back instead.
+    const rust = readFileSync(
+      new URL("../factory-wasm/src/lib.rs", import.meta.url),
+      "utf8",
+    );
+    const declared = rust.match(/const SAVE_VERSION: u16 = (\d+);/);
+    expect(declared).not.toBeNull();
+    expect(SAVE_VERSION).toBe(Number(declared![1]));
+  });
+
+  it("shows the envelope numbers it is actually running, not ones typed into the markup", () => {
+    const main = readFileSync(
+      new URL("../src/main.ts", import.meta.url),
+      "utf8",
+    );
+    const html = readFileSync(
+      new URL("../index.html", import.meta.url),
+      "utf8",
+    );
+    expect(html).toContain('id="title-envelope-info"></span>');
+    expect(main).toContain('required<HTMLElement>("title-envelope-info")');
   });
 });
 

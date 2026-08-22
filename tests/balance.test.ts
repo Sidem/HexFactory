@@ -222,7 +222,21 @@ describe("the economy's stated curve", () => {
       if (!building) continue;
       expect(machine.power_draw).toBe(building.power_draw ?? 0);
       if (machine.recipe === null) {
-        expect(machine.ticks_per_cycle).toBe(building.cadence ?? 1);
+        // An extractor's cycle comes from the material, scaled by the building's own speed; a
+        // pump still runs on its cadence, because water has no per-material figure.
+        const dug = catalogue.items.find(
+          ({ key }) => key === machine.output_item,
+        );
+        const steps =
+          building.kind === "extractor" ? dug?.extract_steps : undefined;
+        if (steps !== undefined) {
+          const speed = building.extract_speed ?? 100;
+          expect(machine.ticks_per_cycle).toBe(
+            Math.max(1, Math.ceil((steps * 100) / speed)),
+          );
+        } else {
+          expect(machine.ticks_per_cycle).toBe(building.cadence ?? 1);
+        }
         expect(machine.output_per_cycle).toBe(1);
       } else {
         const recipe = catalogue.recipes.find(
@@ -362,30 +376,63 @@ describe("the economy's stated curve", () => {
   });
 
   it("prices the player's own hands against the machine that replaces them", () => {
-    const extractor = fixture.machines.find(
-      ({ building }) => building === "extractor",
-    );
-    const wood = fixture.reference.hand_gathers.find(
-      ({ item }) => item === "wood",
-    );
-    expect(wood, "wood is the fastest hand").toBeDefined();
-    expect(extractor?.per_minute_milli).toBe(
-      (wood?.items_per_minute ?? 0) * 1000,
-    );
+    // The rule this pins is the reverse of the one v0.23 shipped. A tier-one extractor is *half*
+    // the hand on the same material, and the deep extractor is what finally draws level. The
+    // trade an extractor offers is no longer speed, it is that it works while the player is
+    // somewhere else — which is what makes automation a question of how many you can afford.
+    const rateFor = (building: string, item: string) =>
+      fixture.machines.find(
+        (machine) =>
+          machine.building === building && machine.output_item === item,
+      )?.per_minute_milli ?? 0;
+
     for (const gather of fixture.reference.hand_gathers) {
+      const hand = gather.items_per_minute * 1000;
+      const tierOne = rateFor("extractor", gather.item);
+      const deep = rateFor("extractor-ii", gather.item);
       expect(
-        extractor?.per_minute_milli ?? 0,
-        `${gather.item} must not outrun the extractor`,
-      ).toBeGreaterThanOrEqual(gather.items_per_minute * 1000);
+        tierOne,
+        `${gather.item} needs a tier-one extractor row`,
+      ).toBeGreaterThan(0);
+      expect(deep, `${gather.item} needs a deep extractor row`).toBeGreaterThan(
+        0,
+      );
+      // Half, within the rounding a whole number of ticks allows: sand and clay want 13.33 ticks
+      // and get 13, which is the only place the ladder is not exact.
+      expect(
+        tierOne,
+        `${gather.item} tier one is half the hand`,
+      ).toBeGreaterThan(hand * 0.45);
+      expect(tierOne, `${gather.item} tier one is half the hand`).toBeLessThan(
+        hand * 0.55,
+      );
+      // The upgrade is what reaches the hand, and it may pass it.
+      expect(deep, `${gather.item} deep extractor draws level`).toBeGreaterThan(
+        hand * 0.94,
+      );
+      expect(
+        deep / tierOne,
+        `${gather.item} deep is twice tier one`,
+      ).toBeGreaterThan(1.8);
       expect(
         (60 * fixture.reference.player_ticks_per_second) / gather.steps,
       ).toBe(gather.items_per_minute);
     }
+
+    // Crystal is the one material with an extraction rate and no hand rate at all, and it is the
+    // slowest thing an extractor digs: twice the ore it sits beside in the highland.
     expect(
       fixture.reference.hand_gathers.some(({ item }) => item === "crystal"),
     ).toBe(false);
-    // The fastest hand is still the wood/extractor ceiling, written down beside the factory rate
-    // the speed control does move.
+    expect(rateFor("extractor", "crystal")).toBeGreaterThan(0);
+    expect(rateFor("extractor", "crystal") * 2).toBe(
+      rateFor("extractor", "ore"),
+    );
+
+    const wood = fixture.reference.hand_gathers.find(
+      ({ item }) => item === "wood",
+    );
+    expect(wood, "wood is the fastest hand").toBeDefined();
     expect(fixture.reference.gather_cooldown_steps).toBe(wood?.steps);
     expect(fixture.reference.hand_items_per_minute).toBe(
       wood?.items_per_minute,

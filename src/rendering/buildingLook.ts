@@ -371,6 +371,11 @@ function drawShape(
  *
  * `no power` and `brownout` are deliberately absent: they already read as a dimmed machine, and a
  * second mark for the same cause would be noise.
+ *
+ * `switched off` is the one mark that is not a problem. It is here for the same reason as the rest —
+ * a stopped machine that drew like a running one is what the table exists to fix — and it takes the
+ * grey the other "nothing is wrong, there is simply nothing to do" causes take, so a field of
+ * deliberately-idle machines does not read as a factory on fire.
  */
 export const STALL_MARKS: Record<string, string> = {
   "waiting for inputs": "#f5d572",
@@ -379,6 +384,7 @@ export const STALL_MARKS: Record<string, string> = {
   "output blocked": "#ff6b5e",
   "deposit depleted": "#9aa7a2",
   "no water in reach": "#9aa7a2",
+  "switched off": "#9aa7a2",
 };
 
 export function stallMark(status: string): string | undefined {

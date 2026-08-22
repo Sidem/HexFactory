@@ -122,6 +122,9 @@ const STATUS_TONE: Record<string, "live" | "wait" | "stop" | "hub"> = {
   brownout: "stop",
   "no water in reach": "stop",
   "no boiler": "stop",
+  // A stop the player chose reads the same as one the factory fell into, because it is the same
+  // fact: this machine is not working. What differs is the fix, and the toggle beside it says so.
+  "switched off": "stop",
   "landing hub": "hub",
 };
 /**
@@ -1350,11 +1353,16 @@ type TransferDirection = keyof typeof TRANSFER;
  * both and would otherwise be written twice.
  *
  * The full amount stays the default, because it is what the gesture meant before and what it means
- * now; half is a second button beside it. Native already carries a quantity on `store` and
- * `withdraw`, already clamps it to what the container holds, to what the player can still carry,
+ * now; half and one are further buttons beside it. Native already carries a quantity on `store` and
+ * `withdraw`, already clamps it to what the building holds, to what the player can still carry,
  * and to what there is room for, and already reports how much actually moved — the host has only
  * ever sent the maximum. So this adds a number to a command that has always taken one, and no rule
  * about capacity moves to the host.
+ *
+ * Single is the one amount none of the others can express. Half of three is two, and full is three;
+ * a player topping a firebox up by one lump, or pulling one plate off a pile to see what it is, had
+ * no control that meant one. Both partial buttons hide when they would only repeat a neighbour:
+ * half of one is the whole pile, and of two, half is already one.
  *
  * Patched in place like every list that carries a control: a `replaceChildren` here would drop the
  * press between pointerdown and pointerup.
@@ -1384,7 +1392,11 @@ function renderTransferRows(
       half.type = "button";
       half.className = "withdraw-button transfer-half";
       half.textContent = "½";
-      controls.append(all, half);
+      const one = document.createElement("button");
+      one.type = "button";
+      one.className = "withdraw-button transfer-one";
+      one.textContent = "1";
+      controls.append(all, half, one);
       row.append(holder, controls);
       return row;
     },
@@ -1402,14 +1414,18 @@ function renderTransferRows(
       "button",
     )) {
       const half = button.classList.contains("transfer-half");
-      const amount = half ? halfTransfer(quantity) : quantity;
+      const one = button.classList.contains("transfer-one");
+      const amount = half ? halfTransfer(quantity) : one ? 1 : quantity;
       button.dataset.direction = direction;
       button.dataset.itemId = String(item_id);
       button.dataset.quantity = String(amount);
       button.dataset.q = String(building?.q ?? 0);
       button.dataset.r = String(building?.r ?? 0);
-      button.hidden = half && quantity < 2;
-      if (!half) button.textContent = label;
+      // Hidden rather than disabled: a control that would move exactly what the button beside it
+      // moves is not a lesser option, it is the same option twice. Of two, half is already one, so
+      // the single button only earns its place from three up.
+      button.hidden = half ? quantity < 2 : one && quantity < 3;
+      if (!half && !one) button.textContent = label;
       button.setAttribute(
         "aria-label",
         `${label} ${amount} ${name} ${describe}`,
@@ -1420,8 +1436,29 @@ function renderTransferRows(
 }
 
 /**
- * What the inspected hex is holding. A composer still shows its reserved inputs, but only a
- * container grows a Take — reserved inputs belong to the job that reserved them.
+ * The kinds a hand can reach into, mirroring `stock_is_reachable_by_hand` in the core.
+ *
+ * A copy of a native rule, and deliberately so: this decides whether a button is drawn, native
+ * decides whether the transfer happens, and native is the authority. Getting this list wrong shows
+ * a control that earns a refusal — a cosmetic bug. Leaving it out would show one on every belt.
+ */
+const HAND_REACHABLE = new Set<string>([
+  "container",
+  "composer",
+  "generator",
+  "boiler",
+]);
+
+/**
+ * What the inspected hex is holding, and what the hand can take back out of it.
+ *
+ * Take used to belong to containers alone, which made a burner a one-way slot: fuel went in and
+ * only demolition got it back. Every kind that holds stock the player can see now grows the
+ * control, because seeing stock you cannot touch is the part that read as a bug.
+ *
+ * A composer still shows its reserved inputs and still will not hand them back — but that costs no
+ * rule here, because native keeps reserved inputs in a different map from `inventory`. What this
+ * list shows is free stock, so what it offers is exactly what native will give.
  */
 function renderInspectorActions(building: EntitySnapshot | undefined): void {
   const stored = building?.inventory ?? [];
@@ -1431,17 +1468,24 @@ function renderInspectorActions(building: EntitySnapshot | undefined): void {
     stored,
     "take",
     building,
-    building?.kind === "container",
+    HAND_REACHABLE.has(building?.kind ?? ""),
   );
 }
 
 /**
- * What the player can put in, so moving stock into a box is the same gesture as taking it out and
- * sits directly beneath it.
+ * What the player can put in, so moving stock into a machine is the same gesture as taking it out
+ * and sits directly beneath it.
+ *
+ * Filtered to what the building has a use for, because a pack of twenty item types against a
+ * firebox that burns two of them is a list the player has to read rather than act on. The filter is
+ * a courtesy and not a rule — native refuses the rest anyway, and says which reason it refused for.
  */
 function renderInspectorLoad(building: EntitySnapshot | undefined): void {
-  const carried =
-    building?.kind === "container" ? snapshot.player.carry_stacks : [];
+  const carried = HAND_REACHABLE.has(building?.kind ?? "")
+    ? snapshot.player.carry_stacks.filter(({ item_id }) =>
+        acceptsByHand(building, item_id),
+      )
+    : [];
   // One row per item, not one per stack: a Put moves everything of that item that fits.
   const totals = new Map<number, number>();
   for (const { item_id, quantity } of carried)
@@ -1455,6 +1499,47 @@ function renderInspectorLoad(building: EntitySnapshot | undefined): void {
     "put",
     building,
     true,
+  );
+}
+
+/**
+ * Whether this building has any use for this item, mirroring `accepts_item` in the core.
+ *
+ * A container takes anything. A firebox takes fuel — and only a burner has one, which is why a wind
+ * turbine offers nothing however much coal the player is carrying. A machine takes the inputs of
+ * the recipe it is currently set to, and nothing else: an unset composer is a machine with no job,
+ * so there is nothing it is waiting for.
+ */
+function acceptsByHand(
+  building: EntitySnapshot | undefined,
+  itemId: number,
+): boolean {
+  if (!building) return false;
+  if (building.kind === "container") return true;
+  const burnable = Boolean(itemById(itemId)?.fuel_value);
+  if (building.kind === "generator" || building.kind === "boiler") {
+    const definition = host.definitions.buildings.find(
+      ({ id }) => id === building.definition_id,
+    );
+    // A plant with a power source that is not a firebox has nowhere to put fuel at all.
+    const firebox =
+      definition?.power_source === undefined ||
+      definition.power_source === "burner";
+    // And a boiler drinks, which is the one thing it takes that it does not burn.
+    const drinks =
+      building.kind === "boiler" && itemById(itemId)?.key === "water";
+    return (firebox && burnable) || drinks;
+  }
+  if (building.recipe_id === undefined || building.recipe_id === null)
+    return false;
+  const recipe = host.definitions.recipes.find(
+    ({ id }) => id === building.recipe_id,
+  );
+  // Fuel counts for a machine that burns as well as crafts, on the same reasoning as the plant:
+  // it is not in `inputs`, so a recipe that needs heat has to admit fuel some other way.
+  return (
+    (recipe?.inputs ?? []).some(({ item_id }) => item_id === itemId) ||
+    (burnable && (recipe?.fuel ?? 0) > 0)
   );
 }
 
@@ -1648,6 +1733,7 @@ function renderInspector(): void {
       DIRECTION_NAMES[building.orientation] ?? `Facing ${building.orientation}`;
     required<HTMLElement>("inspect-protected").hidden =
       !building.scenario_owned;
+    renderInspectorSwitch(building);
     const cargo = required<HTMLElement>("inspect-cargo");
     cargo.hidden = !building.cargo;
     if (building.cargo)
@@ -1726,6 +1812,52 @@ function renderInspectorHub(building: EntitySnapshot | undefined): void {
       ? `Deliver ${request.required} ${request.name} to earn insight`
       : `You need ${request.required - carried} more ${request.name} in your pack`;
   });
+}
+
+/**
+ * The kinds that have work a switch can suspend, mirroring `can_be_switched` in the core. A belt is
+ * a lane, a container a shelf, a pole a wire — none of them consume, produce, or burn, so a toggle
+ * on them would be a control that changes nothing.
+ */
+const SWITCHABLE = new Set<string>([
+  "extractor",
+  "pump",
+  "composer",
+  "generator",
+  "boiler",
+]);
+
+/**
+ * The manual on/off switch for a working machine.
+ *
+ * A burner with coal in it burns that coal whether or not anything downstream wants the power, so
+ * "stop this while I rebuild the line it feeds" had exactly one answer before: demolish it and pay
+ * to rebuild. This is the other answer. Off is total and free — no work, no draw, no fuel — and it
+ * keeps everything the machine was holding, so switching back on resumes rather than restarts.
+ *
+ * The button reads its current state off `status` rather than off a flag of its own, because native
+ * already publishes `switched off` as the machine's status and a second source would be a second
+ * thing to get out of step. What it sends is the state it wants, not a flip, so a doubled press
+ * settles instead of cancelling.
+ */
+function renderInspectorSwitch(building: EntitySnapshot | undefined): void {
+  const button = required<HTMLButtonElement>("inspect-power-switch");
+  // Protected objects are protected here too — native refuses, so the host does not offer.
+  const switchable =
+    Boolean(building) &&
+    SWITCHABLE.has(building?.kind ?? "") &&
+    !building?.scenario_owned;
+  button.hidden = !switchable;
+  if (!switchable || !building) return;
+  const off = building.status === "switched off";
+  button.dataset.q = String(building.q);
+  button.dataset.r = String(building.r);
+  button.dataset.enable = off ? "1" : "0";
+  button.classList.toggle("is-off", off);
+  button.textContent = off ? "Switch on" : "Switch off";
+  button.title = off
+    ? "Resume this machine — it keeps everything it was holding"
+    : "Stop this machine without losing its stock, progress, or charge";
 }
 
 /**
@@ -2756,8 +2888,23 @@ required<HTMLButtonElement>("inspect-upgrade").addEventListener(
     });
   },
 );
+required<HTMLButtonElement>("inspect-power-switch").addEventListener(
+  "click",
+  (event) => {
+    const button = event.currentTarget as HTMLButtonElement;
+    enqueue({
+      type: "set_enabled",
+      q: Number(button.dataset.q),
+      r: Number(button.dataset.r),
+      // The state the press is asking for, read off the button rather than off the machine: by the
+      // time this lands the snapshot may have moved, and a flip would then land the wrong way up.
+      enabled: button.dataset.enable === "1",
+    });
+  },
+);
 // One listener for both lists, because the row that raised the press already says which way the
-// stock is moving. The button carries the amount, so the full and half controls are the same path.
+// stock is moving. The button carries the amount, so the full, half, and single controls are one
+// path.
 for (const id of ["inspector-actions", "inspector-load"])
   required<HTMLDivElement>(id).addEventListener("click", (event) => {
     const button = (event.target as Element).closest<HTMLButtonElement>(
@@ -3474,6 +3621,10 @@ function updateContinueState(message?: string): void {
   titleSavesBadge.textContent = String(slots.length);
   renderSaveSlots(slots, build);
   renderTitleSaveSlots(slots, build);
+  // Read off the build rather than typed into the markup. The literal in index.html still said
+  // "Definitions 11" two catalog bumps later, because nothing was keeping it honest.
+  required<HTMLElement>("title-envelope-info").textContent =
+    `Save ${build.versions.save} · Definitions ${build.versions.definitions} · World ${build.versions.world}`;
   const importedNote =
     imported > 0
       ? `Imported ${imported} previous run${imported === 1 ? "" : "s"} from an older slot. `
