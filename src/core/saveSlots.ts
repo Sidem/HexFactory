@@ -7,10 +7,11 @@
  * `SAVE_VERSION` is the one literal because native does not publish it. Keep it aligned with
  * `factory-wasm/src/lib.rs`. v11 carries `request_fills` beside `request_rounds`; v12 carries
  * `disabled` on every entity, so a factory saved with a machine switched off comes back switched
- * off rather than quietly resuming.
+ * off rather than quietly resuming. v13 carries the creative flag and the pack size, which a
+ * creative run can widen — both are run state now rather than fixed properties of the scenario.
  */
 
-export const SAVE_VERSION = 12;
+export const SAVE_VERSION = 13;
 export const SAVE_CATALOG_KEY = "hexfactory:saves:v1";
 export const LEGACY_SAVE_PREFIX = "hexfactory:hxf1:";
 export const HXF1_PREFIX = "HXF1\n";

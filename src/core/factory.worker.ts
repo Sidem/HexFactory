@@ -61,6 +61,7 @@ async function handle(request: WorkerRequest): Promise<unknown> {
       String(payload.scenario ?? "new-game"),
       undefined,
       worldParamsJson(payload.worldParams),
+      payload.creative === true,
     ) as NativeFactory;
     return {
       snapshot: JSON.parse(native.snapshot_json()) as FactorySnapshot,
@@ -92,6 +93,7 @@ async function handle(request: WorkerRequest): Promise<unknown> {
         String(payload.scenario ?? "new-game"),
         optionalNumber(payload.seed),
         worldParamsJson(payload.worldParams),
+        payload.creative === true,
       );
       return delta(factory);
     case "worldParams":

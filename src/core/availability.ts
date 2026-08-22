@@ -62,7 +62,11 @@ export function buildingAvailability(
     building.unlock_technology_id !== undefined &&
     !snapshot.researched.includes(building.unlock_technology_id);
   const cost = costLines(building.construction_cost, snapshot);
-  const affordable = cost.every(({ shortfall }) => shortfall === 0);
+  // A creative run is charged nothing, so nothing is ever short. The bill is still listed — it is
+  // what the building would cost in a priced run, which is the number somebody testing a layout
+  // wants to see — but reading it as a refusal would contradict the placement native will allow.
+  const affordable =
+    snapshot.player.creative || cost.every(({ shortfall }) => shortfall === 0);
   const costLabel = building.construction_cost.length
     ? building.construction_cost
         .map(({ item_id, quantity }) => {

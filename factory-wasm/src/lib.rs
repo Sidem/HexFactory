@@ -49,7 +49,13 @@ const SAVE_PREFIX: &str = "HXF1\n";
 /// fill should decay the payout, so `request_fills` is saved and checksummed beside `request_rounds`.
 /// A version-10 envelope has no fill count, and treating its rounds as fills would turn a pass into
 /// a two-insight survey.
-const SAVE_VERSION: u16 = 12;
+///
+/// Bumped to 13 for Creative Mode. Whether a run is creative, and how many slots the pack has been
+/// widened to, are both facts about that run rather than about its scenario: creative builds for
+/// free and can raise its own carrying capacity, so both are saved and checksummed. A version-12
+/// envelope carries neither, and reading one as an ordinary run would hand a creative save back
+/// with its pack silently narrowed to the scenario's number.
+const SAVE_VERSION: u16 = 13;
 /// Bumped to 6 for World Parameters. `WorldParams` is now part of a run's identity — it is in the
 /// save envelope and in the checksum — so a version-5 envelope carries no answer to the question
 /// "which world is this" and is rejected rather than assumed to be the default.
@@ -66,6 +72,11 @@ const MAX_COMMANDS_PER_BATCH: usize = 8;
 const MAX_LINE_CELLS: usize = 32;
 /// How many constructions back one session can be taken. Derived state, so it costs nothing saved.
 const MAX_UNDO_DEPTH: usize = 64;
+/// The widest a pack may ever be. Creative mode lets a player raise their own carrying capacity, so
+/// the ceiling lives here rather than in the host: a slot count arrives as a command like anything
+/// else, and an unbounded one would be a host-chosen number in the checksum and a host-chosen number
+/// of cells for the host to draw.
+const MAX_CARRY_SLOTS: u32 = 240;
 const GRAPH_TRACE_LIMIT: i32 = 8;
 /// The six hex edges: east, then clockwise. This is the *adjacency* table. Power reach, boiler and
 /// turbine neighbours, and every "what is next to this hex" question use it and only it.
@@ -713,6 +724,10 @@ struct PlayerSnapshot {
     action_cooldown_total: u32,
     /// What the hand can gather, in hexes. Published so its held-action ring is native truth.
     extract_radius: u32,
+    /// Whether this run is creative. It rides with the player because it is a fact about what the
+    /// player may spend and carry, and because the host needs it in the same breath as `carry_slots`
+    /// to decide whether to draw prices, refunds, and the creative panel's controls at all.
+    creative: bool,
 }
 
 #[derive(Clone, Copy, Debug, Serialize, PartialEq, Eq)]
@@ -1295,6 +1310,35 @@ enum InputCommand {
     SkipRequest {
         slot: usize,
     },
+    /// Turn creative mode on, or back off. Carried rather than toggled, for the same reason
+    /// `SetEnabled` is: a press that arrives twice lands on the same answer.
+    ///
+    /// Turning it on researches everything, permanently — a technology is a thing the settlement
+    /// knows, and creative teaching it then leaving does not unteach it. Turning it back off
+    /// restores the prices and the refunds, so a run can be set up in creative and then played.
+    SetCreative {
+        enabled: bool,
+    },
+    /// Put an item straight into the pack, out of nowhere. Creative only, and bounded by the pack
+    /// like every other way stock arrives: what will not fit is not granted.
+    Grant {
+        item_id: ItemId,
+        quantity: u32,
+    },
+    /// Take an item straight back out of the pack and destroy it. Creative only. `item_id: None`
+    /// empties the pack entirely, mirroring `Deposit`, so clearing it is one command rather than one
+    /// per stack against a batch that holds eight.
+    Discard {
+        #[serde(default)]
+        item_id: Option<ItemId>,
+        #[serde(default)]
+        quantity: u32,
+    },
+    /// Widen or narrow the pack. Creative only, bounded by the scenario's own number below and
+    /// `MAX_CARRY_SLOTS` above, and refused outright while it would strand stock already carried.
+    SetCarrySlots {
+        slots: u32,
+    },
 }
 
 struct Core {
@@ -1336,6 +1380,15 @@ struct Core {
     /// Capacity harness only: consumers run at full speed so the ladder still measures transport.
     power_unmetered: bool,
     player: PlayerState,
+    /// Whether this run builds for free with everything unlocked. Saved and checksummed: it changes
+    /// what a construction costs and what an erase gives back, so two runs that differ only in this
+    /// are not the same run, and a save that lost it would come back priced.
+    ///
+    /// It is deliberately narrow. Creative changes what the *player* may spend and carry; it does
+    /// not touch power, recipe timing, belt throughput, machine behaviour, or what the hub pays. A
+    /// factory built in creative runs exactly as one built in a priced run does, which is the whole
+    /// point of testing in it.
+    creative: bool,
     researched: BTreeSet<TechnologyId>,
     next_entity_id: u32,
     tick: u64,
@@ -1454,6 +1507,7 @@ impl Core {
                 build_range: scenario.build_range.saturating_mul(HEX_X as u32),
                 carry_slots: scenario.carry_slots,
             },
+            creative: false,
             researched: scenario.initial_researched.iter().copied().collect(),
             next_entity_id: 1,
             tick: 0,
@@ -1559,6 +1613,7 @@ impl Core {
             radius: PLAYER_RADIUS,
             action_cooldown_total: cooldown_total,
             extract_radius: EXTRACT_RADIUS as u32,
+            creative: self.creative,
         }
     }
 
@@ -1603,6 +1658,119 @@ impl Core {
             filled => stack - filled,
         };
         partial.saturating_add(free_slots.saturating_mul(stack))
+    }
+
+    /// Turn creative mode on or off.
+    ///
+    /// Switching it on researches the whole tree. That is the entire implementation of "everything
+    /// is unlocked": every gate in this file — `technology_met`, `category_unlocked`,
+    /// `placement_legality`, and the availability the host draws its build panel from — already asks
+    /// `researched`, so teaching the settlement everything unlocks all of it through the paths the
+    /// ordinary game uses rather than through a second set of creative-only exceptions.
+    ///
+    /// What is learned stays learned when creative is switched back off, the way a Minecraft world
+    /// keeps what was built in creative. Prices and refunds do come back, so a run can be laid out
+    /// in creative and then played for real.
+    fn set_creative(&mut self, enabled: bool) {
+        if self.creative == enabled {
+            return;
+        }
+        self.creative = enabled;
+        if enabled {
+            let known = self.researched.len();
+            for technology in &self.technologies.technologies {
+                self.researched.insert(technology.id);
+            }
+            if self.researched.len() != known {
+                self.refill_requests();
+            }
+            self.events.push("Creative mode on".into());
+        } else {
+            self.events.push("Creative mode off".into());
+        }
+    }
+
+    /// Put an item into the pack out of nowhere. Creative only.
+    ///
+    /// Capacity still applies. A grant that would overflow the pack is trimmed to what fits rather
+    /// than refused outright, so holding the button on a full pack tops it up and stops, and the
+    /// carrying rule stays the one thing every route into the inventory obeys.
+    fn grant(&mut self, item_id: ItemId, quantity: u32) -> Result<(), String> {
+        if !self.creative {
+            return Err("granting items needs creative mode".into());
+        }
+        if self.item_definition(item_id).is_none() {
+            return Err("unknown item".into());
+        }
+        let room = self.player_room_for(item_id);
+        let granted = quantity.min(room);
+        if granted == 0 {
+            return Err("no room to carry that".into());
+        }
+        *self.player.inventory.entry(item_id).or_default() += granted;
+        let name = self
+            .item_definition(item_id)
+            .map(|definition| definition.name.clone())
+            .unwrap_or_default();
+        self.events.push(format!("Granted {granted} {name}"));
+        Ok(())
+    }
+
+    /// Destroy carried stock. Creative only. `item_id: None` empties the pack.
+    fn discard(&mut self, item_id: Option<ItemId>, quantity: u32) -> Result<(), String> {
+        if !self.creative {
+            return Err("discarding items needs creative mode".into());
+        }
+        let Some(item_id) = item_id else {
+            if self.player.inventory.is_empty() {
+                return Err("nothing to discard".into());
+            }
+            self.player.inventory.clear();
+            self.events.push("Pack cleared".into());
+            return Ok(());
+        };
+        let held = self.player.inventory.get(&item_id).copied().unwrap_or(0);
+        if held == 0 {
+            return Err("nothing to discard".into());
+        }
+        // A quantity of zero means the whole stack, so the host can offer "drop all of this" without
+        // first having to read back how much of it is held.
+        let dropped = if quantity == 0 {
+            held
+        } else {
+            quantity.min(held)
+        };
+        subtract_item(&mut self.player.inventory, item_id, dropped);
+        let name = self
+            .item_definition(item_id)
+            .map(|definition| definition.name.clone())
+            .unwrap_or_default();
+        self.events.push(format!("Discarded {dropped} {name}"));
+        Ok(())
+    }
+
+    /// Widen or narrow the pack. Creative only.
+    ///
+    /// The scenario's own number is the floor: creative may hand out room, never take away room the
+    /// run was designed with. `MAX_CARRY_SLOTS` is the ceiling. Narrowing below what is already
+    /// carried is refused rather than dropping the difference, because there is no honest place for
+    /// stranded stock to go.
+    fn set_carry_slots(&mut self, slots: u32) -> Result<(), String> {
+        if !self.creative {
+            return Err("resizing the pack needs creative mode".into());
+        }
+        if slots < self.scenario.carry_slots || slots > MAX_CARRY_SLOTS {
+            return Err("that pack size is out of range".into());
+        }
+        if slots < self.slots_used(&self.player.inventory) {
+            return Err("too much carried for a pack that small".into());
+        }
+        if slots == self.player.carry_slots {
+            return Ok(());
+        }
+        self.player.carry_slots = slots;
+        self.events.push(format!("Pack resized to {slots} slots"));
+        Ok(())
     }
 
     fn footprint_for(&self, placed: PlacedBuilding, orientation: u8) -> Vec<Coordinate> {
@@ -3853,7 +4021,10 @@ impl Core {
                 ));
             }
         }
-        if check_cost {
+        // Creative builds for free, so it is asked for nothing. Every other rule above still
+        // applies — terrain, footprint, overlap, reach, orientation — because a creative layout that
+        // could not be built in a priced run would be no use as a test of one.
+        if check_cost && !self.creative {
             let missing: Vec<String> = definition
                 .construction_cost
                 .iter()
@@ -3894,12 +4065,14 @@ impl Core {
         self.ensure_neighborhood(x, y);
         self.placement_legality(q, r, definition_id, orientation, recipe_id, true)?;
         let definition = self.building_definition(definition_id).unwrap().clone();
-        for ingredient in &definition.construction_cost {
-            subtract_item(
-                &mut self.player.inventory,
-                ingredient.item_id,
-                ingredient.quantity,
-            );
+        if !self.creative {
+            for ingredient in &definition.construction_cost {
+                subtract_item(
+                    &mut self.player.inventory,
+                    ingredient.item_id,
+                    ingredient.quantity,
+                );
+            }
         }
         let id = self.next_entity_id;
         let placed = PlacedBuilding {
@@ -4211,7 +4384,15 @@ impl Core {
     /// Everything erasing this entity hands back: its construction cost, its stored inventory, its
     /// reserved recipe inputs, and any cargo in transit through it. Resolved before the removal so
     /// the carrying check and the refund cannot describe different things.
+    ///
+    /// Creative recovers nothing. Building costs nothing there, so there is nothing owed back, and a
+    /// refund that could not fit is the one thing that makes an erase *fail* — a creative player
+    /// clearing a full factory would be stopped by their own pack. One rule here covers every route:
+    /// single erase, drag erase, the drag's preview, and undo.
     fn erase_refund(&self, index: usize) -> BTreeMap<ItemId, u32> {
+        if self.creative {
+            return BTreeMap::new();
+        }
         let entity = &self.entities[index];
         let mut refund = BTreeMap::new();
         if let Some(definition) = self.building_definition(entity.placed.definition_id) {
@@ -4351,9 +4532,14 @@ impl Core {
         // upgrading with a full pack is charged the difference and asked to carry the difference,
         // which is what an in-place edit actually costs them.
         let mut charge: BTreeMap<ItemId, u32> = BTreeMap::new();
-        add_ingredients(&mut charge, &next.construction_cost);
         let mut credit: BTreeMap<ItemId, u32> = BTreeMap::new();
-        add_ingredients(&mut credit, &refund);
+        // Creative is neither billed nor credited, so both halves of the netting stay empty and the
+        // step below moves nothing through the pack — the same answer `place` and `erase_refund`
+        // give, so walking a ladder up and erasing at the top still balances at zero.
+        if !self.creative {
+            add_ingredients(&mut charge, &next.construction_cost);
+            add_ingredients(&mut credit, &refund);
+        }
         let mut owed: BTreeMap<ItemId, u32> = BTreeMap::new();
         let mut back: BTreeMap<ItemId, u32> = BTreeMap::new();
         for item_id in charge
@@ -4699,6 +4885,13 @@ impl Core {
                 InputCommand::Undo => self.undo(),
                 InputCommand::Research { technology_id } => self.research(technology_id),
                 InputCommand::SkipRequest { slot } => self.skip_request(slot),
+                InputCommand::SetCreative { enabled } => {
+                    self.set_creative(enabled);
+                    Ok(())
+                }
+                InputCommand::Grant { item_id, quantity } => self.grant(item_id, quantity),
+                InputCommand::Discard { item_id, quantity } => self.discard(item_id, quantity),
+                InputCommand::SetCarrySlots { slots } => self.set_carry_slots(slots),
             };
             if let Err(error) = result {
                 self.events.push(error);
@@ -5057,6 +5250,11 @@ impl Core {
         hash_i32(&mut hash, i32::from(self.player.move_x));
         hash_i32(&mut hash, i32::from(self.player.move_y));
         hash_u32(&mut hash, self.player.action_cooldown);
+        // Both of these are now run state rather than scenario state: creative changes what a
+        // construction costs, and creative can widen the pack. A save that carried either without
+        // hashing it could come back describing a different run than the one that was saved.
+        hash_u32(&mut hash, self.player.carry_slots);
+        hash_u32(&mut hash, u32::from(self.creative));
         for (&item, &quantity) in &self.player.inventory {
             hash_u32(&mut hash, u32::from(item));
             hash_u32(&mut hash, quantity);
@@ -5158,6 +5356,7 @@ impl Core {
             request_rounds: self.request_rounds.clone(),
             request_fills: self.request_fills.clone(),
             produced: self.produced.clone(),
+            creative: self.creative,
         };
         let envelope = SaveEnvelope {
             save_version: SAVE_VERSION,
@@ -5245,6 +5444,10 @@ impl Core {
         core.entities.sort_by_key(|entity| entity.id);
         core.player = envelope.state.player;
         core.researched = envelope.state.researched;
+        // Restored directly rather than through set_creative: the saved esearched set is
+        // already the whole truth about what this run knows, and re-running the unlock would be a
+        // second author for a value the checksum below is about to check.
+        core.creative = envelope.state.creative;
         core.next_entity_id = envelope.state.next_entity_id;
         core.tick = envelope.state.tick;
         core.delivered = envelope.state.delivered;
@@ -5308,6 +5511,9 @@ struct SavedState {
     #[serde(default)]
     request_fills: BTreeMap<RequestId, u32>,
     produced: BTreeMap<ItemId, u64>,
+    /// Whether the run was creative. Checksummed like the rest of this struct, so it cannot be
+    /// edited out of a file to turn a creative run back into a priced one.
+    creative: bool,
 }
 
 /// The snapshot state the host was last sent, retained so the next delta can be built from the
@@ -5504,6 +5710,7 @@ impl Factory {
         scenario_key: &str,
         seed_override: Option<u32>,
         world_params_json: Option<String>,
+        creative: Option<bool>,
     ) -> Result<Factory, JsValue> {
         let definitions: DefinitionsInput = parse_json(definitions_json)?;
         let technologies: TechnologiesInput = parse_json(technologies_json)?;
@@ -5515,7 +5722,7 @@ impl Factory {
             .find(|scenario| scenario.key == scenario_key)
             .ok_or_else(|| js_error(format!("unknown scenario {scenario_key}")))?;
         let world_params = parse_world_params(world_params_json.as_deref())?;
-        let core = Core::new(
+        let mut core = Core::new(
             &definitions,
             &technologies,
             scenario,
@@ -5523,6 +5730,10 @@ impl Factory {
             world_params,
         )
         .map_err(js_error)?;
+        // Set after construction rather than threaded through Core::new: creative is a switch the
+        // run can throw at any time, so the opening state is the same thing as throwing it on tick
+        // zero and there is one implementation of what creative does rather than two.
+        core.set_creative(creative.unwrap_or(false));
         Ok(Factory {
             definitions,
             technologies,
@@ -5538,6 +5749,9 @@ impl Factory {
     }
 
     pub fn reset(&mut self) -> Result<(), JsValue> {
+        // Reset restarts the run, not the mode: a creative sandbox that came back priced would be
+        // the one button a creative player cannot press.
+        let creative = self.core.creative;
         self.core = Core::new(
             &self.definitions,
             &self.technologies,
@@ -5546,6 +5760,7 @@ impl Factory {
             Some(self.core.world_params.clone()),
         )
         .map_err(js_error)?;
+        self.core.set_creative(creative);
         // The core the baseline described is gone, so the next delta is a complete replacement.
         self.baseline = None;
         Ok(())
@@ -5556,6 +5771,7 @@ impl Factory {
         scenario_key: &str,
         seed_override: Option<u32>,
         world_params_json: Option<String>,
+        creative: Option<bool>,
     ) -> Result<(), JsValue> {
         let scenario = self
             .scenarios
@@ -5572,6 +5788,7 @@ impl Factory {
             world_params,
         )
         .map_err(js_error)?;
+        self.core.set_creative(creative.unwrap_or(false));
         self.baseline = None;
         Ok(())
     }
@@ -6338,7 +6555,12 @@ fn validate_saved_state(
         || !(-1000..=1000).contains(&state.player.move_x)
         || !(-1000..=1000).contains(&state.player.move_y)
         || state.player.build_range != scenario.build_range.saturating_mul(HEX_X as u32)
-        || state.player.carry_slots != scenario.carry_slots
+        // A range rather than an equality now: creative may widen the pack, so the scenario's number
+        // is the floor a save may not go under and `MAX_CARRY_SLOTS` is the ceiling it may not go
+        // over. Which value inside that range is right for this run is the checksum's answer, not
+        // this function's.
+        || state.player.carry_slots < scenario.carry_slots
+        || state.player.carry_slots > MAX_CARRY_SLOTS
         || state
             .player
             .inventory
@@ -12000,6 +12222,175 @@ mod tests {
         assert_eq!(restored.checksum(), core.checksum());
     }
 
+    /// Creative is one switch with three consequences: everything is known, nothing is charged, and
+    /// nothing is handed back. Each is checked against the ordinary path rather than a creative-only
+    /// one, because the whole value of a creative test bed is that it builds the same factory.
+    #[test]
+    fn creative_unlocks_the_tree_and_builds_for_free() {
+        let mut core = game("new-game");
+        // A locked building with an empty pack: refused for both reasons before the switch.
+        let locked = core.place(2, 0, 2, 0, None).unwrap_err();
+        assert!(locked.contains("locked by research"));
+        core.set_creative(true);
+
+        let every_technology: BTreeSet<TechnologyId> = core
+            .technologies
+            .technologies
+            .iter()
+            .map(|technology| technology.id)
+            .collect();
+        assert_eq!(core.researched, every_technology);
+
+        assert!(core.player.inventory.is_empty());
+        core.place(2, 0, 2, 0, None).unwrap();
+        assert!(
+            core.player.inventory.is_empty(),
+            "creative construction must not reach into the pack"
+        );
+
+        // And recovers nothing, so a full pack can never refuse an erase. The belt is given cargo
+        // first: in a priced run that cargo comes back and would need room.
+        let index = core.entity_at(2, 0).unwrap();
+        core.entities[index].cargo = Some(Cargo {
+            item_id: 3,
+            quantity: 1,
+        });
+        core.grant(1, core.player_room_for(1)).unwrap();
+        assert_eq!(
+            core.slots_used(&core.player.inventory),
+            core.player.carry_slots
+        );
+        let full = core.player.inventory.clone();
+        core.erase(2, 0).unwrap();
+        assert_eq!(core.player.inventory, full);
+
+        // Placement's other rules are untouched: creative is free, not lawless.
+        assert!(core
+            .place(1, -1, 2, 0, None)
+            .unwrap_err()
+            .contains("environment"));
+    }
+
+    /// Leaving creative restores the prices and the refunds. What the settlement learned stays
+    /// learned, because a technology is knowledge rather than a purchase.
+    #[test]
+    fn leaving_creative_restores_the_prices_but_keeps_what_was_learned() {
+        let mut core = game("new-game");
+        core.set_creative(true);
+        core.set_creative(false);
+        assert_eq!(core.researched.len(), core.technologies.technologies.len());
+        assert!(core.place(2, 0, 2, 0, None).unwrap_err().contains("need"));
+        assert!(core.grant(1, 1).unwrap_err().contains("creative"));
+        assert!(core.discard(Some(1), 1).unwrap_err().contains("creative"));
+        assert!(core.set_carry_slots(40).unwrap_err().contains("creative"));
+    }
+
+    /// Granting is a route into the pack like any other, so it obeys the one carrying rule: what
+    /// fits arrives, what does not is not invented, and an empty grant says so rather than lying.
+    #[test]
+    fn creative_grants_and_discards_obey_the_carrying_rule() {
+        let mut core = game("new-game");
+        core.set_creative(true);
+        let stack = core.stack_size(1);
+        let slots = core.player.carry_slots;
+
+        core.grant(1, 5).unwrap();
+        assert_eq!(core.player.inventory.get(&1), Some(&5));
+        // Asking for far more than the pack holds tops it up to exactly full rather than refusing.
+        core.grant(1, u32::MAX).unwrap();
+        assert_eq!(core.player.inventory.get(&1), Some(&(stack * slots)));
+        assert_eq!(core.slots_used(&core.player.inventory), slots);
+        assert!(core.grant(1, 1).unwrap_err().contains("no room"));
+        assert!(core.grant(9_999, 1).unwrap_err().contains("unknown item"));
+
+        // Zero means the whole stack; a named quantity takes that much and no more.
+        core.discard(Some(1), 3).unwrap();
+        assert_eq!(core.player.inventory.get(&1), Some(&(stack * slots - 3)));
+        // A part-emptied stack still occupies its slot, so nothing else fits until a whole one goes.
+        assert!(core.grant(3, 1).unwrap_err().contains("no room"));
+        core.discard(Some(1), stack).unwrap();
+        core.grant(3, 4).unwrap();
+        core.discard(Some(1), 0).unwrap();
+        assert_eq!(core.player.inventory.get(&1), None);
+        assert_eq!(core.player.inventory.get(&3), Some(&4));
+        // Clearing the pack is one command, not one per stack against a batch that holds eight.
+        core.discard(None, 0).unwrap();
+        assert!(core.player.inventory.is_empty());
+        assert!(core.discard(None, 0).unwrap_err().contains("nothing"));
+    }
+
+    /// The pack may be widened, within bounds, and never so far down that carried stock is stranded.
+    #[test]
+    fn creative_pack_resizing_is_bounded_at_both_ends() {
+        let mut core = game("new-game");
+        let scenario_slots = core.player.carry_slots;
+        core.set_creative(true);
+
+        core.set_carry_slots(MAX_CARRY_SLOTS).unwrap();
+        assert_eq!(core.player.carry_slots, MAX_CARRY_SLOTS);
+        assert!(core
+            .set_carry_slots(MAX_CARRY_SLOTS + 1)
+            .unwrap_err()
+            .contains("out of range"));
+        assert!(core
+            .set_carry_slots(scenario_slots - 1)
+            .unwrap_err()
+            .contains("out of range"));
+
+        // Narrowing under what is already carried is refused rather than dropping the difference.
+        // One item per slot, one more than the scenario's pack holds.
+        for item_id in 1..=(scenario_slots as ItemId + 1) {
+            core.grant(item_id, 1).unwrap();
+        }
+        assert!(core
+            .set_carry_slots(scenario_slots)
+            .unwrap_err()
+            .contains("too much carried"));
+        core.discard(None, 0).unwrap();
+        core.set_carry_slots(scenario_slots).unwrap();
+    }
+
+    /// Both halves of creative are run state now, so both survive a save and both are hashed. A file
+    /// with either edited out no longer describes the run it came from.
+    #[test]
+    fn creative_and_a_widened_pack_survive_a_save() {
+        let (definitions, technologies, scenarios) = catalogs();
+        let mut core = game("new-game");
+        core.set_creative(true);
+        core.set_carry_slots(64).unwrap();
+        core.place(2, 0, 2, 0, None).unwrap();
+
+        let save = core.save_string().unwrap();
+        let restored = Core::from_save(&definitions, &technologies, &scenarios, &save).unwrap();
+        assert!(restored.creative);
+        assert_eq!(restored.player.carry_slots, 64);
+        assert_eq!(restored.checksum(), core.checksum());
+
+        // Neither is a free field: the checksum is what makes them run state rather than a note.
+        let priced = save.replace("\"creative\":true", "\"creative\":false");
+        assert!(
+            Core::from_save(&definitions, &technologies, &scenarios, &priced)
+                .err()
+                .unwrap()
+                .contains("checksum")
+        );
+        let narrowed = save.replace("\"carry_slots\":64", "\"carry_slots\":63");
+        assert!(
+            Core::from_save(&definitions, &technologies, &scenarios, &narrowed)
+                .err()
+                .unwrap()
+                .contains("checksum")
+        );
+        // And the range check still refuses a pack outside what any run may have.
+        let absurd = save.replace("\"carry_slots\":64", "\"carry_slots\":9999");
+        assert!(
+            Core::from_save(&definitions, &technologies, &scenarios, &absurd)
+                .err()
+                .unwrap()
+                .contains("invalid player or research state")
+        );
+    }
+
     #[test]
     fn erase_refunds_full_cost_and_contents_but_protects_scenario_objects() {
         let mut core = game("new-game");
@@ -13300,6 +13691,7 @@ mod tests {
                 radius: 580,
                 action_cooldown_total: 6,
                 extract_radius: 1,
+                creative: true,
             }),
             researched: Some(vec![1, 2, 3, 4]),
             chunks: Some(vec![
@@ -14803,7 +15195,7 @@ mod tests {
         // invalidate comparisons against previously recorded tier numbers. A generator-version
         // bump moves this number while the workload does not — which is why the delivered total
         // and the entity count below are the assertions that say the run is the same run.
-        assert_eq!(first.checksum(), 58_181_312);
+        assert_eq!(first.checksum(), 154_211_340);
         assert_eq!(first.entities.len(), spec.entities() as usize);
         // Every line must be running end to end, or the tiers would measure an idle blueprint.
         // Four per line rather than fourteen: the line is now extraction-bound, because a

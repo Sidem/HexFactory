@@ -96,6 +96,7 @@ const snapshot: FactorySnapshot = {
     facing_y: 0,
     move_x: 0,
     move_y: 0,
+    creative: false,
     inventory: { "1": 3 },
     action_cooldown: 0,
     build_range: 8870,
@@ -788,8 +789,8 @@ describe("availability and expanded snapshot adapter", () => {
     const tuned = { ...TEST_WORLD_PARAMS, water_level: 26000 };
     await host.newGame("new-game", 7, tuned);
     expect(requests.map((entry) => entry.payload)).toEqual([
-      { scenario: "new-game", seed: 7, worldParams: "basin" },
-      { scenario: "new-game", seed: 7, worldParams: tuned },
+      { scenario: "new-game", seed: 7, worldParams: "basin", creative: false },
+      { scenario: "new-game", seed: 7, worldParams: tuned, creative: false },
     ]);
 
     // The parameters come back from native rather than from what was asked for, and only once:

@@ -352,6 +352,13 @@ export interface PlayerSnapshot extends WorldPoint {
   action_cooldown_total: number;
   /** How many hexes the hand can gather across, published by native for the held-action ring. */
   extract_radius: number;
+  /**
+   * Whether this run is creative: everything researched, construction free, and nothing recovered
+   * when a building comes back up. Native owns the flag and every consequence of it; the host reads
+   * it only to decide what to draw — the creative panel's controls, and whether a price is worth
+   * showing at all.
+   */
+  creative: boolean;
 }
 
 /**
@@ -566,7 +573,28 @@ export type NativeInputCommand =
    * another takes its slot, so a material they cannot find never holds the board hostage. Whatever
    * was already delivered against it is forfeited, which is native's rule and not the host's.
    */
-  | { type: "skip_request"; slot: number };
+  | { type: "skip_request"; slot: number }
+  /**
+   * Turn creative mode on, or back off. Carried rather than toggled, like set_enabled, so a
+   * doubled press lands on the same answer. Turning it on researches the whole tree — permanently:
+   * leaving creative restores the prices and the refunds but not the ignorance.
+   */
+  | { type: "set_creative"; enabled: boolean }
+  /**
+   * Put an item straight into the pack. Creative only. quantity is a ceiling, not a promise:
+   * native grants what the carrying rule leaves room for and says so when that is nothing.
+   */
+  | { type: "grant"; item_id: number; quantity: number }
+  /**
+   * Destroy carried stock. Creative only. Omitting item_id empties the pack, and a quantity of
+   * zero drops the whole of the named stack, so neither needs the host to read the pack back first.
+   */
+  | { type: "discard"; item_id?: number; quantity?: number }
+  /**
+   * Widen or narrow the pack. Creative only. The scenario's own number is the floor and native's
+   * ceiling is the top; a size that would strand carried stock is refused rather than dropping it.
+   */
+  | { type: "set_carry_slots"; slots: number };
 
 export interface NativeFactory {
   tick(count: number): void;
@@ -580,6 +608,7 @@ export interface NativeFactory {
     scenarioKey: string,
     seedOverride?: number,
     worldParamsJson?: string,
+    creative?: boolean,
   ): void;
   /** The parameters the current world was generated from. */
   world_params_json(): string;

@@ -2214,6 +2214,96 @@ canvas {
   color: #fff3c8;
 }
 
+/*
+  Creative mode. A test bed rather than a second game, so it borrows the panel vocabulary whole and
+  adds only what it has to: a switch, a pack size, and one row per material.
+*/
+.creative-panel {
+  width: 336px;
+}
+.creative-panel.open {
+  display: grid;
+  gap: 10px;
+}
+.creative-panel .switch,
+.title-creative {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #cfe0da;
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+.creative-panel .switch input,
+.title-creative input {
+  width: 15px;
+  height: 15px;
+  accent-color: var(--gold);
+}
+.creative-note {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.68rem;
+  line-height: 1.45;
+}
+.creative-slots {
+  display: flex;
+  align-items: end;
+  gap: 8px;
+}
+.creative-slots label {
+  display: grid;
+  flex: 1 1 auto;
+  gap: 5px;
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+.creative-grant {
+  display: grid;
+  gap: 6px;
+}
+/*
+  Twenty-three materials is more than a panel can show at once, so the list scrolls inside the panel
+  rather than growing it past the viewport. Each row keeps its own scrollbar gutter.
+*/
+.creative-items {
+  display: grid;
+  gap: 5px;
+  overflow-y: auto;
+  max-height: 40vh;
+  padding-right: 4px;
+}
+.creative-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 7px;
+  border: 1px solid #2a4038;
+  border-radius: 9px;
+  background: #0a1815c4;
+}
+.creative-item-chip {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.creative-item-chip .chip {
+  width: 100%;
+}
+.creative-item-actions {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 4px;
+}
+.creative-item-actions button {
+  padding: 2px 7px;
+  font-size: 0.68rem;
+}
+/* A sandbox run should be readable from the toolbar, not only from the panel it is switched in. */
+.icon-button.creative-on {
+  border-color: var(--gold);
+  color: var(--gold);
+}
+
 .feedback {
   position: absolute;
   z-index: 18;

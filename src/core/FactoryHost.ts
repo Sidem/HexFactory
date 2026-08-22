@@ -227,12 +227,14 @@ export class FactoryHost {
     scenario = "new-game",
     seed?: number,
     world?: WorldChoice,
+    creative = false,
   ): Promise<FactorySnapshot> {
     const snapshot = this.applyDelta(
       await this.transport.request<FactorySnapshotDelta>("newGame", {
         scenario,
         seed,
         worldParams: world,
+        creative,
       }),
     );
     this.currentWorldParams = null;

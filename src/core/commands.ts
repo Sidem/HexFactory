@@ -120,5 +120,20 @@ export function encodeCommand(command: NativeInputCommand): EncodedCommand {
         opcode: 17,
         args: [command.q, command.r, command.enabled ? 1 : 0],
       };
+    // Carried rather than toggled, for the same reason `set_enabled` is.
+    case "set_creative":
+      return { opcode: 18, args: [command.enabled ? 1 : 0] };
+    case "grant":
+      return { opcode: 19, args: [command.item_id, command.quantity] };
+    // Both arguments are optional and both defaults are "all of it": no item means the whole pack,
+    // no quantity means the whole stack. Zero is the wire spelling of an absent item id, which is
+    // safe because item ids start at one.
+    case "discard":
+      return {
+        opcode: 20,
+        args: [command.item_id ?? 0, command.quantity ?? 0],
+      };
+    case "set_carry_slots":
+      return { opcode: 21, args: [command.slots] };
   }
 }

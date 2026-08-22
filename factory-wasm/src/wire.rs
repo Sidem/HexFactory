@@ -60,7 +60,11 @@ pub(crate) const WIRE_MAGIC: [u8; 4] = *b"HXFD";
 /// Version 7 is the hand switch. `SwitchedOff` is appended to the status table, and a status code
 /// is one byte with no length beside it — an older decoder would not mis-frame the buffer, it
 /// would simply fail on a code it has no name for, which is a worse way to learn the same thing.
-pub(crate) const WIRE_VERSION: u8 = 7;
+///
+/// Version 8 is creative mode. The player group gains a trailing flag byte, so an older decoder
+/// would read the group one byte short and leave a trailing byte behind — a mis-framed buffer
+/// rather than an honest failure, which is exactly what this number exists to prevent.
+pub(crate) const WIRE_VERSION: u8 = 8;
 
 /// Which optional groups the buffer carries, in the order they are written.
 mod group {
@@ -368,6 +372,7 @@ fn write_player(writer: &mut Writer, player: &PlayerSnapshot) {
     writer.svarint(i64::from(player.radius));
     writer.uvarint(u64::from(player.action_cooldown_total));
     writer.uvarint(u64::from(player.extract_radius));
+    writer.bool(player.creative);
 }
 
 fn write_chunks(writer: &mut Writer, chunks: &[ChunkSnapshot]) {
@@ -833,6 +838,7 @@ pub(crate) mod decode {
         let radius = reader.svarint() as i32;
         let action_cooldown_total = reader.uvarint() as u32;
         let extract_radius = reader.uvarint() as u32;
+        let creative = reader.bool();
         PlayerSnapshot {
             state: PlayerState {
                 x,
@@ -850,6 +856,7 @@ pub(crate) mod decode {
             radius,
             action_cooldown_total,
             extract_radius,
+            creative,
         }
     }
 

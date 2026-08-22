@@ -53,6 +53,12 @@ machine decorations.
   `Escape` returns to inspection and clears the open panels.
 - Hold `Shift` while walking to run. One hexagon is about 1 m²; the walk is 3 m/s and the run is
   5 m/s. Shallow water is a 1 m/s ford and can carry bridge-supported transport; deep water still blocks.
+- `C` opens creative mode, which can also be switched on before a run starts from the title screen.
+  It researches the whole tree, drops construction costs and refunds, hands you any material in the
+  catalogue, and lets you widen the pack up to 240 slots. Nothing else changes: recipes, power, fuel,
+  belt throughput, and hub payouts run at their usual rates, so a factory that works in a creative
+  run works the same in a priced one. Switching it back off restores the prices and the refunds and
+  keeps the research — a creative save is still a save, and still checksummed.
 
 ## Run locally
 

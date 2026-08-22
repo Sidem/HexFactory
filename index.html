@@ -81,6 +81,23 @@
           >
             ⏱
           </button>
+          <!--
+            Always on screen, because the switch that turns creative on lives behind it: hiding the
+            button until the run is already creative would leave the keyboard as the only way in.
+            main.ts lights it instead, so a priced run and a sandbox one are told apart at a glance.
+          -->
+          <button
+            id="creative-chip"
+            class="icon-button panel-toggle"
+            type="button"
+            data-panel-target="creative-panel"
+            aria-controls="creative-panel"
+            aria-expanded="false"
+            title="Creative mode (C)"
+            aria-label="Open creative mode"
+          >
+            ✦
+          </button>
           <button
             class="icon-button panel-toggle"
             type="button"
@@ -229,6 +246,66 @@
           </aside>
 
           <aside
+            id="creative-panel"
+            class="glass-panel creative-panel"
+            aria-label="Creative mode"
+          >
+            <div class="panel-heading">
+              <div>
+                <span class="section-kicker">Sandbox · C</span>
+                <h2>Creative</h2>
+              </div>
+              <button
+                class="panel-close"
+                type="button"
+                aria-label="Close creative mode"
+              >
+                ×
+              </button>
+            </div>
+            <p class="panel-copy">
+              Everything researched, construction free, and demolition recovers
+              nothing. The factory itself is untouched: power, fuel, recipe
+              times and belt throughput all run exactly as they do in a normal
+              run, so what you test here is what you get there.
+            </p>
+            <label class="switch"
+              ><input id="creative-enabled" type="checkbox" />Creative
+              mode</label
+            >
+            <p class="creative-note">
+              Turning it on researches the whole tree for good. Turning it back
+              off restores prices and refunds — the knowledge stays.
+            </p>
+            <div class="creative-slots">
+              <label
+                >Pack slots
+                <input
+                  id="creative-slots"
+                  type="number"
+                  min="1"
+                  max="240"
+                  step="1"
+                />
+              </label>
+              <button id="creative-clear" type="button">Clear pack</button>
+            </div>
+            <div class="creative-grant">
+              <span class="section-kicker">Give materials</span>
+              <p class="creative-note">
+                A stack is that item's own stack size. Anything that will not
+                fit is not granted — widen the pack above first.
+              </p>
+              <div
+                id="creative-items"
+                class="creative-items"
+                role="list"
+                aria-label="Grant materials"
+              ></div>
+            </div>
+          </aside>
+
+          <aside
             id="quest-panel"
             class="glass-panel quest-panel"
             aria-label="Objective and controls"
@@ -292,9 +369,21 @@
               <span class="section-kicker">Panels</span>
               <p>
                 <kbd>B</kbd> opens the construction catalogue, <kbd>I</kbd> the
-                cargo pack, <kbd>O</kbd> research, and <kbd>P</kbd> this panel.
-                <kbd>Esc</kbd> closes whatever is open and returns to the
-                inspect tool, which is the one panel that stays on the world.
+                cargo pack, <kbd>O</kbd> research, <kbd>C</kbd> creative mode,
+                and <kbd>P</kbd> this panel. <kbd>Esc</kbd> closes whatever is
+                open and returns to the inspect tool, which is the one panel
+                that stays on the world.
+              </p>
+            </div>
+            <div class="control-block">
+              <span class="section-kicker">Creative mode</span>
+              <p>
+                <kbd>C</kbd> opens it, and the title screen can start a run in
+                it. It researches everything, makes building and demolition
+                free, gives you any material in the catalogue, and widens the
+                pack to as many as 240 slots. Machines still run at their normal
+                rates, so what works here works in a priced run too. Turning it
+                off restores the prices and keeps the research.
               </p>
             </div>
             <div class="control-block">
@@ -1103,6 +1192,16 @@
                         Back to preset
                       </button>
                     </details>
+
+                    <label class="switch title-creative"
+                      ><input id="title-creative" type="checkbox" />Creative
+                      mode</label
+                    >
+                    <p class="title-view-note">
+                      Everything unlocked, building costs nothing, and you can
+                      give yourself any material. For testing, or for building
+                      without the shopping.
+                    </p>
 
                     <button
                       id="title-start-game"

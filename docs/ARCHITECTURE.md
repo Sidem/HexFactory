@@ -211,12 +211,25 @@ guaranteed nearby finite ore and crystal plus deterministic generated terrain. T
 objects are scenario-owned and cannot be erased.
 
 Items carry a `stack_size`, and scenarios carry a `carry_slots` count; together they are the whole
-of the carrying rule.
+of the carrying rule. Since v0.24 the scenario's count is the run's _starting_ pack size rather than
+its permanent one: creative mode can widen it, so a save carries the current count and the loader
+accepts anything from the scenario's figure up to `MAX_CARRY_SLOTS`.
 
 Erasing a player-built entity uses one fixed refund policy: return 100% of its construction cost,
 plus its cargo, inventory, and reserved recipe inputs. This is native and covered by conservation
 tests. Since v0.10 the whole refund is resolved before the removal and refused if it will not fit
 in the player's pack, so the policy stays exactly 100% rather than becoming "as much as fits".
+
+**Creative mode** is one native flag on the core, not a host mode. It enters `checksum()` and the
+save envelope beside the pack size, so a creative run is a run like any other rather than a session
+the host is quietly pretending about. Turning it on inserts every technology id into `researched`,
+which is why nothing had to learn a second way to be unlocked: `technology_met`, `category_unlocked`,
+and the build cards all keep asking the one question they already asked. While it is on, placement
+skips the cost check and the charge, upgrades neither charge nor credit, and `erase_refund` returns
+nothing — which also means a full pack can never refuse a demolition. Four commands belong to it:
+`SetCreative`, `Grant`, `Discard`, and `SetCarrySlots`; the last three are refused outside it.
+Deliberately unchanged: power, fuel, recipe timing, belt throughput, and hub payouts. A layout tested
+in a creative run therefore behaves identically in a priced one, which is the point of having it.
 
 ## Command and presentation boundary
 

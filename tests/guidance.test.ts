@@ -126,6 +126,7 @@ function snapshotAt(state: {
       facing_y: 0,
       move_x: 0,
       move_y: 0,
+      creative: false,
       inventory: state.inventory,
       action_cooldown: 0,
       build_range: 8870,

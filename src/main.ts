@@ -7,6 +7,7 @@ import {
 import {
   buildingAvailability,
   costLines,
+  heldQuantity,
   technologyAvailability,
   type CostLine,
 } from "./core/availability";
@@ -137,6 +138,7 @@ const PANEL_KEYS: Record<string, string> = {
   KeyO: "research-panel",
   KeyP: "quest-panel",
   KeyB: "build-panel",
+  KeyC: "creative-panel",
 };
 /**
  * A refusal the world itself already shows. The cooldown ring around the player says the wait is
@@ -161,6 +163,11 @@ const worldPresetDescription = required<HTMLParagraphElement>(
 const worldParameterFields = required<HTMLDivElement>("world-parameter-fields");
 const toolShelf = required<HTMLDivElement>("tool-shelf");
 const feedback = required<HTMLDivElement>("feedback");
+const creativeChip = required<HTMLButtonElement>("creative-chip");
+const creativeEnabledInput = required<HTMLInputElement>("creative-enabled");
+const creativeSlotsInput = required<HTMLInputElement>("creative-slots");
+const creativeClear = required<HTMLButtonElement>("creative-clear");
+const creativeItems = required<HTMLDivElement>("creative-items");
 
 const titleScreen = required<HTMLElement>("title-screen");
 const titleContinue = required<HTMLButtonElement>("title-continue");
@@ -185,6 +192,7 @@ const titleWorldParametersReset = required<HTMLButtonElement>(
   "title-world-parameters-reset",
 );
 const titleStartGame = required<HTMLButtonElement>("title-start-game");
+const titleCreativeInput = required<HTMLInputElement>("title-creative");
 const titleMuteInput = required<HTMLInputElement>("title-mute");
 const titleReduceMotionInput = required<HTMLInputElement>(
   "title-reduce-motion",
@@ -552,8 +560,14 @@ function update(next: FactorySnapshot): void {
   // Walking changes the player every frame. Rebuilding every panel for that is the hitch on a
   // weak machine: the factory HUD only moves when the factory does.
   const packChanged = !sameCarry(previous.player, next.player);
+  // Switching creative off re-prices every card, and a wider pack changes what fits, so both count
+  // as the factory moving even on a tick where nothing was built.
+  const creativeChanged =
+    previous.player.creative !== next.player.creative ||
+    previous.player.carry_slots !== next.player.carry_slots;
   const factoryChanged =
     previous === next ||
+    creativeChanged ||
     previous.tick !== next.tick ||
     previous.insight !== next.insight ||
     previous.victory !== next.victory ||
@@ -565,6 +579,7 @@ function update(next: FactorySnapshot): void {
     previous.events !== next.events;
   if (packChanged || factoryChanged) {
     renderInventory();
+    renderCreative();
     renderHotbar();
     renderBuildPanel();
     renderTechnologies();
@@ -747,6 +762,95 @@ function renderInventory(): void {
     `${stacks.length} / ${snapshot.player.carry_slots}`;
   required<HTMLElement>("carry-detail").textContent =
     `${stacks.length} of ${snapshot.player.carry_slots} slots carried.`;
+}
+
+/**
+ * The quantity "Fill" asks for: every number a `u32` can hold.
+ *
+ * Native trims a grant to the room left, so the host does not have to work out what fits — asking
+ * for the maximum and letting the simulation answer keeps the carrying rule in the one place that
+ * owns it. Anything larger would not survive the trip through the command as an unsigned 32-bit int.
+ */
+const CREATIVE_FILL = 4_294_967_295;
+
+/**
+ * The creative panel: one switch, one pack size, and one row per material.
+ *
+ * Every control here reads its state out of the snapshot rather than out of the click that changed
+ * it. A command native refuses — a grant with no room, a pack size that would strand stock — leaves
+ * the snapshot alone, so the control springs back on the next frame instead of the interface
+ * carrying on as though the simulation had agreed with it.
+ */
+function renderCreative(): void {
+  const { creative, carry_slots } = snapshot.player;
+  creativeChip.classList.toggle("creative-on", creative);
+  creativeChip.title = creative
+    ? "Creative mode is on (C)"
+    : "Creative mode (C)";
+  creativeEnabledInput.checked = creative;
+  creativeSlotsInput.value = String(carry_slots);
+  for (const control of [creativeSlotsInput, creativeClear])
+    control.disabled = !creative;
+
+  const rows = syncChildren(
+    creativeItems,
+    creative ? host.definitions.items.map(({ id }) => String(id)) : [],
+    () => {
+      const row = document.createElement("div");
+      row.className = "creative-item";
+      row.setAttribute("role", "listitem");
+      // The holder the chip is painted into and the box the buttons live in are made once, here,
+      // so neither list reconciles against the other: `syncChildren` deletes any child it does not
+      // own, and a chip and a button row sharing one parent would take turns deleting each other.
+      const holder = document.createElement("div");
+      holder.className = "creative-item-chip";
+      const actions = document.createElement("div");
+      actions.className = "creative-item-actions";
+      row.append(holder, actions);
+      return row;
+    },
+  );
+  rows.forEach((row, index) => {
+    const item = host.definitions.items[index];
+    const holder = row.firstElementChild as HTMLElement | null;
+    const actions = row.lastElementChild as HTMLElement | null;
+    if (!item || !holder || !actions) return;
+    paintChip(holder, item.id, {
+      count: heldQuantity(snapshot, item.id),
+      named: true,
+    });
+    // Three amounts cover what anybody actually reaches for: one, a stack, and as much as the pack
+    // will take. Native clamps each to the room left, so these are ceilings rather than promises —
+    // which is why "Fill" can be an absurd number rather than a quantity the host has to work out.
+    const amounts: { label: string; title: string; quantity: number }[] = [
+      { label: "+1", title: `Give 1 ${item.name}`, quantity: 1 },
+      {
+        label: `+${item.stack_size}`,
+        title: `Give one stack of ${item.name}`,
+        quantity: item.stack_size,
+      },
+      {
+        label: "Fill",
+        title: `Fill the pack with ${item.name}`,
+        quantity: CREATIVE_FILL,
+      },
+    ];
+    const buttons = syncChildren(
+      actions,
+      amounts.map(({ label }) => label),
+      () => document.createElement("button"),
+    );
+    buttons.forEach((button, slot) => {
+      const amount = amounts[slot];
+      if (!amount || !(button instanceof HTMLButtonElement)) return;
+      button.type = "button";
+      button.textContent = amount.label;
+      button.title = amount.title;
+      button.setAttribute("aria-label", amount.title);
+      button.dataset.itemId = String(item.id);
+      button.dataset.quantity = String(amount.quantity);
+    });
+  });
 }
 
 /** The label a slot or card shows for a tool that is not a building. */
@@ -2205,6 +2309,7 @@ function syncSessionInputs(next: FactorySnapshot): void {
   titleScenarioInput.value = next.scenario;
   seedInput.value = String(next.seed);
   titleSeedInput.value = String(next.seed);
+  titleCreativeInput.checked = next.player.creative;
   void syncWorldInputs();
 }
 
@@ -2608,6 +2713,7 @@ titleStartGame.addEventListener("click", async () => {
       titleScenarioInput.value,
       seed,
       pendingWorld ?? undefined,
+      titleCreativeInput.checked,
     );
     beginRun(next);
     update(next);
@@ -2630,10 +2736,14 @@ required<HTMLButtonElement>("new-game").addEventListener("click", async () => {
       ? parsedSeed
       : undefined;
   try {
+    // A new run started from inside a creative session stays creative. The switch is in the panel
+    // two rails over; making the player find it again after every restart would be the interface
+    // forgetting something it was told.
     const next = await host.newGame(
       scenarioInput.value,
       seed,
       pendingWorld ?? undefined,
+      snapshot.player.creative,
     );
     beginRun(next);
     update(next);
@@ -2645,6 +2755,33 @@ required<HTMLButtonElement>("new-game").addEventListener("click", async () => {
     reportWorkerError(error);
   }
 });
+// Every creative control sends a command and then waits: none of them writes the state it is
+// showing. `renderCreative` sets each one from the next snapshot, so a refusal native reports —
+// a pack size that would strand carried stock, a grant with nowhere to go — shows up as the
+// control returning to what the simulation actually holds, with the reason in the toast.
+creativeEnabledInput.addEventListener("change", () => {
+  enqueue({ type: "set_creative", enabled: creativeEnabledInput.checked });
+});
+creativeSlotsInput.addEventListener("change", () => {
+  const slots = Number(creativeSlotsInput.value);
+  if (!Number.isSafeInteger(slots) || slots < 1) {
+    creativeSlotsInput.value = String(snapshot.player.carry_slots);
+    return;
+  }
+  enqueue({ type: "set_carry_slots", slots });
+});
+creativeClear.addEventListener("click", () => {
+  enqueue({ type: "discard" });
+});
+creativeItems.addEventListener("click", (event) => {
+  const button = (event.target as HTMLElement).closest("button");
+  if (!button) return;
+  const item_id = Number(button.dataset.itemId);
+  const quantity = Number(button.dataset.quantity);
+  if (!Number.isSafeInteger(item_id) || !Number.isSafeInteger(quantity)) return;
+  enqueue({ type: "grant", item_id, quantity });
+});
+
 // Ticks bought at a different price are a different run. The clock keeps counting either way; it
 // just stops claiming the result can be compared against one that did not move the slider.
 speedInput.addEventListener("change", () => {
