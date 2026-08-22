@@ -45,7 +45,7 @@
     ],
     "cells_in_reach": [7, 19],
     "best_fuel_item": "coal",
-    "best_fuel_value": 8,
+    "best_fuel_value": 160,
     "guaranteed_opening": [
       {
         "item": "ore",
@@ -338,8 +338,8 @@
       "power_draw": 10,
       "grid_energy_per_cycle": 100,
       "grid_energy_per_minute_milli": 6000000,
-      "fuel_energy_per_cycle": 4,
-      "fuel_energy_per_minute_milli": 240000
+      "fuel_energy_per_cycle": 80,
+      "fuel_energy_per_minute_milli": 4800000
     },
     {
       "building": "smelter",
@@ -357,8 +357,8 @@
       "power_draw": 10,
       "grid_energy_per_cycle": 100,
       "grid_energy_per_minute_milli": 6000000,
-      "fuel_energy_per_cycle": 4,
-      "fuel_energy_per_minute_milli": 240000
+      "fuel_energy_per_cycle": 80,
+      "fuel_energy_per_minute_milli": 4800000
     },
     {
       "building": "smelter",
@@ -376,8 +376,8 @@
       "power_draw": 10,
       "grid_energy_per_cycle": 120,
       "grid_energy_per_minute_milli": 6000000,
-      "fuel_energy_per_cycle": 5,
-      "fuel_energy_per_minute_milli": 250000
+      "fuel_energy_per_cycle": 100,
+      "fuel_energy_per_minute_milli": 5000000
     },
     {
       "building": "smelter",
@@ -399,8 +399,8 @@
       "power_draw": 10,
       "grid_energy_per_cycle": 200,
       "grid_energy_per_minute_milli": 6000000,
-      "fuel_energy_per_cycle": 8,
-      "fuel_energy_per_minute_milli": 240000
+      "fuel_energy_per_cycle": 160,
+      "fuel_energy_per_minute_milli": 4800000
     },
     {
       "building": "kiln",
@@ -418,8 +418,8 @@
       "power_draw": 10,
       "grid_energy_per_cycle": 120,
       "grid_energy_per_minute_milli": 6000000,
-      "fuel_energy_per_cycle": 4,
-      "fuel_energy_per_minute_milli": 200000
+      "fuel_energy_per_cycle": 80,
+      "fuel_energy_per_minute_milli": 4000000
     },
     {
       "building": "kiln",
@@ -431,7 +431,7 @@
       "inputs_per_minute": [
         {
           "item": "wood",
-          "quantity_milli": 120000
+          "quantity_milli": 360000
         }
       ],
       "power_draw": 10,
@@ -613,8 +613,8 @@
       "requires": null,
       "fuel_energy_per_tick": 1,
       "water_per_tick": 0,
-      "ticks_per_fuel_item": 8,
-      "grid_energy_per_fuel_item": 160,
+      "ticks_per_fuel_item": 160,
+      "grid_energy_per_fuel_item": 3200,
       "pumps_required": 0,
       "upkeep_draw": 0,
       "net_output": 20,
@@ -778,8 +778,8 @@
       "requires": "boiler",
       "fuel_energy_per_tick": 1,
       "water_per_tick": 1,
-      "ticks_per_fuel_item": 8,
-      "grid_energy_per_fuel_item": 384,
+      "ticks_per_fuel_item": 160,
+      "grid_energy_per_fuel_item": 7680,
       "pumps_required": 2,
       "upkeep_draw": 8,
       "net_output": 40,
@@ -830,27 +830,27 @@
   "fuel": [
     {
       "item": "coal",
-      "fuel_value": 8,
+      "fuel_value": 160,
       "recipe": null,
       "input_energy": 0,
-      "output_energy": 8,
+      "output_energy": 160,
       "gain_milli": null
     },
     {
       "item": "wood",
-      "fuel_value": 2,
+      "fuel_value": 40,
       "recipe": null,
       "input_energy": 0,
-      "output_energy": 2,
+      "output_energy": 40,
       "gain_milli": null
     },
     {
       "item": "charcoal",
-      "fuel_value": 8,
+      "fuel_value": 160,
       "recipe": "charcoal",
-      "input_energy": 4,
-      "output_energy": 8,
-      "gain_milli": 2000
+      "input_energy": 240,
+      "output_energy": 160,
+      "gain_milli": 667
     }
   ],
   "items": [
@@ -1004,7 +1004,7 @@
         }
       ],
       "raw_units_milli": 2000,
-      "fuel_energy_milli": 4000,
+      "fuel_energy_milli": 80000,
       "machine_ticks_milli": 10000,
       "effort_milli": 2500
     },
@@ -1018,7 +1018,7 @@
         }
       ],
       "raw_units_milli": 2000,
-      "fuel_energy_milli": 4000,
+      "fuel_energy_milli": 80000,
       "machine_ticks_milli": 10000,
       "effort_milli": 2500
     },
@@ -1032,7 +1032,7 @@
         }
       ],
       "raw_units_milli": 2000,
-      "fuel_energy_milli": 5000,
+      "fuel_energy_milli": 100000,
       "machine_ticks_milli": 12000,
       "effort_milli": 2625
     },
@@ -1046,7 +1046,7 @@
         }
       ],
       "raw_units_milli": 667,
-      "fuel_energy_milli": 1333,
+      "fuel_energy_milli": 26667,
       "machine_ticks_milli": 4000,
       "effort_milli": 833
     },
@@ -1056,13 +1056,13 @@
       "raw": [
         {
           "item": "wood",
-          "quantity_milli": 2000
+          "quantity_milli": 6000
         }
       ],
-      "raw_units_milli": 2000,
+      "raw_units_milli": 6000,
       "fuel_energy_milli": 0,
       "machine_ticks_milli": 10000,
-      "effort_milli": 2000
+      "effort_milli": 6000
     },
     {
       "item": "timber",
@@ -1102,7 +1102,7 @@
         }
       ],
       "raw_units_milli": 1000,
-      "fuel_energy_milli": 2000,
+      "fuel_energy_milli": 40000,
       "machine_ticks_milli": 8000,
       "effort_milli": 1250
     },
@@ -1116,7 +1116,7 @@
         }
       ],
       "raw_units_milli": 4000,
-      "fuel_energy_milli": 8000,
+      "fuel_energy_milli": 160000,
       "machine_ticks_milli": 28000,
       "effort_milli": 5000
     },
@@ -1134,7 +1134,7 @@
         }
       ],
       "raw_units_milli": 3000,
-      "fuel_energy_milli": 4000,
+      "fuel_energy_milli": 80000,
       "machine_ticks_milli": 26000,
       "effort_milli": 3500
     },
@@ -1174,7 +1174,7 @@
         }
       ],
       "raw_units_milli": 5000,
-      "fuel_energy_milli": 11000,
+      "fuel_energy_milli": 220000,
       "machine_ticks_milli": 50000,
       "effort_milli": 6375
     },
@@ -1192,7 +1192,7 @@
         }
       ],
       "raw_units_milli": 6000,
-      "fuel_energy_milli": 16000,
+      "fuel_energy_milli": 320000,
       "machine_ticks_milli": 40000,
       "effort_milli": 8000
     }
@@ -1459,7 +1459,7 @@
         }
       ],
       "raw_units_milli": 12000,
-      "fuel_energy_milli": 12000,
+      "fuel_energy_milli": 240000,
       "effort_milli": 13500,
       "batch": [
         {
@@ -1472,7 +1472,7 @@
         }
       ],
       "batch_units": 12,
-      "batch_fuel_energy": 12,
+      "batch_fuel_energy": 240,
       "machine_ticks": 30
     },
     {
@@ -1502,7 +1502,7 @@
         }
       ],
       "raw_units_milli": 14000,
-      "fuel_energy_milli": 16000,
+      "fuel_energy_milli": 320000,
       "effort_milli": 16000,
       "batch": [
         {
@@ -1515,7 +1515,7 @@
         }
       ],
       "batch_units": 14,
-      "batch_fuel_energy": 16,
+      "batch_fuel_energy": 320,
       "machine_ticks": 40
     },
     {
@@ -1545,7 +1545,7 @@
         }
       ],
       "raw_units_milli": 10667,
-      "fuel_energy_milli": 21333,
+      "fuel_energy_milli": 426667,
       "effort_milli": 13333,
       "batch": [
         {
@@ -1558,7 +1558,7 @@
         }
       ],
       "batch_units": 12,
-      "batch_fuel_energy": 24,
+      "batch_fuel_energy": 480,
       "machine_ticks": 64
     },
     {
@@ -1658,7 +1658,7 @@
         }
       ],
       "raw_units_milli": 8000,
-      "fuel_energy_milli": 16000,
+      "fuel_energy_milli": 320000,
       "effort_milli": 10000,
       "batch": [
         {
@@ -1667,7 +1667,7 @@
         }
       ],
       "batch_units": 8,
-      "batch_fuel_energy": 16,
+      "batch_fuel_energy": 320,
       "machine_ticks": 48
     },
     {
@@ -1697,7 +1697,7 @@
         }
       ],
       "raw_units_milli": 14667,
-      "fuel_energy_milli": 29333,
+      "fuel_energy_milli": 586667,
       "effort_milli": 18333,
       "batch": [
         {
@@ -1710,7 +1710,7 @@
         }
       ],
       "batch_units": 16,
-      "batch_fuel_energy": 32,
+      "batch_fuel_energy": 640,
       "machine_ticks": 84
     },
     {
@@ -1740,7 +1740,7 @@
         }
       ],
       "raw_units_milli": 14667,
-      "fuel_energy_milli": 29333,
+      "fuel_energy_milli": 586667,
       "effort_milli": 18333,
       "batch": [
         {
@@ -1753,7 +1753,7 @@
         }
       ],
       "batch_units": 16,
-      "batch_fuel_energy": 32,
+      "batch_fuel_energy": 640,
       "machine_ticks": 84
     },
     {
@@ -1779,7 +1779,7 @@
         }
       ],
       "raw_units_milli": 20000,
-      "fuel_energy_milli": 40000,
+      "fuel_energy_milli": 800000,
       "effort_milli": 25000,
       "batch": [
         {
@@ -1788,7 +1788,7 @@
         }
       ],
       "batch_units": 20,
-      "batch_fuel_energy": 40,
+      "batch_fuel_energy": 800,
       "machine_ticks": 116
     },
     {
@@ -1861,7 +1861,7 @@
         }
       ],
       "raw_units_milli": 19000,
-      "fuel_energy_milli": 16000,
+      "fuel_energy_milli": 320000,
       "effort_milli": 21000,
       "batch": [
         {
@@ -1878,7 +1878,7 @@
         }
       ],
       "batch_units": 19,
-      "batch_fuel_energy": 16,
+      "batch_fuel_energy": 320,
       "machine_ticks": 56
     },
     {
@@ -1912,7 +1912,7 @@
         }
       ],
       "raw_units_milli": 11000,
-      "fuel_energy_milli": 8000,
+      "fuel_energy_milli": 160000,
       "effort_milli": 12000,
       "batch": [
         {
@@ -1925,7 +1925,7 @@
         }
       ],
       "batch_units": 11,
-      "batch_fuel_energy": 8,
+      "batch_fuel_energy": 160,
       "machine_ticks": 20
     },
     {
@@ -1955,7 +1955,7 @@
         }
       ],
       "raw_units_milli": 6000,
-      "fuel_energy_milli": 12000,
+      "fuel_energy_milli": 240000,
       "effort_milli": 7500,
       "batch": [
         {
@@ -1968,7 +1968,7 @@
         }
       ],
       "batch_units": 6,
-      "batch_fuel_energy": 12,
+      "batch_fuel_energy": 240,
       "machine_ticks": 36
     },
     {
@@ -2010,7 +2010,7 @@
         }
       ],
       "raw_units_milli": 21000,
-      "fuel_energy_milli": 51000,
+      "fuel_energy_milli": 1020000,
       "effort_milli": 27375,
       "batch": [
         {
@@ -2031,7 +2031,7 @@
         }
       ],
       "batch_units": 22,
-      "batch_fuel_energy": 53,
+      "batch_fuel_energy": 1060,
       "machine_ticks": 170
     },
     {
@@ -2597,7 +2597,7 @@
           "quantity": 2
         }
       ],
-      "fuel_energy": 13,
+      "fuel_energy": 260,
       "fuel_items": 2,
       "gather_total": 66,
       "machine_ticks": 58,
@@ -2692,7 +2692,7 @@
             "quantity": 18
           }
         ],
-        "fuel_energy": 92,
+        "fuel_energy": 1840,
         "fuel_items": 12,
         "gather_total": 108,
         "machine_ticks": 244,
@@ -2957,23 +2957,23 @@
     {
       "request": "charcoal-run",
       "item": "charcoal",
-      "quantity": 8,
-      "insight": 21,
-      "repeat_insight": 21,
+      "quantity": 4,
+      "insight": 32,
+      "repeat_insight": 32,
       "gathers": [
         {
           "item": "wood",
-          "quantity": 16
+          "quantity": 24
         }
       ],
       "fuel_items": 0,
-      "gather_total": 16,
-      "insight_per_gather_milli": 1313,
-      "repeat_insight_per_gather_milli": 1313,
-      "insight_per_minute_milli": 78750,
-      "repeat_insight_per_minute_milli": 78750,
-      "machine_ticks": 80,
-      "machine_seconds_milli": 8000
+      "gather_total": 24,
+      "insight_per_gather_milli": 1333,
+      "repeat_insight_per_gather_milli": 1333,
+      "insight_per_minute_milli": 120000,
+      "repeat_insight_per_minute_milli": 120000,
+      "machine_ticks": 40,
+      "machine_seconds_milli": 4000
     },
     {
       "request": "sawn-timber",

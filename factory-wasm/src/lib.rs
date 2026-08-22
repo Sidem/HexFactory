@@ -9718,7 +9718,7 @@ mod tests {
     fn a_generator_burns_for_the_work_it_powers_and_not_for_the_clock() {
         let coal = |core: &Core, index: usize| {
             let entity = &core.entities[index];
-            u32::from(entity.inventory.get(&5).copied().unwrap_or(0)) * 8 + entity.fuel_charge
+            entity.inventory.get(&5).copied().unwrap_or(0) * core.fuel_value(5) + entity.fuel_charge
         };
 
         // One burner, one pole, one extractor with a deposit to work.
@@ -10001,7 +10001,7 @@ mod tests {
                 .get(&5)
                 .copied()
                 .unwrap_or(0)
-                * 8;
+                * core.fuel_value(5);
         core.tick_many(30);
         let received_after = grid_energy_received(&core);
         let plant_energy_after = core.entities[burner].fuel_charge
@@ -10010,7 +10010,7 @@ mod tests {
                 .get(&5)
                 .copied()
                 .unwrap_or(0)
-                * 8;
+                * core.fuel_value(5);
 
         // Fuel energy spent, times the exchange rate, is grid energy produced. That grid energy
         // either sits in a bank or has already been turned into progress, and it is never anything
@@ -11208,7 +11208,7 @@ mod tests {
         );
         assert_eq!(core.entities[smelter].inventory.get(&1), Some(&4));
 
-        // One coal is eight energy against a four-energy craft, so the change is banked.
+        // One coal is 160 energy against an 80-energy craft, so the change is banked.
         core.entities[smelter].inventory.insert(5, 1);
         core.tick_many(30);
         assert_eq!(
@@ -11218,7 +11218,7 @@ mod tests {
                 quantity: 1
             })
         );
-        assert_eq!(core.entities[smelter].fuel_charge, 4);
+        assert_eq!(core.entities[smelter].fuel_charge, 80);
         assert_eq!(core.entities[smelter].inventory.get(&5), None);
         assert_eq!(core.entities[smelter].inventory.get(&1), Some(&2));
 
@@ -11411,7 +11411,7 @@ mod tests {
         assert_eq!(core.entities[index].placed.recipe_id, Some(7));
 
         // Mid-craft it keeps the job it is running: the inputs it reserved belong to that job.
-        core.entities[index].inventory.insert(9, 4);
+        core.entities[index].inventory.insert(9, 12);
         core.tick_many(2);
         assert!(core.entities[index].progress > 0);
         assert!(core.set_recipe(0, 4, 6).unwrap_err().contains("mid-craft"));
@@ -13698,14 +13698,20 @@ mod tests {
         assert_eq!(report.reference.cells_in_reach.first(), Some(&7));
     }
 
-    /// A fuel recipe that hands back the energy it was given is a recipe with no reason to run.
+    /// A fuel recipe that hands back more energy than it was given is a perpetual motion machine.
     ///
-    /// Charcoal was exactly that: two wood at two energy each into one charcoal at four, for a
-    /// kiln, ten ticks, and a hundred power. Fuel is a property of the item, so this is the one
-    /// place the round trip can be checked at all — nothing in a recipe row knows what its inputs
-    /// burn for.
+    /// Charcoal was exactly that: two wood at two energy each into one charcoal at eight, for a
+    /// kiln that needs no fuel of its own. Wood regrows, so the char recipe was an unbounded free
+    /// power source sitting one technology into the tree. Real pyrolysis burns part of the charge
+    /// to cook the rest and keeps a quarter to a half of the wood's energy — a kiln is bought for
+    /// **density**, four times the energy in one belt slot, and never for energy itself.
+    ///
+    /// So the band is two-sided. Above 1000 the world makes energy from nothing; below 250 the
+    /// kiln burns more than the worst real one and nobody would run it. Fuel is a property of the
+    /// item, so this is the one place the round trip can be checked at all — nothing in a recipe
+    /// row knows what its inputs burn for.
     #[test]
-    fn every_fuel_conversion_ends_up_ahead() {
+    fn no_fuel_conversion_creates_energy_and_none_is_worse_than_a_real_kiln() {
         let report = balance::compute();
         let converted: Vec<_> = report
             .fuel
@@ -13714,9 +13720,17 @@ mod tests {
             .collect();
         assert!(!converted.is_empty(), "some fuel is crafted");
         for entry in converted {
+            let gain = entry.gain_milli.unwrap_or(0);
             assert!(
-                entry.gain_milli.unwrap_or(0) > 1000,
-                "{} returns {} energy for {} — it costs a machine to break even",
+                gain <= 1000,
+                "{} returns {} energy for {} — a kiln is not a power source",
+                entry.item,
+                entry.output_energy,
+                entry.input_energy
+            );
+            assert!(
+                gain >= 250,
+                "{} returns {} energy for {} — worse than the worst kiln anyone has built",
                 entry.item,
                 entry.output_energy,
                 entry.input_energy

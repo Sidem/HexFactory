@@ -50,7 +50,7 @@
       "icon": "lump",
       "description": "Dense highland fuel, and the carbon steel is made with.",
       "stack_size": 20,
-      "fuel_value": 8,
+      "fuel_value": 160,
       "hand_gather_steps": 45,
       "extract_steps": 30
     },
@@ -95,7 +95,7 @@
       "icon": "log",
       "description": "Cut from lowland flora, which grows back. Burns, and cuts into timber.",
       "stack_size": 20,
-      "fuel_value": 2,
+      "fuel_value": 40,
       "regrowth_ticks": 90,
       "hand_gather_steps": 15,
       "extract_steps": 10
@@ -153,7 +153,7 @@
       "icon": "lump",
       "description": "Wood pyrolysed into fuel, so smelting never waits on a coal field.",
       "stack_size": 20,
-      "fuel_value": 8
+      "fuel_value": 160
     },
     {
       "id": 16,
@@ -264,7 +264,7 @@
         "quantity": 1
       },
       "duration": 10,
-      "fuel": 4
+      "fuel": 80
     },
     {
       "id": 3,
@@ -283,7 +283,7 @@
         "quantity": 1
       },
       "duration": 10,
-      "fuel": 4
+      "fuel": 80
     },
     {
       "id": 4,
@@ -302,7 +302,7 @@
         "quantity": 1
       },
       "duration": 12,
-      "fuel": 5
+      "fuel": 100
     },
     {
       "id": 5,
@@ -325,7 +325,7 @@
         "quantity": 1
       },
       "duration": 20,
-      "fuel": 8
+      "fuel": 160
     },
     {
       "id": 6,
@@ -344,18 +344,18 @@
         "quantity": 3
       },
       "duration": 12,
-      "fuel": 4
+      "fuel": 80
     },
     {
       "id": 7,
       "key": "charcoal",
       "name": "Char wood",
-      "description": "Pyrolyse two wood into charcoal. Needs no fuel, so smelting can start without coal.",
+      "description": "Pyrolyse six wood into charcoal. The kiln burns most of the charge to cook the rest, so charcoal is denser than the wood it came from — never richer.",
       "category": "firing",
       "inputs": [
         {
           "item_id": 9,
-          "quantity": 2
+          "quantity": 6
         }
       ],
       "output": {
@@ -1324,10 +1324,10 @@
       "id": 13,
       "key": "charcoal-run",
       "name": "Charcoal run",
-      "brief": "Wood pyrolysed into fuel, so a furnace sited far from any coal can still run.",
+      "brief": "Wood pyrolysed into fuel, so a furnace sited far from any coal can still run. Six logs a lump, and the hub pays for every one of them.",
       "item_id": 15,
-      "quantity": 8,
-      "insight": 21
+      "quantity": 4,
+      "insight": 32
     },
     {
       "id": 14,

@@ -262,7 +262,7 @@ describe("the economy's stated curve", () => {
     }
   });
 
-  it("keeps a fuel conversion ahead of what it burned", () => {
+  it("never lets a fuel conversion hand back more than it burned", () => {
     for (const entry of fixture.fuel) {
       const item = catalogue.items.find(({ key }) => key === entry.item);
       expect(item?.fuel_value).toBe(entry.fuel_value);
@@ -283,9 +283,12 @@ describe("the economy's stated curve", () => {
       expect(entry.output_energy).toBe(
         entry.fuel_value * recipe.output.quantity,
       );
-      // Charcoal returned exactly what it was given through v0.16: two wood at two energy for one
-      // charcoal at four, costing a kiln, ten ticks, and a hundred power to break even.
-      expect(entry.output_energy, entry.item).toBeGreaterThan(input);
+      // Charcoal made energy from nothing through v0.23: two wood at two energy for one charcoal
+      // at eight, from a kiln that burns no fuel, on an input that regrows. A real kiln burns part
+      // of the charge to cook the rest and keeps a quarter to a half — the recipe is bought for
+      // density, four times the energy in one belt slot, never for energy itself.
+      expect(entry.output_energy, entry.item).toBeLessThanOrEqual(input);
+      expect(entry.output_energy * 4, entry.item).toBeGreaterThanOrEqual(input);
     }
   });
 
