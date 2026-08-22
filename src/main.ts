@@ -36,6 +36,19 @@ import {
   type CurrentBuild,
   type SaveSlot,
 } from "./core/saveSlots";
+import {
+  formatElapsed,
+  formatRunReport,
+  isRunComplete,
+  OPENING_CHECKPOINTS,
+  readRun,
+  recordCheckpoints,
+  startRun,
+  taintRun,
+  writeRun,
+  type CheckpointContext,
+  type RunTimings,
+} from "./core/checkpoints";
 import { TERRAIN_INFO, TERRAIN_ORDER, terrainAccess } from "./core/terrain";
 import { CORNER_START, DIRECTION_NAMES } from "./core/directions";
 import type {
@@ -206,6 +219,16 @@ let lastEvent = "";
 let autoSavePending = false;
 let lastAutoSaveTime = performance.now();
 const AUTOSAVE_INTERVAL_MS = 60_000;
+/**
+ * The run clock, and the time it has counted.
+ *
+ * `runElapsedMs` accrues only while the factory is live and the title screen is closed, which makes
+ * it in-game time rather than wall time. That is the convention a run should be measured in — a
+ * player who opened the menu to read a recipe did not spend that time playing, and a clock that
+ * charged them for it would make every comparison a test of how fast someone reads.
+ */
+let run: RunTimings | null = null;
+let runElapsedMs = 0;
 /**
  * The button-held camera gesture. The middle button, or shift with the left — never the right one.
  *
@@ -395,6 +418,112 @@ function saveHotbar(): void {
   }
 }
 
+/**
+ * Flatten a snapshot into the facts a checkpoint predicate asks about.
+ *
+ * Item and building keys are resolved here rather than in the checkpoint module so the predicates
+ * name `crystal` and `composer` instead of the ids those happen to hold. An id is a wire detail
+ * that a definitions bump may reassign; a key is the thing the design actually means.
+ */
+function checkpointContext(next: FactorySnapshot): CheckpointContext {
+  const carried: Record<string, number> = {};
+  for (const item of host.definitions.items) {
+    const held =
+      next.player.inventory[String(item.id)] ??
+      next.player.inventory[item.id] ??
+      0;
+    if (held > 0) carried[item.key] = held;
+  }
+  const buildingKeys = new Map(
+    host.definitions.buildings.map((definition) => [
+      definition.id,
+      definition.key,
+    ]),
+  );
+  return {
+    tick: next.tick,
+    contractStage: next.contract.stage,
+    researchedCount: next.researched.length,
+    carried,
+    buildings: next.buildings.map((entity) => ({
+      key: buildingKeys.get(entity.definition_id) ?? "",
+      kind: entity.kind,
+      status: entity.status,
+      powered:
+        (entity.power_charge ?? 0) > 0 || (entity.power_satisfied ?? 0) > 0,
+    })),
+  };
+}
+
+function evaluateRun(next: FactorySnapshot): void {
+  if (!run) return;
+  if (isRunComplete(run)) return;
+  const result = recordCheckpoints(run, checkpointContext(next), runElapsedMs);
+  if (result.reached.length === 0) return;
+  run = result.run;
+  writeRun(localStorage, run);
+  const last = result.reached.at(-1);
+  const checkpoint = last
+    ? OPENING_CHECKPOINTS.find(({ id }) => id === last.id)
+    : undefined;
+  if (last && checkpoint)
+    showFeedback(`${checkpoint.label} — ${formatElapsed(last.elapsedMs)}`);
+  renderRun();
+}
+
+/** Start the clock over. A fresh scenario is a fresh run; nothing else may reset it silently. */
+function beginRun(next: FactorySnapshot): void {
+  runElapsedMs = 0;
+  run = startRun(Date.now(), next.tick, Number(speedInput.value));
+  writeRun(localStorage, run);
+  renderRun();
+}
+
+function renderRun(): void {
+  const conditions = required<HTMLElement>("run-conditions");
+  const tainted = (run?.taints.length ?? 0) > 0;
+  conditions.textContent = !run
+    ? "No run timed yet. Start a scenario to begin the clock."
+    : tainted
+      ? `${run.startedSpeed} tps · not comparable (${run.taints.join(", ")})`
+      : `${run.startedSpeed} tps · clean`;
+  conditions.classList.toggle("run-tainted", tainted);
+  // Keyed in place rather than rebuilt, for the reason every other list here is: a row replaced
+  // between pointerdown and pointerup eats the click that was already on its way.
+  const rows = syncChildren(
+    required<HTMLElement>("run-checkpoints"),
+    OPENING_CHECKPOINTS.map(({ id }) => id),
+    () => {
+      const row = document.createElement("li");
+      row.className = "run-row";
+      const time = document.createElement("strong");
+      time.className = "run-time";
+      const label = document.createElement("span");
+      label.className = "run-label";
+      const note = document.createElement("small");
+      note.className = "run-note";
+      row.append(time, label, note);
+      return row;
+    },
+  );
+  const byId = new Map(
+    (run?.records ?? []).map((record) => [record.id, record]),
+  );
+  OPENING_CHECKPOINTS.forEach((checkpoint, index) => {
+    const row = rows[index];
+    if (!row) return;
+    const record = byId.get(checkpoint.id);
+    row.classList.toggle("run-reached", record !== undefined);
+    part<HTMLElement>(row, ".run-time").textContent = record
+      ? formatElapsed(record.elapsedMs)
+      : "--:--";
+    part<HTMLElement>(row, ".run-label").textContent = checkpoint.label;
+    part<HTMLElement>(row, ".run-note").textContent = record
+      ? `tick ${record.tick.toLocaleString()}`
+      : checkpoint.note;
+  });
+}
+
 function update(next: FactorySnapshot): void {
   const previousVictory = snapshot.victory;
   const previous = snapshot;
@@ -439,6 +568,9 @@ function update(next: FactorySnapshot): void {
     renderContract();
     renderRequests();
     renderNextAction();
+    // Both kinds of change can complete a checkpoint: the first iron is a pack change and the
+    // first powered composer is a factory one, so the clock reads whenever either moved.
+    evaluateRun(next);
   }
   if (factoryChanged || selected) renderInspector();
   const latestEvent = snapshot.events.at(-1) ?? "";
@@ -2345,6 +2477,7 @@ titleStartGame.addEventListener("click", async () => {
       seed,
       pendingWorld ?? undefined,
     );
+    beginRun(next);
     update(next);
     syncSessionInputs(next);
     renderer.recenter();
@@ -2370,6 +2503,7 @@ required<HTMLButtonElement>("new-game").addEventListener("click", async () => {
       seed,
       pendingWorld ?? undefined,
     );
+    beginRun(next);
     update(next);
     syncSessionInputs(next);
     renderer.recenter();
@@ -2379,6 +2513,40 @@ required<HTMLButtonElement>("new-game").addEventListener("click", async () => {
     reportWorkerError(error);
   }
 });
+// Ticks bought at a different price are a different run. The clock keeps counting either way; it
+// just stops claiming the result can be compared against one that did not move the slider.
+speedInput.addEventListener("change", () => {
+  if (!run || Number(speedInput.value) === run.startedSpeed) return;
+  run = taintRun(run, "speed-changed");
+  writeRun(localStorage, run);
+  renderRun();
+});
+
+required<HTMLButtonElement>("run-copy").addEventListener("click", async () => {
+  const status = required<HTMLElement>("run-status");
+  if (!run) {
+    status.textContent = "Nothing timed yet.";
+    return;
+  }
+  const report = formatRunReport(run);
+  try {
+    await navigator.clipboard.writeText(report);
+    status.textContent = "Report copied.";
+  } catch {
+    // Clipboard permission is not guaranteed, and losing the report to a denied prompt would be
+    // worse than a fallback that asks the player to copy it themselves.
+    status.textContent = report;
+  }
+});
+
+required<HTMLButtonElement>("run-reset").addEventListener("click", () => {
+  runElapsedMs = 0;
+  run = startRun(Date.now(), snapshot.tick, Number(speedInput.value));
+  writeRun(localStorage, run);
+  renderRun();
+  required<HTMLElement>("run-status").textContent = "Timer reset.";
+});
+
 required<HTMLButtonElement>("save").addEventListener("click", async () => {
   try {
     const payload = await host.save();
@@ -3177,6 +3345,10 @@ function renderTerrainLegend(): void {
 function frame(now: number): void {
   const elapsed = Math.min(250, now - previousTime);
   previousTime = now;
+  // In-game time: the run clock stops with the factory and behind the title screen, so reading a
+  // recipe with the game paused costs a player nothing.
+  if (run && playing && !titleScreen.classList.contains("open"))
+    runElapsedMs += elapsed;
   if (playing) accumulator += elapsed * Number(speedInput.value);
   // Walking is paced by native's cadence against elapsed real time, not by the tick the factory
   // happens to be running, so a paused or slowed factory no longer pins the player in place. The
@@ -3434,6 +3606,15 @@ async function loadSlot(slot: SaveSlot): Promise<void> {
   try {
     input.clear();
     const next = await host.load(slot.payload);
+    // A load is a discontinuity the clock cannot see across: whatever it counted belongs to a
+    // different sitting. The run stays, so checkpoints keep landing, but it is marked uncomparable
+    // rather than quietly presented as a clean time.
+    if (!run) beginRun(next);
+    if (run) {
+      run = taintRun(run, "loaded-save");
+      writeRun(localStorage, run);
+      renderRun();
+    }
     update(next);
     syncSessionInputs(next);
     renderer.recenter();
@@ -3669,6 +3850,11 @@ ONE_PANEL_AT_A_TIME.addEventListener("change", (event) => {
 });
 setMuted(audio.isMuted);
 setReducedMotion(loadReducedMotion());
+// A reload is a discontinuity for the same reason a load is: the tab was gone for an unknown
+// stretch. The records survive so the ladder is not lost, and the run says why it cannot be raced.
+run = readRun(localStorage);
+if (run && run.records.length > 0) run = taintRun(run, "loaded-save");
+renderRun();
 update(snapshot);
 syncSessionInputs(snapshot);
 updateContinueState();
@@ -3693,12 +3879,24 @@ declare global {
       newGame: (scenario?: string, seed?: number) => Promise<FactorySnapshot>;
       save: () => Promise<string>;
       load: (save: string) => Promise<FactorySnapshot>;
+      run: () => {
+        timings: RunTimings | null;
+        elapsedMs: number;
+        report: string;
+      };
     };
   }
 }
 
 window.__hexFactory = {
   snapshot: () => host.snapshot(),
+  // The clock, readable. A scripted run needs the elapsed figure while it is still running, not
+  // only the records that have already landed.
+  run: () => ({
+    timings: run,
+    elapsedMs: runElapsedMs,
+    report: run ? formatRunReport(run) : "",
+  }),
   step: async (count = 1) => {
     setPlaying(false);
     const next = await host.tick(count);
@@ -3712,6 +3910,9 @@ window.__hexFactory = {
   },
   newGame: async (scenario = "new-game", seed) => {
     const next = await host.newGame(scenario, seed);
+    // The scripted path starts a run too, so a timed opening can be driven from the console
+    // without a human hand on the keyboard.
+    beginRun(next);
     update(next);
     syncSessionInputs(next);
     return next;

@@ -73,6 +73,17 @@
           <button
             class="icon-button panel-toggle"
             type="button"
+            data-panel-target="run-panel"
+            aria-controls="run-panel"
+            aria-expanded="false"
+            title="Run checkpoints"
+            aria-label="Open run checkpoints"
+          >
+            ⏱
+          </button>
+          <button
+            class="icon-button panel-toggle"
+            type="button"
             data-panel-target="session-panel"
             aria-controls="session-panel"
             aria-expanded="false"
@@ -667,6 +678,45 @@
                 <dd><code id="checksum-value">00000000</code></dd>
               </div>
             </dl>
+          </aside>
+
+          <!--
+            Run checkpoints. Read entirely from the published snapshot and never fed back into it,
+            so the clock cannot change the run it is timing.
+          -->
+          <aside
+            id="run-panel"
+            class="glass-panel run-panel"
+            aria-label="Run checkpoints"
+          >
+            <div class="panel-heading">
+              <div>
+                <span class="section-kicker">Run timer</span>
+                <h2>Checkpoints</h2>
+              </div>
+              <button
+                class="panel-close"
+                type="button"
+                aria-label="Close run timer"
+              >
+                ×
+              </button>
+            </div>
+            <p class="panel-copy">
+              The opening ladder, timed automatically. Both clocks are kept:
+              real time is what a run races, ticks are what a replay reproduces.
+            </p>
+            <p
+              id="run-conditions"
+              class="run-conditions"
+              aria-live="polite"
+            ></p>
+            <ol id="run-checkpoints" class="run-checkpoints"></ol>
+            <div class="run-actions">
+              <button id="run-copy" type="button">Copy report</button
+              ><button id="run-reset" type="button">Reset timer</button>
+            </div>
+            <p id="run-status" class="save-status" role="status"></p>
           </aside>
         </div>
 

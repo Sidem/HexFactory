@@ -1412,6 +1412,65 @@ canvas {
 .save-help {
   line-height: 1.4;
 }
+.run-conditions {
+  margin: 0 0 10px;
+  color: var(--muted);
+  font-size: 0.7rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.run-conditions.run-tainted {
+  color: #d8a657;
+}
+.run-checkpoints {
+  display: grid;
+  gap: 6px;
+  margin: 0 0 12px;
+  padding: 0;
+  list-style: none;
+  counter-reset: checkpoint;
+}
+.run-row {
+  display: grid;
+  grid-template-columns: 4.2rem 1fr;
+  gap: 2px 10px;
+  padding: 7px 9px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: #0d1a1880;
+  opacity: 0.55;
+}
+.run-row.run-reached {
+  opacity: 1;
+  border-color: #4d7a6a;
+  background: #12241f;
+}
+.run-row strong {
+  /* Times sit in a column, so the digits have to sit in a column too. */
+  font-variant-numeric: tabular-nums;
+  font-size: 0.92rem;
+  color: var(--muted);
+}
+.run-row.run-reached strong {
+  color: #8fe0bd;
+}
+.run-row span {
+  align-self: center;
+  font-size: 0.78rem;
+  line-height: 1.35;
+}
+.run-row small {
+  grid-column: 2;
+  color: var(--muted);
+  font-size: 0.66rem;
+  line-height: 1.4;
+}
+.run-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 7px;
+  margin-bottom: 8px;
+}
 .save-slots {
   display: grid;
   gap: 8px;
