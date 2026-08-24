@@ -135,6 +135,8 @@ function snapshotAt(state: {
       radius: 580,
       action_cooldown_total: 15,
       extract_radius: 1,
+      walk_goal: null,
+      walk_path: [],
     },
     researched: state.researched,
     chunks: [],

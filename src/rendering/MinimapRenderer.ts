@@ -28,6 +28,8 @@ const FOG = parseRgba("#18242f");
 const LOWLAND = parseRgba(TERRAIN_INFO.lowland.fill);
 const STRIDE = 10;
 const CELL_WORLD = WORLD_SCALE * 1.9;
+/** The same warm tone the world ribbon uses, so the two drawings of one route read as one route. */
+const ROUTE = parseRgba("#ffd479");
 
 /**
  * The second view of the same snapshot. It derives nothing native has not published: surveyed
@@ -218,8 +220,10 @@ export class MinimapRenderer {
     const fx = player.facing_x / 1000;
     const fy = player.facing_y / 1000;
     const angle = Math.atan2(fy, fx);
-    this.markData.fill(0);
-    writeInstance(this.markData, 0, [
+    this.markCount = 0;
+    // The route goes down first so the player rides on top of their own line rather than under it.
+    this.packRoute(snapshot, scale, radius);
+    this.pushMark([
       player.x + (fx * reach) / 2,
       player.y + (fy * reach) / 2,
       reach / 2,
@@ -231,7 +235,7 @@ export class MinimapRenderer {
       angle,
       0,
     ]);
-    writeInstance(this.markData, 1, [
+    this.pushMark([
       player.x,
       player.y,
       radius,
@@ -243,18 +247,72 @@ export class MinimapRenderer {
       0,
       1,
     ]);
-    this.markCount = 2;
     const home = this.homeMarker(snapshot, scale, dw);
-    if (home) {
-      writeInstance(this.markData, 2, home);
-      this.markCount = 3;
-    }
+    if (home) this.pushMark(home);
     this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.markBuffer);
     this.gl.bufferData(
       this.gl.ARRAY_BUFFER,
       this.markData.subarray(0, this.markCount * STRIDE),
       this.gl.DYNAMIC_DRAW,
     );
+  }
+
+  /**
+   * The same route the world draws, on the map that can still show it once the walk leaves the
+   * viewport — which is the whole reason it is here twice.
+   *
+   * Every point is a hex from `snapshot.player.walk_path`, native's own remaining route. A segment
+   * is a quad rotated onto the line between two of them, so the map needs no line primitive and no
+   * second draw call; the goal is a pip on the last hex.
+   */
+  private packRoute(
+    snapshot: FactorySnapshot,
+    scale: number,
+    radius: number,
+  ): void {
+    const { walk_goal: goal, walk_path: path } = snapshot.player;
+    if (!goal || !path.length) return;
+    const thickness = Math.max(1.25 / scale, radius * 0.22);
+    let previous: WorldPoint = { x: snapshot.player.x, y: snapshot.player.y };
+    for (const cell of path) {
+      const point = axialToPixel(cell, WORLD_SCALE, { x: 0, y: 0 });
+      const dx = point.x - previous.x;
+      const dy = point.y - previous.y;
+      const length = Math.hypot(dx, dy);
+      if (length > 0)
+        this.pushMark([
+          previous.x + dx / 2,
+          previous.y + dy / 2,
+          length / 2,
+          thickness,
+          ROUTE[0],
+          ROUTE[1],
+          ROUTE[2],
+          0.78,
+          Math.atan2(dy, dx),
+          0,
+        ]);
+      previous = point;
+    }
+    const destination = axialToPixel(goal, WORLD_SCALE, { x: 0, y: 0 });
+    this.pushMark([
+      destination.x,
+      destination.y,
+      radius * 0.85,
+      radius * 0.85,
+      ROUTE[0],
+      ROUTE[1],
+      ROUTE[2],
+      1,
+      0,
+      1,
+    ]);
+  }
+
+  private pushMark(values: number[]): void {
+    this.markData = grow(this.markData, (this.markCount + 1) * STRIDE);
+    writeInstance(this.markData, this.markCount, values);
+    this.markCount += 1;
   }
 
   private homeMarker(

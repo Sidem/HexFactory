@@ -138,5 +138,9 @@ export function encodeCommand(command: NativeInputCommand): EncodedCommand {
       };
     case "set_carry_slots":
       return { opcode: 21, args: [command.slots] };
+    // A destination, not a route. Native bounds how far a click may mean and answers with the way
+    // there, so there is nothing to validate here that native would not have to validate anyway.
+    case "walk_to":
+      return { opcode: 22, args: [command.q, command.r] };
   }
 }

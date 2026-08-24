@@ -124,6 +124,32 @@ The Rust `Core` owns all state that can change a game result:
    same position and the same checksum. The same clock owns the cooldown between field actions: it
    used to be spent one unit per simulation tick, so pausing froze gathering after a single attempt
    and the harvest rate otherwise rode the speed multiplier.
+
+   A second click on a selected hex is a standing order to walk there, and the split between what is
+   saved and what is derived follows the `RuntimeIndex` doctrine exactly. The **goal** is real state:
+   it lives in `PlayerState`, is written to the save, and is hashed into the checksum, because two
+   runs that differ only in where the player is headed are not the same run — that is what took the
+   envelope to 15, with an explicit `save_migrations` step writing `walk_goal: null` into a
+   version-14 file rather than letting a defaulting deserializer invent it. The **route** is derived:
+   an A\* over hex centres, bounded by `MAX_WALK_DISTANCE` and `MAX_WALK_SEARCH_NODES`, rebuilt by
+   `rebuild_runtime_index` — which every edit and every load already funnels through — and never
+   saved, hashed, or checksummed. Saving it would let a file describe a corridor the world it loads
+   into no longer has.
+
+   The search costs shallow water five, the ratio between the ford speed and the walking speed, so
+   the route it returns is the fastest one rather than the shortest one; an unweighted search sends
+   the player wading at 1 m/s across water they would have walked around. It reads terrain through
+   the pure `terrain_at` and blocking through `runtime.occupied`, and calls neither `ensure_tile` nor
+   `generate_chunk`: considering a hex must not survey it, because `generated_chunks` is a checksum
+   input. Ties break on `(f, g, q, r)` rather than on heap order, so the same click answers the same
+   way in every run.
+
+   Steering writes `move_x`/`move_y` directly, ahead of the step that consumes them. Any
+   `MoveIntent` — including the zero one a key release sends — cancels the walk, so touching the
+   movement keys always returns control. Arrival ends it silently; a route that runs out somewhere
+   other than the goal, or thirty player steps without moving, ends it with an event. Gathering
+   deliberately does not.
+
 4. Carrying capacity is a rule over the ordinary inventory, not a stored array of slots: each item
    occupies `ceil(quantity / stack_size)` slots and a scenario fixes the slot count. Every path that
    adds to the player — gathering, erasing, withdrawing — asks first. Gathering into a full pack is

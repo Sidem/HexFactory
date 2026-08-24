@@ -905,6 +905,8 @@ function minimalSnapshot(): FactorySnapshot {
       action_cooldown_total: 0,
       extract_radius: 1,
       creative: false,
+      walk_goal: null,
+      walk_path: [],
     },
     researched: [],
     chunks: [

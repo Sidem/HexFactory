@@ -69,7 +69,13 @@ pub(crate) const WIRE_MAGIC: [u8; 4] = *b"HXFD";
 /// flag carries the outputs after the first. A version-8 decoder would not know that bit, would not
 /// consume the branch list behind it, and would read the next entity out of the middle of this
 /// one — the mis-framing this number prevents, and the reason a new flag is still a new version.
-pub(crate) const WIRE_VERSION: u8 = 9;
+///
+/// Version 10 is click-to-walk. The player group gains where an autonomous walk is headed and the
+/// route it is taking to get there, both written after the creative flag that used to end the group.
+/// A version-9 decoder would stop at that flag and read the route as whatever group came next,
+/// mis-framing the rest of the buffer — the same failure version 8 was cut for, and the same reason
+/// a trailing addition is still a new version.
+pub(crate) const WIRE_VERSION: u8 = 10;
 
 /// Which optional groups the buffer carries, in the order they are written.
 mod group {
@@ -382,6 +388,22 @@ fn write_player(writer: &mut Writer, player: &PlayerSnapshot) {
     writer.uvarint(u64::from(player.action_cooldown_total));
     writer.uvarint(u64::from(player.extract_radius));
     writer.bool(player.creative);
+    writer.bool(state.walk_goal.is_some());
+    if let Some(goal) = state.walk_goal {
+        writer.svarint(i64::from(goal.q));
+        writer.svarint(i64::from(goal.r));
+    }
+    // The route is a chain of neighbouring hexes, so it delta-codes like the terrain and resource
+    // lists above: every step after the first is `-1..=1` on each axis and costs two bytes. The
+    // first is coded against the goal rather than against nothing, because a walk near the origin
+    // and a walk far from it are the same shape and should cost the same.
+    writer.uvarint(player.walk_path.len() as u64);
+    let mut previous = state.walk_goal.unwrap_or(Coordinate { q: 0, r: 0 });
+    for cell in &player.walk_path {
+        writer.svarint(i64::from(cell.q - previous.q));
+        writer.svarint(i64::from(cell.r - previous.r));
+        previous = *cell;
+    }
 }
 
 fn write_chunks(writer: &mut Writer, chunks: &[ChunkSnapshot]) {
@@ -857,6 +879,20 @@ pub(crate) mod decode {
         let action_cooldown_total = reader.uvarint() as u32;
         let extract_radius = reader.uvarint() as u32;
         let creative = reader.bool();
+        let walk_goal = reader.bool().then(|| Coordinate {
+            q: reader.svarint() as i32,
+            r: reader.svarint() as i32,
+        });
+        let cells = reader.count();
+        let mut walk_path = Vec::with_capacity(cells);
+        let mut previous = walk_goal.unwrap_or(Coordinate { q: 0, r: 0 });
+        for _ in 0..cells {
+            previous = Coordinate {
+                q: previous.q + reader.svarint() as i32,
+                r: previous.r + reader.svarint() as i32,
+            };
+            walk_path.push(previous);
+        }
         PlayerSnapshot {
             state: PlayerState {
                 x,
@@ -869,12 +905,14 @@ pub(crate) mod decode {
                 action_cooldown,
                 build_range,
                 carry_slots,
+                walk_goal,
             },
             carry_stacks,
             radius,
             action_cooldown_total,
             extract_radius,
             creative,
+            walk_path,
         }
     }
 

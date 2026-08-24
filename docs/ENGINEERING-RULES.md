@@ -12,9 +12,9 @@ change. The next milestones live in `docs/HEXFACTORY-PLAN.md`, architecture deci
 
 ## Where things stand
 
-Shipped through **v0.25.1 Junctions**. Current envelope versions,
-all five of which native refuses a load on: **save 14, definitions 14, technologies 7, scenarios 5,
-world generator 8**, and wire (snapshot delta) **9**. `SAVE_VERSION` is the one literal in the host,
+Shipped through **v0.25.2 Wayfinding**. Current envelope versions,
+all five of which native refuses a load on: **save 15, definitions 14, technologies 7, scenarios 5,
+world generator 8**, and wire (snapshot delta) **10**. `SAVE_VERSION` is the one literal in the host,
 because native does not publish it; every other number the browser's save catalog shows is read from
 what native publishes.
 
@@ -71,6 +71,32 @@ Before changing a cost, a cadence, or a power figure, run `npm run balance` and 
   does themselves, actions as well as walking — work spent per simulation tick froze gathering
   outright while paused and otherwise scaled the harvest rate with the speed setting. So the host
   keeps the player's clock running while a swing is outstanding, not only while walking.
+- **A walk to a click is a standing order, and the order is state while the route is a cache.** A
+  second click on a selected hex is the player saying where they are going, so `walk_goal` lives in
+  `PlayerState`, is saved, and is checksummed: two runs that differ only in where the player is
+  headed are not the same run, and a walk that vanished on reload would be a held key rather than an
+  order. That is what took the save envelope to 15, with an explicit migration writing
+  `walk_goal: null` into a version-14 file rather than letting a defaulting deserializer invent a
+  state the file never described. The route is the opposite: a derived index under the same rule as
+  `RuntimeIndex`, rebuilt by `rebuild_runtime_index` — which every edit and every load already
+  funnels through — and never saved, hashed, or checksummed. Saving it would let a file describe a
+  corridor the world it loads into no longer has, and would make the drawn ribbon a promise the
+  simulation could not keep.
+- **The search answers with the fastest way, not the shortest one, and surveys nothing to find it.**
+  The A\* costs shallow water `PLAYER_SPEED / (PLAYER_SPEED / 5)` because that is the fraction of
+  speed a ford actually costs; an unweighted search sends the player wading at 1 m/s across water
+  they would have walked round. It reads terrain through the pure `terrain_at` and blocking through
+  `runtime.occupied`, and calls neither `ensure_tile` nor `generate_chunk`: considering a hex must
+  not survey it, because `generated_chunks` is a checksum input. It is bounded by
+  `MAX_WALK_DISTANCE`, `MAX_WALK_SEARCH_NODES`, and `MAX_WALK_PATH_CELLS`, and breaks ties on
+  `(f, g, q, r)` rather than on heap order, so one click answers the same way in every run. Steering
+  writes the intent directly, ahead of the step that consumes it; any `MoveIntent` — including the
+  zero one a key release sends — cancels, so the movement keys always take control back. Arrival
+  ends a walk silently, and a route that runs out anywhere but the goal ends it with an event.
+- **A route is drawn from native's own remaining path and never re-found by the host.** Both the
+  world ribbon and the minimap line read `player.walk_path`, the hexes the steering will actually
+  consume. A host-side search would be a second pathfinder, and it would eventually draw a way the
+  simulation would not take — across water it prices differently, or through a wall raised mid-walk.
 - **A harvest is work, and the work comes before the yield.** `action_cooldown` is the swing still
   running, not a debt charged after an instant take: `gather_from` arms it and takes nothing, and
   `finish_gather` moves the deposit and the pack together on the step that completes it. The old

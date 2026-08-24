@@ -385,6 +385,19 @@ export interface PlayerSnapshot extends WorldPoint {
    * showing at all.
    */
   creative: boolean;
+  /**
+   * Where an autonomous walk is headed, or `null` when the player is standing or steering. Native
+   * owns it: it is saved with the run and hashed into the checksum, so a walk survives a reload the
+   * way a held key never could.
+   */
+  walk_goal: AxialCoordinate | null;
+  /**
+   * The remaining route to {@link walk_goal}, nearest hex first, as the hexes native will actually
+   * steer through — replanned natively whenever the world changes under it. The host draws this and
+   * never searches for a route of its own, so the ribbon on screen cannot promise a way through that
+   * the simulation would not take.
+   */
+  walk_path: AxialCoordinate[];
 }
 
 /**
@@ -517,6 +530,13 @@ export type NativeInputCommand =
    * Reach is still native's, and still the same predicate an extractor on that hex would use.
    */
   | { type: "gather_at"; q: number; r: number }
+  /**
+   * Walk to a hex the player clicked a second time. The host sends a destination and never a route:
+   * the search, the cost of crossing water, and the steering all belong to native, so what is drawn
+   * is what will happen. Any `move_intent` afterwards — including the zero one a key release sends —
+   * hands control back to the player.
+   */
+  | { type: "walk_to"; q: number; r: number }
   | { type: "deposit"; item_id?: number }
   | {
       type: "place";

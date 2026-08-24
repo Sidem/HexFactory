@@ -22,6 +22,9 @@ export interface WorldMaterials {
   readonly overlaySelection: MeshBasicMaterial;
   readonly grid: LineBasicMaterial;
   readonly frontier: LineBasicMaterial;
+  /** The ribbon along an autonomous walk, and the ring on the hex it ends at. */
+  readonly route: LineBasicMaterial;
+  readonly routeGoal: MeshBasicMaterial;
   readonly materials: readonly (
     | MeshStandardMaterial
     | MeshBasicMaterial
@@ -104,6 +107,22 @@ export function createWorldMaterials(): WorldMaterials {
     opacity: 0.68,
     depthTest: false,
   });
+  // A walk in progress is the player's own standing order, so the route reads as a decision rather
+  // than a warning: it borrows the selection's warmth without competing with the legality colours a
+  // build overlay is saying something with. `depthTest: false` keeps it readable across a ridge,
+  // which is exactly the case a drawn route is worth having.
+  const route = new LineBasicMaterial({
+    color: "#ffd479",
+    transparent: true,
+    opacity: 0.85,
+    depthTest: false,
+  });
+  const routeGoal = new MeshBasicMaterial({
+    color: "#ffd479",
+    transparent: true,
+    opacity: 0.66,
+    depthTest: false,
+  });
   const materials = [
     ...Object.values(terrain),
     machine,
@@ -115,6 +134,8 @@ export function createWorldMaterials(): WorldMaterials {
     overlaySelection,
     grid,
     frontier,
+    route,
+    routeGoal,
   ];
   return {
     terrain,
@@ -128,6 +149,8 @@ export function createWorldMaterials(): WorldMaterials {
     overlaySelection,
     grid,
     frontier,
+    route,
+    routeGoal,
     materials,
   };
 }

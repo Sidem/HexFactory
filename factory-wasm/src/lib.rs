@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::cell::RefCell;
 #[cfg(test)]
 use std::cmp::Ordering;
+use std::cmp::Reverse;
 use std::collections::{BTreeMap, BTreeSet, BinaryHeap};
 use wasm_bindgen::prelude::*;
 
@@ -65,7 +66,14 @@ const SAVE_PREFIX: &str = "HXF1\n";
 /// version-13 envelope carries neither, and defaulting them is not the harmless zero it looks
 /// like: every junction in a loaded factory would restart its rotation from the same place, and a
 /// run reloaded mid-tick would deal a round it had already dealt.
-const SAVE_VERSION: u16 = 14;
+///
+/// Bumped to 15 for click-to-walk. The player carries where they are walking to, because a walk is
+/// a standing order the simulation is executing rather than a key being held: it survives a save
+/// the way `pending_gather` does, it is checksummed, and two runs that differ only in it are not
+/// the same run. A version-14 envelope has no goal, which is a real and representable state — the
+/// 14 → 15 step in `save_migrations` writes `null` rather than leaving the field absent, so an old
+/// file loads standing still instead of being refused.
+const SAVE_VERSION: u16 = 15;
 /// Bumped to 6 for World Parameters. `WorldParams` is now part of a run's identity — it is in the
 /// save envelope and in the checksum — so a version-5 envelope carries no answer to the question
 /// "which world is this" and is rejected rather than assumed to be the default.
@@ -167,6 +175,49 @@ const PLAYER_SPEED: i32 = 275;
 const PLAYER_TICKS_PER_SECOND: u32 = 30;
 const PLAYER_RADIUS: i32 = 580;
 const BUILDING_RADIUS: i32 = 690;
+/// How far a click may send the player, in hexes. A bound on a command rather than a play rule, for
+/// the same reason `MAX_AIM_DISTANCE` is one: the search below is the only unbounded-looking thing
+/// the player can trigger by clicking, and an order to walk to a hex a thousand chunks away would
+/// generate terrain for the whole corridor between here and there. Ninety-six hexes is several
+/// screens at every zoom the camera offers, which is as far as a player can mean by pointing.
+const MAX_WALK_DISTANCE: i32 = 96;
+/// How many hexes one route search may settle before it gives up and reports no route.
+///
+/// A* over open ground settles roughly the disc it crosses, so a 96-hex walk in the clear costs a
+/// few hundred nodes; the budget only binds when the goal is walled off, which is precisely the case
+/// that would otherwise flood-fill a continent looking for a way round. Refusing at the budget is
+/// the same answer as refusing for want of a route, and it arrives in bounded time.
+const MAX_WALK_SEARCH_NODES: usize = 12_000;
+/// The longest route that may be published and followed, in hexes. The straight-line bound above is
+/// 96; this allows a route to more than quintuple that going round things before it is treated as
+/// no route, and keeps the path a bounded thing to cross the wire.
+const MAX_WALK_PATH_CELLS: usize = 512;
+/// What crossing one hex of shallow water costs the route, against 1 for dry ground.
+///
+/// `player_step` fords shallows at `PLAYER_SPEED / 5`, so this is not a preference the search
+/// invents — it is the fifth the walk actually takes, which makes the route the *fastest* way to
+/// the goal rather than the shortest. A river is a real obstacle to a route because it is a real
+/// obstacle to the player, and a bridge is worth building because the search will use it.
+const WALK_SHALLOW_COST: u32 = 5;
+/// The gait an autonomous walk travels at, as a movement intent.
+///
+/// Full intent — the run — rather than the 0.6 the unmodified movement keys ask for. A player
+/// clicks a distant hex precisely because they do not want to hold a key across it, and there is no
+/// modifier to hold on a click that has already happened. Being native's own number rather than one
+/// the host sends also means the host has no say in how fast a checksummed walk crosses the world:
+/// the click names *where*, and the simulation decides *how*.
+const AUTO_WALK_INTENT: i16 = 1000;
+/// Player-clock steps a walk may make no ground before it is abandoned. One second: long enough to
+/// ride out a step spent sliding along a wall, short enough that a player boxed in by a building
+/// placed across the route gets their controls back rather than jogging into it forever.
+const WALK_STALL_STEPS: u32 = 30;
+/// How close to a waypoint's centre counts as standing on it, in world units.
+///
+/// The hex's inradius, which is the largest circle wholly inside it. Being inside it means
+/// `world_to_axial` of that position is that hex, which is what lets arrival be told apart from a
+/// route that ran out for any other reason. It also has to be comfortably larger than one step — at
+/// most `PLAYER_SPEED`, 275 — or a waypoint could be jumped clean over and the walk would circle it.
+const WALK_ARRIVE_RADIUS: i32 = HEX_Y / 2;
 /// Fastest hand gather, in player-clock steps: wood. Counted on the player's own cadence like the
 /// walk, so holding the action key harvests at one rate whether the factory is paused, running at
 /// 4 tps, or running at 60.
@@ -859,6 +910,20 @@ struct PlayerState {
     /// property rather than a simulation result, so it is validated against the scenario on load
     /// instead of being hashed into the checksum.
     carry_slots: u32,
+    /// The hex an autonomous walk is headed for, if one is running.
+    ///
+    /// This is the whole of the walk's *state*. The route to it is not: a path is a derived answer
+    /// about a world that can change under it, and `Core::walk_path` rebuilds it from this goal
+    /// whenever the world does, under the same rule as every other derived index. Saving the goal
+    /// and rebuilding the route is also the only version of this that survives a reload honestly —
+    /// a saved route would come back describing a corridor that the loaded factory may no longer
+    /// have, and the player would watch themselves walk into a wall they built before saving.
+    ///
+    /// Saved and checksummed beside `move_x`/`move_y`, for the reason those are: it is an input the
+    /// simulation is still executing, and two runs that differ only in where the player is headed
+    /// will not stay identical for long.
+    #[serde(default)]
+    walk_goal: Option<Coordinate>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -957,6 +1022,11 @@ struct PlayerSnapshot {
     /// player may spend and carry, and because the host needs it in the same breath as `carry_slots`
     /// to decide whether to draw prices, refunds, and the creative panel's controls at all.
     creative: bool,
+    /// The hexes still ahead on the current walk, nearest first and ending on `walk_goal`; empty
+    /// when no walk is running. Published rather than re-derived host-side for the reason
+    /// `carry_stacks` and `radius` are: the host draws the route the simulation is going to take,
+    /// not a second opinion about it computed from the same goal by different arithmetic.
+    walk_path: Vec<Coordinate>,
 }
 
 #[derive(Clone, Copy, Debug, Serialize, PartialEq, Eq)]
@@ -1579,6 +1649,16 @@ enum InputCommand {
     SetCarrySlots {
         slots: u32,
     },
+    /// Walk to a hex the player pointed at, finding the way there natively.
+    ///
+    /// The host sends a destination and never a route, for the same reason `Aim` sends a target and
+    /// never a heading and a drag sends two endpoints and never a line: the path is a checksum input
+    /// and a collision question, so resolving it in TypeScript would be the host deciding a value
+    /// the simulation hashes and then walks the player through.
+    WalkTo {
+        q: i32,
+        r: i32,
+    },
 }
 
 struct Core {
@@ -1636,6 +1716,17 @@ struct Core {
     /// carried the remaining work without what it is working on would come back counting down to
     /// nothing.
     pending_gather: Option<Coordinate>,
+    /// The hexes still ahead of the player on the current walk, nearest first, ending on
+    /// `player.walk_goal`. Derived state under the same rule as `deposit_links`: it is a pure
+    /// function of the goal, the terrain, and the occupied cells, so it is rebuilt whenever the
+    /// topology changes and on load, and it is never saved, hashed, or checksummed.
+    walk_path: Vec<Coordinate>,
+    /// Player-clock steps the current walk has made no ground. Derived session state: a walk that
+    /// reloads mid-stall simply gets its second to prove itself again.
+    walk_stall: u32,
+    /// Where the player stood at the top of the last walk step, so `walk_stall` measures ground
+    /// actually covered rather than intent issued. Derived like `walk_stall`.
+    walk_last_position: (i32, i32),
     /// Whether this run builds for free with everything unlocked. Saved and checksummed: it changes
     /// what a construction costs and what an erase gives back, so two runs that differ only in this
     /// are not the same run, and a save that lost it would come back priced.
@@ -1763,8 +1854,12 @@ impl Core {
                 action_cooldown: 0,
                 build_range: scenario.build_range.saturating_mul(HEX_X as u32),
                 carry_slots: scenario.carry_slots,
+                walk_goal: None,
             },
             pending_gather: None,
+            walk_path: Vec::new(),
+            walk_stall: 0,
+            walk_last_position: (0, 0),
             creative: false,
             researched: scenario.initial_researched.iter().copied().collect(),
             next_entity_id: 1,
@@ -1882,6 +1977,7 @@ impl Core {
             action_cooldown_total: cooldown_total,
             extract_radius: EXTRACT_RADIUS as u32,
             creative: self.creative,
+            walk_path: self.walk_path.clone(),
         }
     }
 
@@ -2453,6 +2549,11 @@ impl Core {
             .collect();
         self.runtime
             .rebuild(&self.entities, &self.graph, mergers, occupied);
+        // Every edit and every load funnels through here, and `occupied` is half of what a route is
+        // made of, so this is the one place a standing walk has to be re-answered against the world
+        // it is crossing. It is also what builds the route after a load, since the goal is saved
+        // and the path deliberately is not.
+        self.replan_walk();
     }
 
     fn occupied_entities(&self) -> BTreeMap<(i32, i32), usize> {
@@ -3267,6 +3368,10 @@ impl Core {
             if working && self.player.action_cooldown == 0 {
                 self.finish_gather();
             }
+            // Steering before the step, so the intent the step consumes is the one this step's
+            // position asked for. A walk is deliberately not interrupted by gathering: the swing
+            // above runs on the same clock and the two have never blocked each other.
+            self.steer_walk();
             self.advance_player();
         }
     }
@@ -4105,10 +4210,19 @@ impl Core {
         }
     }
 
+    /// The host's own movement intent — a key going down, or coming back up.
+    ///
+    /// Any such command cancels an autonomous walk, including the zero one a key release sends. The
+    /// moment the player touches the controls they are driving, and a walk that kept steering
+    /// against them would be fighting for the same two numbers. This is why the walk writes
+    /// `move_x`/`move_y` directly in [`Core::steer_walk`] rather than calling through here: the
+    /// command path is the *cancellation* path, and routing the walk through it would cancel it on
+    /// its own first step.
     fn set_move_intent(&mut self, x: i16, y: i16) -> Result<(), String> {
         if !(-1000..=1000).contains(&x) || !(-1000..=1000).contains(&y) {
             return Err("movement intent must be in -1000..1000".into());
         }
+        self.clear_walk();
         self.player.move_x = x;
         self.player.move_y = y;
         if x != 0 || y != 0 {
@@ -4116,6 +4230,269 @@ impl Core {
             self.player.facing_y = y;
         }
         Ok(())
+    }
+
+    /// Start walking to a hex, resolving the route here and now.
+    ///
+    /// A refusal is an event rather than a silent no-op: the player pointed at something, and
+    /// "there is no way there" is the answer to what they asked.
+    fn walk_to(&mut self, q: i32, r: i32) -> Result<(), String> {
+        let here = world_to_axial(self.player.x, self.player.y);
+        if (q, r) == here {
+            // Already standing on it. Cancelling any walk in flight is the useful reading of a
+            // click on your own feet, and it costs no search to answer.
+            self.clear_walk();
+            return Ok(());
+        }
+        if axial_distance(here, (q, r)) > MAX_WALK_DISTANCE {
+            self.clear_walk();
+            return Err("That is too far to walk to in one go".into());
+        }
+        let Some(path) = self.walk_route(here, (q, r)) else {
+            self.clear_walk();
+            return Err("No way through to there".into());
+        };
+        self.player.walk_goal = Some(Coordinate { q, r });
+        self.walk_path = path;
+        self.walk_stall = 0;
+        self.walk_last_position = (self.player.x, self.player.y);
+        Ok(())
+    }
+
+    /// Stop walking, wherever the walk had got to. Idempotent, and it drops the intent it was
+    /// holding so a cancelled walk does not leave the player drifting.
+    fn clear_walk(&mut self) {
+        if self.player.walk_goal.is_none() {
+            return;
+        }
+        self.player.walk_goal = None;
+        self.walk_path.clear();
+        self.walk_stall = 0;
+        self.player.move_x = 0;
+        self.player.move_y = 0;
+    }
+
+    /// Rebuild the route to the standing goal against the world as it now is.
+    ///
+    /// Called from [`Core::rebuild_runtime_index`], which every edit and every load funnels through,
+    /// so a wall built across the player's own route is answered the moment it is built rather than
+    /// when they arrive at it. That matters as much for the drawing as for the walking: the ribbon
+    /// on screen is this path, and a path through a building the player just placed would be the
+    /// host promising a walk the simulation will not take.
+    ///
+    /// A route that no longer exists empties the path and leaves the goal standing. Ending the walk
+    /// is [`Core::steer_walk`]'s job alone, for two reasons: it keeps one place deciding what a
+    /// finished walk means, and this runs inside a load's `compile_graph`, where clearing a goal the
+    /// file recorded would move the checksum out from under the very check that is about to verify
+    /// it.
+    fn replan_walk(&mut self) {
+        let Some(goal) = self.player.walk_goal else {
+            return;
+        };
+        let here = world_to_axial(self.player.x, self.player.y);
+        self.walk_path = self.walk_route(here, (goal.q, goal.r)).unwrap_or_default();
+        self.walk_stall = 0;
+    }
+
+    /// Whether the player's body can stand at the centre of this hex.
+    ///
+    /// The centre, and not the whole hex: an adjacent pair of walkable centres is 1774 apart, and
+    /// the nearest a blocking building's centre can sit to the segment between them is 1536 — both
+    /// comfortably clear of the 1270 that `PLAYER_RADIUS + BUILDING_RADIUS` needs. So a route made
+    /// of hex centres is one the continuous collision in `player_blocked` will actually let the
+    /// player walk, without the route having to model the body it is routing.
+    ///
+    /// It asks `terrain_at`, which is a pure function of the world parameters and the seed, and
+    /// `runtime.occupied`, which is maintained with the compiled topology. Neither generates a
+    /// chunk — deliberately. `generated_chunks` is a checksum input, so a search that surveyed the
+    /// ground it considered would make *thinking about* a route change the run's checksum.
+    fn walkable_hex(&self, q: i32, r: i32) -> bool {
+        if self.terrain_at(q, r).blocks_movement() {
+            return false;
+        }
+        !self
+            .runtime
+            .occupied
+            .get(&(q, r))
+            .map(|&index| {
+                self.entities
+                    .get(index)
+                    .and_then(|entity| self.building_definition(entity.placed.definition_id))
+                    .map(|definition| definition.blocks_movement)
+                    .unwrap_or(true)
+            })
+            .unwrap_or(false)
+    }
+
+    /// What entering this hex costs the route, in dry-ground steps.
+    ///
+    /// Terrain only, because `player_step` fords on terrain only: a bridge over shallows carries
+    /// belts, not boots, and charging the route one for a hex the walk crosses at a fifth speed
+    /// would produce a route that is short on the map and slow in the hand.
+    fn walk_step_cost(&self, q: i32, r: i32) -> u32 {
+        if self.terrain_at(q, r) == Terrain::ShallowWater {
+            WALK_SHALLOW_COST
+        } else {
+            1
+        }
+    }
+
+    /// A* over hex centres, returning the cells still to be walked — nearest first, ending on the
+    /// goal — or `None` when there is no route inside the bounds.
+    ///
+    /// Read-only and integer-only, so it is as reproducible as everything else the checksum covers.
+    /// Ties break on `(f, g, q, r)`, which is a total order over distinct cells, so the frontier
+    /// never depends on how a heap happened to order two equal keys.
+    ///
+    /// Three separate bounds hold it: the goal must be within `MAX_WALK_DISTANCE`, the frontier
+    /// never leaves that disc around the *start*, and `MAX_WALK_SEARCH_NODES` caps the settle count
+    /// for the case the bounds cannot help with — a goal that is reachable-looking and walled off,
+    /// where an unbounded search would sweep the whole disc before admitting it.
+    fn walk_route(&self, from: (i32, i32), goal: (i32, i32)) -> Option<Vec<Coordinate>> {
+        if from == goal {
+            return Some(Vec::new());
+        }
+        if axial_distance(from, goal) > MAX_WALK_DISTANCE || !self.walkable_hex(goal.0, goal.1) {
+            return None;
+        }
+
+        let mut open: BinaryHeap<Reverse<(u32, u32, i32, i32)>> = BinaryHeap::new();
+        let mut best: BTreeMap<(i32, i32), u32> = BTreeMap::new();
+        let mut came_from: BTreeMap<(i32, i32), (i32, i32)> = BTreeMap::new();
+        best.insert(from, 0);
+        open.push(Reverse((
+            axial_distance(from, goal) as u32,
+            0,
+            from.0,
+            from.1,
+        )));
+
+        let mut settled = 0usize;
+        while let Some(Reverse((_, cost, q, r))) = open.pop() {
+            let cell = (q, r);
+            if cell == goal {
+                return self.walk_path_from(&came_from, from, goal);
+            }
+            // A cheaper way here was found after this entry was pushed; the heap keeps no
+            // decrease-key, so the stale entry is simply skipped.
+            if best.get(&cell).copied().is_some_and(|known| known < cost) {
+                continue;
+            }
+            settled += 1;
+            if settled > MAX_WALK_SEARCH_NODES {
+                return None;
+            }
+            for (dq, dr) in DIRECTIONS {
+                let next = (q.saturating_add(dq), r.saturating_add(dr));
+                if axial_distance(from, next) > MAX_WALK_DISTANCE
+                    || !self.walkable_hex(next.0, next.1)
+                {
+                    continue;
+                }
+                let step = cost + self.walk_step_cost(next.0, next.1);
+                if best.get(&next).copied().is_some_and(|known| known <= step) {
+                    continue;
+                }
+                best.insert(next, step);
+                came_from.insert(next, cell);
+                open.push(Reverse((
+                    step + axial_distance(next, goal) as u32,
+                    step,
+                    next.0,
+                    next.1,
+                )));
+            }
+        }
+        None
+    }
+
+    /// Walk the predecessor map back from the goal, dropping the cell the player is already on.
+    ///
+    /// A route longer than `MAX_WALK_PATH_CELLS` is reported as no route at all. It is not a real
+    /// shape — inside a 96-hex disc it would have to double back on itself for hundreds of cells —
+    /// and the alternative is an unbounded list crossing the wire every frame of the walk.
+    fn walk_path_from(
+        &self,
+        came_from: &BTreeMap<(i32, i32), (i32, i32)>,
+        from: (i32, i32),
+        goal: (i32, i32),
+    ) -> Option<Vec<Coordinate>> {
+        let mut path = Vec::new();
+        let mut cursor = goal;
+        while cursor != from {
+            path.push(Coordinate {
+                q: cursor.0,
+                r: cursor.1,
+            });
+            if path.len() > MAX_WALK_PATH_CELLS {
+                return None;
+            }
+            cursor = *came_from.get(&cursor)?;
+        }
+        path.reverse();
+        Some(path)
+    }
+
+    /// One player-clock step of an autonomous walk: retire the waypoints reached, then aim at the
+    /// next one. Writes the intent directly, for the reason [`Core::set_move_intent`] explains.
+    fn steer_walk(&mut self) {
+        if self.player.walk_goal.is_none() {
+            return;
+        }
+        let (px, py) = (self.player.x, self.player.y);
+
+        // Ground actually covered, not intent issued. A walk pressed against something the route
+        // did not predict gets a second to slide out of it and is then handed back to the player,
+        // rather than jogging into a wall until they take the controls themselves.
+        if (px, py) == self.walk_last_position {
+            self.walk_stall += 1;
+            if self.walk_stall >= WALK_STALL_STEPS {
+                self.clear_walk();
+                self.events.push("Stopped — the way is blocked".into());
+                return;
+            }
+        } else {
+            self.walk_stall = 0;
+        }
+        self.walk_last_position = (px, py);
+
+        let reach = i64::from(WALK_ARRIVE_RADIUS).pow(2);
+        while let Some(&next) = self.walk_path.first() {
+            let (wx, wy) = axial_world(next.q, next.r);
+            if squared_distance(px, py, wx, wy) > reach {
+                break;
+            }
+            self.walk_path.remove(0);
+        }
+        let Some(&target) = self.walk_path.first() else {
+            // The goal is the last waypoint, so a route that has run out is either arrival or a
+            // route `replan_walk` could not rebuild. Standing on the goal tells the two apart —
+            // `WALK_ARRIVE_RADIUS` is the inradius, so being inside it means being in that hex —
+            // and only the second is worth saying out loud.
+            let here = world_to_axial(px, py);
+            let blocked = self.player.walk_goal
+                != Some(Coordinate {
+                    q: here.0,
+                    r: here.1,
+                });
+            self.clear_walk();
+            if blocked {
+                self.events.push("The way there is blocked".into());
+            }
+            return;
+        };
+
+        let (tx, ty) = axial_world(target.q, target.r);
+        let dx = i64::from(tx) - i64::from(px);
+        let dy = i64::from(ty) - i64::from(py);
+        let length = integer_sqrt(dx * dx + dy * dy);
+        if length == 0 {
+            return;
+        }
+        self.player.move_x = (dx * i64::from(AUTO_WALK_INTENT) / length) as i16;
+        self.player.move_y = (dy * i64::from(AUTO_WALK_INTENT) / length) as i16;
+        self.player.facing_x = self.player.move_x;
+        self.player.facing_y = self.player.move_y;
     }
 
     /// Face the world position the host is pointing at, resolved here in integer arithmetic so the
@@ -5641,6 +6018,7 @@ impl Core {
                 InputCommand::Grant { item_id, quantity } => self.grant(item_id, quantity),
                 InputCommand::Discard { item_id, quantity } => self.discard(item_id, quantity),
                 InputCommand::SetCarrySlots { slots } => self.set_carry_slots(slots),
+                InputCommand::WalkTo { q, r } => self.walk_to(q, r),
             };
             if let Err(error) = result {
                 self.events.push(error);
@@ -6026,6 +6404,15 @@ impl Core {
         if let Some(target) = self.pending_gather {
             hash_i32(&mut hash, target.q);
             hash_i32(&mut hash, target.r);
+        }
+        // Where a walk is headed, on the same terms as the swing above: it is an order the
+        // simulation is still executing, so a run carrying one is not the same run as one standing
+        // still, and a player who is not walking hashes nothing here. The route itself is derived
+        // and is deliberately absent — it is rebuilt from this goal, so hashing it would be hashing
+        // the same fact twice and pinning the search's internals into the save format.
+        if let Some(goal) = self.player.walk_goal {
+            hash_i32(&mut hash, goal.q);
+            hash_i32(&mut hash, goal.r);
         }
         // Both of these are now run state rather than scenario state: creative changes what a
         // construction costs, and creative can widen the pack. A save that carried either without
@@ -12770,6 +13157,294 @@ mod tests {
         assert_eq!(PLAYER_SPEED, 275);
     }
 
+    /// Build a wall out of containers, standing next to each cell so the test is about the route
+    /// rather than about build reach, and free so it is not about costs either.
+    fn wall(core: &mut Core, cells: &[(i32, i32)]) {
+        core.set_creative(true);
+        for &(q, r) in cells {
+            core.place(q, r, 4, 0, None)
+                .unwrap_or_else(|error| panic!("wall segment at {q},{r}: {error}"));
+        }
+    }
+
+    /// The six neighbours of a hex, which is what it takes to shut one off from the world.
+    fn ring(q: i32, r: i32) -> Vec<(i32, i32)> {
+        DIRECTIONS.iter().map(|(dq, dr)| (q + dq, r + dr)).collect()
+    }
+
+    /// A route is only a route if it is a chain of neighbours the player can stand on, starting
+    /// beside where they are and ending on what they asked for.
+    fn assert_route_is_walkable(core: &Core, from: (i32, i32), goal: (i32, i32)) {
+        let path = &core.walk_path;
+        assert!(!path.is_empty(), "a route to {goal:?} should have cells");
+        assert_eq!((path[path.len() - 1].q, path[path.len() - 1].r), goal);
+        let mut previous = from;
+        for cell in path {
+            assert_eq!(
+                axial_distance(previous, (cell.q, cell.r)),
+                1,
+                "{previous:?} -> {cell:?} is not one step"
+            );
+            assert!(
+                core.walkable_hex(cell.q, cell.r),
+                "{cell:?} is not ground the player can stand on"
+            );
+            previous = (cell.q, cell.r);
+        }
+    }
+
+    /// The whole gesture, end to end: a click names a hex, native finds the way, and the player
+    /// walks it without another command being sent.
+    #[test]
+    fn a_click_walks_the_player_to_the_hex_it_named() {
+        let mut core = game("new-game");
+        set_player_hex(&mut core, 1, 0);
+        core.walk_to(6, 0).unwrap();
+        assert_eq!(core.player.walk_goal, Some(Coordinate { q: 6, r: 0 }));
+        assert_route_is_walkable(&core, (1, 0), (6, 0));
+
+        // No further input at all — the run below sends an empty batch every frame.
+        for _ in 0..12 {
+            core.advance("[]", 0, 5).unwrap();
+        }
+        assert_eq!(world_to_axial(core.player.x, core.player.y), (6, 0));
+        // Arrival ends the walk and drops the intent, so the player stops rather than drifting on.
+        assert_eq!(core.player.walk_goal, None);
+        assert!(core.walk_path.is_empty());
+        assert_eq!((core.player.move_x, core.player.move_y), (0, 0));
+    }
+
+    /// The route goes round what blocks it. A wall the player built themselves is as real to the
+    /// search as a cliff is, because both answer the same `walkable_hex`.
+    #[test]
+    fn a_route_goes_round_what_blocks_it_rather_than_through_it() {
+        let mut core = game("new-game");
+        set_player_hex(&mut core, 1, 0);
+        let barrier = [(3, -1), (3, 0), (3, 1)];
+        wall(&mut core, &barrier);
+
+        core.walk_to(6, 0).unwrap();
+        assert_route_is_walkable(&core, (1, 0), (6, 0));
+        for cell in &core.walk_path {
+            assert!(
+                !barrier.contains(&(cell.q, cell.r)),
+                "the route runs through the wall at {cell:?}"
+            );
+        }
+        assert!(
+            core.walk_path.len() > axial_distance((1, 0), (6, 0)) as usize,
+            "a route round a wall cannot be as short as the straight line it replaces"
+        );
+    }
+
+    /// Water is not scenery to a route. Shallows are walkable and are therefore never refused, but
+    /// `player_step` fords them at a fifth speed, so the search charges five and takes the long dry
+    /// way — which is the way the player would have taken, and five times faster.
+    #[test]
+    fn a_route_pays_for_a_ford_and_takes_the_dry_way_round() {
+        // The complaint this answers: the shortest route and the fastest route are not the same
+        // route once water is on the map, and the shortest one wades.
+        assert_eq!(
+            WALK_SHALLOW_COST,
+            (PLAYER_SPEED / (PLAYER_SPEED / 5)) as u32,
+            "the ford's price to the route is the fraction of speed the ford actually costs"
+        );
+
+        let mut core = game("new-game");
+        set_player_hex(&mut core, 0, 2);
+        assert_eq!(core.terrain_at(1, 2), Terrain::ShallowWater);
+        assert_eq!(core.terrain_at(2, 2), Terrain::ShallowWater);
+
+        core.walk_to(3, 2).unwrap();
+        assert_route_is_walkable(&core, (0, 2), (3, 2));
+        for cell in &core.walk_path {
+            assert_ne!(
+                core.terrain_at(cell.q, cell.r),
+                Terrain::ShallowWater,
+                "the route wades at {cell:?} when dry ground was cheaper"
+            );
+        }
+        // Three hexes wading costs eleven; four hexes round the south of the water costs four. A
+        // search that costed every hex the same would have returned the three, and the player would
+        // have spent two of them crossing at 1 m/s.
+        assert_eq!(core.walk_path.len(), 4);
+        assert_eq!(axial_distance((0, 2), (3, 2)), 3);
+    }
+
+    /// Three refusals, each an event rather than a silent no-op: the player pointed at something and
+    /// is owed an answer about it.
+    #[test]
+    fn a_hex_with_no_way_to_it_is_refused_and_nobody_moves() {
+        let mut core = game("new-game");
+        set_player_hex(&mut core, 1, 0);
+        let standing = (core.player.x, core.player.y);
+
+        // Ground the player cannot stand on at all.
+        assert_eq!(core.terrain_at(9, 0), Terrain::Cliff);
+        assert!(core.walk_to(9, 0).unwrap_err().contains("No way through"));
+
+        // Ground that is fine in itself and walled off from the world.
+        wall(&mut core, &ring(4, 0));
+        assert!(core.walkable_hex(4, 0));
+        assert!(core.walk_to(4, 0).unwrap_err().contains("No way through"));
+
+        // Further than a click is allowed to mean.
+        assert!(core
+            .walk_to(1 + MAX_WALK_DISTANCE + 1, 0)
+            .unwrap_err()
+            .contains("too far"));
+
+        assert_eq!(core.player.walk_goal, None);
+        assert_eq!((core.player.x, core.player.y), standing);
+        assert_eq!((core.player.move_x, core.player.move_y), (0, 0));
+    }
+
+    /// Clicking your own feet cancels rather than searching, which is the useful reading of it and
+    /// the cheapest.
+    #[test]
+    fn walking_to_the_hex_you_are_standing_on_stops_the_walk() {
+        let mut core = game("new-game");
+        set_player_hex(&mut core, 1, 0);
+        core.walk_to(6, 0).unwrap();
+        assert!(core.player.walk_goal.is_some());
+        core.walk_to(1, 0).unwrap();
+        assert_eq!(core.player.walk_goal, None);
+        assert!(core.walk_path.is_empty());
+    }
+
+    /// The moment the player touches the movement keys they are driving. Both the key going down
+    /// and the key coming back up cancel, because both are the host saying the player is steering.
+    #[test]
+    fn any_movement_command_takes_the_walk_back_off_the_simulation() {
+        for batch in [IDLE_MOVE_EAST, IDLE] {
+            let mut core = game("new-game");
+            set_player_hex(&mut core, 1, 0);
+            core.walk_to(6, 0).unwrap();
+            core.advance("[]", 0, 5).unwrap();
+            assert!(
+                core.player.walk_goal.is_some(),
+                "{batch} should interrupt a walk in flight"
+            );
+
+            core.advance(batch, 0, 1).unwrap();
+            assert_eq!(core.player.walk_goal, None);
+            assert!(core.walk_path.is_empty());
+        }
+    }
+
+    /// A wall raised across a live route is answered when it is raised, not when the player reaches
+    /// it — the drawn ribbon and the walk are the same path, so a stale one would be the host
+    /// promising a walk that cannot happen.
+    #[test]
+    fn a_wall_across_a_live_route_replans_it_and_a_sealed_goal_ends_it() {
+        let mut core = game("new-game");
+        set_player_hex(&mut core, 1, 0);
+        core.walk_to(6, 0).unwrap();
+        assert_eq!(
+            core.walk_path.len(),
+            5,
+            "the clear route is the straight one"
+        );
+
+        core.advance("[]", 0, 3).unwrap();
+        wall(&mut core, &[(3, -1), (3, 0), (3, 1)]);
+        assert_eq!(core.player.walk_goal, Some(Coordinate { q: 6, r: 0 }));
+        assert!(
+            core.walk_path.len() > 5,
+            "the route should have been rebuilt round the new wall"
+        );
+
+        // Now shut the destination off entirely. The goal stands until the next player step, which
+        // is the one place a walk is allowed to end — and it says why.
+        let mut core = game("new-game");
+        set_player_hex(&mut core, 1, 0);
+        core.walk_to(4, 0).unwrap();
+        wall(&mut core, &ring(4, 0));
+        assert_eq!(core.player.walk_goal, Some(Coordinate { q: 4, r: 0 }));
+        assert!(core.walk_path.is_empty());
+
+        core.advance("[]", 0, 1).unwrap();
+        assert_eq!(core.player.walk_goal, None);
+        assert!(
+            core.events.iter().any(|event| event.contains("blocked")),
+            "a walk that cannot finish has to say so: {:?}",
+            core.events
+        );
+    }
+
+    /// Where the player is headed is state the run carries: it is hashed, it is saved, and it comes
+    /// back walking. The route is not saved — it is rebuilt against the world that loaded, which is
+    /// the only version of this that cannot come back describing a corridor that no longer exists.
+    #[test]
+    fn a_walk_is_hashed_saved_and_resumed() {
+        let (definitions, technologies, scenarios) = catalogs();
+        let mut core = game("new-game");
+        set_player_hex(&mut core, 1, 0);
+        let idle = core.checksum();
+        core.walk_to(6, 0).unwrap();
+        assert_ne!(
+            core.checksum(),
+            idle,
+            "a player walking somewhere is not the same run as one standing still"
+        );
+
+        let save = core.save_string().unwrap();
+        let restored = Core::from_save(&definitions, &technologies, &scenarios, &save).unwrap();
+        assert_eq!(restored.player.walk_goal, Some(Coordinate { q: 6, r: 0 }));
+        assert_eq!(restored.walk_path, core.walk_path);
+        assert_eq!(restored.checksum(), core.checksum());
+
+        // And it keeps going, which is the whole point of saving it.
+        let mut resumed = restored;
+        for _ in 0..12 {
+            resumed.advance("[]", 0, 5).unwrap();
+        }
+        assert_eq!(world_to_axial(resumed.player.x, resumed.player.y), (6, 0));
+    }
+
+    /// The search is simulation, so it answers the same way every time. Ties break on `(f, g, q, r)`
+    /// rather than on whatever order a heap happened to pop, which is what makes this true rather
+    /// than usually true.
+    #[test]
+    fn the_same_click_finds_the_same_route_and_the_same_checksum() {
+        let batch = r#"[{"type":"walk_to","q":6,"r":0}]"#;
+        let mut first = game("new-game");
+        let mut second = game("new-game");
+        for core in [&mut first, &mut second] {
+            set_player_hex(core, 1, 0);
+            wall(core, &[(3, -1), (3, 0), (3, 1)]);
+            core.advance(batch, 0, 0).unwrap();
+        }
+        assert_eq!(first.walk_path, second.walk_path);
+        for _ in 0..20 {
+            first.advance("[]", 2, 5).unwrap();
+            second.advance("[]", 2, 5).unwrap();
+        }
+        assert_eq!(first.checksum(), second.checksum());
+        assert_eq!(
+            (first.player.x, first.player.y),
+            (second.player.x, second.player.y)
+        );
+    }
+
+    /// Thinking about a route must not change the world. `terrain_at` is a pure function of the
+    /// parameters and the seed, and the search deliberately never calls `ensure_tile` — if it did,
+    /// considering a hex would survey it, and `generated_chunks` is a checksum input.
+    #[test]
+    fn searching_for_a_route_surveys_nothing_and_moves_no_checksum() {
+        let mut core = game("new-game");
+        set_player_hex(&mut core, 1, 0);
+        let before = core.checksum();
+        let chunks = core.generated_chunks.clone();
+
+        let here = world_to_axial(core.player.x, core.player.y);
+        for goal in [(6, 0), (0, 2), (9, 0), (1 + MAX_WALK_DISTANCE, 0)] {
+            let _ = core.walk_route(here, goal);
+        }
+        assert_eq!(core.generated_chunks, chunks);
+        assert_eq!(core.checksum(), before);
+    }
+
     #[test]
     fn gathering_depletes_finite_resources_and_conserves_items() {
         let mut core = game("new-game");
@@ -14618,15 +15293,29 @@ mod tests {
             1,
         );
         assert!(Core::from_save(&definitions, &technologies, &scenarios, &incompatible).is_err());
-        // v0.14 bumps the envelope because `orientation` now indexes eight routing directions and
-        // definitions carry a tier. The previous envelope is rejected, not reinterpreted.
+        // Version 14 is the one older envelope that has a released migration: click-to-walk added a
+        // field whose absence is a real state, so a 14 comes forward rather than being refused. It
+        // must come forward to the *same run* — same checksum — which is the whole claim the
+        // migration makes.
         let previous_envelope = save.replacen(
             &format!("\"save_version\":{SAVE_VERSION}"),
             &format!("\"save_version\":{}", SAVE_VERSION - 1),
             1,
         );
+        let migrated = Core::from_save(&definitions, &technologies, &scenarios, &previous_envelope)
+            .expect("a version-14 envelope migrates forward");
+        let baseline = Core::from_save(&definitions, &technologies, &scenarios, &save).unwrap();
+        assert_eq!(migrated.checksum(), baseline.checksum());
+        assert_eq!(migrated.player.walk_goal, None);
+        // Everything older still is. There is no migration for it, and reading one as a newer
+        // spelling of the same thing is exactly what the boundary refuses to do.
+        let unmigratable = save.replacen(
+            &format!("\"save_version\":{SAVE_VERSION}"),
+            &format!("\"save_version\":{}", SAVE_VERSION - 2),
+            1,
+        );
         assert!(
-            Core::from_save(&definitions, &technologies, &scenarios, &previous_envelope).is_err(),
+            Core::from_save(&definitions, &technologies, &scenarios, &unmigratable).is_err(),
             "a v0.13 save must be refused rather than read with six-direction orientations"
         );
         // v0.16 takes the generator to 6 because `WorldParams` entered the envelope and the
@@ -14861,6 +15550,7 @@ mod tests {
                     action_cooldown: 5,
                     build_range: 4096,
                     carry_slots: 12,
+                    walk_goal: Some(Coordinate { q: -70, r: 12 }),
                 },
                 carry_stacks: vec![
                     Ingredient {
@@ -14876,6 +15566,17 @@ mod tests {
                 action_cooldown_total: 6,
                 extract_radius: 1,
                 creative: true,
+                // A route that steps in every direction the delta coding has to carry, ending on
+                // the goal above, so the fixture pins the chain rather than a straight line.
+                walk_path: vec![
+                    Coordinate { q: -74, r: 14 },
+                    Coordinate { q: -73, r: 14 },
+                    Coordinate { q: -73, r: 13 },
+                    Coordinate { q: -72, r: 13 },
+                    Coordinate { q: -72, r: 12 },
+                    Coordinate { q: -71, r: 12 },
+                    Coordinate { q: -70, r: 12 },
+                ],
             }),
             researched: Some(vec![1, 2, 3, 4]),
             chunks: Some(vec![

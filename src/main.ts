@@ -3501,9 +3501,18 @@ canvas.addEventListener("click", (event) => {
     return;
   }
   const coordinate = renderer.pick(event.clientX, event.clientY);
+  // Read the old selection before it is replaced: the second click on a hex is the walk gesture, and
+  // it is only free to mean that under `inspect`, where every other tool's second click already
+  // means place, erase, rotate, or upgrade again.
+  const repeat =
+    tool === "inspect" &&
+    selected !== null &&
+    selected.q === coordinate.q &&
+    selected.r === coordinate.r;
   selected = coordinate;
   renderer.setSelection(coordinate);
-  if (tool === "erase") enqueue({ type: "erase", ...coordinate });
+  if (repeat) enqueue({ type: "walk_to", ...coordinate });
+  else if (tool === "erase") enqueue({ type: "erase", ...coordinate });
   else if (tool === "rotate") enqueue({ type: "rotate", ...coordinate });
   else if (tool === "upgrade") enqueue({ type: "upgrade", ...coordinate });
   else if (typeof tool === "number") {
@@ -3797,8 +3806,13 @@ function frame(now: number): void {
   const budget = frameClock.update(now, {
     playing,
     speed: Number(speedInput.value),
+    // Player time accrues only while the player has work. A standing walk goal is work: nobody is
+    // holding a key while native steers, so without this the route would be planned, drawn, and
+    // then never walked.
     playerActive:
-      pressedMovement.size > 0 || snapshot.player.action_cooldown > 0,
+      pressedMovement.size > 0 ||
+      snapshot.player.action_cooldown > 0 ||
+      snapshot.player.walk_goal !== null,
     playerTicksPerSecond: host.playerTicksPerSecond,
   });
   // In-game time: the run clock stops with the factory and behind the title screen, so reading a

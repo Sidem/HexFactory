@@ -49,9 +49,11 @@ This is permanent and is not a scope item.
 
 ## Where the project stands
 
-The engine arc, the generator arc, and the shipped milestones through **v0.25.1 Junctions** are
+The engine arc, the generator arc, and the shipped milestones through **v0.25.2 Wayfinding** are
 present in this tree. A run today looks like this: land beside a hub in a world chosen by preset
-or by raw parameters, walk out under fog across rivers and coastline, find **fields** of eight raw
+or by raw parameters, walk out under fog across rivers and coastline — on the keys, or by
+**clicking a selected hex a second time** and watching the route native found — find **fields** of
+eight raw
 materials rather than scattered cells, cross rivers on **bridges**, gather from forests that visibly
 thin and regrow, fill the hub's posted **requests** for insight and
 its staged founding **contract** for hub growth, research a seventeen-technology tree, and build a
@@ -67,12 +69,12 @@ catalog shows which one moved rather than hiding the row:
 
 | Envelope              | Version |
 | --------------------- | ------: |
-| `HXF1` save           |      14 |
+| `HXF1` save           |      15 |
 | Definitions           |      14 |
 | Technologies          |       7 |
 | Scenarios             |       5 |
 | World generator       |       8 |
-| Wire (snapshot delta) |       9 |
+| Wire (snapshot delta) |      10 |
 
 **Current measured capacity.** At 6,144 entities the complete Three.js browser frame is 27.4% of
 60 Hz on Low, 25.1% on Medium, and 21.7% on High on the reference desktop at 1440×900/DPR 1.
@@ -417,6 +419,19 @@ both test suites say so.
 
 One line per release, newest first. The reasoning behind a shipped rule lives in the git history of
 this file and in the code that implements it; what follows is the index.
+
+- **v0.25.2** Wayfinding — A second click on a selected hex walks the player there. The goal joins
+  `PlayerState`: saved, checksummed, and resumed, because where the player is headed is a standing
+  order the simulation is executing rather than a key being held. The route is derived and never
+  saved — a bounded A\* over hex centres, replanned by `rebuild_runtime_index` so every edit and
+  every load rebuilds it against the world that actually exists. Shallow water costs five, the ratio
+  between the ford speed and the walking speed, so the answer is the fastest way rather than the
+  shortest one. The search reads the pure `terrain_at` and `runtime.occupied` and surveys nothing,
+  because `generated_chunks` is a checksum input. The host sends a destination and never a route,
+  and draws native's own remaining path twice — a ribbon and destination ring over the terrain, a
+  line and goal pip on the minimap — so a walk that leaves the viewport stays legible and the
+  picture can never promise a way the simulation would not take. Any movement command, including the
+  zero one a key release sends, hands control back. Save 15, wire 10.
 
 - **v0.25.1** Junctions — Belt lines split, merge, and cross. `splits` and `merges` are definition
   flags over the existing compiled graph and the existing tick, not new kinds: a splitter fans every

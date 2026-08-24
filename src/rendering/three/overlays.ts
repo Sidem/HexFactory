@@ -45,6 +45,16 @@ export interface SpatialOverlayState {
 const OVERLAY_CAPACITY = 512;
 export const HEX_RING_START = Math.PI / 6;
 
+/**
+ * How many route hexes the ribbon can draw, matching `MAX_WALK_PATH_CELLS` in the core. Native
+ * cannot hand over a longer route, so the buffer is allocated once at this size and refilled in
+ * place rather than regrown per frame.
+ */
+const ROUTE_CAPACITY = 512;
+
+/** Clear of the construction grid at 0.018 and the hover and selection rings at 0.05. */
+const ROUTE_LIFT = 0.09;
+
 export class SpatialOverlays {
   readonly group = new Group();
   private readonly ringGeometry = new RingGeometry(
@@ -61,6 +71,12 @@ export class SpatialOverlays {
   private readonly arrows: InstancedMesh;
   private readonly rangeRing: Mesh;
   private readonly reachRings: Mesh[];
+  private readonly routeGeometry = new BufferGeometry();
+  // Two vertices per segment, one segment per route hex plus the one joining the player to the
+  // first of them. Written in place every frame because the leading segment moves with the player.
+  private readonly routePositions = new Float32Array((ROUTE_CAPACITY + 1) * 6);
+  private readonly routeLine: LineSegments;
+  private readonly routeGoal: Mesh;
   private grid: LineSegments | null = null;
   private gridGeometry: BufferGeometry | null = null;
 
@@ -92,6 +108,17 @@ export class SpatialOverlays {
       ringMesh(materials.overlaySelection),
       ringMesh(materials.overlayIllegal),
     ];
+    this.routeGeometry.setAttribute(
+      "position",
+      new Float32BufferAttribute(this.routePositions, 3),
+    );
+    this.routeLine = new LineSegments(this.routeGeometry, materials.route);
+    this.routeLine.name = "walk-route";
+    // The tail of the buffer holds stale points from whatever the last route was, so a bounding
+    // sphere computed from it would be wrong. The ribbon is a few hundred segments at most and only
+    // exists while a walk does, so it is cheaper to draw it than to bound it.
+    this.routeLine.frustumCulled = false;
+    this.routeGoal = ringMesh(materials.routeGoal);
     for (const object of [
       this.legal,
       this.illegal,
@@ -99,6 +126,8 @@ export class SpatialOverlays {
       this.arrows,
       this.rangeRing,
       ...this.reachRings,
+      this.routeLine,
+      this.routeGoal,
     ]) {
       object.renderOrder = 40;
       this.group.add(object);
@@ -156,6 +185,7 @@ export class SpatialOverlays {
       state.buildOrientation,
       terrain,
     );
+    this.writeRoute(snapshot, terrain);
 
     const playerAxial = state.gathering
       ? this.axialFromPlayer(snapshot.player.x, snapshot.player.y)
@@ -200,6 +230,8 @@ export class SpatialOverlays {
     this.directionGeometry.dispose();
     this.rangeRing.geometry.dispose();
     for (const ring of this.reachRings) ring.geometry.dispose();
+    this.routeGeometry.dispose();
+    this.routeGoal.geometry.dispose();
     this.gridGeometry?.dispose();
   }
 
@@ -271,6 +303,61 @@ export class SpatialOverlays {
     this.arrows.count = count;
     this.arrows.instanceMatrix.needsUpdate = true;
     this.arrows.computeBoundingSphere();
+  }
+
+  /**
+   * The ribbon along the route an autonomous walk is following, and the ring on the hex it ends at.
+   *
+   * Every point on it comes from `snapshot.player.walk_path`, which is native's own remaining route
+   * — the hexes the steering will actually consume, replanned natively whenever the world changes
+   * under it. Nothing here searches, smooths, or extrapolates: if the drawn ribbon and the walk ever
+   * disagreed, the picture would be promising a way through that the simulation would not take.
+   *
+   * It starts at the player rather than at the first route hex, so the line is anchored under their
+   * feet and shortens as they walk instead of jumping a hex at a time.
+   */
+  private writeRoute(
+    snapshot: FactorySnapshot,
+    terrain: ReadonlyMap<string, TerrainCell>,
+  ): void {
+    const { walk_goal: goal, walk_path: path } = snapshot.player;
+    if (!goal || !path.length) {
+      this.routeLine.visible = false;
+      this.routeGoal.visible = false;
+      return;
+    }
+    let previousX = snapshot.player.x / WORLD_SCALE;
+    let previousZ = snapshot.player.y / WORLD_SCALE;
+    const start = this.axialFromPlayer(snapshot.player.x, snapshot.player.y);
+    let previousY = this.heightAt(terrain, start.q, start.r) + ROUTE_LIFT;
+    let offset = 0;
+    for (const cell of path.slice(0, ROUTE_CAPACITY)) {
+      const point = axialToPixel(cell, 1, { x: 0, y: 0 });
+      const y = this.heightAt(terrain, cell.q, cell.r) + ROUTE_LIFT;
+      this.routePositions[offset] = previousX;
+      this.routePositions[offset + 1] = previousY;
+      this.routePositions[offset + 2] = previousZ;
+      this.routePositions[offset + 3] = point.x;
+      this.routePositions[offset + 4] = y;
+      this.routePositions[offset + 5] = point.y;
+      offset += 6;
+      previousX = point.x;
+      previousY = y;
+      previousZ = point.y;
+    }
+    this.routeGeometry.getAttribute("position").needsUpdate = true;
+    this.routeGeometry.setDrawRange(0, offset / 3);
+    this.routeLine.visible = true;
+
+    const destination = axialToPixel(goal, 1, { x: 0, y: 0 });
+    this.placeWorldRing(
+      this.routeGoal,
+      destination.x,
+      destination.y,
+      this.heightAt(terrain, goal.q, goal.r) + ROUTE_LIFT,
+      0.62,
+      true,
+    );
   }
 
   private placeWorldRing(

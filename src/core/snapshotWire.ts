@@ -1,3 +1,5 @@
+import type { AxialCoordinate } from "@hexlife/embed/hex";
+
 import type {
   BuildingKind,
   BuildingsPatch,
@@ -33,7 +35,7 @@ import type {
  */
 
 const MAGIC = 0x48584644; // "HXFD"
-const VERSION = 9;
+const VERSION = 10;
 
 /** Wire code is the index. Pinned against Rust by `fixtures/snapshot-delta-wire.json`. */
 const KINDS: BuildingKind[] = [
@@ -328,6 +330,21 @@ function readPlayer(reader: Reader): FactorySnapshotDelta["player"] {
   const action_cooldown_total = reader.uvarint();
   const extract_radius = reader.uvarint();
   const creative = reader.bool();
+  const walk_goal = reader.bool()
+    ? { q: reader.svarint(), r: reader.svarint() }
+    : null;
+  // Delta-coded against the goal and then against the previous cell, exactly as `write_player`
+  // codes it. The route is native's answer to where the player is walking, not the host's guess at
+  // it, which is what lets the ribbon on screen be the path the player will actually take.
+  const cells = reader.uvarint();
+  const walk_path: AxialCoordinate[] = new Array<AxialCoordinate>(cells);
+  let previousQ = walk_goal?.q ?? 0;
+  let previousR = walk_goal?.r ?? 0;
+  for (let index = 0; index < cells; index += 1) {
+    previousQ += reader.svarint();
+    previousR += reader.svarint();
+    walk_path[index] = { q: previousQ, r: previousR };
+  }
   return {
     x,
     y,
@@ -344,6 +361,8 @@ function readPlayer(reader: Reader): FactorySnapshotDelta["player"] {
     action_cooldown_total,
     extract_radius,
     creative,
+    walk_goal,
+    walk_path,
   };
 }
 

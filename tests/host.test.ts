@@ -105,6 +105,8 @@ const snapshot: FactorySnapshot = {
     radius: 580,
     action_cooldown_total: 6,
     extract_radius: 1,
+    walk_goal: null,
+    walk_path: [],
   },
   researched: [1],
   chunks: [
@@ -271,6 +273,13 @@ describe("bounded host input", () => {
     expect(() => encodeCommand({ type: "move_intent", x: 1001, y: 0 })).toThrow(
       /-1000\.\.1000/,
     );
+    // A walk is a destination and nothing else. There is no route, no gait, and no reach in it:
+    // native searches, prices the water, and steers, so an opcode carrying anything more would be
+    // the host deciding something the checksum depends on.
+    expect(encodeCommand({ type: "walk_to", q: 6, r: -2 })).toEqual({
+      opcode: 22,
+      args: [6, -2],
+    });
   });
 
   it("halves a transfer without ever asking for nothing", () => {
@@ -382,6 +391,52 @@ describe("bounded host input", () => {
     expect(main.match(/type: "place_line"/g)).toHaveLength(1);
     expect(renderer).toContain("setDragPath(");
     expect(renderer).not.toMatch(/hexLine|axialLine/);
+  });
+
+  it("walks to a second click without ever finding the way itself", () => {
+    const main = readFileSync(
+      new URL("../src/main.ts", import.meta.url),
+      "utf8",
+    );
+    const overlays = readFileSync(
+      new URL("../src/rendering/three/overlays.ts", import.meta.url),
+      "utf8",
+    );
+    const minimap = readFileSync(
+      new URL("../src/rendering/MinimapRenderer.ts", import.meta.url),
+      "utf8",
+    );
+    // The gesture is the second click on a hex that is already selected, and it has to read the old
+    // selection before the click replaces it. It is confined to `inspect` because every other tool's
+    // second click already means place, erase, rotate, or upgrade again.
+    const click = main.slice(
+      main.indexOf('canvas.addEventListener("click"'),
+      main.indexOf("function draggableTool()"),
+    );
+    expect(click).toContain('tool === "inspect"');
+    expect(click).toMatch(/selected\.q === coordinate\.q/);
+    expect(click).toMatch(/selected\.r === coordinate\.r/);
+    expect(click.indexOf("const repeat")).toBeLessThan(
+      click.indexOf("selected = coordinate"),
+    );
+    expect(main.match(/type: "walk_to"/g)).toHaveLength(1);
+    // Player time accrues only while the player has work, and nobody holds a key while native
+    // steers. Leave a standing goal out of that predicate and the route is planned and drawn but
+    // never walked, because the frame hands native zero player steps.
+    const budget = main.slice(
+      main.indexOf("frameClock.update(now, {"),
+      main.indexOf("playerTicksPerSecond: host.playerTicksPerSecond"),
+    );
+    expect(budget).toContain("walk_goal !== null");
+    // Both drawings of the route come from native's own remaining path. A host-side search would be
+    // a second pathfinder, and the picture would eventually promise a way the simulation would not
+    // take — over water it prices differently, or through a wall that went up mid-walk.
+    expect(overlays).toContain("walk_path");
+    expect(minimap).toContain("walk_path");
+    for (const source of [main, overlays, minimap])
+      expect(source).not.toMatch(
+        /aStar|astar|BinaryHeap|openSet|frontier\.push/,
+      );
   });
 
   it("keeps the reach and capacity rules native for both new hand actions", () => {
