@@ -8,6 +8,7 @@ import scenarios from "../src/data/scenarios.json";
 import {
   BUILDING_SHAPE_VERSION,
   BUILDING_SHAPES,
+  cargoTravel,
   facingTip,
   NORTH,
   partsFor,
@@ -395,5 +396,15 @@ describe("Stage D shape grammar", () => {
           .map((scenario) => scenario.contract.stages.length),
       ),
     );
+  });
+});
+
+describe("cargo presentation", () => {
+  it("moves once across a tick and stays at the output under backpressure", () => {
+    expect(cargoTravel(0, 250, false, false)).toBe(0);
+    expect(cargoTravel(125, 250, false, false)).toBe(0.5);
+    expect(cargoTravel(500, 250, false, false)).toBe(1);
+    expect(cargoTravel(0, 250, false, true)).toBe(1);
+    expect(cargoTravel(0, 250, true, false)).toBe(1);
   });
 });

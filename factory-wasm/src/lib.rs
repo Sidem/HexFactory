@@ -5112,7 +5112,13 @@ impl Core {
             BuildingKind::Container if inventory_total(&entity.inventory) > 0 => {
                 EntityStatus::Buffered
             }
-            BuildingKind::Belt if entity.cargo.is_some() => EntityStatus::Carrying,
+            BuildingKind::Belt if entity.cargo.is_some() => {
+                let cargo = entity.cargo.expect("the belt guard proved cargo exists");
+                match self.graph[index] {
+                    Some(target) if self.can_accept(target, cargo) => EntityStatus::Carrying,
+                    _ => EntityStatus::OutputBlocked,
+                }
+            }
             BuildingKind::Consumer => EntityStatus::Receiving,
             BuildingKind::Hub => EntityStatus::LandingHub,
             BuildingKind::Generator => self.generator_status(index),
@@ -13283,6 +13289,49 @@ mod tests {
         core.graph[container] = None;
         core.transfer_cargo();
         assert_eq!(core.entities[container].cargo, before);
+    }
+
+    #[test]
+    fn a_loaded_belt_reports_when_its_output_is_blocked() {
+        let mut core = game("factory-demo");
+        core.entities.clear();
+        core.graph.clear();
+        core.next_entity_id = 1;
+        let first_id = add_test_belt(&mut core, 0, 0, 0);
+        let second_id = add_test_belt(&mut core, 1, 0, 0);
+        core.compile_graph();
+        let first = core
+            .entities
+            .iter()
+            .position(|entity| entity.id == first_id)
+            .unwrap();
+        let second = core
+            .entities
+            .iter()
+            .position(|entity| entity.id == second_id)
+            .unwrap();
+        let cargo = Cargo {
+            item_id: 1,
+            quantity: 1,
+        };
+        core.entities[first].cargo = Some(cargo);
+        core.entities[second].cargo = Some(cargo);
+        assert_eq!(
+            core.status_of(first, true, true, true, false),
+            EntityStatus::OutputBlocked
+        );
+
+        core.entities[second].cargo = None;
+        assert_eq!(
+            core.status_of(first, true, true, true, false),
+            EntityStatus::Carrying
+        );
+
+        core.graph[first] = None;
+        assert_eq!(
+            core.status_of(first, true, true, true, false),
+            EntityStatus::OutputBlocked
+        );
     }
 
     #[test]

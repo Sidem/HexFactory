@@ -28,6 +28,10 @@ const PART_SCALE = new Vector3();
 const PART_ROTATION = new Euler(0, 0, 0, "YXZ");
 const PART_QUATERNION = new Quaternion();
 
+/** Machines should read as factory equipment beside the narrow transport deck, not as another
+ * belt-sized token. This presentation-only multiplier grows the generated grammar uniformly. */
+export const MACHINE_VISUAL_SCALE = 1.38;
+
 export interface MachinePartInstance {
   readonly building: EntitySnapshot;
   readonly part: ShapePart;
@@ -155,8 +159,10 @@ export function machinePartMatrix(
   const pulse = phase === "pulse" ? 1 + cycle * 0.13 : 1;
   const grind = phase === "grind" ? 0.78 + Math.sin(cycle * Math.PI) * 0.22 : 1;
   const rise = phase === "rise" ? cycle * part.scale * 1.7 : 0;
-  const lateralX = Math.cos(buildingAngle) * part.x * 1.45;
-  const lateralZ = -Math.sin(buildingAngle) * part.x * 1.45;
+  const lateralX =
+    Math.cos(buildingAngle) * part.x * 1.45 * MACHINE_VISUAL_SCALE;
+  const lateralZ =
+    -Math.sin(buildingAngle) * part.x * 1.45 * MACHINE_VISUAL_SCALE;
   const axisLift =
     part.part === "stack"
       ? Math.cos(localRotation) * part.scale * 0.75
@@ -165,10 +171,13 @@ export function machinePartMatrix(
         : 0;
   PART_POSITION.set(
     instance.x + lateralX,
-    instance.groundHeight + 0.2 - part.y * 1.25 + axisLift + rise,
+    instance.groundHeight +
+      0.2 +
+      (-part.y * 1.25 + axisLift + rise) * MACHINE_VISUAL_SCALE,
     instance.z + lateralZ,
   );
   partScale(part, pulse, grind, PART_SCALE);
+  PART_SCALE.multiplyScalar(MACHINE_VISUAL_SCALE);
   PART_SCALE.x *= instance.footprintScale;
   PART_SCALE.z *= instance.footprintScale;
   PART_SCALE.y *= 1 + (instance.footprintScale - 1) * 0.3;

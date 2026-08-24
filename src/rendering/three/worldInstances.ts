@@ -36,7 +36,13 @@ import {
 import type { WorldMaterials } from "./materials";
 import type { TerrainCell } from "./terrainMeshes";
 import { cellKey, stableVariation } from "./terrainMeshes";
-import { createTransportGeometry, transportScale } from "./transportGeometry";
+import {
+  createCurvedTransportGeometry,
+  createTransportGeometry,
+  isTransportKind,
+  transportScale,
+  type CurvedTransportGeometry,
+} from "./transportGeometry";
 import { directionAngle } from "./directionAngle";
 
 interface PartBucket {
@@ -54,11 +60,6 @@ interface ResourcePartInstance {
   readonly scaleY: number;
   readonly scaleZ: number;
   readonly color: string;
-}
-
-interface TransportTreads {
-  readonly mesh: InstancedMesh;
-  readonly buildings: readonly EntitySnapshot[];
 }
 
 export interface PowerWireLink {
@@ -79,6 +80,10 @@ export class WorldInstanceLayer {
   readonly group = new Group();
   readonly geometryLibrary = new PartGeometryLibrary();
   private readonly transportGeometry = createTransportGeometry();
+  private readonly curvedTransportGeometry = new Map<
+    number,
+    CurvedTransportGeometry
+  >();
   private readonly definitions: ReadonlyMap<number, BuildingDefinition>;
   private readonly items: ReadonlyMap<number, ItemDefinition>;
   private readonly geometry = {
@@ -107,7 +112,6 @@ export class WorldInstanceLayer {
   private readonly dynamicGroup = new Group();
   private readonly playerGroup = new Group();
   private partBuckets: PartBucket[] = [];
-  private transportTreads: TransportTreads | null = null;
   private structureKey = "";
   private resourcesIdentity: FactorySnapshot["resources"] | null = null;
   private snapshot: FactorySnapshot | null = null;
@@ -120,6 +124,7 @@ export class WorldInstanceLayer {
   private readonly playerWork: Mesh;
   private readonly pointById = new Map<number, { x: number; z: number }>();
   private readonly groundById = new Map<number, number>();
+  private readonly buildingById = new Map<number, EntitySnapshot>();
   private readonly scratchMatrix = new Matrix4();
   private readonly scratchPosition = new Vector3();
   private readonly scratchQuaternion = new Quaternion();
@@ -127,6 +132,8 @@ export class WorldInstanceLayer {
   private readonly scratchColor = new Color();
   private readonly scratchTrim = new Color();
   private playerDirty = true;
+  private cargoTickAt = 0;
+  private cargoTickMs = 250;
 
   constructor(
     definitions: Definitions,
@@ -169,7 +176,21 @@ export class WorldInstanceLayer {
   setSnapshot(
     snapshot: FactorySnapshot,
     terrainByKey: ReadonlyMap<string, TerrainCell>,
+    receivedAt = performance.now(),
   ): boolean {
+    if (
+      !this.snapshot ||
+      snapshot.seed !== this.snapshot.seed ||
+      snapshot.scenario !== this.snapshot.scenario ||
+      snapshot.tick < this.snapshot.tick
+    ) {
+      this.cargoTickAt = receivedAt;
+    } else if (snapshot.tick > this.snapshot.tick) {
+      const tickDelta = snapshot.tick - this.snapshot.tick;
+      const measured = (receivedAt - this.cargoTickAt) / tickDelta;
+      if (measured >= 16 && measured <= 4_000) this.cargoTickMs = measured;
+      this.cargoTickAt = receivedAt;
+    }
     this.snapshot = snapshot;
     this.playerDirty = true;
     this.terrainByKey = terrainByKey;
@@ -216,7 +237,6 @@ export class WorldInstanceLayer {
         );
       bucket.mesh.instanceMatrix.needsUpdate = true;
     }
-    this.updateTransportTreads(now, reducedMotion);
     this.updateDynamicBuildings(snapshot, now, reducedMotion);
     if (this.playerDirty) {
       this.playerDirty = false;
@@ -227,6 +247,11 @@ export class WorldInstanceLayer {
   dispose(): void {
     this.geometryLibrary.dispose();
     for (const geometry of this.ownedGeometries) geometry.dispose();
+    for (const geometry of this.curvedTransportGeometry.values()) {
+      geometry.frame.dispose();
+      geometry.detail.dispose();
+    }
+    this.curvedTransportGeometry.clear();
     this.playerBody.geometry.dispose();
     this.playerFacing.geometry.dispose();
     this.playerWork.geometry.dispose();
@@ -237,9 +262,9 @@ export class WorldInstanceLayer {
     this.staticGroup = new Group();
     this.staticGroup.name = "static-factory";
     this.partBuckets = [];
-    this.transportTreads = null;
     this.pointById.clear();
     this.groundById.clear();
+    this.buildingById.clear();
     const matrix = new Matrix4();
     const quaternion = new Quaternion();
     const position = new Vector3();
@@ -247,9 +272,11 @@ export class WorldInstanceLayer {
     const color = new Color();
 
     const singleCellBuildings = snapshot.buildings.filter(
-      (building) => building.footprint.length <= 1,
+      (building) =>
+        building.footprint.length <= 1 && !isTransportKind(building.kind),
     );
     for (const building of snapshot.buildings) {
+      this.buildingById.set(building.id, building);
       const cells = building.footprint.length ? building.footprint : [building];
       const centers = cells.map((cell) =>
         axialToPixel(cell, 1, { x: 0, y: 0 }),
@@ -279,7 +306,7 @@ export class WorldInstanceLayer {
         const center = this.pointById.get(building.id)!;
         const height = this.groundById.get(building.id)!;
         position.set(center.x, height + 0.09, center.z);
-        scale.set(1, 1, 1);
+        scale.set(MACHINE_BASE_SCALE, 1, MACHINE_BASE_SCALE);
         matrix.compose(position, quaternion.identity(), scale);
         baseMesh.setMatrixAt(index, matrix);
         baseMesh.setColorAt(
@@ -414,44 +441,62 @@ export class WorldInstanceLayer {
     color: Color,
   ): void {
     const belts = snapshot.buildings.filter(({ kind }) => kind === "belt");
+    const connected = connectedTransportLinks(snapshot.buildings);
+    const incomingTargets = new Set<number>();
+    const straightInputTargets = new Set<number>();
+    for (const link of connected) {
+      if (link.to.kind !== "belt") continue;
+      incomingTargets.add(link.to.id);
+      const definition = this.definitions.get(link.to.definition_id);
+      if (
+        definition?.orientation_axis === "corner" ||
+        Math.abs(this.transportTurn(link.from, link.to)) < 0.01
+      )
+        straightInputTargets.add(link.to.id);
+    }
+    const straightBelts = belts.filter(
+      (building) =>
+        !incomingTargets.has(building.id) ||
+        straightInputTargets.has(building.id),
+    );
     if (belts.length) {
-      const frame = new InstancedMesh(
-        this.geometry.belt,
-        this.materials.machine,
-        belts.length,
-      );
-      frame.name = "transport-rails";
-      const treads = new InstancedMesh(
-        this.geometry.beltDetail,
-        this.materials.machineDark,
-        belts.length,
-      );
-      treads.name = "transport-treads";
-      for (const [index, building] of belts.entries()) {
-        const center = axialToPixel(building, 1, { x: 0, y: 0 });
-        const height = this.groundHeight(building.q, building.r) + 0.23;
-        const angle = directionAngle(building.orientation);
-        position.set(center.x, height, center.y);
-        quaternion.setFromAxisAngle(new Vector3(0, 1, 0), angle);
-        const definition = this.definitions.get(building.definition_id);
-        const [x, y, z] = definition
-          ? transportScale(definition)
-          : ([1, 1, 1] as const);
-        scale.set(x, y, z);
-        matrix.compose(position, quaternion, scale);
-        frame.setMatrixAt(index, matrix);
-        frame.setColorAt(index, color.set(BUILDING_COLORS.belt));
-        treads.setMatrixAt(index, matrix);
-        treads.setColorAt(index, color.set("#102b3a"));
+      if (straightBelts.length) {
+        const frame = new InstancedMesh(
+          this.geometry.belt,
+          this.materials.machine,
+          straightBelts.length,
+        );
+        frame.name = "transport-rails";
+        const treads = new InstancedMesh(
+          this.geometry.beltDetail,
+          this.materials.machineDark,
+          straightBelts.length,
+        );
+        treads.name = "transport-treads";
+        for (const [index, building] of straightBelts.entries()) {
+          const center = axialToPixel(building, 1, { x: 0, y: 0 });
+          const height = this.groundHeight(building.q, building.r) + 0.23;
+          const angle = directionAngle(building.orientation);
+          position.set(center.x, height, center.y);
+          quaternion.setFromAxisAngle(new Vector3(0, 1, 0), angle);
+          const definition = this.definitions.get(building.definition_id);
+          const [x, y, z] = definition
+            ? transportScale(definition)
+            : ([1, 1, 1] as const);
+          scale.set(x, y, z);
+          matrix.compose(position, quaternion, scale);
+          frame.setMatrixAt(index, matrix);
+          frame.setColorAt(index, color.set(BUILDING_COLORS.belt));
+          treads.setMatrixAt(index, matrix);
+          treads.setColorAt(index, color.set("#102b3a"));
+        }
+        markInstancesDirty(frame);
+        markInstancesDirty(treads);
+        frame.castShadow = true;
+        treads.castShadow = true;
+        this.staticGroup.add(frame, treads);
       }
-      markInstancesDirty(frame);
-      markInstancesDirty(treads);
-      frame.castShadow = true;
-      treads.castShadow = true;
-      this.transportTreads = { mesh: treads, buildings: belts };
-      this.staticGroup.add(frame, treads);
 
-      const connected = connectedBeltLinks(snapshot.buildings);
       if (connected.length) {
         const links = new InstancedMesh(
           this.geometry.belt,
@@ -460,28 +505,48 @@ export class WorldInstanceLayer {
         );
         links.name = "transport-connections";
         links.castShadow = true;
+        const linkTreads = new InstancedMesh(
+          this.geometry.beltDetail,
+          this.materials.machineDark,
+          connected.length,
+        );
+        linkTreads.name = "transport-connection-treads";
+        linkTreads.castShadow = true;
+        const linkStart = new Vector3();
+        const linkEnd = new Vector3();
+        const linkDelta = new Vector3();
+        const linkDirection = new Vector3();
         for (const [index, { from, to }] of connected.entries()) {
           const a = this.pointById.get(from.id)!;
           const b = this.pointById.get(to.id)!;
-          const dx = b.x - a.x;
-          const dz = b.z - a.z;
-          const length = Math.hypot(dx, dz);
-          position.set(
-            (a.x + b.x) / 2,
-            Math.max(
-              this.groundById.get(from.id) ?? 0.07,
-              this.groundById.get(to.id) ?? 0.07,
-            ) + 0.23,
-            (a.z + b.z) / 2,
+          linkDirection.set(b.x - a.x, 0, b.z - a.z).normalize();
+          const fromInset = this.transportLinkInset(from);
+          const toInset = this.transportLinkInset(to);
+          linkStart.set(
+            a.x + linkDirection.x * fromInset,
+            (this.groundById.get(from.id) ?? 0.07) + 0.23,
+            a.z + linkDirection.z * fromInset,
           );
-          quaternion.setFromAxisAngle(WORLD_UP, Math.atan2(-dz, dx));
+          linkEnd.set(
+            b.x - linkDirection.x * toInset,
+            (this.groundById.get(to.id) ?? 0.07) + 0.23,
+            b.z - linkDirection.z * toInset,
+          );
+          linkDelta.subVectors(linkEnd, linkStart);
+          const length = linkDelta.length();
+          position.copy(linkStart).add(linkEnd).multiplyScalar(0.5);
+          quaternion.setFromUnitVectors(LOCAL_X, linkDelta.normalize());
           scale.set(length / 0.92, 1, 1);
           matrix.compose(position, quaternion, scale);
           links.setMatrixAt(index, matrix);
           links.setColorAt(index, color.set(BUILDING_COLORS.belt));
+          linkTreads.setMatrixAt(index, matrix);
+          linkTreads.setColorAt(index, color.set("#102b3a"));
         }
         markInstancesDirty(links);
-        this.staticGroup.add(links);
+        markInstancesDirty(linkTreads);
+        this.staticGroup.add(links, linkTreads);
+        this.addTransportCurves(connected);
       }
     }
     const bridges = snapshot.buildings.filter(({ kind }) => kind === "bridge");
@@ -514,44 +579,87 @@ export class WorldInstanceLayer {
     }
   }
 
-  private updateTransportTreads(now: number, reducedMotion: boolean): void {
-    const bucket = this.transportTreads;
-    if (!bucket) return;
-    for (const [index, building] of bucket.buildings.entries()) {
-      const center = this.pointById.get(building.id);
-      if (!center) continue;
-      const angle = directionAngle(building.orientation);
-      const definition = this.definitions.get(building.definition_id);
-      const [x, y, z] = definition
-        ? transportScale(definition)
-        : ([1, 1, 1] as const);
-      const target = building.next_id
-        ? this.pointById.get(building.next_id)
-        : undefined;
-      const directionDistance = target
-        ? Math.hypot(target.x - center.x, target.z - center.z)
-        : x * 0.92;
-      const treadSpacing = 0.175 * x;
-      const phase = reducedMotion
-        ? 0
-        : ((cargoTravel(now, false, building.id) * directionDistance) %
-            treadSpacing) -
-          treadSpacing / 2;
-      this.scratchPosition.set(
-        center.x + Math.cos(angle) * phase,
-        (this.groundById.get(building.id) ?? 0.07) + 0.23,
-        center.z - Math.sin(angle) * phase,
-      );
-      this.scratchQuaternion.setFromAxisAngle(WORLD_UP, angle);
-      this.scratchScale.set(x, y, z);
-      this.scratchMatrix.compose(
-        this.scratchPosition,
-        this.scratchQuaternion,
-        this.scratchScale,
-      );
-      bucket.mesh.setMatrixAt(index, this.scratchMatrix);
+  private transportLinkInset(building: EntitySnapshot): number {
+    if (building.kind !== "belt") return 0.68;
+    const definition = this.definitions.get(building.definition_id);
+    return 0.46 * (definition ? transportScale(definition)[0] : 1);
+  }
+
+  private transportTurn(from: EntitySnapshot, to: EntitySnapshot): number {
+    const fromCenter = this.pointById.get(from.id)!;
+    const toCenter = this.pointById.get(to.id)!;
+    const incomingAngle = Math.atan2(
+      -(toCenter.z - fromCenter.z),
+      toCenter.x - fromCenter.x,
+    );
+    return normalizeAngle(incomingAngle - directionAngle(to.orientation));
+  }
+
+  /** Every incoming branch gets its own centre curve into the target belt. That keeps a merge
+   * legible without asking presentation to choose one predecessor as the "real" lane. */
+  private addTransportCurves(
+    links: readonly { from: EntitySnapshot; to: EntitySnapshot }[],
+  ): void {
+    const buckets = new Map<number, EntitySnapshot[]>();
+    for (const { from, to } of links) {
+      if (to.kind !== "belt") continue;
+      const definition = this.definitions.get(to.definition_id);
+      if (definition?.orientation_axis === "corner") continue;
+      const turn = this.transportTurn(from, to);
+      if (Math.abs(turn) < 0.01) continue;
+      const key = Math.round(turn * 1_000_000) / 1_000_000;
+      const bucket = buckets.get(key);
+      if (bucket) bucket.push(to);
+      else buckets.set(key, [to]);
     }
-    bucket.mesh.instanceMatrix.needsUpdate = true;
+    if (!buckets.size) return;
+
+    const group = new Group();
+    group.name = "transport-curves";
+    for (const [turn, buildings] of buckets) {
+      let geometry = this.curvedTransportGeometry.get(turn);
+      if (!geometry) {
+        geometry = createCurvedTransportGeometry(turn);
+        this.curvedTransportGeometry.set(turn, geometry);
+      }
+      const frame = new InstancedMesh(
+        geometry.frame,
+        this.materials.machine,
+        buildings.length,
+      );
+      frame.name = "transport-curve-rails";
+      frame.castShadow = true;
+      const treads = new InstancedMesh(
+        geometry.detail,
+        this.materials.machineDark,
+        buildings.length,
+      );
+      treads.name = "transport-curve-treads";
+      treads.castShadow = true;
+      for (const [index, building] of buildings.entries()) {
+        const center = this.pointById.get(building.id)!;
+        this.scratchMatrix.compose(
+          this.scratchPosition.set(
+            center.x,
+            (this.groundById.get(building.id) ?? 0.07) + 0.23,
+            center.z,
+          ),
+          this.scratchQuaternion.setFromAxisAngle(
+            WORLD_UP,
+            directionAngle(building.orientation),
+          ),
+          this.scratchScale.set(1, 1, 1),
+        );
+        frame.setMatrixAt(index, this.scratchMatrix);
+        frame.setColorAt(index, this.scratchColor.set(BUILDING_COLORS.belt));
+        treads.setMatrixAt(index, this.scratchMatrix);
+        treads.setColorAt(index, this.scratchColor.set("#102b3a"));
+      }
+      markInstancesDirty(frame);
+      markInstancesDirty(treads);
+      group.add(frame, treads);
+    }
+    this.staticGroup.add(group);
   }
 
   private addOutputIndicators(snapshot: FactorySnapshot): void {
@@ -568,7 +676,7 @@ export class WorldInstanceLayer {
     for (const [index, building] of buildings.entries()) {
       const center = this.pointById.get(building.id)!;
       const angle = directionAngle(building.orientation);
-      const footprintReach = building.footprint.length > 1 ? 0.9 : 0.56;
+      const footprintReach = building.footprint.length > 1 ? 0.9 : 0.68;
       this.scratchPosition.set(
         center.x + Math.cos(angle) * footprintReach,
         (this.groundById.get(building.id) ?? 0.07) + 0.53,
@@ -967,13 +1075,38 @@ export class WorldInstanceLayer {
         const target = building.next_id
           ? this.pointById.get(building.next_id)
           : undefined;
-        const travel = cargoTravel(now, reducedMotion, building.id);
-        const tx = target?.x ?? center.x;
-        const tz = target?.z ?? center.z;
+        const targetBuilding = building.next_id
+          ? this.buildingById.get(building.next_id)
+          : undefined;
+        let tx = target?.x;
+        let tz = target?.z;
+        let targetHeight = targetBuilding
+          ? (this.groundById.get(targetBuilding.id) ?? height) + 0.42
+          : height + 0.42;
+        if (tx === undefined || tz === undefined) {
+          const angle = directionAngle(building.orientation);
+          tx = center.x + Math.cos(angle) * 0.78;
+          tz = center.z - Math.sin(angle) * 0.78;
+        } else if (targetBuilding?.kind !== "belt") {
+          const dx = tx - center.x;
+          const dz = tz - center.z;
+          const distance = Math.hypot(dx, dz);
+          const fraction = distance > 0 ? Math.max(0, 1 - 0.68 / distance) : 0;
+          tx = center.x + dx * fraction;
+          tz = center.z + dz * fraction;
+          targetHeight =
+            height + 0.42 + (targetHeight - height - 0.42) * fraction;
+        }
+        const travel = cargoTravel(
+          now - this.cargoTickAt,
+          this.cargoTickMs,
+          reducedMotion,
+          building.status === "output blocked",
+        );
         matrix.compose(
           position.set(
             center.x + (tx - center.x) * travel,
-            height + 0.42,
+            height + 0.42 + (targetHeight - height - 0.42) * travel,
             center.z + (tz - center.z) * travel,
           ),
           quaternion,
@@ -1023,6 +1156,12 @@ export class WorldInstanceLayer {
 }
 
 const WORLD_UP = new Vector3(0, 1, 0);
+const LOCAL_X = new Vector3(1, 0, 0);
+const MACHINE_BASE_SCALE = 1.12;
+
+function normalizeAngle(angle: number): number {
+  return Math.atan2(Math.sin(angle), Math.cos(angle));
+}
 
 function outputIndicatorGeometry(): ConeGeometry {
   const geometry = new ConeGeometry(0.11, 0.32, 4);
@@ -1040,14 +1179,14 @@ function hasDirectionalOutput(kind: EntitySnapshot["kind"]): boolean {
   );
 }
 
-function connectedBeltLinks(
+function connectedTransportLinks(
   buildings: readonly EntitySnapshot[],
 ): { from: EntitySnapshot; to: EntitySnapshot }[] {
   const byId = new Map(buildings.map((building) => [building.id, building]));
   return buildings.flatMap((from) => {
-    if (from.kind !== "belt" || !from.next_id) return [];
+    if (!from.next_id) return [];
     const to = byId.get(from.next_id);
-    if (!to || to.kind !== "belt") return [];
+    if (!to || (from.kind !== "belt" && to.kind !== "belt")) return [];
     const direction = TRANSPORT_DIRECTIONS[from.orientation];
     if (!direction) return [];
     if (to.q - from.q !== direction.q || to.r - from.r !== direction.r)

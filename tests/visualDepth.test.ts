@@ -17,6 +17,7 @@ import type { PartKind, ShapePart } from "../src/rendering/shapeGrammar";
 import { HexSceneCamera } from "../src/rendering/three/HexSceneCamera";
 import {
   buildPartGeometry,
+  MACHINE_VISUAL_SCALE,
   machinePartMatrix,
   type MachinePartInstance,
 } from "../src/rendering/three/machineMeshes";
@@ -37,7 +38,10 @@ import {
   TERRAIN_STYLE,
   visualHeight,
 } from "../src/rendering/three/terrainStyle";
-import { createTransportGeometry } from "../src/rendering/three/transportGeometry";
+import {
+  createCurvedTransportGeometry,
+  createTransportGeometry,
+} from "../src/rendering/three/transportGeometry";
 import { directionAngle } from "../src/rendering/three/directionAngle";
 import {
   fieldVisualColor,
@@ -294,13 +298,25 @@ describe("Visual Depth terrain and quality contracts", () => {
 
   it("builds belts from rails and contrasting transverse treads", () => {
     const geometry = createTransportGeometry();
-    expect(geometry.belt.getAttribute("position").count).toBeGreaterThan(24);
+    const straightPositions = geometry.belt.getAttribute("position").count;
+    expect(straightPositions).toBeGreaterThan(24);
     expect(geometry.beltDetail.getAttribute("position").count).toBeGreaterThan(
       24,
     );
     geometry.belt.dispose();
     geometry.beltDetail.dispose();
     geometry.bridge.dispose();
+
+    const curve = createCurvedTransportGeometry(Math.PI / 3);
+    curve.frame.computeBoundingBox();
+    expect(curve.frame.getAttribute("position").count).toBeGreaterThan(
+      straightPositions,
+    );
+    expect(
+      curve.frame.boundingBox!.max.z - curve.frame.boundingBox!.min.z,
+    ).toBeGreaterThan(0.4);
+    curve.frame.dispose();
+    curve.detail.dispose();
   });
 
   it("points transport geometry along the native heading instead of ninety degrees across it", () => {
@@ -309,7 +325,127 @@ describe("Visual Depth terrain and quality contracts", () => {
     expect(Math.abs(directionAngle(3))).toBeCloseTo(Math.PI, 12);
   });
 
-  it("connects directed belt neighbours and moves their treads on the cargo clock", () => {
+  it("connects transport to belts with stable treads", () => {
+    const materials = createWorldMaterials();
+    const layer = new WorldInstanceLayer(
+      {
+        version: 1,
+        items: [],
+        recipes: [],
+        requests: [],
+        buildings: [beltDefinition()],
+      },
+      materials,
+    );
+    const snapshot = minimalSnapshot();
+    snapshot.buildings.push(
+      entity(1, 2, "composer", 0, 0, 0, 2),
+      entity(2, 2, "belt", 1, 0, 0),
+    );
+    layer.setSnapshot(snapshot, new Map(), 0);
+    const connections = layer.group.getObjectByName("transport-connections");
+    const connectionTreads = layer.group.getObjectByName(
+      "transport-connection-treads",
+    );
+    const indicators = layer.group.getObjectByName(
+      "building-output-indicators",
+    );
+    const treads = layer.group.getObjectByName(
+      "transport-treads",
+    ) as InstancedMesh;
+    expect(connections).toBeInstanceOf(InstancedMesh);
+    expect((connections as InstancedMesh).count).toBe(1);
+    expect(connectionTreads).toBeInstanceOf(InstancedMesh);
+    expect((connectionTreads as InstancedMesh).count).toBe(1);
+    expect((indicators as InstancedMesh).count).toBe(2);
+    const before = new Matrix4();
+    const after = new Matrix4();
+    layer.update(0, false);
+    treads.getMatrixAt(0, before);
+    layer.update(120, false);
+    treads.getMatrixAt(0, after);
+    expect(after.elements).toEqual(before.elements);
+
+    const feet = layer.group.getObjectByName("building-feet") as InstancedMesh;
+    expect(feet.count).toBe(1);
+    feet.getMatrixAt(0, after);
+    expect(after.elements[0]).toBeGreaterThan(1.1);
+    expect(MACHINE_VISUAL_SCALE).toBeGreaterThanOrEqual(1.35);
+
+    layer.dispose();
+    for (const material of materials.materials) material.dispose();
+  });
+
+  it("slopes transport links between terrain heights and lets cargo settle once", () => {
+    const materials = createWorldMaterials();
+    const layer = new WorldInstanceLayer(
+      {
+        version: 1,
+        items: [
+          {
+            id: 1,
+            key: "ore",
+            name: "Ore",
+            description: "Test ore",
+            color: "#fff",
+            icon: "ore",
+            stack_size: 20,
+          },
+        ],
+        recipes: [],
+        requests: [],
+        buildings: [beltDefinition()],
+      },
+      materials,
+    );
+    const snapshot = minimalSnapshot();
+    const from = entity(1, 2, "belt", 0, 0, 0, 2);
+    from.cargo = { item_id: 1, quantity: 1 };
+    from.status = "carrying";
+    snapshot.buildings.push(from, entity(2, 2, "belt", 1, 0, 0));
+    const terrain = new Map([
+      [
+        "0,0",
+        { q: 0, r: 0, terrain: "lowland" as const, x: 0, z: 0, height: 0.1 },
+      ],
+      [
+        "1,0",
+        { q: 1, r: 0, terrain: "highland" as const, x: 1, z: 0, height: 0.62 },
+      ],
+    ]);
+    layer.setSnapshot(snapshot, terrain, 0);
+
+    const link = layer.group.getObjectByName(
+      "transport-connections",
+    ) as InstancedMesh;
+    const linkMatrix = new Matrix4();
+    link.getMatrixAt(0, linkMatrix);
+    expect(Math.abs(linkMatrix.elements[1]!)).toBeGreaterThan(0.1);
+
+    const cargo = layer.group.getObjectByName("moving-cargo") as InstancedMesh;
+    const start = new Matrix4();
+    const end = new Matrix4();
+    const settled = new Matrix4();
+    layer.update(0, false);
+    cargo.getMatrixAt(0, start);
+    layer.update(250, false);
+    cargo.getMatrixAt(0, end);
+    layer.update(600, false);
+    cargo.getMatrixAt(0, settled);
+    expect(end.elements).not.toEqual(start.elements);
+    expect(settled.elements).toEqual(end.elements);
+
+    from.status = "output blocked";
+    layer.setSnapshot(snapshot, terrain, 0);
+    layer.update(0, false);
+    cargo.getMatrixAt(0, settled);
+    expect(settled.elements).toEqual(end.elements);
+
+    layer.dispose();
+    for (const material of materials.materials) material.dispose();
+  });
+
+  it("joins a changing belt heading with a generated rail-and-tread curve", () => {
     const materials = createWorldMaterials();
     const layer = new WorldInstanceLayer(
       {
@@ -324,26 +460,23 @@ describe("Visual Depth terrain and quality contracts", () => {
     const snapshot = minimalSnapshot();
     snapshot.buildings.push(
       entity(1, 2, "belt", 0, 0, 0, 2),
-      entity(2, 2, "belt", 1, 0, 0),
+      entity(2, 2, "belt", 1, 0, 1, 3),
+      entity(3, 2, "belt", 1, 1, 1),
     );
-    layer.setSnapshot(snapshot, new Map());
-    const connections = layer.group.getObjectByName("transport-connections");
-    const indicators = layer.group.getObjectByName(
-      "building-output-indicators",
+    layer.setSnapshot(snapshot, new Map(), 0);
+
+    const curves = layer.group.getObjectByName("transport-curves");
+    expect(curves).toBeDefined();
+    expect(curves!.getObjectByName("transport-curve-rails")).toBeInstanceOf(
+      InstancedMesh,
     );
-    const treads = layer.group.getObjectByName(
-      "transport-treads",
-    ) as InstancedMesh;
-    expect(connections).toBeInstanceOf(InstancedMesh);
-    expect((connections as InstancedMesh).count).toBe(1);
-    expect((indicators as InstancedMesh).count).toBe(2);
-    const before = new Matrix4();
-    const after = new Matrix4();
-    layer.update(0, false);
-    treads.getMatrixAt(0, before);
-    layer.update(120, false);
-    treads.getMatrixAt(0, after);
-    expect(after.elements).not.toEqual(before.elements);
+    expect(curves!.getObjectByName("transport-curve-treads")).toBeInstanceOf(
+      InstancedMesh,
+    );
+    expect(
+      (layer.group.getObjectByName("transport-connections") as InstancedMesh)
+        .count,
+    ).toBe(2);
 
     layer.dispose();
     for (const material of materials.materials) material.dispose();

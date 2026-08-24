@@ -9,6 +9,11 @@ export interface TransportGeometrySet {
   readonly bridge: BufferGeometry;
 }
 
+export interface CurvedTransportGeometry {
+  readonly frame: BufferGeometry;
+  readonly detail: BufferGeometry;
+}
+
 /** Shared deck geometry for the game scene, contact scene, and every definition using the kind. */
 export function createTransportGeometry(): TransportGeometrySet {
   return {
@@ -36,6 +41,71 @@ function beltTreadGeometry(): BufferGeometry {
     return tread;
   });
   return mergeAndDispose(treads);
+}
+
+/** A belt turn is the same rail-and-tread vocabulary sampled along one quadratic path. The local
+ * path arrives from `turnAngle`, bends around the tile centre, and leaves along +X, allowing one
+ * cached geometry per relative heading to be instanced at every matching junction. */
+export function createCurvedTransportGeometry(
+  turnAngle: number,
+): CurvedTransportGeometry {
+  const half = 0.46;
+  const start = {
+    x: -Math.cos(turnAngle) * half,
+    z: Math.sin(turnAngle) * half,
+  };
+  const end = { x: half, z: 0 };
+  const frameParts: BufferGeometry[] = [];
+  const segments = 10;
+  for (let segment = 0; segment < segments; segment += 1) {
+    const from = quadraticPoint(start, end, segment / segments);
+    const to = quadraticPoint(start, end, (segment + 1) / segments);
+    const dx = to.x - from.x;
+    const dz = to.z - from.z;
+    const length = Math.hypot(dx, dz);
+    const part = beltFrameGeometry();
+    part.scale((length + 0.025) / 0.92, 1, 1);
+    part.rotateY(Math.atan2(-dz, dx));
+    part.translate((from.x + to.x) / 2, 0, (from.z + to.z) / 2);
+    frameParts.push(part);
+  }
+
+  const detailParts = Array.from({ length: 7 }, (_, index) => {
+    const t = (index + 0.5) / 7;
+    const point = quadraticPoint(start, end, t);
+    const tangent = quadraticTangent(start, end, t);
+    const tread = new BoxGeometry(0.075, 0.055, 0.34);
+    tread.rotateY(Math.atan2(-tangent.z, tangent.x));
+    tread.translate(point.x, 0.07, point.z);
+    return tread;
+  });
+  return {
+    frame: mergeAndDispose(frameParts),
+    detail: mergeAndDispose(detailParts),
+  };
+}
+
+function quadraticPoint(
+  start: { readonly x: number; readonly z: number },
+  end: { readonly x: number; readonly z: number },
+  t: number,
+): { x: number; z: number } {
+  const inverse = 1 - t;
+  return {
+    x: inverse * inverse * start.x + t * t * end.x,
+    z: inverse * inverse * start.z + t * t * end.z,
+  };
+}
+
+function quadraticTangent(
+  start: { readonly x: number; readonly z: number },
+  end: { readonly x: number; readonly z: number },
+  t: number,
+): { x: number; z: number } {
+  return {
+    x: -2 * (1 - t) * start.x + 2 * t * end.x,
+    z: -2 * (1 - t) * start.z + 2 * t * end.z,
+  };
 }
 
 function mergeAndDispose(parts: BufferGeometry[]): BufferGeometry {

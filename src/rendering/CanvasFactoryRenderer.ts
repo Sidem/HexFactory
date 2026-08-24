@@ -199,6 +199,8 @@ export class CanvasFactoryRenderer implements FactoryRenderer {
   private gathering = false;
   private dragPath: LinePreviewCell[] = [];
   private now = 0;
+  private cargoTickAt = 0;
+  private cargoTickMs = 250;
   private needsDraw = true;
   private layoutDirty = true;
   private layout = { width: 1, height: 1, ratio: 1, left: 0, top: 0 };
@@ -234,6 +236,20 @@ export class CanvasFactoryRenderer implements FactoryRenderer {
   }
 
   setSnapshot(snapshot: FactorySnapshot): void {
+    const receivedAt = performance.now();
+    if (
+      !this.snapshot ||
+      snapshot.seed !== this.snapshot.seed ||
+      snapshot.scenario !== this.snapshot.scenario ||
+      snapshot.tick < this.snapshot.tick
+    ) {
+      this.cargoTickAt = receivedAt;
+    } else if (snapshot.tick > this.snapshot.tick) {
+      const measured =
+        (receivedAt - this.cargoTickAt) / (snapshot.tick - this.snapshot.tick);
+      if (measured >= 16 && measured <= 4_000) this.cargoTickMs = measured;
+      this.cargoTickAt = receivedAt;
+    }
     this.snapshot = snapshot;
     this.camera.follow(snapshot.player);
     this.markDirty();
@@ -799,7 +815,12 @@ export class CanvasFactoryRenderer implements FactoryRenderer {
     }
     if (building.cargo) {
       const item = this.itemsById.get(building.cargo.item_id);
-      const travel = cargoTravel(this.now, this.reducedMotion, building.id);
+      const travel = cargoTravel(
+        this.now - this.cargoTickAt,
+        this.cargoTickMs,
+        this.reducedMotion,
+        building.status === "output blocked",
+      );
       const cargoPoint = {
         x: center.x + (tip.x - center.x) * travel,
         y: center.y + (tip.y - center.y) * travel,

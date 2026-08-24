@@ -392,12 +392,13 @@ export function stallMark(status: string): string | undefined {
 }
 
 export function cargoTravel(
-  now: number,
+  elapsed: number,
+  duration: number,
   reducedMotion: boolean,
-  buildingId: number,
+  blocked: boolean,
 ): number {
-  if (reducedMotion) return 0.72;
-  return 0.16 + ((now / 820 + buildingId * 0.17) % 0.68);
+  if (blocked || reducedMotion) return 1;
+  return Math.max(0, Math.min(1, elapsed / Math.max(1, duration)));
 }
 
 export function workCycle(
