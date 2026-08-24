@@ -1160,6 +1160,13 @@ describe("availability and expanded snapshot adapter", () => {
     expect(html).toContain('class="home-compass"');
     expect(html).toContain('id="home-readout-text"');
     expect(css).toMatch(/\.minimap-frame\s*\{[^}]*pointer-events:\s*none;/s);
+    const update = main.slice(
+      main.indexOf("function update("),
+      main.indexOf("function sameCarry("),
+    );
+    expect(update.indexOf("renderer.setSnapshot(snapshot)")).toBeLessThan(
+      update.indexOf("syncHoverWithCamera()"),
+    );
     expect(html).toContain("<kbd>Space</kbd>");
     expect(html).toContain("<kbd>I</kbd>");
   });
@@ -1275,6 +1282,7 @@ describe("availability and expanded snapshot adapter", () => {
     // More hexes in the viewport is a presentation knob, not another PLAYER_RADIUS bump.
     expect(contract).toContain("export const BASE_HEX_SIZE = 22");
     expect(instances).toContain('mesh.name = "depleted-field-scars"');
+    expect(instances).not.toContain("field-resource-marks");
     // Resource amounts stay in the inspector; the landscape does not become a spreadsheet.
     expect(instances).not.toContain("String(resource.quantity)");
   });

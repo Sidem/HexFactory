@@ -80,7 +80,6 @@ export class WorldInstanceLayer {
     crystal: new ConeGeometry(1, 1, 4),
     trunk: new CylinderGeometry(1, 1, 1, 7),
     canopy: new ConeGeometry(1, 1, 7),
-    fieldMark: new CylinderGeometry(0.58, 0.64, 0.04, 6),
     progress: new BoxGeometry(0.38, 0.08, 0.1),
     cargo: new IcosahedronGeometry(0.09, 0),
     status: new SphereGeometryCompat(0.09),
@@ -402,7 +401,6 @@ export class WorldInstanceLayer {
     const crystals: ResourcePartInstance[] = [];
     const trunks: ResourcePartInstance[] = [];
     const canopies: ResourcePartInstance[] = [];
-    const fieldMarks: ResourcePartInstance[] = [];
 
     for (const resource of resources) {
       if (resource.quantity <= 0) continue;
@@ -440,8 +438,6 @@ export class WorldInstanceLayer {
           color,
         });
       };
-
-      add(fieldMarks, 0, 0, 1, 1, 1, 0.035, fieldColor);
 
       if (item.regrowth_ticks) {
         for (let unit = 0; unit < resource.quantity; unit += 1) {
@@ -512,12 +508,6 @@ export class WorldInstanceLayer {
     );
     this.addResourceParts("forest-trunks", this.geometry.trunk, trunks);
     this.addResourceParts("forest-canopies", this.geometry.canopy, canopies);
-    this.addResourceParts(
-      "field-resource-marks",
-      this.geometry.fieldMark,
-      fieldMarks,
-      this.materials.resourceAccent,
-    );
 
     const scars = resources.filter(
       (resource) =>
@@ -563,17 +553,14 @@ export class WorldInstanceLayer {
       | ConeGeometry
       | CylinderGeometry,
     instances: readonly ResourcePartInstance[],
-    material:
-      | WorldMaterials["resource"]
-      | WorldMaterials["emissive"]
-      | WorldMaterials["resourceAccent"] = this.materials.resource,
+    material: WorldMaterials["resource"] | WorldMaterials["emissive"] = this
+      .materials.resource,
   ): void {
     if (!instances.length) return;
     const mesh = new InstancedMesh(geometry, material, instances.length);
     mesh.name = name;
-    mesh.castShadow = material !== this.materials.resourceAccent;
-    mesh.receiveShadow = material !== this.materials.resourceAccent;
-    if (material === this.materials.resourceAccent) mesh.renderOrder = 4;
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
     const matrix = new Matrix4();
     const quaternion = new Quaternion();
     const color = new Color();

@@ -213,7 +213,6 @@ describe("Visual Depth terrain and quality contracts", () => {
     expect(materials.machine.vertexColors).toBe(false);
     expect(materials.machineDark.vertexColors).toBe(false);
     expect(materials.resource.vertexColors).toBe(false);
-    expect(materials.resourceAccent.vertexColors).toBe(false);
     expect(fieldVisualColor("#39404a")).not.toBe("#39404a");
     for (const material of materials.materials) material.dispose();
   });
@@ -235,6 +234,15 @@ describe("Visual Depth terrain and quality contracts", () => {
       Math.sqrt(3),
       12,
     );
+  });
+
+  it("changes the world hex under a stationary pointer when the followed player moves", () => {
+    const camera = new HexSceneCamera();
+    camera.resize(1440, 900);
+    camera.follow({ x: 0, y: 0 });
+    const before = camera.axialAt(610, 420);
+    camera.follow({ x: WORLD_SCALE * 24, y: WORLD_SCALE * 12 });
+    expect(camera.axialAt(610, 420)).not.toEqual(before);
   });
 
   it("starts six-sided interaction rings on the pointy-top tile vertices", () => {

@@ -595,6 +595,7 @@ function update(next: FactorySnapshot): void {
   refreshLandingHub();
   renderer.setHome(landingHub);
   renderer.setSnapshot(snapshot);
+  syncHoverWithCamera();
   minimap.setSnapshot(snapshot, landingHub);
   renderHomeReadout();
   required<HTMLElement>("scenario-value").textContent = snapshot.scenario_name;
@@ -2410,6 +2411,19 @@ function refreshHoverPreview(): void {
   if (!previewPending) void flushHoverPreview();
 }
 
+/**
+ * Keep the tile under a stationary mouse highlighted when following, orbiting, or zooming moves
+ * the camera beneath it. Pointer movement is not emitted when only the scene moves, so retaining
+ * an axial coordinate here would leave the old highlight behind in the world.
+ */
+function syncHoverWithCamera(): void {
+  if (!aimPointer || panPointer || harvestPointer || dragBuild) return;
+  const coordinate = renderer.pick(aimPointer.x, aimPointer.y);
+  if (hover?.q === coordinate.q && hover.r === coordinate.r) return;
+  hover = coordinate;
+  refreshHoverPreview();
+}
+
 async function flushHoverPreview(): Promise<void> {
   previewPending = true;
   while (previewRequested) {
@@ -3150,6 +3164,7 @@ function currentMovementIntent(running = false): NativeInputCommand {
 
 function orbitView(step: -1 | 1): void {
   renderer.orbitBy(step);
+  syncHoverWithCamera();
   if (pressedMovement.size) enqueue(currentMovementIntent(runningHeld));
 }
 
@@ -3345,6 +3360,7 @@ canvas.addEventListener("pointerup", (event) => {
     suppressMapClick = panPointer.moved;
     canvas.releasePointerCapture(event.pointerId);
     panPointer = null;
+    syncHoverWithCamera();
     return;
   }
   if (harvestPointer?.id === event.pointerId) {
@@ -3400,6 +3416,7 @@ canvas.addEventListener(
       event.clientY,
       event.deltaY < 0 ? 1.12 : 0.89,
     );
+    syncHoverWithCamera();
   },
   { passive: false },
 );

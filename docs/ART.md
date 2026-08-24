@@ -175,10 +175,11 @@ away from the tile beneath it. Tests pin both the apothem and overlay orientatio
 Instance colour is part of the generator contract. Machine and field materials take their colour
 from `InstancedMesh.instanceColor`; they do not also request a per-vertex colour attribute that the
 shared geometry does not carry, because multiplying by that absent attribute collapses every
-definition to black/grey. Tone mapping preserves the low-poly light while vivid kind colours,
-field-specific chroma floors, and a shallow coloured field mark keep machines and resources legible
-against the dark landforms. Belts use a coloured two-rail frame over contrasting transverse treads,
-so an empty line still reads as transport before cargo arrives.
+definition to black/grey. Tone mapping preserves the low-poly light while vivid kind colours and
+field-specific chroma floors keep machines and resources legible against the dark landforms. A
+resource never recolours or covers the terrain hex beneath it: terrain and resource remain two
+independent visual facts. Belts use a coloured two-rail frame over contrasting transverse treads, so
+an empty line still reads as transport before cargo arrives.
 
 The contact sheet now renders 23 definitions, three ladder states, four status cells, and all six
 orbits through one retained offscreen WebGL context using the same production geometry. Reduced

@@ -13,7 +13,6 @@ export interface WorldMaterials {
   readonly machine: MeshStandardMaterial;
   readonly machineDark: MeshStandardMaterial;
   readonly resource: MeshBasicMaterial;
-  readonly resourceAccent: MeshBasicMaterial;
   readonly emissive: MeshStandardMaterial;
   readonly overlayLegal: MeshBasicMaterial;
   readonly overlayIllegal: MeshBasicMaterial;
@@ -61,14 +60,6 @@ export function createWorldMaterials(): WorldMaterials {
   const resource = new MeshBasicMaterial({
     color: 0xffffff,
   });
-  const resourceAccent = new MeshBasicMaterial({
-    color: 0xffffff,
-    transparent: true,
-    opacity: 0.86,
-    depthWrite: false,
-    polygonOffset: true,
-    polygonOffsetFactor: -1,
-  });
   const emissive = new MeshStandardMaterial({
     color: 0xffffff,
     roughness: 0.36,
@@ -112,7 +103,6 @@ export function createWorldMaterials(): WorldMaterials {
     machine,
     machineDark,
     resource,
-    resourceAccent,
     emissive,
     overlayLegal,
     overlayIllegal,
@@ -125,7 +115,6 @@ export function createWorldMaterials(): WorldMaterials {
     machine,
     machineDark,
     resource,
-    resourceAccent,
     emissive,
     overlayLegal,
     overlayIllegal,
