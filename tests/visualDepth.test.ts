@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { axialToPixel } from "@hexlife/embed/hex";
+import { InstancedMesh } from "three";
 
 import type { EntitySnapshot, FactorySnapshot } from "../src/core/types";
 import {
@@ -16,7 +17,10 @@ import {
   type MachinePartInstance,
 } from "../src/rendering/three/machineMeshes";
 import { createWorldMaterials } from "../src/rendering/three/materials";
-import { HEX_RING_START } from "../src/rendering/three/overlays";
+import {
+  HEX_RING_START,
+  SpatialOverlays,
+} from "../src/rendering/three/overlays";
 import {
   QUALITY_SETTINGS,
   parseGraphicsProfile,
@@ -243,6 +247,38 @@ describe("Visual Depth terrain and quality contracts", () => {
     const before = camera.axialAt(610, 420);
     camera.follow({ x: WORLD_SCALE * 24, y: WORLD_SCALE * 12 });
     expect(camera.axialAt(610, 420)).not.toEqual(before);
+  });
+
+  it("moves the hover culling bound with far-away tiles", () => {
+    const materials = createWorldMaterials();
+    const overlays = new SpatialOverlays(materials);
+    const hover = { q: 40, r: 20 };
+    overlays.update(
+      minimalSnapshot(),
+      {
+        hover,
+        selection: null,
+        placement: null,
+        dragPath: [],
+        buildMode: false,
+        gridToggled: false,
+        buildFootprint: [{ q: 0, r: 0 }],
+        buildOrientation: 0,
+        buildReach: null,
+        gathering: false,
+      },
+      new Map(),
+    );
+
+    const legal = overlays.group.children.find(
+      (child): child is InstancedMesh => child instanceof InstancedMesh,
+    );
+    const point = axialToPixel(hover, 1, { x: 0, y: 0 });
+    expect(legal?.boundingSphere?.center.x).toBeCloseTo(point.x, 5);
+    expect(legal?.boundingSphere?.center.z).toBeCloseTo(point.y, 5);
+
+    overlays.dispose();
+    for (const material of materials.materials) material.dispose();
   });
 
   it("starts six-sided interaction rings on the pointy-top tile vertices", () => {

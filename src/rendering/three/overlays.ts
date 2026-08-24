@@ -231,6 +231,12 @@ export class SpatialOverlays {
     }
     mesh.count = count;
     mesh.instanceMatrix.needsUpdate = true;
+    // InstancedMesh caches the first bounding sphere Three.js computes. These
+    // overlays move with the pointer, so leaving that sphere near the landing
+    // hub makes the renderer cull a valid hover ring once the camera follows
+    // the player far enough away. Keep the culling bound aligned with the
+    // matrices we just wrote.
+    mesh.computeBoundingSphere();
   }
 
   private writeArrows(
@@ -264,6 +270,7 @@ export class SpatialOverlays {
     }
     this.arrows.count = count;
     this.arrows.instanceMatrix.needsUpdate = true;
+    this.arrows.computeBoundingSphere();
   }
 
   private placeWorldRing(
