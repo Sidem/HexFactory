@@ -54,7 +54,11 @@ import type {
 import definitions from "../src/data/definitions.json";
 import technologies from "../src/data/technologies.json";
 import { HexCamera, isSurveyed } from "../src/rendering/CanvasFactoryRenderer";
-import { findLandingHub, homeBearing } from "../src/rendering/landmarks";
+import {
+  buildingBeside,
+  findLandingHub,
+  homeBearing,
+} from "../src/rendering/landmarks";
 
 const snapshot: FactorySnapshot = {
   scenario: "new-game",
@@ -562,6 +566,10 @@ describe("bounded host input", () => {
     // from shrinking into unreadable slivers while all claiming to be open.
     expect(panels).toContain("if (opening) this.close(target)");
     expect(main).not.toContain("ONE_PANEL_AT_A_TIME");
+    // Walking up to a machine brings the inspector out where it is behind a button, and only when
+    // no other workspace is open: a footstep must not close a panel the player pressed for.
+    expect(main).toContain("panels.revealInspector()");
+    expect(panels).toContain('this.root.querySelector(".glass-panel.open")');
     expect(panels).toContain("ids.slice(-1)");
     // Panels remain flow children of their rails rather than reclaiming absolute origins.
     expect(css).toContain(".panel-rail");
@@ -1225,6 +1233,56 @@ describe("availability and expanded snapshot adapter", () => {
     expect(homeBearing({ x: 0, y: 0 }, { x: -500, y: -866 })?.direction).toBe(
       4,
     );
+  });
+
+  it("knows which building the player is standing beside", () => {
+    // The fixture player stands on (1, 0), one step from the hub's footprint cell at the origin.
+    expect(buildingBeside(snapshot)).toEqual({ q: 0, r: 0 });
+    // Three hexes out is not beside anything, and nothing is claimed rather than the nearest thing
+    // in the world being claimed from any distance.
+    expect(
+      buildingBeside({
+        ...snapshot,
+        player: { ...snapshot.player, x: 3 * 1774, y: 0 },
+      }),
+    ).toBeNull();
+
+    const hub = snapshot.buildings[0] as EntitySnapshot;
+    const at = (
+      id: number,
+      kind: EntitySnapshot["kind"],
+      q: number,
+      r: number,
+    ): EntitySnapshot => ({
+      ...hub,
+      id,
+      kind,
+      q,
+      r,
+      scenario_owned: false,
+      footprint: [{ q, r }],
+    });
+    const beside = (buildings: EntitySnapshot[]): unknown =>
+      buildingBeside({ ...snapshot, buildings });
+
+    // A belt running past a machine is not what the player walked up to, whichever was built first.
+    expect(beside([at(4, "belt", 1, -1), at(9, "composer", 2, 0)])).toEqual({
+      q: 2,
+      r: 0,
+    });
+    // Two equal claims resolve on the lower entity ID, so a crowded corner picks the same machine
+    // every tick rather than flickering between two while the player stands still.
+    expect(beside([at(9, "composer", 2, 0), at(4, "composer", 1, -1)])).toEqual(
+      {
+        q: 1,
+        r: -1,
+      },
+    );
+    // Standing on one outranks standing beside another, even when the other has the lower ID.
+    expect(beside([at(9, "composer", 1, 0), at(4, "composer", 2, 0)])).toEqual({
+      q: 1,
+      r: 0,
+    });
   });
 
   it("keeps the world in view and every panel behind its own key", () => {

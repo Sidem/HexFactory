@@ -1,4 +1,9 @@
 const PANEL_KEY = "hexfactory:panels:v1";
+/**
+ * The one panel that stands on the world rather than waiting behind a key. Its id lives here rather
+ * than at the call site so the key table remains the only place in `main.ts` that names a panel.
+ */
+const INSPECTOR = "inspector-panel";
 
 /** Owns presentation-only workspace state and its DOM/storage synchronization. */
 export class PanelController {
@@ -31,6 +36,22 @@ export class PanelController {
     const opening = !target.classList.contains("open");
     if (opening) this.close(target);
     target.classList.toggle("open", opening);
+    this.syncAndSave();
+  }
+
+  /**
+   * Bring the inspector out for something the world did rather than something the player pressed —
+   * walking up to a machine. On a wide screen it already stands beside the world and this changes
+   * nothing; on a narrow one it is behind its button, and this is what opens it.
+   *
+   * A workspace the player opened is left alone. One panel at a time is the rule, and a deliberate
+   * press outranks a footstep: a build list should not close itself because the player walked past
+   * a belt on the way to the hex they are about to build on.
+   */
+  revealInspector(): void {
+    const target = this.root.getElementById(INSPECTOR);
+    if (!target || this.root.querySelector(".glass-panel.open")) return;
+    target.classList.add("open");
     this.syncAndSave();
   }
 

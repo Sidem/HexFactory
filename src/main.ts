@@ -1,5 +1,6 @@
 import {
   axialToPixel,
+  pixelToAxial,
   rotateHexDirection,
   type HexDirection,
 } from "@hexlife/embed/hex";
@@ -84,7 +85,12 @@ import {
   fillItemChip,
   type ItemChipView,
 } from "./rendering/itemChip";
-import { findLandingHub, homeBearing } from "./rendering/landmarks";
+import {
+  buildingBeside,
+  findLandingHub,
+  homeBearing,
+  WORLD_SCALE,
+} from "./rendering/landmarks";
 import { MinimapRenderer } from "./rendering/MinimapRenderer";
 import { ThreeFactoryRenderer } from "./rendering/three/ThreeFactoryRenderer";
 import {
@@ -275,6 +281,14 @@ let playing = true;
 let tool: Tool = "inspect";
 let orientation = 0;
 let selected: { q: number; r: number } | null = null;
+/**
+ * The hex the player stands on, and the building they stand beside, as cell keys. Walking up to a
+ * machine selects it, and these two are what keep that from being a per-frame decision: the scan
+ * runs on the step that crosses a hex boundary, and the selection follows only when the building in
+ * reach actually changes.
+ */
+let standingHex: string | null = null;
+let besideBuilding: string | null = null;
 let hover: { q: number; r: number } | null = null;
 let hoverPreview: PlacementPreview | null = null;
 const frameClock = new FrameClock(performance.now());
@@ -647,6 +661,11 @@ function update(next: FactorySnapshot): void {
     // first powered composer is a factory one, so the clock reads whenever either moved.
     evaluateRun(next);
   }
+  // Before the inspector renders, so the machine the player just walked up to is on the panel in
+  // the same pass rather than a tick later.
+  syncStandingSelection(
+    previous === next || previous.buildings !== next.buildings,
+  );
   if (factoryChanged || selected) renderInspector();
   const latestEvent = snapshot.events.at(-1) ?? "";
   if (
@@ -676,6 +695,32 @@ function refreshLandingHub(): void {
   if (key === landingHubWorld) return;
   landingHubWorld = key;
   landingHub = findLandingHub(snapshot);
+}
+
+/**
+ * Walking up to a machine opens it. The player is beside at most one building at a time as far as
+ * this is concerned, and the selection follows the step that brings a new one into reach rather than
+ * every frame, so a hex chosen by hand while standing there keeps the panel until the player moves
+ * away and back.
+ *
+ * Two guards keep the work off the frame: the scan runs only when the player crosses into a new hex
+ * or the building set changes, and the selection is only replaced when the building in reach is a
+ * different one. Walking clear of everything leaves the last selection standing — there is nothing
+ * to put on the panel in its place, and blanking it would be a second thing walking does.
+ */
+function syncStandingSelection(buildingsChanged: boolean): void {
+  const standing = pixelToAxial(snapshot.player, WORLD_SCALE);
+  const hex = `${standing.q},${standing.r}`;
+  if (hex === standingHex && !buildingsChanged) return;
+  standingHex = hex;
+  const cell = buildingBeside(snapshot);
+  const key = cell ? `${cell.q},${cell.r}` : null;
+  if (key === besideBuilding) return;
+  besideBuilding = key;
+  if (!cell) return;
+  selected = cell;
+  renderer.setSelection(cell);
+  panels.revealInspector();
 }
 
 /**

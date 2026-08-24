@@ -1,6 +1,11 @@
-import { axialDistance, axialToPixel, pixelToAxial } from "@hexlife/embed/hex";
+import {
+  axialDistance,
+  axialToPixel,
+  pixelToAxial,
+  type AxialCoordinate,
+} from "@hexlife/embed/hex";
 
-import type { FactorySnapshot, WorldPoint } from "../core/types";
+import type { BuildingKind, FactorySnapshot, WorldPoint } from "../core/types";
 
 /**
  * World units per hex circumradius — the scale native lays its lattice out on, and the only number
@@ -12,6 +17,46 @@ export const WORLD_SCALE = 1024;
 export function findLandingHub(snapshot: FactorySnapshot): WorldPoint | null {
   const hub = snapshot.buildings.find(({ kind }) => kind === "hub");
   return hub ? axialToPixel(hub, WORLD_SCALE, { x: 0, y: 0 }) : null;
+}
+
+/**
+ * What a belt, a pole, and a bridge have in common: they carry for something else. A player who
+ * walks up to a smelter with a belt running past it has walked up to the smelter, so the two are
+ * ranked rather than treated as equal claims on the same step.
+ */
+const CARRIES_FOR_SOMETHING_ELSE: ReadonlySet<BuildingKind> =
+  new Set<BuildingKind>(["belt", "pole", "bridge"]);
+
+/**
+ * The building the player is standing at or beside, as the footprint cell nearest them — the cell a
+ * click would have picked — or `null` when they stand clear of everything.
+ *
+ * Nearest wins, then a machine over the infrastructure serving it, then the lower entity ID. All
+ * three are needed: a hex has six neighbours and a factory floor puts several of them in reach at
+ * once, and a rule that left any of those ties open would let the selection flicker between two
+ * buildings while the player stands still.
+ */
+export function buildingBeside(
+  snapshot: FactorySnapshot,
+): AxialCoordinate | null {
+  const standing = pixelToAxial(snapshot.player, WORLD_SCALE);
+  let best: { cell: AxialCoordinate; rank: number; id: number } | null = null;
+  for (const building of snapshot.buildings) {
+    const carries = CARRIES_FOR_SOMETHING_ELSE.has(building.kind) ? 1 : 0;
+    for (const cell of building.footprint) {
+      const distance = axialDistance(standing, cell);
+      if (distance > 1) continue;
+      // Distance is 0 or 1 here, so doubling it leaves the carried flag as the tie-break below it.
+      const rank = distance * 2 + carries;
+      if (
+        best === null ||
+        rank < best.rank ||
+        (rank === best.rank && building.id < best.id)
+      )
+        best = { cell, rank, id: building.id };
+    }
+  }
+  return best?.cell ?? null;
 }
 
 export interface HomeBearing {
