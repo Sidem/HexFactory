@@ -37,6 +37,7 @@ import type { WorldMaterials } from "./materials";
 import type { TerrainCell } from "./terrainMeshes";
 import { cellKey, stableVariation } from "./terrainMeshes";
 import { createTransportGeometry, transportScale } from "./transportGeometry";
+import { directionAngle } from "./directionAngle";
 
 interface PartBucket {
   readonly mesh: InstancedMesh;
@@ -53,6 +54,16 @@ interface ResourcePartInstance {
   readonly scaleY: number;
   readonly scaleZ: number;
   readonly color: string;
+}
+
+interface TransportTreads {
+  readonly mesh: InstancedMesh;
+  readonly buildings: readonly EntitySnapshot[];
+}
+
+export interface PowerWireLink {
+  readonly fromId: number;
+  readonly toId: number;
 }
 
 /** The field repeats the inventory glyph vocabulary as unmistakable 3D silhouettes. */
@@ -87,6 +98,8 @@ export class WorldInstanceLayer {
     cargo: new IcosahedronGeometry(0.09, 0),
     status: new SphereGeometryCompat(0.09),
     scar: new CylinderGeometry(0.34, 0.38, 0.025, 6),
+    outputIndicator: outputIndicatorGeometry(),
+    wireSegment: new CylinderGeometry(1, 1, 1, 6),
   };
   private readonly ownedGeometries = Object.values(this.geometry);
   private staticGroup = new Group();
@@ -94,6 +107,7 @@ export class WorldInstanceLayer {
   private readonly dynamicGroup = new Group();
   private readonly playerGroup = new Group();
   private partBuckets: PartBucket[] = [];
+  private transportTreads: TransportTreads | null = null;
   private structureKey = "";
   private resourcesIdentity: FactorySnapshot["resources"] | null = null;
   private snapshot: FactorySnapshot | null = null;
@@ -168,6 +182,7 @@ export class WorldInstanceLayer {
             entity.orientation,
             entity.q,
             entity.r,
+            entity.next_id ?? 0,
           ].join(":"),
         )
         .join("|") + `@${snapshot.contract.stage}`;
@@ -201,6 +216,7 @@ export class WorldInstanceLayer {
         );
       bucket.mesh.instanceMatrix.needsUpdate = true;
     }
+    this.updateTransportTreads(now, reducedMotion);
     this.updateDynamicBuildings(snapshot, now, reducedMotion);
     if (this.playerDirty) {
       this.playerDirty = false;
@@ -221,6 +237,7 @@ export class WorldInstanceLayer {
     this.staticGroup = new Group();
     this.staticGroup.name = "static-factory";
     this.partBuckets = [];
+    this.transportTreads = null;
     this.pointById.clear();
     this.groundById.clear();
     const matrix = new Matrix4();
@@ -293,6 +310,8 @@ export class WorldInstanceLayer {
       color,
     );
     this.addPartMeshes(snapshot);
+    this.addOutputIndicators(snapshot);
+    this.addPowerWires(snapshot);
     this.group.add(this.staticGroup);
   }
 
@@ -411,7 +430,7 @@ export class WorldInstanceLayer {
       for (const [index, building] of belts.entries()) {
         const center = axialToPixel(building, 1, { x: 0, y: 0 });
         const height = this.groundHeight(building.q, building.r) + 0.23;
-        const angle = buildingAngle(building.orientation);
+        const angle = directionAngle(building.orientation);
         position.set(center.x, height, center.y);
         quaternion.setFromAxisAngle(new Vector3(0, 1, 0), angle);
         const definition = this.definitions.get(building.definition_id);
@@ -429,7 +448,41 @@ export class WorldInstanceLayer {
       markInstancesDirty(treads);
       frame.castShadow = true;
       treads.castShadow = true;
+      this.transportTreads = { mesh: treads, buildings: belts };
       this.staticGroup.add(frame, treads);
+
+      const connected = connectedBeltLinks(snapshot.buildings);
+      if (connected.length) {
+        const links = new InstancedMesh(
+          this.geometry.belt,
+          this.materials.machine,
+          connected.length,
+        );
+        links.name = "transport-connections";
+        links.castShadow = true;
+        for (const [index, { from, to }] of connected.entries()) {
+          const a = this.pointById.get(from.id)!;
+          const b = this.pointById.get(to.id)!;
+          const dx = b.x - a.x;
+          const dz = b.z - a.z;
+          const length = Math.hypot(dx, dz);
+          position.set(
+            (a.x + b.x) / 2,
+            Math.max(
+              this.groundById.get(from.id) ?? 0.07,
+              this.groundById.get(to.id) ?? 0.07,
+            ) + 0.23,
+            (a.z + b.z) / 2,
+          );
+          quaternion.setFromAxisAngle(WORLD_UP, Math.atan2(-dz, dx));
+          scale.set(length / 0.92, 1, 1);
+          matrix.compose(position, quaternion, scale);
+          links.setMatrixAt(index, matrix);
+          links.setColorAt(index, color.set(BUILDING_COLORS.belt));
+        }
+        markInstancesDirty(links);
+        this.staticGroup.add(links);
+      }
     }
     const bridges = snapshot.buildings.filter(({ kind }) => kind === "bridge");
     if (bridges.length) {
@@ -448,7 +501,7 @@ export class WorldInstanceLayer {
         );
         quaternion.setFromAxisAngle(
           new Vector3(0, 1, 0),
-          buildingAngle(building.orientation),
+          directionAngle(building.orientation),
         );
         scale.set(1, 1, 1);
         matrix.compose(position, quaternion, scale);
@@ -459,6 +512,139 @@ export class WorldInstanceLayer {
       if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
       this.staticGroup.add(mesh);
     }
+  }
+
+  private updateTransportTreads(now: number, reducedMotion: boolean): void {
+    const bucket = this.transportTreads;
+    if (!bucket) return;
+    for (const [index, building] of bucket.buildings.entries()) {
+      const center = this.pointById.get(building.id);
+      if (!center) continue;
+      const angle = directionAngle(building.orientation);
+      const definition = this.definitions.get(building.definition_id);
+      const [x, y, z] = definition
+        ? transportScale(definition)
+        : ([1, 1, 1] as const);
+      const target = building.next_id
+        ? this.pointById.get(building.next_id)
+        : undefined;
+      const directionDistance = target
+        ? Math.hypot(target.x - center.x, target.z - center.z)
+        : x * 0.92;
+      const treadSpacing = 0.175 * x;
+      const phase = reducedMotion
+        ? 0
+        : ((cargoTravel(now, false, building.id) * directionDistance) %
+            treadSpacing) -
+          treadSpacing / 2;
+      this.scratchPosition.set(
+        center.x + Math.cos(angle) * phase,
+        (this.groundById.get(building.id) ?? 0.07) + 0.23,
+        center.z - Math.sin(angle) * phase,
+      );
+      this.scratchQuaternion.setFromAxisAngle(WORLD_UP, angle);
+      this.scratchScale.set(x, y, z);
+      this.scratchMatrix.compose(
+        this.scratchPosition,
+        this.scratchQuaternion,
+        this.scratchScale,
+      );
+      bucket.mesh.setMatrixAt(index, this.scratchMatrix);
+    }
+    bucket.mesh.instanceMatrix.needsUpdate = true;
+  }
+
+  private addOutputIndicators(snapshot: FactorySnapshot): void {
+    const buildings = snapshot.buildings.filter((building) =>
+      hasDirectionalOutput(building.kind),
+    );
+    if (!buildings.length) return;
+    const mesh = new InstancedMesh(
+      this.geometry.outputIndicator,
+      this.materials.emissive,
+      buildings.length,
+    );
+    mesh.name = "building-output-indicators";
+    for (const [index, building] of buildings.entries()) {
+      const center = this.pointById.get(building.id)!;
+      const angle = directionAngle(building.orientation);
+      const footprintReach = building.footprint.length > 1 ? 0.9 : 0.56;
+      this.scratchPosition.set(
+        center.x + Math.cos(angle) * footprintReach,
+        (this.groundById.get(building.id) ?? 0.07) + 0.53,
+        center.z - Math.sin(angle) * footprintReach,
+      );
+      this.scratchQuaternion.setFromAxisAngle(WORLD_UP, angle);
+      this.scratchMatrix.compose(
+        this.scratchPosition,
+        this.scratchQuaternion,
+        this.scratchScale.set(1, 1, 1),
+      );
+      mesh.setMatrixAt(index, this.scratchMatrix);
+      mesh.setColorAt(index, this.scratchColor.set("#ffd166"));
+    }
+    markInstancesDirty(mesh);
+    this.staticGroup.add(mesh);
+  }
+
+  private addPowerWires(snapshot: FactorySnapshot): void {
+    const links = powerWireLinks(snapshot.buildings, this.definitions);
+    if (!links.length) return;
+    const segmentsPerWire = 7;
+    const mesh = new InstancedMesh(
+      this.geometry.wireSegment,
+      this.materials.machineDark,
+      links.length * segmentsPerWire,
+    );
+    mesh.name = "pole-wires";
+    mesh.castShadow = true;
+    const byId = new Map(
+      snapshot.buildings.map((building) => [building.id, building]),
+    );
+    const start = new Vector3();
+    const end = new Vector3();
+    const a = new Vector3();
+    const b = new Vector3();
+    const delta = new Vector3();
+    let index = 0;
+    for (const link of links) {
+      const from = byId.get(link.fromId)!;
+      const to = byId.get(link.toId)!;
+      const fromCenter = this.pointById.get(from.id)!;
+      const toCenter = this.pointById.get(to.id)!;
+      start.set(
+        fromCenter.x,
+        (this.groundById.get(from.id) ?? 0.07) +
+          poleWireHeight(from, this.definitions),
+        fromCenter.z,
+      );
+      end.set(
+        toCenter.x,
+        (this.groundById.get(to.id) ?? 0.07) +
+          (to.kind === "pole" ? poleWireHeight(to, this.definitions) : 0.72),
+        toCenter.z,
+      );
+      const span = start.distanceTo(end);
+      const sag = Math.min(0.62, 0.12 + span * 0.055);
+      for (let segment = 0; segment < segmentsPerWire; segment += 1) {
+        wirePoint(start, end, segment / segmentsPerWire, sag, a);
+        wirePoint(start, end, (segment + 1) / segmentsPerWire, sag, b);
+        delta.subVectors(b, a);
+        const length = delta.length();
+        this.scratchPosition.copy(a).add(b).multiplyScalar(0.5);
+        this.scratchQuaternion.setFromUnitVectors(WORLD_UP, delta.normalize());
+        this.scratchMatrix.compose(
+          this.scratchPosition,
+          this.scratchQuaternion,
+          this.scratchScale.set(0.022, length, 0.022),
+        );
+        mesh.setMatrixAt(index, this.scratchMatrix);
+        mesh.setColorAt(index, this.scratchColor.set("#91a79f"));
+        index += 1;
+      }
+    }
+    markInstancesDirty(mesh);
+    this.staticGroup.add(mesh);
   }
 
   private addPartMeshes(snapshot: FactorySnapshot): void {
@@ -836,11 +1022,111 @@ export class WorldInstanceLayer {
   }
 }
 
-function buildingAngle(orientation: number): number {
-  const direction =
-    TRANSPORT_DIRECTIONS[orientation] ?? TRANSPORT_DIRECTIONS[0]!;
-  const point = axialToPixel(direction, 1, { x: 0, y: 0 });
-  return Math.atan2(point.x, point.y);
+const WORLD_UP = new Vector3(0, 1, 0);
+
+function outputIndicatorGeometry(): ConeGeometry {
+  const geometry = new ConeGeometry(0.11, 0.32, 4);
+  geometry.rotateZ(-Math.PI / 2);
+  return geometry;
+}
+
+function hasDirectionalOutput(kind: EntitySnapshot["kind"]): boolean {
+  return (
+    kind === "belt" ||
+    kind === "extractor" ||
+    kind === "composer" ||
+    kind === "container" ||
+    kind === "pump"
+  );
+}
+
+function connectedBeltLinks(
+  buildings: readonly EntitySnapshot[],
+): { from: EntitySnapshot; to: EntitySnapshot }[] {
+  const byId = new Map(buildings.map((building) => [building.id, building]));
+  return buildings.flatMap((from) => {
+    if (from.kind !== "belt" || !from.next_id) return [];
+    const to = byId.get(from.next_id);
+    if (!to || to.kind !== "belt") return [];
+    const direction = TRANSPORT_DIRECTIONS[from.orientation];
+    if (!direction) return [];
+    if (to.q - from.q !== direction.q || to.r - from.r !== direction.r)
+      return [];
+    return [{ from, to }];
+  });
+}
+
+/** Exact display links for the native pole rules: poles link by pole reach and machines attach to
+ * every pole whose own supply radius covers their nearest footprint cells. */
+export function powerWireLinks(
+  buildings: readonly EntitySnapshot[],
+  definitions: ReadonlyMap<number, BuildingDefinition>,
+): PowerWireLink[] {
+  const poles = buildings.filter(({ kind }) => kind === "pole");
+  const machines = buildings.filter((building) => {
+    const definition = definitions.get(building.definition_id);
+    return (
+      building.kind !== "pole" &&
+      ((definition?.power_draw ?? 0) > 0 || (definition?.power_output ?? 0) > 0)
+    );
+  });
+  const links: PowerWireLink[] = [];
+  for (let left = 0; left < poles.length; left += 1) {
+    for (let right = left + 1; right < poles.length; right += 1) {
+      const a = poles[left]!;
+      const b = poles[right]!;
+      const reach = Math.max(
+        definitions.get(a.definition_id)?.pole_reach ?? 0,
+        definitions.get(b.definition_id)?.pole_reach ?? 0,
+      );
+      if (footprintDistance(a, b) <= reach)
+        links.push({ fromId: a.id, toId: b.id });
+    }
+  }
+  for (const pole of poles) {
+    const radius = definitions.get(pole.definition_id)?.supply_radius ?? 0;
+    for (const machine of machines) {
+      if (footprintDistance(pole, machine) <= radius)
+        links.push({ fromId: pole.id, toId: machine.id });
+    }
+  }
+  return links;
+}
+
+function footprintDistance(a: EntitySnapshot, b: EntitySnapshot): number {
+  const left = a.footprint.length ? a.footprint : [a];
+  const right = b.footprint.length ? b.footprint : [b];
+  let best = Number.POSITIVE_INFINITY;
+  for (const from of left) {
+    for (const to of right) {
+      const dq = to.q - from.q;
+      const dr = to.r - from.r;
+      best = Math.min(
+        best,
+        (Math.abs(dq) + Math.abs(dr) + Math.abs(dq + dr)) / 2,
+      );
+    }
+  }
+  return best;
+}
+
+function poleWireHeight(
+  pole: EntitySnapshot,
+  definitions: ReadonlyMap<number, BuildingDefinition>,
+): number {
+  return 1.7 + (definitions.get(pole.definition_id)?.tier ?? 0) * 0.08;
+}
+
+function wirePoint(
+  start: Vector3,
+  end: Vector3,
+  t: number,
+  sag: number,
+  target: Vector3,
+): Vector3 {
+  return target
+    .lerpVectors(start, end, t)
+    .addScaledVector(WORLD_UP, -4 * sag * t * (1 - t));
 }
 
 /** Preserve each item's hue while ensuring even coal and stone stay legible against dark terrain. */

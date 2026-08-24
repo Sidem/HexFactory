@@ -18,19 +18,15 @@ import type {
   EntitySnapshot,
   FactorySnapshot,
 } from "../../core/types";
-import { TRANSPORT_DIRECTIONS } from "../../core/directions";
 import { partsFor, silhouetteOf, workCycle } from "../buildingLook";
 import type { PartKind, ShapePart } from "../shapeGrammar";
+import { directionAngle } from "./directionAngle";
 
 const TAU = Math.PI * 2;
 const PART_POSITION = new Vector3();
 const PART_SCALE = new Vector3();
 const PART_ROTATION = new Euler(0, 0, 0, "YXZ");
 const PART_QUATERNION = new Quaternion();
-const ORIENTATION_ANGLES = TRANSPORT_DIRECTIONS.map((direction) => {
-  const projected = axialToPixel(direction, 1, { x: 0, y: 0 });
-  return Math.atan2(projected.x, projected.y);
-});
 
 export interface MachinePartInstance {
   readonly building: EntitySnapshot;
@@ -152,7 +148,7 @@ export function machinePartMatrix(
 ): Matrix4 {
   const { building, part } = instance;
   const cycle = workCycle(building, now, reducedMotion);
-  const buildingAngle = ORIENTATION_ANGLES[building.orientation] ?? 0;
+  const buildingAngle = directionAngle(building.orientation);
   const phase = part.phase ?? "still";
   const localRotation = part.rotation ?? 0;
   const animatedRotation = phase === "spin" ? cycle * TAU : 0;
@@ -162,7 +158,11 @@ export function machinePartMatrix(
   const lateralX = Math.cos(buildingAngle) * part.x * 1.45;
   const lateralZ = -Math.sin(buildingAngle) * part.x * 1.45;
   const axisLift =
-    part.part === "stack" ? Math.cos(localRotation) * part.scale * 0.75 : 0;
+    part.part === "stack"
+      ? Math.cos(localRotation) * part.scale * 0.75
+      : part.part === "mast"
+        ? part.scale * 1.1
+        : 0;
   PART_POSITION.set(
     instance.x + lateralX,
     instance.groundHeight + 0.2 - part.y * 1.25 + axisLift + rise,

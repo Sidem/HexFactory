@@ -56,10 +56,11 @@ Before changing a cost, a cadence, or a power figure, run `npm run balance` and 
 - Blueprint edits compile a directed transport graph. Runtime follows graph edges and scheduled
   machines; it does not discover six neighbors for every belt on every tick.
 - A drag is one bounded command carrying two endpoints. The path between them, the per-cell
-  heading, the legality, and the cost are resolved natively by `hex_line` and the ordinary `place`
-  and `erase` paths — and the drag preview comes from that same resolver, so it cannot promise a run
-  the drag will not build. Never expand a drag into per-cell commands on the host, and never give
-  the host a line traversal of its own.
+  heading, the legality, and the cost are resolved natively by the drag router and the ordinary
+  `place` and `erase` paths — and the drag preview comes from that same resolver, so it cannot
+  promise a run the drag will not build. Edge belts use its bounded deterministic obstacle route;
+  other construction and erasure retain `hex_line`. Never expand a drag into per-cell commands on
+  the host, and never give the host a line traversal of its own.
 - The player walks on its own native cadence, not inside the simulation tick, so a paused or slowed
   factory never pins it in place. The host converts elapsed real time into a step count using the
   rate native publishes and sends it beside the tick count. Frame-coupled movement stays refused:

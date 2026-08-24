@@ -164,11 +164,14 @@ The Rust `Core` owns all state that can change a game result:
 9. `compile_graph` resolves each entity output into one directed transport edge after edits. Runtime
    transfers use this compiled graph. Proposals sort by stable entity ID and a rejected transfer
    never changes its source.
-10. A construction or removal drag arrives as one bounded command holding two endpoints. `hex_line`
-    walks between them by taking the lowest-numbered direction that closes the distance, so a run
-    uses at most two directions and turns once, and each cell then goes through the same `place` or
-    `erase` a single-cell command uses. Belts are oriented at their successor, so the drag routes
-    the line. The preview entry points share that resolver, spend materials against a copy of the
+10. A construction or removal drag arrives as one bounded command holding two endpoints. Edge belts
+    use a deterministic shortest path through cells which pass the ordinary placement predicate,
+    bounded by the same 32-cell run cap; this is what lets a run detour around an obstacle without
+    putting pathfinding in the host. Other construction and erasure retain `hex_line`, whose
+    lowest-numbered closing direction uses at most two directions and turns once. Each resolved cell
+    then goes through the same `place` or `erase` a single-cell command uses. Belts are oriented at
+    their successor, so the drag routes the line. The preview entry points share that resolver,
+    spend materials against a copy of the
     inventory, and carry the recipe the drag will carry — legality depends on the recipe's category,
     so a preview asking without one would refuse a run the drag would build. Undo is a stack of
     constructed entity ids replayed through `erase`; like `deposit_links` it is derived state and is

@@ -41,7 +41,7 @@ machine decorations.
   grid. With a belt or other single-hex building selected, **drag across the map to lay a whole run
   at once** — it routes itself, turning where the drag turns, and the preview shows exactly which
   cells it will use and where it stops. `E` selects erase, and dragging with it removes a run.
-- `R` rotates the pending building, or the building under the cursor when no build tool is held.
+- `R` rotates the pending or selected building clockwise; `Shift+R` rotates it counter-clockwise.
   `Q` copies whatever is under the cursor, and `Ctrl`+`Z` takes back the last thing you built.
   Some definitions occupy multiple cells; those are placed one at a time. The grid appears during
   editing or via its toggle.

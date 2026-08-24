@@ -1,8 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { axialToPixel } from "@hexlife/embed/hex";
-import { InstancedMesh } from "three";
+import { InstancedMesh, Matrix4 } from "three";
 
-import type { EntitySnapshot, FactorySnapshot } from "../src/core/types";
+import type {
+  BuildingDefinition,
+  EntitySnapshot,
+  FactorySnapshot,
+} from "../src/core/types";
 import {
   BUILDING_SHAPES,
   partsFor,
@@ -34,9 +38,11 @@ import {
   visualHeight,
 } from "../src/rendering/three/terrainStyle";
 import { createTransportGeometry } from "../src/rendering/three/transportGeometry";
+import { directionAngle } from "../src/rendering/three/directionAngle";
 import {
   fieldVisualColor,
   FIELD_RESOURCE_SHAPES,
+  powerWireLinks,
   WorldInstanceLayer,
 } from "../src/rendering/three/worldInstances";
 
@@ -297,6 +303,107 @@ describe("Visual Depth terrain and quality contracts", () => {
     geometry.bridge.dispose();
   });
 
+  it("points transport geometry along the native heading instead of ninety degrees across it", () => {
+    expect(directionAngle(0)).toBeCloseTo(0, 12);
+    expect(directionAngle(1)).toBeCloseTo(-Math.PI / 3, 12);
+    expect(Math.abs(directionAngle(3))).toBeCloseTo(Math.PI, 12);
+  });
+
+  it("connects directed belt neighbours and moves their treads on the cargo clock", () => {
+    const materials = createWorldMaterials();
+    const layer = new WorldInstanceLayer(
+      {
+        version: 1,
+        items: [],
+        recipes: [],
+        requests: [],
+        buildings: [beltDefinition()],
+      },
+      materials,
+    );
+    const snapshot = minimalSnapshot();
+    snapshot.buildings.push(
+      entity(1, 2, "belt", 0, 0, 0, 2),
+      entity(2, 2, "belt", 1, 0, 0),
+    );
+    layer.setSnapshot(snapshot, new Map());
+    const connections = layer.group.getObjectByName("transport-connections");
+    const indicators = layer.group.getObjectByName(
+      "building-output-indicators",
+    );
+    const treads = layer.group.getObjectByName(
+      "transport-treads",
+    ) as InstancedMesh;
+    expect(connections).toBeInstanceOf(InstancedMesh);
+    expect((connections as InstancedMesh).count).toBe(1);
+    expect((indicators as InstancedMesh).count).toBe(2);
+    const before = new Matrix4();
+    const after = new Matrix4();
+    layer.update(0, false);
+    treads.getMatrixAt(0, before);
+    layer.update(120, false);
+    treads.getMatrixAt(0, after);
+    expect(after.elements).not.toEqual(before.elements);
+
+    layer.dispose();
+    for (const material of materials.materials) material.dispose();
+  });
+
+  it("draws one sagging instanced wire for every native pole link", () => {
+    const pole = {
+      ...beltDefinition(),
+      id: 12,
+      key: "pole",
+      name: "Pole",
+      kind: "pole" as const,
+      supply_radius: 3,
+      pole_reach: 6,
+    };
+    const machine = {
+      ...beltDefinition(),
+      id: 3,
+      key: "composer",
+      name: "Composer",
+      kind: "composer" as const,
+      power_draw: 8,
+    };
+    const definitions = new Map<number, BuildingDefinition>([
+      [pole.id, pole],
+      [machine.id, machine],
+    ]);
+    const buildings = [
+      entity(1, 12, "pole", 0, 0, 0),
+      entity(2, 12, "pole", 4, 0, 0),
+      entity(3, 3, "composer", 1, 0, 0),
+    ];
+    expect(powerWireLinks(buildings, definitions)).toEqual([
+      { fromId: 1, toId: 2 },
+      { fromId: 1, toId: 3 },
+      { fromId: 2, toId: 3 },
+    ]);
+
+    const materials = createWorldMaterials();
+    const layer = new WorldInstanceLayer(
+      {
+        version: 1,
+        items: [],
+        recipes: [],
+        requests: [],
+        buildings: [pole, machine],
+      },
+      materials,
+    );
+    const snapshot = minimalSnapshot();
+    snapshot.buildings.push(...buildings);
+    layer.setSnapshot(snapshot, new Map());
+    const wires = layer.group.getObjectByName("pole-wires");
+    expect(wires).toBeInstanceOf(InstancedMesh);
+    expect((wires as InstancedMesh).count).toBe(21);
+
+    layer.dispose();
+    for (const material of materials.materials) material.dispose();
+  });
+
   it("uses the exact pointy-top circumradius so three-cell junctions close", () => {
     expect(HEX_RADIUS).toBe(1);
     expect(2 * HEX_RADIUS * Math.cos(Math.PI / 6)).toBeCloseTo(
@@ -451,5 +558,47 @@ function minimalSnapshot(): FactorySnapshot {
     resources: [],
     buildings: [],
     events: [],
+  };
+}
+
+function beltDefinition() {
+  return {
+    id: 2,
+    key: "belt",
+    name: "Belt",
+    kind: "belt" as const,
+    description: "Test belt",
+    icon: "BLT",
+    construction_cost: [],
+    placement_rule: "ground" as const,
+    buildable: true,
+    blocks_movement: false,
+    footprint: [{ q: 0, r: 0 }],
+  };
+}
+
+function entity(
+  id: number,
+  definitionId: number,
+  kind: EntitySnapshot["kind"],
+  q: number,
+  r: number,
+  orientation: number,
+  nextId?: number,
+): EntitySnapshot {
+  return {
+    id,
+    q,
+    r,
+    definition_id: definitionId,
+    kind,
+    orientation,
+    scenario_owned: false,
+    inventory: [],
+    progress: 0,
+    progress_total: 0,
+    status: "idle",
+    next_id: nextId ?? null,
+    footprint: [{ q, r }],
   };
 }

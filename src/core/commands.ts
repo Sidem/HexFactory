@@ -67,7 +67,10 @@ export function encodeCommand(command: NativeInputCommand): EncodedCommand {
     case "erase":
       return { opcode: 4, args: [command.q, command.r] };
     case "rotate":
-      return { opcode: 5, args: [command.q, command.r] };
+      return {
+        opcode: 5,
+        args: [command.q, command.r, command.reverse ? 1 : 0],
+      };
     case "research":
       return { opcode: 6, args: [command.technology_id] };
     case "place_line":

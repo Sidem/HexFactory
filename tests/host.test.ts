@@ -316,6 +316,13 @@ describe("bounded host input", () => {
       args: [1],
     });
     expect(encodeCommand({ type: "undo" })).toEqual({ opcode: 9, args: [] });
+    expect(encodeCommand({ type: "rotate", q: 2, r: -1 })).toEqual({
+      opcode: 5,
+      args: [2, -1, 0],
+    });
+    expect(
+      encodeCommand({ type: "rotate", q: 2, r: -1, reverse: true }),
+    ).toEqual({ opcode: 5, args: [2, -1, 1] });
     expect(
       encodeCommand({ type: "withdraw", q: 1, r: 1, item_id: 2, quantity: 7 }),
     ).toEqual({ opcode: 10, args: [1, 1, 2, 7] });

@@ -54,6 +54,6 @@ export function transportScale(
   definition: BuildingDefinition,
 ): readonly [number, number, number] {
   return definition.kind === "belt" && definition.orientation_axis === "corner"
-    ? [0.72, 1, 2.4]
+    ? [2.4, 1, 0.72]
     : [1, 1, 1];
 }

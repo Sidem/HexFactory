@@ -521,7 +521,7 @@ export type NativeInputCommand =
     }
   | { type: "erase"; q: number; r: number }
   | { type: "erase_line"; q: number; r: number; to_q: number; to_r: number }
-  | { type: "rotate"; q: number; r: number }
+  | { type: "rotate"; q: number; r: number; reverse?: boolean }
   /**
    * Grow a building into the next tier of itself. Contents, heading, and connections survive
    * because native edits the entity in place rather than replacing it, and the price is netted

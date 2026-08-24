@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::cell::RefCell;
 #[cfg(test)]
 use std::cmp::Ordering;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use wasm_bindgen::prelude::*;
 
 /// The binary encoding the snapshot delta crosses the worker boundary in.
@@ -450,6 +450,13 @@ impl OrientationAxis {
         let span = range.end - range.start;
         let offset = orientation.wrapping_sub(range.start);
         range.start + (offset.wrapping_add(1) % span)
+    }
+
+    fn previous(self, orientation: u8) -> u8 {
+        let range = self.range();
+        let span = range.end - range.start;
+        let offset = orientation.wrapping_sub(range.start);
+        range.start + (offset.wrapping_add(span - 1) % span)
     }
 }
 
@@ -1263,6 +1270,8 @@ enum InputCommand {
     Rotate {
         q: i32,
         r: i32,
+        #[serde(default)]
+        reverse: bool,
     },
     /// Grow a building into the next tier of itself, keeping its contents, its heading, and its
     /// connections. Bounded and range-checked like every other edit.
@@ -4207,7 +4216,7 @@ impl Core {
             .ok_or_else(|| format!("unknown building definition {definition_id}"))?;
         let routed = definition.kind == BuildingKind::Belt;
         let name = definition.name.clone();
-        let cells = line_between(from, to, definition.orientation_axis);
+        let cells = self.drag_route(from, to, definition_id, orientation, recipe_id);
         let before = self.events.len();
         let mut placed = 0usize;
         let mut last_error = None;
@@ -4278,7 +4287,7 @@ impl Core {
         };
         let routed = definition.kind == BuildingKind::Belt;
         let cost = definition.construction_cost.clone();
-        let cells = line_between(from, to, definition.orientation_axis);
+        let cells = self.drag_route(from, to, definition_id, orientation, recipe_id);
         let mut budget = self.player.inventory.clone();
         let mut taken = BTreeSet::new();
         cells
@@ -4294,10 +4303,12 @@ impl Core {
                     && self
                         .placement_legality(q, r, definition_id, cell_orientation, recipe_id, false)
                         .is_ok()
-                    && has_ingredients(&budget, &cost);
+                    && (self.creative || has_ingredients(&budget, &cost));
                 if legal {
-                    for ingredient in &cost {
-                        subtract_item(&mut budget, ingredient.item_id, ingredient.quantity);
+                    if !self.creative {
+                        for ingredient in &cost {
+                            subtract_item(&mut budget, ingredient.item_id, ingredient.quantity);
+                        }
                     }
                     taken.insert((q, r));
                 }
@@ -4309,6 +4320,82 @@ impl Core {
                 }
             })
             .collect()
+    }
+
+    /// The path a construction drag uses. Ordinary buildings retain the exact line resolver they
+    /// have always used. Edge belts additionally get a bounded deterministic shortest path around
+    /// cells on which that belt cannot be placed, so an obstacle produces a connected detour rather
+    /// than a straight run with a hole in it.
+    ///
+    /// Start and destination are allowed into the route even when occupied. That preserves the
+    /// useful gesture of dragging out of, or into, an existing belt: the ordinary `place` call will
+    /// skip that endpoint while the neighbouring new segment still points at it. Interior cells
+    /// must pass the ordinary placement predicate with cost disabled. Direction order is the
+    /// explicit tie-break, and the route never exceeds `MAX_LINE_CELLS`.
+    fn drag_route(
+        &self,
+        from: (i32, i32),
+        to: (i32, i32),
+        definition_id: DefinitionId,
+        _orientation: u8,
+        recipe_id: Option<RecipeId>,
+    ) -> Vec<(i32, i32)> {
+        let Some(definition) = self.building_definition(definition_id) else {
+            return Vec::new();
+        };
+        if definition.kind != BuildingKind::Belt
+            || definition.orientation_axis != OrientationAxis::Edge
+            || from == to
+        {
+            return line_between(from, to, definition.orientation_axis);
+        }
+
+        let mut queue = VecDeque::from([from]);
+        let mut previous = BTreeMap::from([(from, None)]);
+        let mut depth = BTreeMap::from([(from, 0usize)]);
+        while let Some(current) = queue.pop_front() {
+            let current_depth = depth[&current];
+            if current_depth + 1 >= MAX_LINE_CELLS {
+                continue;
+            }
+            for (direction, &(dq, dr)) in DIRECTIONS.iter().enumerate() {
+                let next = (current.0 + dq, current.1 + dr);
+                if previous.contains_key(&next) {
+                    continue;
+                }
+                let passable = next == to
+                    || self
+                        .placement_legality(
+                            next.0,
+                            next.1,
+                            definition_id,
+                            direction as u8,
+                            recipe_id,
+                            false,
+                        )
+                        .is_ok();
+                if !passable {
+                    continue;
+                }
+                previous.insert(next, Some(current));
+                depth.insert(next, current_depth + 1);
+                if next == to {
+                    let mut route = vec![to];
+                    let mut cursor = to;
+                    while cursor != from {
+                        cursor = previous[&cursor].expect("routed cell has a predecessor");
+                        route.push(cursor);
+                    }
+                    route.reverse();
+                    return route;
+                }
+                queue.push_back(next);
+            }
+        }
+
+        // A destination outside the bounded legal search still gets the historical line preview,
+        // including its visible refused cells, instead of disappearing from the drag entirely.
+        line_between(from, to, definition.orientation_axis)
     }
 
     /// What a removal drag between these endpoints would take back. Refunds accumulate against a
@@ -4826,7 +4913,7 @@ impl Core {
         !self.entities[index].disabled
     }
 
-    fn rotate(&mut self, q: i32, r: i32) -> Result<(), String> {
+    fn rotate(&mut self, q: i32, r: i32, reverse: bool) -> Result<(), String> {
         let (target_x, target_y) = axial_world(q, r);
         if squared_distance(self.player.x, self.player.y, target_x, target_y)
             > i64::from(self.player.build_range).pow(2)
@@ -4847,7 +4934,11 @@ impl Core {
             .building_definition(self.entities[index].placed.definition_id)
             .map(|definition| definition.orientation_axis)
             .unwrap_or_default();
-        let next_orientation = axis.next(self.entities[index].placed.orientation);
+        let next_orientation = if reverse {
+            axis.previous(self.entities[index].placed.orientation)
+        } else {
+            axis.next(self.entities[index].placed.orientation)
+        };
         let next_footprint = self.footprint_for(self.entities[index].placed, next_orientation);
         let rotating_kind = self.entities[index].kind;
         if next_footprint.iter().any(|cell| {
@@ -4938,7 +5029,7 @@ impl Core {
                 InputCommand::EraseLine { q, r, to_q, to_r } => {
                     self.erase_line((q, r), (to_q, to_r))
                 }
-                InputCommand::Rotate { q, r } => self.rotate(q, r),
+                InputCommand::Rotate { q, r, reverse } => self.rotate(q, r, reverse),
                 InputCommand::Upgrade { q, r } => self.upgrade(q, r),
                 InputCommand::Withdraw {
                     q,
@@ -8899,7 +8990,7 @@ pub mod capacity {
         phase(clock, budget, edits, || {
             for edit in 0..edits {
                 // Spread edits across lines so no single component stays warm in cache.
-                core.rotate(1, edit_row(spec, edit))
+                core.rotate(1, edit_row(spec, edit), false)
                     .expect("capacity belt rotates");
             }
         })
@@ -11655,7 +11746,7 @@ mod tests {
             2,
             "the support and transport are distinct entities"
         );
-        core.rotate(shallow.0, shallow.1).unwrap();
+        core.rotate(shallow.0, shallow.1, false).unwrap();
         assert_eq!(
             core.entities[core.entity_at(shallow.0, shallow.1).unwrap()]
                 .placed
@@ -12337,6 +12428,43 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec![(2, 0), (3, 0)]
         );
+    }
+
+    #[test]
+    fn a_belt_drag_routes_around_an_occupied_hex() {
+        let mut core = game("new-game");
+        core.researched.extend([1, 2, 3, 4]);
+        core.player.inventory.insert(1, 100);
+        core.place(3, 0, 4, 0, None).unwrap();
+
+        let preview = core.line_preview((2, 0), (4, 0), 2, 0, None);
+        assert_eq!(preview.first().map(|cell| (cell.q, cell.r)), Some((2, 0)));
+        assert_eq!(preview.last().map(|cell| (cell.q, cell.r)), Some((4, 0)));
+        assert!(preview.iter().all(|cell| cell.legal));
+        assert!(preview.iter().all(|cell| (cell.q, cell.r) != (3, 0)));
+        assert!(preview.len() > 3, "the obstacle requires a shortest detour");
+
+        let promised: Vec<(i32, i32, u8)> = preview
+            .iter()
+            .map(|cell| (cell.q, cell.r, cell.orientation))
+            .collect();
+        core.place_line((2, 0), (4, 0), 2, 0, None).unwrap();
+        let built: Vec<(i32, i32, u8)> = core
+            .entities
+            .iter()
+            .filter(|entity| entity.kind == BuildingKind::Belt)
+            .map(|entity| (entity.placed.q, entity.placed.r, entity.placed.orientation))
+            .collect();
+        assert_eq!(built, promised);
+
+        let mut creative = game("new-game");
+        creative.creative = true;
+        creative.researched.extend([1, 2, 3, 4]);
+        creative.place(3, 0, 4, 0, None).unwrap();
+        assert!(creative
+            .line_preview((2, 0), (4, 0), 2, 0, None)
+            .iter()
+            .all(|cell| cell.legal));
     }
 
     #[test]
@@ -14805,7 +14933,7 @@ mod tests {
 
         // Edits against a live blueprint, including orientations that split and rejoin components.
         for turn in 0..6 {
-            factory.core.rotate(2, 0).unwrap();
+            factory.core.rotate(2, 0, false).unwrap();
             check(&mut factory, &format!("rotating a belt, turn {turn}"));
         }
         factory.core.erase(2, 0).unwrap();
@@ -15012,7 +15140,7 @@ mod tests {
 
         // Rotation visits all six corners and returns to north.
         for expected in (NORTH + 1)..(NORTH + 6) {
-            core.rotate(0, 3).unwrap();
+            core.rotate(0, 3, false).unwrap();
             assert_eq!(
                 core.entities[core.entity_at(0, 3).unwrap()]
                     .placed
@@ -15020,13 +15148,21 @@ mod tests {
                 expected
             );
         }
-        core.rotate(0, 3).unwrap();
+        core.rotate(0, 3, false).unwrap();
         assert_eq!(
             core.entities[core.entity_at(0, 3).unwrap()]
                 .placed
                 .orientation,
             NORTH,
             "rotation stays on the definition's own axis"
+        );
+        core.rotate(0, 3, true).unwrap();
+        assert_eq!(
+            core.entities[core.entity_at(0, 3).unwrap()]
+                .placed
+                .orientation,
+            NORTH + 5,
+            "reverse rotation wraps counter-clockwise on the same axis"
         );
     }
 

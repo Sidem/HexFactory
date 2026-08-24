@@ -2494,9 +2494,8 @@ required<HTMLButtonElement>("reset").addEventListener("click", () => {
     })
     .catch(reportWorkerError);
 });
-required<HTMLButtonElement>("turn").addEventListener(
-  "click",
-  rotateNewBuilding,
+required<HTMLButtonElement>("turn").addEventListener("click", () =>
+  rotateNewBuilding(),
 );
 // The dock's gather and deliver carry `data-native-action`, so they are wired here and only here:
 // a second listener bound to the same button by id sent the command twice.
@@ -3218,7 +3217,7 @@ window.addEventListener("keydown", (event) => {
     gatherHeld = true;
     enqueue({ type: "gather" });
   } else if (event.code === "KeyX") enqueue({ type: "deposit" });
-  else if (event.code === "KeyR") rotateUnderCursorOrPending();
+  else if (event.code === "KeyR") rotateUnderCursorOrPending(event.shiftKey);
   else if (event.code === "KeyQ") pickToolUnderCursor();
   else if (event.code === "KeyE") selectTool("erase");
   else if (/^Digit[1-9]$/.test(event.code)) {
@@ -3520,17 +3519,17 @@ function endDrag(pointerId: number): void {
  * One rotation idea, not two: with a build tool held this turns the pending building, and otherwise
  * it turns the building under the cursor.
  */
-function rotateUnderCursorOrPending(): void {
+function rotateUnderCursorOrPending(reverse = false): void {
   if (typeof tool === "number" || tool === "inspect") {
     const target = hover ?? selected;
     const existing =
       typeof tool === "number" ? null : target && buildingAt(target);
     if (existing && target) {
-      enqueue({ type: "rotate", q: target.q, r: target.r });
+      enqueue({ type: "rotate", q: target.q, r: target.r, reverse });
       return;
     }
   }
-  rotateNewBuilding();
+  rotateNewBuilding(reverse ? -1 : 1);
 }
 
 /**
@@ -3600,15 +3599,15 @@ function orientationRange(tool: Tool): { start: number; end: number } {
     : { start: 0, end: NORTH };
 }
 
-function rotateNewBuilding(): void {
+function rotateNewBuilding(step = 1): void {
   const { start, end } = orientationRange(tool);
   // Rotation stays on the tool's own axis: a belt walks the six edges and a riser flips between
   // six corners. `rotateHexDirection` still turns the six edges, so the package keeps owning the
   // geometry it knows.
   setOrientation(
     start === 0
-      ? rotateHexDirection(orientation as HexDirection, 1)
-      : start + ((orientation - start + 1) % (end - start)),
+      ? rotateHexDirection(orientation as HexDirection, step)
+      : start + ((orientation - start + step + (end - start)) % (end - start)),
   );
 }
 

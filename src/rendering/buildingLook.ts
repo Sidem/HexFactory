@@ -147,7 +147,7 @@ export const BUILDING_SHAPES: Record<SilhouetteKey, readonly ShapePart[]> = {
     { part: "stack", x: 0, y: 0.08, scale: 0.1, rotation: Math.PI },
     { part: "aperture", x: 0, y: 0.2, scale: 0.06, phase: "rise", glow: WATER },
   ],
-  pole: [{ part: "mast", x: 0, y: 0.1, scale: 0.2 }],
+  pole: [{ part: "mast", x: 0, y: 0.1, scale: 0.68 }],
   generator: [{ part: "chamber", x: 0, y: 0, scale: 0.18 }],
   burner: [
     { part: "vessel", x: 0, y: 0.08, scale: 0.18 },
