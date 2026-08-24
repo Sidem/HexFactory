@@ -4,3 +4,4 @@ factory-wasm/pkg-bench
 factory-wasm/target
 package-lock.json
 Cargo.lock
+docs/AGENT-MAP.md

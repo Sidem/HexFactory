@@ -15,6 +15,7 @@ import {
 import { cueForEvent, FeedbackAudio } from "./audio/feedback";
 import { halfTransfer } from "./core/commands";
 import { FactoryHost } from "./core/FactoryHost";
+import { FrameClock } from "./core/frameClock";
 import { nextAction } from "./core/guidance";
 import { BoundedInputQueue, MOVEMENT_KEYS, movementIntent } from "./core/input";
 import {
@@ -91,6 +92,8 @@ import {
   GRAPHICS_STORAGE_KEY,
   parseGraphicsProfile,
 } from "./rendering/three/quality";
+import { part, required, syncChildren } from "./ui/dom";
+import { PanelController } from "./ui/panels";
 import "./styles.css";
 
 type Tool = "inspect" | "erase" | "rotate" | "upgrade" | number;
@@ -263,6 +266,7 @@ const minimap = new MinimapRenderer(
   required<HTMLCanvasElement>("minimap"),
   host.definitions,
 );
+const panels = new PanelController(document, localStorage);
 
 let snapshot = host.snapshot();
 /** Which named slot Save will overwrite, if any. Presentation only — the catalog is the store. */
@@ -273,15 +277,7 @@ let orientation = 0;
 let selected: { q: number; r: number } | null = null;
 let hover: { q: number; r: number } | null = null;
 let hoverPreview: PlacementPreview | null = null;
-let accumulator = 0;
-/**
- * Real time owed to the player's own cadence. The factory's accumulator is scaled by the speed
- * setting and stops while paused; this one is not and does not, because everything the player does
- * themselves runs at one rate whatever the factory is doing. A player who is neither walking nor
- * waiting out an action accrues nothing, so an idle frame still costs no worker round trip.
- */
-let playerAccumulator = 0;
-let previousTime = performance.now();
+const frameClock = new FrameClock(performance.now());
 let feedbackTimer = 0;
 let lastEvent = "";
 let autoSavePending = false;
@@ -703,45 +699,6 @@ function renderHomeReadout(): void {
   text.textContent = bearing
     ? `Landing hub · ${bearing.hexes} hex ${DIRECTION_NAMES[bearing.direction]}`
     : "Landing hub · you are here";
-}
-
-/**
- * Reconcile a keyed list of children in place, reusing the element already rendered for each key.
- *
- * Rebuilding a list with `replaceChildren` on every snapshot update destroys the element the
- * pointer is on between pointerdown and pointerup. The browser then retargets the click to the
- * container, a delegated `closest()` finds nothing, and the action is silently dropped — which is
- * exactly why research clicks went nowhere. Any list that carries a control must be patched, not
- * rebuilt.
- */
-function syncChildren(
-  container: HTMLElement,
-  keys: string[],
-  create: (key: string) => HTMLElement,
-): HTMLElement[] {
-  const existing = new Map<string, HTMLElement>();
-  for (const child of Array.from(container.children)) {
-    const element = child as HTMLElement;
-    const key = element.dataset.key;
-    if (key !== undefined && !existing.has(key)) existing.set(key, element);
-    else element.remove();
-  }
-  const ordered = keys.map((key) => {
-    const reused = existing.get(key);
-    if (reused) {
-      existing.delete(key);
-      return reused;
-    }
-    const created = create(key);
-    created.dataset.key = key;
-    return created;
-  });
-  for (const stale of existing.values()) stale.remove();
-  ordered.forEach((element, index) => {
-    if (container.children[index] !== element)
-      container.insertBefore(element, container.children[index] ?? null);
-  });
-  return ordered;
 }
 
 /** The item definition behind an id, or `undefined` when the catalogue has no such row. */
@@ -3808,68 +3765,7 @@ function sendAim(): void {
  * chosen workspace; the right rail hides it while its own menu or timer is open.
  */
 function togglePanel(id: string): void {
-  const target = document.getElementById(id);
-  if (!target) return;
-  const opening = !target.classList.contains("open");
-  if (opening) closePanels(target);
-  target.classList.toggle("open", opening);
-  syncPanelToggles();
-  savePanelState();
-}
-
-/**
- * Which panels are open, in `localStorage`, on exactly the terms the hotbar arrangement already
- * sets: never saved with the game, never hashed, never sent. It is a preference about a screen,
- * not a fact about a factory.
- */
-const PANEL_KEY = "hexfactory:panels:v1";
-
-function openPanelIds(): string[] {
-  return [...document.querySelectorAll<HTMLElement>(".glass-panel.open")].map(
-    ({ id }) => id,
-  );
-}
-
-function savePanelState(): void {
-  try {
-    localStorage.setItem(PANEL_KEY, JSON.stringify(openPanelIds()));
-  } catch {
-    // A browser with storage refused is a browser that opens panels fresh, not a broken one.
-  }
-}
-
-function loadPanelState(): void {
-  let stored: unknown;
-  try {
-    stored = JSON.parse(localStorage.getItem(PANEL_KEY) ?? "[]");
-  } catch {
-    return;
-  }
-  if (!Array.isArray(stored)) return;
-  // A stored id is validated against the live document, exactly as a stored hotbar slot is
-  // validated against the live catalogue: a panel that no longer exists is dropped.
-  const ids = stored.filter(
-    (id): id is string =>
-      typeof id === "string" &&
-      document.getElementById(id)?.classList.contains("glass-panel") === true,
-  );
-  // v1 used to allow several ids. Restoring only the last migrates that preference into the new
-  // one-workspace model without allowing yesterday's pile of panels to reappear.
-  const restore = ids.slice(-1);
-  for (const id of restore) document.getElementById(id)?.classList.add("open");
-  syncPanelToggles();
-}
-
-function syncPanelToggles(): void {
-  for (const toggle of document.querySelectorAll<HTMLButtonElement>(
-    ".panel-toggle",
-  )) {
-    const target = document.getElementById(toggle.dataset.panelTarget ?? "");
-    toggle.setAttribute(
-      "aria-expanded",
-      String(target?.classList.contains("open") ?? false),
-    );
-  }
+  panels.toggle(id);
 }
 
 /**
@@ -3898,20 +3794,17 @@ function renderTerrainLegend(): void {
 }
 
 function frame(now: number): void {
-  const elapsed = Math.min(250, now - previousTime);
-  previousTime = now;
+  const budget = frameClock.update(now, {
+    playing,
+    speed: Number(speedInput.value),
+    playerActive:
+      pressedMovement.size > 0 || snapshot.player.action_cooldown > 0,
+    playerTicksPerSecond: host.playerTicksPerSecond,
+  });
   // In-game time: the run clock stops with the factory and behind the title screen, so reading a
   // recipe with the game paused costs a player nothing.
   if (run && playing && !titleScreen.classList.contains("open"))
-    runElapsedMs += elapsed;
-  if (playing) accumulator += elapsed * Number(speedInput.value);
-  // Walking is paced by native's cadence against elapsed real time, not by the tick the factory
-  // happens to be running, so a paused or slowed factory no longer pins the player in place. The
-  // same clock spends the work one field action costs, and a swing only pays out on the step that
-  // finishes it, so it has to keep running for a player standing still working a hex.
-  if (pressedMovement.size || snapshot.player.action_cooldown > 0)
-    playerAccumulator += elapsed * host.playerTicksPerSecond;
-  else playerAccumulator = 0;
+    runElapsedMs += budget.elapsed;
   if (!advancePending) {
     // A held gather repeats at frame rate and is paced natively by the swing already running, so
     // the player holds the key instead of tapping it once per unit. A held right-click is the same
@@ -3929,11 +3822,9 @@ function frame(now: number): void {
     // Last into the batch, so the cursor outranks the walk direction for this frame's facing.
     sendAim();
     const commands = input.drain();
-    const ticks = playing ? Math.min(20, Math.floor(accumulator / 1000)) : 0;
-    const playerSteps = Math.min(20, Math.floor(playerAccumulator / 1000));
+    const { ticks, playerSteps } = budget;
     if (commands.length || ticks > 0 || playerSteps > 0) {
-      accumulator -= ticks * 1000;
-      playerAccumulator -= playerSteps * 1000;
+      frameClock.consume(ticks, playerSteps);
       advancePending = true;
       void host
         .advance(commands, ticks, playerSteps)
@@ -4330,25 +4221,7 @@ function reportWorkerError(error: unknown): void {
  * stopped calling it.
  */
 function closePanels(except?: HTMLElement): void {
-  let changed = false;
-  for (const panel of document.querySelectorAll<HTMLElement>(
-    ".glass-panel.open",
-  )) {
-    if (panel === except) continue;
-    panel.classList.remove("open");
-    changed = true;
-  }
-  if (!changed) return;
-  syncPanelToggles();
-  savePanelState();
-}
-
-for (const toggle of document.querySelectorAll<HTMLButtonElement>(
-  ".panel-toggle",
-)) {
-  toggle.addEventListener("click", () =>
-    togglePanel(toggle.dataset.panelTarget ?? ""),
-  );
+  panels.close(except);
 }
 
 /*
@@ -4361,15 +4234,7 @@ document.addEventListener("change", (event) => {
 });
 
 // A close button closes the panel it is in and nothing else. Clearing the screen is Escape's job.
-for (const close of document.querySelectorAll<HTMLButtonElement>(
-  ".panel-close",
-)) {
-  close.addEventListener("click", () => {
-    close.closest<HTMLElement>(".glass-panel")?.classList.remove("open");
-    syncPanelToggles();
-    savePanelState();
-  });
-}
+panels.bind();
 
 for (const button of document.querySelectorAll<HTMLButtonElement>(
   "[data-move-key]",
@@ -4392,20 +4257,8 @@ for (const button of document.querySelectorAll<HTMLButtonElement>(
   button.addEventListener("pointercancel", stop);
 }
 
-function required<T extends HTMLElement>(id: string): T {
-  const element = document.getElementById(id);
-  if (!element) throw new Error(`Missing #${id}`);
-  return element as T;
-}
-
-function part<T extends HTMLElement>(root: HTMLElement, selector: string): T {
-  const element = root.querySelector<T>(selector);
-  if (!element) throw new Error(`Missing ${selector}`);
-  return element;
-}
-
 renderTerrainLegend();
-loadPanelState();
+panels.restore();
 setMuted(audio.isMuted);
 setReducedMotion(loadReducedMotion());
 setGraphicsProfile(initialGraphics);

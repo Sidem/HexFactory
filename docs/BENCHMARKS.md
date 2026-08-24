@@ -4,8 +4,7 @@ Capacity is measured, never asserted, and the measurement orders the work. Every
 produced by the committed harness; the raw reports live in `docs/benchmarks/` and are the source for
 any table that was trimmed out of this document.
 
-**Current records.** Native: **Crossings and Canopy v0.22**. Browser frame: **Visual Depth v0.25
-profile ladders**.
+**Current records.** Native: **v0.25.1 runtime index**. Browser frame: **Visual Depth v0.25 profile ladders**.
 Generation: **v0.21**. Payload: **Binary Delta v0.12.2**.
 
 **Two caveats travel with those records.**
@@ -92,42 +91,32 @@ a mean per tick, per frame, or per edit, so the two remain comparable; the workl
 and each tier's checksum comes from a separate core advanced exactly once through its tick budget so
 extra samples cannot move it.
 
-## Native — the current record (v0.22)
-
-> **These rows predate per-material extraction and are not comparable to a run measured after it.**
-> Extraction rate moved from a flat building cadence of 5 ticks to a figure carried by the
-> material — 30 ticks for ore against the 5 every recorded tier was measured at. The workload
-> builds the same entities and moves the same cargo, so the tick, snapshot, and checksum costs
-> should hold, but cargo now changes hands roughly six times less often, and the capacity ladder's
-> warm-up had to grow from 40 ticks to 150 for a line to be delivering at all. Re-measure before
-> quoting any number below against a current build. The entity counts and the shape of the ladder
-> are unaffected.
+## Native — the current record (v0.25.1 runtime index)
 
 Host: AMD Ryzen 7 5800X (8 cores / 16 threads), Windows 11 Pro 10.0.26200, rustc 1.87.0,
 `factory-wasm` built with the shipped release profile (`opt-level = "s"`, LTO, `wasm-opt -Oz`).
-Recorded 2026-08-20. Raw report:
-[`benchmarks/capacity-v0.22-native.json`](benchmarks/capacity-v0.22-native.json).
+Recorded 2026-08-24. Raw reports: the current
+[`runtime-index record`](benchmarks/capacity-v0.25.1-native-runtime-index.json) and its immediately
+preceding [`same-build baseline`](benchmarks/capacity-v0.25.1-native.json).
 
 | tier   | entities | tick µs | snapshot µs | checksum µs | frame µs | compile µs | recompile µs |
 | ------ | -------: | ------: | ----------: | ----------: | -------: | ---------: | -----------: |
-| line   |       12 |     0.6 |         9.8 |         1.5 |      4.9 |        2.2 |          6.0 |
-| small  |      192 |     7.4 |        55.0 |        11.3 |     41.2 |       25.2 |         64.0 |
-| medium |      768 |    31.1 |       252.7 |        42.3 |    167.5 |      127.4 |        302.4 |
-| wide   |    1,536 |    64.9 |       522.5 |        83.3 |    347.3 |      284.4 |        666.4 |
-| large  |    3,072 |   146.9 |     1,003.4 |       165.7 |    724.5 |      587.6 |      1,332.2 |
-| xlarge |    6,144 |   327.2 |     2,083.2 |       334.4 |  1,433.6 |    1,205.3 |      2,545.0 |
+| line   |       12 |     0.4 |        12.3 |         1.7 |      4.3 |        3.0 |          7.9 |
+| small  |      192 |     5.3 |        59.0 |        13.9 |     27.0 |       36.2 |        100.7 |
+| medium |      768 |    24.6 |       239.3 |        52.0 |    104.4 |      174.0 |        344.5 |
+| wide   |    1,536 |    48.9 |       621.5 |       106.8 |    221.7 |      374.7 |        778.4 |
+| large  |    3,072 |    89.9 |     1,207.2 |       216.9 |    522.9 |      778.6 |      1,559.8 |
+| xlarge |    6,144 |   219.9 |     2,851.2 |       497.4 |    906.8 |    1,724.0 |      3,320.2 |
 
-The v0.22 bridge, twelve-heading routing, and player reach field introduce no regression at any
-tier; the xlarge tier still advances 3,056 ticks/s and produces 697 complete native frames/s.
-**The noise floor is stated rather than hidden**:
-the v0.16 ladder was run twice on its build and xlarge gave tick 359.7 / frame 1,439.5 on one run
-against 378.1 / 1,416.8 on the other, so a 5% swing between runs is what this host resolves and
-nothing smaller is a finding. Against v0.21, xlarge tick moved 361.2 → 327.2 and frame 1,541.3 →
-1,433.6; both moved faster, so the record supports only the claim needed here: v0.22 did not reduce
-the measured envelope. The `line` tier's absolute numbers are microseconds and are dominated by
-timer resolution; read the larger tiers.
+The runtime index moves stable entity order, machine order, reverse feeder edges, and merger targets
+to topology compilation rather than rebuilding them every tick. Against the same-build baseline,
+xlarge tick fell 275.2 → 219.9 µs (20.1%) while the complete native frame moved 902.8 → 906.8 µs
+(0.4%, inside the historical noise floor). Full compile rose 1,316.1 → 1,724.0 µs because it now
+builds those indexes once; a topology edit pays that cost so every subsequent tick does not. The
+record supports the tick improvement and the placement of work, not a claim that the complete frame
+meaningfully changed. `line` is below the useful timer scale; read the larger tiers.
 
-What this deliberately does **not** say is anything about the v0.21 generator. The ladder's scenario
+What this deliberately does **not** say is anything about generation. The ladder's scenario
 sets `generated_environment: false` and never calls `terrain_at` or `field_at`, which is exactly why
 the site lattice needs its own measurement below — and the ladder being flat across a milestone that
 rewrote generation is the evidence that the two paths are as separate as that flag claims.

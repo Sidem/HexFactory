@@ -5,8 +5,12 @@ use std::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet, BinaryHeap};
 use wasm_bindgen::prelude::*;
 
+mod runtime;
+mod save_migrations;
 /// The binary encoding the snapshot delta crosses the worker boundary in.
 mod wire;
+
+use runtime::RuntimeIndex;
 
 /// Derived economy figures: what the shipped numbers actually say the curve is.
 ///
@@ -1608,6 +1612,9 @@ struct Core {
     flora_regrowth: BTreeSet<(i32, i32)>,
     entities: Vec<Entity>,
     graph: Vec<Links>,
+    /// Stable hot-path orders and reverse transport edges derived from `entities` and `graph`.
+    /// Rebuilt after edits and loads; never saved, hashed, or checksummed.
+    runtime: RuntimeIndex,
     /// Per-entity power network id (`None` = not on a network). Derived like `graph`.
     power_of: Vec<Option<u32>>,
     /// Last tick's supply and demand per network id.
@@ -1740,6 +1747,7 @@ impl Core {
             flora_regrowth: BTreeSet::new(),
             entities: Vec::new(),
             graph: Vec::new(),
+            runtime: RuntimeIndex::default(),
             power_of: Vec::new(),
             power_supply: BTreeMap::new(),
             power_demand: BTreeMap::new(),
@@ -2076,13 +2084,9 @@ impl Core {
     }
 
     fn entity_at(&self, q: i32, r: i32) -> Option<usize> {
-        // Supports sit below transport, so the most recently placed entity is the one a click,
-        // erase, rotate, or copy action reaches first on a shared bridge hex.
-        self.entities.iter().rposition(|entity| {
-            self.entity_footprint(entity)
-                .iter()
-                .any(|cell| cell.q == q && cell.r == r)
-        })
+        // `occupied_entities` inserts in stable-id order, so a support below transport is replaced
+        // by the later transport index just as the former reverse scan required.
+        self.runtime.occupied.get(&(q, r)).copied()
     }
 
     fn bridge_at(&self, q: i32, r: i32) -> bool {
@@ -2437,9 +2441,18 @@ impl Core {
             .enumerate()
             .map(|(index, _)| self.compile_links(index, &occupied))
             .collect();
+        self.rebuild_runtime_index(occupied);
         self.compile_power();
         // A full compile can move any entity's outgoing link, and `next_id` is part of its snapshot.
         self.mark_all_entities_dirty();
+    }
+
+    fn rebuild_runtime_index(&mut self, occupied: BTreeMap<(i32, i32), usize>) {
+        let mergers = (0..self.entities.len())
+            .map(|index| self.is_merger(index))
+            .collect();
+        self.runtime
+            .rebuild(&self.entities, &self.graph, mergers, occupied);
     }
 
     fn occupied_entities(&self) -> BTreeMap<(i32, i32), usize> {
@@ -2563,6 +2576,7 @@ impl Core {
         self.power_supply.clear();
         self.power_demand.clear();
         if n == 0 {
+            self.runtime.rebuild_power(&self.power_of);
             return;
         }
         let mut parent: Vec<usize> = (0..n).collect();
@@ -2654,6 +2668,7 @@ impl Core {
             let root = find(&mut parent, index);
             self.power_of[index] = Some(ids[root]);
         }
+        self.runtime.rebuild_power(&self.power_of);
         self.refresh_power_meters();
     }
 
@@ -2709,7 +2724,8 @@ impl Core {
         let previous_demand = self.power_demand.clone();
         self.power_supply.clear();
         self.power_demand.clear();
-        for index in 0..self.entities.len() {
+        for offset in 0..self.runtime.power_order.len() {
+            let index = self.runtime.power_order[offset];
             let Some(net) = self.power_of.get(index).copied().flatten() else {
                 continue;
             };
@@ -2733,10 +2749,9 @@ impl Core {
             self.power_supply = self.power_demand.clone();
         }
         if self.power_supply != previous_supply || self.power_demand != previous_demand {
-            for index in 0..self.entities.len() {
-                if self.power_of.get(index).copied().flatten().is_some() {
-                    self.dirty.entities.push(self.entities[index].id);
-                }
+            for offset in 0..self.runtime.power_order.len() {
+                let index = self.runtime.power_order[offset];
+                self.dirty.entities.push(self.entities[index].id);
             }
         }
     }
@@ -2815,7 +2830,8 @@ impl Core {
         // apportionment below is over a list whose order is a save's order.
         let mut requests: BTreeMap<u32, Vec<(usize, u64)>> = BTreeMap::new();
         let mut plants: BTreeMap<u32, Vec<(usize, u64)>> = BTreeMap::new();
-        for index in 0..self.entities.len() {
+        for offset in 0..self.runtime.power_order.len() {
+            let index = self.runtime.power_order[offset];
             let Some(net) = self.power_of.get(index).copied().flatten() else {
                 continue;
             };
@@ -3203,6 +3219,7 @@ impl Core {
             .filter(|id| indices_by_id.contains_key(id))
             .count();
         self.graph = graph;
+        self.rebuild_runtime_index(occupied);
         self.compile_power();
         // Exactly the entities whose outgoing link was recomputed, so their `next_id` may differ.
         self.dirty.entities.extend(
@@ -3255,9 +3272,8 @@ impl Core {
     }
 
     fn advance_machines(&mut self) {
-        let mut order: Vec<usize> = (0..self.entities.len()).collect();
-        order.sort_by_key(|&index| self.entities[index].id);
-        for index in order {
+        for offset in 0..self.runtime.machine_order.len() {
+            let index = self.runtime.machine_order[offset];
             // A machine the player switched off does nothing at all — one check here rather than a
             // guard at the head of each `advance_*`, so a new machine kind cannot be added and quietly
             // ignore the switch.
@@ -3533,52 +3549,24 @@ impl Core {
     /// having more than one compiled output to offer its cargo to, and it offers them starting from
     /// its own cursor so consecutive items go to different branches.
     fn transfer_cargo(&mut self) {
-        let mut claimed = BTreeSet::new();
-        let mut delivered: BTreeSet<usize> = BTreeSet::new();
-
-        // Which entities serve their feeders in rotation, asked once. Both passes read it, and the
-        // second reads it for every candidate output it considers.
-        let merges: Vec<bool> = (0..self.entities.len())
-            .map(|index| self.is_merger(index))
-            .collect();
-        if !merges.iter().any(|&merges| merges) {
-            // Nothing in this factory merges, so the reverse index below would be built and thrown
-            // away on every tick of every save that has not researched junctions.
-            self.transfer_along_links(&mut claimed, &mut delivered, &merges);
+        self.runtime.clear_transfer_scratch();
+        if self.runtime.merger_targets.is_empty() {
+            self.transfer_along_links();
             return;
         }
-
-        // Pass one: every merging target, in ascending entity id, picks a feeder in rotation.
-        //
-        // A merger's feeders are whatever compiled an edge into it, which is a question about the
-        // graph and not about adjacency: a riser two rows away and an underpass four hexes back are
-        // feeders exactly as much as the belt against its face. Inverting the graph once is what
-        // keeps that answer linear in the factory rather than one scan per junction.
-        let mut feeders_by_target: BTreeMap<usize, Vec<usize>> = BTreeMap::new();
-        let mut order: Vec<usize> = (0..self.entities.len()).collect();
-        order.sort_by_key(|&index| self.entities[index].id);
-        for &source in &order {
-            for target in self.graph[source].iter() {
-                if target != source && merges[target] {
-                    feeders_by_target.entry(target).or_default().push(source);
-                }
-            }
-        }
-        let mut ordered_mergers: Vec<usize> = feeders_by_target.keys().copied().collect();
-        ordered_mergers.sort_by_key(|&index| self.entities[index].id);
-        for target in ordered_mergers {
-            // Already in ascending feeder id: the inversion above walked its sources in that order.
-            let feeders = feeders_by_target[&target].clone();
+        for target_offset in 0..self.runtime.merger_targets.len() {
+            let target = self.runtime.merger_targets[target_offset];
             let cursor = self.entities[target].merge_cursor;
             // Start after the id served last and wrap. An id that no longer exists simply means
             // every feeder sorts after it, which is the same as starting from the beginning.
-            let start = feeders
+            let start = self.runtime.feeders[target]
                 .iter()
                 .position(|&source| self.entities[source].id > cursor)
                 .unwrap_or(0);
-            for offset in 0..feeders.len() {
-                let source = feeders[(start + offset) % feeders.len()];
-                if delivered.contains(&source) {
+            let feeder_count = self.runtime.feeders[target].len();
+            for offset in 0..feeder_count {
+                let source = self.runtime.feeders[target][(start + offset) % feeder_count];
+                if self.runtime.delivered[source] {
                     continue;
                 }
                 let Some((cargo, from_inventory)) = self.cargo_on_offer(source) else {
@@ -3591,14 +3579,14 @@ impl Core {
                 }
                 self.hand_over(source, target, cargo, from_inventory);
                 self.entities[target].merge_cursor = self.entities[source].id;
-                claimed.insert(target);
-                delivered.insert(source);
+                self.runtime.claimed[target] = true;
+                self.runtime.delivered[source] = true;
                 break;
             }
         }
 
         // Pass two: everything else, in the entity id order arbitration has always used.
-        self.transfer_along_links(&mut claimed, &mut delivered, &merges);
+        self.transfer_along_links();
     }
 
     /// Every source that has not already delivered offers its cargo along its compiled edges, in
@@ -3606,16 +3594,10 @@ impl Core {
     ///
     /// A splitter is the only thing here with more than one edge, and it starts from its own cursor
     /// so consecutive items leave by different branches.
-    fn transfer_along_links(
-        &mut self,
-        claimed: &mut BTreeSet<usize>,
-        delivered: &mut BTreeSet<usize>,
-        merges: &[bool],
-    ) {
-        let mut sources: Vec<usize> = (0..self.entities.len()).collect();
-        sources.sort_by_key(|&source| self.entities[source].id);
-        for source in sources {
-            if delivered.contains(&source) || self.graph[source].is_empty() {
+    fn transfer_along_links(&mut self) {
+        for source_offset in 0..self.runtime.transport_order.len() {
+            let source = self.runtime.transport_order[source_offset];
+            if self.runtime.delivered[source] || self.graph[source].is_empty() {
                 continue;
             }
             let Some((cargo, from_inventory)) = self.cargo_on_offer(source) else {
@@ -3629,7 +3611,10 @@ impl Core {
                 let target = outputs[slot];
                 // Merging targets were settled by the rotation pass, including the case where every
                 // feeder was refused. Re-offering here would put the id order back in front of it.
-                if claimed.contains(&target) || merges[target] || !self.can_accept(target, cargo) {
+                if self.runtime.claimed[target]
+                    || self.runtime.mergers[target]
+                    || !self.can_accept(target, cargo)
+                {
                     continue;
                 }
                 self.hand_over(source, target, cargo, from_inventory);
@@ -3638,8 +3623,8 @@ impl Core {
                 // with one jammed output keeps feeding the other rather than stalling every other
                 // item against the jam.
                 self.entities[source].route_cursor = ((slot + 1) % outputs.len()) as u8;
-                claimed.insert(target);
-                delivered.insert(source);
+                self.runtime.claimed[target] = true;
+                self.runtime.delivered[source] = true;
                 break;
             }
         }
@@ -6180,14 +6165,9 @@ impl Core {
         let json = save
             .strip_prefix(SAVE_PREFIX)
             .ok_or("save must begin with HXF1")?;
-        let envelope: SaveEnvelope =
-            serde_json::from_str(json).map_err(|error| format!("malformed HXF1 save: {error}"))?;
-        if envelope.save_version != SAVE_VERSION {
-            return Err(format!(
-                "unsupported save version {}",
-                envelope.save_version
-            ));
-        }
+        let migrated = save_migrations::migrate(json, SAVE_VERSION)?;
+        let envelope: SaveEnvelope = serde_json::from_str(&migrated)
+            .map_err(|error| format!("malformed HXF1 save: {error}"))?;
         if envelope.world_generator_version != WORLD_GENERATOR_VERSION {
             return Err("save world generator version is incompatible".into());
         }
@@ -8974,6 +8954,7 @@ impl WorldFields {
     /// site to the nearest hex of the patch, and how many hexes the patch holds once the member
     /// test has clipped it. A guarantee the pass gave up on is simply absent, which is the shape
     /// every caller wants — the survey prints it as `none` and `Core::new` refuses the world.
+    #[cfg(not(target_arch = "wasm32"))]
     fn guarantees(&self) -> Vec<(ItemId, u32, u32)> {
         self.bootstrap
             .values()
@@ -14046,6 +14027,66 @@ mod tests {
         let incremental_merge = core.graph_links_by_id();
         core.compile_graph();
         assert_eq!(core.graph_links_by_id(), incremental_merge);
+    }
+
+    #[test]
+    fn runtime_indexes_match_the_blueprint_after_full_and_incremental_compiles() {
+        fn assert_index(core: &Core) {
+            assert_eq!(core.runtime.occupied, core.occupied_entities());
+
+            let mut order: Vec<usize> = (0..core.entities.len()).collect();
+            order.sort_by_key(|&index| core.entities[index].id);
+            assert_eq!(core.runtime.entity_order, order);
+            assert_eq!(
+                core.runtime.transport_order,
+                order
+                    .iter()
+                    .copied()
+                    .filter(|&index| !core.graph[index].is_empty())
+                    .collect::<Vec<_>>()
+            );
+            assert_eq!(
+                core.runtime.machine_order,
+                order
+                    .iter()
+                    .copied()
+                    .filter(|&index| matches!(
+                        core.entities[index].kind,
+                        BuildingKind::Extractor | BuildingKind::Composer | BuildingKind::Pump
+                    ))
+                    .collect::<Vec<_>>()
+            );
+            assert_eq!(
+                core.runtime.power_order,
+                order
+                    .iter()
+                    .copied()
+                    .filter(|&index| core.power_of[index].is_some())
+                    .collect::<Vec<_>>()
+            );
+            for target in 0..core.entities.len() {
+                let expected = order
+                    .iter()
+                    .copied()
+                    .filter(|&source| core.graph[source].iter().any(|value| value == target))
+                    .collect::<Vec<_>>();
+                assert_eq!(core.runtime.feeders[target], expected);
+            }
+        }
+
+        let mut core = game("factory-demo");
+        assert_index(&core);
+        let index = core
+            .entities
+            .iter()
+            .position(|entity| entity.kind == BuildingKind::Belt)
+            .unwrap();
+        let old_links = core.graph_links_by_id();
+        let id = core.entities[index].id;
+        let cell = (core.entities[index].placed.q, core.entities[index].placed.r);
+        core.entities[index].placed.orientation = (core.entities[index].placed.orientation + 1) % 6;
+        core.recompile_graph_components(&old_links, &BTreeSet::from([cell]), &BTreeSet::from([id]));
+        assert_index(&core);
     }
 
     #[test]

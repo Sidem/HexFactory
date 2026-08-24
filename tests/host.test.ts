@@ -493,25 +493,21 @@ describe("bounded host input", () => {
       new URL("../index.html", import.meta.url),
       "utf8",
     );
+    const panels = readFileSync(
+      new URL("../src/ui/panels.ts", import.meta.url),
+      "utf8",
+    );
     // Which panels are open is a preference about a screen, on exactly the terms the hotbar sets:
     // localStorage, never saved with the game, never hashed, never sent.
-    expect(main).toContain("hexfactory:panels:v1");
-    const panelRegion = main.slice(
-      main.indexOf("function savePanelState"),
-      main.indexOf("function syncPanelToggles"),
-    );
-    expect(panelRegion).not.toContain("enqueue(");
-    expect(panelRegion).not.toContain("host.");
+    expect(panels).toContain("hexfactory:panels:v1");
+    expect(panels).not.toContain("enqueue(");
+    expect(panels).not.toContain("host.");
     expect(main).not.toMatch(/enqueue\(\{[^}]*panel/i);
     // A workspace replaces the previous one at every width. This prevents several tall surfaces
     // from shrinking into unreadable slivers while all claiming to be open.
-    const toggle = main.slice(
-      main.indexOf("function togglePanel("),
-      main.indexOf("\n}", main.indexOf("function togglePanel(")),
-    );
-    expect(toggle).toContain("if (opening) closePanels(target)");
+    expect(panels).toContain("if (opening) this.close(target)");
     expect(main).not.toContain("ONE_PANEL_AT_A_TIME");
-    expect(main).toContain("const restore = ids.slice(-1)");
+    expect(panels).toContain("ids.slice(-1)");
     // Panels remain flow children of their rails rather than reclaiming absolute origins.
     expect(css).toContain(".panel-rail");
     expect(html).toContain("panel-rail rail-left");
@@ -593,13 +589,18 @@ describe("bounded host input", () => {
       new URL("../src/main.ts", import.meta.url),
       "utf8",
     );
+    const clock = readFileSync(
+      new URL("../src/core/frameClock.ts", import.meta.url),
+      "utf8",
+    );
     // The rate is native truth. The host converts elapsed real time into a step count with it and
     // never turns a frame delta into a position.
-    expect(main).toContain("elapsed * host.playerTicksPerSecond");
+    expect(main).toContain("playerTicksPerSecond: host.playerTicksPerSecond");
+    expect(clock).toContain("elapsed * state.playerTicksPerSecond");
     expect(main).not.toMatch(/player\.(x|y)\s*\+/);
     // Player steps are unscaled by the speed setting and unaffected by the pause state, which is
     // the whole point: the factory's accumulator is the only one that reads either.
-    expect(main).not.toMatch(
+    expect(clock).not.toMatch(
       /playerAccumulator \+= [^;]*speedInput|playing\s*&&[^;]*playerAccumulator/,
     );
   });
@@ -609,11 +610,16 @@ describe("bounded host input", () => {
       new URL("../src/main.ts", import.meta.url),
       "utf8",
     );
+    const dom = readFileSync(
+      new URL("../src/ui/dom.ts", import.meta.url),
+      "utf8",
+    );
     // A `replaceChildren` between pointerdown and pointerup destroys the pressed control, the
     // click retargets to the container, and the delegated handler finds nothing. Every list that
     // carries a control goes through the reconciler instead.
-    expect(main).toContain("function syncChildren(");
-    expect(main).not.toContain("replaceChildren()");
+    expect(dom).toContain("export function syncChildren(");
+    expect(dom).not.toContain("replaceChildren()");
+    expect(main).toContain('from "./ui/dom"');
     // The hotbar's buttons are built once, so it needs no reconciler — but rewriting their inner
     // nodes on every snapshot loses a click the same way, so it patches text instead.
     const hotbar = main.slice(

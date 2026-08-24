@@ -202,6 +202,13 @@ uses both pre-edit links and newly joined targets, so placement/rotation merges 
 match a full deterministic rebuild without resetting machine or cargo state. Full compilation is
 still used for scenario initialization and validated save restoration.
 
+`runtime.rs` owns the derived hot-path index rebuilt by those compile boundaries: stable entity and
+machine order, entities with compiled outputs, reverse feeders, merger targets, occupied footprint
+cells, power participants, and reusable transfer scratch. A tick reads those indexes; it does not
+sort entities, invert the transport graph, or scan every footprint to answer occupancy. Like the
+graph itself, the index is never saved, hashed, or checksummed, and a test pins it against the
+blueprint and graph after both full and incremental compilation.
+
 ## Definitions and scenarios
 
 `definitions.json` contains a version plus dynamic items, recipes, and buildings. Buildings include
@@ -276,6 +283,11 @@ camera following, pan/zoom, feedback, and reduced-motion behavior are presentati
 keyboard movement share the same bounded native intent commands. `@hexlife/embed/hex` performs
 construction projection, rotation, and picking; TypeScript does not integrate player motion.
 
+The browser composition root delegates reusable presentation mechanics rather than growing another
+copy: `ui/dom.ts` owns keyed reconciliation, `ui/panels.ts` owns the one-workspace preference and its
+DOM synchronization, and `core/frameClock.ts` converts elapsed time into the two bounded native
+counts. Each is behavior-tested without Wasm or WebGL; `main.ts` wires them to the live host.
+
 ## Save contract
 
 Rust serializes `HXF1` plus JSON containing save/definition/technology/scenario versions, seed,
@@ -283,6 +295,11 @@ generated chunks and resource quantities, player and inventory, research, bluepr
 machine and cargo state, counters, tick, victory, and a native checksum. Loading validates versions,
 references, uniqueness, and checksum before accepting state. `localStorage` stores only that opaque
 string. Save/resume and uninterrupted runs converge on the same checksum after equal commands.
+
+`save_migrations.rs` is the one boundary before typed envelope validation. Current envelopes pass
+through byte-for-byte; newer saves and historical versions with no explicit adjacent migration are
+refused. A future released migration is added and tested there one version step at a time rather
+than guessed inside `from_save`.
 
 ## Worker and snapshot boundary
 
