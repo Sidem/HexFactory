@@ -23,55 +23,84 @@
             ><strong>HexFactory</strong><small>Continuous world</small></span
           >
         </a>
-        <section class="mission-strip" aria-label="Current mission">
+        <button
+          class="mission-strip panel-toggle"
+          type="button"
+          data-panel-target="quest-panel"
+          aria-controls="quest-panel"
+          aria-expanded="false"
+          aria-label="Current mission"
+        >
           <span class="mission-kicker" id="mission-kicker"
             >Founding contract</span
           >
           <strong id="mission-title">Prove the line</strong>
-          <div class="mission-progress" aria-hidden="true">
+          <span class="mission-progress" aria-hidden="true">
             <i id="mission-progress-fill"></i>
-          </div>
+          </span>
           <span id="objective-value">0 / 3 Component</span>
-        </section>
+          <small class="mission-open">Open</small>
+        </button>
         <div class="command-actions">
-          <span class="resource-chip" title="Research insight"
-            ><span aria-hidden="true">◆</span
-            ><strong id="insight-value">0</strong></span
+          <button
+            id="insight-chip"
+            class="resource-chip hud-chip panel-toggle"
+            type="button"
+            data-panel-target="research-panel"
+            aria-controls="research-panel"
+            aria-expanded="false"
+            title="Research (O)"
           >
+            <span class="hud-chip-icon" aria-hidden="true">◆</span>
+            <span class="hud-chip-copy"
+              ><small>Insight · O</small
+              ><strong id="insight-value">0</strong></span
+            >
+          </button>
           <button
             id="carry-chip"
-            class="resource-chip panel-toggle"
+            class="resource-chip hud-chip panel-toggle"
             type="button"
             data-panel-target="inventory-panel"
             aria-controls="inventory-panel"
             aria-expanded="false"
             title="Cargo pack (I)"
           >
-            <span aria-hidden="true">▤</span
-            ><strong id="carry-value">0 / 6</strong>
+            <span class="hud-chip-icon" aria-hidden="true">▤</span>
+            <span class="hud-chip-copy"
+              ><small>Pack · I</small
+              ><strong id="carry-value">0 / 6</strong></span
+            >
+            <span
+              id="inventory-peek"
+              class="inventory-peek"
+              aria-hidden="true"
+            ></span>
           </button>
           <button
             id="play"
-            class="icon-button"
+            class="icon-button utility-button"
             type="button"
             aria-pressed="true"
             title="Pause simulation (T)"
             aria-label="Pause simulation"
           >
-            Ⅱ
+            <span class="utility-icon" aria-hidden="true">Ⅱ</span
+            ><small class="utility-label">Pause</small>
           </button>
           <button
             id="sound"
-            class="icon-button"
+            class="icon-button utility-button"
             type="button"
             aria-pressed="true"
             title="Mute feedback sounds (M)"
             aria-label="Mute feedback sounds"
           >
-            ♪
+            <span class="utility-icon" aria-hidden="true">♪</span
+            ><small class="utility-label">Sound</small>
           </button>
           <button
-            class="icon-button panel-toggle"
+            class="icon-button utility-button panel-toggle"
             type="button"
             data-panel-target="run-panel"
             aria-controls="run-panel"
@@ -79,7 +108,8 @@
             title="Run checkpoints"
             aria-label="Open run checkpoints"
           >
-            ⏱
+            <span class="utility-icon" aria-hidden="true">⏱</span
+            ><small class="utility-label">Timer</small>
           </button>
           <!--
             Always on screen, because the switch that turns creative on lives behind it: hiding the
@@ -88,7 +118,7 @@
           -->
           <button
             id="creative-chip"
-            class="icon-button panel-toggle"
+            class="icon-button utility-button panel-toggle"
             type="button"
             data-panel-target="creative-panel"
             aria-controls="creative-panel"
@@ -96,10 +126,11 @@
             title="Creative mode (C)"
             aria-label="Open creative mode"
           >
-            ✦
+            <span class="utility-icon" aria-hidden="true">✦</span
+            ><small class="utility-label">Creative</small>
           </button>
           <button
-            class="icon-button panel-toggle"
+            class="icon-button utility-button panel-toggle"
             type="button"
             data-panel-target="session-panel"
             aria-controls="session-panel"
@@ -107,7 +138,8 @@
             title="Game menu"
             aria-label="Open game menu"
           >
-            ☰
+            <span class="utility-icon" aria-hidden="true">☰</span
+            ><small class="utility-label">Menu</small>
           </button>
         </div>
       </header>
@@ -196,9 +228,18 @@
               </button>
             </div>
             <p class="panel-copy">
-              Fill the landing hub's requests to earn insight — the board is on
-              <kbd>P</kbd>. Each breakthrough expands the build dock.
+              Spend insight on capabilities. The landing hub's jobs are the
+              source of insight, and each breakthrough expands the build dock.
             </p>
+            <button
+              class="panel-link panel-toggle"
+              type="button"
+              data-panel-target="quest-panel"
+              aria-controls="quest-panel"
+              aria-expanded="false"
+            >
+              <span>View hub jobs and contract</span><kbd>P</kbd>
+            </button>
             <!--
               Progressive disclosure. The default view is what you have, what you can take next, and
               what those unlock; the whole tree is one press away for planning, and the count says
@@ -308,17 +349,17 @@
           <aside
             id="quest-panel"
             class="glass-panel quest-panel"
-            aria-label="Objective and controls"
+            aria-label="Mission control"
           >
             <div class="panel-heading">
               <div>
-                <span class="section-kicker">Next move · P</span>
+                <span class="section-kicker">Mission control · P</span>
                 <h2 id="next-action-title">Survey the landing zone</h2>
               </div>
               <button
                 class="panel-close"
                 type="button"
-                aria-label="Close objective and controls"
+                aria-label="Close mission control"
               >
                 ×
               </button>
@@ -351,115 +392,141 @@
               <ul id="request-board" class="request-board"></ul>
             </div>
 
-            <div class="control-block">
-              <span class="section-kicker">Moving and looking</span>
-              <p>
-                Move with <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> at a
-                walk, and hold <kbd>Shift</kbd> to run. Shallow water can be
-                forded at a crawl; deep water cannot. The player always faces
-                the pointer. <kbd>Space</kbd> centres the camera back on the
-                player, <kbd>T</kbd> pauses and resumes the factory,
-                <kbd>M</kbd> mutes the feedback sounds, and dragging with the
-                middle button — or with <kbd>Shift</kbd> held and the left one —
-                pans while the wheel zooms. The right button is never the
-                camera: it is how you work a hex.
-              </p>
-            </div>
-            <div class="control-block">
-              <span class="section-kicker">Panels</span>
-              <p>
-                <kbd>B</kbd> opens the construction catalogue, <kbd>I</kbd> the
-                cargo pack, <kbd>O</kbd> research, <kbd>C</kbd> creative mode,
-                and <kbd>P</kbd> this panel. <kbd>Esc</kbd> closes whatever is
-                open and returns to the inspect tool, which is the one panel
-                that stays on the world.
-              </p>
-            </div>
-            <div class="control-block">
-              <span class="section-kicker">Creative mode</span>
-              <p>
-                <kbd>C</kbd> opens it, and the title screen can start a run in
-                it. It researches everything, makes building and demolition
-                free, gives you any material in the catalogue, and widens the
-                pack to as many as 240 slots. Machines still run at their normal
-                rates, so what works here works in a priced run too. Turning it
-                off restores the prices and keeps the research.
-              </p>
-            </div>
-            <div class="control-block">
-              <span class="section-kicker">Field actions</span>
-              <p>
-                Hold <kbd>F</kbd> to keep gathering from the field you are
-                standing on or beside, and <kbd>X</kbd> to hand the landing hub
-                whatever it is asking for. To work one particular hex, hold the
-                right button on it: holding keeps harvesting the cell you are
-                pointing at, as far as your own reach goes, and dragging walks
-                the harvest along to the next one. The ring that closes around
-                you is the wait until the next action.
-              </p>
-            </div>
-            <div class="control-block">
-              <span class="section-kicker">The bar, and what goes on it</span>
-              <p>
-                <kbd>B</kbd> opens the catalogue: everything you can build,
-                grouped by what it is for, each card showing what it costs and —
-                for a machine — every recipe it runs, written as the materials
-                in and the materials out. Click a recipe to hold that machine
-                set to it. The bottom bar is yours to arrange: <kbd>1</kbd>–<kbd
-                  >9</kbd
-                >
-                select its nine slots, <strong>Pin</strong> drops a building
-                into the first free one, and dragging a card onto a slot chooses
-                which. Drag a slot onto another to swap them, or use the
-                <strong>×</strong>
-                to clear one. Your arrangement is remembered.
-              </p>
-            </div>
-            <div class="control-block">
-              <span class="section-kicker">Building</span>
-              <p>
-                With a belt or single-hex building selected, drag across the map
-                to lay a whole run at once. Belts route around blocked cells
-                when a bounded path is available. <kbd>E</kbd> selects erase,
-                and dragging with it removes a run. <kbd>R</kbd> rotates the
-                pending or selected building clockwise; <kbd>Shift</kbd>+<kbd
-                  >R</kbd
-                >
-                rotates it back.
-                <kbd>Q</kbd> copies whatever is under the cursor, and
-                <kbd>Ctrl</kbd>+<kbd>Z</kbd> takes back the last thing you
-                built. Machines run one category of recipe each; smelters and
-                kilns also need fuel, and burn whatever arrives. Once you have
-                researched the longer step, <kbd>R</kbd> also turns a belt onto
-                the six headings that run over the seam between two hexes; those
-                belts reach twice as far, cost twice as much, and leave the
-                hexes they cross free to build on. Splitters fan one lane into
-                every free heading ahead and feed them in turn, mergers take
-                from every lane behind and alternate between them, and a pair of
-                underpasses carries a lane beneath the belts between them.
-              </p>
-            </div>
-            <div class="control-block">
-              <span class="section-kicker">Boxes and tiers</span>
-              <p>
-                Click a container to see everything in it. Each stored row has a
-                <strong>Take</strong>, and each stack you are carrying has a
-                <strong>Put</strong>, so stock moves both ways without a belt.
-                Buildings with a higher tier show an <strong>Upgrade</strong>
-                button that grows them in place, keeping their contents, their
-                heading, and everything connected to them.
-              </p>
-            </div>
-            <div class="control-block">
-              <span class="section-kicker">Reading the ground</span>
-              <p>
-                Terrain is the material map, and hatched ground is ground you
-                cannot stand on. Travelling toward the dashed survey frontier
-                lifts the fog for good; the minimap and the gold marker on the
-                edge of the view both point back to the landing hub.
-              </p>
-              <div id="terrain-legend" class="terrain-legend" role="list"></div>
-            </div>
+            <button
+              class="panel-link panel-toggle"
+              type="button"
+              data-panel-target="research-panel"
+              aria-controls="research-panel"
+              aria-expanded="false"
+            >
+              <span>Spend insight in Research</span><kbd>O</kbd>
+            </button>
+
+            <details class="controls-reference">
+              <summary>Controls &amp; shortcuts</summary>
+              <div class="controls-reference-body">
+                <div class="control-block">
+                  <span class="section-kicker">Moving and looking</span>
+                  <p>
+                    Move with <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd
+                    ><kbd>D</kbd> at a walk, and hold <kbd>Shift</kbd> to run.
+                    Shallow water can be forded at a crawl; deep water cannot.
+                    The player always faces the pointer.
+                    <kbd>Space</kbd> centres the camera back on the player,
+                    <kbd>T</kbd> pauses and resumes the factory,
+                    <kbd>M</kbd> mutes the feedback sounds, and dragging with
+                    the middle button — or with <kbd>Shift</kbd> held and the
+                    left one — pans while the wheel zooms. The right button is
+                    never the camera: it is how you work a hex.
+                  </p>
+                </div>
+                <div class="control-block">
+                  <span class="section-kicker">Panels</span>
+                  <p>
+                    <kbd>B</kbd> opens the construction catalogue,
+                    <kbd>I</kbd> the cargo pack, <kbd>O</kbd> research,
+                    <kbd>C</kbd> creative mode, and <kbd>P</kbd> this panel.
+                    <kbd>Esc</kbd> closes whatever is open and returns to the
+                    inspect tool, which is the one panel that stays on the
+                    world.
+                  </p>
+                </div>
+                <div class="control-block">
+                  <span class="section-kicker">Creative mode</span>
+                  <p>
+                    <kbd>C</kbd> opens it, and the title screen can start a run
+                    in it. It researches everything, makes building and
+                    demolition free, gives you any material in the catalogue,
+                    and widens the pack to as many as 240 slots. Machines still
+                    run at their normal rates, so what works here works in a
+                    priced run too. Turning it off restores the prices and keeps
+                    the research.
+                  </p>
+                </div>
+                <div class="control-block">
+                  <span class="section-kicker">Field actions</span>
+                  <p>
+                    Hold <kbd>F</kbd> to keep gathering from the field you are
+                    standing on or beside, and <kbd>X</kbd> to hand the landing
+                    hub whatever it is asking for. To work one particular hex,
+                    hold the right button on it: holding keeps harvesting the
+                    cell you are pointing at, as far as your own reach goes, and
+                    dragging walks the harvest along to the next one. The ring
+                    that closes around you is the wait until the next action.
+                  </p>
+                </div>
+                <div class="control-block">
+                  <span class="section-kicker"
+                    >The bar, and what goes on it</span
+                  >
+                  <p>
+                    <kbd>B</kbd> opens the catalogue: everything you can build,
+                    grouped by what it is for, each card showing what it costs
+                    and — for a machine — every recipe it runs, written as the
+                    materials in and the materials out. Click a recipe to hold
+                    that machine set to it. The bottom bar is yours to arrange:
+                    <kbd>1</kbd>–<kbd>9</kbd> select its nine slots,
+                    <strong>Pin</strong> drops a building into the first free
+                    one, and dragging a card onto a slot chooses which. Drag a
+                    slot onto another to swap them, or use the
+                    <strong>×</strong>
+                    to clear one. Your arrangement is remembered.
+                  </p>
+                </div>
+                <div class="control-block">
+                  <span class="section-kicker">Building</span>
+                  <p>
+                    With a belt or single-hex building selected, drag across the
+                    map to lay a whole run at once. Belts route around blocked
+                    cells when a bounded path is available. <kbd>E</kbd> selects
+                    erase, and dragging with it removes a run.
+                    <kbd>R</kbd> rotates the pending or selected building
+                    clockwise; <kbd>Shift</kbd>+<kbd>R</kbd>
+                    rotates it back.
+                    <kbd>Q</kbd> copies whatever is under the cursor, and
+                    <kbd>Ctrl</kbd>+<kbd>Z</kbd> takes back the last thing you
+                    built. Machines run one category of recipe each; smelters
+                    and kilns also need fuel, and burn whatever arrives. Once
+                    you have researched the longer step, <kbd>R</kbd> also turns
+                    a belt onto the six headings that run over the seam between
+                    two hexes; those belts reach twice as far, cost twice as
+                    much, and leave the hexes they cross free to build on.
+                    Splitters fan one lane into every free heading ahead and
+                    feed them in turn, mergers take from every lane behind and
+                    alternate between them, and a pair of underpasses carries a
+                    lane beneath the belts between them.
+                  </p>
+                </div>
+                <div class="control-block">
+                  <span class="section-kicker">Boxes and tiers</span>
+                  <p>
+                    Click a container to see everything in it. Each stored row
+                    has a
+                    <strong>Take</strong>, and each stack you are carrying has a
+                    <strong>Put</strong>, so stock moves both ways without a
+                    belt. Buildings with a higher tier show an
+                    <strong>Upgrade</strong>
+                    button that grows them in place, keeping their contents,
+                    their heading, and everything connected to them.
+                  </p>
+                </div>
+                <div class="control-block">
+                  <span class="section-kicker">Reading the ground</span>
+                  <p>
+                    Terrain is the material map, and hatched ground is ground
+                    you cannot stand on. Travelling toward the dashed survey
+                    frontier lifts the fog for good; the minimap and the gold
+                    marker on the edge of the view both point back to the
+                    landing hub.
+                  </p>
+                  <div
+                    id="terrain-legend"
+                    class="terrain-legend"
+                    role="list"
+                  ></div>
+                </div>
+              </div>
+            </details>
           </aside>
         </div>
 
@@ -633,6 +700,16 @@
                   </div>
                 </section>
                 <section class="inspect-hub" id="inspect-hub" hidden>
+                  <span class="inspect-kind" id="inspect-hub-contract-kicker"
+                    >Founding contract</span
+                  >
+                  <p class="inspect-hub-note" id="inspect-hub-contract-note">
+                    Deliver the materials that grow the landing hub.
+                  </p>
+                  <ul
+                    id="inspect-hub-contract"
+                    class="inspect-hub-requests inspect-hub-contract"
+                  ></ul>
                   <span class="inspect-kind">Standing requests</span>
                   <p class="inspect-hub-note" id="inspect-hub-note">
                     Select a request to deliver items from your pack and earn
@@ -836,44 +913,44 @@
         <nav class="view-actions" aria-label="View and panel controls">
           <button
             id="orbit-left"
-            class="icon-button"
+            class="icon-button view-button"
             type="button"
             title="Orbit view left 60° (,)"
             aria-label="Orbit view left 60 degrees"
           >
-            ↶
+            <span aria-hidden="true">↶</span><small>Left</small>
           </button>
           <button
             id="orbit-right"
-            class="icon-button"
+            class="icon-button view-button"
             type="button"
             title="Orbit view right 60° (.)"
             aria-label="Orbit view right 60 degrees"
           >
-            ↷
+            <span aria-hidden="true">↷</span><small>Right</small>
           </button>
           <button
             id="recenter"
-            class="icon-button"
+            class="icon-button view-button"
             type="button"
             title="Centre on the player (Space)"
             aria-label="Centre the camera on the player"
           >
-            ◎
+            <span aria-hidden="true">◎</span><small>Center</small>
           </button>
           <button
             id="toggle-grid"
-            class="icon-button"
+            class="icon-button view-button"
             type="button"
             aria-pressed="false"
             title="Show construction grid"
             aria-label="Show construction grid"
           >
-            ⌗
+            <span aria-hidden="true">⌗</span><small>Grid</small>
           </button>
           <button
             id="inspector-toggle"
-            class="icon-button panel-toggle"
+            class="icon-button view-button panel-toggle"
             type="button"
             data-panel-target="inspector-panel"
             aria-controls="inspector-panel"
@@ -881,40 +958,7 @@
             title="World inspector"
             aria-label="Open world inspector"
           >
-            ⌖
-          </button>
-          <button
-            class="icon-button panel-toggle"
-            type="button"
-            data-panel-target="inventory-panel"
-            aria-controls="inventory-panel"
-            aria-expanded="false"
-            title="Cargo pack (I)"
-            aria-label="Open cargo pack"
-          >
-            ▤
-          </button>
-          <button
-            class="icon-button panel-toggle"
-            type="button"
-            data-panel-target="research-panel"
-            aria-controls="research-panel"
-            aria-expanded="false"
-            title="Research (O)"
-            aria-label="Open research panel"
-          >
-            ◈
-          </button>
-          <button
-            class="icon-button panel-toggle"
-            type="button"
-            data-panel-target="quest-panel"
-            aria-controls="quest-panel"
-            aria-expanded="false"
-            title="Objective and controls (P)"
-            aria-label="Open objective and controls"
-          >
-            ✧
+            <span aria-hidden="true">⌖</span><small>Inspect</small>
           </button>
         </nav>
 

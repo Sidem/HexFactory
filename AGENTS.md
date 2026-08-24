@@ -205,12 +205,13 @@ Before changing a cost, a cadence, or a power figure, run `npm run balance` and 
   are the only two spellings of a quantity — one an amount, the other progress toward a known
   target. HTML names a `.chip-host` for a chip to be built into; markup that spells a chip out by
   hand is the drift this replaced, and `tests/host.test.ts` refuses it.
-- Which panels are open is presentation state and lives in `localStorage` under
+- The active workspace panel is presentation state and lives in `localStorage` under
   `hexfactory:panels:v1`, on the same terms as the hotbar arrangement: never saved with the game,
-  never hashed, never sent, and a stored id validated against the live document on load. Panels are
-  flow children of a rail and never position themselves; the one-panel-at-a-time rule survives only
-  below 720px, where there is one rectangle to share. `closePanels` stays the reset that `Escape`, a
-  new game, and a load call — opening a panel must not call it.
+  never hashed, never sent, and a stored id validated against the live document on load. One
+  workspace opens at a time at every width; opening another, clicking the world, `Escape`, a new
+  game, and a load clear the old one. Panels remain flow children of a rail and never position
+  themselves. The inspector may stay beside a left workspace on wide screens, but yields to the
+  menu and timer in its own rail.
 - The hotbar arrangement is presentation state and lives in `localStorage`: never saved with the
   game, never hashed, never sent. It is a preference about a keyboard, not a fact about a factory.
   Definitions are dynamic, so a stored slot is validated against the live catalogue on load and

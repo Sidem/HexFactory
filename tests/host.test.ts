@@ -480,7 +480,7 @@ describe("bounded host input", () => {
     }
   });
 
-  it("keeps panel arrangement a preference and lets panels open independently", () => {
+  it("keeps the active workspace a preference and makes panel interactions exclusive", () => {
     const main = readFileSync(
       new URL("../src/main.ts", import.meta.url),
       "utf8",
@@ -503,16 +503,16 @@ describe("bounded host input", () => {
     expect(panelRegion).not.toContain("enqueue(");
     expect(panelRegion).not.toContain("host.");
     expect(main).not.toMatch(/enqueue\(\{[^}]*panel/i);
-    // Opening a panel no longer closes the rest. Exclusivity survives only below the width where
-    // there is genuinely one rectangle to share.
+    // A workspace replaces the previous one at every width. This prevents several tall surfaces
+    // from shrinking into unreadable slivers while all claiming to be open.
     const toggle = main.slice(
       main.indexOf("function togglePanel("),
       main.indexOf("\n}", main.indexOf("function togglePanel(")),
     );
-    expect(toggle).toContain("ONE_PANEL_AT_A_TIME");
-    expect(toggle).not.toMatch(/^\s*closePanels\(target\);$/m);
-    // The exclusivity was covering for a layout: four panels at one origin. The rails are what
-    // replaced it, so no panel may reclaim an absolute origin of its own.
+    expect(toggle).toContain("if (opening) closePanels(target)");
+    expect(main).not.toContain("ONE_PANEL_AT_A_TIME");
+    expect(main).toContain("const restore = ids.slice(-1)");
+    // Panels remain flow children of their rails rather than reclaiming absolute origins.
     expect(css).toContain(".panel-rail");
     expect(html).toContain("panel-rail rail-left");
     expect(html).toContain("panel-rail rail-right");
@@ -539,8 +539,13 @@ describe("bounded host input", () => {
           `\\.${panel}[^{}]*\\{[^}]*[;{\\s](position:\\s*absolute|top:|left:|right:)`,
         ),
       );
-    // Escape, a new game, and a load still clear the screen.
+    // Escape, a new game, a load, and a deliberate gesture on the world clear the workspace.
     expect(main).toContain("function closePanels(");
+    const worldPointer = main.slice(
+      main.indexOf('canvas.addEventListener("pointerdown"'),
+      main.indexOf('canvas.addEventListener("pointerup"'),
+    );
+    expect(worldPointer).toContain("closePanels()");
   });
 
   it("draws every item through the one chip component", () => {
@@ -1046,8 +1051,19 @@ describe("availability and expanded snapshot adapter", () => {
       new URL("../src/styles.css", import.meta.url),
       "utf8",
     );
+    const main = readFileSync(
+      new URL("../src/main.ts", import.meta.url),
+      "utf8",
+    );
     expect(html).toContain('aria-label="Interactive HexFactory world map');
     expect(html).toContain('id="technology-list"');
+    expect(html).toContain('id="inventory-peek"');
+    // Mission control and research cross-link, and the physical hub exposes both delivery loops.
+    expect(html).toContain("View hub jobs and contract");
+    expect(html).toContain("Spend insight in Research");
+    expect(html).toContain('id="inspect-hub-contract"');
+    expect(html).toContain('id="inspect-hub-requests"');
+    expect(main).toContain("contract.requirements.forEach");
     expect(html).toContain('id="continue"');
     expect(html).toContain("<kbd>W</kbd>");
     // The drag, copy, and undo bindings are documented in the page itself, not only in the repo.
@@ -1174,6 +1190,7 @@ describe("availability and expanded snapshot adapter", () => {
     expect(main).toContain('event.code === "Space") renderer.recenter()');
     expect(main).toContain('event.code === "Space"');
     expect(main).toContain("target.blur()");
+    expect(main).toContain('target.tagName === "SUMMARY"');
     expect(main).toContain('event.code === "KeyT") setPlaying(!playing)');
     // Gather and deliver are permanent chrome in the dock, not a panel a new player has to find.
     expect(html).toContain('class="field-actions"');

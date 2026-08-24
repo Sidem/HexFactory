@@ -92,10 +92,7 @@ kbd {
   position: relative;
   z-index: 20;
   display: grid;
-  grid-template-columns: minmax(185px, 1fr) minmax(320px, 660px) minmax(
-      185px,
-      1fr
-    );
+  grid-template-columns: 180px minmax(360px, 1fr) auto;
   align-items: center;
   gap: 18px;
   padding: 8px 14px;
@@ -139,13 +136,29 @@ kbd {
   letter-spacing: 0.12em;
 }
 .mission-strip {
+  position: relative;
   display: grid;
-  grid-template-columns: auto 1fr auto;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
   align-items: center;
   gap: 3px 12px;
   min-width: 0;
-  padding: 4px 14px;
-  border-inline: 1px solid #2c423d;
+  padding: 6px 10px 5px 12px;
+  border: 1px solid #2c423d;
+  border-radius: 10px;
+  background: #10201dcc;
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    border-color 140ms ease,
+    background 140ms ease;
+}
+.mission-strip:hover,
+.mission-strip:focus-visible,
+.mission-strip[aria-expanded="true"] {
+  border-color: var(--gold);
+  background: #162a25;
 }
 .mission-kicker,
 .section-kicker {
@@ -161,7 +174,7 @@ kbd {
   white-space: nowrap;
   font-size: 0.9rem;
 }
-.mission-strip > span:last-child {
+#objective-value {
   grid-row: 1 / span 2;
   grid-column: 3;
   font-weight: 900;
@@ -174,6 +187,22 @@ kbd {
   overflow: hidden;
   border-radius: 3px;
   background: #29403a;
+}
+.mission-open {
+  grid-row: 1 / span 2;
+  grid-column: 4;
+  align-self: center;
+  color: #8ca29b;
+  font-size: 0.52rem;
+  font-weight: 800;
+  line-height: 1.2;
+  text-align: right;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+.mission-open::after {
+  content: "  ›";
+  color: var(--gold);
 }
 .mission-progress i {
   display: block;
@@ -197,7 +226,7 @@ kbd {
   border-radius: 999px;
   background: #16241d;
 }
-.resource-chip > span {
+.resource-chip .hud-chip-icon {
   color: var(--mint);
 }
 .resource-chip strong {
@@ -205,6 +234,66 @@ kbd {
 }
 button.resource-chip {
   color: var(--ink);
+  font: inherit;
+  cursor: pointer;
+}
+.hud-chip-copy {
+  display: grid;
+  gap: 1px;
+  text-align: left;
+}
+.hud-chip-copy small {
+  color: #8fa69f;
+  font-size: 0.52rem;
+  font-weight: 800;
+  line-height: 1;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+.inventory-peek {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+  padding-left: 5px;
+  border-left: 1px solid #385047;
+}
+.inventory-peek.empty {
+  display: none;
+}
+.inventory-peek::after {
+  content: attr(data-overflow);
+  color: #9eb1ab;
+  font-size: 0.58rem;
+  font-weight: 800;
+}
+.inventory-peek-slot .item-chip {
+  gap: 2px;
+}
+.inventory-peek-slot .item-chip-glyph {
+  width: 16px;
+  height: 16px;
+}
+.inventory-peek-slot .item-chip-count {
+  font-size: 0.58rem;
+}
+.icon-button.utility-button {
+  display: grid;
+  width: 50px;
+  height: 44px;
+  gap: 1px;
+  place-items: center;
+  padding: 4px;
+}
+.utility-icon {
+  line-height: 1;
+}
+.utility-label {
+  color: #9fb2ac;
+  font-size: 0.5rem;
+  font-weight: 700;
+  line-height: 1;
 }
 .icon-button {
   display: grid;
@@ -241,10 +330,9 @@ canvas {
  * wherever there is room for it, and everything else — pack, research, objective, session — waits
  * behind its key.
  *
- * They live in two rails rather than at one origin. Four panels used to share the same
- * `top: 108px; left: 14px`, which is why opening one had to close the rest: the exclusivity was
- * covering for the layout. A rail is a flow column, so several panels open at once stack down it
- * instead of on top of each other, and each keeps its own scrollbox.
+ * They live in two rails rather than at one origin. One workspace opens at a time, which gives it
+ * the full readable height instead of compressing several tall surfaces into slivers. The inspector
+ * remains a persistent world answer on wide screens; its own rail yields while menu or timer opens.
  *
  * The rail is `pointer-events: none` and its children restore it, so the empty space between two
  * open panels is still the world underneath, not a strip that eats clicks.
@@ -263,11 +351,11 @@ canvas {
   pointer-events: auto;
 }
 .rail-left {
-  top: 108px;
+  top: 14px;
   left: 14px;
   align-items: flex-start;
-  /* Down to the dock and no further: 108 above, and the 82 the dock owns plus a gap below. */
-  max-height: calc(100% - 196px);
+  /* Down to the dock and no further. Only one workspace can be open, so it owns the whole rail. */
+  max-height: calc(100% - 108px);
 }
 .rail-right {
   top: 14px;
@@ -295,13 +383,27 @@ canvas {
 }
 .glass-panel.open {
   display: block;
+  flex: 1 1 auto;
+  max-height: 100%;
 }
 .inspector-panel {
   display: block;
-  width: 292px;
+  width: 320px;
 }
 .quest-panel {
-  width: 336px;
+  width: 400px;
+}
+.research-panel,
+.inventory-panel,
+.creative-panel {
+  width: 360px;
+}
+.build-panel {
+  width: 420px;
+}
+.rail-right:has(.session-panel.open, .run-panel.open)
+  .inspector-panel:not(.open) {
+  display: none;
 }
 .session-panel {
   width: 310px;
@@ -631,6 +733,46 @@ canvas {
   color: #b9ccc5;
   font-size: 0.78rem;
   line-height: 1.5;
+}
+.panel-link {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0 0 12px;
+  padding: 9px 11px;
+  border: 1px solid #3d5b53;
+  border-radius: 9px;
+  background: #132722;
+  color: #dbe8e3;
+  font: inherit;
+  font-size: 0.72rem;
+  font-weight: 750;
+  text-align: left;
+  cursor: pointer;
+}
+.panel-link:hover,
+.panel-link:focus-visible {
+  border-color: var(--gold);
+  color: #fff3c8;
+}
+.controls-reference {
+  margin-top: 12px;
+  border-top: 1px solid #324a44;
+}
+.controls-reference summary {
+  padding: 11px 0 3px;
+  color: #a9bcb6;
+  font-size: 0.7rem;
+  font-weight: 800;
+  cursor: pointer;
+}
+.controls-reference[open] summary {
+  color: var(--gold);
+}
+.controls-reference-body {
+  padding-bottom: 2px;
 }
 .primary-action {
   border-color: #b48d37;
@@ -1314,6 +1456,20 @@ canvas {
   padding: 0;
   list-style: none;
 }
+.inspect-hub-contract {
+  margin-bottom: 6px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid #385048;
+}
+.inspect-hub-contract[hidden] {
+  display: none;
+}
+.inspect-hub-purpose {
+  color: #9fb2ac;
+  font-size: 0.66rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
 .inspect-hub-line {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto auto;
@@ -1826,6 +1982,22 @@ canvas {
   background: #10201de6;
   backdrop-filter: blur(10px);
 }
+.view-actions .view-button {
+  display: grid;
+  width: 52px;
+  height: 44px;
+  gap: 1px;
+  padding: 4px;
+}
+.view-button > span {
+  line-height: 1;
+}
+.view-button > small {
+  color: #9fb2ac;
+  font-size: 0.5rem;
+  font-weight: 700;
+  line-height: 1;
+}
 .view-actions button[aria-expanded="true"] {
   border-color: var(--gold);
   background: #3a351e;
@@ -2111,7 +2283,7 @@ canvas {
 .next-step {
   position: absolute;
   z-index: 6;
-  top: 60px;
+  top: 70px;
   left: 14px;
   display: grid;
   gap: 3px;
@@ -2125,6 +2297,12 @@ canvas {
   color: inherit;
   text-align: left;
   cursor: pointer;
+}
+.game-stage:has(.rail-left .glass-panel.open) .next-step,
+.game-stage:has(.glass-panel.open) .view-actions {
+  visibility: hidden;
+  opacity: 0;
+  pointer-events: none;
 }
 .next-step:hover,
 .next-step[aria-expanded="true"] {
@@ -2402,6 +2580,16 @@ canvas {
     top: 62px;
     max-height: calc(100% - 148px);
   }
+  .utility-label {
+    display: none;
+  }
+  .icon-button.utility-button {
+    width: 36px;
+    height: 36px;
+  }
+  .inventory-peek {
+    display: none;
+  }
   /* Below this width the world is too narrow to keep a standing inspector beside it, so the one
      panel that is open by default goes behind its key like the rest. */
   .inspector-panel {
@@ -2443,7 +2631,7 @@ canvas {
     width: 36px;
   }
   .mission-strip {
-    grid-template-columns: 1fr auto;
+    grid-template-columns: minmax(0, 1fr) auto;
     gap: 3px 8px;
     padding: 4px 8px;
     border-left: 1px solid #2c423d;
@@ -2455,14 +2643,29 @@ canvas {
   .mission-progress {
     grid-column: 1;
   }
-  .mission-strip > span:last-child {
+  #objective-value {
     grid-column: 2;
+    max-width: 76px;
+    overflow: hidden;
+    font-size: 0.66rem;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .mission-open {
+    display: none;
   }
   .resource-chip {
     padding: 0.38rem 0.52rem;
   }
-  #carry-chip {
+  .hud-chip-copy small {
     display: none;
+  }
+  .command-actions > .utility-button {
+    display: none;
+  }
+  .command-actions > #play,
+  .command-actions > .utility-button:last-child {
+    display: grid;
   }
   .command-actions {
     gap: 5px;
@@ -2471,12 +2674,11 @@ canvas {
     width: 34px;
     height: 34px;
   }
-  /* One rectangle, one panel. There is no room to stack two here, which is why the host keeps the
-     old one-at-a-time behaviour below this width — see `ONE_PANEL_AT_A_TIME` in `src/main.ts`. */
+  /* One rectangle, one workspace. The same interaction model now holds at every width. */
   .panel-rail,
   .rail-left,
   .rail-right {
-    top: 56px;
+    top: 8px;
     right: 8px;
     left: 8px;
     width: auto;
@@ -2523,6 +2725,9 @@ canvas {
   .view-actions .icon-button {
     width: 36px;
     height: 36px;
+  }
+  .view-button > small {
+    display: none;
   }
   .minimap-frame {
     right: 8px;
@@ -2588,6 +2793,21 @@ canvas {
   .victory {
     top: 54px;
     width: calc(100% - 32px);
+  }
+}
+
+@media (max-width: 480px) {
+  .mission-strip strong {
+    display: none;
+  }
+  #objective-value {
+    grid-row: 1;
+    grid-column: 1;
+    max-width: none;
+  }
+  .mission-progress {
+    grid-row: 2;
+    grid-column: 1;
   }
 }
 

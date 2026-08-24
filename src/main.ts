@@ -829,6 +829,32 @@ function renderInventory(): void {
     `${stacks.length} / ${snapshot.player.carry_slots}`;
   required<HTMLElement>("carry-detail").textContent =
     `${stacks.length} of ${snapshot.player.carry_slots} slots carried.`;
+
+  // The top bar is the glanceable pack: the player can see what changed without opening a panel.
+  // It is deliberately only a preview of native's published carry stacks; the full grid remains I.
+  const peek = required<HTMLElement>("inventory-peek");
+  const visible = stacks.slice(0, 3);
+  const preview = syncChildren(
+    peek,
+    visible.map((stack, index) => `${index}-${stack.item_id}`),
+    () => {
+      const holder = document.createElement("span");
+      holder.className = "inventory-peek-slot chip-host";
+      return holder;
+    },
+  );
+  visible.forEach((stack, index) => {
+    const holder = preview[index];
+    if (!holder) return;
+    paintChip(holder, stack.item_id, {
+      count: stack.quantity,
+      named: false,
+      short: true,
+    });
+  });
+  peek.dataset.overflow =
+    stacks.length > visible.length ? `+${stacks.length - visible.length}` : "";
+  peek.classList.toggle("empty", stacks.length === 0);
 }
 
 /**
@@ -1944,10 +1970,9 @@ function renderInspector(): void {
 }
 
 /**
- * Standing requests menu when inspecting the landing hub.
- *
- * Lets the player review available requests, see their carried quantities, and complete requests
- * directly from the landing hub's inspector panel.
+ * The landing hub is the physical place where both progression loops are delivered, so inspecting
+ * it presents both of them. Previously only standing requests had actions here; the founding
+ * contract was visible in distant chrome but absent from the object that receives it.
  */
 function renderInspectorHub(building: EntitySnapshot | undefined): void {
   const hubCard = required<HTMLElement>("inspect-hub");
@@ -1956,6 +1981,57 @@ function renderInspectorHub(building: EntitySnapshot | undefined): void {
     return;
   }
   hubCard.hidden = false;
+
+  const contract = snapshot.contract;
+  required<HTMLElement>("inspect-hub-contract-kicker").textContent =
+    contract.complete
+      ? `${contract.name} complete`
+      : `${contract.name} · stage ${contract.stage + 1} of ${contract.stages}`;
+  required<HTMLElement>("inspect-hub-contract-note").textContent =
+    contract.complete
+      ? "The hub project is complete. Standing requests remain open for research insight."
+      : contract.stage_brief;
+  const contractList = required<HTMLElement>("inspect-hub-contract");
+  const contractRows = syncChildren(
+    contractList,
+    contract.requirements.map(({ item_id }) => String(item_id)),
+    () => {
+      const row = document.createElement("li");
+      row.className = "inspect-hub-line inspect-hub-contract-line";
+      row.innerHTML = `<span class="inspect-hub-item chip-host"></span><span class="inspect-hub-purpose">Hub build</span><button type="button" class="inspect-hub-deliver inspect-hub-contract-deliver">Deliver</button>`;
+      return row;
+    },
+  );
+  contract.requirements.forEach((need, index) => {
+    const row = contractRows[index];
+    if (!row) return;
+    const carried =
+      snapshot.player.inventory[String(need.item_id)] ??
+      snapshot.player.inventory[need.item_id] ??
+      0;
+    const remaining = Math.max(0, need.required - need.delivered);
+    paintChip(part<HTMLElement>(row, ".inspect-hub-item"), need.item_id, {
+      progress: { have: need.delivered, need: need.required },
+      meter: true,
+      shortfall: remaining,
+    });
+    const button = part<HTMLButtonElement>(row, ".inspect-hub-deliver");
+    button.dataset.itemId = String(need.item_id);
+    button.disabled = carried === 0 || remaining === 0;
+    button.classList.toggle("ready", carried > 0 && remaining > 0);
+    button.textContent =
+      remaining === 0
+        ? "Delivered"
+        : carried > 0
+          ? "Deliver"
+          : `Need ${remaining}`;
+    button.title =
+      carried > 0
+        ? "Deliver this requested material from your pack"
+        : `Carry ${remaining} more to advance the hub contract`;
+  });
+  contractList.hidden = contract.complete || contractRows.length === 0;
+
   const list = required<HTMLElement>("inspect-hub-requests");
   const requests = snapshot.requests;
   const rows = syncChildren(
@@ -2231,6 +2307,12 @@ function renderContract(): void {
   required<HTMLElement>("mission-progress-fill").style.width = demo
     ? "100%"
     : `${Math.min(100, progress * 100)}%`;
+  document
+    .querySelector<HTMLElement>(".mission-strip")
+    ?.setAttribute(
+      "aria-label",
+      `Current mission: ${contract.complete ? contract.name : contract.stage_name}. ${required<HTMLElement>("objective-value").textContent}. Open mission control.`,
+    );
 
   const detail = contract.complete
     ? `${contract.name} complete. The landing hub is built and the world stays open — expand, optimize, or start something larger.`
@@ -2351,7 +2433,8 @@ function setMuted(value: boolean): void {
   audio.setMuted(value);
   muteInput.checked = value;
   titleMuteInput.checked = value;
-  soundButton.textContent = value ? "♪̸" : "♪";
+  part(soundButton, ".utility-icon").textContent = value ? "♪̸" : "♪";
+  part(soundButton, ".utility-label").textContent = value ? "Muted" : "Sound";
   soundButton.setAttribute("aria-pressed", String(!value));
   soundButton.setAttribute(
     "aria-label",
@@ -2394,7 +2477,8 @@ function loadReducedMotion(): boolean {
 
 function setPlaying(value: boolean): void {
   playing = value;
-  playButton.textContent = playing ? "Ⅱ" : "▶";
+  part(playButton, ".utility-icon").textContent = playing ? "Ⅱ" : "▶";
+  part(playButton, ".utility-label").textContent = playing ? "Pause" : "Play";
   playButton.setAttribute("aria-pressed", String(playing));
   playButton.setAttribute(
     "aria-label",
@@ -2535,22 +2619,19 @@ for (const button of document.querySelectorAll<HTMLButtonElement>(
     if (type === "gather" || type === "deposit") enqueue({ type });
   });
 }
-// Delegated, because the hub menu rows come and go with every fill.
-required<HTMLElement>("inspect-hub-requests").addEventListener(
-  "click",
-  (event) => {
-    const deliver = (event.target as HTMLElement).closest<HTMLButtonElement>(
-      ".inspect-hub-deliver",
-    );
-    if (!deliver || deliver.disabled) return;
-    const itemId = Number(deliver.dataset.itemId);
-    if (Number.isInteger(itemId)) {
-      enqueue({ type: "deposit", item_id: itemId });
-    } else {
-      enqueue({ type: "deposit" });
-    }
-  },
-);
+// Delegated, because both hub lists come and go as deliveries complete stages and requests.
+required<HTMLElement>("inspect-hub").addEventListener("click", (event) => {
+  const deliver = (event.target as HTMLElement).closest<HTMLButtonElement>(
+    ".inspect-hub-deliver",
+  );
+  if (!deliver || deliver.disabled) return;
+  const itemId = Number(deliver.dataset.itemId);
+  if (Number.isInteger(itemId)) {
+    enqueue({ type: "deposit", item_id: itemId });
+  } else {
+    enqueue({ type: "deposit" });
+  }
+});
 required<HTMLButtonElement>("recenter").addEventListener("click", () =>
   renderer.recenter(),
 );
@@ -3082,7 +3163,10 @@ buildGroups.addEventListener("click", (event) => {
     const definitionId = Number(recipeRow.dataset.definitionId);
     selectedRecipes.set(definitionId, Number(recipeRow.dataset.recipeId));
     selectTool(definitionId);
-    renderBuildPanel();
+    closePanels();
+    showFeedback(
+      `Holding ${host.definitions.buildings.find(({ id }) => id === definitionId)?.name ?? "building"} — click or drag on the world to place`,
+    );
     return;
   }
   const card = target.closest<HTMLElement>(".build-card");
@@ -3097,7 +3181,10 @@ buildGroups.addEventListener("click", (event) => {
     return;
   }
   selectTool(definitionId);
-  renderBuildPanel();
+  closePanels();
+  showFeedback(
+    `Holding ${host.definitions.buildings.find(({ id }) => id === definitionId)?.name ?? "building"} — click or drag on the world to place`,
+  );
 });
 buildGroups.addEventListener("dragstart", (event) => {
   const card = (event.target as Element).closest<HTMLElement>(".build-card");
@@ -3342,6 +3429,10 @@ canvas.addEventListener("pointermove", (event) => {
   refreshHoverPreview();
 });
 canvas.addEventListener("pointerdown", (event) => {
+  // The map is the outside surface for every workspace. Any deliberate world gesture clears the
+  // overlay first; right-click harvesting and middle-button panning follow the same expectation as
+  // an ordinary click rather than leaving a panel covering the action.
+  closePanels();
   if (event.button === 2) {
     // A right press starts working the hex under it straight away and keeps working it while the
     // button is down; the frame loop repeats it and the swing already running paces the repeat,
@@ -3710,23 +3801,17 @@ function sendAim(): void {
 }
 
 /**
- * Open or close one panel, independently of every other one.
- *
- * Opening any panel used to close all the others, and that was not a policy that could simply be
- * deleted: the pack, research, catalogue, and objective panels all sat at one origin, so removing
- * the exclusivity would have stacked four panels on top of each other. The rails are what make
- * this a layout question rather than a flag — see `.panel-rail` in `src/styles.css`.
- *
- * Below the rail breakpoint there is only room for one at a time, so the old behaviour is what the
- * narrow layout keeps.
+ * Open one workspace surface at a time. Pack, research, construction, mission control, creative,
+ * timer, and menu are modes of attention rather than windows to arrange. Letting them all remain
+ * open made each collapse to a few unreadable lines and left repeated clicks with surprising
+ * results. The persistent inspector is not `open` on wide screens and therefore stays beside the
+ * chosen workspace; the right rail hides it while its own menu or timer is open.
  */
-const ONE_PANEL_AT_A_TIME = window.matchMedia("(max-width: 720px)");
-
 function togglePanel(id: string): void {
   const target = document.getElementById(id);
   if (!target) return;
   const opening = !target.classList.contains("open");
-  if (opening && ONE_PANEL_AT_A_TIME.matches) closePanels(target);
+  if (opening) closePanels(target);
   target.classList.toggle("open", opening);
   syncPanelToggles();
   savePanelState();
@@ -3768,7 +3853,9 @@ function loadPanelState(): void {
       typeof id === "string" &&
       document.getElementById(id)?.classList.contains("glass-panel") === true,
   );
-  const restore = ONE_PANEL_AT_A_TIME.matches ? ids.slice(0, 1) : ids;
+  // v1 used to allow several ids. Restoring only the last migrates that preference into the new
+  // one-workspace model without allowing yesterday's pile of panels to reappear.
+  const restore = ids.slice(-1);
   for (const id of restore) document.getElementById(id)?.classList.add("open");
   syncPanelToggles();
 }
@@ -4207,7 +4294,8 @@ function isKeyboardFocusedControl(target: EventTarget | null): boolean {
 function isPointerActivatedControl(target: EventTarget | null): boolean {
   if (
     target instanceof HTMLButtonElement ||
-    target instanceof HTMLAnchorElement
+    target instanceof HTMLAnchorElement ||
+    (target instanceof HTMLElement && target.tagName === "SUMMARY")
   )
     return true;
   return (
@@ -4239,12 +4327,15 @@ function reportWorkerError(error: unknown): void {
  * stopped calling it.
  */
 function closePanels(except?: HTMLElement): void {
+  let changed = false;
   for (const panel of document.querySelectorAll<HTMLElement>(
     ".glass-panel.open",
   )) {
     if (panel === except) continue;
     panel.classList.remove("open");
+    changed = true;
   }
+  if (!changed) return;
   syncPanelToggles();
   savePanelState();
 }
@@ -4312,14 +4403,6 @@ function part<T extends HTMLElement>(root: HTMLElement, selector: string): T {
 
 renderTerrainLegend();
 loadPanelState();
-// Crossing down into the narrow layout leaves whichever panel is topmost in the rail, because
-// below that width there is only room for one.
-ONE_PANEL_AT_A_TIME.addEventListener("change", (event) => {
-  if (!event.matches) return;
-  const [first] = openPanelIds();
-  const keep = first ? document.getElementById(first) : null;
-  closePanels(keep ?? undefined);
-});
 setMuted(audio.isMuted);
 setReducedMotion(loadReducedMotion());
 setGraphicsProfile(initialGraphics);
