@@ -1,11 +1,19 @@
 import { describe, expect, it } from "vitest";
 import { axialToPixel } from "@hexlife/embed/hex";
-import { InstancedMesh, Matrix4 } from "three";
+import {
+  Color,
+  InstancedMesh,
+  Matrix4,
+  ShaderLib,
+  type WebGLProgramParametersWithUniforms,
+  type WebGLRenderer,
+} from "three";
 
 import type {
   BuildingDefinition,
   EntitySnapshot,
   FactorySnapshot,
+  Terrain,
 } from "../src/core/types";
 import {
   BUILDING_SHAPES,
@@ -38,6 +46,11 @@ import {
   TERRAIN_STYLE,
   visualHeight,
 } from "../src/rendering/three/terrainStyle";
+import {
+  surfaceSource,
+  TERRAIN_SURFACE,
+  type SurfaceFamily,
+} from "../src/rendering/three/terrainSurface";
 import {
   createCurvedTransportGeometry,
   createTransportGeometry,
@@ -709,6 +722,148 @@ describe("Visual Depth terrain and quality contracts", () => {
     expect(parseGraphicsProfile("ultra")).toBeNull();
   });
 });
+
+describe("Terrain surfaces", () => {
+  it("gives every band a surface built from the four families", () => {
+    expect(Object.keys(TERRAIN_SURFACE)).toEqual(Object.keys(TERRAIN_STYLE));
+    const families = Object.values(TERRAIN_SURFACE).map(({ family }) => family);
+    expect(new Set(families)).toEqual(
+      new Set<SurfaceFamily>(["water", "sand", "meadow", "rock"]),
+    );
+    expect(TERRAIN_SURFACE.deep_water.family).toBe("water");
+    expect(TERRAIN_SURFACE.shore.family).toBe("sand");
+    expect(TERRAIN_SURFACE.lowland.family).toBe("meadow");
+    expect(TERRAIN_SURFACE.cliff.family).toBe("rock");
+  });
+
+  it("keeps the procedural band centred on the band's identity colour", () => {
+    for (const [key, surface] of Object.entries(TERRAIN_SURFACE)) {
+      const identity = new Color(TERRAIN_STYLE[key as Terrain].color);
+      const middle = new Color(surface.low).lerp(new Color(surface.high), 0.5);
+      for (const channel of ["r", "g", "b"] as const)
+        expect(Math.abs(middle[channel] - identity[channel])).toBeLessThan(
+          0.09,
+        );
+    }
+  });
+
+  it("anchors on chunk includes the shipped three build still emits once", () => {
+    const anchors = [
+      [ShaderLib.physical.vertexShader, "#include <common>"],
+      [ShaderLib.physical.vertexShader, "#include <beginnormal_vertex>"],
+      [ShaderLib.physical.vertexShader, "#include <begin_vertex>"],
+      [ShaderLib.physical.fragmentShader, "#include <common>"],
+      [ShaderLib.physical.fragmentShader, "#include <color_fragment>"],
+      [ShaderLib.physical.fragmentShader, "#include <roughnessmap_fragment>"],
+      [ShaderLib.physical.fragmentShader, "#include <normal_fragment_maps>"],
+      [ShaderLib.physical.fragmentShader, "#include <emissivemap_fragment>"],
+    ] as const;
+    for (const [source, anchor] of anchors)
+      expect(source.split(anchor).length - 1).toBe(1);
+  });
+
+  it("injects the surface at every stage the standard material offers", () => {
+    const { materials, shader } = compileTerrain("shallow_water");
+    expect(shader.vertexShader).toContain("hfNormal = objectNormal;");
+    expect(shader.vertexShader).toContain(
+      "hfWorld = ( modelMatrix * hfInstanced ).xyz;",
+    );
+    expect(shader.fragmentShader).toContain("void hfSurface()");
+    expect(shader.fragmentShader).toContain("diffuseColor.rgb *= hfAlbedo;");
+    expect(shader.fragmentShader).toContain(
+      "roughnessFactor = clamp( hfRough, 0.04, 1.0 );",
+    );
+    expect(shader.fragmentShader).toContain(
+      "normal = normalize( normal + mat3( viewMatrix ) * hfBend );",
+    );
+    expect(shader.fragmentShader).toContain(
+      "totalEmissiveRadiance = hfAlbedo * hfFill + hfGlow;",
+    );
+    expect(uniformValue(shader, "hfWave")).toBe(
+      TERRAIN_SURFACE.shallow_water.wave,
+    );
+    expect(uniformValue(shader, "hfGrain")).toBe(
+      TERRAIN_SURFACE.shallow_water.grain,
+    );
+    for (const material of materials.materials) material.dispose();
+  });
+
+  it("gives each band its own program key so seven closures cannot share a shader", () => {
+    const materials = createWorldMaterials();
+    const keys = Object.values(materials.terrain).map((material) =>
+      material.customProgramCacheKey(),
+    );
+    expect(new Set(keys).size).toBe(keys.length);
+    for (const material of materials.materials) material.dispose();
+  });
+
+  it("holds the swell still under reduced motion and wraps the clock", () => {
+    const { materials, shader } = compileTerrain("deep_water");
+    materials.terrainSurfaces.setTime(3601.5);
+    expect(uniformValue(shader, "hfTime")).toBeCloseTo(1.5, 6);
+    materials.terrainSurfaces.setMotion(false);
+    expect(uniformValue(shader, "hfMotion")).toBe(0);
+    materials.terrainSurfaces.setMotion(true);
+    expect(uniformValue(shader, "hfMotion")).toBe(1);
+    for (const material of materials.materials) material.dispose();
+  });
+
+  it("spends surface detail only where the profile pays for it", () => {
+    const materials = createWorldMaterials();
+    const water = materials.terrain.deep_water;
+    materials.terrainSurfaces.setDetail(
+      QUALITY_SETTINGS.low.terrainDetail,
+      QUALITY_SETTINGS.low.waterDetail,
+    );
+    expect(water.defines?.HF_OCTAVES).toBe(2);
+    expect(water.defines?.HF_WATER_DETAIL).toBe(0);
+    materials.terrainSurfaces.setDetail(
+      QUALITY_SETTINGS.high.terrainDetail,
+      QUALITY_SETTINGS.high.waterDetail,
+    );
+    expect(water.defines?.HF_OCTAVES).toBe(4);
+    expect(water.defines?.HF_DETAIL).toBe(2);
+    expect(water.defines?.HF_WATER_DETAIL).toBe(2);
+    for (const material of materials.materials) material.dispose();
+  });
+
+  it("moves the water and nothing else", () => {
+    expect(surfaceBody("water")).toContain("hfTime");
+    for (const family of ["sand", "meadow", "rock"] as const)
+      expect(surfaceBody(family)).not.toContain("hfTime");
+  });
+});
+
+/** The family's own `hfSurface`, without the shared declarations every family carries. */
+function surfaceBody(family: SurfaceFamily): string {
+  const source = surfaceSource(family);
+  return source.slice(source.indexOf("void hfSurface()"));
+}
+
+/** One injected uniform, asserted present rather than read through an optional chain. */
+function uniformValue(
+  shader: WebGLProgramParametersWithUniforms,
+  name: string,
+): unknown {
+  const uniform = shader.uniforms[name];
+  expect(uniform).toBeDefined();
+  return uniform?.value;
+}
+
+/** Runs a terrain material's injection over the real shipped standard-material source. */
+function compileTerrain(terrain: Terrain) {
+  const materials = createWorldMaterials();
+  const shader = {
+    uniforms: {},
+    vertexShader: ShaderLib.physical.vertexShader,
+    fragmentShader: ShaderLib.physical.fragmentShader,
+  } as unknown as WebGLProgramParametersWithUniforms;
+  materials.terrain[terrain].onBeforeCompile(
+    shader,
+    undefined as unknown as WebGLRenderer,
+  );
+  return { materials, shader };
+}
 
 function minimalSnapshot(): FactorySnapshot {
   return {

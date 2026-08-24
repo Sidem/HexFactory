@@ -76,9 +76,9 @@ export function buildTerrainMeshes(
       scale.set(1, depth, 1);
       matrix.compose(position, quaternion, scale);
       mesh.setMatrixAt(index, matrix);
-      tint
-        .set(TERRAIN_STYLE[terrain].color)
-        .multiplyScalar(0.94 + stableVariation(cell.q, cell.r) * 0.12);
+      // A luminance jitter, not a colour: the band's hue now comes from the procedural surface in
+      // `terrainSurface.ts`, and tinting the instance as well would fight it.
+      tint.setScalar(0.94 + stableVariation(cell.q, cell.r) * 0.12);
       mesh.setColorAt(index, tint);
     }
     mesh.instanceMatrix.needsUpdate = true;

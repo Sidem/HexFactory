@@ -175,6 +175,26 @@ apothem with no triangular holes. Grid, hover, selection, legality, native drag 
 reach rings use the same pointy-top start angle (`pi / 6`), so an overlay cannot present a hex rotated
 away from the tile beneath it. Tests pin both the apothem and overlay orientation.
 
+**A band is a material, not a fill.** `terrainSurface.ts` gives the seven bands four procedural
+surface families — water, sand, meadow, rock — injected into the shared `MeshStandardMaterial` at
+`onBeforeCompile` rather than shipped as textures, so the bounded material set and one-draw-call-per-band
+instancing both survive. Water carries two crossing swells and a drifting fbm, foams on the crests,
+bends its normal by the analytic wave slope, and drops roughness where it crests so it glints; sand
+carries dunes, a wind ripple, and a quartz speckle that both brightens and polishes; meadow carries
+clumping growth over fine blades; rock carries bedding, fracture shear, and mica. Each material
+returns its own `customProgramCacheKey` — seven identical injection closures would otherwise share
+one compiled program and collapse every band onto one palette. The band's identity colour in
+`terrainStyle.ts` stays the legend's answer, and the surface straddles it rather than replacing it;
+`tests/visualDepth.test.ts` pins the two together, and pins that the stock chunk anchors the
+injection depends on still appear exactly once in the shipped three source.
+
+**Every pattern is keyed on world position alone**, never on an axial coordinate — a pattern that
+restarts per tile would re-draw the hex lattice the surfaces exist to soften. Terrain instance colour
+is therefore a luminance jitter only: hue belongs to the shader now, and tinting the instance as well
+would fight it. Detail follows the quality profile through `material.defines` (fbm octaves 2/3/4, and
+the low profile drops the animated water terms entirely), and reduced motion holds the swell still
+rather than slowing it — the same bargain every other phase in the scene makes.
+
 Instance colour is part of the generator contract. Machine and field materials take their colour
 from `InstancedMesh.instanceColor`; they do not also request a per-vertex colour attribute that the
 shared geometry does not carry, because multiplying by that absent attribute collapses every
@@ -190,9 +210,10 @@ motion freezes every phase transform; colour can still be removed to judge silho
 
 ## Longer horizon
 
-- **Organic tileables.** The rules above are the 2D start. The later systems produce tileable
-  textures and shapes so a hex lattice reads as organic terrain and organic objects — still
-  generated from published snapshot facts, still never a checksum input.
+- **Organic tileables.** The rules above are the 2D start. The procedural terrain surfaces are the
+  first instalment: world-space material, no atlas, no per-tile restart. What remains is the same
+  treatment for objects and for the seams between bands, so a hex lattice reads as organic terrain
+  and organic objects — still generated from published snapshot facts, still never a checksum input.
 - **Native elevation and underground strata.** They follow only if the shipped 3D renderer proves
   the camera, picking, readability, and laptop budget. Visual height alone does not change a save or
   checksum.

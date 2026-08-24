@@ -7,9 +7,12 @@ import {
 
 import type { Terrain } from "../../core/types";
 import { TERRAIN_STYLE } from "./terrainStyle";
+import { TerrainSurfaces } from "./terrainSurface";
 
 export interface WorldMaterials {
   readonly terrain: Record<Terrain, MeshStandardMaterial>;
+  /** The procedural landform surfaces: one clock, one detail switch, seven materials. */
+  readonly terrainSurfaces: TerrainSurfaces;
   readonly machine: MeshStandardMaterial;
   readonly machineDark: MeshStandardMaterial;
   readonly resource: MeshBasicMaterial;
@@ -41,6 +44,9 @@ export function createWorldMaterials(): WorldMaterials {
       }),
     ]),
   ) as Record<Terrain, MeshStandardMaterial>;
+  const terrainSurfaces = new TerrainSurfaces();
+  for (const [key, material] of Object.entries(terrain))
+    terrainSurfaces.attach(material, key as Terrain);
   const machine = new MeshStandardMaterial({
     color: 0xffffff,
     roughness: 0.7,
@@ -112,6 +118,7 @@ export function createWorldMaterials(): WorldMaterials {
   ];
   return {
     terrain,
+    terrainSurfaces,
     machine,
     machineDark,
     resource,

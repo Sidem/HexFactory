@@ -333,6 +333,10 @@ export class ThreeFactoryRenderer implements FactoryRenderer {
       }
       this.prepUs = smooth(this.prepUs, (performance.now() - started) * 1000);
     }
+    // Water is the one landform that moves. Reduced motion holds the swell still rather than
+    // slowing it, the same bargain every other phase in the scene makes.
+    this.materials.terrainSurfaces.setMotion(!this.motionReduced);
+    this.materials.terrainSurfaces.setTime(this.now / 1000);
     this.renderer.render(this.scene, this.camera.camera);
     this.frameTimesUs[this.frameTimeCursor] =
       (performance.now() - frameStarted) * 1000;
@@ -436,6 +440,10 @@ export class ThreeFactoryRenderer implements FactoryRenderer {
 
   private applyProfile(): void {
     const settings = QUALITY_SETTINGS[this.profile];
+    this.materials.terrainSurfaces.setDetail(
+      settings.terrainDetail,
+      settings.waterDetail,
+    );
     this.renderer.shadowMap.enabled = settings.shadows;
     this.keyLight.castShadow = settings.shadows;
     if (settings.shadows) {
