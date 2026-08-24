@@ -253,6 +253,13 @@ intersects the unchanged logical axial plane and converts through the public
 `@hexlife/embed/hex` geometry; rendered terrain height never enters a command. Native-resolved drag
 cells, twelve transport headings, and native chunk coverage are consumed rather than reconstructed.
 
+An orbit remains an integer in `[0, 5]` and moves the instant the key is pressed; only the drawn
+heading eases across the 60 degrees, over roughly half a second and never more than one. The sweep
+raises its own dirty frames so it still runs when nothing else redraws, a step pressed mid-sweep
+extends the turn already running instead of restarting it, and reduced motion arrives at the same
+view with no sweep at all. Directional input reads the heading the sweep is landing on, because a
+held movement key is re-read once per turn rather than every frame.
+
 The scene is split by responsibility: `HexSceneCamera`, `terrainMeshes`, `machineMeshes`,
 `worldInstances`, `overlays`, shared materials, and quality profiles. Terrain and generated machine
 parts are instanced by bounded visual buckets, animation updates existing transforms, and renderer

@@ -3953,6 +3953,9 @@ function frame(now: number): void {
     void triggerAutoSave();
   }
   renderer.setGathering(gatherHeld || harvestPointer !== null);
+  // An orbit sweep slides the world under a stationary pointer for as long as it runs, and a paused
+  // factory sends no snapshot to re-sync against, so the highlight is re-read here until it lands.
+  if (renderer.cameraSettling) syncHoverWithCamera();
   renderer.renderFrame(now);
   requestAnimationFrame(frame);
 }

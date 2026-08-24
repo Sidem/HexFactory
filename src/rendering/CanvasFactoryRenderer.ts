@@ -269,6 +269,11 @@ export class CanvasFactoryRenderer implements FactoryRenderer {
     return this.reducedMotion;
   }
 
+  /** The flat renderer has no orbit to sweep, so its view is never mid-turn. */
+  get cameraSettling(): boolean {
+    return false;
+  }
+
   setHover(
     coordinate: AxialCoordinate | null,
     placement: PlacementPreview | null = null,

@@ -70,6 +70,8 @@ export interface RendererDiagnostics {
  */
 export interface FactoryRenderer {
   readonly motionReduced: boolean;
+  /** True while the view is still easing toward a requested orbit, so the scene moves on its own. */
+  readonly cameraSettling: boolean;
   setSnapshot(snapshot: FactorySnapshot): void;
   setHome(point: WorldPoint | null): void;
   setReducedMotion(value: boolean): void;

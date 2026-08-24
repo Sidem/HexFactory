@@ -9,6 +9,13 @@ const MIN_ZOOM = 0.55;
 const MAX_ZOOM = 2.2;
 const CAMERA_DISTANCE = 38;
 const CAMERA_HEIGHT = 31;
+/** Orbit zero looks from the south-west toward north-east. */
+const BASE_ANGLE = Math.PI / 4;
+const ORBIT_STEP = Math.PI / 3;
+/** One 60° sweep, eased. Long enough to read as a turn, short enough to keep the key responsive. */
+const ORBIT_STEP_MS = 460;
+/** A sweep already carrying queued steps still lands inside a second. */
+const ORBIT_MAX_MS = 1000;
 
 /** Fixed-tilt, six-orbit camera over the native logical plane. */
 export class HexSceneCamera {
@@ -21,6 +28,13 @@ export class HexSceneCamera {
   private height = 1;
   private zoom = 1;
   private orbit = 0;
+  /** The heading actually drawn this frame; it chases `orbitTarget` through a sweep. */
+  private orbitAngle = BASE_ANGLE;
+  private orbitFrom = BASE_ANGLE;
+  private orbitTarget = BASE_ANGLE;
+  private orbitStarted = 0;
+  /** Zero whenever the camera is settled, so it doubles as the "is a sweep running" flag. */
+  private orbitDuration = 0;
   private following = true;
 
   constructor() {
@@ -29,6 +43,10 @@ export class HexSceneCamera {
 
   get orbitIndex(): number {
     return this.orbit;
+  }
+
+  get isOrbiting(): boolean {
+    return this.orbitDuration > 0;
   }
 
   get zoomLevel(): number {
@@ -55,9 +73,44 @@ export class HexSceneCamera {
     this.setTarget(point);
   }
 
-  orbitBy(step: -1 | 1): void {
+  /**
+   * Turn one sixth of a circle. The six-step index moves at once — it is what the rest of the game
+   * reads — while the drawn heading eases across to it over the next few frames.
+   */
+  orbitBy(step: -1 | 1, animate = true): void {
     this.orbit = (this.orbit + step + 6) % 6;
+    const target = this.orbitTarget + step * ORBIT_STEP;
+    if (!animate) {
+      this.settleOrbit(target);
+      return;
+    }
+    // A step pressed mid-sweep extends the one already running instead of restarting it, so a held
+    // key spins at a steady rate rather than stalling at each hand-off.
+    this.orbitFrom = this.orbitAngle;
+    this.orbitTarget = target;
+    this.orbitStarted = performance.now();
+    this.orbitDuration = Math.min(
+      ORBIT_MAX_MS,
+      (ORBIT_STEP_MS * Math.abs(target - this.orbitFrom)) / ORBIT_STEP,
+    );
+  }
+
+  /**
+   * Advance a running sweep to `now`, reporting whether the camera moved. The renderer drives this
+   * once per frame: a dirty flag raised at key-down would only ever buy the first frame.
+   */
+  advanceOrbit(now: number): boolean {
+    if (this.orbitDuration === 0) return false;
+    const progress = (now - this.orbitStarted) / this.orbitDuration;
+    if (progress >= 1) {
+      this.settleOrbit(this.orbitTarget);
+      return true;
+    }
+    const eased = 0.5 - Math.cos(Math.PI * Math.max(0, progress)) / 2;
+    this.orbitAngle =
+      this.orbitFrom + (this.orbitTarget - this.orbitFrom) * eased;
     this.updatePose();
+    return true;
   }
 
   panBy(screenX: number, screenY: number): void {
@@ -99,11 +152,17 @@ export class HexSceneCamera {
   /** Inverse-project a screen direction so WASD remains up/left/down/right after every orbit. */
   screenMovement(screenX: number, screenY: number): WorldPoint {
     if (screenX === 0 && screenY === 0) return { x: 0, y: 0 };
+    // Movement answers to where the sweep lands, not to the frame it happens to be passing through.
+    // A held direction is re-read once per turn, so sampling mid-sweep would leave the player
+    // walking the old heading until they let go of the key.
+    const drawn = this.orbitAngle;
+    if (this.orbitDuration > 0) this.poseAt(this.orbitTarget);
     const center = this.groundAt(this.width / 2, this.height / 2);
     const moved = this.groundAt(
       this.width / 2 + screenX * 100,
       this.height / 2 + screenY * 100,
     );
+    if (this.orbitDuration > 0) this.poseAt(drawn);
     const x = moved.x - center.x;
     const y = moved.z - center.z;
     const length = Math.hypot(x, y);
@@ -165,10 +224,23 @@ export class HexSceneCamera {
     this.updatePose();
   }
 
+  /** End the sweep on `target`, wrapped so a long session cannot drift the angle out of precision. */
+  private settleOrbit(target: number): void {
+    const wrapped = target - Math.floor(target / (Math.PI * 2)) * Math.PI * 2;
+    this.orbitDuration = 0;
+    this.orbitFrom = wrapped;
+    this.orbitTarget = wrapped;
+    this.poseAt(wrapped);
+  }
+
+  private poseAt(angle: number): void {
+    this.orbitAngle = angle;
+    this.updatePose();
+  }
+
   private updatePose(): void {
-    // Orbit zero looks from the south-west toward north-east. Sixty-degree steps keep the native
-    // six/twelve heading indices intact; only the view moves.
-    const angle = Math.PI / 4 + (this.orbit * Math.PI) / 3;
+    // Sixty-degree steps keep the native six/twelve heading indices intact; only the view moves.
+    const angle = this.orbitAngle;
     this.camera.position.set(
       this.target.x + Math.cos(angle) * CAMERA_DISTANCE,
       CAMERA_HEIGHT,

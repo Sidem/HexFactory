@@ -279,8 +279,13 @@ export class ThreeFactoryRenderer implements FactoryRenderer {
   }
 
   orbitBy(step: -1 | 1): void {
-    this.camera.orbitBy(step);
+    // Reduced motion gets the same view, arrived at without the sweep.
+    this.camera.orbitBy(step, !this.motionReduced);
     this.markDirty();
+  }
+
+  get cameraSettling(): boolean {
+    return this.camera.isOrbiting;
   }
 
   recenter(): void {
@@ -290,6 +295,8 @@ export class ThreeFactoryRenderer implements FactoryRenderer {
 
   renderFrame(now: number): void {
     this.now = now;
+    // The orbit sweep owns its own frames: under reduced motion nothing else redraws them.
+    if (this.camera.advanceOrbit(now)) this.needsDraw = true;
     if (this.needsDraw || !this.motionReduced) this.draw();
     this.needsDraw = false;
   }

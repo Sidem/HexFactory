@@ -50,6 +50,21 @@ import {
   WorldInstanceLayer,
 } from "../src/rendering/three/worldInstances";
 
+/** The camera's compass bearing around its target, read straight off the posed camera. */
+function heading(camera: HexSceneCamera): number {
+  return Math.atan2(camera.camera.position.z, camera.camera.position.x);
+}
+
+function turnedBy(camera: HexSceneCamera, from: number): number {
+  const delta = heading(camera) - from;
+  return delta - Math.round(delta / (Math.PI * 2)) * Math.PI * 2;
+}
+
+/** Run any pending sweep past its end, whatever duration it picked. */
+function settle(camera: HexSceneCamera): void {
+  camera.advanceOrbit(performance.now() + 10_000);
+}
+
 describe("Visual Depth camera", () => {
   it("round-trips native world and axial points at every orbit and zoom extreme", () => {
     const coordinate = { q: 7, r: -4 };
@@ -60,6 +75,7 @@ describe("Visual Depth camera", () => {
         camera.resize(1440, 900);
         camera.recenter(world);
         for (let step = 0; step < orbit; step += 1) camera.orbitBy(1);
+        settle(camera);
         camera.zoomAt(720, 450, factor);
         const screen = camera.projectWorld(world);
         const roundTrip = camera.worldAt(screen.x, screen.y);
@@ -100,7 +116,75 @@ describe("Visual Depth camera", () => {
         );
       }
       camera.orbitBy(1);
+      settle(camera);
     }
+  });
+
+  it("sweeps a full sixty degrees and lands there", () => {
+    const camera = new HexSceneCamera();
+    camera.resize(1440, 900);
+    const start = heading(camera);
+    camera.orbitBy(1);
+    expect(camera.isOrbiting).toBe(true);
+    settle(camera);
+    expect(camera.isOrbiting).toBe(false);
+    expect(turnedBy(camera, start)).toBeCloseTo(Math.PI / 3, 6);
+    expect(camera.orbitIndex).toBe(1);
+  });
+
+  it("eases the turn across intermediate frames and finishes inside a second", () => {
+    const camera = new HexSceneCamera();
+    camera.resize(1440, 900);
+    const start = heading(camera);
+    const began = performance.now();
+    camera.orbitBy(1);
+    expect(camera.advanceOrbit(began + 230)).toBe(true);
+    const partway = turnedBy(camera, start);
+    expect(partway).toBeGreaterThan(0.05);
+    expect(partway).toBeLessThan(Math.PI / 3 - 0.05);
+    camera.advanceOrbit(began + 1000);
+    expect(camera.isOrbiting).toBe(false);
+    expect(turnedBy(camera, start)).toBeCloseTo(Math.PI / 3, 6);
+  });
+
+  it("keeps a step pressed mid-sweep inside the same second", () => {
+    const camera = new HexSceneCamera();
+    camera.resize(1440, 900);
+    const start = heading(camera);
+    const began = performance.now();
+    camera.orbitBy(1);
+    camera.advanceOrbit(began + 200);
+    camera.orbitBy(1);
+    expect(camera.orbitIndex).toBe(2);
+    expect(camera.isOrbiting).toBe(true);
+    camera.advanceOrbit(began + 1000);
+    expect(camera.isOrbiting).toBe(false);
+    expect(turnedBy(camera, start)).toBeCloseTo((2 * Math.PI) / 3, 6);
+  });
+
+  it("snaps the same turn without a sweep when motion is reduced", () => {
+    const camera = new HexSceneCamera();
+    camera.resize(1440, 900);
+    const start = heading(camera);
+    camera.orbitBy(1, false);
+    expect(camera.isOrbiting).toBe(false);
+    expect(camera.advanceOrbit(performance.now() + 1000)).toBe(false);
+    expect(turnedBy(camera, start)).toBeCloseTo(Math.PI / 3, 6);
+  });
+
+  it("walks toward the heading the sweep is landing on, not the frame it is passing", () => {
+    const camera = new HexSceneCamera();
+    camera.resize(1440, 900);
+    camera.orbitBy(1);
+    camera.advanceOrbit(performance.now() + 100);
+    const drawn = heading(camera);
+    const during = camera.screenMovement(0, -1);
+    // Reading the movement basis must not disturb the frame being drawn.
+    expect(heading(camera)).toBeCloseTo(drawn, 12);
+    settle(camera);
+    const after = camera.screenMovement(0, -1);
+    expect(during.x).toBeCloseTo(after.x, 6);
+    expect(during.y).toBeCloseTo(after.y, 6);
   });
 });
 
