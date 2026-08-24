@@ -142,23 +142,46 @@ an amount and the other progress toward a known target.
   stamp is a label under the body, quieter than the anatomy it names.
 - A sprite, when one exists, occupies the inner 60% of the hex so neighbours never clip it.
 - The same glyph is used in the pack and on the field, so a field cell and the stack it becomes are
-  visibly one material.
+  visibly one material. In the Three.js world that vocabulary becomes silhouette: ore is a group
+  of faceted shards, lumps are a boulder cluster, grains are low mounds, crystal is a set of tall
+  spires, and wood is trunk plus canopy. Identity colour distinguishes siblings inside one form;
+  colour never has to distinguish one form from another.
 - State the player has to react to is drawn where it happens rather than written in the message
   strip: a machine's progress arc, the ring that closes around the player while a field action cools
   down, and the `STALL_MARKS` dot that says _why_ a machine is idle.
 - A radius is drawn as a ring, and two rings that mean different things must not look the same. An
   area of effect is a filled disc with a bright rim; a distance to another building is a rim only.
 
+## Visual Depth renderer
+
+**Visual Depth v0.25** ships the generator as a stylized low-poly Three.js diorama. The
+near-orthographic camera tilts and orbits in six 60-degree steps; terrain, buildings, cargo, fields,
+trees, depletion, overlays, and the player have shape while native gameplay remains on the existing
+axial plane. Visual terrain height is a total seven-band presentation lookup and never save,
+checksum, wire, movement, or construction state.
+
+A 3D mesh hand-authored per definition would be the atlas again. `machineMeshes.ts` maps all eight
+`ShapePart` kinds to a bounded reusable geometry vocabulary. `partsFor` applies the existing
+`TIER_LADDER` and `HUB_LADDER`, and `worldInstances.ts` groups the resulting anatomy into instanced
+part/material buckets. Belt, riser, and bridge geometry is likewise shared between the game and the
+contact sheet. No definition owns a model and no building owns a draw call.
+
+Terrain prisms use the exact public pointy-top axial radius. Adjacent centres therefore meet at one
+apothem with no triangular holes. Grid, hover, selection, legality, native drag preview, arrows, and
+reach rings use the same pointy-top start angle (`pi / 6`), so an overlay cannot present a hex rotated
+away from the tile beneath it. Tests pin both the apothem and overlay orientation.
+
+The contact sheet now renders 23 definitions, three ladder states, four status cells, and all six
+orbits through one retained offscreen WebGL context using the same production geometry. Reduced
+motion freezes every phase transform; colour can still be removed to judge silhouette alone.
+
 ## Longer horizon
 
 - **Organic tileables.** The rules above are the 2D start. The later systems produce tileable
   textures and shapes so a hex lattice reads as organic terrain and organic objects — still
   generated from published snapshot facts, still never a checksum input.
-- **3D presentation.** The camera tilts and orbits the player; terrain, buildings, and the player
-  gain shape. A 3D mesh hand-authored per definition is the atlas again; a mesh derived from
-  `recipe_category` and tier is this generator in another dimension. **Stage D is the cheapest
-  available preparation for it** — a part list with anchors and scales is a description of a machine
-  rather than a sequence of draw calls, and that description is what a mesh generator would consume.
-  The 2D walker is one consumer of the grammar, not the grammar itself.
+- **Native elevation and underground strata.** They follow only if the shipped 3D renderer proves
+  the camera, picking, readability, and laptop budget. Visual height alone does not change a save or
+  checksum.
 
 `docs/art/world-shape-still.png` is the argument-piece mockup of a running factory on the bands.

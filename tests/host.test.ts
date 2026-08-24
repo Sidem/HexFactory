@@ -1153,6 +1153,8 @@ describe("availability and expanded snapshot adapter", () => {
     expect(html).toContain('class="field-actions"');
     expect(html).toContain('id="minimap"');
     expect(html).toContain('id="home-readout"');
+    expect(html).toContain('class="home-compass"');
+    expect(html).toContain('id="home-readout-text"');
     expect(html).toContain("<kbd>Space</kbd>");
     expect(html).toContain("<kbd>I</kbd>");
   });
@@ -1256,17 +1258,20 @@ describe("availability and expanded snapshot adapter", () => {
     expect(css).not.toMatch(/\.inspector\s*\{[^}]*white-space:\s*pre-line/);
   });
 
-  it("shrinks the hex lattice on screen and keeps counts off untouched fields", () => {
-    const renderer = readFileSync(
-      new URL("../src/rendering/CanvasFactoryRenderer.ts", import.meta.url),
+  it("keeps the visual lattice compact and depleted fields spatial", () => {
+    const contract = readFileSync(
+      new URL("../src/rendering/FactoryRenderer.ts", import.meta.url),
+      "utf8",
+    );
+    const instances = readFileSync(
+      new URL("../src/rendering/three/worldInstances.ts", import.meta.url),
       "utf8",
     );
     // More hexes in the viewport is a presentation knob, not another PLAYER_RADIUS bump.
-    expect(renderer).toContain("export const BASE_HEX_SIZE = 22");
-    expect(renderer).toContain("const drawnFrom");
-    expect(renderer).toContain("drawFieldLabel(");
-    // The old always-on count is what turned the landscape into a spreadsheet.
-    expect(renderer).not.toContain("String(resource.quantity)");
+    expect(contract).toContain("export const BASE_HEX_SIZE = 22");
+    expect(instances).toContain('mesh.name = "depleted-field-scars"');
+    // Resource amounts stay in the inspector; the landscape does not become a spreadsheet.
+    expect(instances).not.toContain("String(resource.quantity)");
   });
 
   it("resolves definitions once and keeps the bench out of the game", () => {

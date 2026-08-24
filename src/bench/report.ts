@@ -68,7 +68,7 @@ export interface HostTierResult {
   checksum: number;
   /** Buildings in the host's cached snapshot after the run, through the per-entity patch path. */
   applied_entities: number;
-  /** `CanvasFactoryRenderer.draw` at the pinned 1440×900 viewport, camera on the player. */
+  /** Shipped world renderer draw at the pinned 1440×900 viewport, camera on the player. */
   render_world_us?: number;
   /** `MinimapRenderer.draw` at the shipped 178 px square. */
   render_minimap_us?: number;
@@ -76,6 +76,15 @@ export interface HostTierResult {
   render_us?: number;
   /** How many world draws the 20 ms sample budget bought. */
   render_samples?: number;
+  renderer_name?: string;
+  graphics_profile?: string;
+  draw_calls?: number;
+  triangles?: number;
+  geometries?: number;
+  textures?: number;
+  cpu_preparation_us?: number;
+  render_p95_us?: number;
+  js_heap_bytes?: number;
   /** `host_frame_us + render_us`: one browser frame, end to end. */
   browser_frame_us?: number;
 }
@@ -94,6 +103,8 @@ export interface BenchEnvironment {
   minimap_size?: number;
   device_pixel_ratio?: number;
   hex_size?: number;
+  renderer_name?: string;
+  graphics_profile?: string;
 }
 
 /** The viewport the renderer measurement pins, matching the 1440×900 playtest and the shipped minimap. */
@@ -228,6 +239,13 @@ export const TIER_COLUMNS = [
   "world µs",
   "minimap µs",
   "render µs",
+  "CPU prep µs",
+  "render p95 µs",
+  "draw calls",
+  "triangles",
+  "geometries",
+  "textures",
+  "JS heap MiB",
   "browser frame µs",
   "sim share",
   "frame share",
@@ -255,6 +273,17 @@ export function tierRow(tier: MergedTierResult): string[] {
     rendered ? micros(host.render_world_us) : "—",
     rendered ? micros(host.render_minimap_us) : "—",
     rendered ? micros(host.render_us) : "—",
+    host?.cpu_preparation_us !== undefined
+      ? micros(host.cpu_preparation_us)
+      : "—",
+    host?.render_p95_us !== undefined ? micros(host.render_p95_us) : "—",
+    host?.draw_calls !== undefined ? integer(host.draw_calls) : "—",
+    host?.triangles !== undefined ? integer(host.triangles) : "—",
+    host?.geometries !== undefined ? integer(host.geometries) : "—",
+    host?.textures !== undefined ? integer(host.textures) : "—",
+    host?.js_heap_bytes !== undefined
+      ? (host.js_heap_bytes / 1024 / 1024).toFixed(1)
+      : "—",
     rendered ? micros(host.browser_frame_us) : "—",
     host ? frameShare(host.host_frame_us) : "—",
     rendered ? frameShare(host.browser_frame_us) : "—",

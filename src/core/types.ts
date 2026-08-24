@@ -334,6 +334,10 @@ export interface PlayerSnapshot extends WorldPoint {
   move_x: number;
   move_y: number;
   inventory: Record<string, number>;
+  /**
+   * Work still outstanding on the field action in flight, in player steps. It is the swing itself
+   * rather than a wait after one: nothing is taken until this reaches zero.
+   */
   action_cooldown: number;
   build_range: number;
   /** How many stacks the player can carry at once. */
@@ -346,8 +350,8 @@ export interface PlayerSnapshot extends WorldPoint {
   /** Collision and drawing radius in native world units. */
   radius: number;
   /**
-   * What a fresh action cooldown is worth. The wait is drawn as `action_cooldown` against this,
-   * so the host never infers the maximum by watching the value fall.
+   * What a whole swing is worth. Progress is drawn as `action_cooldown` against this, so the host
+   * never infers the maximum by watching the value fall.
    */
   action_cooldown_total: number;
   /** How many hexes the hand can gather across, published by native for the held-action ring. */

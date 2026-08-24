@@ -54,6 +54,14 @@
         opacity: 0.45;
         cursor: default;
       }
+      select {
+        font: inherit;
+        color: var(--ink);
+        background: #122522;
+        border: 1px solid var(--edge);
+        border-radius: 0.4rem;
+        padding: 0.45rem 0.65rem;
+      }
       #status {
         margin: 0;
       }
@@ -130,6 +138,12 @@
       <code>docs/BENCHMARKS.md</code>.
     </p>
     <div class="controls">
+      <label for="graphics-profile">Graphics profile</label>
+      <select id="graphics-profile">
+        <option value="low">Low</option>
+        <option value="medium">Medium</option>
+        <option value="high">High</option>
+      </select>
       <button id="run-full" type="button">Run full ladder</button>
       <button id="run-quick" type="button">Run quick ladder</button>
       <button id="copy-json" type="button" disabled>Copy JSON</button>

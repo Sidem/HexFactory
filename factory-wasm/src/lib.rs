@@ -1380,6 +1380,19 @@ struct Core {
     /// Capacity harness only: consumers run at full speed so the ladder still measures transport.
     power_unmetered: bool,
     player: PlayerState,
+    /// The field hex the player is currently working, while a swing is in flight.
+    ///
+    /// A harvest is work, and work takes time *before* it pays. `action_cooldown` used to be a wait
+    /// imposed after an instant take, which handed the player the first unit of every material the
+    /// moment they pressed the button and only then made them wait — the one gather in a session
+    /// that was free was the first one. The counter now measures the swing that is still running
+    /// and this is the hex it will land on, so the ring the host already draws is progress toward a
+    /// unit rather than a debt against one already banked.
+    ///
+    /// Saved and checksummed beside `action_cooldown`, because the two are one fact: a save that
+    /// carried the remaining work without what it is working on would come back counting down to
+    /// nothing.
+    pending_gather: Option<Coordinate>,
     /// Whether this run builds for free with everything unlocked. Saved and checksummed: it changes
     /// what a construction costs and what an erase gives back, so two runs that differ only in this
     /// are not the same run, and a save that lost it would come back priced.
@@ -1416,9 +1429,9 @@ struct Core {
     /// apart. Saved and checksummed: what a later fill pays depends on it.
     request_fills: BTreeMap<RequestId, u32>,
     produced: BTreeMap<ItemId, u64>,
-    /// What the current (or last) action cooldown was worth when it started. Snapshot-only: the
-    /// host draws remaining against this, and a save mid-gather republishes the remaining count so
-    /// the ring starts full of what is left. Never saved, hashed, or checksummed.
+    /// What the current (or last) swing was worth when it started. Snapshot-only: the host draws
+    /// the work still outstanding against this, and a save mid-gather republishes the remaining
+    /// count so the ring resumes where it stood. Never saved, hashed, or checksummed.
     last_action_cooldown_total: u32,
     events: Vec<String>,
     /// Derived presentation state: what has changed since the host's last delta. Never saved,
@@ -1507,6 +1520,7 @@ impl Core {
                 build_range: scenario.build_range.saturating_mul(HEX_X as u32),
                 carry_slots: scenario.carry_slots,
             },
+            pending_gather: None,
             creative: false,
             researched: scenario.initial_researched.iter().copied().collect(),
             next_entity_id: 1,
@@ -1578,6 +1592,14 @@ impl Core {
 
     fn recipe(&self, id: RecipeId) -> Option<&RecipeDefinition> {
         self.definitions.recipes.iter().find(|value| value.id == id)
+    }
+
+    /// What to call an item in something the player reads. Numbered only when the definitions have
+    /// nothing to say, which a validated catalogue never does.
+    fn item_name(&self, item: ItemId) -> String {
+        self.item_definition(item)
+            .map(|definition| definition.name.clone())
+            .unwrap_or_else(|| format!("item {item}"))
     }
 
     fn stack_size(&self, item: ItemId) -> u32 {
@@ -2885,11 +2907,17 @@ impl Core {
     /// count, not a delta — so the same command sequence still reproduces the same position and the
     /// same checksum.
     /// The player's clock. It runs on elapsed real time rather than factory time, so everything
-    /// the player does themselves — walking, and the cooldown between one action and the next —
-    /// keeps the same pace whether the factory is paused, slowed, or running flat out.
+    /// the player does themselves — walking, and the work one field action costs — keeps the same
+    /// pace whether the factory is paused, slowed, or running flat out. A swing lands on the step
+    /// that finishes it, on this clock and no other, which is why a paused factory can still be
+    /// mined and a fast one cannot be mined any faster.
     fn advance_player_steps(&mut self, count: u32) {
         for _ in 0..count {
+            let working = self.player.action_cooldown > 0;
             self.player.action_cooldown = self.player.action_cooldown.saturating_sub(1);
+            if working && self.player.action_cooldown == 0 {
+                self.finish_gather();
+            }
             self.advance_player();
         }
     }
@@ -3777,31 +3805,78 @@ impl Core {
         self.gather_from((q, r))
     }
 
-    /// Take one unit out of a field cell that has already been resolved and range-checked. Both
-    /// gathers land here, so the cooldown, the carrying rule, the depletion mark, and the event
-    /// are one implementation and cannot drift apart.
+    /// Start working a field cell that has already been resolved and range-checked. Both gathers
+    /// land here, so the work a material costs, the carrying rule, and the refusals are one
+    /// implementation and cannot drift apart.
+    ///
+    /// Nothing is taken here. The swing is armed and `finish_gather` pays it out when the player's
+    /// clock has actually spent the work — the deposit counts down and the item appears together,
+    /// at the end, which is the only moment either of them is true.
     fn gather_from(&mut self, key: (i32, i32)) -> Result<(), String> {
+        let (_, steps) = self.gather_check(key)?;
+        self.player.action_cooldown = steps;
+        self.last_action_cooldown_total = steps;
+        self.pending_gather = Some(Coordinate { q: key.0, r: key.1 });
+        Ok(())
+    }
+
+    /// Everything that has to hold for one unit to come out of a field cell: it is a field, it
+    /// still holds stock, the hand can work that material at all, and there is room to carry what
+    /// comes back. Answered twice for every harvest — once when the swing starts, so a refusal is
+    /// immediate and says why, and once when it lands, because a swing takes real time and the
+    /// world may have moved under it.
+    fn gather_check(&self, key: (i32, i32)) -> Result<(ItemId, u32), String> {
         let field = self
             .field_at(key.0, key.1)
             .ok_or("stand on or beside a field hex to gather")?;
         // `resource_at_world` filters empty cells for the untargeted gather, but a named hex has
-        // not been through that filter — and an empty one would underflow the subtraction below.
+        // not been through that filter — and an empty one would underflow the subtraction the
+        // payout makes.
         if self.deposit_quantity(key) == 0 {
             return Err("this deposit is worked out".into());
         }
         if self.player_room_for(field.item_id) == 0 {
             return Err("carrying capacity is full".into());
         }
-        let name = self
-            .item_definition(field.item_id)
-            .map(|item| item.name.clone())
-            .unwrap_or_else(|| format!("item {}", field.item_id));
         let steps = self
             .item_definition(field.item_id)
             .and_then(|item| item.hand_gather_steps)
             .ok_or_else(|| {
-                format!("{name} cannot be gathered by hand — place an extractor on the field")
+                format!(
+                    "{} cannot be gathered by hand — place an extractor on the field",
+                    self.item_name(field.item_id)
+                )
             })?;
+        Ok((field.item_id, steps))
+    }
+
+    /// The swing lands: one unit leaves the deposit and enters the pack, in the same step.
+    ///
+    /// It asks again what it asked when the swing started, because the work took real time: the
+    /// cell may have run out under an extractor, the pack may have filled from an erase refund, and
+    /// the player may have walked off the hex they were working. Reach is the same predicate the
+    /// start used, so a swing can never land on a cell an extractor standing here could not reach —
+    /// walking away cancels the harvest rather than dragging it along.
+    ///
+    /// A swing that no longer holds pays nothing and says nothing. The refusal for a harvest the
+    /// player can still start is the one they get when they start it, and the ring already showed
+    /// them the work; a toast at the end of it would be an error message for an action they had
+    /// already stopped taking.
+    fn finish_gather(&mut self) {
+        let Some(target) = self.pending_gather.take() else {
+            return;
+        };
+        let key = (target.q, target.r);
+        let origin = world_to_axial(self.player.x, self.player.y);
+        if !self.field_covered_at(origin, key, EXTRACT_RADIUS) {
+            return;
+        }
+        if self.gather_check(key).is_err() {
+            return;
+        }
+        let Some(field) = self.field_at(key.0, key.1) else {
+            return;
+        };
         let remaining = self.deposit_quantity(key) - 1;
         self.write_overlay(
             key.0,
@@ -3810,20 +3885,17 @@ impl Core {
             remaining,
             field.initial_quantity,
         );
-        let (item_id, depleted) = (field.item_id, remaining == 0);
         self.dirty.resources.push(key);
-        *self.player.inventory.entry(item_id).or_default() += 1;
-        self.player.action_cooldown = steps;
-        self.last_action_cooldown_total = steps;
+        *self.player.inventory.entry(field.item_id).or_default() += 1;
         // Named, not numbered. "Gathered item 6" was serviceable when the world held three items;
         // against a material base of twenty-three it tells the player nothing they can act on.
-        self.events.push(format!("Gathered {name}"));
-        if depleted {
+        self.events
+            .push(format!("Gathered {}", self.item_name(field.item_id)));
+        if remaining == 0 {
             // Any extractor covering this deposit may now report a different status.
             self.mark_all_entities_dirty();
             self.events.push("Deposit depleted".into());
         }
-        Ok(())
     }
 
     #[allow(dead_code)]
@@ -5250,6 +5322,14 @@ impl Core {
         hash_i32(&mut hash, i32::from(self.player.move_x));
         hash_i32(&mut hash, i32::from(self.player.move_y));
         hash_u32(&mut hash, self.player.action_cooldown);
+        // The swing that counter is measuring, so the two cannot be separated by an edit or by a
+        // save. An idle player hashes nothing here, which is what keeps a file written before the
+        // harvest became work — where no swing could be in flight — checksumming to the same value
+        // it did then.
+        if let Some(target) = self.pending_gather {
+            hash_i32(&mut hash, target.q);
+            hash_i32(&mut hash, target.r);
+        }
         // Both of these are now run state rather than scenario state: creative changes what a
         // construction costs, and creative can widen the pack. A save that carried either without
         // hashing it could come back describing a different run than the one that was saved.
@@ -5343,6 +5423,7 @@ impl Core {
             tiles: self.tiles.values().cloned().collect(),
             entities: self.entities.clone(),
             player: self.player.clone(),
+            pending_gather: self.pending_gather,
             researched: self.researched.clone(),
             next_entity_id: self.next_entity_id,
             tick: self.tick,
@@ -5443,6 +5524,7 @@ impl Core {
         // checksum and every arbitration order sort by id — so this cannot change a result.
         core.entities.sort_by_key(|entity| entity.id);
         core.player = envelope.state.player;
+        core.pending_gather = envelope.state.pending_gather;
         core.researched = envelope.state.researched;
         // Restored directly rather than through set_creative: the saved esearched set is
         // already the whole truth about what this run knows, and re-running the unlock would be a
@@ -5497,6 +5579,12 @@ struct SavedState {
     tiles: Vec<TileState>,
     entities: Vec<Entity>,
     player: PlayerState,
+    /// The hex a swing in flight is working. Optional and defaulted, because a save written before
+    /// a harvest cost work has no swing to carry and reads back as an idle player — and because
+    /// `checksum` hashes an absent one as nothing, such a file still checksums to what it did when
+    /// it was written.
+    #[serde(default)]
+    pending_gather: Option<Coordinate>,
     researched: BTreeSet<TechnologyId>,
     next_entity_id: u32,
     tick: u64,
@@ -10368,9 +10456,9 @@ mod tests {
         core
     }
 
-    /// Wait out a gather cooldown the way a player does — on their own clock, with the factory
-    /// untouched. Drains whatever the last gather actually cost, so a coal seam and a wood cell
-    /// share one helper.
+    /// Work a swing through to the step it lands on, the way a player does — on their own clock,
+    /// with the factory untouched. Spends whatever the last gather actually cost, so a coal seam
+    /// and a wood cell share one helper.
     fn cooldown(core: &mut Core) {
         let remaining = core.player.action_cooldown.max(1);
         core.advance_player_steps(remaining);
@@ -10609,6 +10697,7 @@ mod tests {
         let before = core.checksum();
         set_player_hex(&mut core, cell.0, cell.1);
         core.gather().unwrap();
+        cooldown(&mut core);
         assert_eq!(core.deposit_quantity(cell), quantity - 1);
         assert_eq!(
             core.tiles[&cell].resource.as_ref().unwrap().quantity,
@@ -11480,6 +11569,7 @@ mod tests {
         let initial = core.deposit_quantity(cell);
         set_player_hex(&mut core, cell.0, cell.1);
         core.gather().unwrap();
+        cooldown(&mut core);
         assert_eq!(core.deposit_quantity(cell), initial - 1);
         assert!(core.flora_regrowth.contains(&cell));
 
@@ -11501,6 +11591,7 @@ mod tests {
         cooldown(&mut core);
         set_player_hex(&mut core, 3, 0);
         core.gather().unwrap();
+        cooldown(&mut core);
         assert_eq!(core.deposit_quantity((3, 0)), 47);
         assert!(core.flora_regrowth.is_empty());
     }
@@ -11855,6 +11946,7 @@ mod tests {
                 core.player.facing_x = facing_x;
                 core.player.facing_y = facing_y;
                 core.gather().unwrap();
+                cooldown(&mut core);
                 assert_eq!(
                     (
                         core.deposit_quantity((2, 0)),
@@ -11883,6 +11975,7 @@ mod tests {
                     (core.player.facing_x, core.player.facing_y) = world_direction(facing);
                     core.ensure_neighborhood(core.player.x, core.player.y);
                     let reached = core.gather().is_ok();
+                    cooldown(&mut core);
                     // One step out only reaches back if no nearer field cell outbids (3,0); the
                     // rule is the shared candidate list, so ask it rather than restating it.
                     let expected = core.resource_at_world(x, y) == Some((3, 0));
@@ -11915,7 +12008,11 @@ mod tests {
         core.advance_player_steps(total - 1);
         assert!(core.gather().is_err(), "cleared early");
         core.advance_player_steps(1);
+        // The step that cleared the counter is the step the first swing landed on: one unit, paid
+        // at the end of the work rather than at the start of it.
+        assert_eq!(core.deposit_quantity((3, 0)), 47);
         core.gather().unwrap();
+        cooldown(&mut core);
         assert_eq!(core.tick, 0);
         assert_eq!(core.deposit_quantity((3, 0)), 46);
 
@@ -11927,6 +12024,89 @@ mod tests {
         assert!(
             core.gather().is_err(),
             "factory time paid the player's debt"
+        );
+    }
+
+    /// The first harvest of a session used to be free. The counter was a debt charged *after* an
+    /// instant take, so the button banked a unit the moment it went down and only then made the
+    /// player wait — the one gather in a run that cost nothing was the first one, and the ring drew
+    /// a wait for work that had already been paid out.
+    ///
+    /// It now measures the swing itself. Nothing moves until the work is spent, the deposit and the
+    /// pack change in the same step, and a swing the player walks out of reach of pays nothing —
+    /// harvesting is work over a hex, not a toll on the hex you were last standing beside.
+    #[test]
+    fn a_harvest_pays_when_the_work_is_done_and_never_before_it() {
+        let (definitions, technologies, scenarios) = catalogs();
+        let mut core = game("new-game");
+        set_player_hex(&mut core, 3, 0);
+        let initial = core.deposit_quantity((3, 0));
+
+        core.gather().unwrap();
+        let work = core.player.action_cooldown;
+        assert!(work > 1, "iron ore is more than a single step of work");
+        assert_eq!(
+            (
+                core.player.inventory.get(&IRON_ORE),
+                core.deposit_quantity((3, 0))
+            ),
+            (None, initial),
+            "the press alone moved something"
+        );
+        core.advance_player_steps(work - 1);
+        assert_eq!(
+            (
+                core.player.inventory.get(&IRON_ORE),
+                core.deposit_quantity((3, 0))
+            ),
+            (None, initial),
+            "paid before the work was finished"
+        );
+        core.advance_player_steps(1);
+        assert_eq!(
+            (
+                core.player.inventory.get(&IRON_ORE).copied(),
+                core.deposit_quantity((3, 0))
+            ),
+            (Some(1), initial - 1),
+            "the deposit and the pack move together, at the end"
+        );
+
+        // A swing carries across a save, because the counter that is running is saved and what it
+        // is working on has to be saved with it.
+        core.gather().unwrap();
+        core.advance_player_steps(work / 2);
+        let save = core.save_string().unwrap();
+        let mut resumed = Core::from_save(&definitions, &technologies, &scenarios, &save).unwrap();
+        resumed.advance_player_steps(work);
+        core.advance_player_steps(work);
+        assert_eq!(
+            (
+                resumed.player.inventory.get(&IRON_ORE).copied(),
+                resumed.deposit_quantity((3, 0))
+            ),
+            (Some(2), initial - 2),
+            "a resumed swing has to land"
+        );
+        assert_eq!(
+            resumed.checksum(),
+            core.checksum(),
+            "the resumed swing and the uninterrupted one are the same run"
+        );
+
+        // Walking out of reach cancels it. Reach is the same predicate the start asked, so a swing
+        // can never land on a cell an extractor standing here could not work.
+        core.gather().unwrap();
+        core.advance_player_steps(work / 2);
+        set_player_hex(&mut core, 9, 0);
+        core.advance_player_steps(work);
+        assert_eq!(
+            (
+                core.player.inventory.get(&IRON_ORE).copied(),
+                core.deposit_quantity((3, 0))
+            ),
+            (Some(2), initial - 2),
+            "a harvest the player walked away from still paid"
         );
     }
 
@@ -15062,11 +15242,12 @@ mod tests {
 
         // The untargeted gather still takes from the hex underfoot.
         core.gather().unwrap();
-        assert_eq!(core.deposit_quantity((3, 0)), 47);
         cooldown(&mut core);
+        assert_eq!(core.deposit_quantity((3, 0)), 47);
 
         // The named one takes from the neighbour that was named, and leaves the rest alone.
         core.gather_at(4, 0).unwrap();
+        cooldown(&mut core);
         assert_eq!(
             (
                 core.deposit_quantity((2, 0)),
@@ -15075,7 +15256,6 @@ mod tests {
             ),
             (20, 47, 19)
         );
-        cooldown(&mut core);
 
         // Reach is the same predicate, so a hex an extractor here could not cover is refused.
         assert!(core.gather_at(6, 0).unwrap_err().contains("out of reach"));

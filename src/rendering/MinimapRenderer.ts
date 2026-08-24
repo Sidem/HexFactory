@@ -7,10 +7,7 @@ import type {
   ItemDefinition,
   WorldPoint,
 } from "../core/types";
-import {
-  BUILDING_COLORS,
-  MAX_DEVICE_PIXEL_RATIO,
-} from "./CanvasFactoryRenderer";
+import { BUILDING_COLORS, MAX_DEVICE_PIXEL_RATIO } from "./FactoryRenderer";
 import { parseRgba } from "./gl/color";
 import {
   compileProgram,

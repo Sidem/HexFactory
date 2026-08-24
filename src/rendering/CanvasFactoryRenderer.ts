@@ -18,6 +18,15 @@ import type {
   WorldPoint,
 } from "../core/types";
 import {
+  BASE_HEX_SIZE,
+  BUILDING_COLORS,
+  MAX_DEVICE_PIXEL_RATIO,
+  type FactoryRenderer,
+  type GraphicsProfile,
+  type ReachRadii,
+  type RendererDiagnostics,
+} from "./FactoryRenderer";
+import {
   cargoTravel,
   facingTip,
   NORTH,
@@ -34,26 +43,9 @@ import { isStill, drawParts } from "./shapeGrammar";
 import type { ShapePart } from "./shapeGrammar";
 import { drawItemIcon } from "./icons";
 import { WORLD_SCALE, homeBearing } from "./landmarks";
-import { WorldGl, type ReachRadii } from "./gl/WorldGl";
+import { WorldGl } from "./gl/WorldGl";
 
-export const BASE_HEX_SIZE = 22;
-/** Cap backing-store resolution. A 2× display otherwise costs four times the fill. */
-export const MAX_DEVICE_PIXEL_RATIO = 1.5;
-
-/** One colour per building kind, shared with the minimap so a machine reads the same on both. */
-export const BUILDING_COLORS: Record<EntitySnapshot["kind"], string> = {
-  extractor: "#b75e45",
-  belt: "#415b78",
-  composer: "#765bae",
-  container: "#a07c3e",
-  consumer: "#3c806a",
-  hub: "#d1a945",
-  pump: "#2f7d9c",
-  pole: "#c8b56b",
-  generator: "#d4a017",
-  boiler: "#a85c32",
-  bridge: "#8f7655",
-};
+export { BASE_HEX_SIZE, BUILDING_COLORS, MAX_DEVICE_PIXEL_RATIO };
 
 const TREE_TRUNK: readonly ShapePart[] = [
   { part: "mast", x: 0, y: 0.16, scale: 0.18 },
@@ -171,7 +163,7 @@ export class HexCamera {
   }
 }
 
-export class CanvasFactoryRenderer {
+export class CanvasFactoryRenderer implements FactoryRenderer {
   readonly camera = new HexCamera();
   private readonly context: CanvasRenderingContext2D;
   private readonly overlay: HTMLCanvasElement;
@@ -210,6 +202,7 @@ export class CanvasFactoryRenderer {
   private needsDraw = true;
   private layoutDirty = true;
   private layout = { width: 1, height: 1, ratio: 1, left: 0, top: 0 };
+  private profile: GraphicsProfile = "low";
 
   constructor(
     private readonly canvas: HTMLCanvasElement,
@@ -338,6 +331,11 @@ export class CanvasFactoryRenderer {
     );
   }
 
+  /** Development fallback only: its unrotated camera already shares the native axes. */
+  screenMovement(x: number, y: number): WorldPoint {
+    return { x, y };
+  }
+
   panBy(x: number, y: number): void {
     this.camera.panBy(x, y);
     this.markDirty();
@@ -357,6 +355,37 @@ export class CanvasFactoryRenderer {
   recenter(): void {
     if (this.snapshot) this.camera.recenter(this.snapshot.player);
     this.markDirty();
+  }
+
+  /** Development fallback only: the legacy flat renderer has no orbit. */
+  orbitBy(): void {}
+
+  setGraphicsProfile(profile: GraphicsProfile): void {
+    this.profile = profile;
+  }
+
+  getGraphicsProfile(): GraphicsProfile {
+    return this.profile;
+  }
+
+  getDiagnostics(): RendererDiagnostics {
+    return {
+      name: "Legacy hybrid WebGL2/Canvas",
+      profile: this.profile,
+      drawCalls: 0,
+      triangles: 0,
+      geometries: 0,
+      textures: 0,
+      cpuPreparationUs: 0,
+      contextLost: this.world.isLost,
+      pixelRatio: this.layout.ratio,
+      frameP95Us: 0,
+      frameSamples: 0,
+    };
+  }
+
+  dispose(): void {
+    this.overlay.remove();
   }
 
   renderFrame(now: number): void {
@@ -832,13 +861,13 @@ export class CanvasFactoryRenderer {
   }
 
   /**
-   * The wait between one field action and the next, drawn where the action happens instead of
-   * written in the message strip. A refusal the player can see coming is not an error message: the
-   * ring closes as the cooldown drains, so holding the harvest key reads as a rhythm rather than as
-   * a stream of "cooling down" toasts.
+   * The swing the player is working, drawn where the work happens instead of written in the message
+   * strip. A refusal the player can see coming is not an error message: the ring closes as the work
+   * is spent and the unit lands on the step that completes it, so holding the harvest key reads as
+   * a rhythm rather than as a stream of "cooling down" toasts.
    *
-   * Both numbers are native. `action_cooldown` is the wait still outstanding and
-   * `action_cooldown_total` is what a fresh one is worth, so the host draws a proportion it was
+   * Both numbers are native. `action_cooldown` is the work still outstanding and
+   * `action_cooldown_total` is what the whole swing is worth, so the host draws a proportion it was
    * given rather than inferring a maximum from a value it watched fall.
    */
   private drawActionCooldown(center: PixelPoint, radius: number): void {

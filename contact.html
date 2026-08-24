@@ -55,7 +55,7 @@
       }
       #sheet {
         display: grid;
-        grid-template-columns: repeat(auto-fill, minmax(430px, 1fr));
+        grid-template-columns: 1fr;
         gap: 1rem;
       }
       .card {
@@ -63,6 +63,7 @@
         border: 1px solid var(--edge);
         border-radius: 10px;
         padding: 0.9rem 1rem 1rem;
+        overflow-x: auto;
       }
       .card h2 {
         font-size: 1.05rem;
@@ -75,7 +76,7 @@
       }
       .grid {
         display: grid;
-        grid-template-columns: 7.5rem repeat(4, auto);
+        grid-template-columns: 7.5rem repeat(4, 336px);
         gap: 0.3rem;
         align-items: center;
         justify-items: center;
@@ -105,6 +106,12 @@
         border-radius: 6px;
         line-height: 0;
       }
+      #contact-render-source {
+        position: fixed;
+        left: -200vw;
+        top: 0;
+        pointer-events: none;
+      }
       .notes {
         margin: 0.8rem 0 0;
         padding-left: 1.1rem;
@@ -124,10 +131,10 @@
     <h1>Shape contact sheet</h1>
     <p class="lede">
       Every building definition, at every tier the ladder can produce, in every
-      status that reaches the drawing. The cells use the shipped renderer, so
-      this is what the game draws and not a second illustration of it. Turn
-      colour off to check the milestone's acceptance directly: a tier has to be
-      distinguishable from the tier below it by silhouette alone.
+      status that reaches the drawing and all six camera orbits. One retained
+      Three.js scene produces every strip; cards never create WebGL contexts.
+      Turn colour off to check the milestone's acceptance directly: a tier has
+      to be distinguishable from the tier below it by silhouette alone.
     </p>
     <div class="controls">
       <label><input id="colour" type="checkbox" checked /> Colour</label>

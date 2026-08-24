@@ -243,13 +243,24 @@ snapshot destroys the element the pointer went down on, the browser retargets th
 container, and a delegated handler resolves nothing — which is how research clicks were being
 silently dropped about once a second.
 
-The replaceable world renderer is WebGL2: instanced terrain, resources, buildings, and fog, with
-the camera as a uniform so walking does not restamp the mosaic. A Canvas 2D overlay carries the
-player, labels, and machine decorations. The minimap is the same idea at 178 px: instanced
-rectangles, player-centred uniforms, rebuilt only when the surveyed world changes. The longer-horizon replacement is a 3D renderer whose camera
-tilts and orbits the player and whose terrain, buildings, and player have shape — still
-presentation over the same snapshots, measured against the v0.12.4 baseline. The
-construction grid is hidden outside editing unless explicitly toggled. The command bar,
+`FactoryRenderer` is the replaceable world boundary. Visual Depth v0.25 supplies its production
+implementation with Three.js: an orthographic scene camera at a fixed tilt, six discrete 60-degree
+orbits, bounded zoom, native-snapshot-driven instance buckets, and scene overlays. Picking
+intersects the unchanged logical axial plane and converts through the public
+`@hexlife/embed/hex` geometry; rendered terrain height never enters a command. Native-resolved drag
+cells, twelve transport headings, and native chunk coverage are consumed rather than reconstructed.
+
+The scene is split by responsibility: `HexSceneCamera`, `terrainMeshes`, `machineMeshes`,
+`worldInstances`, `overlays`, shared materials, and quality profiles. Terrain and generated machine
+parts are instanced by bounded visual buckets, animation updates existing transforms, and renderer
+diagnostics expose draw calls, triangles, geometry/texture counts, CPU preparation, and a rolling
+frame p95. Lost WebGL contexts pause drawing and a restored context rebuilds GPU state from retained
+snapshot presentation state. New game and load reconcile or dispose scene resources without making
+them simulation state. The old hybrid renderer remains source-only for regression tests and is not
+reachable from a production entry point or development query switch.
+
+The minimap remains the 178 px instanced WebGL2 view, rebuilt only when surveyed presentation state
+changes. The construction grid is hidden outside editing unless explicitly toggled. The command bar,
 snapshot-derived next-action guidance, inventory/research panels, construction dock, held touch pad,
 camera following, pan/zoom, feedback, and reduced-motion behavior are presentation only. Touch and
 keyboard movement share the same bounded native intent commands. `@hexlife/embed/hex` performs
@@ -350,7 +361,9 @@ The harness is measurement code and never becomes shipped code. It enters the wa
 under the `bench` cargo feature, and the dev-only `/bench.html` page is not part of the production
 build, so the deployed artifact carries none of it. That page adds the costs a native run cannot
 see, measured through the game's own paths: the worker RPC round trip, `applySnapshotDelta`
-merging the patch on the main thread, and the two canvases the game draws.
+merging the patch on the main thread, the Three.js world, and the minimap. Since v0.25 it also
+records renderer/profile identity, draw calls, triangles, geometries, textures, CPU preparation,
+render p95, and available JavaScript heap evidence.
 
 The measurement has reordered the work three times: the first browser record priced the worker
 boundary and made a binary delta encoding the next milestone, that encoding took the boundary out of
@@ -361,10 +374,10 @@ limits; nothing here restates a number it owns.
 ## Fog of war
 
 Chunks are the unit of world generation, so the set of generated chunks is exactly the surveyed
-world. Each chunk snapshot carries its native world-space origin and span, and the host renders
-everything outside those bounds as fog: a hatched cool veil punched out by the surveyed rectangles
-on an offscreen layer, so overlapping chunk edges leave no seams, with a dashed frontier drawn along
-every surveyed edge whose neighbouring chunk does not exist yet. The inspector reports an unsurveyed
+world. Each chunk snapshot carries its native world-space origin and span. The Three.js terrain
+builder fills the exact union of surveyed pointy-top cells (including implicit lowland) and draws a
+frontier only on cell edges whose neighbour is outside that union, so overlapping chunk rectangles
+cannot create internal crossings. The inspector reports an unsurveyed
 selection and the game menu counts surveyed sectors. **Lowland is the default fill and is
 deliberately not sent as terrain**, so a surveyed hex carrying no terrain entry is lowland rather
 than an unknown tile — the inspector names every surveyed hex on that basis. None of this is host-invented geography: the

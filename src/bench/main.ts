@@ -17,10 +17,12 @@ import type {
 import rawDefinitions from "../data/definitions.json";
 import {
   BASE_HEX_SIZE,
-  CanvasFactoryRenderer,
-} from "../rendering/CanvasFactoryRenderer";
+  type FactoryRenderer,
+  type GraphicsProfile,
+} from "../rendering/FactoryRenderer";
 import { findLandingHub } from "../rendering/landmarks";
 import { MinimapRenderer } from "../rendering/MinimapRenderer";
+import { ThreeFactoryRenderer } from "../rendering/three/ThreeFactoryRenderer";
 import {
   RENDER_VIEWPORT,
   TIER_COLUMNS,
@@ -109,6 +111,7 @@ const status = element<HTMLParagraphElement>("status");
 const head = element<HTMLTableRowElement>("table-head");
 const body = element<HTMLTableSectionElement>("table-body");
 const output = element<HTMLPreElement>("json");
+const graphicsProfile = element<HTMLSelectElement>("graphics-profile");
 
 let lastReport: BrowserReport | null = null;
 
@@ -131,6 +134,9 @@ async function run(quick: boolean): Promise<void> {
   body.replaceChildren();
   output.textContent = "";
   lastReport = null;
+  const profile = graphicsProfile.value as GraphicsProfile;
+  resetRenderSurfaces();
+  graphicsProfile.disabled = true;
 
   const transport = new BenchTransport(
     new Worker(new URL("./capacity.worker.ts", import.meta.url), {
@@ -149,7 +155,7 @@ async function run(quick: boolean): Promise<void> {
       const measured = await transport.request<NativeTierResult>("measure", {
         index,
       });
-      const host = await measureRoundTrip(transport, index, tier);
+      const host = await measureRoundTrip(transport, index, tier, profile);
       hosts.push(host);
       appendRow({ ...measured, host });
       // Yield to the event loop so the page paints each tier as it lands.
@@ -168,6 +174,8 @@ async function run(quick: boolean): Promise<void> {
       device_pixel_ratio: window.devicePixelRatio || 1,
       hex_size: BASE_HEX_SIZE,
       worker_clock_resolution_us: created.clockResolutionUs,
+      renderer_name: "Three.js Visual Depth",
+      graphics_profile: profile,
       recorded: new Date().toISOString(),
     });
     output.textContent = JSON.stringify(lastReport, null, 2);
@@ -181,8 +189,10 @@ async function run(quick: boolean): Promise<void> {
     report(error instanceof Error ? error.message : String(error), true);
   } finally {
     transport.dispose();
+    resetRenderSurfaces();
     runFull.disabled = false;
     runQuick.disabled = false;
+    graphicsProfile.disabled = false;
   }
 }
 
@@ -199,6 +209,7 @@ async function measureRoundTrip(
   transport: BenchTransport,
   index: number,
   tier: TierSpecSummary,
+  profile: GraphicsProfile,
 ): Promise<HostTierResult> {
   let snapshot = await transport.request<FactorySnapshot>("roundTripStart", {
     index,
@@ -229,7 +240,7 @@ async function measureRoundTrip(
     ((roundTripEnded - roundTripStarted) * 1000) / tier.frames;
   const applyUs = ((applyEnded - applyStarted) * 1000) / tier.frames;
   const hostFrameUs = roundTripUs + applyUs;
-  const rendered = measureRender(snapshot);
+  const rendered = measureRender(snapshot, profile);
   return {
     key: tier.key,
     frames: tier.frames,
@@ -250,47 +261,93 @@ async function measureRoundTrip(
  * renderer, not of the bench page's layout. Each canvas is warmed once, then repeated until the
  * same 20 ms budget the rest of the browser harness uses.
  */
-function measureRender(snapshot: FactorySnapshot): {
+function measureRender(
+  snapshot: FactorySnapshot,
+  profile: GraphicsProfile,
+): {
   render_world_us: number;
   render_minimap_us: number;
   render_us: number;
   render_samples: number;
+  renderer_name: string;
+  graphics_profile: GraphicsProfile;
+  draw_calls: number;
+  triangles: number;
+  geometries: number;
+  textures: number;
+  cpu_preparation_us: number;
+  render_p95_us: number;
+  js_heap_bytes?: number;
 } {
-  const { world, minimap } = renderSurfaces();
+  const { world, minimap } = renderSurfaces(profile);
   const home = findLandingHub(snapshot);
   world.setHome(home);
   world.setSnapshot(snapshot);
+  world.draw();
   const worldTimed = timeMeanUs(() => {
     world.draw();
   });
   minimap.setSnapshot(snapshot, home);
+  minimap.draw();
   const minimapTimed = timeMeanUs(() => {
     minimap.draw();
   });
+  const diagnostics = world.getDiagnostics();
   return {
     render_world_us: worldTimed.meanUs,
     render_minimap_us: minimapTimed.meanUs,
     render_us: worldTimed.meanUs + minimapTimed.meanUs,
     render_samples: worldTimed.samples,
+    renderer_name: diagnostics.name,
+    graphics_profile: diagnostics.profile,
+    draw_calls: diagnostics.drawCalls,
+    triangles: diagnostics.triangles,
+    geometries: diagnostics.geometries,
+    textures: diagnostics.textures,
+    cpu_preparation_us: diagnostics.cpuPreparationUs,
+    render_p95_us: diagnostics.frameP95Us,
+    js_heap_bytes: browserHeapBytes(),
   };
 }
 
+function browserHeapBytes(): number | undefined {
+  const memory = (
+    performance as Performance & {
+      memory?: { usedJSHeapSize?: number };
+    }
+  ).memory;
+  return memory?.usedJSHeapSize;
+}
+
 let surfaces: {
-  world: CanvasFactoryRenderer;
+  world: FactoryRenderer;
   minimap: MinimapRenderer;
+  profile: GraphicsProfile;
 } | null = null;
 
-function renderSurfaces(): {
-  world: CanvasFactoryRenderer;
+function renderSurfaces(profile: GraphicsProfile): {
+  world: FactoryRenderer;
   minimap: MinimapRenderer;
+  profile: GraphicsProfile;
 } {
-  if (surfaces) return surfaces;
+  if (surfaces?.profile === profile) return surfaces;
+  resetRenderSurfaces();
   const definitions = loadDefinitions();
   surfaces = {
-    world: new CanvasFactoryRenderer(element("bench-world"), definitions),
+    world: new ThreeFactoryRenderer(
+      element("bench-world"),
+      definitions,
+      profile,
+    ),
     minimap: new MinimapRenderer(element("bench-minimap"), definitions),
+    profile,
   };
   return surfaces;
+}
+
+function resetRenderSurfaces(): void {
+  surfaces?.world.dispose();
+  surfaces = null;
 }
 
 function loadDefinitions(): Definitions {

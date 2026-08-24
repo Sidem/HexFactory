@@ -22,6 +22,10 @@ export const WALK_SCALE = 0.6;
 export function movementIntent(
   pressed: ReadonlySet<string>,
   running = false,
+  screenToWorld: (x: number, y: number) => { x: number; y: number } = (
+    x,
+    y,
+  ) => ({ x, y }),
 ): {
   type: "move_intent";
   x: number;
@@ -38,12 +42,16 @@ export function movementIntent(
   }
   x = Math.max(-1, Math.min(1, x));
   y = Math.max(-1, Math.min(1, y));
-  const diagonal = x !== 0 && y !== 0;
-  const magnitude = (diagonal ? 707 : 1000) * (running ? 1 : WALK_SCALE);
+  const screenLength = Math.hypot(x, y);
+  if (screenLength === 0) return { type: "move_intent", x: 0, y: 0 };
+  const world = screenToWorld(x / screenLength, y / screenLength);
+  const worldLength = Math.hypot(world.x, world.y);
+  if (worldLength === 0) return { type: "move_intent", x: 0, y: 0 };
+  const magnitude = 1000 * (running ? 1 : WALK_SCALE);
   return {
     type: "move_intent",
-    x: Math.round(x * magnitude),
-    y: Math.round(y * magnitude),
+    x: Math.round((world.x / worldLength) * magnitude),
+    y: Math.round((world.y / worldLength) * magnitude),
   };
 }
 

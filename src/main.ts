@@ -67,9 +67,11 @@ import type {
 } from "./core/types";
 import {
   BUILDING_COLORS,
-  CanvasFactoryRenderer,
   isSurveyed,
-} from "./rendering/CanvasFactoryRenderer";
+  type FactoryRenderer,
+  type GraphicsProfile,
+  type RendererDiagnostics,
+} from "./rendering/FactoryRenderer";
 import { itemIconSvg } from "./rendering/icons";
 import {
   createItemChip,
@@ -78,6 +80,12 @@ import {
 } from "./rendering/itemChip";
 import { findLandingHub, homeBearing } from "./rendering/landmarks";
 import { MinimapRenderer } from "./rendering/MinimapRenderer";
+import { ThreeFactoryRenderer } from "./rendering/three/ThreeFactoryRenderer";
+import {
+  defaultGraphicsProfile,
+  GRAPHICS_STORAGE_KEY,
+  parseGraphicsProfile,
+} from "./rendering/three/quality";
 import "./styles.css";
 
 type Tool = "inspect" | "erase" | "rotate" | "upgrade" | number;
@@ -141,8 +149,8 @@ const PANEL_KEYS: Record<string, string> = {
   KeyC: "creative-panel",
 };
 /**
- * A refusal the world itself already shows. The cooldown ring around the player says the wait is
- * running, so repeating it as a message strip toast on every frame of a held harvest is noise.
+ * A refusal the world itself already shows. The ring around the player is the swing filling, so
+ * repeating it as a message strip toast on every frame of a held harvest is noise.
  */
 const SILENT_EVENTS = new Set(["action cooling down"]);
 const canvas = required<HTMLCanvasElement>("factory-canvas");
@@ -150,6 +158,7 @@ const playButton = required<HTMLButtonElement>("play");
 const soundButton = required<HTMLButtonElement>("sound");
 const muteInput = required<HTMLInputElement>("mute");
 const reduceMotionInput = required<HTMLInputElement>("reduce-motion");
+const graphicsProfileInput = required<HTMLSelectElement>("graphics-profile");
 /** Comfort settings are preferences about a room, so they live beside the hotbar, not in a save. */
 const MOTION_KEY = "hexfactory:reduced-motion:v1";
 const speedInput = required<HTMLSelectElement>("speed");
@@ -197,11 +206,54 @@ const titleMuteInput = required<HTMLInputElement>("title-mute");
 const titleReduceMotionInput = required<HTMLInputElement>(
   "title-reduce-motion",
 );
+const titleGraphicsProfileInput = required<HTMLSelectElement>(
+  "title-graphics-profile",
+);
 const sessionMainMenu = required<HTMLButtonElement>("session-main-menu");
 const input = new BoundedInputQueue();
 const audio = new FeedbackAudio();
 const host = await FactoryHost.create();
-const renderer = new CanvasFactoryRenderer(canvas, host.definitions);
+const storedGraphics = parseGraphicsProfile(
+  localStorage.getItem(GRAPHICS_STORAGE_KEY),
+);
+const initialGraphics = storedGraphics ?? defaultGraphicsProfile();
+const renderer: FactoryRenderer = new ThreeFactoryRenderer(
+  canvas,
+  host.definitions,
+  initialGraphics,
+);
+if (
+  import.meta.env.DEV &&
+  new URLSearchParams(location.search).has("context-test")
+) {
+  const cycleContext = document.createElement("button");
+  cycleContext.type = "button";
+  cycleContext.textContent = "Cycle WebGL context";
+  cycleContext.style.cssText =
+    "position:fixed;z-index:10000;right:12px;top:72px;padding:8px";
+  cycleContext.addEventListener("click", () =>
+    canvas.dispatchEvent(new Event("hexfactory:test-context-cycle")),
+  );
+  document.body.append(cycleContext);
+}
+if (
+  import.meta.env.DEV &&
+  new URLSearchParams(location.search).has("diagnostics")
+) {
+  const captureDiagnostics = document.createElement("button");
+  const diagnosticsOutput = document.createElement("output");
+  captureDiagnostics.type = "button";
+  captureDiagnostics.textContent = "Capture renderer diagnostics";
+  captureDiagnostics.style.cssText =
+    "position:fixed;z-index:10000;right:12px;top:72px;padding:8px";
+  diagnosticsOutput.id = "renderer-diagnostics";
+  diagnosticsOutput.style.cssText =
+    "position:fixed;z-index:10000;right:12px;top:116px;max-width:480px;padding:8px;background:#071110;color:#dcefe9";
+  captureDiagnostics.addEventListener("click", () => {
+    diagnosticsOutput.textContent = JSON.stringify(renderer.getDiagnostics());
+  });
+  document.body.append(captureDiagnostics, diagnosticsOutput);
+}
 const minimap = new MinimapRenderer(
   required<HTMLCanvasElement>("minimap"),
   host.definitions,
@@ -284,6 +336,7 @@ const selectedRecipes = new Map<number, number>();
 /** The inspected machine and assignment the recipe select was last built for. */
 let inspectorRecipeKey = "";
 const pressedMovement = new Set<string>();
+let runningHeld = false;
 /**
  * Where the pointer last was, in client coordinates, while it was over the world. The aim is
  * recomputed from it every frame rather than only on pointer movement, because a stationary cursor
@@ -622,18 +675,24 @@ function refreshLandingHub(): void {
 }
 
 /**
- * The way home, in words. The minimap answers this while home is on it and the marker on the edge
- * of the view answers it at any distance; this is the same answer for a screen reader, and it is
- * the reason the minimap is allowed to be a picture.
+ * The way home, in words and as a labelled compass under the minimap. Keeping the pointer in that
+ * fixed navigation frame leaves the world and its hover surface unobstructed.
  */
 function renderHomeReadout(): void {
   const element = required<HTMLElement>("home-readout");
+  const text = required<HTMLElement>("home-readout-text");
   if (!landingHub) {
-    element.textContent = "No landing hub in this world";
+    element.classList.remove("away");
+    text.textContent = "No landing hub in this world";
     return;
   }
   const bearing = homeBearing(snapshot.player, landingHub);
-  element.textContent = bearing
+  element.classList.toggle("away", bearing !== null);
+  if (bearing) {
+    const degrees = (Math.atan2(bearing.x, -bearing.y) * 180) / Math.PI;
+    element.style.setProperty("--home-bearing", `${degrees}deg`);
+  }
+  text.textContent = bearing
     ? `Landing hub · ${bearing.hexes} hex ${DIRECTION_NAMES[bearing.direction]}`
     : "Landing hub · you are here";
 }
@@ -2285,6 +2344,17 @@ function setReducedMotion(value: boolean): void {
   }
 }
 
+function setGraphicsProfile(value: GraphicsProfile): void {
+  graphicsProfileInput.value = value;
+  titleGraphicsProfileInput.value = value;
+  renderer.setGraphicsProfile(value);
+  try {
+    window.localStorage.setItem(GRAPHICS_STORAGE_KEY, value);
+  } catch {
+    // The preference is lost, the factory is not.
+  }
+}
+
 function loadReducedMotion(): boolean {
   try {
     return window.localStorage.getItem(MOTION_KEY) === "1";
@@ -2380,6 +2450,14 @@ muteInput.addEventListener("change", () => setMuted(muteInput.checked));
 reduceMotionInput.addEventListener("change", () =>
   setReducedMotion(reduceMotionInput.checked),
 );
+graphicsProfileInput.addEventListener("change", () => {
+  const profile = parseGraphicsProfile(graphicsProfileInput.value);
+  if (profile) setGraphicsProfile(profile);
+});
+titleGraphicsProfileInput.addEventListener("change", () => {
+  const profile = parseGraphicsProfile(titleGraphicsProfileInput.value);
+  if (profile) setGraphicsProfile(profile);
+});
 required<HTMLButtonElement>("research-scope").addEventListener("click", () => {
   showAllTechnologies = !showAllTechnologies;
   renderTechnologies();
@@ -2434,6 +2512,12 @@ required<HTMLElement>("inspect-hub-requests").addEventListener(
 );
 required<HTMLButtonElement>("recenter").addEventListener("click", () =>
   renderer.recenter(),
+);
+required<HTMLButtonElement>("orbit-left").addEventListener("click", () =>
+  orbitView(-1),
+);
+required<HTMLButtonElement>("orbit-right").addEventListener("click", () =>
+  orbitView(1),
 );
 required<HTMLButtonElement>("toggle-grid").addEventListener(
   "click",
@@ -3058,6 +3142,17 @@ for (const id of ["inspector-actions", "inspector-load"])
     });
   });
 
+function currentMovementIntent(running = false): NativeInputCommand {
+  return movementIntent(pressedMovement, running, (x, y) =>
+    renderer.screenMovement(x, y),
+  );
+}
+
+function orbitView(step: -1 | 1): void {
+  renderer.orbitBy(step);
+  if (pressedMovement.size) enqueue(currentMovementIntent(runningHeld));
+}
+
 window.addEventListener("keydown", (event) => {
   if (isTypingTarget(event.target)) return;
   // Space presses a button the keyboard tabbed to. A mouse-focused button must not keep it:
@@ -3074,14 +3169,15 @@ window.addEventListener("keydown", (event) => {
     event.preventDefault();
     if (!pressedMovement.has(event.code)) {
       pressedMovement.add(event.code);
-      enqueue(movementIntent(pressedMovement, event.shiftKey));
+      enqueue(currentMovementIntent(event.shiftKey));
     }
     return;
   }
   // Shift is a gait, not a key: it changes an intent already in flight, so it has to resend one.
   // Held on its own it does nothing, which is what makes it safe to press at any time.
   if (event.code === "ShiftLeft" || event.code === "ShiftRight") {
-    if (pressedMovement.size) enqueue(movementIntent(pressedMovement, true));
+    runningHeld = true;
+    if (pressedMovement.size) enqueue(currentMovementIntent(true));
     return;
   }
   if (event.code === "Escape") {
@@ -3095,13 +3191,15 @@ window.addEventListener("keydown", (event) => {
   // Space centres the camera, which is what the button beside it does and what a player who has
   // panned away needs most. Pause moved to T rather than fighting it for the key.
   else if (event.code === "Space") renderer.recenter();
+  else if (event.code === "Comma") orbitView(-1);
+  else if (event.code === "Period") orbitView(1);
   else if (event.code === "KeyT") setPlaying(!playing);
   else if (event.code === "KeyM") setMuted(!audio.isMuted);
   else if (event.code in PANEL_KEYS)
     togglePanel(PANEL_KEYS[event.code] as string);
   else if (event.code === "KeyF") {
-    // Held rather than tapped. The native action cooldown already paces this, so the repeat
-    // cannot outrun the simulation.
+    // Held rather than tapped. A swing has to be worked through natively before it pays, so the
+    // repeat cannot outrun the simulation however fast the frames arrive.
     gatherHeld = true;
     enqueue({ type: "gather" });
   } else if (event.code === "KeyX") enqueue({ type: "deposit" });
@@ -3136,22 +3234,24 @@ window.addEventListener("keyup", (event) => {
   }
   if (event.code === "KeyF") gatherHeld = false;
   if (event.code === "ShiftLeft" || event.code === "ShiftRight") {
-    if (pressedMovement.size) enqueue(movementIntent(pressedMovement, false));
+    runningHeld = event.shiftKey;
+    if (pressedMovement.size) enqueue(currentMovementIntent(runningHeld));
     return;
   }
   if (!pressedMovement.delete(event.code)) return;
   event.preventDefault();
   // Stopping is sent on the same frame the key comes up. Coalescing the release made every stop
   // read as a slide, which is the kind of latency a player feels without being able to name it.
-  enqueue(movementIntent(pressedMovement, event.shiftKey));
+  enqueue(currentMovementIntent(event.shiftKey));
 });
 
 window.addEventListener("blur", () => {
   gatherHeld = false;
+  runningHeld = false;
   stopAiming();
   if (!pressedMovement.size) return;
   pressedMovement.clear();
-  enqueue(movementIntent(pressedMovement));
+  enqueue(currentMovementIntent());
 });
 
 canvas.addEventListener("pointermove", (event) => {
@@ -3202,7 +3302,7 @@ canvas.addEventListener("pointermove", (event) => {
 canvas.addEventListener("pointerdown", (event) => {
   if (event.button === 2) {
     // A right press starts working the hex under it straight away and keeps working it while the
-    // button is down; the frame loop repeats it and the native action cooldown paces the repeat,
+    // button is down; the frame loop repeats it and the swing already running paces the repeat,
     // exactly as a held F is paced. Dragging moves the hold to the next hex rather than cancelling
     // it — the camera is on the middle button and no longer wants this gesture.
     const harvest = renderer.pick(event.clientX, event.clientY);
@@ -3636,14 +3736,14 @@ function frame(now: number): void {
   if (playing) accumulator += elapsed * Number(speedInput.value);
   // Walking is paced by native's cadence against elapsed real time, not by the tick the factory
   // happens to be running, so a paused or slowed factory no longer pins the player in place. The
-  // same clock counts down the cooldown between one field action and the next, so it has to keep
-  // running for a player who is standing still waiting to gather again.
+  // same clock spends the work one field action costs, and a swing only pays out on the step that
+  // finishes it, so it has to keep running for a player standing still working a hex.
   if (pressedMovement.size || snapshot.player.action_cooldown > 0)
     playerAccumulator += elapsed * host.playerTicksPerSecond;
   else playerAccumulator = 0;
   if (!advancePending) {
-    // A held gather repeats at frame rate and is paced natively by the action cooldown, so the
-    // player holds the key instead of tapping it once per unit. A held right-click is the same
+    // A held gather repeats at frame rate and is paced natively by the swing already running, so
+    // the player holds the key instead of tapping it once per unit. A held right-click is the same
     // idea aimed at a named hex, and it outranks the untargeted one: if both are held, the hex the
     // player is pointing at is the one they chose.
     if (!input.size) {
@@ -4102,12 +4202,12 @@ for (const button of document.querySelectorAll<HTMLButtonElement>(
     button.setPointerCapture(event.pointerId);
     if (pressedMovement.has(code)) return;
     pressedMovement.add(code);
-    enqueue(movementIntent(pressedMovement));
+    enqueue(currentMovementIntent());
   };
   const stop = (event: PointerEvent): void => {
     event.preventDefault();
     if (!pressedMovement.delete(code)) return;
-    enqueue(movementIntent(pressedMovement));
+    enqueue(currentMovementIntent());
   };
   button.addEventListener("pointerdown", start);
   button.addEventListener("pointerup", stop);
@@ -4138,6 +4238,7 @@ ONE_PANEL_AT_A_TIME.addEventListener("change", (event) => {
 });
 setMuted(audio.isMuted);
 setReducedMotion(loadReducedMotion());
+setGraphicsProfile(initialGraphics);
 // A reload is a discontinuity for the same reason a load is: the tab was gone for an unknown
 // stretch. The records survive so the ladder is not lost, and the run says why it cannot be raced.
 run = readRun(localStorage);
@@ -4172,12 +4273,32 @@ declare global {
         elapsedMs: number;
         report: string;
       };
+      renderer: () => RendererDiagnostics;
+      orbit: (step: -1 | 1) => void;
+      profile: (profile?: GraphicsProfile) => GraphicsProfile;
+      pick: (
+        x: number,
+        y: number,
+      ) => {
+        axial: { q: number; r: number };
+        world: WorldPoint;
+      };
     };
   }
 }
 
 window.__hexFactory = {
   snapshot: () => host.snapshot(),
+  renderer: () => renderer.getDiagnostics(),
+  orbit: (step) => orbitView(step),
+  profile: (profile) => {
+    if (profile) setGraphicsProfile(profile);
+    return renderer.getGraphicsProfile();
+  },
+  pick: (x, y) => ({
+    axial: renderer.pick(x, y),
+    world: renderer.pickWorld(x, y),
+  }),
   // The clock, readable. A scripted run needs the elapsed figure while it is still running, not
   // only the records that have already landed.
   run: () => ({

@@ -726,6 +726,16 @@
             <ul id="save-slots" class="save-slots"></ul>
             <hr />
             <div class="comfort-settings">
+              <label
+                >Graphics<select
+                  id="graphics-profile"
+                  aria-label="Graphics profile"
+                >
+                  <option value="low">Low</option>
+                  <option value="medium">Medium</option>
+                  <option value="high">High</option>
+                </select></label
+              >
               <label class="switch"
                 ><input id="reduce-motion" type="checkbox" />Reduce
                 motion</label
@@ -817,6 +827,24 @@
 
         <nav class="view-actions" aria-label="View and panel controls">
           <button
+            id="orbit-left"
+            class="icon-button"
+            type="button"
+            title="Orbit view left 60° (,)"
+            aria-label="Orbit view left 60 degrees"
+          >
+            ↶
+          </button>
+          <button
+            id="orbit-right"
+            class="icon-button"
+            type="button"
+            title="Orbit view right 60° (.)"
+            aria-label="Orbit view right 60 degrees"
+          >
+            ↷
+          </button>
+          <button
             id="recenter"
             class="icon-button"
             type="button"
@@ -889,7 +917,8 @@
             aria-label="Minimap of the surveyed world"
           ></canvas>
           <p id="home-readout" class="home-readout" aria-live="polite">
-            Landing hub · here
+            <span class="home-compass" aria-hidden="true">⌂</span>
+            <span id="home-readout-text">Landing hub · here</span>
           </p>
         </section>
 
@@ -1087,6 +1116,17 @@
 
                 <div class="title-comfort-dock">
                   <span class="section-kicker">Comfort</span>
+                  <label>
+                    Graphics
+                    <select
+                      id="title-graphics-profile"
+                      aria-label="Title graphics profile"
+                    >
+                      <option value="low">Low</option>
+                      <option value="medium">Medium</option>
+                      <option value="high">High</option>
+                    </select>
+                  </label>
                   <label class="switch">
                     <input id="title-reduce-motion" type="checkbox" />Reduce
                     motion

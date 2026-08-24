@@ -100,7 +100,19 @@ describe("browser capacity report", () => {
     const report = mergeBrowserReport(nativeReport, [hostTier], environment);
     expect(hostHasRender(report.tiers[0]!.host)).toBe(false);
     const row = tierRow(report.tiers[0]!);
-    expect(row.slice(-6, -2)).toEqual(["—", "—", "—", "—"]);
+    expect(row.slice(-13, -2)).toEqual([
+      "—",
+      "—",
+      "—",
+      "—",
+      "—",
+      "—",
+      "—",
+      "—",
+      "—",
+      "—",
+      "—",
+    ]);
     expect(row.at(-2)).toBe("3.0%");
     expect(row.at(-1)).toBe("—");
   });
@@ -118,10 +130,17 @@ describe("browser capacity report", () => {
     expect(hostHasRender(report.tiers[0]!.host)).toBe(true);
     const row = tierRow(report.tiers[0]!);
     expect(row).toHaveLength(TIER_COLUMNS.length);
-    expect(row.slice(-6)).toEqual([
+    expect(row.slice(-13)).toEqual([
       "800.0",
       "200.0",
       "1,000.0",
+      "—",
+      "—",
+      "—",
+      "—",
+      "—",
+      "—",
+      "—",
       "1,500.0",
       "3.0%",
       "9.0%",

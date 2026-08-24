@@ -11,14 +11,15 @@ shipped ledger, and the next milestones live in `docs/HEXFACTORY-PLAN.md`, archi
 
 ## Where things stand
 
-Shipped through **v0.22**, plus an unversioned WebGL2 renderer pass. Current envelope versions,
-all five of which native refuses a load on: **save 10, definitions 11, technologies 6, scenarios 5,
-world generator 8**, and wire (snapshot delta) **6**. `SAVE_VERSION` is the one literal in the host,
+Shipped through **v0.25 Visual Depth**. Current envelope versions,
+all five of which native refuses a load on: **save 13, definitions 13, technologies 6, scenarios 5,
+world generator 8**, and wire (snapshot delta) **8**. `SAVE_VERSION` is the one literal in the host,
 because native does not publish it; every other number the browser's save catalog shows is read from
 what native publishes.
 
-**What to pick up next** is `docs/HEXFACTORY-PLAN.md`: **Earned Insight v0.23**. The world and its
-crossings had to ship before that economy pass; the roadmap decision above the brief is why.
+**What to pick up next** is `docs/HEXFACTORY-PLAN.md`: **Living Lattice v0.26**. Visual Depth is
+shipped as a measured, presentation-only Three.js renderer; physical integrated-GPU laptop
+qualification remains an external validation item and is not a support claim.
 
 Before changing a cost, a cadence, or a power figure, run `npm run balance` and read
 `fixtures/balance.json`. Before touching `src/rendering/buildingLook.ts` or the shape grammar, read
@@ -63,9 +64,16 @@ Before changing a cost, a cadence, or a power figure, run `npm run balance` and 
   factory never pins it in place. The host converts elapsed real time into a step count using the
   rate native publishes and sends it beside the tick count. Frame-coupled movement stays refused:
   the host may send a count, never a position or a delta. That clock owns everything the player
-  does themselves, actions as well as walking — a cooldown spent per simulation tick froze
-  gathering outright while paused and otherwise scaled the harvest rate with the speed setting. So
-  the host keeps the player's clock running while a cooldown is outstanding, not only while walking.
+  does themselves, actions as well as walking — work spent per simulation tick froze gathering
+  outright while paused and otherwise scaled the harvest rate with the speed setting. So the host
+  keeps the player's clock running while a swing is outstanding, not only while walking.
+- **A harvest is work, and the work comes before the yield.** `action_cooldown` is the swing still
+  running, not a debt charged after an instant take: `gather_from` arms it and takes nothing, and
+  `finish_gather` moves the deposit and the pack together on the step that completes it. The old
+  order made the first gather of every session free — press, bank a unit, then wait — and drew a
+  ring for work already paid. The landing re-asks what the start asked, reach included, because a
+  swing takes real time; a player who walks out of reach cancels it and is paid nothing. `Core`'s
+  `pending_gather` is what the counter is working on, so the two are saved and checksummed together.
 - A gather asks the same question an extractor on that hex asks, and facing is not part of it. A
   target weighted by facing counted down a neighbouring hex while the one underfoot stayed full — a
   change with no visible cause. Where the mouse happens to rest is still not something a player
@@ -75,8 +83,8 @@ Before changing a cost, a cadence, or a power figure, run `npm run balance` and 
   the one they pointed at and the cause is visible. `gather_at` therefore takes an explicit target —
   and only the target moves. Reach is unchanged and still `field_covered_at` at the player's own
   radius, so a right-click can never take from a cell an extractor standing there could not. Both
-  gathers land in `gather_from`, so the cooldown, the carrying rule, and the depletion mark are one
-  implementation.
+  gathers land in `gather_from`, so the work a material costs, the carrying rule, and the depletion
+  mark are one implementation.
 - Extraction reach is a definition field, not a constant: `field_covered_at` takes the radius its
   caller reaches, `deposit_candidates` passes the extractor's own, and the hand always passes
   `EXTRACT_RADIUS`. It is still one predicate — placement, the cached candidate list, and both
@@ -149,7 +157,7 @@ Before changing a cost, a cadence, or a power figure, run `npm run balance` and 
   outside it, as real patches at stated distances, and a world whose opening cannot be placed is
   refused rather than shipped. Do not re-add a hardcoded list of cells inside the clearing; that was
   the sample platter that made every material visible in the first minute.
-- Anything the host draws as a proportion must be given both numbers. The cooldown ring takes
+- Anything the host draws as a proportion must be given both numbers. The swing ring takes
   `action_cooldown` and a published `action_cooldown_total`; inferring a maximum by watching a value
   count down is the host re-deriving native truth.
 - Placement asks one overlap question of deposits and obstacles alike, at two tuned depths. Two
@@ -217,8 +225,9 @@ Before changing a cost, a cadence, or a power figure, run `npm run balance` and 
 - Fog of war is presentation over the generated chunk set. Chunk snapshots carry native world
   bounds; the host may draw and describe them but must not invent world outside them.
 - Time and quantities are integers. Any blocked transfer leaves its source unchanged.
-- Presentation is replaceable. The world canvas is WebGL2 with a Canvas 2D overlay; the minimap is
-  WebGL2. Simulation truth comes only from native snapshots.
+- Presentation is replaceable. The world canvas is Three.js/WebGL with native-snapshot-driven
+  instances and scene overlays; the minimap remains WebGL2. Simulation truth comes only from native
+  snapshots.
 - A milestone that changes the world generator, the item roster, or the entity snapshot re-runs
   `npm run bench` before it ships. v0.12's re-measurement found two regressions it had introduced —
   86 KB of delta payload and a 3.9× slower snapshot — and one 3.0× saving v0.11 had shipped without

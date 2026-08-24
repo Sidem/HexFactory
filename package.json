@@ -1,6 +1,6 @@
 {
   "name": "hexfactory",
-  "version": "0.24.0",
+  "version": "0.25.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -23,11 +23,13 @@
     "quality": "npm run audit && npm run format && npm run lint && npm run typecheck && npm run test:run && npm run test:rust && npm run build"
   },
   "dependencies": {
-    "@hexlife/embed": "1.15.0"
+    "@hexlife/embed": "1.15.0",
+    "three": "0.185.1"
   },
   "devDependencies": {
     "@eslint/js": "9.30.0",
     "@types/node": "24.13.3",
+    "@types/three": "0.185.4",
     "eslint": "9.30.0",
     "globals": "16.2.0",
     "prettier": "3.6.2",

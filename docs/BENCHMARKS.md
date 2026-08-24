@@ -4,15 +4,15 @@ Capacity is measured, never asserted, and the measurement orders the work. Every
 produced by the committed harness; the raw reports live in `docs/benchmarks/` and are the source for
 any table that was trimmed out of this document.
 
-**Current records.** Native: **Crossings and Canopy v0.22**. Browser frame: **Look Systems v0.13.1**.
+**Current records.** Native: **Crossings and Canopy v0.22**. Browser frame: **Visual Depth v0.25
+profile ladders**.
 Generation: **v0.21**. Payload: **Binary Delta v0.12.2**.
 
 **Two caveats travel with those records.**
 
-- **The browser frame record describes a renderer the game no longer ships.** The unversioned WebGL2
-  pass (2026-08-20) replaced both Canvas 2D draws that v0.13.1 timed. The simulation half of that
-  record still holds; the `world`, `minimap`, `render`, and `browser frame` columns do not, and no
-  frame claim may be made until the ladder is re-run.
+- **The v0.24 browser record is a comparison baseline, not current renderer evidence.** Current
+  Three.js claims must name Low, Medium, or High. No physical integrated-GPU laptop was available
+  for v0.25 qualification, so these desktop records do not establish the laptop support target.
 - **Every tier checksum below is historical.** v0.18, v0.19, v0.20, v0.21, and the world-scale
   pass, and v0.22 each moved the pinned workload checksum: `2402899979` → `1679299541` →
   `914129621` → `780276626` → `325426962` → `3745973835` → `1543489001`. The first three added
@@ -182,7 +182,99 @@ survey that sweeps a disc in lattice order. A walking player crosses cells in a 
 that, and the map only ever grows. If chunk generation ever shows up in a frame, that is the first
 place to look.
 
-## Browser frame — the current record (v0.13.1)
+## Browser frame — v0.24 hybrid renderer baseline
+
+Recorded 2026-08-23 before Visual Depth renderer work, from the dirty-but-green v0.24 worktree at
+base commit `34b68d5e3a3f9fcc9d5db50ebd1898b272f7f4de`. The only source changes present were the
+intentional harvest work-before-yield change and the uncommitted Visual Depth planning documents;
+`npm run quality` passed before the run. Raw report:
+[`benchmarks/capacity-v0.24-browser.json`](benchmarks/capacity-v0.24-browser.json), SHA-256
+`9B1A3D06BA566937848D875BD28AE7F2B99E4539E0A8C234609CEE3CEF7FCC98`.
+
+Host: AMD Ryzen 7 5800X, Windows 11, Chromium 151, 16 hardware threads. The page was not
+cross-origin isolated and both clocks reported a 100 µs step. The renderer viewport was the pinned
+1440×900 at DPR 1 and the minimap was 178 px. Reproduce with `npm run bench:browser`, open
+`/HexFactory/bench.html`, and press **Run full ladder**.
+
+| tier   | entities | host frame µs | world µs | minimap µs | render µs | browser frame µs | frame share |
+| ------ | -------: | ------------: | -------: | ---------: | --------: | ---------------: | ----------: |
+| line   |       12 |          80.8 |    303.0 |        4.3 |     307.3 |            388.1 |        2.3% |
+| small  |      192 |         111.0 |    227.3 |        5.3 |     232.6 |            343.6 |        2.1% |
+| medium |      768 |         250.0 |    277.8 |        3.1 |     280.9 |            530.9 |        3.2% |
+| wide   |    1,536 |         453.3 |    628.1 |        3.5 |     631.6 |          1,085.0 |        6.5% |
+| large  |    3,072 |         835.0 |    600.0 |        3.7 |     603.7 |          1,438.7 |        8.6% |
+| xlarge |    6,144 |       1,440.0 |  1,281.3 |        3.8 |   1,285.1 |          2,725.1 |       16.4% |
+
+The complete xlarge browser frame used 16.4% of a 60 Hz frame on this desktop. All six applied
+snapshots retained their full entity counts. This baseline supports only the renderer it measured;
+it is the comparison row v0.25 must replace.
+
+The shipped opening was also captured at 1440×900, 1366×768, and 390×844, and the Factory demo at
+the same three viewports, under `docs/screenshots/`. At 1440×900 the real game canvas measured
+1280×656 CSS/device pixels after its two desktop rails; at 1366×768 it measured 1366×704; at
+390×844 it measured 390×786. Browser logs contained no warnings or errors during the captures.
+
+Context loss was not recoverable inside the v0.24 renderer: both WebGL renderers prevent the
+`webglcontextlost` default and set a permanent `lost` flag, but register no
+`webglcontextrestored` handler. Drawing therefore stops until a page reload constructs fresh
+contexts. Visual Depth must replace this source-inspected baseline with an exercised restore path.
+
+## Browser frame — v0.25 Visual Depth
+
+Recorded 2026-08-23 after the production Three.js cutover, on the same Ryzen 7 5800X / Windows 11 /
+Chromium 151 desktop, at 1440×900, DPR 1, a 178 px minimap, and the same 100 µs browser clocks. Each
+profile ran the complete six-tier ladder and every applied snapshot retained its full entity count.
+Raw reports and SHA-256:
+
+- [`benchmarks/capacity-v0.25-browser-low.json`](benchmarks/capacity-v0.25-browser-low.json) —
+  `916D678270300D05E31738214A3CD6AD7829BA177E156A5E7777BD4C552DE190`
+- [`benchmarks/capacity-v0.25-browser-medium.json`](benchmarks/capacity-v0.25-browser-medium.json) —
+  `9B3A30AA7FBC6DD159605DABA57F61312BCE2FA18B2FA17280C2AD03023E14A1`
+- [`benchmarks/capacity-v0.25-browser-high.json`](benchmarks/capacity-v0.25-browser-high.json) —
+  `1465FDC37DE1B7539C500CBF1706476C0B867934C6267F311B389A9DB358BF3F`
+
+| profile | tier   | entities | browser frame µs | frame share | draw calls | triangles | geometries | textures |
+| ------- | ------ | -------: | ---------------: | ----------: | ---------: | --------: | ---------: | -------: |
+| Low     | line   |       12 |            433.4 |        2.6% |         14 |    21,650 |         18 |        1 |
+| Low     | small  |      192 |            430.3 |        2.6% |         15 |    54,598 |         18 |        1 |
+| Low     | medium |      768 |            760.5 |        4.6% |         14 |   164,102 |         18 |        1 |
+| Low     | wide   |    1,536 |          1,356.9 |        8.1% |         16 |   322,822 |         18 |        1 |
+| Low     | large  |    3,072 |          2,042.4 |       12.3% |         14 |   605,990 |         18 |        1 |
+| Low     | xlarge |    6,144 |          4,562.5 |       27.4% |         15 | 1,221,414 |         18 |        1 |
+| Medium  | line   |       12 |            347.7 |        2.1% |         14 |    21,650 |         18 |        3 |
+| Medium  | small  |      192 |            392.1 |        2.4% |         15 |    54,598 |         18 |        3 |
+| Medium  | medium |      768 |            806.4 |        4.8% |         14 |   164,102 |         18 |        3 |
+| Medium  | wide   |    1,536 |          1,183.6 |        7.1% |         16 |   322,822 |         18 |        3 |
+| Medium  | large  |    3,072 |          2,539.6 |       15.2% |         14 |   605,990 |         18 |        3 |
+| Medium  | xlarge |    6,144 |          4,191.2 |       25.1% |         15 | 1,221,414 |         18 |        3 |
+| High    | line   |       12 |            386.1 |        2.3% |         14 |    21,650 |         18 |        3 |
+| High    | small  |      192 |            488.4 |        2.9% |         15 |    54,598 |         18 |        3 |
+| High    | medium |      768 |            854.9 |        5.1% |         14 |   164,102 |         18 |        3 |
+| High    | wide   |    1,536 |          1,445.9 |        8.7% |         16 |   322,822 |         18 |        3 |
+| High    | large  |    3,072 |          2,088.5 |       12.5% |         14 |   605,990 |         18 |        3 |
+| High    | xlarge |    6,144 |          3,623.3 |       21.7% |         15 | 1,221,414 |         18 |        3 |
+
+The desktop gate is green: every recorded profile stays below the plan's 35% ceiling at every tier.
+The largest tier's render p95 was 2.6 ms Low, 2.2 ms Medium, and 2.1 ms High. The draw-call range is
+14–16 from 12 through 6,144 entities, proving that visual buckets rather than building count own the
+calls. JavaScript heap at the largest tier was 94.3 MiB Low, 101.2 MiB Medium, and 137.5 MiB High;
+this browser API is not GPU-memory telemetry. Renderer memory stayed at 18 geometries and one or
+three textures. Repeated New Game, Factory demo, and load transitions in the real game converged on
+22 retained geometries and one texture after both scene vocabularies had been visited, rather than
+growing per transition.
+
+An interactive Low-profile run exercised walking, all six orbits, zoom extremes, panel changes, and
+construction with a rolling 240-frame p95 of 0.6 ms (0.9 ms once immediately after restoring a
+save). Forced context loss/restoration rebuilt and redrew a nonblank retained scene; background
+benchmark work followed by returning to the game also redrew cleanly. Reduced motion, desktop,
+laptop-size, narrow, and mobile layouts were exercised. PNG pixel checks found nonblank, varied
+output at every required viewport, and browser logs contained no warnings or errors.
+
+No qualifying physical Intel Iris Xe / AMD Vega-class-or-weaker laptop was available. Therefore the
+plan's integrated-GPU 60/30 Hz target remains external validation and this record makes no
+integrated-GPU support claim.
+
+## Browser frame — historical v0.13.1 record
 
 Same host, `factory-wasm` 0.13.0, recorded 2026-08-18. Raw report:
 [`benchmarks/capacity-v0.13.1-browser.json`](benchmarks/capacity-v0.13.1-browser.json). Viewport
@@ -231,6 +323,14 @@ browser frame, render included, and exists only from v0.12.4.
 
 Each row is a full report in `docs/benchmarks/`. The headline is what the run was for.
 
+- v0.25 (browser, 2026-08-23) — **Current browser renderer records.** Low, Medium, and High each
+  completed the six-tier Three.js ladder. The 6,144-entity browser frame was 4,562 µs Low,
+  4,191 µs Medium, and 3,623 µs High on this desktop; all stayed below 35% of 60 Hz. Draw calls
+  remained 14–16 and geometry counts remained 18. Physical integrated-GPU qualification is still
+  external and is not implied by these records.
+- v0.24 (browser, 2026-08-23) — **Current pre-Visual-Depth browser baseline.** The hybrid
+  instanced-WebGL2/Canvas world completed the 6,144-entity tier in 2,725 µs, 16.4% of 60 Hz, with
+  1,281 µs in the world draw. Six viewport comparison captures record the shipped opening and demo.
 - v0.21 (native, 2026-08-20) — **Current native record.** Flat against v0.16, which is the point:
   the ladder never generates, and a milestone that rewrote generation had to leave it untouched.
   Generation itself moved 0.52 → 1.42 µs/hex, both re-measured on this host so the comparison is
@@ -296,9 +396,9 @@ Each row is a full report in `docs/benchmarks/`. The headline is what the run wa
 
 ## Live follow-ups, in the order the measurement supports
 
-1. **Re-measure the browser ladder against the WebGL2 renderer.** It replaced both draws the current
-   record times, so there is currently no supported claim about a complete frame. Highest priority
-   of anything on this list, because the others are read against it.
+1. **Qualify Visual Depth on physical integrated-GPU hardware.** The complete desktop profile
+   ladders are recorded; the outstanding release-support evidence is the plan's Iris Xe / AMD
+   Vega-class-or-weaker laptop run at DPR 1.
 2. **Extend the ladder past 6,144 entities**, so the record brackets a ceiling again instead of only
    showing headroom.
 3. **Measure the site cache under a walk rather than under a survey.** The generation record sweeps

@@ -49,32 +49,34 @@ This is permanent and is not a scope item.
 
 ## Where the project stands
 
-The engine arc, the generator arc, and the first five milestones of the pivot from substrate to
-motive are all shipped. A run today looks like this: land beside a hub in a world chosen by preset
+The engine arc, the generator arc, and the shipped milestones through **v0.25 Visual Depth** are
+present in this tree. A run today looks like this: land beside a hub in a world chosen by preset
 or by raw parameters, walk out under fog across rivers and coastline, find **fields** of eight raw
 materials rather than scattered cells, cross rivers on **bridges**, gather from forests that visibly
 thin and regrow, fill the hub's posted **requests** for insight and
 its staged founding **contract** for hub growth, research a twelve-technology tree, and build a
 powered, automated line of twenty buildings and fourteen recipes across five machine categories.
-Buildings are drawn by a shape grammar, so a tier is a data row. Power is energy bought per unit of
-work. The world and the minimap render on WebGL2.
+Buildings are generated as low-poly instanced geometry from the shape grammar, so a tier remains a
+data row. Power is energy bought per unit of work. The world renders through Three.js and the
+minimap remains WebGL2.
 
 **Current envelope numbers** — native refuses a load on all five, and the browser's named-save
 catalog shows which one moved rather than hiding the row:
 
 | Envelope              | Version |
 | --------------------- | ------: |
-| `HXF1` save           |      10 |
-| Definitions           |      11 |
+| `HXF1` save           |      13 |
+| Definitions           |      13 |
 | Technologies          |       6 |
 | Scenarios             |       5 |
 | World generator       |       8 |
-| Wire (snapshot delta) |       6 |
+| Wire (snapshot delta) |       8 |
 
-**Current measured capacity.** A complete browser frame at 6,144 entities is 19.0% of 60 Hz
-(v0.13.1 record, Canvas 2D — the WebGL2 pass has not been re-measured). Generation costs at most
-1.42 µs per hex on the v0.21 site lattice, against 0.52 µs for the model it replaced on the same
-harness. See `docs/BENCHMARKS.md`; no claim beyond a recorded tier is supported.
+**Current measured capacity.** At 6,144 entities the complete Three.js browser frame is 27.4% of
+60 Hz on Low, 25.1% on Medium, and 21.7% on High on the reference desktop at 1440×900/DPR 1.
+Generation costs at most 1.42 µs per hex on the v0.21 site lattice, against 0.52 µs for the model it
+replaced on the same harness. Physical integrated-GPU qualification is not yet available. See
+`docs/BENCHMARKS.md`; no claim beyond a recorded tier or machine is supported.
 
 **The shipped ledger is at the bottom of this document**, one line per release. Read it for what
 exists; read the section a milestone names when you need the reasoning behind a rule you are about
@@ -82,9 +84,11 @@ to change.
 
 ## What to do next
 
-**Earned Insight v0.23.** The world and its crossings now exist, so the research economy can be
-tuned against the geography the player actually walks. The five economy notes in that brief are
-the next load-bearing sequence; do not start Living Lattice first.
+**Living Lattice v0.26.** With the presentation-only Three.js diorama shipped, return to the
+world/economy consequence system described below. Visual terrain height remains presentation-only;
+native coordinates, saves, the wire, and gameplay rules are still two-dimensional. Physical
+integrated-GPU qualification for v0.25 remains a separate external validation item, not a reason to
+smuggle elevation or underground play into v0.26.
 
 ### Open decisions, each with what would settle it
 
@@ -107,14 +111,14 @@ a pole span a distance no player can see.
 ### Open, unassigned to a milestone
 
 - **A timed keyboard-and-pointer playtest of the opening, done by a person.** Owed since v0.18 and
-  still outstanding: the agent's browser pane does not composite, so `requestAnimationFrame` never
-  fires and nothing on the player's own clock — walking, running, gathering, the cooldown
-  — has ever been exercised. `fixtures/balance.json` predicts the material work (32 gathers to
+  still outstanding. v0.25 exercised real browser walking, gathering, the cooldown, construction,
+  and panel flows, but it did not replace a person's timed feel test. `fixtures/balance.json`
+  predicts the material work (32 gathers to
   contract stage one, 97 to stage two, a 65-second combined hand floor) and says nothing about
   walking, choosing, or placing. A number from a person outranks every number in that file.
-- **The WebGL2 renderer has not been benchmarked.** It replaced the Canvas 2D world and minimap
-  draws that `docs/BENCHMARKS.md` records, so the current browser-frame record describes a renderer
-  the game no longer ships. Re-measure before quoting a frame number.
+- **Visual Depth lacks physical integrated-GPU qualification.** Low, Medium, and High are recorded
+  on the reference desktop, but the Iris Xe / AMD Vega-class-or-weaker laptop gate was not available
+  and no laptop support claim may be inferred from the desktop ladder.
 - **Belts on field cells stay legal, but paving a crystal field without reading it first should
   not.** The clearing no longer holds a crystal cell to pave, so this is now about the highland
   disc a player walked to rather than about the first minute.
@@ -157,10 +161,10 @@ generator landed first, and the economy is now tuned against the world that exis
 **Regional Discovery is split, not deleted.** Its _generation_ half — a landing clearing that
 guarantees a bootstrap path rather than a sample platter, and a survey that proves every preset still
 works — was exactly what v0.21 had to do anyway for fields to mean anything, so it moved forward into
-v0.21 and shipped there. What stays at v0.25 is the half that is a play system rather than a
+v0.21 and shipped there. What stays at v0.27 is the half that is a play system rather than a
 generator.
 
-## Then — Earned Insight v0.23
+## Shipped brief — Earned Insight v0.23
 
 The five economy notes, tuned against the world v0.21 and v0.22 built.
 
@@ -281,7 +285,7 @@ later one, because they are what make the hand-rate change read as an invitation
 - The board never posts three rows the player cannot supply, whatever is decided about reserving a
   slot for depth. If the reservation is rejected, the reason is written down.
 
-## Deferred — Living Lattice v0.24
+## Deferred — Living Lattice v0.26
 
 Animals, biomatter, and waste remain one milestone, and the purpose is sharper than the roster: this
 is the first system that makes HexFactory something other than a factory game drawn on hexes. A
@@ -339,7 +343,7 @@ invented here:
 - The native capacity ladder and complete browser frame are re-measured if the entity or world
   snapshot changes. No claim beyond the measured tier.
 
-## Later — Regional Discovery v0.25
+## Later — Regional Discovery v0.27
 
 **Its generation half moved forward into v0.21** — the bootstrap guarantee that replaces the sample
 platter, and the survey that proves every preset still works. What remains here is the half that is
@@ -397,13 +401,11 @@ Named as decisions rather than omissions, each with the thing it is waiting for.
 - **Organic tileables.** The later half of the art generator: systems that produce tileable textures
   and shapes so a hex lattice reads as organic terrain and organic objects. Same invariants —
   generated, presentation-only, derived from published snapshot facts, never a checksum input.
-- **3D presentation.** The camera tilts and orbits the player; terrain, buildings, and the player
-  gain shape. This is a renderer replacement, which the invariants already allow, and the WebGL2
-  pass is a step toward it. Height is not implied as a gameplay dimension until a later pass names
-  what it is for — smuggling a z-axis into the checksum because the camera can tilt would be the
-  same class of defect as frame-coupled movement. A hand-authored mesh per definition is the atlas
-  again; a mesh derived from `recipe_category` and tier is the shape grammar in another dimension.
-  A renderer decision is a measured decision.
+- **Gameplay elevation and underground strata.** Visual Depth v0.25 gives the existing bands shape
+  without changing simulation truth. Only its shipped camera, picking, readability, and laptop
+  measurements can justify native height. If underground follows, it is separate sparse axial
+  strata joined by explicit shafts or elevators, not a voxel world. See
+  `docs/VISUAL-DEPTH-PLAN.md` for the post-v0.25 decision gate.
 
 Whatever comes next, `fixtures/balance.json` remains the thing every new building or recipe has to
 face: a definition that never reaches it is a definition nothing has compared against the curve, and
@@ -413,6 +415,25 @@ both test suites say so.
 
 One line per release, newest first. The reasoning behind a shipped rule lives in the git history of
 this file and in the code that implements it; what follows is the index.
+
+- **v0.25** Visual Depth — The production world is a stylized near-orthographic Three.js diorama
+  with six 60-degree orbits, bounded zoom, logical-plane picking, exact pointy-top terrain prisms,
+  presentation-only terrain height, native-survey fog, and generated instanced machines built from
+  `ShapePart`, `TIER_LADDER`, and `HUB_LADDER`. Native drag paths, twelve headings, overlays, all
+  commands, reduced motion, and context recovery retain parity. Three graphics profiles are
+  recorded through 6,144 entities with 14–16 draw calls on the reference desktop; physical
+  integrated-GPU qualification remains external. No save, definition, technology, scenario, world,
+  wire, or checksum protocol moved.
+
+- **v0.24** Creative Mode — A native, saved, checksummed sandbox flag unlocks every technology and
+  makes construction, upgrades, and erasure free without changing power, fuel, machine timing,
+  transport, or hub payouts. The host adds material and pack controls that still send bounded
+  commands and read their results from snapshots. Save 13, definitions 13, wire 8.
+
+- **v0.23** Earned Insight — Hand insight is a bounded first-discovery allowance; repeat funding
+  comes from individually completable hub requests priced by recipe depth. Gathering time is a
+  property of the material, machines accept hand-fed input and fuel, and run checkpoints measure
+  the opening automatically. Save 11, definitions 12, wire 6.
 
 - **v0.22** Crossings and Canopy — A bridge is a stone-and-timber support entity on shallow water;
   belts and risers may share its cell, and both layers survive a save while deep water remains a
@@ -465,11 +486,11 @@ this file and in the code that implements it; what follows is the index.
   site lattice cache is what keeps that from being ~350 noise samples per hex. The capacity ladder is
   flat, as it must be: its scenario never generates.
 
-- **WebGL2 renderer** (unreleased, 2026-08-20) — The world and the minimap draw as instanced GPU
+- **WebGL2 renderer** (unreleased, 2026-08-20; superseded by v0.25) — The world and the minimap drew as instanced GPU
   geometry with the camera as a uniform, so walking no longer restamps the terrain mosaic; a Canvas
   2D overlay keeps the player, labels, and machine decorations. Fixes the 4 tps sluggishness
   (per-frame fog blur, camera-keyed terrain restamp, layout forced by `pickWorld`, full HUD rebuilds
-  while walking). **Not yet benchmarked.**
+  while walking). Its final v0.24 hybrid baseline is preserved in `docs/BENCHMARKS.md`.
 - **v0.20.1** Panels and Item Language — Host-only presentation pass. `itemChip` is the only place
   an item is ever drawn, replacing eight bespoke shapes; affordability is a per-line `CostLine[]`
   shortfall rather than a boolean; panels open independently in two `.panel-rail` flex columns; Take

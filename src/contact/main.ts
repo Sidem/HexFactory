@@ -1,24 +1,19 @@
 import definitionData from "../data/definitions.json";
 
-import type {
-  BuildingDefinition,
-  Definitions,
-  EntitySnapshot,
-} from "../core/types";
+import type { BuildingDefinition, Definitions } from "../core/types";
 import {
   BUILDING_SHAPES,
-  drawBuildingLook,
   partsFor,
   silhouetteOf,
   trimOf,
   type SilhouetteKey,
 } from "../rendering/buildingLook";
-import { BUILDING_COLORS } from "../rendering/CanvasFactoryRenderer";
 import {
   profileTop,
   silhouetteSignature,
   TIER_LADDER,
 } from "../rendering/shapeGrammar";
+import { ContactSheetRenderer } from "../rendering/three/ContactSheetRenderer";
 
 /**
  * The contact sheet — every definition x every tier x every status on one grid.
@@ -41,7 +36,12 @@ const STATUSES = [
   { label: "no power", status: "no power", cycle: 0 },
 ] as const;
 
-const CELL = 84;
+const CELL = 56;
+const source = document.createElement("canvas");
+source.id = "contact-render-source";
+source.setAttribute("aria-hidden", "true");
+document.body.append(source);
+const contactRenderer = new ContactSheetRenderer(source, CELL);
 
 const state = { colour: true, animate: false };
 
@@ -54,50 +54,17 @@ interface Cell {
 
 const cells: Cell[] = [];
 
-function fakeEntity(
-  definition: BuildingDefinition,
-  status: string,
-  cycle: number,
-): EntitySnapshot {
-  return {
-    id: definition.id,
-    q: 0,
-    r: 0,
-    definition_id: definition.id,
-    kind: definition.kind,
-    orientation: 0,
-    scenario_owned: false,
-    inventory: [],
-    // `workCycle` reads published progress first, so driving the cell through progress is the
-    // same path a running machine takes rather than a second way in.
-    progress: Math.round(cycle * 1000),
-    progress_total: 1000,
-    status,
-    footprint: [{ q: 0, r: 0 }],
-  };
-}
-
 function paint(cell: Cell, now: number): void {
-  const ctx = cell.canvas.getContext("2d");
-  if (!ctx) return;
-  const ratio = window.devicePixelRatio || 1;
-  cell.canvas.width = CELL * ratio;
-  cell.canvas.height = CELL * ratio;
-  ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
-  ctx.clearRect(0, 0, CELL, CELL);
   const cycle = state.animate ? (now / 900) % 1 : cell.status.cycle;
-  drawBuildingLook(ctx, {
-    building: fakeEntity(cell.definition, cell.status.status, cycle),
-    definition: cell.definition,
-    center: { x: CELL / 2, y: CELL / 2 },
-    size: CELL * 0.42,
-    // Colour removed is the acceptance criterion, not a nicety: a tier has to be legible as a
-    // machine, and a gold stroke over an identical body would pass any test that kept the palette.
-    color: state.colour ? BUILDING_COLORS[cell.definition.kind] : "#4a4f52",
+  contactRenderer.paintStrip(
+    cell.canvas,
+    cell.definition,
+    cell.tier,
+    cell.status.status,
+    cycle,
+    state.colour,
     now,
-    reducedMotion: false,
-    tier: cell.tier,
-  });
+  );
 }
 
 function repaint(now = performance.now()): void {
@@ -183,8 +150,9 @@ function buildCard(definition: BuildingDefinition): HTMLElement {
     for (const status of STATUSES) {
       const holder = element("div", "cell");
       const canvas = element("canvas");
-      canvas.style.width = `${CELL}px`;
+      canvas.style.width = `${CELL * contactRenderer.orbitCount}px`;
       canvas.style.height = `${CELL}px`;
+      canvas.title = "Camera orbits 0–5, left to right";
       holder.append(canvas);
       grid.append(holder);
       cells.push({ canvas, definition, tier, status });
@@ -235,14 +203,23 @@ function main(): void {
   if (summary)
     summary.textContent =
       `${buildings.length} definitions · ${Object.keys(BUILDING_SHAPES).length} silhouettes · ` +
-      `${TIER_LADDER.length} tier steps · ${cells.length} cells`;
+      `${TIER_LADDER.length} tier steps · ${cells.length} status cells · ` +
+      `${contactRenderer.orbitCount} orbits · one WebGL context`;
 
+  let lastAnimatedPaint = 0;
   const frame = (now: number): void => {
-    if (state.animate) repaint(now);
+    if (state.animate && now - lastAnimatedPaint >= 500) {
+      lastAnimatedPaint = now;
+      repaint(now);
+    }
     requestAnimationFrame(frame);
   };
   repaint();
   requestAnimationFrame(frame);
 }
+
+window.addEventListener("pagehide", () => contactRenderer.dispose(), {
+  once: true,
+});
 
 main();

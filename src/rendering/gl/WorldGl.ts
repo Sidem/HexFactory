@@ -5,6 +5,7 @@ import {
 } from "@hexlife/embed/hex";
 
 import { TERRAIN_INFO, TERRAIN_ORDER } from "../../core/terrain";
+import type { ReachRadii } from "../FactoryRenderer";
 import type {
   BuildingDefinition,
   ChunkSnapshot,
@@ -54,12 +55,6 @@ const SPRITE_STRIDE = 12;
 const CHUNK_STRIDE = 3;
 
 export type BuildingColorTable = Record<EntitySnapshot["kind"], string>;
-
-export interface ReachRadii {
-  extract: number | null;
-  supply: number | null;
-  link: number | null;
-}
 
 export interface WorldGlOverlays {
   hover: AxialCoordinate | null;

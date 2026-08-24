@@ -1,0 +1,727 @@
+import {
+  BoxGeometry,
+  Color,
+  ConeGeometry,
+  CylinderGeometry,
+  Group,
+  IcosahedronGeometry,
+  InstancedMesh,
+  Matrix4,
+  Mesh,
+  OctahedronGeometry,
+  Quaternion,
+  RingGeometry,
+  Vector3,
+} from "three";
+import { axialToPixel, pixelToAxial } from "@hexlife/embed/hex";
+
+import type {
+  BuildingDefinition,
+  Definitions,
+  FactorySnapshot,
+  ItemDefinition,
+  ResourceSnapshot,
+} from "../../core/types";
+import { TRANSPORT_DIRECTIONS } from "../../core/directions";
+import { cargoTravel, stallMark, trimOf } from "../buildingLook";
+import { BUILDING_COLORS } from "../FactoryRenderer";
+import { WORLD_SCALE } from "../landmarks";
+import {
+  PartGeometryLibrary,
+  collectMachineParts,
+  machinePartMatrix,
+  type MachinePartInstance,
+} from "./machineMeshes";
+import type { WorldMaterials } from "./materials";
+import type { TerrainCell } from "./terrainMeshes";
+import { cellKey, stableVariation } from "./terrainMeshes";
+import { createTransportGeometry, transportScale } from "./transportGeometry";
+
+interface PartBucket {
+  readonly mesh: InstancedMesh;
+  readonly instances: MachinePartInstance[];
+  readonly animated: boolean;
+}
+
+interface ResourcePartInstance {
+  readonly x: number;
+  readonly y: number;
+  readonly z: number;
+  readonly angle: number;
+  readonly scaleX: number;
+  readonly scaleY: number;
+  readonly scaleZ: number;
+  readonly color: string;
+}
+
+/** The field repeats the inventory glyph vocabulary as unmistakable 3D silhouettes. */
+export const FIELD_RESOURCE_SHAPES = Object.freeze({
+  ore: "faceted-shards",
+  lump: "boulder-cluster",
+  grains: "low-mounds",
+  crystal: "prismatic-spires",
+  log: "trunk-and-canopy",
+});
+
+export class WorldInstanceLayer {
+  readonly group = new Group();
+  readonly geometryLibrary = new PartGeometryLibrary();
+  private readonly transportGeometry = createTransportGeometry();
+  private readonly definitions: ReadonlyMap<number, BuildingDefinition>;
+  private readonly items: ReadonlyMap<number, ItemDefinition>;
+  private readonly geometry = {
+    buildingFoot: new CylinderGeometry(0.72, 0.78, 0.18, 6),
+    belt: this.transportGeometry.belt,
+    bridge: this.transportGeometry.bridge,
+    ore: new OctahedronGeometry(1, 0),
+    lump: new IcosahedronGeometry(1, 0),
+    grains: new ConeGeometry(1, 1, 8),
+    crystal: new ConeGeometry(1, 1, 4),
+    trunk: new CylinderGeometry(1, 1, 1, 7),
+    canopy: new ConeGeometry(1, 1, 7),
+    progress: new BoxGeometry(0.38, 0.08, 0.1),
+    cargo: new IcosahedronGeometry(0.09, 0),
+    status: new SphereGeometryCompat(0.09),
+    scar: new CylinderGeometry(0.34, 0.38, 0.025, 6),
+  };
+  private readonly ownedGeometries = Object.values(this.geometry);
+  private staticGroup = new Group();
+  private resourceGroup = new Group();
+  private readonly dynamicGroup = new Group();
+  private readonly playerGroup = new Group();
+  private partBuckets: PartBucket[] = [];
+  private structureKey = "";
+  private resourcesIdentity: FactorySnapshot["resources"] | null = null;
+  private snapshot: FactorySnapshot | null = null;
+  private terrainByKey: ReadonlyMap<string, TerrainCell> = new Map();
+  private statusMesh: InstancedMesh | null = null;
+  private progressMesh: InstancedMesh | null = null;
+  private cargoMesh: InstancedMesh | null = null;
+  private readonly playerBody: Mesh;
+  private readonly playerFacing: Mesh;
+  private readonly playerWork: Mesh;
+  private readonly pointById = new Map<number, { x: number; z: number }>();
+  private readonly scratchMatrix = new Matrix4();
+  private readonly scratchPosition = new Vector3();
+  private readonly scratchQuaternion = new Quaternion();
+  private readonly scratchScale = new Vector3(1, 1, 1);
+  private readonly scratchColor = new Color();
+  private readonly scratchTrim = new Color();
+  private playerDirty = true;
+
+  constructor(
+    definitions: Definitions,
+    private readonly materials: WorldMaterials,
+  ) {
+    this.group.name = "world-instances";
+    this.definitions = new Map(
+      definitions.buildings.map((definition) => [definition.id, definition]),
+    );
+    this.items = new Map(definitions.items.map((item) => [item.id, item]));
+    this.staticGroup.name = "static-factory";
+    this.resourceGroup.name = "field-resources";
+    this.dynamicGroup.name = "dynamic-factory-state";
+    this.playerGroup.name = "player";
+    this.group.add(
+      this.staticGroup,
+      this.resourceGroup,
+      this.dynamicGroup,
+      this.playerGroup,
+    );
+    this.playerBody = new Mesh(
+      new CylinderGeometry(0.18, 0.24, 0.48, 7),
+      materials.machine,
+    );
+    this.playerBody.castShadow = true;
+    this.playerBody.material = materials.machine;
+    this.playerFacing = new Mesh(
+      new ConeGeometry(0.09, 0.36, 5),
+      materials.emissive,
+    );
+    this.playerFacing.rotateX(Math.PI / 2);
+    this.playerWork = new Mesh(
+      new RingGeometry(0.31, 0.36, 32),
+      materials.overlaySelection,
+    );
+    this.playerWork.rotateX(-Math.PI / 2);
+    this.playerGroup.add(this.playerBody, this.playerFacing, this.playerWork);
+  }
+
+  setSnapshot(
+    snapshot: FactorySnapshot,
+    terrainByKey: ReadonlyMap<string, TerrainCell>,
+  ): boolean {
+    this.snapshot = snapshot;
+    this.playerDirty = true;
+    this.terrainByKey = terrainByKey;
+    const nextStructure =
+      snapshot.buildings
+        .map((entity) =>
+          [
+            entity.id,
+            entity.definition_id,
+            entity.orientation,
+            entity.q,
+            entity.r,
+          ].join(":"),
+        )
+        .join("|") + `@${snapshot.contract.stage}`;
+    const structureChanged = nextStructure !== this.structureKey;
+    if (structureChanged) {
+      this.structureKey = nextStructure;
+      this.rebuildStatic(snapshot);
+    }
+    if (snapshot.resources !== this.resourcesIdentity) {
+      this.resourcesIdentity = snapshot.resources;
+      this.rebuildResources(snapshot.resources);
+    }
+    this.ensureDynamicCapacity(snapshot.buildings.length);
+    return structureChanged;
+  }
+
+  update(now: number, reducedMotion: boolean): void {
+    const snapshot = this.snapshot;
+    if (!snapshot) return;
+    for (const bucket of this.partBuckets) {
+      if (!bucket.animated) continue;
+      for (let index = 0; index < bucket.instances.length; index += 1)
+        bucket.mesh.setMatrixAt(
+          index,
+          machinePartMatrix(
+            bucket.instances[index]!,
+            now,
+            reducedMotion,
+            this.scratchMatrix,
+          ),
+        );
+      bucket.mesh.instanceMatrix.needsUpdate = true;
+    }
+    this.updateDynamicBuildings(snapshot, now, reducedMotion);
+    if (this.playerDirty) {
+      this.playerDirty = false;
+      this.updatePlayer(snapshot);
+    }
+  }
+
+  dispose(): void {
+    this.geometryLibrary.dispose();
+    for (const geometry of this.ownedGeometries) geometry.dispose();
+    this.playerBody.geometry.dispose();
+    this.playerFacing.geometry.dispose();
+    this.playerWork.geometry.dispose();
+  }
+
+  private rebuildStatic(snapshot: FactorySnapshot): void {
+    this.group.remove(this.staticGroup);
+    this.staticGroup = new Group();
+    this.staticGroup.name = "static-factory";
+    this.partBuckets = [];
+    this.pointById.clear();
+    const matrix = new Matrix4();
+    const quaternion = new Quaternion();
+    const position = new Vector3();
+    const scale = new Vector3(1, 1, 1);
+    const color = new Color();
+
+    const baseMesh = new InstancedMesh(
+      this.geometry.buildingFoot,
+      this.materials.machineDark,
+      snapshot.buildings.length,
+    );
+    baseMesh.name = "building-feet";
+    baseMesh.castShadow = true;
+    baseMesh.receiveShadow = true;
+    for (const [index, building] of snapshot.buildings.entries()) {
+      const center = axialToPixel(building, 1, { x: 0, y: 0 });
+      this.pointById.set(building.id, { x: center.x, z: center.y });
+      const height = this.groundHeight(building.q, building.r);
+      position.set(center.x, height + 0.09, center.y);
+      matrix.compose(position, quaternion, scale);
+      baseMesh.setMatrixAt(index, matrix);
+      baseMesh.setColorAt(
+        index,
+        color
+          .set(BUILDING_COLORS[building.kind])
+          .lerp(this.scratchTrim.set("#dcefe6"), 0.24),
+      );
+    }
+    baseMesh.instanceMatrix.needsUpdate = true;
+    if (baseMesh.instanceColor) baseMesh.instanceColor.needsUpdate = true;
+    this.staticGroup.add(baseMesh);
+
+    this.addTransportMeshes(
+      snapshot,
+      matrix,
+      position,
+      quaternion,
+      scale,
+      color,
+    );
+    this.addPartMeshes(snapshot);
+    this.group.add(this.staticGroup);
+  }
+
+  private addTransportMeshes(
+    snapshot: FactorySnapshot,
+    matrix: Matrix4,
+    position: Vector3,
+    quaternion: Quaternion,
+    scale: Vector3,
+    color: Color,
+  ): void {
+    const belts = snapshot.buildings.filter(({ kind }) => kind === "belt");
+    if (belts.length) {
+      const mesh = new InstancedMesh(
+        this.geometry.belt,
+        this.materials.machine,
+        belts.length,
+      );
+      mesh.name = "transport-decks";
+      for (const [index, building] of belts.entries()) {
+        const center = axialToPixel(building, 1, { x: 0, y: 0 });
+        const height = this.groundHeight(building.q, building.r) + 0.23;
+        const angle = buildingAngle(building.orientation);
+        position.set(center.x, height, center.y);
+        quaternion.setFromAxisAngle(new Vector3(0, 1, 0), angle);
+        const definition = this.definitions.get(building.definition_id);
+        const [x, y, z] = definition
+          ? transportScale(definition)
+          : ([1, 1, 1] as const);
+        scale.set(x, y, z);
+        matrix.compose(position, quaternion, scale);
+        mesh.setMatrixAt(index, matrix);
+        mesh.setColorAt(
+          index,
+          color
+            .set(BUILDING_COLORS.belt)
+            .lerp(this.scratchTrim.set("#dcefe6"), 0.28),
+        );
+      }
+      mesh.instanceMatrix.needsUpdate = true;
+      if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+      this.staticGroup.add(mesh);
+    }
+    const bridges = snapshot.buildings.filter(({ kind }) => kind === "bridge");
+    if (bridges.length) {
+      const mesh = new InstancedMesh(
+        this.geometry.bridge,
+        this.materials.machineDark,
+        bridges.length,
+      );
+      mesh.name = "bridge-decks";
+      for (const [index, building] of bridges.entries()) {
+        const center = axialToPixel(building, 1, { x: 0, y: 0 });
+        position.set(
+          center.x,
+          this.groundHeight(building.q, building.r) + 0.18,
+          center.y,
+        );
+        quaternion.setFromAxisAngle(
+          new Vector3(0, 1, 0),
+          buildingAngle(building.orientation),
+        );
+        scale.set(1, 1, 1);
+        matrix.compose(position, quaternion, scale);
+        mesh.setMatrixAt(index, matrix);
+        mesh.setColorAt(
+          index,
+          color
+            .set(BUILDING_COLORS.bridge)
+            .lerp(this.scratchTrim.set("#dcefe6"), 0.28),
+        );
+      }
+      mesh.instanceMatrix.needsUpdate = true;
+      if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+      this.staticGroup.add(mesh);
+    }
+  }
+
+  private addPartMeshes(snapshot: FactorySnapshot): void {
+    const parts = collectMachineParts(
+      snapshot,
+      this.definitions,
+      (q, r) => this.groundHeight(q, r),
+      BUILDING_COLORS,
+    );
+    const buckets = new Map<string, MachinePartInstance[]>();
+    for (const instance of parts) {
+      const key = `${instance.key}:${instance.glow ? "glow" : "solid"}:${instance.animated ? "animated" : "static"}`;
+      const bucket = buckets.get(key);
+      if (bucket) bucket.push(instance);
+      else buckets.set(key, [instance]);
+    }
+    const matrix = new Matrix4();
+    const color = new Color();
+    for (const [key, instances] of buckets) {
+      const first = instances[0]!;
+      const mesh = new InstancedMesh(
+        this.geometryLibrary.get(first.part),
+        first.glow ? this.materials.emissive : this.materials.machine,
+        instances.length,
+      );
+      mesh.name = `machine-part-${key}`;
+      mesh.castShadow = true;
+      for (const [index, instance] of instances.entries()) {
+        mesh.setMatrixAt(index, machinePartMatrix(instance, 0, true, matrix));
+        const tier =
+          this.definitions.get(instance.building.definition_id)?.tier ?? 0;
+        mesh.setColorAt(
+          index,
+          instance.glow
+            ? color.set(instance.glow)
+            : color
+                .set(instance.color)
+                .lerp(
+                  this.scratchTrim.set(
+                    tier > 0 ? trimOf(tier).stroke : "#dcefe6",
+                  ),
+                  tier > 0 ? 0.38 : 0.25,
+                ),
+        );
+      }
+      mesh.instanceMatrix.needsUpdate = true;
+      if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+      this.staticGroup.add(mesh);
+      this.partBuckets.push({
+        mesh,
+        instances,
+        animated: first.animated,
+      });
+    }
+  }
+
+  private rebuildResources(resources: readonly ResourceSnapshot[]): void {
+    this.group.remove(this.resourceGroup);
+    this.resourceGroup = new Group();
+    this.resourceGroup.name = "field-resources";
+    const ore: ResourcePartInstance[] = [];
+    const lumps: ResourcePartInstance[] = [];
+    const grains: ResourcePartInstance[] = [];
+    const crystals: ResourcePartInstance[] = [];
+    const trunks: ResourcePartInstance[] = [];
+    const canopies: ResourcePartInstance[] = [];
+
+    for (const resource of resources) {
+      if (resource.quantity <= 0) continue;
+      const item = this.items.get(resource.item_id);
+      if (!item) continue;
+      const ground = this.groundHeight(resource.q, resource.r);
+      const x = resource.x / WORLD_SCALE;
+      const z = resource.y / WORLD_SCALE;
+      const angle = stableVariation(resource.q, resource.r) * Math.PI * 2;
+      const fraction = resource.initial_quantity
+        ? resource.quantity / resource.initial_quantity
+        : 1;
+      const abundance = 0.78 + Math.sqrt(Math.max(0, fraction)) * 0.22;
+      const add = (
+        target: ResourcePartInstance[],
+        offsetX: number,
+        offsetZ: number,
+        scaleX: number,
+        scaleY: number,
+        scaleZ: number,
+        centerY: number,
+        color = item.color,
+      ): void => {
+        const cos = Math.cos(angle);
+        const sin = Math.sin(angle);
+        target.push({
+          x: x + offsetX * cos - offsetZ * sin,
+          y: ground + centerY,
+          z: z + offsetX * sin + offsetZ * cos,
+          angle,
+          scaleX: scaleX * abundance,
+          scaleY: scaleY * abundance,
+          scaleZ: scaleZ * abundance,
+          color,
+        });
+      };
+
+      if (item.regrowth_ticks) {
+        for (let unit = 0; unit < resource.quantity; unit += 1) {
+          const treeAngle =
+            stableVariation(resource.q * 7 + unit, resource.r * 11 - unit) *
+            Math.PI *
+            2;
+          const radius = unit === 0 ? 0 : 0.19 + (unit % 2) * 0.08;
+          const offsetX = Math.cos(treeAngle) * radius;
+          const offsetZ = Math.sin(treeAngle) * radius;
+          const trunkHeight = 0.34 + (unit % 3) * 0.035;
+          add(
+            trunks,
+            offsetX,
+            offsetZ,
+            0.055,
+            trunkHeight,
+            0.055,
+            trunkHeight / 2,
+            item.color,
+          );
+          const canopyHeight = 0.42 + (unit % 2) * 0.05;
+          add(
+            canopies,
+            offsetX,
+            offsetZ,
+            0.24,
+            canopyHeight,
+            0.24,
+            trunkHeight + canopyHeight / 2,
+            "#89bd62",
+          );
+        }
+        continue;
+      }
+
+      switch (item.icon) {
+        case "crystal":
+          add(crystals, -0.18, 0.04, 0.12, 0.55, 0.12, 0.275);
+          add(crystals, 0.13, -0.1, 0.16, 0.78, 0.16, 0.39);
+          add(crystals, 0.18, 0.2, 0.1, 0.44, 0.1, 0.22);
+          break;
+        case "grains":
+          add(grains, -0.19, -0.08, 0.25, 0.13, 0.22, 0.065);
+          add(grains, 0.17, -0.03, 0.28, 0.16, 0.24, 0.08);
+          add(grains, 0.02, 0.21, 0.22, 0.11, 0.2, 0.055);
+          break;
+        case "lump":
+          add(lumps, -0.18, -0.06, 0.24, 0.18, 0.21, 0.18);
+          add(lumps, 0.16, -0.04, 0.29, 0.22, 0.25, 0.22);
+          add(lumps, 0.03, 0.22, 0.2, 0.15, 0.18, 0.15);
+          break;
+        default:
+          add(ore, -0.19, -0.08, 0.15, 0.34, 0.15, 0.34);
+          add(ore, 0.16, -0.03, 0.2, 0.43, 0.2, 0.43);
+          add(ore, 0.02, 0.2, 0.13, 0.29, 0.13, 0.29);
+      }
+    }
+
+    this.addResourceParts("ore-field-shards", this.geometry.ore, ore);
+    this.addResourceParts("lump-field-clusters", this.geometry.lump, lumps);
+    this.addResourceParts("grain-field-mounds", this.geometry.grains, grains);
+    this.addResourceParts(
+      "signal-crystal-spires",
+      this.geometry.crystal,
+      crystals,
+      this.materials.emissive,
+    );
+    this.addResourceParts("forest-trunks", this.geometry.trunk, trunks);
+    this.addResourceParts("forest-canopies", this.geometry.canopy, canopies);
+
+    const scars = resources.filter(
+      (resource) =>
+        !this.items.get(resource.item_id)?.regrowth_ticks &&
+        resource.initial_quantity > 0 &&
+        resource.quantity === 0,
+    );
+    if (scars.length) {
+      const mesh = new InstancedMesh(
+        this.geometry.scar,
+        this.materials.machineDark,
+        scars.length,
+      );
+      mesh.name = "depleted-field-scars";
+      const matrix = new Matrix4();
+      const color = new Color("#241f1a");
+      for (const [index, resource] of scars.entries()) {
+        const angle = stableVariation(resource.q, resource.r) * Math.PI;
+        matrix.compose(
+          new Vector3(
+            resource.x / WORLD_SCALE,
+            this.groundHeight(resource.q, resource.r) + 0.018,
+            resource.y / WORLD_SCALE,
+          ),
+          new Quaternion().setFromAxisAngle(new Vector3(0, 1, 0), angle),
+          new Vector3(1, 1, 0.72),
+        );
+        mesh.setMatrixAt(index, matrix);
+        mesh.setColorAt(index, color);
+      }
+      mesh.instanceMatrix.needsUpdate = true;
+      if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+      this.resourceGroup.add(mesh);
+    }
+    this.group.add(this.resourceGroup);
+  }
+
+  private addResourceParts(
+    name: string,
+    geometry:
+      | OctahedronGeometry
+      | IcosahedronGeometry
+      | ConeGeometry
+      | CylinderGeometry,
+    instances: readonly ResourcePartInstance[],
+    material = this.materials.resource,
+  ): void {
+    if (!instances.length) return;
+    const mesh = new InstancedMesh(geometry, material, instances.length);
+    mesh.name = name;
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    const matrix = new Matrix4();
+    const quaternion = new Quaternion();
+    const color = new Color();
+    for (const [index, instance] of instances.entries()) {
+      matrix.compose(
+        new Vector3(instance.x, instance.y, instance.z),
+        quaternion.setFromAxisAngle(new Vector3(0, 1, 0), instance.angle),
+        new Vector3(instance.scaleX, instance.scaleY, instance.scaleZ),
+      );
+      mesh.setMatrixAt(index, matrix);
+      mesh.setColorAt(index, color.set(instance.color));
+    }
+    markInstancesDirty(mesh);
+    this.resourceGroup.add(mesh);
+  }
+
+  private ensureDynamicCapacity(capacity: number): void {
+    if (this.statusMesh && this.statusMesh.instanceMatrix.count >= capacity)
+      return;
+    this.dynamicGroup.clear();
+    const max = Math.max(1, capacity);
+    this.statusMesh = new InstancedMesh(
+      this.geometry.status,
+      this.materials.emissive,
+      max,
+    );
+    this.statusMesh.name = "machine-status";
+    this.progressMesh = new InstancedMesh(
+      this.geometry.progress,
+      this.materials.emissive,
+      max,
+    );
+    this.progressMesh.name = "machine-progress";
+    this.cargoMesh = new InstancedMesh(
+      this.geometry.cargo,
+      this.materials.resource,
+      max,
+    );
+    this.cargoMesh.name = "moving-cargo";
+    this.dynamicGroup.add(this.statusMesh, this.progressMesh, this.cargoMesh);
+  }
+
+  private updateDynamicBuildings(
+    snapshot: FactorySnapshot,
+    now: number,
+    reducedMotion: boolean,
+  ): void {
+    if (!this.statusMesh || !this.progressMesh || !this.cargoMesh) return;
+    const matrix = this.scratchMatrix;
+    const color = this.scratchColor;
+    const position = this.scratchPosition;
+    const quaternion = this.scratchQuaternion.identity();
+    const scale = this.scratchScale.set(1, 1, 1);
+    let statuses = 0;
+    let progresses = 0;
+    let cargos = 0;
+    for (const building of snapshot.buildings) {
+      const center = this.pointById.get(building.id);
+      if (!center) continue;
+      const height = this.groundHeight(building.q, building.r);
+      scale.set(1, 1, 1);
+      const mark = stallMark(building.status);
+      if (mark) {
+        matrix.compose(
+          position.set(center.x + 0.38, height + 0.62, center.z),
+          quaternion,
+          scale,
+        );
+        this.statusMesh.setMatrixAt(statuses, matrix);
+        this.statusMesh.setColorAt(statuses, color.set(mark));
+        statuses += 1;
+      }
+      if (building.progress_total > 0 && building.progress > 0) {
+        const amount = Math.max(
+          0.04,
+          building.progress / building.progress_total,
+        );
+        matrix.compose(
+          position.set(
+            center.x - 0.26 + amount * 0.19,
+            height + 0.52,
+            center.z - 0.34,
+          ),
+          quaternion,
+          scale.set(amount, 1, 1),
+        );
+        this.progressMesh.setMatrixAt(progresses, matrix);
+        this.progressMesh.setColorAt(progresses, color.set("#7fe0c0"));
+        progresses += 1;
+      }
+      if (building.cargo) {
+        const target = building.next_id
+          ? this.pointById.get(building.next_id)
+          : undefined;
+        const travel = cargoTravel(now, reducedMotion, building.id);
+        const tx = target?.x ?? center.x;
+        const tz = target?.z ?? center.z;
+        matrix.compose(
+          position.set(
+            center.x + (tx - center.x) * travel,
+            height + 0.42,
+            center.z + (tz - center.z) * travel,
+          ),
+          quaternion,
+          scale.set(1, 1, 1),
+        );
+        this.cargoMesh.setMatrixAt(cargos, matrix);
+        this.cargoMesh.setColorAt(
+          cargos,
+          color.set(this.items.get(building.cargo.item_id)?.color ?? "#ffffff"),
+        );
+        cargos += 1;
+      }
+    }
+    this.statusMesh.count = statuses;
+    this.progressMesh.count = progresses;
+    this.cargoMesh.count = cargos;
+    markInstancesDirty(this.statusMesh);
+    markInstancesDirty(this.progressMesh);
+    markInstancesDirty(this.cargoMesh);
+  }
+
+  private updatePlayer(snapshot: FactorySnapshot): void {
+    const player = snapshot.player;
+    const axial = pixelToAxial(player, WORLD_SCALE);
+    const height = this.groundHeight(axial.q, axial.r);
+    const x = player.x / WORLD_SCALE;
+    const z = player.y / WORLD_SCALE;
+    this.playerGroup.position.set(x, height + 0.26, z);
+    this.playerBody.position.set(0, 0, 0);
+    this.playerBody.scale.set(1, 1, 1);
+    const facing = Math.atan2(player.facing_x, player.facing_y);
+    this.playerFacing.position.set(
+      Math.sin(facing) * 0.32,
+      0.12,
+      Math.cos(facing) * 0.32,
+    );
+    this.playerFacing.rotation.set(Math.PI / 2, 0, -facing);
+    const total = player.action_cooldown_total;
+    const done = total > 0 ? 1 - player.action_cooldown / total : 0;
+    this.playerWork.visible = player.action_cooldown > 0;
+    this.playerWork.scale.setScalar(Math.max(0.05, done));
+  }
+
+  private groundHeight(q: number, r: number): number {
+    return this.terrainByKey.get(cellKey(q, r))?.height ?? 0.07;
+  }
+}
+
+function buildingAngle(orientation: number): number {
+  const direction =
+    TRANSPORT_DIRECTIONS[orientation] ?? TRANSPORT_DIRECTIONS[0]!;
+  const point = axialToPixel(direction, 1, { x: 0, y: 0 });
+  return Math.atan2(point.x, point.y);
+}
+
+/** Small low-poly status bead without importing another geometry family into the bucket model. */
+class SphereGeometryCompat extends IcosahedronGeometry {
+  constructor(radius: number) {
+    super(radius, 1);
+  }
+}
+
+function markInstancesDirty(mesh: InstancedMesh): void {
+  mesh.instanceMatrix.needsUpdate = true;
+  if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+}
