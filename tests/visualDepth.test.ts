@@ -29,7 +29,11 @@ import {
   TERRAIN_STYLE,
   visualHeight,
 } from "../src/rendering/three/terrainStyle";
-import { FIELD_RESOURCE_SHAPES } from "../src/rendering/three/worldInstances";
+import { createTransportGeometry } from "../src/rendering/three/transportGeometry";
+import {
+  fieldVisualColor,
+  FIELD_RESOURCE_SHAPES,
+} from "../src/rendering/three/worldInstances";
 
 describe("Visual Depth camera", () => {
   it("round-trips native world and axial points at every orbit and zoom extreme", () => {
@@ -202,6 +206,27 @@ describe("Visual Depth terrain and quality contracts", () => {
       log: "trunk-and-canopy",
     });
     expect(new Set(Object.values(FIELD_RESOURCE_SHAPES)).size).toBe(5);
+  });
+
+  it("keeps instance identity colour instead of multiplying it by a missing vertex colour", () => {
+    const materials = createWorldMaterials();
+    expect(materials.machine.vertexColors).toBe(false);
+    expect(materials.machineDark.vertexColors).toBe(false);
+    expect(materials.resource.vertexColors).toBe(false);
+    expect(materials.resourceAccent.vertexColors).toBe(false);
+    expect(fieldVisualColor("#39404a")).not.toBe("#39404a");
+    for (const material of materials.materials) material.dispose();
+  });
+
+  it("builds belts from rails and contrasting transverse treads", () => {
+    const geometry = createTransportGeometry();
+    expect(geometry.belt.getAttribute("position").count).toBeGreaterThan(24);
+    expect(geometry.beltDetail.getAttribute("position").count).toBeGreaterThan(
+      24,
+    );
+    geometry.belt.dispose();
+    geometry.beltDetail.dispose();
+    geometry.bridge.dispose();
   });
 
   it("uses the exact pointy-top circumradius so three-cell junctions close", () => {

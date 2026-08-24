@@ -15,17 +15,17 @@ export const MAX_DEVICE_PIXEL_RATIO = 1.5;
 
 /** One material family per native kind; definitions vary by generated anatomy, never an id case. */
 export const BUILDING_COLORS: Record<EntitySnapshot["kind"], string> = {
-  extractor: "#b75e45",
-  belt: "#415b78",
-  composer: "#765bae",
-  container: "#a07c3e",
-  consumer: "#3c806a",
-  hub: "#d1a945",
-  pump: "#2f7d9c",
-  pole: "#c8b56b",
-  generator: "#d4a017",
-  boiler: "#a85c32",
-  bridge: "#8f7655",
+  extractor: "#e05f3f",
+  belt: "#2196c7",
+  composer: "#956fe8",
+  container: "#c98b31",
+  consumer: "#35a77d",
+  hub: "#e6b83f",
+  pump: "#27a6ce",
+  pole: "#e6cf68",
+  generator: "#ed9f1a",
+  boiler: "#d86932",
+  bridge: "#aa8151",
 };
 
 /** Native chunk bounds are the whole surveyed-world predicate; omitted terrain inside is lowland. */

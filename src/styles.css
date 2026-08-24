@@ -1848,6 +1848,8 @@ canvas {
   background: #0b1a17e6;
   box-shadow: 0 14px 40px #0009;
   backdrop-filter: blur(12px);
+  /* Navigation is a readout, not a control: pointer movement belongs to the world below it. */
+  pointer-events: none;
 }
 #minimap {
   position: static;

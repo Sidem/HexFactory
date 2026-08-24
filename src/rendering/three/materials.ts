@@ -12,7 +12,8 @@ export interface WorldMaterials {
   readonly terrain: Record<Terrain, MeshStandardMaterial>;
   readonly machine: MeshStandardMaterial;
   readonly machineDark: MeshStandardMaterial;
-  readonly resource: MeshStandardMaterial;
+  readonly resource: MeshBasicMaterial;
+  readonly resourceAccent: MeshBasicMaterial;
   readonly emissive: MeshStandardMaterial;
   readonly overlayLegal: MeshBasicMaterial;
   readonly overlayIllegal: MeshBasicMaterial;
@@ -43,34 +44,33 @@ export function createWorldMaterials(): WorldMaterials {
   ) as Record<Terrain, MeshStandardMaterial>;
   const machine = new MeshStandardMaterial({
     color: 0xffffff,
-    vertexColors: true,
     roughness: 0.7,
     metalness: 0.3,
-    emissive: "#ffffff",
-    emissiveIntensity: 0.08,
+    emissive: "#09110f",
+    emissiveIntensity: 0.12,
     flatShading: true,
   });
   const machineDark = new MeshStandardMaterial({
     color: 0xffffff,
-    vertexColors: true,
     roughness: 0.9,
     metalness: 0.15,
-    emissive: "#ffffff",
-    emissiveIntensity: 0.06,
-    flatShading: true,
-  });
-  const resource = new MeshStandardMaterial({
-    color: 0xffffff,
-    vertexColors: true,
-    roughness: 0.88,
-    metalness: 0.02,
-    emissive: "#ffffff",
+    emissive: "#050908",
     emissiveIntensity: 0.08,
     flatShading: true,
   });
+  const resource = new MeshBasicMaterial({
+    color: 0xffffff,
+  });
+  const resourceAccent = new MeshBasicMaterial({
+    color: 0xffffff,
+    transparent: true,
+    opacity: 0.86,
+    depthWrite: false,
+    polygonOffset: true,
+    polygonOffsetFactor: -1,
+  });
   const emissive = new MeshStandardMaterial({
     color: 0xffffff,
-    vertexColors: true,
     roughness: 0.36,
     metalness: 0.08,
     emissive: new Color("#ffffff"),
@@ -112,6 +112,7 @@ export function createWorldMaterials(): WorldMaterials {
     machine,
     machineDark,
     resource,
+    resourceAccent,
     emissive,
     overlayLegal,
     overlayIllegal,
@@ -124,6 +125,7 @@ export function createWorldMaterials(): WorldMaterials {
     machine,
     machineDark,
     resource,
+    resourceAccent,
     emissive,
     overlayLegal,
     overlayIllegal,

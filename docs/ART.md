@@ -70,9 +70,10 @@ every tier × every status on one grid, drawn by the shipped renderer rather tha
 illustration of it. It carries a **colour toggle**, because a silhouette judgement fails any test
 that keeps the palette — a gold stroke over an identical body would pass. It names two failures on
 the card itself: a definition whose silhouette has no base shape, and definitions that draw
-identically to each other. Both fire today on the belt and the riser, which is correct — a belt's
-look is its heading tick and the cargo riding it. Dev-only: like `bench.html` it must never become a
-dependency of the game, the production build, or the CI gate.
+identically to each other. Both fire today on the belt and the riser because neither uses the
+machine-part grammar. Their shared transport mesh supplies the raised rails and transverse treads;
+the corner-axis riser then stretches that vocabulary across a seam. Dev-only: like `bench.html` it
+must never become a dependency of the game, the production build, or the CI gate.
 
 **The acceptance standard is a measurement, not an eyeballing.** A tier-1 definition must be
 distinguishable from its tier-0 parent by silhouette, with colour removed, at normal zoom. That was
@@ -170,6 +171,14 @@ Terrain prisms use the exact public pointy-top axial radius. Adjacent centres th
 apothem with no triangular holes. Grid, hover, selection, legality, native drag preview, arrows, and
 reach rings use the same pointy-top start angle (`pi / 6`), so an overlay cannot present a hex rotated
 away from the tile beneath it. Tests pin both the apothem and overlay orientation.
+
+Instance colour is part of the generator contract. Machine and field materials take their colour
+from `InstancedMesh.instanceColor`; they do not also request a per-vertex colour attribute that the
+shared geometry does not carry, because multiplying by that absent attribute collapses every
+definition to black/grey. Tone mapping preserves the low-poly light while vivid kind colours,
+field-specific chroma floors, and a shallow coloured field mark keep machines and resources legible
+against the dark landforms. Belts use a coloured two-rail frame over contrasting transverse treads,
+so an empty line still reads as transport before cargo arrives.
 
 The contact sheet now renders 23 definitions, three ladder states, four status cells, and all six
 orbits through one retained offscreen WebGL context using the same production geometry. Reduced

@@ -1,4 +1,5 @@
 import {
+  ACESFilmicToneMapping,
   AmbientLight,
   BoxGeometry,
   Color,
@@ -76,13 +77,15 @@ export class ContactSheetRenderer {
     this.renderer.setPixelRatio(this.ratio);
     this.renderer.setSize(cellSize, cellSize, false);
     this.renderer.outputColorSpace = SRGBColorSpace;
+    this.renderer.toneMapping = ACESFilmicToneMapping;
+    this.renderer.toneMappingExposure = 1.05;
     this.renderer.setClearColor("#0a1513", 1);
     this.scene.background = new Color("#0a1513");
     const key = new DirectionalLight("#ffe4b0", 2.6);
     key.position.set(-3, 6, 4);
     this.scene.add(
-      new HemisphereLight("#d7eff0", "#26342f", 2.1),
-      new AmbientLight("#9bb7af", 0.62),
+      new HemisphereLight("#d7eff0", "#26342f", 1.6),
+      new AmbientLight("#9bb7af", 0.46),
       key,
       this.model,
     );
@@ -132,6 +135,7 @@ export class ContactSheetRenderer {
     this.statusGeometry.dispose();
     this.progressGeometry.dispose();
     this.transportGeometry.belt.dispose();
+    this.transportGeometry.beltDetail.dispose();
     this.transportGeometry.bridge.dispose();
     for (const material of this.materials.values()) material.dispose();
     this.renderer.dispose();
@@ -193,6 +197,15 @@ export class ContactSheetRenderer {
       deck.position.y = definition.kind === "bridge" ? 0.25 : 0.22;
       deck.scale.set(x, y, z);
       this.model.add(deck);
+      if (definition.kind === "belt") {
+        const treads = new Mesh(
+          this.transportGeometry.beltDetail,
+          this.material("belt-treads", colour ? "#102b3a" : "#343a38"),
+        );
+        treads.position.y = 0.22;
+        treads.scale.set(x, y, z);
+        this.model.add(treads);
+      }
     }
     const mark = stallMark(status);
     if (mark) {

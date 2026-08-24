@@ -72,6 +72,7 @@ export class WorldInstanceLayer {
   private readonly geometry = {
     buildingFoot: new CylinderGeometry(0.72, 0.78, 0.18, 6),
     belt: this.transportGeometry.belt,
+    beltDetail: this.transportGeometry.beltDetail,
     bridge: this.transportGeometry.bridge,
     ore: new OctahedronGeometry(1, 0),
     lump: new IcosahedronGeometry(1, 0),
@@ -79,6 +80,7 @@ export class WorldInstanceLayer {
     crystal: new ConeGeometry(1, 1, 4),
     trunk: new CylinderGeometry(1, 1, 1, 7),
     canopy: new ConeGeometry(1, 1, 7),
+    fieldMark: new CylinderGeometry(0.58, 0.64, 0.04, 6),
     progress: new BoxGeometry(0.38, 0.08, 0.1),
     cargo: new IcosahedronGeometry(0.09, 0),
     status: new SphereGeometryCompat(0.09),
@@ -242,7 +244,7 @@ export class WorldInstanceLayer {
         index,
         color
           .set(BUILDING_COLORS[building.kind])
-          .lerp(this.scratchTrim.set("#dcefe6"), 0.24),
+          .lerp(this.scratchTrim.set("#101b20"), 0.3),
       );
     }
     baseMesh.instanceMatrix.needsUpdate = true;
@@ -271,12 +273,18 @@ export class WorldInstanceLayer {
   ): void {
     const belts = snapshot.buildings.filter(({ kind }) => kind === "belt");
     if (belts.length) {
-      const mesh = new InstancedMesh(
+      const frame = new InstancedMesh(
         this.geometry.belt,
         this.materials.machine,
         belts.length,
       );
-      mesh.name = "transport-decks";
+      frame.name = "transport-rails";
+      const treads = new InstancedMesh(
+        this.geometry.beltDetail,
+        this.materials.machineDark,
+        belts.length,
+      );
+      treads.name = "transport-treads";
       for (const [index, building] of belts.entries()) {
         const center = axialToPixel(building, 1, { x: 0, y: 0 });
         const height = this.groundHeight(building.q, building.r) + 0.23;
@@ -289,17 +297,16 @@ export class WorldInstanceLayer {
           : ([1, 1, 1] as const);
         scale.set(x, y, z);
         matrix.compose(position, quaternion, scale);
-        mesh.setMatrixAt(index, matrix);
-        mesh.setColorAt(
-          index,
-          color
-            .set(BUILDING_COLORS.belt)
-            .lerp(this.scratchTrim.set("#dcefe6"), 0.28),
-        );
+        frame.setMatrixAt(index, matrix);
+        frame.setColorAt(index, color.set(BUILDING_COLORS.belt));
+        treads.setMatrixAt(index, matrix);
+        treads.setColorAt(index, color.set("#102b3a"));
       }
-      mesh.instanceMatrix.needsUpdate = true;
-      if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
-      this.staticGroup.add(mesh);
+      markInstancesDirty(frame);
+      markInstancesDirty(treads);
+      frame.castShadow = true;
+      treads.castShadow = true;
+      this.staticGroup.add(frame, treads);
     }
     const bridges = snapshot.buildings.filter(({ kind }) => kind === "bridge");
     if (bridges.length) {
@@ -323,12 +330,7 @@ export class WorldInstanceLayer {
         scale.set(1, 1, 1);
         matrix.compose(position, quaternion, scale);
         mesh.setMatrixAt(index, matrix);
-        mesh.setColorAt(
-          index,
-          color
-            .set(BUILDING_COLORS.bridge)
-            .lerp(this.scratchTrim.set("#dcefe6"), 0.28),
-        );
+        mesh.setColorAt(index, color.set(BUILDING_COLORS.bridge));
       }
       mesh.instanceMatrix.needsUpdate = true;
       if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
@@ -375,7 +377,7 @@ export class WorldInstanceLayer {
                   this.scratchTrim.set(
                     tier > 0 ? trimOf(tier).stroke : "#dcefe6",
                   ),
-                  tier > 0 ? 0.38 : 0.25,
+                  tier > 0 ? 0.2 : 0.04,
                 ),
         );
       }
@@ -400,6 +402,7 @@ export class WorldInstanceLayer {
     const crystals: ResourcePartInstance[] = [];
     const trunks: ResourcePartInstance[] = [];
     const canopies: ResourcePartInstance[] = [];
+    const fieldMarks: ResourcePartInstance[] = [];
 
     for (const resource of resources) {
       if (resource.quantity <= 0) continue;
@@ -413,6 +416,7 @@ export class WorldInstanceLayer {
         ? resource.quantity / resource.initial_quantity
         : 1;
       const abundance = 0.78 + Math.sqrt(Math.max(0, fraction)) * 0.22;
+      const fieldColor = fieldVisualColor(item.color);
       const add = (
         target: ResourcePartInstance[],
         offsetX: number,
@@ -421,7 +425,7 @@ export class WorldInstanceLayer {
         scaleY: number,
         scaleZ: number,
         centerY: number,
-        color = item.color,
+        color = fieldColor,
       ): void => {
         const cos = Math.cos(angle);
         const sin = Math.sin(angle);
@@ -436,6 +440,8 @@ export class WorldInstanceLayer {
           color,
         });
       };
+
+      add(fieldMarks, 0, 0, 1, 1, 1, 0.035, fieldColor);
 
       if (item.regrowth_ticks) {
         for (let unit = 0; unit < resource.quantity; unit += 1) {
@@ -455,7 +461,7 @@ export class WorldInstanceLayer {
             trunkHeight,
             0.055,
             trunkHeight / 2,
-            item.color,
+            fieldColor,
           );
           const canopyHeight = 0.42 + (unit % 2) * 0.05;
           add(
@@ -506,6 +512,12 @@ export class WorldInstanceLayer {
     );
     this.addResourceParts("forest-trunks", this.geometry.trunk, trunks);
     this.addResourceParts("forest-canopies", this.geometry.canopy, canopies);
+    this.addResourceParts(
+      "field-resource-marks",
+      this.geometry.fieldMark,
+      fieldMarks,
+      this.materials.resourceAccent,
+    );
 
     const scars = resources.filter(
       (resource) =>
@@ -551,13 +563,17 @@ export class WorldInstanceLayer {
       | ConeGeometry
       | CylinderGeometry,
     instances: readonly ResourcePartInstance[],
-    material = this.materials.resource,
+    material:
+      | WorldMaterials["resource"]
+      | WorldMaterials["emissive"]
+      | WorldMaterials["resourceAccent"] = this.materials.resource,
   ): void {
     if (!instances.length) return;
     const mesh = new InstancedMesh(geometry, material, instances.length);
     mesh.name = name;
-    mesh.castShadow = true;
-    mesh.receiveShadow = true;
+    mesh.castShadow = material !== this.materials.resourceAccent;
+    mesh.receiveShadow = material !== this.materials.resourceAccent;
+    if (material === this.materials.resourceAccent) mesh.renderOrder = 4;
     const matrix = new Matrix4();
     const quaternion = new Quaternion();
     const color = new Color();
@@ -712,6 +728,19 @@ function buildingAngle(orientation: number): number {
     TRANSPORT_DIRECTIONS[orientation] ?? TRANSPORT_DIRECTIONS[0]!;
   const point = axialToPixel(direction, 1, { x: 0, y: 0 });
   return Math.atan2(point.x, point.y);
+}
+
+/** Preserve each item's hue while ensuring even coal and stone stay legible against dark terrain. */
+export function fieldVisualColor(source: string): string {
+  const color = new Color(source);
+  const hsl = { h: 0, s: 0, l: 0 };
+  color.getHSL(hsl);
+  color.setHSL(
+    hsl.h,
+    Math.min(1, Math.max(0.18, hsl.s * 1.2)),
+    Math.min(0.72, Math.max(0.46, hsl.l * 1.08)),
+  );
+  return `#${color.getHexString()}`;
 }
 
 /** Small low-poly status bead without importing another geometry family into the bucket model. */

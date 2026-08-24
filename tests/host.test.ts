@@ -1137,6 +1137,10 @@ describe("availability and expanded snapshot adapter", () => {
       new URL("../src/main.ts", import.meta.url),
       "utf8",
     );
+    const css = readFileSync(
+      new URL("../src/styles.css", import.meta.url),
+      "utf8",
+    );
     // Pack, research, and the objective guide wait behind I, O, and P.
     expect(main).toContain('KeyI: "inventory-panel"');
     expect(main).toContain('KeyO: "research-panel"');
@@ -1155,6 +1159,7 @@ describe("availability and expanded snapshot adapter", () => {
     expect(html).toContain('id="home-readout"');
     expect(html).toContain('class="home-compass"');
     expect(html).toContain('id="home-readout-text"');
+    expect(css).toMatch(/\.minimap-frame\s*\{[^}]*pointer-events:\s*none;/s);
     expect(html).toContain("<kbd>Space</kbd>");
     expect(html).toContain("<kbd>I</kbd>");
   });

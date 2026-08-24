@@ -1,9 +1,9 @@
 import {
+  ACESFilmicToneMapping,
   AmbientLight,
   Color,
   DirectionalLight,
   HemisphereLight,
-  NoToneMapping,
   PCFShadowMap,
   Scene,
   SRGBColorSpace,
@@ -42,9 +42,9 @@ export class ThreeFactoryRenderer implements FactoryRenderer {
   private readonly materials: WorldMaterials;
   private readonly worldInstances: WorldInstanceLayer;
   private readonly overlays: SpatialOverlays;
-  private readonly keyLight = new DirectionalLight("#ffe4b0", 3.1);
-  private readonly fillLight = new HemisphereLight("#c9eef0", "#273b32", 2.45);
-  private readonly ambient = new AmbientLight("#9bb7af", 0.78);
+  private readonly keyLight = new DirectionalLight("#ffe4b0", 2.6);
+  private readonly fillLight = new HemisphereLight("#c9eef0", "#273b32", 1.6);
+  private readonly ambient = new AmbientLight("#9bb7af", 0.46);
   private readonly systemReducedMotion = matchMedia(
     "(prefers-reduced-motion: reduce)",
   ).matches;
@@ -96,7 +96,8 @@ export class ThreeFactoryRenderer implements FactoryRenderer {
       premultipliedAlpha: false,
     });
     this.renderer.outputColorSpace = SRGBColorSpace;
-    this.renderer.toneMapping = NoToneMapping;
+    this.renderer.toneMapping = ACESFilmicToneMapping;
+    this.renderer.toneMappingExposure = 1.05;
     this.renderer.shadowMap.type = PCFShadowMap;
     this.renderer.shadowMap.autoUpdate = false;
     this.renderer.setClearColor(new Color("#142129"), 1);

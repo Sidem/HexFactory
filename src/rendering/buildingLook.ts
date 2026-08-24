@@ -80,8 +80,8 @@ const EXHAUST = "#b4dcff";
  * whole of what used to be a two-hundred-line `switch`: the table is total over `SilhouetteKey`,
  * so a new key is a compile error here rather than a machine that silently draws nothing.
  *
- * `belt` is deliberately empty. A belt's look is its heading tick and the cargo riding it, both
- * drawn by the renderer, and a body would only obscure them.
+ * `belt` is deliberately empty in the machine-part grammar. Shared transport geometry owns its
+ * raised rails and transverse treads; the heading tick and cargo remain separate state cues.
  */
 export const BUILDING_SHAPES: Record<SilhouetteKey, readonly ShapePart[]> = {
   extractor: [
