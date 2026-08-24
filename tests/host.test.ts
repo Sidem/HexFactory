@@ -445,6 +445,21 @@ describe("bounded host input", () => {
     // A stored slot naming a definition this build retired must be dropped, not rendered as a
     // button that selects nothing.
     expect(main).toContain("function sanitiseSlot");
+    // And so must a default, which is the same defect wearing better clothes: v0.25.1 retired the
+    // riser, `DEFAULT_HOTBAR` went on naming its id, and the ninth slot of a first-ever run drew as
+    // `?18`. The sieve now covers both lists; this asserts the list they start from.
+    const listed = /const DEFAULT_HOTBAR[^=]*=\s*\[([^\]]*)\]/.exec(main)?.[1];
+    const ids = (listed ?? "")
+      .split(",")
+      .map((slot) => slot.trim())
+      .filter((slot) => /^\d+$/.test(slot))
+      .map(Number);
+    expect(ids.length).toBeGreaterThan(0);
+    for (const id of ids)
+      expect(
+        definitions.buildings.find((building) => building.id === id)?.buildable,
+        `default slot names definition ${id}`,
+      ).toBe(true);
     // The dock no longer enumerates every buildable definition: that list is the catalogue's job
     // and it grew to twenty stamps by v0.14.
     expect(main).not.toMatch(/toolShelf\.append/);

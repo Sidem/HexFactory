@@ -1,5 +1,5 @@
 {
-  "version": 13,
+  "version": 14,
   "items": [
     {
       "id": 1,
@@ -546,14 +546,22 @@
       "key": "belt",
       "name": "Belt",
       "kind": "belt",
-      "description": "Moves one cargo stack along its clockwise hex direction.",
+      "description": "Moves one cargo stack along its heading. Six hex edges from the start; Corner Transport adds the six vertex headings between them, which span two rows for twice the price.",
       "icon": "BLT",
+      "orientation_axis": "any",
       "construction_cost": [
         {
           "item_id": 1,
           "quantity": 1
         }
       ],
+      "corner_construction_cost": [
+        {
+          "item_id": 1,
+          "quantity": 2
+        }
+      ],
+      "corner_technology_id": 11,
       "unlock_technology_id": 1,
       "placement_rule": "ground",
       "buildable": true,
@@ -1008,31 +1016,6 @@
       ]
     },
     {
-      "id": 18,
-      "key": "riser",
-      "name": "Riser",
-      "kind": "belt",
-      "description": "A short gantry over the seam between two hexes, carrying cargo along any of the six corner headings. Twice a belt's cost for twice a belt's reach; the hexes it spans stay free to build on and to walk through.",
-      "icon": "RSR",
-      "orientation_axis": "corner",
-      "construction_cost": [
-        {
-          "item_id": 1,
-          "quantity": 2
-        }
-      ],
-      "unlock_technology_id": 11,
-      "placement_rule": "ground",
-      "buildable": true,
-      "blocks_movement": false,
-      "footprint": [
-        {
-          "q": 0,
-          "r": 0
-        }
-      ]
-    },
-    {
       "id": 19,
       "key": "extractor-ii",
       "name": "Deep extractor",
@@ -1179,7 +1162,7 @@
       "key": "bridge",
       "name": "Bridge",
       "kind": "bridge",
-      "description": "Decks one shallow-water hex so a belt or riser can cross it. Deep water remains a barrier.",
+      "description": "Decks one shallow-water hex so transport can cross it. Deep water remains a barrier.",
       "icon": "BRG",
       "construction_cost": [
         {
@@ -1193,6 +1176,137 @@
       ],
       "unlock_technology_id": 15,
       "placement_rule": "shallows",
+      "buildable": true,
+      "blocks_movement": false,
+      "footprint": [
+        {
+          "q": 0,
+          "r": 0
+        }
+      ]
+    },
+    {
+      "id": 24,
+      "key": "splitter",
+      "name": "Splitter",
+      "kind": "belt",
+      "description": "A belt that also feeds the two headings either side of the one it faces, handing each stack to the next output that will take it. A blocked branch is skipped rather than waited on, so one full line never stalls the others.",
+      "icon": "SPL",
+      "orientation_axis": "any",
+      "splits": true,
+      "construction_cost": [
+        {
+          "item_id": 1,
+          "quantity": 2
+        },
+        {
+          "item_id": 19,
+          "quantity": 1
+        }
+      ],
+      "corner_construction_cost": [
+        {
+          "item_id": 1,
+          "quantity": 3
+        },
+        {
+          "item_id": 19,
+          "quantity": 1
+        }
+      ],
+      "corner_technology_id": 11,
+      "unlock_technology_id": 16,
+      "placement_rule": "ground",
+      "buildable": true,
+      "blocks_movement": false,
+      "footprint": [
+        {
+          "q": 0,
+          "r": 0
+        }
+      ]
+    },
+    {
+      "id": 25,
+      "key": "merger",
+      "name": "Merger",
+      "kind": "belt",
+      "description": "A belt that takes from the lines feeding it in turn rather than in the order they were built, so two lanes joining here share the throughput instead of one starving the other.",
+      "icon": "MRG",
+      "orientation_axis": "any",
+      "merges": true,
+      "construction_cost": [
+        {
+          "item_id": 1,
+          "quantity": 2
+        },
+        {
+          "item_id": 19,
+          "quantity": 1
+        }
+      ],
+      "corner_construction_cost": [
+        {
+          "item_id": 1,
+          "quantity": 3
+        },
+        {
+          "item_id": 19,
+          "quantity": 1
+        }
+      ],
+      "corner_technology_id": 11,
+      "unlock_technology_id": 16,
+      "placement_rule": "ground",
+      "buildable": true,
+      "blocks_movement": false,
+      "footprint": [
+        {
+          "q": 0,
+          "r": 0
+        }
+      ]
+    },
+    {
+      "id": 26,
+      "key": "underpass",
+      "name": "Underpass",
+      "kind": "belt",
+      "description": "Carries a lane beneath whatever stands in its way. Place two facing the same heading within four hexes of each other and the first drops cargo to the second, passing under everything between. Alone it behaves as an ordinary belt.",
+      "icon": "UND",
+      "orientation_axis": "any",
+      "underpass_span": 4,
+      "construction_cost": [
+        {
+          "item_id": 1,
+          "quantity": 2
+        },
+        {
+          "item_id": 19,
+          "quantity": 1
+        },
+        {
+          "item_id": 6,
+          "quantity": 2
+        }
+      ],
+      "corner_construction_cost": [
+        {
+          "item_id": 1,
+          "quantity": 3
+        },
+        {
+          "item_id": 19,
+          "quantity": 1
+        },
+        {
+          "item_id": 6,
+          "quantity": 2
+        }
+      ],
+      "corner_technology_id": 11,
+      "unlock_technology_id": 17,
+      "placement_rule": "ground",
       "buildable": true,
       "blocks_movement": false,
       "footprint": [

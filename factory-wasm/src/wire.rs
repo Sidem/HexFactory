@@ -64,7 +64,12 @@ pub(crate) const WIRE_MAGIC: [u8; 4] = *b"HXFD";
 /// Version 8 is creative mode. The player group gains a trailing flag byte, so an older decoder
 /// would read the group one byte short and leave a trailing byte behind — a mis-framed buffer
 /// rather than an honest failure, which is exactly what this number exists to prevent.
-pub(crate) const WIRE_VERSION: u8 = 8;
+///
+/// Version 9 is belt junctions. An entity may now compile more than one output, so a tenth entity
+/// flag carries the outputs after the first. A version-8 decoder would not know that bit, would not
+/// consume the branch list behind it, and would read the next entity out of the middle of this
+/// one — the mis-framing this number prevents, and the reason a new flag is still a new version.
+pub(crate) const WIRE_VERSION: u8 = 9;
 
 /// Which optional groups the buffer carries, in the order they are written.
 mod group {
@@ -108,6 +113,10 @@ mod entity_flag {
     pub(super) const POWER_DEMAND: u16 = 1 << 7;
     pub(super) const POWER_CHARGE: u16 = 1 << 8;
     pub(super) const POWER_CAPACITY: u16 = 1 << 9;
+    /// The outputs after the first, which only a splitter ever has. A flag rather than an always-
+    /// written length, because every other entity in the world would otherwise pay a byte to say
+    /// it has none.
+    pub(super) const BRANCH_IDS: u16 = 1 << 10;
 }
 
 /// Set on a group whose list replaces the host's rather than patching it.
@@ -468,6 +477,9 @@ fn write_entities(writer: &mut Writer, entities: &[EntitySnapshot]) {
         if entity.next_id.is_some() {
             flags |= entity_flag::NEXT_ID;
         }
+        if !entity.branch_ids.is_empty() {
+            flags |= entity_flag::BRANCH_IDS;
+        }
         if entity.power_satisfied != 0 {
             flags |= entity_flag::POWER_SATISFIED;
         }
@@ -501,6 +513,12 @@ fn write_entities(writer: &mut Writer, entities: &[EntitySnapshot]) {
         writer.u8(status_code(entity.status));
         if let Some(next_id) = entity.next_id {
             writer.uvarint(u64::from(next_id));
+        }
+        if !entity.branch_ids.is_empty() {
+            writer.uvarint(entity.branch_ids.len() as u64);
+            for branch_id in &entity.branch_ids {
+                writer.uvarint(u64::from(*branch_id));
+            }
         }
         if entity.power_satisfied != 0 {
             writer.uvarint(u64::from(entity.power_satisfied));
@@ -893,6 +911,12 @@ pub(crate) mod decode {
             };
             let status = status_of(reader.u8());
             let next_id = (flags & entity_flag::NEXT_ID != 0).then(|| reader.uvarint() as u32);
+            let branch_ids = if flags & entity_flag::BRANCH_IDS != 0 {
+                let count = reader.uvarint() as usize;
+                (0..count).map(|_| reader.uvarint() as u32).collect()
+            } else {
+                Vec::new()
+            };
             let power_satisfied = if flags & entity_flag::POWER_SATISFIED != 0 {
                 reader.uvarint() as u32
             } else {
@@ -941,6 +965,7 @@ pub(crate) mod decode {
                 power_capacity,
                 status,
                 next_id,
+                branch_ids,
                 footprint,
             });
         }

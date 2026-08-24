@@ -1,7 +1,8 @@
 import { BoxGeometry, type BufferGeometry } from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 
-import type { BuildingDefinition, BuildingKind } from "../../core/types";
+import { CORNER_START } from "../../core/directions";
+import type { BuildingKind } from "../../core/types";
 
 export interface TransportGeometrySet {
   readonly belt: BufferGeometry;
@@ -120,10 +121,20 @@ export function isTransportKind(kind: BuildingKind): kind is "belt" | "bridge" {
   return kind === "belt" || kind === "bridge";
 }
 
+/**
+ * How far a deck is stretched along the heading it was built at.
+ *
+ * A vertex heading covers the two-row period — `3·size` against an edge step's `√3·size` — so a
+ * deck that reaches only an edge's length would leave a gap over the seam it exists to bridge.
+ * The test is the entity's own heading, not its definition's axis: one belt definition now takes
+ * all twelve, so the axis no longer tells you which period any particular belt spans. The 2D
+ * renderer makes the same test at `CanvasFactoryRenderer.ts`.
+ */
 export function transportScale(
-  definition: BuildingDefinition,
+  kind: BuildingKind,
+  orientation: number,
 ): readonly [number, number, number] {
-  return definition.kind === "belt" && definition.orientation_axis === "corner"
+  return kind === "belt" && orientation >= CORNER_START
     ? [2.4, 1, 0.72]
     : [1, 1, 1];
 }

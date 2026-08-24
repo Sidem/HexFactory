@@ -449,7 +449,7 @@ export function facingTip(
 }
 
 /**
- * The far end of a riser's span: the centre of the hex two rows away that it actually reaches.
+ * The far end of a corner heading's span: the centre of the hex two rows away that it reaches.
  * Drawn as the gantry, so the seam it crosses reads as a short bridge over the crack between two
  * hexes rather than as a tile that is half of something.
  */

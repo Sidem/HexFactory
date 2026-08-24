@@ -11,9 +11,9 @@ shipped ledger, and the next milestones live in `docs/HEXFACTORY-PLAN.md`, archi
 
 ## Where things stand
 
-Shipped through **v0.25 Visual Depth**. Current envelope versions,
-all five of which native refuses a load on: **save 13, definitions 13, technologies 6, scenarios 5,
-world generator 8**, and wire (snapshot delta) **8**. `SAVE_VERSION` is the one literal in the host,
+Shipped through **v0.25.1 Junctions**. Current envelope versions,
+all five of which native refuses a load on: **save 14, definitions 14, technologies 7, scenarios 5,
+world generator 8**, and wire (snapshot delta) **9**. `SAVE_VERSION` is the one literal in the host,
 because native does not publish it; every other number the browser's save catalog shows is read from
 what native publishes.
 
@@ -58,9 +58,11 @@ Before changing a cost, a cadence, or a power figure, run `npm run balance` and 
 - A drag is one bounded command carrying two endpoints. The path between them, the per-cell
   heading, the legality, and the cost are resolved natively by the drag router and the ordinary
   `place` and `erase` paths — and the drag preview comes from that same resolver, so it cannot
-  promise a run the drag will not build. Edge belts use its bounded deterministic obstacle route;
-  other construction and erasure retain `hex_line`. Never expand a drag into per-cell commands on
-  the host, and never give the host a line traversal of its own.
+  promise a run the drag will not build. Belts use its bounded deterministic obstacle route, over
+  every heading the definition's axis allows _and the player has researched_ — so the two-row period
+  enters the router the moment it is paid for, and never before; other construction and erasure
+  retain `hex_line`. Never expand a drag into per-cell commands on the host, and never give the host
+  a line traversal of its own.
 - The player walks on its own native cadence, not inside the simulation tick, so a paused or slowed
   factory never pins it in place. The host converts elapsed real time into a step count using the
   rate native publishes and sends it beside the tick count. Frame-coupled movement stays refused:
@@ -94,10 +96,33 @@ Before changing a cost, a cadence, or a power figure, run `npm run balance` and 
   old radius.
 - Orientation is an axis the definition owns. `DIRECTIONS` (six) is adjacency and power;
   `TRANSPORT_DIRECTIONS` (twelve) is routing, and the six edge headings keep their indices.
-  `OrientationAxis::Corner` is the six vertex headings, closed under 60° rotation. It still requires
-  a single-cell footprint because no definition needs otherwise; lift that rule only with a real
-  definition that tests the wider path. Never widen `DIRECTIONS`: a boiler that reached two rows
-  would be a silent rule change.
+  `OrientationAxis::Corner` is the six vertex headings, closed under 60° rotation, and `Any` is both.
+  A definition that may face a corner still requires a single-cell footprint because no definition
+  needs otherwise; lift that rule only with a real definition that tests the wider path — and note
+  that "may face" includes `Any`, which reaches the same untested path the moment it is rotated.
+  Never widen `DIRECTIONS`: a boiler that reached two rows would be a silent rule change.
+- **The axis is a price, not only a permission.** A vertex heading covers `3 · size` of world
+  distance against `√3 · size` for an edge step, so a heading a definition takes for free is strictly
+  dominant. `Edge` and `Corner` answer that by being separate definitions with separate cost rows;
+  `Any` answers it inside one definition, with `corner_construction_cost` and `corner_technology_id`,
+  and validation refuses an `Any` definition that gates none of its headings. The belt is one
+  definition on both periods for that reason — a riser is not a different kind of thing, only a
+  longer step — and rotation walks all twelve headings in angular order, 30° per press, which is what
+  `rotation_walks_every_heading_once_in_angular_order` pins against world vectors rather than against
+  the index arithmetic that produces them.
+- A junction is a definition flag, never a `BuildingKind` and never a second tick path. `splits`
+  compiles every free forward heading into `Links` and offers from `route_cursor`; `merges` accepts
+  from behind and arbitrates by `merge_cursor`, the last feeder served, so a merger alternates where
+  a plain belt starves whichever lane loses the ascending-id race. Both cursors are saved and
+  checksummed state, because a rotation the save forgets is a factory that restores differently than
+  it ran. `transfer_cargo` therefore runs two passes — mergers first, then everything else in
+  ascending entity id.
+- An underpass is one arm in the graph trace, not a second lattice. `trace_output` is
+  `trace_underpass(...).or_else(trace_ray(...))`: an entrance rays past the entities in between to
+  the first partner within `MAX_UNDERPASS_SPAN`, and the exit is simply the underpass that found no
+  partner ahead. The crossed cells stay singly occupied, buildable, and connected to their own lane,
+  so the pair adds a crossing without adding a coordinate. Grade separation is presentation plus that
+  one arm; do not give the covered cells a second occupancy or a height of their own.
 - An upgrade edits the entity in place and never replaces it, which is what preserves contents,
   orientation, and connections without special handling. `validate_upgrade_ladders` pins kind,
   recipe category, footprint, and axis across every step, so the command does not have to re-ask

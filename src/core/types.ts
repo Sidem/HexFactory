@@ -29,9 +29,12 @@ export type PlacementRule =
 export type PowerSource = "burner" | "wind" | "hydro" | "turbine";
 /**
  * Which routing headings a definition may be built at. `edge` is the six hex edges and the
- * default; `corner` is the six vertex headings, each spanning the two-row period.
+ * default; `corner` is the six vertex headings, each spanning the two-row period; `any` is all
+ * twelve, which is what lets one belt definition carry both periods instead of two definitions
+ * carrying one each. An `any` definition prices its corner headings separately, so the longer
+ * reach still costs what it covers.
  */
-export type OrientationAxis = "edge" | "corner";
+export type OrientationAxis = "edge" | "corner" | "any";
 
 export interface Ingredient {
   item_id: number;
@@ -103,6 +106,20 @@ export interface BuildingDefinition {
   power_source?: PowerSource;
   /** Which headings this building may take. Absent means the six hex edges. */
   orientation_axis?: OrientationAxis;
+  /**
+   * What one of the six corner headings costs, when that differs from `construction_cost`. A
+   * corner step covers twice the ground, so it is priced at what it covers — which is what lets
+   * the belt carry both periods without the longer one being strictly the better buy.
+   */
+  corner_construction_cost?: Ingredient[];
+  /** The research this definition's corner headings wait behind, separately from the building. */
+  corner_technology_id?: number;
+  /** Whether this transport also feeds the two headings either side of the one it faces. */
+  splits?: boolean;
+  /** Whether this transport takes from its feeders in rotation rather than in entity id order. */
+  merges?: boolean;
+  /** How many hexes this building's output may pass over before it binds to its partner. */
+  underpass_span?: number;
   /** Where this definition sits on its own upgrade ladder. Absent means the base tier. */
   tier?: number;
   /** The definition an `upgrade` turns this one into, if it has a next tier. */
@@ -288,6 +305,11 @@ export interface EntitySnapshot extends AxialCoordinate {
   power_capacity?: number;
   status: string;
   next_id?: number | null;
+  /**
+   * The outputs after the first, which only a splitter ever has. Absent or empty on everything
+   * else, so a lane that fans out is visible in the snapshot rather than inferred from geometry.
+   */
+  branch_ids?: number[];
   footprint: AxialCoordinate[];
 }
 

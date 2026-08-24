@@ -194,7 +194,9 @@ export class ContactSheetRenderer {
         geometry,
         this.material(`body:${baseColour}`, baseColour),
       );
-      const [x, y, z] = transportScale(definition);
+      // The portrait poses every building at the same heading the fake entity above carries, so a
+      // belt sits for its catalogue photograph at an edge step rather than the two-row reach.
+      const [x, y, z] = transportScale(building.kind, building.orientation);
       deck.position.y = definition.kind === "bridge" ? 0.25 : 0.22;
       deck.scale.set(x, y, z);
       this.model.add(deck);

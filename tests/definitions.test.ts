@@ -52,6 +52,8 @@ describe("data-defined content", () => {
       "transmission",
       "grid-engineering",
       "shallow-crossings",
+      "belt-junctions",
+      "grade-separation",
     ]);
   });
 
@@ -82,22 +84,31 @@ describe("data-defined content", () => {
   });
 
   it("lets only a single-cell definition claim the two-row period", () => {
-    const riser = typedDefinitions.buildings.find(({ key }) => key === "riser");
-    expect(riser?.orientation_axis).toBe("corner");
-    expect(riser?.footprint).toHaveLength(1);
-    // And it is priced for the reach it buys: twice a belt, for twice a belt's span.
     const belt = typedDefinitions.buildings.find(({ key }) => key === "belt");
-    expect(riser?.construction_cost).toEqual(
-      belt?.construction_cost.map(({ item_id, quantity }) => ({
-        item_id,
-        quantity: quantity * 2,
-      })),
+    expect(belt?.orientation_axis).toBe("any");
+    expect(belt?.footprint).toHaveLength(1);
+    // And the reach is priced for what it buys — twice a belt, for twice a belt's span — and
+    // gated behind its own research, so one definition covering both periods still hands the
+    // player the second one only when they have earned it.
+    const total = (cost: { quantity: number }[] | undefined) =>
+      (cost ?? []).reduce((sum, { quantity }) => sum + quantity, 0);
+    expect(total(belt?.corner_construction_cost)).toBe(
+      total(belt?.construction_cost) * 2,
     );
+    expect(belt?.corner_technology_id).toBeDefined();
+    expect(belt?.corner_technology_id).not.toBe(belt?.unlock_technology_id);
 
-    const broken = structuredClone(typedDefinitions);
-    const target = broken.buildings.find(({ key }) => key === "riser");
-    target?.footprint.push({ q: 1, r: 0 });
-    expect(() => validateDefinitions(broken)).toThrow(/two-row period/);
+    const wide = structuredClone(typedDefinitions);
+    wide.buildings
+      .find(({ key }) => key === "belt")
+      ?.footprint.push({ q: 1, r: 0 });
+    expect(() => validateDefinitions(wide)).toThrow(/two-row period/);
+
+    // An any-axis definition that gates none of its headings is refused too.
+    const ungated = structuredClone(typedDefinitions);
+    const target = ungated.buildings.find(({ key }) => key === "belt");
+    if (target) delete target.corner_technology_id;
+    expect(() => validateDefinitions(ungated)).toThrow(/gates none of them/);
   });
 
   it("gives every material a source and every recipe a machine that runs it", () => {
@@ -126,11 +137,22 @@ describe("data-defined content", () => {
       definitions.buildings.find(({ key }) => key === "extractor")
         ?.extract_radius,
     ).toBe(1);
-    expect(definitions.buildings.at(-1)).toMatchObject({
-      key: "bridge",
+    expect(
+      definitions.buildings.find(({ key }) => key === "bridge"),
+    ).toMatchObject({
       kind: "bridge",
       placement_rule: "shallows",
     });
+    // The three junction definitions, and what each of them claims about compiled edges.
+    expect(
+      definitions.buildings.find(({ key }) => key === "splitter"),
+    ).toMatchObject({ kind: "belt", splits: true });
+    expect(
+      definitions.buildings.find(({ key }) => key === "merger"),
+    ).toMatchObject({ kind: "belt", merges: true });
+    expect(
+      definitions.buildings.find(({ key }) => key === "underpass"),
+    ).toMatchObject({ kind: "belt", underpass_span: 4 });
     for (const pole of definitions.buildings.filter(
       ({ kind }) => kind === "pole",
     )) {

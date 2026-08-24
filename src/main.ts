@@ -6,6 +6,7 @@ import {
 
 import {
   buildingAvailability,
+  costAt,
   costLines,
   heldQuantity,
   technologyAvailability,
@@ -51,7 +52,11 @@ import {
   type RunTimings,
 } from "./core/checkpoints";
 import { TERRAIN_INFO, TERRAIN_ORDER, terrainAccess } from "./core/terrain";
-import { CORNER_START, DIRECTION_NAMES } from "./core/directions";
+import {
+  CORNER_START,
+  DIRECTION_NAMES,
+  rotateAnyOrientation,
+} from "./core/directions";
 import type {
   BuildingDefinition,
   BuildingKind,
@@ -400,7 +405,7 @@ const BUILD_GROUPS: {
     key: "transport",
     title: "Transport",
     blurb:
-      "Move cargo. Belts run along hex edges; risers use the six corner headings between them.",
+      "Move cargo. A belt runs along a hex edge, or — once Corner Transport is in — along one of the six vertex headings between them, spanning two rows for twice the price.",
     holds: ({ kind }) => BUILD_GROUP_BY_KIND[kind] === "transport",
   },
   {
@@ -427,10 +432,10 @@ const BUILD_GROUPS: {
 const HOTBAR_SLOTS = 9;
 const HOTBAR_KEY = "hexfactory:hotbar:v1";
 /**
- * What the bar starts with: the early game in the order it is met, then the two things a player
- * reaches for constantly once power lands. Anything else is a pin away.
+ * What the bar starts with: the early game in the order it is met, then power, then the junction
+ * that turns one line into a network. Anything else is a pin away.
  */
-const DEFAULT_HOTBAR: (Tool | null)[] = [2, 1, 3, 4, 7, 8, 12, 13, 18];
+const DEFAULT_HOTBAR: (Tool | null)[] = [2, 1, 3, 4, 7, 8, 12, 13, 24];
 /** Which slot each definition sits in, or null for an empty slot. Presentation only — never saved
  * with the game, never hashed: it is a preference about a keyboard, not a fact about a factory. */
 let hotbar: (Tool | null)[] = loadHotbar();
@@ -441,9 +446,11 @@ let showAllBuildings = false;
 let hotbarDragOver: number | null = null;
 
 function loadHotbar(): (Tool | null)[] {
-  const defaults = Array.from(
-    { length: HOTBAR_SLOTS },
-    (_, slot) => DEFAULT_HOTBAR[slot] ?? null,
+  // Through the same sieve the stored bar goes through. A milestone that retires a definition id
+  // leaves the default naming it too, and a default is not more trustworthy than a preference —
+  // v0.25.1 retired the riser and the ninth slot rendered as `?18` until this asked the catalogue.
+  const defaults = Array.from({ length: HOTBAR_SLOTS }, (_, slot) =>
+    sanitiseSlot(DEFAULT_HOTBAR[slot] ?? null),
   );
   try {
     const stored: unknown = JSON.parse(
@@ -972,6 +979,7 @@ function renderHotbarSlots(): void {
         definition,
         snapshot,
         host.definitions.items,
+        heldOrientationFor(definition),
       );
       button.disabled = availability.locked;
       button.classList.toggle("unaffordable", !availability.affordable);
@@ -1142,6 +1150,18 @@ function createBuildCard(key: string): HTMLElement {
   return card;
 }
 
+/**
+ * The heading a price should be quoted at for this definition.
+ *
+ * Only the tool actually in hand has a heading: a belt costs one ore or two depending on which way
+ * the player is pointing it, and the catalogue would be lying if every other card quoted the price
+ * of a heading nobody is holding. So the active tool is priced at the live orientation and every
+ * other row at the edge price, which is the one it is bought at unless the player turns it.
+ */
+function heldOrientationFor(definition: BuildingDefinition): number {
+  return definition.id === tool ? orientation : 0;
+}
+
 function fillBuildCard(
   card: HTMLElement,
   definition: BuildingDefinition,
@@ -1150,6 +1170,7 @@ function fillBuildCard(
     definition,
     snapshot,
     host.definitions.items,
+    heldOrientationFor(definition),
   );
   card.classList.toggle("locked", availability.locked);
   card.classList.toggle("unaffordable", !availability.affordable);
@@ -1185,6 +1206,11 @@ function fillBuildCard(
   if (definition.power_output) labels.push(`+${definition.power_output} power`);
   if (definition.power_draw) labels.push(`−${definition.power_draw} power`);
   if (definition.orientation_axis === "corner") labels.push("Six corners");
+  if (definition.orientation_axis === "any") labels.push("Twelve headings");
+  if (definition.splits) labels.push("Fans out");
+  if (definition.merges) labels.push("Takes in turn");
+  if (definition.underpass_span !== undefined)
+    labels.push(`Spans ${definition.underpass_span}`);
   const chipNodes = syncChildren(chips, labels, () => {
     const chip = document.createElement("span");
     chip.className = "build-chip";
@@ -1197,7 +1223,9 @@ function fillBuildCard(
 
   renderIngredientRow(
     part<HTMLElement>(card, ".build-cost"),
-    definition.construction_cost,
+    // The bill at the heading being quoted, so the row and the availability beside it can never
+    // describe two different prices.
+    costAt(definition, heldOrientationFor(definition)),
     "Costs",
     availability.cost,
   );
@@ -2389,7 +2417,7 @@ function selectTool(next: Tool): void {
   renderer.setBuildMode(next !== "inspect");
   renderRecipePicker();
   renderHotbar();
-  // Picking up a riser with an eastward heading held would carry an orientation the definition
+  // Picking up a corner-only tool with an eastward heading held would carry an orientation the definition
   // cannot take, so the pending heading is snapped onto the new tool's axis. `setOrientation` does
   // the rest: the label, the footprint preview, and the refreshed legality all follow from it.
   const { start, end } = orientationRange(next);
@@ -3594,16 +3622,56 @@ function orientationRange(tool: Tool): { start: number; end: number } {
     typeof tool === "number"
       ? host.definitions.buildings.find(({ id }) => id === tool)
       : undefined;
-  return definition?.orientation_axis === "corner"
-    ? { start: NORTH, end: DIRECTION_NAMES.length }
-    : { start: 0, end: NORTH };
+  switch (definition?.orientation_axis) {
+    case "corner":
+      return { start: NORTH, end: DIRECTION_NAMES.length };
+    case "any":
+      return { start: 0, end: DIRECTION_NAMES.length };
+    default:
+      return { start: 0, end: NORTH };
+  }
 }
 
+/**
+ * Whether the pending tool may actually be built at that heading yet.
+ *
+ * The axis says which headings exist and research says which are paid for; `place` asks both, so
+ * rotation asks both. Only the corner gate can differ between headings — a building the player has
+ * not unlocked at all is not in the dock to be turned.
+ */
+function orientationAllowed(tool: Tool, orientation: number): boolean {
+  if (typeof tool !== "number") return true;
+  const definition = host.definitions.buildings.find(({ id }) => id === tool);
+  if (!definition || orientation < NORTH) return true;
+  return (
+    definition.corner_technology_id === undefined ||
+    snapshot.researched.includes(definition.corner_technology_id)
+  );
+}
+
+/**
+ * One press of `R`, on the axis the pending tool builds on. A tool with one family walks its own
+ * six; a tool with both walks all twelve in angular order, which `rotateAnyOrientation` owns and
+ * `rotationMatchesNativeAngularOrder` pins against the shared direction fixture.
+ *
+ * A heading whose research is not paid for is stepped over rather than held, the way native's own
+ * rotation steps over it: the two-row reach is a thing the player earns, so `R` walks the six edges
+ * until then and all twelve afterwards. The card still names the locked heading's technology — that
+ * is where the reach is advertised — but the key that turns a belt never stops on one.
+ */
 function rotateNewBuilding(step = 1): void {
   const { start, end } = orientationRange(tool);
-  // Rotation stays on the tool's own axis: a belt walks the six edges and a riser flips between
-  // six corners. `rotateHexDirection` still turns the six edges, so the package keeps owning the
-  // geometry it knows.
+  if (end - start === DIRECTION_NAMES.length) {
+    let next = orientation;
+    for (let press = 0; press < DIRECTION_NAMES.length; press += 1) {
+      next = rotateAnyOrientation(next, step);
+      if (orientationAllowed(tool, next)) break;
+    }
+    setOrientation(next);
+    return;
+  }
+  // A tool with a single family stays inside it. `rotateHexDirection` still turns the six edges,
+  // so the package keeps owning the geometry it knows.
   setOrientation(
     start === 0
       ? rotateHexDirection(orientation as HexDirection, step)

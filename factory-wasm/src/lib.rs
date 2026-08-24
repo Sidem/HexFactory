@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::cell::RefCell;
 #[cfg(test)]
 use std::cmp::Ordering;
-use std::collections::{BTreeMap, BTreeSet, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, BinaryHeap};
 use wasm_bindgen::prelude::*;
 
 /// The binary encoding the snapshot delta crosses the worker boundary in.
@@ -55,7 +55,13 @@ const SAVE_PREFIX: &str = "HXF1\n";
 /// free and can raise its own carrying capacity, so both are saved and checksummed. A version-12
 /// envelope carries neither, and reading one as an ordinary run would hand a creative save back
 /// with its pack silently narrowed to the scenario's number.
-const SAVE_VERSION: u16 = 13;
+///
+/// Bumped to 14 for Belt Junctions. A splitter remembers which output it fed last and a merger
+/// remembers which feeder it took from last, so both cursors are saved and checksummed. A
+/// version-13 envelope carries neither, and defaulting them is not the harmless zero it looks
+/// like: every junction in a loaded factory would restart its rotation from the same place, and a
+/// run reloaded mid-tick would deal a round it had already dealt.
+const SAVE_VERSION: u16 = 14;
 /// Bumped to 6 for World Parameters. `WorldParams` is now part of a run's identity — it is in the
 /// save envelope and in the checksum — so a version-5 envelope carries no answer to the question
 /// "which world is this" and is rejected rather than assumed to be the default.
@@ -78,6 +84,20 @@ const MAX_UNDO_DEPTH: usize = 64;
 /// of cells for the host to draw.
 const MAX_CARRY_SLOTS: u32 = 240;
 const GRAPH_TRACE_LIMIT: i32 = 8;
+/// The most outgoing transport links one entity may compile: its facing, and — for a splitter —
+/// the two flanks 60° either side of it.
+///
+/// A fixed width rather than a vector per entity. The graph is compiled for every building in the
+/// world and re-compiled on every edit, so `Links` staying a `Copy` value the graph holds inline
+/// is what keeps a splitter from costing an allocation on entities that will never have one.
+const MAX_LINKS: usize = 3;
+/// The furthest an underpass may reach for its partner, counted in hexes along its own heading.
+///
+/// This is the crossing budget and nothing else: an entrance rays *past* whatever stands between,
+/// so the span is what stops it from being a free belt over any distance. Four covers a doubled
+/// main line and the pair of hexes a corner heading straddles, and stays well inside
+/// `GRAPH_TRACE_LIMIT`.
+const MAX_UNDERPASS_SPAN: u32 = 4;
 /// The six hex edges: east, then clockwise. This is the *adjacency* table. Power reach, boiler and
 /// turbine neighbours, and every "what is next to this hex" question use it and only it.
 const DIRECTIONS: [(i32, i32); 6] = [(1, 0), (0, 1), (-1, 1), (-1, 0), (0, -1), (1, -1)];
@@ -350,6 +370,45 @@ struct BuildingDefinition {
     /// every building built before v0.14 takes.
     #[serde(default)]
     orientation_axis: OrientationAxis,
+    /// What one of the six corner headings costs, when that differs from `construction_cost`.
+    ///
+    /// The price of the two-row period, and the whole reason a belt and a riser can be one
+    /// definition. A corner step covers `3 · size` against `√3 · size`, so charging it the edge
+    /// price would make it strictly dominant; charging it here keeps the old riser's economics
+    /// exactly while retiring the second building. Absent means the heading costs what every other
+    /// heading on this definition costs, which is true of everything that is not transport.
+    #[serde(default)]
+    corner_construction_cost: Option<Vec<Ingredient>>,
+    /// The technology this definition's corner headings wait behind, separately from the
+    /// technology that unlocks the definition itself.
+    ///
+    /// A capability, not a building. The belt is the first thing the player ever builds and the
+    /// two-row reach is a mid-game unlock, so the two cannot be the same gate — and inventing a
+    /// second belt definition to carry the second gate is exactly the split this replaces.
+    #[serde(default)]
+    corner_technology_id: Option<TechnologyId>,
+    /// Whether this transport building also rays its two flanks, and round-robins its cargo
+    /// between every output that will take it.
+    ///
+    /// One flag rather than a `BuildingKind`, on the same terms a kiln is a composer: a splitter's
+    /// *source* is not different, only the number of edges it compiles. The tick is unchanged —
+    /// `transfer_cargo` still walks compiled edges — so this adds outputs to the graph and no path
+    /// to the loop.
+    #[serde(default)]
+    splits: bool,
+    /// Whether this transport building accepts from its feeders in rotation rather than in entity
+    /// id order, so no lane that shares a junction can starve another.
+    #[serde(default)]
+    merges: bool,
+    /// How many hexes this building's output ray may pass *over* before it binds.
+    ///
+    /// An underpass, and the only thing in the game whose ray does not stop at the first occupied
+    /// cell it meets. Absent — every other building — means the ray binds to whatever it first
+    /// reaches, which is the rule the transport graph has always had. Bounded by
+    /// `MAX_UNDERPASS_SPAN` at load, because an unbounded span is a belt that costs nothing per
+    /// hex.
+    #[serde(default)]
+    underpass_span: Option<u32>,
     /// Where this definition sits on its own upgrade ladder. Presentation reads it for trim; the
     /// simulation only ever compares it, and never branches on it.
     #[serde(default)]
@@ -380,6 +439,31 @@ struct BuildingDefinition {
     blocks_movement: bool,
     #[serde(default = "default_footprint")]
     footprint: Vec<Coordinate>,
+}
+
+impl BuildingDefinition {
+    /// What one of this building costs when built at that heading.
+    ///
+    /// The single place the two-row price lives. Every charge, refund, preview budget, and upgrade
+    /// netting goes through here, so a corner belt is priced the same whichever of those five paths
+    /// reaches it — the way the riser's own `construction_cost` row used to guarantee by existing.
+    fn cost_at(&self, orientation: u8) -> &[Ingredient] {
+        match &self.corner_construction_cost {
+            Some(cost) if is_corner_heading(orientation) => cost,
+            _ => &self.construction_cost,
+        }
+    }
+
+    /// The technology this building waits behind at that heading: its own gate, and — on a corner —
+    /// the separate gate the two-row reach waits behind.
+    fn gates_at(&self, orientation: u8) -> [Option<TechnologyId>; 2] {
+        let corner = if is_corner_heading(orientation) {
+            self.corner_technology_id
+        } else {
+            None
+        };
+        [self.unlock_technology_id, corner]
+    }
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -415,19 +499,30 @@ enum PowerSource {
 /// Which of the twelve routing headings a definition may be built at.
 ///
 /// `Edge` is the six hex edges and the default, so every definition that predates tiers keeps
-/// exactly the orientations it had. `Corner` is the six vertex headings — the riser, and anything
-/// later that spans the two-row period.
+/// exactly the orientations it had. `Corner` is the six vertex headings, for anything that spans
+/// only the two-row period. `Any` is both, and is what the belt takes.
 ///
-/// Two axes rather than one free range, because the split is also the price. A riser covers
-/// `3 · size` of world distance against `√3 · size` for a unit step; letting a belt take a
-/// corner heading would make a riser strictly dominant at a belt's cost. Separate axes mean
-/// separate definitions, and separate definitions mean separate `construction_cost` rows.
+/// The axis is a price as much as a permission. A vertex heading covers `3 · size` of world
+/// distance against `√3 · size` for an edge step, so a heading a definition may take for free
+/// would be strictly dominant. `Edge` and `Corner` answer that by being separate definitions with
+/// separate `construction_cost` rows; `Any` answers it inside one definition, with
+/// `corner_construction_cost` and `corner_technology_id`.
 #[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 enum OrientationAxis {
     #[default]
     Edge,
     Corner,
+    /// Both families, so rotation walks all twelve headings in clockwise order.
+    ///
+    /// This is what makes a belt and a riser one building rather than two. The reason the axes
+    /// were separated — that a corner heading covers `3 · size` against `√3 · size` and would be
+    /// strictly dominant at a belt's price — is answered by `corner_construction_cost` instead:
+    /// the heading still costs what it covers, so the choice stays a real one while the player
+    /// builds, drags, and rotates a single thing. A definition on this axis must also name the
+    /// research its corner headings wait behind, or the two-row reach would arrive with the first
+    /// belt of the game.
+    Any,
 }
 
 impl OrientationAxis {
@@ -436,6 +531,7 @@ impl OrientationAxis {
         match self {
             Self::Edge => 0..NORTH,
             Self::Corner => NORTH..TRANSPORT_DIRECTIONS.len() as u8,
+            Self::Any => 0..TRANSPORT_DIRECTIONS.len() as u8,
         }
     }
 
@@ -445,7 +541,22 @@ impl OrientationAxis {
 
     /// The next orientation one `rotate` along. Rotation stays inside the axis, so edge and corner
     /// definitions each walk six headings in clockwise order.
+    ///
+    /// `Any` walks all twelve, and walks them in *angular* order rather than in table order. The
+    /// table lists the six edges and then the six corners, so stepping its indices would turn a
+    /// belt through every edge before it reached the first corner — six presses of `R` to nudge a
+    /// heading by 30°. The two interleavings below are that ordering and nothing more: a corner
+    /// heading sits in the 30° gap after edge `e` at `NORTH + (e + 2) % 6`, and the edge after that
+    /// corner is `(k + 5) % 6`. `rotation_walks_every_heading_once_in_angular_order` pins both
+    /// against the world vectors rather than against these expressions.
     fn next(self, orientation: u8) -> u8 {
+        if self == Self::Any {
+            return if orientation < NORTH {
+                NORTH + (orientation + 2) % 6
+            } else {
+                (orientation - NORTH + 5) % 6
+            };
+        }
         let range = self.range();
         let span = range.end - range.start;
         let offset = orientation.wrapping_sub(range.start);
@@ -453,11 +564,102 @@ impl OrientationAxis {
     }
 
     fn previous(self, orientation: u8) -> u8 {
+        if self == Self::Any {
+            return if orientation < NORTH {
+                NORTH + (orientation + 1) % 6
+            } else {
+                (orientation - NORTH + 4) % 6
+            };
+        }
         let range = self.range();
         let span = range.end - range.start;
         let offset = orientation.wrapping_sub(range.start);
         range.start + (offset.wrapping_add(span - 1) % span)
     }
+}
+
+/// One entity's outgoing edges named by stable entity id rather than by vector index.
+///
+/// What an incremental recompile carries across an edit: erasing shifts every index after the hole,
+/// so the edges that were *not* affected have to survive as ids and be resolved back afterwards.
+type LinkIds = [Option<u32>; MAX_LINKS];
+
+/// One entity's outgoing transport edges, in the order they were compiled.
+///
+/// Ordinary transport has exactly one and the whole game had exactly one before splitters existed,
+/// which is why `primary` is kept as its own word: everything that asks "where does this belt
+/// deliver" — the snapshot's `next_id`, the blocked-output status, the connecting deck the renderer
+/// draws — is still asking about the first edge, and reads the same on a building that will never
+/// have a second.
+///
+/// Fixed width and `Copy`. See `MAX_LINKS`.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct Links {
+    targets: [Option<usize>; MAX_LINKS],
+}
+
+impl Links {
+    /// The one-edge graph every non-splitting building compiles.
+    fn single(target: Option<usize>) -> Self {
+        let mut links = Self::default();
+        links.targets[0] = target;
+        links
+    }
+
+    /// Every target this entity delivers to, in compile order and without repeats.
+    fn iter(self) -> impl Iterator<Item = usize> {
+        self.targets.into_iter().flatten()
+    }
+
+    /// The first outgoing edge, which for everything but a splitter is the only one.
+    fn primary(self) -> Option<usize> {
+        self.targets[0]
+    }
+
+    fn is_empty(self) -> bool {
+        self.targets[0].is_none()
+    }
+
+    /// Add one edge, keeping the slots packed from the front.
+    ///
+    /// A repeated target is dropped rather than stored twice. A splitter whose flank ray reaches
+    /// the same building its facing ray reached has *one* consumer, not two, and storing it twice
+    /// would hand that consumer two of every three items — a round robin that silently weights
+    /// itself by geometry.
+    fn push(&mut self, target: usize) {
+        if self.iter().any(|existing| existing == target) {
+            return;
+        }
+        if let Some(slot) = self.targets.iter_mut().find(|slot| slot.is_none()) {
+            *slot = Some(target);
+        }
+    }
+}
+
+/// Whether a routing heading is one of the six vertex headings rather than one of the six edges.
+///
+/// The one predicate for "does this heading span the two-row period", asked by the cost rule, by
+/// the drag router's step weights, and by the flank rule. `NORTH` is the boundary and always was;
+/// this names it so the comparison is not spelled out at each call site.
+fn is_corner_heading(orientation: u8) -> bool {
+    orientation >= NORTH && usize::from(orientation) < TRANSPORT_DIRECTIONS.len()
+}
+
+/// The two headings 60° either side of this one, inside its own family.
+///
+/// A splitter's flanks. Rotation here is *within the six* the heading belongs to — an edge heading
+/// flanks to edges and a corner heading to corners — because 60° either side of a heading is the
+/// pair of headings that share its period. Taking a flank across families would hand a belt-priced
+/// splitter a two-row output, which is the same dominance `corner_construction_cost` exists to
+/// price.
+fn flanks_of(orientation: u8) -> [u8; 2] {
+    let base = if is_corner_heading(orientation) {
+        NORTH
+    } else {
+        0
+    };
+    let offset = orientation - base;
+    [base + (offset + 1) % 6, base + (offset + 5) % 6]
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
@@ -690,6 +892,22 @@ struct Entity {
     /// Switching back on resumes rather than restarts.
     #[serde(default)]
     disabled: bool,
+    /// Which of a splitter's compiled outputs gets the next item it can take.
+    ///
+    /// Real state, saved and hashed on exactly the terms `fuel_charge` is: a splitter that has just
+    /// fed its left branch is not the same machine as one that has just fed its right, and a reload
+    /// that forgot which would re-bias every junction in the factory toward the same branch. An
+    /// index into the compiled link list, so it is meaningless — and unread — on anything else.
+    #[serde(default)]
+    route_cursor: u8,
+    /// The id of the feeder a merger served last, so the next one it serves is the next id round
+    /// the ring rather than the lowest.
+    ///
+    /// Stored as the feeder's *id* and not as a slot, because a merger's feeders are whatever
+    /// happens to point at it: a lane erased and rebuilt changes the set, and a rotation that
+    /// counted slots would silently restart. Real state for the same reason `route_cursor` is.
+    #[serde(default)]
+    merge_cursor: u32,
 }
 
 #[derive(Clone, Debug, Serialize, PartialEq, Eq)]
@@ -922,6 +1140,15 @@ struct EntitySnapshot {
     power_capacity: u32,
     status: EntityStatus,
     next_id: Option<u32>,
+    /// The compiled outputs *after* the first, which only a splitter ever has.
+    ///
+    /// `next_id` stays the primary edge so every reader that predates junctions — the connecting
+    /// deck, the inspector's downstream line, the hover trace — is unchanged on every building that
+    /// will never have a second output. Omitted when empty, which is every belt, riser, underpass,
+    /// merger, and machine in the game: sent unconditionally it would cost a length on every entity
+    /// of every delta to say "this is not a splitter".
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    branch_ids: Vec<u32>,
     footprint: Vec<Coordinate>,
 }
 
@@ -1380,7 +1607,7 @@ struct Core {
     /// saved, and it is never hashed or checksummed.
     flora_regrowth: BTreeSet<(i32, i32)>,
     entities: Vec<Entity>,
-    graph: Vec<Option<usize>>,
+    graph: Vec<Links>,
     /// Per-entity power network id (`None` = not on a network). Derived like `graph`.
     power_of: Vec<Option<u32>>,
     /// Last tick's supply and demand per network id.
@@ -1580,6 +1807,8 @@ impl Core {
                 power_charge: 0,
                 burn_progress: 0,
                 disabled: false,
+                route_cursor: 0,
+                merge_cursor: 0,
             });
             core.next_entity_id += 1;
         }
@@ -2206,7 +2435,7 @@ impl Core {
             .entities
             .iter()
             .enumerate()
-            .map(|(index, _)| self.compile_graph_target(index, &occupied))
+            .map(|(index, _)| self.compile_links(index, &occupied))
             .collect();
         self.compile_power();
         // A full compile can move any entity's outgoing link, and `next_id` is part of its snapshot.
@@ -2223,18 +2452,61 @@ impl Core {
         occupied
     }
 
-    fn compile_graph_target(
+    /// Every outgoing transport edge one entity compiles.
+    ///
+    /// One edge for everything the game had before splitters: its facing. A splitter additionally
+    /// rays the two headings 60° either side, which is the entire difference between it and a belt
+    /// — the tick still walks compiled edges and never discovers a neighbour.
+    fn compile_links(&self, index: usize, occupied: &BTreeMap<(i32, i32), usize>) -> Links {
+        let entity = &self.entities[index];
+        let Some(definition) = self.building_definition(entity.placed.definition_id) else {
+            return Links::default();
+        };
+        let facing = entity.placed.orientation;
+        let span = definition.underpass_span;
+        let mut links = Links::single(self.trace_output(index, facing, span, occupied));
+        if definition.splits {
+            for flank in flanks_of(facing) {
+                if let Some(target) = self.trace_output(index, flank, span, occupied) {
+                    links.push(target);
+                }
+            }
+        }
+        links
+    }
+
+    /// The building one output ray binds to, on one heading.
+    ///
+    /// An underpass tries its partner first and falls back to the ordinary ray, and that fallback
+    /// is what makes the pair work with one definition and no placement mode: the *entrance* is
+    /// simply the underpass that found a partner ahead of it, and the *exit* is the one that did
+    /// not, so it delivers to whatever it is pointed at like any other belt.
+    fn trace_output(
         &self,
         index: usize,
+        orientation: u8,
+        underpass_span: Option<u32>,
+        occupied: &BTreeMap<(i32, i32), usize>,
+    ) -> Option<usize> {
+        underpass_span
+            .and_then(|span| self.trace_underpass(index, orientation, span, occupied))
+            .or_else(|| self.trace_ray(index, orientation, occupied))
+    }
+
+    /// The ordinary transport ray, unchanged since the graph existed.
+    ///
+    /// Routing, so twelve. The loop is a ray-cast: it steps `(dq, dr)` up to `GRAPH_TRACE_LIMIT`,
+    /// skipping its own footprint, and returns the first other occupied cell. Nothing in it ever
+    /// assumed the step was a unit vector, which is why the six corner headings cost table rows
+    /// here and nothing else.
+    fn trace_ray(
+        &self,
+        index: usize,
+        orientation: u8,
         occupied: &BTreeMap<(i32, i32), usize>,
     ) -> Option<usize> {
         let entity = &self.entities[index];
-        // Routing, so twelve. The loop below is unchanged and always was a ray-cast: it steps
-        // `(dq, dr)` up to `GRAPH_TRACE_LIMIT`, skipping its own footprint, and returns the first
-        // other occupied cell. Nothing in it ever assumed the step was a unit vector, which is why
-        // the six corner headings cost table rows here and nothing else.
-        let (dq, dr) = TRANSPORT_DIRECTIONS
-            [usize::from(entity.placed.orientation) % TRANSPORT_DIRECTIONS.len()];
+        let (dq, dr) = TRANSPORT_DIRECTIONS[usize::from(orientation) % TRANSPORT_DIRECTIONS.len()];
         let mut q = entity.placed.q + dq;
         let mut r = entity.placed.r + dr;
         for _ in 0..GRAPH_TRACE_LIMIT {
@@ -2245,6 +2517,42 @@ impl Core {
                 }
                 target => return target,
             }
+        }
+        None
+    }
+
+    /// The partner an underpass hands its cargo to, or `None` if there is none within its span.
+    ///
+    /// This is the whole of "belts cross belts": the ray passes *over* every occupied cell instead
+    /// of binding to the first one, so the line that runs between the two ends is untouched, keeps
+    /// its own cargo, and never sees the cargo going over it. What stops that from being a free
+    /// belt of unlimited reach is the span, and what stops it from stealing an ordinary delivery is
+    /// that it binds to nothing except another underpass of the same definition on the same
+    /// heading. The covered hexes stay ordinary ground: buildable, walkable, and erasable.
+    fn trace_underpass(
+        &self,
+        index: usize,
+        orientation: u8,
+        span: u32,
+        occupied: &BTreeMap<(i32, i32), usize>,
+    ) -> Option<usize> {
+        let entity = &self.entities[index];
+        let definition_id = entity.placed.definition_id;
+        let (dq, dr) = TRANSPORT_DIRECTIONS[usize::from(orientation) % TRANSPORT_DIRECTIONS.len()];
+        let mut q = entity.placed.q + dq;
+        let mut r = entity.placed.r + dr;
+        let reach = span.min(GRAPH_TRACE_LIMIT as u32);
+        for _ in 1..=reach {
+            if let Some(target) = occupied.get(&(q, r)).copied() {
+                let partner = target != index
+                    && self.entities[target].placed.definition_id == definition_id
+                    && self.entities[target].placed.orientation == orientation;
+                if partner {
+                    return Some(target);
+                }
+            }
+            q += dq;
+            r += dr;
         }
         None
     }
@@ -2780,14 +3088,16 @@ impl Core {
     // five composers did. Its work is now `burn_for_output`, charged against energy the grid
     // actually delivered, which is why there is no longer a separate plant phase in the tick.
 
-    fn graph_links_by_id(&self) -> BTreeMap<u32, Option<u32>> {
+    fn graph_links_by_id(&self) -> BTreeMap<u32, LinkIds> {
         self.entities
             .iter()
             .enumerate()
             .map(|(index, entity)| {
                 (
                     entity.id,
-                    self.graph[index].map(|target| self.entities[target].id),
+                    self.graph[index]
+                        .targets
+                        .map(|target| target.map(|target| self.entities[target].id)),
                 )
             })
             .collect()
@@ -2795,7 +3105,7 @@ impl Core {
 
     fn recompile_graph_components(
         &mut self,
-        old_links: &BTreeMap<u32, Option<u32>>,
+        old_links: &BTreeMap<u32, LinkIds>,
         changed_cells: &BTreeSet<(i32, i32)>,
         edited_ids: &BTreeSet<u32>,
     ) -> usize {
@@ -2813,22 +3123,30 @@ impl Core {
             .map(|entity| ((entity.placed.q, entity.placed.r), entity.id))
             .collect();
 
-        let mut graph: Vec<Option<usize>> = self
+        let mut graph: Vec<Links> = self
             .entities
             .iter()
             .map(|entity| {
-                old_links
+                let mut links = Links::default();
+                for target in old_links
                     .get(&entity.id)
                     .copied()
+                    .unwrap_or_default()
+                    .into_iter()
                     .flatten()
-                    .and_then(|target| indices_by_id.get(&target).copied())
+                {
+                    if let Some(&index) = indices_by_id.get(&target) {
+                        links.push(index);
+                    }
+                }
+                links
             })
             .collect();
 
         let mut old_adjacency: BTreeMap<u32, BTreeSet<u32>> = BTreeMap::new();
-        for (&source, &target) in old_links {
+        for (&source, targets) in old_links {
             old_adjacency.entry(source).or_default();
-            if let Some(target) = target {
+            for target in targets.iter().copied().flatten() {
                 old_adjacency.entry(source).or_default().insert(target);
                 old_adjacency.entry(target).or_default().insert(source);
             }
@@ -2837,11 +3155,16 @@ impl Core {
         let mut affected = edited_ids.clone();
         // An edit can change the edited entity's own output or an output ray that crosses any cell
         // in its old/new footprint. The trace bound matches the full compiler's footprint walk.
+        //
+        // Twelve headings, not six: routing is what this walk inverts, and a splitter's flanks and
+        // an underpass's covered cells are rays like any other. A cell reached from `source` along
+        // heading `d` at distance `k` means `source` sits at `cell - k · d`, so inverting all
+        // twelve is exactly the set of buildings whose output could have crossed this cell.
         for &(q, r) in changed_cells {
             if let Some(&index) = occupied.get(&(q, r)) {
                 affected.insert(self.entities[index].id);
             }
-            for (dq, dr) in DIRECTIONS {
+            for (dq, dr) in TRANSPORT_DIRECTIONS {
                 for distance in 1..=GRAPH_TRACE_LIMIT {
                     if let Some(&source) = anchors.get(&(q - dq * distance, r - dr * distance)) {
                         affected.insert(source);
@@ -2862,9 +3185,9 @@ impl Core {
             let mut joined = false;
             for id in current_ids {
                 let index = indices_by_id[&id];
-                let target = self.compile_graph_target(index, &occupied);
-                graph[index] = target;
-                if let Some(target) = target {
+                let links = self.compile_links(index, &occupied);
+                graph[index] = links;
+                for target in links.iter() {
                     joined |= affected.insert(self.entities[target].id);
                 }
             }
@@ -3151,48 +3474,174 @@ impl Core {
         }
     }
 
+    /// What one building is offering to hand on this tick, if anything.
+    ///
+    /// A container feeds from its store and everything else from the single cargo it is holding.
+    /// Lifted out of `transfer_cargo` unchanged so the two arbitration passes below ask it once
+    /// each rather than each carrying its own copy of the rule.
+    fn cargo_on_offer(&self, source: usize) -> Option<(Cargo, bool)> {
+        let entity = &self.entities[source];
+        if entity.kind == BuildingKind::Container {
+            let (&item_id, _) = entity.inventory.iter().find(|(_, value)| **value > 0)?;
+            return Some((
+                Cargo {
+                    item_id,
+                    quantity: 1,
+                },
+                true,
+            ));
+        }
+        Some((entity.cargo?, false))
+    }
+
+    /// Move one cargo out of `source` and into `target`, with no question left to ask.
+    fn hand_over(&mut self, source: usize, target: usize, cargo: Cargo, from_inventory: bool) {
+        if from_inventory {
+            subtract_item(
+                &mut self.entities[source].inventory,
+                cargo.item_id,
+                cargo.quantity,
+            );
+        } else {
+            self.entities[source].cargo = None;
+        }
+        let (source_id, target_id) = (self.entities[source].id, self.entities[target].id);
+        self.dirty.entities.push(source_id);
+        self.dirty.entities.push(target_id);
+        self.accept(target, cargo);
+    }
+
+    /// Whether this definition serves its feeders in rotation instead of in entity id order.
+    fn is_merger(&self, index: usize) -> bool {
+        self.building_definition(self.entities[index].placed.definition_id)
+            .is_some_and(|definition| definition.merges)
+    }
+
+    /// One tick of deliveries along the compiled graph.
+    ///
+    /// Two passes, because two different junctions want two different answers to "who goes first".
+    ///
+    /// **Mergers first.** A belt holds one cargo, so several lanes pointed into one hex are
+    /// competing every tick, and the historical rule — sort by entity id, first proposal claims the
+    /// target — hands the win to the same lane forever. That is not a tie-break, it is a starved
+    /// lane: whichever feeder happened to be built first drinks the junction dry. A merger walks
+    /// its feeders from the one *after* the one it served last, so a junction of two full lanes
+    /// alternates and a junction of three cycles. Ordinary belts keep the id order exactly, so
+    /// nothing that worked before behaves differently.
+    ///
+    /// **Everything else second**, in ascending entity id, unchanged. A splitter differs only in
+    /// having more than one compiled output to offer its cargo to, and it offers them starting from
+    /// its own cursor so consecutive items go to different branches.
     fn transfer_cargo(&mut self) {
-        let mut proposals: Vec<(u32, usize, usize, Cargo, bool)> = self
-            .entities
-            .iter()
-            .enumerate()
-            .filter_map(|(source, entity)| {
-                let target = self.graph[source]?;
-                let (cargo, from_inventory) = if entity.kind == BuildingKind::Container {
-                    let (&item_id, _) = entity.inventory.iter().find(|(_, value)| **value > 0)?;
-                    (
-                        Cargo {
-                            item_id,
-                            quantity: 1,
-                        },
-                        true,
-                    )
-                } else {
-                    (entity.cargo?, false)
-                };
-                Some((entity.id, source, target, cargo, from_inventory))
-            })
-            .collect();
-        proposals.sort_by_key(|proposal| proposal.0);
         let mut claimed = BTreeSet::new();
-        for (_, source, target, cargo, from_inventory) in proposals {
-            if claimed.contains(&target) || !self.can_accept(target, cargo) {
+        let mut delivered: BTreeSet<usize> = BTreeSet::new();
+
+        // Which entities serve their feeders in rotation, asked once. Both passes read it, and the
+        // second reads it for every candidate output it considers.
+        let merges: Vec<bool> = (0..self.entities.len())
+            .map(|index| self.is_merger(index))
+            .collect();
+        if !merges.iter().any(|&merges| merges) {
+            // Nothing in this factory merges, so the reverse index below would be built and thrown
+            // away on every tick of every save that has not researched junctions.
+            self.transfer_along_links(&mut claimed, &mut delivered, &merges);
+            return;
+        }
+
+        // Pass one: every merging target, in ascending entity id, picks a feeder in rotation.
+        //
+        // A merger's feeders are whatever compiled an edge into it, which is a question about the
+        // graph and not about adjacency: a riser two rows away and an underpass four hexes back are
+        // feeders exactly as much as the belt against its face. Inverting the graph once is what
+        // keeps that answer linear in the factory rather than one scan per junction.
+        let mut feeders_by_target: BTreeMap<usize, Vec<usize>> = BTreeMap::new();
+        let mut order: Vec<usize> = (0..self.entities.len()).collect();
+        order.sort_by_key(|&index| self.entities[index].id);
+        for &source in &order {
+            for target in self.graph[source].iter() {
+                if target != source && merges[target] {
+                    feeders_by_target.entry(target).or_default().push(source);
+                }
+            }
+        }
+        let mut ordered_mergers: Vec<usize> = feeders_by_target.keys().copied().collect();
+        ordered_mergers.sort_by_key(|&index| self.entities[index].id);
+        for target in ordered_mergers {
+            // Already in ascending feeder id: the inversion above walked its sources in that order.
+            let feeders = feeders_by_target[&target].clone();
+            let cursor = self.entities[target].merge_cursor;
+            // Start after the id served last and wrap. An id that no longer exists simply means
+            // every feeder sorts after it, which is the same as starting from the beginning.
+            let start = feeders
+                .iter()
+                .position(|&source| self.entities[source].id > cursor)
+                .unwrap_or(0);
+            for offset in 0..feeders.len() {
+                let source = feeders[(start + offset) % feeders.len()];
+                if delivered.contains(&source) {
+                    continue;
+                }
+                let Some((cargo, from_inventory)) = self.cargo_on_offer(source) else {
+                    continue;
+                };
+                if !self.can_accept(target, cargo) {
+                    // A full merger refuses every feeder, so there is nothing left to try and no
+                    // reason to move the cursor: the rotation resumes where it stopped.
+                    break;
+                }
+                self.hand_over(source, target, cargo, from_inventory);
+                self.entities[target].merge_cursor = self.entities[source].id;
+                claimed.insert(target);
+                delivered.insert(source);
+                break;
+            }
+        }
+
+        // Pass two: everything else, in the entity id order arbitration has always used.
+        self.transfer_along_links(&mut claimed, &mut delivered, &merges);
+    }
+
+    /// Every source that has not already delivered offers its cargo along its compiled edges, in
+    /// ascending entity id — the arbitration order the game has always had.
+    ///
+    /// A splitter is the only thing here with more than one edge, and it starts from its own cursor
+    /// so consecutive items leave by different branches.
+    fn transfer_along_links(
+        &mut self,
+        claimed: &mut BTreeSet<usize>,
+        delivered: &mut BTreeSet<usize>,
+        merges: &[bool],
+    ) {
+        let mut sources: Vec<usize> = (0..self.entities.len()).collect();
+        sources.sort_by_key(|&source| self.entities[source].id);
+        for source in sources {
+            if delivered.contains(&source) || self.graph[source].is_empty() {
                 continue;
             }
-            if from_inventory {
-                subtract_item(
-                    &mut self.entities[source].inventory,
-                    cargo.item_id,
-                    cargo.quantity,
-                );
-            } else {
-                self.entities[source].cargo = None;
+            let Some((cargo, from_inventory)) = self.cargo_on_offer(source) else {
+                continue;
+            };
+            let links = self.graph[source];
+            let outputs: Vec<usize> = links.iter().collect();
+            let cursor = usize::from(self.entities[source].route_cursor);
+            for offset in 0..outputs.len() {
+                let slot = (cursor + offset) % outputs.len();
+                let target = outputs[slot];
+                // Merging targets were settled by the rotation pass, including the case where every
+                // feeder was refused. Re-offering here would put the id order back in front of it.
+                if claimed.contains(&target) || merges[target] || !self.can_accept(target, cargo) {
+                    continue;
+                }
+                self.hand_over(source, target, cargo, from_inventory);
+                // The next item starts at the branch after the one this item took, which is the
+                // whole of the round robin. Left where it is on a blocked branch, so a splitter
+                // with one jammed output keeps feeding the other rather than stalling every other
+                // item against the jam.
+                self.entities[source].route_cursor = ((slot + 1) % outputs.len()) as u8;
+                claimed.insert(target);
+                delivered.insert(source);
+                break;
             }
-            let (source_id, target_id) = (self.entities[source].id, self.entities[target].id);
-            self.dirty.entities.push(source_id);
-            self.dirty.entities.push(target_id);
-            self.accept(target, cargo);
-            claimed.insert(target);
         }
     }
 
@@ -4013,9 +4462,14 @@ impl Core {
                 definition.name, range.start, range.end
             ));
         }
-        if let Some(required) = definition.unlock_technology_id {
-            if !self.researched.contains(&required) {
-                return Err("building is locked by research".into());
+        for (gate, message) in definition.gates_at(orientation).into_iter().zip([
+            "building is locked by research",
+            "this heading is locked by research",
+        ]) {
+            if let Some(required) = gate {
+                if !self.researched.contains(&required) {
+                    return Err(message.into());
+                }
             }
         }
         let placed = PlacedBuilding {
@@ -4107,7 +4561,7 @@ impl Core {
         // could not be built in a priced run would be no use as a test of one.
         if check_cost && !self.creative {
             let missing: Vec<String> = definition
-                .construction_cost
+                .cost_at(orientation)
                 .iter()
                 .filter_map(|ingredient| {
                     let have = self
@@ -4147,7 +4601,7 @@ impl Core {
         self.placement_legality(q, r, definition_id, orientation, recipe_id, true)?;
         let definition = self.building_definition(definition_id).unwrap().clone();
         if !self.creative {
-            for ingredient in &definition.construction_cost {
+            for ingredient in definition.cost_at(orientation) {
                 subtract_item(
                     &mut self.player.inventory,
                     ingredient.item_id,
@@ -4176,6 +4630,8 @@ impl Core {
             power_charge: 0,
             burn_progress: 0,
             disabled: false,
+            route_cursor: 0,
+            merge_cursor: 0,
         });
         self.next_entity_id += 1;
         self.undo_stack.push(id);
@@ -4286,7 +4742,7 @@ impl Core {
             return Vec::new();
         };
         let routed = definition.kind == BuildingKind::Belt;
-        let cost = definition.construction_cost.clone();
+        let definition = definition.clone();
         let cells = self.drag_route(from, to, definition_id, orientation, recipe_id);
         let mut budget = self.player.inventory.clone();
         let mut taken = BTreeSet::new();
@@ -4299,14 +4755,17 @@ impl Core {
                 } else {
                     orientation
                 };
+                // A run that turns can change price partway along it, so the budget is charged the
+                // heading each cell actually takes rather than the heading the drag started at.
+                let cost = definition.cost_at(cell_orientation);
                 let legal = !taken.contains(&(q, r))
                     && self
                         .placement_legality(q, r, definition_id, cell_orientation, recipe_id, false)
                         .is_ok()
-                    && (self.creative || has_ingredients(&budget, &cost));
+                    && (self.creative || has_ingredients(&budget, cost));
                 if legal {
                     if !self.creative {
-                        for ingredient in &cost {
+                        for ingredient in cost {
                             subtract_item(&mut budget, ingredient.item_id, ingredient.quantity);
                         }
                     }
@@ -4323,15 +4782,38 @@ impl Core {
     }
 
     /// The path a construction drag uses. Ordinary buildings retain the exact line resolver they
-    /// have always used. Edge belts additionally get a bounded deterministic shortest path around
+    /// have always used. Belts additionally get a bounded deterministic *cheapest* path around
     /// cells on which that belt cannot be placed, so an obstacle produces a connected detour rather
     /// than a straight run with a hole in it.
+    ///
+    /// The search walks every heading the definition's axis allows — all twelve, for a belt that
+    /// has both periods — rather than the six edges the old breadth-first version knew about. Four
+    /// keys order it, in this order: what the run costs, how many belts it takes, how often it
+    /// turns, and how far it strays from the straight line between the endpoints.
+    ///
+    /// Cost first because a detour that spends less is the one a player would have drawn. Cells
+    /// second because a corner step is priced at what it covers, which leaves the two periods level
+    /// on cost and lets the route that turns the same distance into fewer entities win. Turns third
+    /// because two runs that cost the same and are the same length are told apart by which one
+    /// staircases. Straying last, and it is what settles the ordinary case: an unobstructed drag has
+    /// several equally short, equally straight routes, and the one the player was shown while
+    /// dragging — and the one the reverse *erase* drag retraces, since removal still resolves by
+    /// straight line — is the line itself. Every key only grows along a path, which is what makes
+    /// this a shortest-path search and not a guess.
+    ///
+    /// Counting turns is why a search node is a cell *and* the heading it was reached on: whether a
+    /// step turns is a fact about the step before it, so a cell reached along two headings is two
+    /// states rather than one that has to forget how it got there.
+    ///
+    /// A heading whose research is not done is not offered to the search at all, so the route
+    /// simply does not use it — the path a player gets widens when they unlock the two-row reach,
+    /// with no separate branch here to say so.
     ///
     /// Start and destination are allowed into the route even when occupied. That preserves the
     /// useful gesture of dragging out of, or into, an existing belt: the ordinary `place` call will
     /// skip that endpoint while the neighbouring new segment still points at it. Interior cells
-    /// must pass the ordinary placement predicate with cost disabled. Direction order is the
-    /// explicit tie-break, and the route never exceeds `MAX_LINE_CELLS`.
+    /// must pass the ordinary placement predicate with cost disabled. Heading order is the explicit
+    /// tie-break, and the route never exceeds `MAX_LINE_CELLS`.
     fn drag_route(
         &self,
         from: (i32, i32),
@@ -4343,59 +4825,111 @@ impl Core {
         let Some(definition) = self.building_definition(definition_id) else {
             return Vec::new();
         };
-        if definition.kind != BuildingKind::Belt
-            || definition.orientation_axis != OrientationAxis::Edge
-            || from == to
-        {
-            return line_between(from, to, definition.orientation_axis);
+        let axis = definition.orientation_axis;
+        if definition.kind != BuildingKind::Belt || axis == OrientationAxis::Corner || from == to {
+            return line_between(from, to, axis);
         }
 
-        let mut queue = VecDeque::from([from]);
-        let mut previous = BTreeMap::from([(from, None)]);
-        let mut depth = BTreeMap::from([(from, 0usize)]);
-        while let Some(current) = queue.pop_front() {
-            let current_depth = depth[&current];
-            if current_depth + 1 >= MAX_LINE_CELLS {
+        let weights: Vec<u32> = (0..TRANSPORT_DIRECTIONS.len() as u8)
+            .map(|heading| {
+                definition
+                    .cost_at(heading)
+                    .iter()
+                    .map(|ingredient| ingredient.quantity)
+                    .sum()
+            })
+            .collect();
+        // Research is a fact about the heading, so it is settled once here rather than per step.
+        // The per-cell predicate below would say the same thing everywhere except the destination,
+        // which this search lets the route reach even when it is occupied — and occupancy is the
+        // only thing that exemption was ever meant to forgive.
+        let headings: Vec<u8> = axis
+            .range()
+            .filter(|&heading| {
+                definition
+                    .gates_at(heading)
+                    .into_iter()
+                    .flatten()
+                    .all(|required| self.researched.contains(&required))
+            })
+            .collect();
+
+        // The line to stay near is the one the player could actually draw, which is the one their
+        // research allows: measured against a line that uses a heading no route here may take, the
+        // key would push every route toward cells none of them can reach.
+        let reachable = if headings.iter().any(|&heading| is_corner_heading(heading)) {
+            axis
+        } else {
+            OrientationAxis::Edge
+        };
+        let line: BTreeSet<(i32, i32)> = line_between(from, to, reachable).into_iter().collect();
+
+        // The heading a node was reached on, for the start, which turned nothing to get there.
+        const UNTURNED: u8 = u8::MAX;
+        // Key first, node second, so the heap orders on the key and the node only ever breaks a tie
+        // — which is what keeps two equal routes from resolving differently on two machines.
+        type Node = ((i32, i32), u8);
+        type Key = (u32, usize, usize, usize);
+        let start: Node = (from, UNTURNED);
+        let mut frontier =
+            BinaryHeap::from([std::cmp::Reverse(((0u32, 0usize, 0usize, 0usize), start))]);
+        let mut best: BTreeMap<Node, Key> = BTreeMap::from([(start, (0, 0, 0, 0))]);
+        let mut previous: BTreeMap<Node, Node> = BTreeMap::new();
+        while let Some(std::cmp::Reverse((key, current))) = frontier.pop() {
+            // A cheaper route to this node already left the heap, so this entry is stale.
+            if best.get(&current).is_some_and(|&known| known < key) {
                 continue;
             }
-            for (direction, &(dq, dr)) in DIRECTIONS.iter().enumerate() {
-                let next = (current.0 + dq, current.1 + dr);
-                if previous.contains_key(&next) {
-                    continue;
+            let (cell, arrived_on) = current;
+            if cell == to {
+                let mut route = vec![to];
+                let mut node = current;
+                while let Some(&step) = previous.get(&node) {
+                    route.push(step.0);
+                    node = step;
                 }
-                let passable = next == to
-                    || self
+                route.reverse();
+                return route;
+            }
+            let (spent, cells, turns, strayed) = key;
+            if cells + 1 >= MAX_LINE_CELLS {
+                continue;
+            }
+            for &heading in &headings {
+                let (dq, dr) = TRANSPORT_DIRECTIONS[usize::from(heading)];
+                let next: Node = ((cell.0 + dq, cell.1 + dr), heading);
+                if next.0 != to
+                    && self
                         .placement_legality(
-                            next.0,
-                            next.1,
+                            next.0 .0,
+                            next.0 .1,
                             definition_id,
-                            direction as u8,
+                            heading,
                             recipe_id,
                             false,
                         )
-                        .is_ok();
-                if !passable {
+                        .is_err()
+                {
                     continue;
                 }
-                previous.insert(next, Some(current));
-                depth.insert(next, current_depth + 1);
-                if next == to {
-                    let mut route = vec![to];
-                    let mut cursor = to;
-                    while cursor != from {
-                        cursor = previous[&cursor].expect("routed cell has a predecessor");
-                        route.push(cursor);
-                    }
-                    route.reverse();
-                    return route;
+                let candidate = (
+                    spent + weights[usize::from(heading)],
+                    cells + 1,
+                    turns + usize::from(arrived_on != UNTURNED && arrived_on != heading),
+                    strayed + usize::from(!line.contains(&next.0)),
+                );
+                if best.get(&next).is_some_and(|&known| known <= candidate) {
+                    continue;
                 }
-                queue.push_back(next);
+                best.insert(next, candidate);
+                previous.insert(next, current);
+                frontier.push(std::cmp::Reverse((candidate, next)));
             }
         }
 
         // A destination outside the bounded legal search still gets the historical line preview,
         // including its visible refused cells, instead of disappearing from the drag entirely.
-        line_between(from, to, definition.orientation_axis)
+        line_between(from, to, axis)
     }
 
     /// What a removal drag between these endpoints would take back. Refunds accumulate against a
@@ -4438,14 +4972,28 @@ impl Core {
     }
 
     /// Which axis a removal drag walks. Erasure carries no definition to ask, so it asks the hex
-    /// the drag started on: a run that begins on a riser takes back the riser column, and every
-    /// other run walks the six edges exactly as it did before v0.14. Deterministic and native, like
-    /// the path itself.
+    /// the drag started on: a run that begins on a two-row belt takes back the two-row column, and
+    /// every other run walks the six edges exactly as it did before v0.14. Deterministic and
+    /// native, like the path itself.
+    ///
+    /// A definition that takes every heading cannot answer this on its own — that was the one thing
+    /// the riser's separate definition was carrying that the unified belt does not. The *entity's*
+    /// heading carries it instead, which is the same fact in the place it actually belongs: this
+    /// run is in the period the belt under the player's cursor is in.
     fn erase_line_axis(&self, from: (i32, i32)) -> OrientationAxis {
-        self.entity_at(from.0, from.1)
-            .and_then(|index| self.building_definition(self.entities[index].placed.definition_id))
+        let Some(index) = self.entity_at(from.0, from.1) else {
+            return OrientationAxis::default();
+        };
+        let orientation = self.entities[index].placed.orientation;
+        match self
+            .building_definition(self.entities[index].placed.definition_id)
             .map(|definition| definition.orientation_axis)
-            .unwrap_or_default()
+        {
+            Some(OrientationAxis::Any) if is_corner_heading(orientation) => OrientationAxis::Corner,
+            Some(OrientationAxis::Any) => OrientationAxis::Edge,
+            Some(axis) => axis,
+            None => OrientationAxis::default(),
+        }
     }
 
     /// One drag of removal, resolved exactly as `place_line` resolves construction.
@@ -4555,7 +5103,7 @@ impl Core {
         let entity = &self.entities[index];
         let mut refund = BTreeMap::new();
         if let Some(definition) = self.building_definition(entity.placed.definition_id) {
-            add_ingredients(&mut refund, &definition.construction_cost);
+            add_ingredients(&mut refund, definition.cost_at(entity.placed.orientation));
         }
         add_inventory(&mut refund, &entity.inventory);
         add_inventory(&mut refund, &entity.reserved_inputs);
@@ -4649,55 +5197,27 @@ impl Core {
     /// the same choice, for the same reason, that `erase` makes. That is what keeps an
     /// upgrade / erase round trip from being a duplication exploit: whatever ladder a player walks
     /// up, erasing at the top hands back exactly the sum of what they paid.
-    fn upgrade(&mut self, q: i32, r: i32) -> Result<(), String> {
-        let (target_x, target_y) = axial_world(q, r);
-        if squared_distance(self.player.x, self.player.y, target_x, target_y)
-            > i64::from(self.player.build_range).pow(2)
-        {
-            return Err("upgrade target is outside build range".into());
-        }
-        let index = self.entity_at(q, r).ok_or("no building to upgrade")?;
-        if self.entities[index].placed.scenario_owned {
-            return Err("scenario-owned objects are protected".into());
-        }
-        let current = self
-            .building_definition(self.entities[index].placed.definition_id)
-            .ok_or("this building has no definition")?;
-        let next_id = current
-            .upgrades_to
-            .ok_or_else(|| format!("{} is already at its highest tier", current.name))?;
-        let refund = current.construction_cost.clone();
-        let next = self
-            .building_definition(next_id)
-            .ok_or("the next tier has no definition")?
-            .clone();
-        if let Some(required) = next.unlock_technology_id {
-            if !self.researched.contains(&required) {
-                return Err(format!("{} is locked by research", next.name));
-            }
-        }
-        // A container that already holds more than the next tier can is a capacity *downgrade*
-        // dressed as an upgrade. Refuse rather than silently strand the overflow.
-        if let Some(capacity) = next.capacity {
-            let stored: u32 = self.entities[index].inventory.values().copied().sum();
-            if stored > capacity {
-                return Err(format!(
-                    "{} holds {stored}, more than the next tier stores",
-                    current.name
-                ));
-            }
-        }
-        // Netted per item, so the two halves of the price never travel through the pack. A player
-        // upgrading with a full pack is charged the difference and asked to carry the difference,
-        // which is what an in-place edit actually costs them.
+    /// The price of an edit that replaces one cost row with another, netted per item and applied
+    /// all or nothing.
+    ///
+    /// Both halves are checked before either is moved — the same rule `erase` keeps — which is what
+    /// stops an edit and its undo from minting items between them. Netting rather than paying the
+    /// two halves separately is what lets a player with a full pack make an edit that costs them
+    /// nothing: the difference is what the change actually costs, so the difference is what travels.
+    ///
+    /// Creative is neither billed nor credited, so both maps stay empty and nothing moves — the same
+    /// answer `place` and `erase_refund` give, and the reason a ladder walked up and erased at the
+    /// top still balances at zero.
+    fn charge_difference(
+        &mut self,
+        charge_row: &[Ingredient],
+        credit_row: &[Ingredient],
+    ) -> Result<(), String> {
         let mut charge: BTreeMap<ItemId, u32> = BTreeMap::new();
         let mut credit: BTreeMap<ItemId, u32> = BTreeMap::new();
-        // Creative is neither billed nor credited, so both halves of the netting stay empty and the
-        // step below moves nothing through the pack — the same answer `place` and `erase_refund`
-        // give, so walking a ladder up and erasing at the top still balances at zero.
         if !self.creative {
-            add_ingredients(&mut charge, &next.construction_cost);
-            add_ingredients(&mut credit, &refund);
+            add_ingredients(&mut charge, charge_row);
+            add_ingredients(&mut credit, credit_row);
         }
         let mut owed: BTreeMap<ItemId, u32> = BTreeMap::new();
         let mut back: BTreeMap<ItemId, u32> = BTreeMap::new();
@@ -4732,22 +5252,70 @@ impl Core {
         if !missing.is_empty() {
             return Err(format!("need {}", missing.join(" · ")));
         }
-        // Only when the step actually hands something back. A tier whose cost contains the tier
-        // below it — which is the shape a ladder should have — returns nothing, and refusing that
-        // upgrade because the pack is full would be refusing an edit that does not touch the pack.
+        // Only when the step actually hands something back. An edit whose new cost contains the old
+        // one — which is the shape a ladder should have — returns nothing, and refusing it because
+        // the pack is full would be refusing an edit that does not touch the pack.
         if !back.is_empty() && !self.player_can_carry(&back) {
             return Err("no room to carry what this would return".into());
         }
+        for (item_id, quantity) in &owed {
+            subtract_item(&mut self.player.inventory, *item_id, *quantity);
+        }
+        add_inventory(&mut self.player.inventory, &back);
+        Ok(())
+    }
+
+    fn upgrade(&mut self, q: i32, r: i32) -> Result<(), String> {
+        let (target_x, target_y) = axial_world(q, r);
+        if squared_distance(self.player.x, self.player.y, target_x, target_y)
+            > i64::from(self.player.build_range).pow(2)
+        {
+            return Err("upgrade target is outside build range".into());
+        }
+        let index = self.entity_at(q, r).ok_or("no building to upgrade")?;
+        if self.entities[index].placed.scenario_owned {
+            return Err("scenario-owned objects are protected".into());
+        }
+        let current = self
+            .building_definition(self.entities[index].placed.definition_id)
+            .ok_or("this building has no definition")?;
+        let next_id = current
+            .upgrades_to
+            .ok_or_else(|| format!("{} is already at its highest tier", current.name))?;
+        // An upgrade keeps the entity's heading, and the ladder pins both definitions to the same
+        // orientation axis, so both halves of the netting are priced at that one heading.
+        let orientation = self.entities[index].placed.orientation;
+        let refund = current.cost_at(orientation).to_vec();
+        let next = self
+            .building_definition(next_id)
+            .ok_or("the next tier has no definition")?
+            .clone();
+        if let Some(required) = next.unlock_technology_id {
+            if !self.researched.contains(&required) {
+                return Err(format!("{} is locked by research", next.name));
+            }
+        }
+        // A container that already holds more than the next tier can is a capacity *downgrade*
+        // dressed as an upgrade. Refuse rather than silently strand the overflow.
+        if let Some(capacity) = next.capacity {
+            let stored: u32 = self.entities[index].inventory.values().copied().sum();
+            if stored > capacity {
+                return Err(format!(
+                    "{} holds {stored}, more than the next tier stores",
+                    current.name
+                ));
+            }
+        }
+        // Netted per item, so the two halves of the price never travel through the pack. A player
+        // upgrading with a full pack is charged the difference and asked to carry the difference,
+        // which is what an in-place edit actually costs them.
         let old_links = self.graph_links_by_id();
         let changed_cells = self
             .entity_footprint(&self.entities[index])
             .into_iter()
             .map(|cell| (cell.q, cell.r))
             .collect();
-        for (item_id, quantity) in &owed {
-            subtract_item(&mut self.player.inventory, *item_id, *quantity);
-        }
-        add_inventory(&mut self.player.inventory, &back);
+        self.charge_difference(next.cost_at(orientation), &refund)?;
         let id = self.entities[index].id;
         self.entities[index].placed.definition_id = next_id;
         // A taller tier may reach further, so the resolved deposit list was answered against the
@@ -4927,18 +5495,41 @@ impl Core {
         let old_links = self.graph_links_by_id();
         let old_footprint = self.entity_footprint(&self.entities[index]);
         let id = self.entities[index].id;
-        // Rotation stays on the definition's own axis: a belt walks the six edges and a riser the
-        // six corners. A building can never be turned into a heading it could not have
-        // been built at.
-        let axis = self
+        // Rotation stays on the definition's own axis: an edge-axis machine walks the six edges, and
+        // an `Any` belt walks all twelve in angular order. A building can never be turned into a
+        // heading it could not have been built at, which on the any axis means the research gate
+        // too: an unresearched heading is stepped over rather than landed on, so `R` cycles exactly
+        // the six edges until the two-row reach is paid for and all twelve afterwards. The current
+        // heading is one the building was built at, so the walk always terminates.
+        let definition = self
             .building_definition(self.entities[index].placed.definition_id)
+            .cloned();
+        let axis = definition
+            .as_ref()
             .map(|definition| definition.orientation_axis)
             .unwrap_or_default();
-        let next_orientation = if reverse {
-            axis.previous(self.entities[index].placed.orientation)
-        } else {
-            axis.next(self.entities[index].placed.orientation)
-        };
+        let orientation = self.entities[index].placed.orientation;
+        let mut next_orientation = orientation;
+        for _ in 0..axis.range().len() {
+            next_orientation = if reverse {
+                axis.previous(next_orientation)
+            } else {
+                axis.next(next_orientation)
+            };
+            let researched = definition.as_ref().is_none_or(|definition| {
+                definition
+                    .gates_at(next_orientation)
+                    .into_iter()
+                    .flatten()
+                    .all(|required| self.researched.contains(&required))
+            });
+            if researched {
+                break;
+            }
+        }
+        if next_orientation == orientation {
+            return Err("no other heading is researched for this building".into());
+        }
         let next_footprint = self.footprint_for(self.entities[index].placed, next_orientation);
         let rotating_kind = self.entities[index].kind;
         if next_footprint.iter().any(|cell| {
@@ -4952,6 +5543,16 @@ impl Core {
             })
         }) {
             return Err("rotated footprint would overlap another building".into());
+        }
+        // A heading is a price on the any axis, so turning onto one is an edit that costs the
+        // difference — otherwise a player could buy the cheap heading and rotate onto the expensive
+        // one for free, which is exactly the dominance `corner_construction_cost` exists to prevent.
+        // For every other definition both rows are the same row, the netting cancels, and rotation
+        // stays the free adjustment it has always been.
+        if let Some(definition) = &definition {
+            let charge = definition.cost_at(next_orientation).to_vec();
+            let credit = definition.cost_at(orientation).to_vec();
+            self.charge_difference(&charge, &credit)?;
         }
         self.entities[index].placed.orientation = next_orientation;
         self.dirty.entities.push(id);
@@ -5114,9 +5715,16 @@ impl Core {
             }
             BuildingKind::Belt if entity.cargo.is_some() => {
                 let cargo = entity.cargo.expect("the belt guard proved cargo exists");
-                match self.graph[index] {
-                    Some(target) if self.can_accept(target, cargo) => EntityStatus::Carrying,
-                    _ => EntityStatus::OutputBlocked,
+                // A splitter is carrying while *any* branch will take the item. Reading only the
+                // first would paint a working junction as blocked every time its cursor happened to
+                // rest on the branch that is full.
+                if self.graph[index]
+                    .iter()
+                    .any(|target| self.can_accept(target, cargo))
+                {
+                    EntityStatus::Carrying
+                } else {
+                    EntityStatus::OutputBlocked
                 }
             }
             BuildingKind::Consumer => EntityStatus::Receiving,
@@ -5184,7 +5792,13 @@ impl Core {
         let power_capacity = self.power_capacity(index);
         let progress_total = self.progress_total(index);
         let footprint = self.entity_footprint(entity);
-        let next_id = self.graph[index].map(|target| self.entities[target].id);
+        let links = self.graph[index];
+        let next_id = links.primary().map(|target| self.entities[target].id);
+        let branch_ids: Vec<u32> = links
+            .iter()
+            .skip(1)
+            .map(|target| self.entities[target].id)
+            .collect();
         let snapshot = EntitySnapshot {
             id: entity.id,
             q: entity.placed.q,
@@ -5210,6 +5824,7 @@ impl Core {
             power_capacity,
             status: EntityStatus::Idle,
             next_id,
+            branch_ids,
             footprint,
         };
         let mut snapshot = snapshot;
@@ -5471,6 +6086,11 @@ impl Core {
             hash_u32(&mut hash, entity.power_charge);
             hash_u32(&mut hash, entity.burn_progress);
             hash_u32(&mut hash, u32::from(entity.disabled));
+            // Where each junction is in its rotation. A factory that reloaded with these reset
+            // would deal its next round differently from the one that was saved, so they are as
+            // much of the run's state as a machine's progress is.
+            hash_u32(&mut hash, u32::from(entity.route_cursor));
+            hash_u32(&mut hash, entity.merge_cursor);
             hash_inventory(&mut hash, &entity.inventory);
             hash_inventory(&mut hash, &entity.reserved_inputs);
             if let Some(cargo) = entity.cargo {
@@ -6347,8 +6967,10 @@ fn validate_definitions(definitions: &DefinitionsInput) -> Result<(), String> {
             return Err(format!("building {} has an invalid footprint", building.id));
         }
         // No shipped definition needs a multi-cell corner-heading footprint yet. Keep the narrow
-        // rule until a real definition asks for the extra path and can test it.
-        if building.orientation_axis == OrientationAxis::Corner && building.footprint.len() != 1 {
+        // rule until a real definition asks for the extra path and can test it. The test is "may
+        // face a corner", not "faces only corners": an any-axis definition reaches the same
+        // untested path the moment it is rotated onto a vertex heading.
+        if building.orientation_axis.allows(NORTH) && building.footprint.len() != 1 {
             return Err(format!(
                 "building {} spans the two-row period, which only a single-cell footprint can do",
                 building.id
@@ -6403,10 +7025,63 @@ fn validate_definitions(definitions: &DefinitionsInput) -> Result<(), String> {
                 building.id
             ));
         }
-        for ingredient in &building.construction_cost {
+        for ingredient in building
+            .construction_cost
+            .iter()
+            .chain(building.corner_construction_cost.iter().flatten())
+        {
             if ingredient.quantity == 0 || !item_ids.contains(&ingredient.item_id) {
                 return Err(format!("building {} has an invalid cost", building.id));
             }
+        }
+        // A corner price and a corner gate are answers to a question a building that cannot face a
+        // corner is never asked. Refusing them here keeps the data row honest about what it does,
+        // rather than carrying a number nothing ever reads.
+        if (building.corner_construction_cost.is_some() || building.corner_technology_id.is_some())
+            && !building.orientation_axis.allows(NORTH)
+        {
+            return Err(format!(
+                "building {} names a corner price or gate but cannot face a corner",
+                building.id
+            ));
+        }
+        // The whole point of retiring the riser is that the two-row reach stays a research step. An
+        // any-axis definition without its own corner gate would hand the player that reach at the
+        // first belt they place.
+        if building.orientation_axis == OrientationAxis::Any
+            && building.corner_technology_id.is_none()
+        {
+            return Err(format!(
+                "building {} takes every heading but gates none of them",
+                building.id
+            ));
+        }
+        // Bounded, because an unbounded span is a belt that costs nothing per hex.
+        if let Some(span) = building.underpass_span {
+            if span == 0 || span > MAX_UNDERPASS_SPAN {
+                return Err(format!(
+                    "building {} spans {span}, outside 1..={MAX_UNDERPASS_SPAN}",
+                    building.id
+                ));
+            }
+        }
+        // Splitting, merging, and spanning are all rules about compiled transport edges, and a
+        // building that is not transport compiles none.
+        if (building.splits || building.merges || building.underpass_span.is_some())
+            && building.kind != BuildingKind::Belt
+        {
+            return Err(format!(
+                "building {} is not transport but claims a transport rule",
+                building.id
+            ));
+        }
+        // One entity, one arbitration rule. A definition that both fans out and rotates its feeders
+        // would have two answers for which link a single item takes.
+        if building.splits && building.merges {
+            return Err(format!(
+                "building {} cannot both split and merge",
+                building.id
+            ));
         }
     }
     validate_upgrade_ladders(definitions)?;
@@ -6918,7 +7593,44 @@ fn line_between(from: (i32, i32), to: (i32, i32), axis: OrientationAxis) -> Vec<
     match axis {
         OrientationAxis::Edge => hex_line(from, to),
         OrientationAxis::Corner => hex_line_corner(from, to),
+        OrientationAxis::Any => hex_line_any(from, to),
     }
+}
+
+/// The cells one drag covers when the definition may take every heading.
+///
+/// The greedy rule the two axis-specific resolvers keep apart can finally be merged, because with
+/// both periods available the objection that sank a twelve-direction loop no longer holds: an edge
+/// step always closes one, so the run can never stall in the way a corner-only greedy can, and a
+/// corner step closes two only inside the 30°-of-vertical cone. Taking the largest closure and
+/// tie-breaking on the lowest heading therefore selects the two-row period exactly where it is
+/// worth taking and the unit period everywhere else — one rule, no tuned constant.
+///
+/// This is geometry alone. It is what `place_line` and the drag's out-of-range fallback walk;
+/// `drag_route` prices the same lattice against the player's inventory and what is actually legal
+/// to build, and that — not this — is what a live drag follows.
+fn hex_line_any(from: (i32, i32), to: (i32, i32)) -> Vec<(i32, i32)> {
+    let mut cells = vec![from];
+    let mut current = from;
+    while current != to && cells.len() < MAX_LINE_CELLS {
+        let remaining = axial_distance(current, to);
+        let Some((_, &(dq, dr))) = TRANSPORT_DIRECTIONS
+            .iter()
+            .enumerate()
+            .filter_map(|(heading, step)| {
+                let closed =
+                    remaining - axial_distance((current.0 + step.0, current.1 + step.1), to);
+                (closed > 0).then_some((closed, heading, step))
+            })
+            .max_by_key(|&(closed, heading, _)| (closed, std::cmp::Reverse(heading)))
+            .map(|(_, heading, step)| (heading, step))
+        else {
+            break;
+        };
+        current = (current.0 + dq, current.1 + dr);
+        cells.push(current);
+    }
+    cells
 }
 
 /// The cells one corner-heading drag covers — the explicit rule the two-row period needs.
@@ -10589,19 +11301,35 @@ mod tests {
     }
 
     fn add_test_belt(core: &mut Core, q: i32, r: i32, orientation: u8) -> u32 {
+        add_test_entity(core, q, r, 2, orientation)
+    }
+
+    /// One entity dropped straight into the world, past terrain, cost, and research.
+    ///
+    /// The junction tests are about what the graph compiles and how the tick arbitrates between
+    /// compiled edges. Going through `place` would make each of them also a test of where the
+    /// new-game landscape happens to have six flat hexes in the right arrangement.
+    fn add_test_entity(
+        core: &mut Core,
+        q: i32,
+        r: i32,
+        definition_id: DefinitionId,
+        orientation: u8,
+    ) -> u32 {
         let id = core.next_entity_id;
         core.next_entity_id += 1;
+        let kind = core.building_definition(definition_id).unwrap().kind;
         core.entities.push(Entity {
             id,
             placed: PlacedBuilding {
                 q,
                 r,
-                definition_id: 2,
+                definition_id,
                 orientation,
                 recipe_id: None,
                 scenario_owned: false,
             },
-            kind: BuildingKind::Belt,
+            kind,
             cargo: None,
             inventory: BTreeMap::new(),
             reserved_inputs: BTreeMap::new(),
@@ -10610,8 +11338,53 @@ mod tests {
             power_charge: 0,
             burn_progress: 0,
             disabled: false,
+            route_cursor: 0,
+            merge_cursor: 0,
         });
         id
+    }
+
+    /// A world with nothing in it, so a junction test states its whole factory in six lines.
+    fn empty_world(key: &str) -> Core {
+        let mut core = game(key);
+        core.entities.clear();
+        core.graph.clear();
+        core.next_entity_id = 1;
+        core
+    }
+
+    fn index_of(core: &Core, id: u32) -> usize {
+        core.entities
+            .iter()
+            .position(|entity| entity.id == id)
+            .unwrap_or_else(|| panic!("entity {id} is gone"))
+    }
+
+    /// Every target this entity compiled, by id and in ascending order.
+    fn link_ids(core: &Core, id: u32) -> Vec<u32> {
+        let mut ids: Vec<u32> = core.graph[index_of(core, id)]
+            .iter()
+            .map(|target| core.entities[target].id)
+            .collect();
+        ids.sort_unstable();
+        ids
+    }
+
+    fn put_cargo(core: &mut Core, id: u32, item_id: ItemId) {
+        let index = index_of(core, id);
+        core.entities[index].cargo = Some(Cargo {
+            item_id,
+            quantity: 1,
+        });
+    }
+
+    /// The one output this entity compiled, asserting on the way past that it compiled no others.
+    /// Every caller here builds ordinary belts, so a branch appearing on one would be a defect the
+    /// old `Option<usize>` graph could not have expressed and this helper would otherwise hide.
+    fn sole_link(links: &BTreeMap<u32, LinkIds>, id: u32) -> Option<u32> {
+        let ids = links[&id];
+        assert_eq!(ids[1..], [None, None], "entity {id} compiled a branch");
+        ids[0]
     }
 
     #[test]
@@ -11752,12 +12525,15 @@ mod tests {
             2,
             "the support and transport are distinct entities"
         );
+        // One click of rotation is one *angle* along, and a belt takes all twelve headings now, so
+        // the step out of due east is the vertex heading that sits between east and the next edge
+        // rather than that edge itself.
         core.rotate(shallow.0, shallow.1, false).unwrap();
         assert_eq!(
             core.entities[core.entity_at(shallow.0, shallow.1).unwrap()]
                 .placed
                 .orientation,
-            1
+            8
         );
         let (definitions, technologies, scenarios) = catalogs();
         let save = core.save_string().unwrap();
@@ -11775,13 +12551,15 @@ mod tests {
             core.entities[core.entity_at(shallow.0, shallow.1).unwrap()].kind,
             BuildingKind::Belt
         );
+        // A bridge supports the two-row reach as well, and for the same reason: what it permits is
+        // a transport *kind* on a ford, and a heading is not a different kind.
         core.erase(shallow.0, shallow.1).unwrap();
-        core.place(shallow.0, shallow.1, 18, NORTH, None).unwrap();
+        core.place(shallow.0, shallow.1, 2, NORTH, None).unwrap();
         assert_eq!(
             core.entities[core.entity_at(shallow.0, shallow.1).unwrap()]
                 .placed
-                .definition_id,
-            18
+                .orientation,
+            NORTH
         );
         core.erase(shallow.0, shallow.1).unwrap();
         assert_eq!(
@@ -13151,7 +13929,9 @@ mod tests {
         let mut path = Vec::new();
         loop {
             path.push((core.entities[index].placed.q, core.entities[index].placed.r));
-            let Some(next) = core.graph[index] else { break };
+            let Some(next) = core.graph[index].primary() else {
+                break;
+            };
             index = next;
         }
         assert_eq!(
@@ -13228,8 +14008,8 @@ mod tests {
         let bridge = add_test_belt(&mut core, 1, 0, 0);
         let right = add_test_belt(&mut core, 2, 0, 0);
         core.compile_graph();
-        assert_eq!(core.graph_links_by_id()[&left], Some(bridge));
-        assert_eq!(core.graph_links_by_id()[&bridge], Some(right));
+        assert_eq!(sole_link(&core.graph_links_by_id(), left), Some(bridge));
+        assert_eq!(sole_link(&core.graph_links_by_id(), bridge), Some(right));
 
         let old_links = core.graph_links_by_id();
         let bridge_index = core
@@ -13242,7 +14022,7 @@ mod tests {
         let recompiled =
             core.recompile_graph_components(&old_links, &changed_cells, &BTreeSet::from([bridge]));
         assert_eq!(recompiled, 2);
-        assert_eq!(core.graph_links_by_id()[&left], None);
+        assert_eq!(sole_link(&core.graph_links_by_id(), left), None);
         let incremental_split = core.graph_links_by_id();
         core.compile_graph();
         assert_eq!(core.graph_links_by_id(), incremental_split);
@@ -13255,8 +14035,14 @@ mod tests {
             &BTreeSet::from([replacement]),
         );
         assert_eq!(recompiled, 3);
-        assert_eq!(core.graph_links_by_id()[&left], Some(replacement));
-        assert_eq!(core.graph_links_by_id()[&replacement], Some(right));
+        assert_eq!(
+            sole_link(&core.graph_links_by_id(), left),
+            Some(replacement)
+        );
+        assert_eq!(
+            sole_link(&core.graph_links_by_id(), replacement),
+            Some(right)
+        );
         let incremental_merge = core.graph_links_by_id();
         core.compile_graph();
         assert_eq!(core.graph_links_by_id(), incremental_merge);
@@ -13275,7 +14061,7 @@ mod tests {
             .iter()
             .position(|entity| entity.kind == BuildingKind::Consumer)
             .unwrap();
-        core.graph[container] = Some(consumer);
+        core.graph[container] = Links::single(Some(consumer));
         core.entities[container].inventory.insert(3, 2);
         core.entities[container].inventory.insert(1, 1);
         core.transfer_cargo();
@@ -13286,7 +14072,7 @@ mod tests {
             quantity: 1,
         });
         let before = core.entities[container].cargo;
-        core.graph[container] = None;
+        core.graph[container] = Links::default();
         core.transfer_cargo();
         assert_eq!(core.entities[container].cargo, before);
     }
@@ -13327,7 +14113,7 @@ mod tests {
             EntityStatus::Carrying
         );
 
-        core.graph[first] = None;
+        core.graph[first] = Links::default();
         assert_eq!(
             core.status_of(first, true, true, true, false),
             EntityStatus::OutputBlocked
@@ -13342,7 +14128,7 @@ mod tests {
             .iter()
             .position(|entity| entity.kind == BuildingKind::Composer)
             .unwrap();
-        core.graph[composer] = None;
+        core.graph[composer] = Links::default();
         core.entities[composer].inventory.insert(1, 2);
         core.advance_composer(composer);
         assert!(core.entities[composer].inventory.is_empty());
@@ -13371,7 +14157,7 @@ mod tests {
             .iter()
             .position(|entity| entity.kind == BuildingKind::Extractor)
             .unwrap();
-        core.graph[extractor] = None;
+        core.graph[extractor] = Links::default();
         let resource_before = core.deposit_quantity((-4, 0));
         core.tick_many(100);
         assert_eq!(core.entities[extractor].cargo.unwrap().quantity, 1);
@@ -13387,7 +14173,7 @@ mod tests {
             .position(|entity| entity.kind == BuildingKind::Consumer)
             .unwrap();
         core.entities[container].inventory.insert(2, 7);
-        core.graph[container] = Some(consumer);
+        core.graph[container] = Links::single(Some(consumer));
         for _ in 0..7 {
             core.transfer_cargo();
         }
@@ -14155,6 +14941,9 @@ mod tests {
                         power_capacity: 0,
                         status: EntityStatus::Idle,
                         next_id: None,
+                        // No outputs at all, which is the empty branch list — the case every
+                        // entity that is not a splitter encodes.
+                        branch_ids: Vec::new(),
                         footprint: vec![Coordinate { q: 2, r: 0 }],
                     },
                     EntitySnapshot {
@@ -14192,6 +14981,10 @@ mod tests {
                         power_capacity: 360,
                         status: EntityStatus::Composing,
                         next_id: Some(9),
+                        // A full branch list, carrying both a small id and the largest one a u32
+                        // holds, so the decoder is pinned at both ends of the range it must widen
+                        // across. This entity is the fixture's every-field-at-its-limit case.
+                        branch_ids: vec![4, 4_294_967_295],
                         // A multi-cell footprint, coded against the entity's own hex.
                         footprint: vec![
                             Coordinate { q: -1, r: 6 },
@@ -14301,11 +15094,15 @@ mod tests {
     /// cannot change what the test asserts.
     #[test]
     fn balance_fixture_pins_the_economy_for_both_languages() {
-        let generated = serde_json::to_value(balance::compute()).unwrap();
+        let report = balance::compute();
+        let generated = serde_json::to_value(&report).unwrap();
         let path =
             std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../fixtures/balance.json");
         if std::env::var("UPDATE_BALANCE_FIXTURE").is_ok() {
-            let mut text = serde_json::to_string_pretty(&generated).unwrap();
+            // The report, not the `Value` built from it: serde orders a `Value`'s keys
+            // alphabetically and the struct in declaration order, and only the second keeps a
+            // regenerated fixture diffable against the one it replaces.
+            let mut text = serde_json::to_string_pretty(&report).unwrap();
             text.push('\n');
             std::fs::write(&path, text).unwrap();
         }
@@ -15156,109 +15953,191 @@ mod tests {
         assert!(validate_scenarios(&definitions, &catalogs().1, &scenarios).is_ok());
     }
 
-    /// A riser routes two rows, and the hexes it spans stay free. This is the whole answer to
-    /// north-south transport: a direction-table row, resolved by the ray-cast the graph compiler
-    /// already was, with no sub-hex occupancy anywhere.
+    /// A belt at a vertex heading routes two rows, and the hexes it spans stay free. This is the
+    /// whole answer to north-south transport: a direction-table row, resolved by the ray-cast the
+    /// graph compiler already was, with no sub-hex occupancy anywhere.
     #[test]
-    fn a_riser_routes_two_rows_and_leaves_the_hexes_it_spans_free() {
+    fn a_corner_belt_routes_two_rows_and_leaves_the_hexes_it_spans_free() {
         let mut core = game("new-game");
         core.researched.extend([1, 4, 11]);
         core.player.inventory.insert(1, 40);
 
-        // A riser at (0, 3) facing north reaches (1, 1) — the same world column, two rows up.
+        // A belt at (0, 3) facing north reaches (1, 1) — the same world column, two rows up.
         set_player_hex(&mut core, 1, 2);
         core.place(1, 1, 4, 0, None).unwrap();
         set_player_hex(&mut core, 1, 3);
-        core.place(0, 3, 18, NORTH, None).unwrap();
+        core.place(0, 3, 2, NORTH, None).unwrap();
 
-        let riser = core.entity_at(0, 3).unwrap();
+        let belt = core.entity_at(0, 3).unwrap();
         let container = core.entity_at(1, 1).unwrap();
         assert_eq!(
-            core.graph[riser],
-            Some(container),
-            "a north-facing riser must bind to what sits two rows above it"
+            core.graph[belt],
+            Links::single(Some(container)),
+            "a north-facing belt must bind to what sits two rows above it"
         );
         // The seam it spans is two ordinary hexes, and neither is occupied by anything.
         assert_eq!(core.entity_at(0, 2), None);
         assert_eq!(core.entity_at(1, 2), None);
-        // So they stay buildable, and the riser never claims them for collision either.
+        // So they stay buildable, and the belt never claims them for collision either.
         assert!(core.placement_legality(0, 2, 2, 0, None, true).is_ok());
-        assert!(!core.building_definition(18).unwrap().blocks_movement);
-        // The riser occupies exactly one hex.
-        assert_eq!(core.entity_footprint(&core.entities[riser]).len(), 1);
-
-        // Rotation visits all six corners and returns to north.
-        for expected in (NORTH + 1)..(NORTH + 6) {
-            core.rotate(0, 3, false).unwrap();
-            assert_eq!(
-                core.entities[core.entity_at(0, 3).unwrap()]
-                    .placed
-                    .orientation,
-                expected
-            );
-        }
-        core.rotate(0, 3, false).unwrap();
-        assert_eq!(
-            core.entities[core.entity_at(0, 3).unwrap()]
-                .placed
-                .orientation,
-            NORTH,
-            "rotation stays on the definition's own axis"
-        );
-        core.rotate(0, 3, true).unwrap();
-        assert_eq!(
-            core.entities[core.entity_at(0, 3).unwrap()]
-                .placed
-                .orientation,
-            NORTH + 5,
-            "reverse rotation wraps counter-clockwise on the same axis"
-        );
+        assert!(!core.building_definition(2).unwrap().blocks_movement);
+        // It occupies exactly one hex.
+        assert_eq!(core.entity_footprint(&core.entities[belt]).len(), 1);
     }
 
-    /// Orientation is an axis the definition owns, and that is what prices the riser. A belt may
-    /// never take a corner heading, because a belt that could would reach twice as far for a
-    /// belt's cost.
+    /// Rotation on the any axis walks all twelve headings once each, in angular order.
+    ///
+    /// The point of a single belt definition is that `R` nudges a heading by 30°, not that it
+    /// cycles a table. So this checks the *world vectors*, not the indices: consecutive headings
+    /// turn one twelfth of a circle clockwise, and twelve presses return to where they started.
     #[test]
-    fn orientation_axes_keep_the_riser_priced_and_the_belt_horizontal() {
+    fn rotation_walks_every_heading_once_in_angular_order() {
         let mut core = game("new-game");
         core.researched.extend([1, 11]);
         core.player.inventory.insert(1, 40);
         set_player_hex(&mut core, 1, 3);
+        core.place(0, 3, 2, 0, None).unwrap();
 
+        let heading = |core: &Core| {
+            core.entities[core.entity_at(0, 3).unwrap()]
+                .placed
+                .orientation
+        };
+        // Pointy-top axial, at unit size: a hex at (q, r) sits at `x = √3·(q + r/2)`, `y = 1.5·r`,
+        // with `y` running south. The world angle of a heading is the angle of the vector it moves
+        // along, growing clockwise from due east.
+        let angle = |orientation: u8| {
+            let (dq, dr) = TRANSPORT_DIRECTIONS[usize::from(orientation)];
+            let (dq, dr) = (f64::from(dq), f64::from(dr));
+            (1.5 * dr).atan2(3f64.sqrt() * (dq + dr / 2.0))
+        };
+
+        let mut seen = vec![heading(&core)];
+        for _ in 0..11 {
+            core.rotate(0, 3, false).unwrap();
+            let now = heading(&core);
+            let step =
+                (angle(now) - angle(*seen.last().unwrap())).rem_euclid(std::f64::consts::TAU);
+            assert!(
+                (step - std::f64::consts::TAU / 12.0).abs() < 1e-9,
+                "one press turned {step} radians, not 30°"
+            );
+            seen.push(now);
+        }
+        seen.sort_unstable();
+        assert_eq!(seen, (0..12).collect::<Vec<u8>>(), "every heading, once");
+
+        core.rotate(0, 3, false).unwrap();
+        assert_eq!(heading(&core), 0, "twelve presses return to the start");
+        core.rotate(0, 3, true).unwrap();
+        assert_eq!(
+            heading(&core),
+            7,
+            "and reverse rotation is the inverse press: 30° back from due east"
+        );
+    }
+
+    /// Rotation offers a heading on the same terms `place` does: researched, and paid for.
+    ///
+    /// A belt bought at an edge heading and turned onto a vertex one would otherwise be the two-row
+    /// reach at the price of the short step — the exact dominance `corner_construction_cost` exists
+    /// to prevent — and `R` pressed before the research would hand it over for nothing at all.
+    #[test]
+    fn rotation_offers_only_headings_the_player_has_paid_for() {
+        let mut core = game("new-game");
+        core.researched.insert(1);
+        core.player.inventory.insert(1, 8);
+        set_player_hex(&mut core, 1, 3);
+        core.place(0, 3, 2, 0, None).unwrap();
+
+        let heading = |core: &Core| {
+            core.entities[core.entity_at(0, 3).unwrap()]
+                .placed
+                .orientation
+        };
+        let ore = |core: &Core| core.player.inventory.get(&1).copied().unwrap_or(0);
+        let paid = ore(&core);
+
+        // Unresearched, `R` walks the six edges and steps straight over the vertex headings between
+        // them, so the reach is not something a key the player already has can reach.
+        for expected in 1..=5u8 {
+            core.rotate(0, 3, false).unwrap();
+            assert_eq!(heading(&core), expected);
+        }
+        core.rotate(0, 3, false).unwrap();
+        assert_eq!(heading(&core), 0, "six presses close the edge ring");
+        assert_eq!(ore(&core), paid, "and none of them cost anything");
+
+        core.researched.insert(11);
+        core.rotate(0, 3, false).unwrap();
+        assert_eq!(
+            heading(&core),
+            NORTH + 2,
+            "researched, the vertex heading is the very next one"
+        );
+        assert_eq!(
+            ore(&core),
+            paid - 1,
+            "and turning onto it is charged the difference"
+        );
+        core.rotate(0, 3, true).unwrap();
+        assert_eq!(heading(&core), 0);
+        assert_eq!(
+            ore(&core),
+            paid,
+            "turning back off it returns that difference"
+        );
+
+        // The difference is a real price, so a pack that cannot cover it is refused — and the belt
+        // is left facing where it was rather than turned half way onto a heading nobody paid for.
+        core.player.inventory.remove(&1);
+        assert!(core.rotate(0, 3, false).unwrap_err().contains("need"));
+        assert_eq!(heading(&core), 0);
+    }
+
+    /// Orientation is an axis the definition owns, and on the any axis that axis prices and gates
+    /// itself. The two-row reach costs what it covers and waits behind its own research, which is
+    /// what lets a belt and a riser be one building without the reach being free.
+    #[test]
+    fn the_two_row_reach_is_priced_and_gated_on_the_axis_that_allows_it() {
+        let mut core = game("new-game");
+        core.researched.extend([1]);
+        core.player.inventory.insert(1, 40);
+        set_player_hex(&mut core, 1, 3);
+
+        // The belt's own unlock is done, so what refuses a vertex heading is the corner gate alone.
+        assert!(core.placement_legality(0, 3, 2, 0, None, true).is_ok());
         assert!(core
             .placement_legality(0, 3, 2, NORTH, None, true)
             .unwrap_err()
-            .contains("oriented in 0..6"));
-        assert!(core
-            .placement_legality(0, 3, 18, 0, None, true)
-            .unwrap_err()
-            .contains("oriented in 6..12"));
-        assert!(core.placement_legality(0, 3, 18, NORTH, None, true).is_ok());
+            .contains("locked"));
+        core.researched.insert(11);
+        assert!(core.placement_legality(0, 3, 2, NORTH, None, true).is_ok());
 
-        // And the price is a data row, not a mechanism: the riser simply costs twice the belt.
-        let belt = core
-            .building_definition(2)
-            .unwrap()
-            .construction_cost
-            .clone();
-        let riser = core
-            .building_definition(18)
-            .unwrap()
-            .construction_cost
-            .clone();
-        assert_eq!(riser.len(), belt.len());
-        for (riser, belt) in riser.iter().zip(&belt) {
-            assert_eq!(riser.item_id, belt.item_id);
-            assert_eq!(riser.quantity, belt.quantity * 2);
-        }
+        // An edge-only definition still refuses the vertex headings outright, by range.
+        assert!(core
+            .placement_legality(0, 3, 4, NORTH, None, true)
+            .unwrap_err()
+            .contains("oriented in 0..6"));
+
+        // And the price is a data row, not a mechanism: the two-row heading simply costs more.
+        let belt = core.building_definition(2).unwrap();
+        let edge = belt.cost_at(0).to_vec();
+        let corner = belt.cost_at(NORTH).to_vec();
+        assert_ne!(edge, corner, "the reach a corner buys is not free");
+        assert_eq!(
+            corner.iter().map(|cost| cost.quantity).sum::<u32>(),
+            edge.iter().map(|cost| cost.quantity).sum::<u32>() * 2,
+            "a corner belt costs twice the belt, the way the riser's own row used to say"
+        );
 
         // No definition needs a multi-cell corner footprint yet, so that untested combination is
-        // still refused at load.
+        // still refused at load — for anything that may face a corner, not only for corner-only.
         let (mut definitions, _, _) = catalogs();
         let index = definitions
             .buildings
             .iter()
-            .position(|building| building.id == 18)
+            .position(|building| building.id == 2)
             .unwrap();
         definitions.buildings[index]
             .footprint
@@ -15266,6 +16145,228 @@ mod tests {
         assert!(validate_definitions(&definitions)
             .unwrap_err()
             .contains("two-row period"));
+
+        // And an any-axis definition that gates none of its headings is refused too, which is what
+        // keeps the reach a research step rather than a property of the first belt of the game.
+        let (mut definitions, _, _) = catalogs();
+        let index = definitions
+            .buildings
+            .iter()
+            .position(|building| building.id == 2)
+            .unwrap();
+        definitions.buildings[index].corner_technology_id = None;
+        assert!(validate_definitions(&definitions)
+            .unwrap_err()
+            .contains("gates none of them"));
+    }
+
+    /// A splitter compiles three outputs and serves them in rotation.
+    ///
+    /// Both halves matter and they fail differently. Three edges is the graph claim — the flanks
+    /// are 60° either side of the facing and nothing else — and consecutive items leaving by
+    /// different branches is the tick claim. A splitter that compiled three edges but always
+    /// offered the first would be a belt that had learned to draw two extra decks.
+    #[test]
+    fn a_splitter_fans_one_lane_into_three_and_serves_them_in_rotation() {
+        let mut core = empty_world("new-game");
+        let splitter = add_test_entity(&mut core, 0, 0, 24, 0);
+        // Facing east, and the two headings 60° either side of east.
+        let ahead = add_test_entity(&mut core, 1, 0, 4, 0);
+        let left = add_test_entity(&mut core, 0, 1, 4, 0);
+        let right = add_test_entity(&mut core, 1, -1, 4, 0);
+        core.compile_graph();
+
+        let mut expected = vec![ahead, left, right];
+        expected.sort_unstable();
+        assert_eq!(
+            link_ids(&core, splitter),
+            expected,
+            "facing and both flanks"
+        );
+
+        // Three items, one per tick, so nothing is ever refused for want of room.
+        for _ in 0..3 {
+            put_cargo(&mut core, splitter, 1);
+            core.transfer_cargo();
+        }
+        for target in [ahead, left, right] {
+            assert_eq!(
+                core.entities[index_of(&core, target)].inventory.get(&1),
+                Some(&1),
+                "every branch takes exactly one of three"
+            );
+        }
+
+        // A jammed branch does not stall the others: the cursor stays where it is on a refusal
+        // rather than advancing past a branch that took nothing.
+        let capacity = core.building_definition(4).unwrap().capacity.unwrap();
+        let jammed = index_of(&core, ahead);
+        core.entities[jammed].inventory.insert(1, capacity);
+        for _ in 0..2 {
+            put_cargo(&mut core, splitter, 1);
+            core.transfer_cargo();
+        }
+        assert_eq!(
+            core.entities[index_of(&core, ahead)].inventory[&1],
+            capacity
+        );
+        assert_eq!(core.entities[index_of(&core, left)].inventory[&1], 2);
+        assert_eq!(core.entities[index_of(&core, right)].inventory[&1], 2);
+    }
+
+    /// A merger serves its feeders in rotation, and an ordinary belt in the same junction does not.
+    ///
+    /// The negative half is the whole point. Several lanes pointed into one hex compete every tick,
+    /// and the id order the game has always arbitrated by hands the win to the same lane forever —
+    /// which is a starved lane, not a tie-break. The merger is the definition that answers it, so
+    /// the test states both behaviours side by side rather than asserting the fair one alone.
+    #[test]
+    fn a_merger_alternates_between_its_feeders_and_a_belt_starves_one() {
+        let served_order = |definition_id: DefinitionId| {
+            let mut core = empty_world("new-game");
+            let junction = add_test_entity(&mut core, 0, 0, definition_id, 0);
+            let west = add_test_belt(&mut core, -1, 0, 0);
+            let north = add_test_belt(&mut core, 0, -1, 1);
+            let sink = add_test_entity(&mut core, 1, 0, 4, 0);
+            core.compile_graph();
+            assert_eq!(link_ids(&core, west), vec![junction]);
+            assert_eq!(link_ids(&core, north), vec![junction]);
+            assert_eq!(link_ids(&core, junction), vec![sink]);
+
+            // Both lanes full every tick, so who goes first is arbitration and never availability.
+            (0..4)
+                .map(|_| {
+                    put_cargo(&mut core, west, 1);
+                    put_cargo(&mut core, north, 1);
+                    core.transfer_cargo();
+                    if core.entities[index_of(&core, west)].cargo.is_none() {
+                        west
+                    } else {
+                        north
+                    }
+                })
+                .collect::<Vec<u32>>()
+        };
+
+        // Feeders are walked from the one after the one served last, so two lanes alternate.
+        let merger = served_order(25);
+        assert_eq!(merger[0], merger[2]);
+        assert_eq!(merger[1], merger[3]);
+        assert_ne!(merger[0], merger[1], "a merger alternates");
+
+        // The same junction built as an ordinary belt lets the lower entity id win every tick.
+        let belt = served_order(2);
+        assert_eq!(belt[0], belt[1]);
+        assert_eq!(
+            belt[0], belt[3],
+            "an ordinary junction starves the other lane"
+        );
+    }
+
+    /// Two underpasses on one heading carry a lane beneath the line between them.
+    ///
+    /// The crossed belt is the assertion: it keeps its own cargo, keeps its own output, and never
+    /// sees what passes over it. And the pair is not a placement mode — the exit is simply the
+    /// underpass that found no partner ahead of it, so it delivers like any other belt, and an
+    /// underpass alone behaves as one.
+    #[test]
+    fn an_underpass_pair_carries_a_lane_beneath_the_belt_between_them() {
+        let mut core = empty_world("new-game");
+        let entrance = add_test_entity(&mut core, 0, 0, 26, 0);
+        let exit = add_test_entity(&mut core, 2, 0, 26, 0);
+        let landing = add_test_entity(&mut core, 3, 0, 4, 0);
+        // The lane being crossed: it runs north through the hex between the pair.
+        let crossed = add_test_belt(&mut core, 1, 0, 1);
+        let crossed_sink = add_test_entity(&mut core, 1, 1, 4, 0);
+        core.compile_graph();
+
+        assert_eq!(
+            link_ids(&core, entrance),
+            vec![exit],
+            "the entrance passes over the belt it crosses and binds to its partner"
+        );
+        assert_eq!(
+            link_ids(&core, exit),
+            vec![landing],
+            "the exit found no partner ahead, so it delivers like any belt"
+        );
+        assert_eq!(link_ids(&core, crossed), vec![crossed_sink]);
+
+        put_cargo(&mut core, entrance, 1);
+        put_cargo(&mut core, crossed, 3);
+        core.transfer_cargo();
+        assert_eq!(
+            core.entities[index_of(&core, landing)].inventory.get(&1),
+            Some(&1),
+            "the crossing cargo arrives on the far side"
+        );
+        assert_eq!(
+            core.entities[index_of(&core, crossed)].cargo,
+            None,
+            "the crossed belt handed on its own cargo and never took the one passing over it"
+        );
+        assert_eq!(
+            core.entities[index_of(&core, crossed_sink)]
+                .inventory
+                .get(&3),
+            Some(&1),
+            "and the crossed lane delivered its own, untouched"
+        );
+
+        // The hexes a crossing spans stay ordinary: the covered belt is a normal entity there, and
+        // taking the partner away leaves the entrance an ordinary belt that binds to it.
+        let removed = index_of(&core, exit);
+        core.entities.remove(removed);
+        core.compile_graph();
+        assert_eq!(
+            link_ids(&core, entrance),
+            vec![crossed],
+            "an underpass with no partner is a belt"
+        );
+    }
+
+    /// A drag routes on all twelve headings, and takes the two-row period when it pays.
+    ///
+    /// Straight up the world column is the case that separates the search from the six-edge one it
+    /// replaced: four rows north is two corner steps or four edge steps, and the corner route is
+    /// the shorter run in entities even though the two price out the same. Research is what decides
+    /// which one the player gets, and the search reads it rather than branching on it.
+    #[test]
+    fn a_drag_routes_on_every_researched_heading() {
+        let mut core = game("new-game");
+        // Raw rather than `set_creative`, which researches everything — and what is researched is
+        // exactly the variable this test turns.
+        core.creative = true;
+        core.researched.insert(1);
+
+        // Four rows north of (2, 0): `NORTH` is `(1, -2)`, so the destination is two of them.
+        let locked = core.drag_route((2, 0), (4, -4), 2, 0, None);
+        assert_eq!(
+            locked.len(),
+            5,
+            "with the reach locked, a pure column is four edge steps"
+        );
+        assert!(
+            locked
+                .windows(2)
+                .all(|pair| step_direction(pair[0], pair[1]).is_some_and(|step| step < NORTH)),
+            "and every one of them is an edge, because no other heading was offered"
+        );
+
+        core.researched.insert(11);
+        let unlocked = core.drag_route((2, 0), (4, -4), 2, 0, None);
+        assert_eq!(
+            unlocked,
+            vec![(2, 0), (3, -2), (4, -4)],
+            "researched, the same drag is two steps of the two-row period"
+        );
+        for pair in unlocked.windows(2) {
+            assert_eq!(step_direction(pair[0], pair[1]), Some(NORTH));
+        }
+
+        // Due east is an edge heading, and no amount of research makes a corner step cheaper there.
+        let east = core.drag_route((2, 0), (5, 0), 2, 0, None);
+        assert_eq!(east, vec![(2, 0), (3, 0), (4, 0), (5, 0)]);
     }
 
     /// An upgrade grows a building in place: contents, heading, and connections all survive, and
@@ -15558,9 +16659,10 @@ mod tests {
         assert_eq!(first.checksum(), second.checksum());
         // Pinned so a change to definitions, the workload, or the simulation cannot silently
         // invalidate comparisons against previously recorded tier numbers. A generator-version
-        // bump moves this number while the workload does not — which is why the delivered total
-        // and the entity count below are the assertions that say the run is the same run.
-        assert_eq!(first.checksum(), 154_211_340);
+        // bump moves this number while the workload does not — as did v0.14 adding the splitter's
+        // and merger's arbitration cursors to `checksum` — which is why the delivered total and
+        // the entity count below are the assertions that say the run is the same run.
+        assert_eq!(first.checksum(), 841_205_484);
         assert_eq!(first.entities.len(), spec.entities() as usize);
         // Every line must be running end to end, or the tiers would measure an idle blueprint.
         // Four per line rather than fourteen: the line is now extraction-bound, because a

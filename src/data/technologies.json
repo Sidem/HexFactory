@@ -1,5 +1,5 @@
 {
-  "version": 6,
+  "version": 7,
   "technologies": [
     {
       "id": 1,
@@ -95,10 +95,10 @@
       "id": 11,
       "key": "corner-transport",
       "name": "Corner Transport",
-      "description": "Unlock the riser, which carries cargo along all six vertex headings between the ordinary hex edges.",
+      "description": "Teach the belt the six vertex headings between the ordinary hex edges. A corner belt spans two rows for twice the price, so the reach is a choice rather than a replacement.",
       "prerequisites": [1],
       "cost": 6,
-      "unlocks": [18]
+      "unlocks": []
     },
     {
       "id": 12,
@@ -135,6 +135,24 @@
       "prerequisites": [1],
       "cost": 4,
       "unlocks": [23]
+    },
+    {
+      "id": 16,
+      "key": "belt-junctions",
+      "name": "Belt Junctions",
+      "description": "Unlock the splitter and the merger. One divides a lane between every output that will take it; the other takes from its feeders in turn, so no line that shares a junction starves another.",
+      "prerequisites": [1],
+      "cost": 7,
+      "unlocks": [24, 25]
+    },
+    {
+      "id": 17,
+      "key": "grade-separation",
+      "name": "Grade Separation",
+      "description": "Unlock the underpass. A pair of them carries a lane beneath up to four hexes of anything already built, so two belt lines can finally cross.",
+      "prerequisites": [16, 11],
+      "cost": 12,
+      "unlocks": [26]
     }
   ]
 }

@@ -49,13 +49,15 @@ This is permanent and is not a scope item.
 
 ## Where the project stands
 
-The engine arc, the generator arc, and the shipped milestones through **v0.25 Visual Depth** are
+The engine arc, the generator arc, and the shipped milestones through **v0.25.1 Junctions** are
 present in this tree. A run today looks like this: land beside a hub in a world chosen by preset
 or by raw parameters, walk out under fog across rivers and coastline, find **fields** of eight raw
 materials rather than scattered cells, cross rivers on **bridges**, gather from forests that visibly
 thin and regrow, fill the hub's posted **requests** for insight and
-its staged founding **contract** for hub growth, research a twelve-technology tree, and build a
-powered, automated line of twenty buildings and fourteen recipes across five machine categories.
+its staged founding **contract** for hub growth, research a seventeen-technology tree, and build a
+powered, automated line of buildings and fourteen recipes across five machine categories — including
+belt lines that **split**, **merge**, climb the two-row period on the same belt definition once it is
+researched, and **pass under** the lanes they cross.
 Buildings are generated as low-poly instanced geometry from the shape grammar, so a tier remains a
 data row. Power is energy bought per unit of work. The world renders through Three.js and the
 minimap remains WebGL2.
@@ -65,12 +67,12 @@ catalog shows which one moved rather than hiding the row:
 
 | Envelope              | Version |
 | --------------------- | ------: |
-| `HXF1` save           |      13 |
-| Definitions           |      13 |
-| Technologies          |       6 |
+| `HXF1` save           |      14 |
+| Definitions           |      14 |
+| Technologies          |       7 |
 | Scenarios             |       5 |
 | World generator       |       8 |
-| Wire (snapshot delta) |       8 |
+| Wire (snapshot delta) |       9 |
 
 **Current measured capacity.** At 6,144 entities the complete Three.js browser frame is 27.4% of
 60 Hz on Low, 25.1% on Medium, and 21.7% on High on the reference desktop at 1440×900/DPR 1.
@@ -394,10 +396,10 @@ Named as decisions rather than omissions, each with the thing it is waiting for.
 - **A day cycle, and solar with it.** A presentation and simulation change at once, chosen for what
   it does to the game's feel rather than smuggled in as a power source.
 - **Terraforming.** Whether the player may reshape elevation, and what that costs.
-- **Tunnels.** One match arm in the graph trace — `None if entity.is_tunnel() && steps < span`, so a
-  tunnel entrance rays through empty ground and binds to the first entity it reaches, the covered
-  cells stay walkable, and pipes inherit it for free when fluids land. It may ride any compatible
-  version bump and does not become a milestone by itself.
+- **Fluid grade separation.** Tunnels shipped in v0.25.1 as the underpass pair, exactly as this list
+  predicted: one arm in the graph trace, the covered cells still walkable and still their own lane.
+  What is left of the entry is the half it promised for free — pipes inheriting the same arm when
+  fluids land, which is a fluid-network decision rather than a transport one.
 - **Organic tileables.** The later half of the art generator: systems that produce tileable textures
   and shapes so a hex lattice reads as organic terrain and organic objects. Same invariants —
   generated, presentation-only, derived from published snapshot facts, never a checksum input.
@@ -415,6 +417,17 @@ both test suites say so.
 
 One line per release, newest first. The reasoning behind a shipped rule lives in the git history of
 this file and in the code that implements it; what follows is the index.
+
+- **v0.25.1** Junctions — Belt lines split, merge, and cross. `splits` and `merges` are definition
+  flags over the existing compiled graph and the existing tick, not new kinds: a splitter fans every
+  free forward heading and offers from `route_cursor`, a merger accepts from behind and alternates on
+  `merge_cursor`, and both cursors are saved and checksummed so a restored factory keeps the rotation
+  it was running. The underpass is the tunnel arm the horizon list had already costed, and the
+  crossed cells stay singly occupied, buildable, and connected to their own lane. The riser is gone
+  as a separate definition: `OrientationAxis::Any` puts both periods on the belt, priced by
+  `corner_construction_cost` and gated by `corner_technology_id`, so rotation walks all twelve
+  headings 30° at a time and a drag routes on every heading the player has actually paid for. Save
+  14, definitions 14, technologies 7, wire 9.
 
 - **v0.25** Visual Depth — The production world is a stylized near-orthographic Three.js diorama
   with six 60-degree orbits, bounded zoom, logical-plane picking, exact pointy-top terrain prisms,

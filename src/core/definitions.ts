@@ -21,9 +21,13 @@ const PLACEMENT_RULES = new Set([
   "shallows",
 ]);
 const POWER_SOURCES = new Set(["burner", "wind", "hydro", "turbine"]);
-const ORIENTATION_AXES = new Set(["edge", "corner"]);
+const ORIENTATION_AXES = new Set(["edge", "corner", "any"]);
+/** The axes on which a definition may face a vertex heading, and so name a corner price. */
+const CORNER_AXES = new Set(["corner", "any"]);
 /** Matches `MAX_EXTRACT_RADIUS` in the core. The rule itself is native's. */
 const MAX_EXTRACT_RADIUS = 4;
+/** Matches `MAX_UNDERPASS_SPAN` in the core. The rule itself is native's. */
+export const MAX_UNDERPASS_SPAN = 4;
 
 export function validateDefinitions(
   value: unknown,
@@ -173,11 +177,56 @@ export function validateDefinitions(
     // No shipped definition needs a multi-cell corner-heading footprint yet. Native keeps the
     // same deliberately narrow rule; the catalog should not reach an untested combination.
     if (
-      building.orientation_axis === "corner" &&
+      CORNER_AXES.has(building.orientation_axis ?? "edge") &&
       building.footprint.length !== 1
     )
       throw new TypeError(
         `building ${building.id} spans the two-row period, which only a single-cell footprint can do`,
+      );
+    // A corner price and a corner gate are answers to a question a building that cannot face a
+    // corner is never asked.
+    if (
+      (building.corner_construction_cost !== undefined ||
+        building.corner_technology_id !== undefined) &&
+      !CORNER_AXES.has(building.orientation_axis ?? "edge")
+    )
+      throw new TypeError(
+        `building ${building.id} names a corner price or gate but cannot face a corner`,
+      );
+    // The two-row reach stays a research step. Without its own gate, an any-axis definition would
+    // hand the player that reach at the first belt they place.
+    if (
+      building.orientation_axis === "any" &&
+      building.corner_technology_id === undefined
+    )
+      throw new TypeError(
+        `building ${building.id} takes every heading but gates none of them`,
+      );
+    if (building.underpass_span !== undefined) {
+      if (
+        !positiveInteger(building.underpass_span) ||
+        building.underpass_span > MAX_UNDERPASS_SPAN
+      )
+        throw new TypeError(
+          `building ${building.id} needs a span in 1..=${MAX_UNDERPASS_SPAN}`,
+        );
+    }
+    // Splitting, merging, and spanning are all rules about compiled transport edges, and a
+    // building that is not transport compiles none.
+    if (
+      (building.splits === true ||
+        building.merges === true ||
+        building.underpass_span !== undefined) &&
+      building.kind !== "belt"
+    )
+      throw new TypeError(
+        `building ${building.id} is not transport but claims a transport rule`,
+      );
+    // One entity, one arbitration rule: a definition that both fans out and rotates its feeders
+    // would have two answers for which link a single item takes.
+    if (building.splits === true && building.merges === true)
+      throw new TypeError(
+        `building ${building.id} cannot both split and merge`,
       );
     if (building.extract_radius !== undefined) {
       if (building.kind !== "extractor" && building.kind !== "pump")
@@ -192,7 +241,10 @@ export function validateDefinitions(
           `extractor ${building.id} needs a reach in 1..=${MAX_EXTRACT_RADIUS}`,
         );
     }
-    for (const ingredient of building.construction_cost) {
+    for (const ingredient of [
+      ...building.construction_cost,
+      ...(building.corner_construction_cost ?? []),
+    ]) {
       if (
         !itemIds.has(ingredient.item_id) ||
         !positiveInteger(ingredient.quantity)

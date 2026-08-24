@@ -23,7 +23,8 @@ import type {
   ItemDefinition,
   ResourceSnapshot,
 } from "../../core/types";
-import { TRANSPORT_DIRECTIONS } from "../../core/directions";
+import { CORNER_START, TRANSPORT_DIRECTIONS } from "../../core/directions";
+import { MAX_UNDERPASS_SPAN } from "../../core/definitions";
 import { cargoTravel, stallMark, trimOf } from "../buildingLook";
 import { BUILDING_COLORS } from "../FactoryRenderer";
 import { WORLD_SCALE } from "../landmarks";
@@ -204,6 +205,7 @@ export class WorldInstanceLayer {
             entity.q,
             entity.r,
             entity.next_id ?? 0,
+            (entity.branch_ids ?? []).join(","),
           ].join(":"),
         )
         .join("|") + `@${snapshot.contract.stage}`;
@@ -447,9 +449,10 @@ export class WorldInstanceLayer {
     for (const link of connected) {
       if (link.to.kind !== "belt") continue;
       incomingTargets.add(link.to.id);
-      const definition = this.definitions.get(link.to.definition_id);
+      // A belt at a vertex heading keeps its straight two-row deck whatever feeds it: the curve
+      // geometry is authored for the one-row period and would fall short of the seam.
       if (
-        definition?.orientation_axis === "corner" ||
+        link.to.orientation >= CORNER_START ||
         Math.abs(this.transportTurn(link.from, link.to)) < 0.01
       )
         straightInputTargets.add(link.to.id);
@@ -479,10 +482,7 @@ export class WorldInstanceLayer {
           const angle = directionAngle(building.orientation);
           position.set(center.x, height, center.y);
           quaternion.setFromAxisAngle(new Vector3(0, 1, 0), angle);
-          const definition = this.definitions.get(building.definition_id);
-          const [x, y, z] = definition
-            ? transportScale(definition)
-            : ([1, 1, 1] as const);
+          const [x, y, z] = transportScale(building.kind, building.orientation);
           scale.set(x, y, z);
           matrix.compose(position, quaternion, scale);
           frame.setMatrixAt(index, matrix);
@@ -497,44 +497,27 @@ export class WorldInstanceLayer {
         this.staticGroup.add(frame, treads);
       }
 
-      if (connected.length) {
+      const runs = connected.flatMap((link) => this.transportDeckRuns(link));
+      if (runs.length) {
         const links = new InstancedMesh(
           this.geometry.belt,
           this.materials.machine,
-          connected.length,
+          runs.length,
         );
         links.name = "transport-connections";
         links.castShadow = true;
         const linkTreads = new InstancedMesh(
           this.geometry.beltDetail,
           this.materials.machineDark,
-          connected.length,
+          runs.length,
         );
         linkTreads.name = "transport-connection-treads";
         linkTreads.castShadow = true;
-        const linkStart = new Vector3();
-        const linkEnd = new Vector3();
         const linkDelta = new Vector3();
-        const linkDirection = new Vector3();
-        for (const [index, { from, to }] of connected.entries()) {
-          const a = this.pointById.get(from.id)!;
-          const b = this.pointById.get(to.id)!;
-          linkDirection.set(b.x - a.x, 0, b.z - a.z).normalize();
-          const fromInset = this.transportLinkInset(from);
-          const toInset = this.transportLinkInset(to);
-          linkStart.set(
-            a.x + linkDirection.x * fromInset,
-            (this.groundById.get(from.id) ?? 0.07) + 0.23,
-            a.z + linkDirection.z * fromInset,
-          );
-          linkEnd.set(
-            b.x - linkDirection.x * toInset,
-            (this.groundById.get(to.id) ?? 0.07) + 0.23,
-            b.z - linkDirection.z * toInset,
-          );
-          linkDelta.subVectors(linkEnd, linkStart);
+        for (const [index, { start, end }] of runs.entries()) {
+          linkDelta.subVectors(end, start);
           const length = linkDelta.length();
-          position.copy(linkStart).add(linkEnd).multiplyScalar(0.5);
+          position.copy(start).add(end).multiplyScalar(0.5);
           quaternion.setFromUnitVectors(LOCAL_X, linkDelta.normalize());
           scale.set(length / 0.92, 1, 1);
           matrix.compose(position, quaternion, scale);
@@ -581,8 +564,55 @@ export class WorldInstanceLayer {
 
   private transportLinkInset(building: EntitySnapshot): number {
     if (building.kind !== "belt") return 0.68;
-    const definition = this.definitions.get(building.definition_id);
-    return 0.46 * (definition ? transportScale(definition)[0] : 1);
+    return 0.46 * transportScale(building.kind, building.orientation)[0];
+  }
+
+  /**
+   * The straight decks one compiled link is drawn as, face to face.
+   *
+   * An ordinary link is a single run, and that run is the whole of "clicking together": a
+   * splitter's flank is drawn with the same deck as the belt it faces, so the three read as one
+   * junction. An underpass is three runs — down, across, and up — because a level deck at belt
+   * height would read as joining the line it exists to clear rather than passing beneath it. The
+   * dived section follows each end's own ground, the same way the line above it follows terrain.
+   */
+  private transportDeckRuns(
+    link: TransportLink,
+  ): { start: Vector3; end: Vector3 }[] {
+    const a = this.pointById.get(link.from.id)!;
+    const b = this.pointById.get(link.to.id)!;
+    const direction = new Vector3(b.x - a.x, 0, b.z - a.z).normalize();
+    const fromGround = this.groundById.get(link.from.id) ?? 0.07;
+    const toGround = this.groundById.get(link.to.id) ?? 0.07;
+    const fromInset = this.transportLinkInset(link.from);
+    const toInset = this.transportLinkInset(link.to);
+    const start = new Vector3(
+      a.x + direction.x * fromInset,
+      fromGround + DECK_HEIGHT,
+      a.z + direction.z * fromInset,
+    );
+    const end = new Vector3(
+      b.x - direction.x * toInset,
+      toGround + DECK_HEIGHT,
+      b.z - direction.z * toInset,
+    );
+    if (link.steps === 1) return [{ start, end }];
+    // A ramp no longer than a third of the run, so even the shortest crossing still dives rather
+    // than stepping down and straight back up.
+    const ramp = Math.min(0.5, start.distanceTo(end) / 3);
+    const descended = start
+      .clone()
+      .addScaledVector(direction, ramp)
+      .setY(fromGround + UNDERPASS_HEIGHT);
+    const climbing = end
+      .clone()
+      .addScaledVector(direction, -ramp)
+      .setY(toGround + UNDERPASS_HEIGHT);
+    return [
+      { start, end: descended },
+      { start: descended, end: climbing },
+      { start: climbing, end },
+    ];
   }
 
   private transportTurn(from: EntitySnapshot, to: EntitySnapshot): number {
@@ -603,8 +633,7 @@ export class WorldInstanceLayer {
     const buckets = new Map<number, EntitySnapshot[]>();
     for (const { from, to } of links) {
       if (to.kind !== "belt") continue;
-      const definition = this.definitions.get(to.definition_id);
-      if (definition?.orientation_axis === "corner") continue;
+      if (to.orientation >= CORNER_START) continue;
       const turn = this.transportTurn(from, to);
       if (Math.abs(turn) < 0.01) continue;
       const key = Math.round(turn * 1_000_000) / 1_000_000;
@@ -1158,6 +1187,20 @@ export class WorldInstanceLayer {
 const WORLD_UP = new Vector3(0, 1, 0);
 const LOCAL_X = new Vector3(1, 0, 0);
 const MACHINE_BASE_SCALE = 1.12;
+/** Where a transport deck rides above the ground beneath it. */
+const DECK_HEIGHT = 0.23;
+/**
+ * Where an underpass's crossing run rides instead: low enough that its rails pass under the
+ * underside of the deck above, high enough that the deck stays clear of the ground.
+ */
+const UNDERPASS_HEIGHT = 0.04;
+
+/** One compiled transport edge, with how many hexes it spans — see {@link connectedTransportLinks}. */
+interface TransportLink {
+  readonly from: EntitySnapshot;
+  readonly to: EntitySnapshot;
+  readonly steps: number;
+}
 
 function normalizeAngle(angle: number): number {
   return Math.atan2(Math.sin(angle), Math.cos(angle));
@@ -1179,20 +1222,44 @@ function hasDirectionalOutput(kind: EntitySnapshot["kind"]): boolean {
   );
 }
 
+/**
+ * Every compiled transport edge a deck should be drawn along.
+ *
+ * A junction is only legible if its extra outputs are drawn like its first one, so a splitter's
+ * flanks come from `branch_ids` and get the same deck as the belt it faces — that is what makes
+ * one click together with its neighbours instead of reading as three unrelated belts. An
+ * underpass's edge lands several hexes ahead of it rather than against its face, so the test is
+ * "one straight run apart" rather than "one step along the facing"; `steps` is what the caller
+ * needs to know to dive that run under the line it clears.
+ */
 function connectedTransportLinks(
   buildings: readonly EntitySnapshot[],
-): { from: EntitySnapshot; to: EntitySnapshot }[] {
+): TransportLink[] {
   const byId = new Map(buildings.map((building) => [building.id, building]));
-  return buildings.flatMap((from) => {
-    if (!from.next_id) return [];
-    const to = byId.get(from.next_id);
-    if (!to || (from.kind !== "belt" && to.kind !== "belt")) return [];
-    const direction = TRANSPORT_DIRECTIONS[from.orientation];
-    if (!direction) return [];
-    if (to.q - from.q !== direction.q || to.r - from.r !== direction.r)
-      return [];
-    return [{ from, to }];
-  });
+  return buildings.flatMap((from) =>
+    [from.next_id, ...(from.branch_ids ?? [])].flatMap((id) => {
+      if (!id) return [];
+      const to = byId.get(id);
+      if (!to || (from.kind !== "belt" && to.kind !== "belt")) return [];
+      const steps = transportRun(from, to);
+      return steps === null ? [] : [{ from, to, steps }];
+    }),
+  );
+}
+
+/**
+ * How many hexes separate two linked cells along one heading, or null when no single heading
+ * joins them. Only an underpass ever answers more than one, and never more than its span.
+ */
+function transportRun(from: EntitySnapshot, to: EntitySnapshot): number | null {
+  const dq = to.q - from.q;
+  const dr = to.r - from.r;
+  for (const direction of TRANSPORT_DIRECTIONS) {
+    for (let steps = 1; steps <= MAX_UNDERPASS_SPAN; steps += 1)
+      if (dq === direction.q * steps && dr === direction.r * steps)
+        return steps;
+  }
+  return null;
 }
 
 /** Exact display links for the native pole rules: poles link by pole reach and machines attach to

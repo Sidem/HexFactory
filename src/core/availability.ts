@@ -53,22 +53,47 @@ export function costLines(
   });
 }
 
+/** Matches `CORNER_START` in the direction table: index 6 begins the six vertex headings. */
+const NORTH = 6;
+
+/**
+ * What one of this building costs at that heading. Mirrors `BuildingDefinition::cost_at` in the
+ * core: a corner step covers twice the ground, so it is priced at what it covers rather than at
+ * the edge price, which is the whole reason one belt definition can carry both periods.
+ */
+export function costAt(
+  building: BuildingDefinition,
+  orientation: number,
+): BuildingDefinition["construction_cost"] {
+  return orientation >= NORTH && building.corner_construction_cost
+    ? building.corner_construction_cost
+    : building.construction_cost;
+}
+
 export function buildingAvailability(
   building: BuildingDefinition,
   snapshot: FactorySnapshot,
   items: ItemDefinition[],
+  /** The heading the player is holding. An edge heading is what every non-transport tool takes. */
+  orientation = 0,
 ): BuildAvailability {
+  // Both gates, because the two-row reach is its own research step: a belt whose corner heading is
+  // still locked is buildable, and the card has to say so at the heading actually held.
   const locked =
-    building.unlock_technology_id !== undefined &&
-    !snapshot.researched.includes(building.unlock_technology_id);
-  const cost = costLines(building.construction_cost, snapshot);
+    (building.unlock_technology_id !== undefined &&
+      !snapshot.researched.includes(building.unlock_technology_id)) ||
+    (orientation >= NORTH &&
+      building.corner_technology_id !== undefined &&
+      !snapshot.researched.includes(building.corner_technology_id));
+  const bill = costAt(building, orientation);
+  const cost = costLines(bill, snapshot);
   // A creative run is charged nothing, so nothing is ever short. The bill is still listed — it is
   // what the building would cost in a priced run, which is the number somebody testing a layout
   // wants to see — but reading it as a refusal would contradict the placement native will allow.
   const affordable =
     snapshot.player.creative || cost.every(({ shortfall }) => shortfall === 0);
-  const costLabel = building.construction_cost.length
-    ? building.construction_cost
+  const costLabel = bill.length
+    ? bill
         .map(({ item_id, quantity }) => {
           const item = items.find(({ id }) => id === item_id);
           return `${quantity} ${item?.name ?? `#${item_id}`}`;

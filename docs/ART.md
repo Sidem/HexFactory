@@ -70,10 +70,12 @@ every tier × every status on one grid, drawn by the shipped renderer rather tha
 illustration of it. It carries a **colour toggle**, because a silhouette judgement fails any test
 that keeps the palette — a gold stroke over an identical body would pass. It names two failures on
 the card itself: a definition whose silhouette has no base shape, and definitions that draw
-identically to each other. Both fire today on the belt and the riser because neither uses the
-machine-part grammar. Their shared transport mesh supplies the raised rails and transverse treads;
-the corner-axis riser then stretches that vocabulary across a seam. Dev-only: like `bench.html` it
-must never become a dependency of the game, the production build, or the CI gate.
+identically to each other. Both fire today across the belt family — belt, splitter, merger, and
+underpass are one `kind` and none of them uses the machine-part grammar. The shared transport mesh
+supplies the raised rails and transverse treads; a corner heading then stretches that vocabulary
+across a seam, and a junction is currently told apart by its link decks and its stamp rather than by
+a silhouette of its own. Dev-only: like `bench.html` it must never become a dependency of the game,
+the production build, or the CI gate.
 
 **The acceptance standard is a measurement, not an eyeballing.** A tier-1 definition must be
 distinguishable from its tier-0 parent by silhouette, with colour removed, at normal zoom. That was
@@ -164,8 +166,9 @@ checksum, wire, movement, or construction state.
 A 3D mesh hand-authored per definition would be the atlas again. `machineMeshes.ts` maps all eight
 `ShapePart` kinds to a bounded reusable geometry vocabulary. `partsFor` applies the existing
 `TIER_LADDER` and `HUB_LADDER`, and `worldInstances.ts` groups the resulting anatomy into instanced
-part/material buckets. Belt, riser, and bridge geometry is likewise shared between the game and the
-contact sheet. No definition owns a model and no building owns a draw call.
+part/material buckets. Belt and bridge geometry is likewise shared between the game and the contact
+sheet, one mesh scaled per heading rather than one mesh per heading. No definition owns a model and
+no building owns a draw call.
 
 Terrain prisms use the exact public pointy-top axial radius. Adjacent centres therefore meet at one
 apothem with no triangular holes. Grid, hover, selection, legality, native drag preview, arrows, and

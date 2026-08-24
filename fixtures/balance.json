@@ -1,7 +1,7 @@
 {
   "reference": {
-    "definition_version": 13,
-    "technology_version": 6,
+    "definition_version": 14,
+    "technology_version": 7,
     "ticks_per_second": 10,
     "player_ticks_per_second": 30,
     "gather_cooldown_steps": 15,
@@ -1792,37 +1792,6 @@
       "machine_ticks": 116
     },
     {
-      "building": "riser",
-      "kind": "belt",
-      "tier": 0,
-      "unlock_technology": "corner-transport",
-      "direct": [
-        {
-          "item": "ore",
-          "quantity": 2
-        }
-      ],
-      "depth": 0,
-      "raw": [
-        {
-          "item": "ore",
-          "quantity_milli": 2000
-        }
-      ],
-      "raw_units_milli": 2000,
-      "fuel_energy_milli": 0,
-      "effort_milli": 2000,
-      "batch": [
-        {
-          "item": "ore",
-          "quantity": 2
-        }
-      ],
-      "batch_units": 2,
-      "batch_fuel_energy": 0,
-      "machine_ticks": 0
-    },
-    {
       "building": "extractor-ii",
       "kind": "extractor",
       "tier": 1,
@@ -2076,6 +2045,123 @@
       "batch_units": 3,
       "batch_fuel_energy": 0,
       "machine_ticks": 6
+    },
+    {
+      "building": "splitter",
+      "kind": "belt",
+      "tier": 0,
+      "unlock_technology": "belt-junctions",
+      "direct": [
+        {
+          "item": "ore",
+          "quantity": 2
+        },
+        {
+          "item": "gear",
+          "quantity": 1
+        }
+      ],
+      "depth": 2,
+      "raw": [
+        {
+          "item": "ore",
+          "quantity_milli": 6000
+        }
+      ],
+      "raw_units_milli": 6000,
+      "fuel_energy_milli": 160000,
+      "effort_milli": 7000,
+      "batch": [
+        {
+          "item": "ore",
+          "quantity": 6
+        }
+      ],
+      "batch_units": 6,
+      "batch_fuel_energy": 160,
+      "machine_ticks": 28
+    },
+    {
+      "building": "merger",
+      "kind": "belt",
+      "tier": 0,
+      "unlock_technology": "belt-junctions",
+      "direct": [
+        {
+          "item": "ore",
+          "quantity": 2
+        },
+        {
+          "item": "gear",
+          "quantity": 1
+        }
+      ],
+      "depth": 2,
+      "raw": [
+        {
+          "item": "ore",
+          "quantity_milli": 6000
+        }
+      ],
+      "raw_units_milli": 6000,
+      "fuel_energy_milli": 160000,
+      "effort_milli": 7000,
+      "batch": [
+        {
+          "item": "ore",
+          "quantity": 6
+        }
+      ],
+      "batch_units": 6,
+      "batch_fuel_energy": 160,
+      "machine_ticks": 28
+    },
+    {
+      "building": "underpass",
+      "kind": "belt",
+      "tier": 0,
+      "unlock_technology": "grade-separation",
+      "direct": [
+        {
+          "item": "ore",
+          "quantity": 2
+        },
+        {
+          "item": "gear",
+          "quantity": 1
+        },
+        {
+          "item": "stone",
+          "quantity": 2
+        }
+      ],
+      "depth": 2,
+      "raw": [
+        {
+          "item": "ore",
+          "quantity_milli": 6000
+        },
+        {
+          "item": "stone",
+          "quantity_milli": 2000
+        }
+      ],
+      "raw_units_milli": 8000,
+      "fuel_energy_milli": 160000,
+      "effort_milli": 9000,
+      "batch": [
+        {
+          "item": "ore",
+          "quantity": 6
+        },
+        {
+          "item": "stone",
+          "quantity": 2
+        }
+      ],
+      "batch_units": 8,
+      "batch_fuel_energy": 160,
+      "machine_ticks": 28
     }
   ],
   "curve": [
@@ -2144,50 +2230,58 @@
       "holds": true
     },
     {
-      "building": "pole-ii",
-      "follows": "pole",
-      "relation": "kind",
-      "effort_milli": 7500,
-      "follows_effort_milli": 1000,
-      "holds": true
-    },
-    {
-      "building": "pole-ii",
-      "follows": "pole",
-      "relation": "upgrade",
-      "effort_milli": 7500,
-      "follows_effort_milli": 1000,
-      "holds": true
-    },
-    {
-      "building": "pole-iii",
-      "follows": "pole",
-      "relation": "kind",
-      "effort_milli": 27375,
-      "follows_effort_milli": 1000,
-      "holds": true
-    },
-    {
-      "building": "pole-iii",
-      "follows": "pole-ii",
-      "relation": "kind",
-      "effort_milli": 27375,
-      "follows_effort_milli": 7500,
-      "holds": true
-    },
-    {
-      "building": "pole-iii",
-      "follows": "pole-ii",
-      "relation": "upgrade",
-      "effort_milli": 27375,
-      "follows_effort_milli": 7500,
-      "holds": true
-    },
-    {
-      "building": "riser",
+      "building": "merger",
       "follows": "belt",
       "relation": "kind",
-      "effort_milli": 2000,
+      "effort_milli": 7000,
+      "follows_effort_milli": 1000,
+      "holds": true
+    },
+    {
+      "building": "pole-ii",
+      "follows": "pole",
+      "relation": "kind",
+      "effort_milli": 7500,
+      "follows_effort_milli": 1000,
+      "holds": true
+    },
+    {
+      "building": "pole-ii",
+      "follows": "pole",
+      "relation": "upgrade",
+      "effort_milli": 7500,
+      "follows_effort_milli": 1000,
+      "holds": true
+    },
+    {
+      "building": "pole-iii",
+      "follows": "pole",
+      "relation": "kind",
+      "effort_milli": 27375,
+      "follows_effort_milli": 1000,
+      "holds": true
+    },
+    {
+      "building": "pole-iii",
+      "follows": "pole-ii",
+      "relation": "kind",
+      "effort_milli": 27375,
+      "follows_effort_milli": 7500,
+      "holds": true
+    },
+    {
+      "building": "pole-iii",
+      "follows": "pole-ii",
+      "relation": "upgrade",
+      "effort_milli": 27375,
+      "follows_effort_milli": 7500,
+      "holds": true
+    },
+    {
+      "building": "splitter",
+      "follows": "belt",
+      "relation": "kind",
+      "effort_milli": 7000,
       "follows_effort_milli": 1000,
       "holds": true
     },
@@ -2197,6 +2291,30 @@
       "relation": "kind",
       "effort_milli": 25000,
       "follows_effort_milli": 8000,
+      "holds": true
+    },
+    {
+      "building": "underpass",
+      "follows": "belt",
+      "relation": "kind",
+      "effort_milli": 9000,
+      "follows_effort_milli": 1000,
+      "holds": true
+    },
+    {
+      "building": "underpass",
+      "follows": "merger",
+      "relation": "kind",
+      "effort_milli": 9000,
+      "follows_effort_milli": 7000,
+      "holds": true
+    },
+    {
+      "building": "underpass",
+      "follows": "splitter",
+      "relation": "kind",
+      "effort_milli": 9000,
+      "follows_effort_milli": 7000,
       "holds": true
     },
     {
@@ -2215,7 +2333,7 @@
       "guaranteed_hexes": 53,
       "nearest_generated": 11,
       "reachable": true,
-      "required_by": 24
+      "required_by": 26
     },
     {
       "material": "crystal",
@@ -2247,7 +2365,7 @@
       "guaranteed_hexes": 37,
       "nearest_generated": 12,
       "reachable": true,
-      "required_by": 11
+      "required_by": 12
     },
     {
       "material": "sand",

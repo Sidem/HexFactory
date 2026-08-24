@@ -33,7 +33,7 @@ import type {
  */
 
 const MAGIC = 0x48584644; // "HXFD"
-const VERSION = 8;
+const VERSION = 9;
 
 /** Wire code is the index. Pinned against Rust by `fixtures/snapshot-delta-wire.json`. */
 const KINDS: BuildingKind[] = [
@@ -112,6 +112,7 @@ const ENTITY_FLAG = {
   powerDemand: 1 << 7,
   powerCharge: 1 << 8,
   powerCapacity: 1 << 9,
+  branchIds: 1 << 10,
 } as const;
 
 const PATCH_REPLACE = 1 << 0;
@@ -457,6 +458,13 @@ function readBuildings(reader: Reader): BuildingsPatch {
     const status = statusOf(reader.u8());
     const next_id =
       (flags & ENTITY_FLAG.nextId) !== 0 ? reader.uvarint() : null;
+    const branch_ids: number[] = [];
+    if ((flags & ENTITY_FLAG.branchIds) !== 0) {
+      const branches = reader.uvarint();
+      for (let branch = 0; branch < branches; branch += 1) {
+        branch_ids.push(reader.uvarint());
+      }
+    }
     const power_satisfied =
       (flags & ENTITY_FLAG.powerSatisfied) !== 0 ? reader.uvarint() : 0;
     const power_demand =
@@ -496,6 +504,9 @@ function readBuildings(reader: Reader): BuildingsPatch {
     if (power_demand !== 0) entity.power_demand = power_demand;
     if (power_charge !== 0) entity.power_charge = power_charge;
     if (power_capacity !== 0) entity.power_capacity = power_capacity;
+    // Same rule: absent rather than an empty array, because an empty list is what every entity
+    // that is not a splitter has, and native skips it for exactly that reason.
+    if (branch_ids.length > 0) entity.branch_ids = branch_ids;
     changed[index] = entity;
   }
   const removedCount = reader.uvarint();
