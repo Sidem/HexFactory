@@ -37,6 +37,7 @@ import { createTransportGeometry } from "../src/rendering/three/transportGeometr
 import {
   fieldVisualColor,
   FIELD_RESOURCE_SHAPES,
+  WorldInstanceLayer,
 } from "../src/rendering/three/worldInstances";
 
 describe("Visual Depth camera", () => {
@@ -146,6 +147,7 @@ describe("Visual Depth generated geometry", () => {
               color: "#ffffff",
               glow: part.glow ?? null,
               groundHeight: 0.1,
+              footprintScale: 1,
               x: 0,
               z: 0,
             };
@@ -191,6 +193,7 @@ describe("Visual Depth generated geometry", () => {
       color: "#fff",
       glow: null,
       groundHeight: 0,
+      footprintScale: 1,
       x: 0,
       z: 0,
     };
@@ -218,6 +221,68 @@ describe("Visual Depth terrain and quality contracts", () => {
     expect(materials.machineDark.vertexColors).toBe(false);
     expect(materials.resource.vertexColors).toBe(false);
     expect(fieldVisualColor("#39404a")).not.toBe("#39404a");
+    for (const material of materials.materials) material.dispose();
+  });
+
+  it("renders every occupied cell of a multi-cell building as one connected platform", () => {
+    const materials = createWorldMaterials();
+    const layer = new WorldInstanceLayer(
+      {
+        version: 1,
+        items: [],
+        recipes: [],
+        requests: [],
+        buildings: [
+          {
+            id: 6,
+            key: "landing-hub",
+            name: "Landing hub",
+            kind: "hub",
+            description: "Test hub",
+            icon: "HUB",
+            construction_cost: [],
+            placement_rule: "ground",
+            buildable: false,
+            blocks_movement: true,
+            footprint: [
+              { q: 0, r: 0 },
+              { q: 0, r: 1 },
+              { q: -1, r: 1 },
+            ],
+          },
+        ],
+      },
+      materials,
+    );
+    const snapshot = minimalSnapshot();
+    snapshot.buildings.push({
+      id: 1,
+      q: 0,
+      r: 0,
+      definition_id: 6,
+      kind: "hub",
+      orientation: 0,
+      scenario_owned: true,
+      inventory: [],
+      progress: 0,
+      progress_total: 0,
+      status: "landing hub",
+      footprint: [
+        { q: 0, r: 0 },
+        { q: 0, r: 1 },
+        { q: -1, r: 1 },
+      ],
+    });
+    layer.setSnapshot(snapshot, new Map());
+
+    const decks = layer.group.getObjectByName("multi-cell-decks");
+    const links = layer.group.getObjectByName("multi-cell-links");
+    expect(decks).toBeInstanceOf(InstancedMesh);
+    expect((decks as InstancedMesh).count).toBe(3);
+    expect(links).toBeInstanceOf(InstancedMesh);
+    expect((links as InstancedMesh).count).toBe(3);
+
+    layer.dispose();
     for (const material of materials.materials) material.dispose();
   });
 

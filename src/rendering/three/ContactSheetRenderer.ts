@@ -173,6 +173,7 @@ export class ContactSheetRenderer {
         color: baseColour,
         glow: part.glow ?? null,
         groundHeight: 0,
+        footprintScale: 1,
         x: 0,
         z: 0,
       };

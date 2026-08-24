@@ -18,6 +18,7 @@ import { axialToPixel, pixelToAxial } from "@hexlife/embed/hex";
 import type {
   BuildingDefinition,
   Definitions,
+  EntitySnapshot,
   FactorySnapshot,
   ItemDefinition,
   ResourceSnapshot,
@@ -71,6 +72,8 @@ export class WorldInstanceLayer {
   private readonly items: ReadonlyMap<number, ItemDefinition>;
   private readonly geometry = {
     buildingFoot: new CylinderGeometry(0.72, 0.78, 0.18, 6),
+    footprintDeck: new CylinderGeometry(0.94, 0.98, 1, 6),
+    footprintLink: new BoxGeometry(1, 1, 1),
     belt: this.transportGeometry.belt,
     beltDetail: this.transportGeometry.beltDetail,
     bridge: this.transportGeometry.bridge,
@@ -102,6 +105,7 @@ export class WorldInstanceLayer {
   private readonly playerFacing: Mesh;
   private readonly playerWork: Mesh;
   private readonly pointById = new Map<number, { x: number; z: number }>();
+  private readonly groundById = new Map<number, number>();
   private readonly scratchMatrix = new Matrix4();
   private readonly scratchPosition = new Vector3();
   private readonly scratchQuaternion = new Quaternion();
@@ -218,37 +222,67 @@ export class WorldInstanceLayer {
     this.staticGroup.name = "static-factory";
     this.partBuckets = [];
     this.pointById.clear();
+    this.groundById.clear();
     const matrix = new Matrix4();
     const quaternion = new Quaternion();
     const position = new Vector3();
     const scale = new Vector3(1, 1, 1);
     const color = new Color();
 
-    const baseMesh = new InstancedMesh(
-      this.geometry.buildingFoot,
-      this.materials.machineDark,
-      snapshot.buildings.length,
+    const singleCellBuildings = snapshot.buildings.filter(
+      (building) => building.footprint.length <= 1,
     );
-    baseMesh.name = "building-feet";
-    baseMesh.castShadow = true;
-    baseMesh.receiveShadow = true;
-    for (const [index, building] of snapshot.buildings.entries()) {
-      const center = axialToPixel(building, 1, { x: 0, y: 0 });
-      this.pointById.set(building.id, { x: center.x, z: center.y });
-      const height = this.groundHeight(building.q, building.r);
-      position.set(center.x, height + 0.09, center.y);
-      matrix.compose(position, quaternion, scale);
-      baseMesh.setMatrixAt(index, matrix);
-      baseMesh.setColorAt(
-        index,
-        color
-          .set(BUILDING_COLORS[building.kind])
-          .lerp(this.scratchTrim.set("#101b20"), 0.3),
+    for (const building of snapshot.buildings) {
+      const cells = building.footprint.length ? building.footprint : [building];
+      const centers = cells.map((cell) =>
+        axialToPixel(cell, 1, { x: 0, y: 0 }),
+      );
+      const center = centers.reduce(
+        (sum, point) => ({ x: sum.x + point.x, z: sum.z + point.y }),
+        { x: 0, z: 0 },
+      );
+      center.x /= centers.length;
+      center.z /= centers.length;
+      this.pointById.set(building.id, center);
+      this.groundById.set(
+        building.id,
+        Math.max(...cells.map((cell) => this.groundHeight(cell.q, cell.r))),
       );
     }
-    baseMesh.instanceMatrix.needsUpdate = true;
-    if (baseMesh.instanceColor) baseMesh.instanceColor.needsUpdate = true;
-    this.staticGroup.add(baseMesh);
+    if (singleCellBuildings.length) {
+      const baseMesh = new InstancedMesh(
+        this.geometry.buildingFoot,
+        this.materials.machineDark,
+        singleCellBuildings.length,
+      );
+      baseMesh.name = "building-feet";
+      baseMesh.castShadow = true;
+      baseMesh.receiveShadow = true;
+      for (const [index, building] of singleCellBuildings.entries()) {
+        const center = this.pointById.get(building.id)!;
+        const height = this.groundById.get(building.id)!;
+        position.set(center.x, height + 0.09, center.z);
+        scale.set(1, 1, 1);
+        matrix.compose(position, quaternion.identity(), scale);
+        baseMesh.setMatrixAt(index, matrix);
+        baseMesh.setColorAt(
+          index,
+          color
+            .set(BUILDING_COLORS[building.kind])
+            .lerp(this.scratchTrim.set("#101b20"), 0.3),
+        );
+      }
+      markInstancesDirty(baseMesh);
+      this.staticGroup.add(baseMesh);
+    }
+    this.addMultiCellFootprints(
+      snapshot,
+      matrix,
+      position,
+      quaternion,
+      scale,
+      color,
+    );
 
     this.addTransportMeshes(
       snapshot,
@@ -260,6 +294,96 @@ export class WorldInstanceLayer {
     );
     this.addPartMeshes(snapshot);
     this.group.add(this.staticGroup);
+  }
+
+  private addMultiCellFootprints(
+    snapshot: FactorySnapshot,
+    matrix: Matrix4,
+    position: Vector3,
+    quaternion: Quaternion,
+    scale: Vector3,
+    color: Color,
+  ): void {
+    const buildings = snapshot.buildings.filter(
+      (building) => building.footprint.length > 1,
+    );
+    const deckCount = buildings.reduce(
+      (total, building) => total + building.footprint.length,
+      0,
+    );
+    if (!deckCount) return;
+
+    const decks = new InstancedMesh(
+      this.geometry.footprintDeck,
+      this.materials.machineDark,
+      deckCount,
+    );
+    decks.name = "multi-cell-decks";
+    decks.castShadow = true;
+    decks.receiveShadow = true;
+    let deckIndex = 0;
+    for (const building of buildings) {
+      const platformTop = (this.groundById.get(building.id) ?? 0.07) + 0.18;
+      for (const cell of building.footprint) {
+        const center = axialToPixel(cell, 1, { x: 0, y: 0 });
+        const ground = this.groundHeight(cell.q, cell.r);
+        const depth = Math.max(0.18, platformTop - ground);
+        position.set(center.x, ground + depth / 2, center.y);
+        scale.set(1, depth, 1);
+        matrix.compose(position, quaternion.identity(), scale);
+        decks.setMatrixAt(deckIndex, matrix);
+        decks.setColorAt(
+          deckIndex,
+          color
+            .set(BUILDING_COLORS[building.kind])
+            .lerp(this.scratchTrim.set("#101b20"), 0.24),
+        );
+        deckIndex += 1;
+      }
+    }
+    markInstancesDirty(decks);
+    this.staticGroup.add(decks);
+
+    const links = buildings.flatMap((building) =>
+      adjacentFootprintPairs(building).map(([from, to]) => ({
+        building,
+        from,
+        to,
+      })),
+    );
+    if (!links.length) return;
+    const linkMesh = new InstancedMesh(
+      this.geometry.footprintLink,
+      this.materials.machineDark,
+      links.length,
+    );
+    linkMesh.name = "multi-cell-links";
+    linkMesh.castShadow = true;
+    linkMesh.receiveShadow = true;
+    for (const [index, { building, from, to }] of links.entries()) {
+      const a = axialToPixel(from, 1, { x: 0, y: 0 });
+      const b = axialToPixel(to, 1, { x: 0, y: 0 });
+      const dx = b.x - a.x;
+      const dz = b.y - a.y;
+      const length = Math.hypot(dx, dz);
+      position.set(
+        (a.x + b.x) / 2,
+        (this.groundById.get(building.id) ?? 0.07) + 0.19,
+        (a.y + b.y) / 2,
+      );
+      quaternion.setFromAxisAngle(new Vector3(0, 1, 0), -Math.atan2(dz, dx));
+      scale.set(length * 0.76, 0.1, 0.9);
+      matrix.compose(position, quaternion, scale);
+      linkMesh.setMatrixAt(index, matrix);
+      linkMesh.setColorAt(
+        index,
+        color
+          .set(BUILDING_COLORS[building.kind])
+          .lerp(this.scratchTrim.set("#dcefe6"), 0.08),
+      );
+    }
+    markInstancesDirty(linkMesh);
+    this.staticGroup.add(linkMesh);
   }
 
   private addTransportMeshes(
@@ -620,7 +744,9 @@ export class WorldInstanceLayer {
     for (const building of snapshot.buildings) {
       const center = this.pointById.get(building.id);
       if (!center) continue;
-      const height = this.groundHeight(building.q, building.r);
+      const height =
+        this.groundById.get(building.id) ??
+        this.groundHeight(building.q, building.r);
       scale.set(1, 1, 1);
       const mark = stallMark(building.status);
       if (mark) {
@@ -740,4 +866,25 @@ class SphereGeometryCompat extends IcosahedronGeometry {
 function markInstancesDirty(mesh: InstancedMesh): void {
   mesh.instanceMatrix.needsUpdate = true;
   if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+}
+
+function adjacentFootprintPairs(
+  building: EntitySnapshot,
+): Array<
+  [EntitySnapshot["footprint"][number], EntitySnapshot["footprint"][number]]
+> {
+  const pairs: Array<
+    [EntitySnapshot["footprint"][number], EntitySnapshot["footprint"][number]]
+  > = [];
+  for (let left = 0; left < building.footprint.length; left += 1) {
+    for (let right = left + 1; right < building.footprint.length; right += 1) {
+      const a = building.footprint[left]!;
+      const b = building.footprint[right]!;
+      const dq = b.q - a.q;
+      const dr = b.r - a.r;
+      if ((Math.abs(dq) + Math.abs(dr) + Math.abs(dq + dr)) / 2 === 1)
+        pairs.push([a, b]);
+    }
+  }
+  return pairs;
 }

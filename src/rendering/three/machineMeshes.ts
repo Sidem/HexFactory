@@ -40,6 +40,7 @@ export interface MachinePartInstance {
   readonly color: string;
   readonly glow: string | null;
   readonly groundHeight: number;
+  readonly footprintScale: number;
   readonly x: number;
   readonly z: number;
 }
@@ -113,7 +114,18 @@ export function collectMachineParts(
     );
     const tier = definition?.tier ?? 0;
     const growth = building.kind === "hub" ? snapshot.contract.stage : 0;
-    const center = axialToPixel(building, 1, { x: 0, y: 0 });
+    const cells = building.footprint.length ? building.footprint : [building];
+    const centers = cells.map((cell) => axialToPixel(cell, 1, { x: 0, y: 0 }));
+    const center = centers.reduce(
+      (sum, point) => ({ x: sum.x + point.x, y: sum.y + point.y }),
+      { x: 0, y: 0 },
+    );
+    center.x /= centers.length;
+    center.y /= centers.length;
+    const footprintScale = 1 + Math.min(2, cells.length - 1) * 0.35;
+    const buildingGround = Math.max(
+      ...cells.map((cell) => groundHeight(cell.q, cell.r)),
+    );
     for (const part of partsFor(key, tier, growth)) {
       instances.push({
         building,
@@ -122,7 +134,8 @@ export function collectMachineParts(
         animated: part.phase !== undefined && part.phase !== "still",
         color: buildingColors[building.kind],
         glow: part.glow ?? null,
-        groundHeight: groundHeight(building.q, building.r),
+        groundHeight: buildingGround,
+        footprintScale,
         x: center.x,
         z: center.y,
       });
@@ -156,6 +169,9 @@ export function machinePartMatrix(
     instance.z + lateralZ,
   );
   partScale(part, pulse, grind, PART_SCALE);
+  PART_SCALE.x *= instance.footprintScale;
+  PART_SCALE.z *= instance.footprintScale;
+  PART_SCALE.y *= 1 + (instance.footprintScale - 1) * 0.3;
   PART_ROTATION.set(
     part.part === "rotor" || part.part === "band" ? 0 : localRotation,
     buildingAngle + animatedRotation,
