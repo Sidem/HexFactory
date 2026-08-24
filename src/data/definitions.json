@@ -96,7 +96,7 @@
       "description": "Cut from lowland flora, which grows back. Burns, and cuts into timber.",
       "stack_size": 20,
       "fuel_value": 40,
-      "regrowth_ticks": 90,
+      "regrowth_ticks": 450,
       "hand_gather_steps": 15,
       "extract_steps": 10
     },

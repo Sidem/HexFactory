@@ -97,8 +97,11 @@ smuggle elevation or underground play into v0.26.
 ### Open decisions, each with what would settle it
 
 - **Does `regrowth_ticks` move** now that a forest cell holds one to four wood instead of ten to
-  twenty-two? (v0.23 — the shape change shipped and the rate change with it; what has _not_ been
-  measured is an extractor's starve rate over seven cells against a `regrowth_ticks` of 90. The
+  twenty-two? (v0.23 — the shape change shipped and the rate change with it; v0.26 then slowed the
+  cadence fivefold, 90 to 450, so a cut forest reads as a place that has to recover rather than one
+  that refills behind the axe. That was a judgement about pace, not a measurement: what still has
+  _not_ been measured is an extractor's starve rate over seven cells against a `regrowth_ticks` of
+  450, which is now the number that decides whether forestry is viable at all. The
   balance report's `mean_same_material` for wood is 5–11 units at the base reach and 11–26 at the
   deep one, which says forestry is a question of area, but says nothing about the cadence.)
 - **Is one board slot reserved for the deepest eligible request?** (v0.23 — consider it, measure it,
