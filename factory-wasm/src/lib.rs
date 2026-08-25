@@ -229,7 +229,13 @@ const WALK_ARRIVE_RADIUS: i32 = HEX_Y / 2;
 /// hard rock it is materially slower. The per-item figure lives on `ItemDefinition::hand_gather_steps`;
 /// this constant is wood, the bootstrap fuel, and the rate the cooldown helper falls back to.
 const GATHER_COOLDOWN_STEPS: u32 = 15;
-const HUB_RANGE: i32 = 1900;
+/// How many hex steps from any occupied cell of the landing hub a hand delivery is allowed.
+///
+/// Two, and from the whole footprint: a three-cell hub is not a one-cell target with two
+/// decorative lobes. The previous figure was a 1900-unit circle around the *anchor*, which is
+/// barely one hex centre-to-centre — standing beside a far lobe, or even at the outer edge of an
+/// origin-adjacent hex, was "out of reach" of a building the player was next to.
+const HUB_REACH_HEXES: i32 = 2;
 /// How many requests the landing hub posts at once.
 ///
 /// Three, because a board of one is an errand and a board of ten is a spreadsheet. Three is enough
@@ -2168,6 +2174,44 @@ impl Core {
 
     fn entity_footprint(&self, entity: &Entity) -> Vec<Coordinate> {
         self.footprint_for(entity.placed, entity.placed.orientation)
+    }
+
+    /// Squared world-unit distance from the player to a hex centre.
+    fn player_range_to_hex(&self, q: i32, r: i32) -> i64 {
+        let (x, y) = axial_world(q, r);
+        squared_distance(self.player.x, self.player.y, x, y)
+    }
+
+    fn within_world_range(&self, q: i32, r: i32, range: u32) -> bool {
+        self.player_range_to_hex(q, r) <= i64::from(range).pow(2)
+    }
+
+    /// True when the player is within `range` world units of any cell this building occupies.
+    ///
+    /// Access is a disc around the whole footprint, not around the anchor tile: standing beside a
+    /// three-cell hub's far lobe is standing beside the hub.
+    fn within_world_range_of_entity(&self, index: usize, range: u32) -> bool {
+        let limit = i64::from(range).pow(2);
+        self.entity_footprint(&self.entities[index])
+            .iter()
+            .any(|cell| self.player_range_to_hex(cell.q, cell.r) <= limit)
+    }
+
+    /// True when the player stands within `radius` hex steps of any cell this building occupies.
+    fn within_hex_range_of_entity(&self, index: usize, radius: i32) -> bool {
+        let player = world_to_axial(self.player.x, self.player.y);
+        self.entity_footprint(&self.entities[index])
+            .iter()
+            .any(|cell| axial_distance(player, (cell.q, cell.r)) <= radius)
+    }
+
+    /// Build-range for a named hex: the building that occupies it, measured from its whole
+    /// footprint, or the hex itself when nothing stands there.
+    fn within_build_range_of_target(&self, q: i32, r: i32) -> bool {
+        match self.entity_at(q, r) {
+            Some(index) => self.within_world_range_of_entity(index, self.player.build_range),
+            None => self.within_world_range(q, r, self.player.build_range),
+        }
     }
 
     /// `entities` is always ordered by stable id: initial ids are assigned in sorted-anchor order,
@@ -4727,14 +4771,11 @@ impl Core {
         let hub = self
             .entities
             .iter()
-            .find(|entity| entity.kind == BuildingKind::Hub);
+            .position(|entity| entity.kind == BuildingKind::Hub);
         let Some(hub) = hub else {
             return Err("this scenario has no landing hub".into());
         };
-        let (hub_x, hub_y) = axial_world(hub.placed.q, hub.placed.r);
-        if squared_distance(self.player.x, self.player.y, hub_x, hub_y)
-            > i64::from(HUB_RANGE).pow(2)
-        {
+        if !self.within_hex_range_of_entity(hub, HUB_REACH_HEXES) {
             return Err("move beside the landing hub to deliver".into());
         }
         if self.player.inventory.is_empty() {
@@ -4846,9 +4887,9 @@ impl Core {
         if footprint.is_empty() {
             return Err("building footprint is empty".into());
         }
-        let (anchor_x, anchor_y) = axial_world(q, r);
-        if squared_distance(self.player.x, self.player.y, anchor_x, anchor_y)
-            > i64::from(self.player.build_range).pow(2)
+        if !footprint
+            .iter()
+            .any(|cell| self.within_world_range(cell.q, cell.r, self.player.build_range))
         {
             return Err("placement is outside build range".into());
         }
@@ -5304,9 +5345,7 @@ impl Core {
         line_between(from, to, self.erase_line_axis(from))
             .into_iter()
             .map(|(q, r)| {
-                let (x, y) = axial_world(q, r);
-                let in_range = squared_distance(self.player.x, self.player.y, x, y)
-                    <= i64::from(self.player.build_range).pow(2);
+                let in_range = self.within_build_range_of_target(q, r);
                 let removable = self.entity_at(q, r).filter(|&index| {
                     !self.entities[index].placed.scenario_owned
                         && !taken.contains(&self.entities[index].id)
@@ -5411,10 +5450,7 @@ impl Core {
     }
 
     fn erase(&mut self, q: i32, r: i32) -> Result<(), String> {
-        let (target_x, target_y) = axial_world(q, r);
-        if squared_distance(self.player.x, self.player.y, target_x, target_y)
-            > i64::from(self.player.build_range).pow(2)
-        {
+        if !self.within_build_range_of_target(q, r) {
             return Err("erase target is outside build range".into());
         }
         let index = self.entity_at(q, r).ok_or("no building to erase")?;
@@ -5493,10 +5529,7 @@ impl Core {
 
     /// Resolve the building a hand transfer names, at the range every other edit is held to.
     fn hand_transfer_target(&self, q: i32, r: i32, verb: &str) -> Result<usize, String> {
-        let (target_x, target_y) = axial_world(q, r);
-        if squared_distance(self.player.x, self.player.y, target_x, target_y)
-            > i64::from(self.player.build_range).pow(2)
-        {
+        if !self.within_build_range_of_target(q, r) {
             return Err(format!("{verb} target is outside build range"));
         }
         let index = self.entity_at(q, r).ok_or("nothing to reach into there")?;
@@ -5628,10 +5661,7 @@ impl Core {
     }
 
     fn upgrade(&mut self, q: i32, r: i32) -> Result<(), String> {
-        let (target_x, target_y) = axial_world(q, r);
-        if squared_distance(self.player.x, self.player.y, target_x, target_y)
-            > i64::from(self.player.build_range).pow(2)
-        {
+        if !self.within_build_range_of_target(q, r) {
             return Err("upgrade target is outside build range".into());
         }
         let index = self.entity_at(q, r).ok_or("no building to upgrade")?;
@@ -5738,10 +5768,7 @@ impl Core {
     /// pass — the same reason `withdraw` reaches into a machine's free stock and never into
     /// `reserved_inputs`.
     fn set_recipe(&mut self, q: i32, r: i32, recipe_id: RecipeId) -> Result<(), String> {
-        let (target_x, target_y) = axial_world(q, r);
-        if squared_distance(self.player.x, self.player.y, target_x, target_y)
-            > i64::from(self.player.build_range).pow(2)
-        {
+        if !self.within_build_range_of_target(q, r) {
             return Err("recipe target is outside build range".into());
         }
         let index = self.entity_at(q, r).ok_or("no machine at that hex")?;
@@ -5788,10 +5815,7 @@ impl Core {
     /// Nothing is discarded. Progress, stock, reserved inputs, and banked charge all survive being
     /// switched off, so this is a pause and never a partial `erase`.
     fn set_enabled(&mut self, q: i32, r: i32, enabled: bool) -> Result<(), String> {
-        let (target_x, target_y) = axial_world(q, r);
-        if squared_distance(self.player.x, self.player.y, target_x, target_y)
-            > i64::from(self.player.build_range).pow(2)
-        {
+        if !self.within_build_range_of_target(q, r) {
             return Err("switch target is outside build range".into());
         }
         let index = self.entity_at(q, r).ok_or("no building at that hex")?;
@@ -5844,10 +5868,7 @@ impl Core {
     }
 
     fn rotate(&mut self, q: i32, r: i32, reverse: bool) -> Result<(), String> {
-        let (target_x, target_y) = axial_world(q, r);
-        if squared_distance(self.player.x, self.player.y, target_x, target_y)
-            > i64::from(self.player.build_range).pow(2)
-        {
+        if !self.within_build_range_of_target(q, r) {
             return Err("rotate target is outside build range".into());
         }
         let index = self.entity_at(q, r).ok_or("no building to rotate")?;
@@ -15447,6 +15468,25 @@ mod tests {
         assert!(core.entity_at(-2, 0).is_none());
     }
 
+    /// A one-hex build reach still reaches a two-cell machine from the far lobe, even when the
+    /// command names the anchor. Reach is the Minkowski sum of the footprint with the range disc,
+    /// not a disc around one of its tiles.
+    #[test]
+    fn building_edits_reach_from_every_footprint_cell() {
+        let mut core = game("new-game");
+        core.researched.extend([1, 2, 3]);
+        core.player.inventory.insert(1, 20);
+        core.player.inventory.insert(3, 10);
+        core.place(-2, 0, 3, 0, Some(1)).unwrap();
+        // One hex of world-unit reach: beside the far cell, out of range of the anchor alone.
+        core.player.build_range = HEX_X as u32;
+        set_player_hex(&mut core, -2, -2);
+        assert!(core.entity_at(-2, 0).is_some());
+        core.erase(-2, 0).unwrap();
+        assert!(core.entity_at(-2, 0).is_none());
+        assert!(core.entity_at(-2, -1).is_none());
+    }
+
     #[test]
     fn extractor_stops_exactly_when_its_deposit_empties() {
         let mut core = game("new-game");
@@ -16197,6 +16237,47 @@ mod tests {
         // Iron ore was delivered, wood remains in pack
         assert_eq!(core.player.inventory.get(&1), None);
         assert_eq!(core.player.inventory.get(&8), Some(&10));
+    }
+
+    /// A delivery is in range of the landing hub when the player stands beside *any* cell it
+    /// occupies. The hub is three hexes; measuring from the anchor alone made the far lobes
+    /// decorative — you could stand next to them and still be told to walk closer.
+    #[test]
+    fn hub_delivery_reaches_from_every_footprint_cell() {
+        let mut core = game("new-game");
+        let hub = core
+            .entities
+            .iter()
+            .find(|entity| entity.kind == BuildingKind::Hub)
+            .expect("the landing hub");
+        assert_eq!(
+            core.entity_footprint(hub),
+            vec![
+                Coordinate { q: 0, r: 0 },
+                Coordinate { q: 0, r: 1 },
+                Coordinate { q: -1, r: 1 },
+            ]
+        );
+
+        // Beside the south-east lobe, two hexes from the origin. The old origin-circle refused this.
+        core.player.inventory.insert(1, 1);
+        set_player_hex(&mut core, 0, 2);
+        core.deposit_item(Some(1)).unwrap();
+        assert_eq!(core.player.inventory.get(&1), None);
+
+        // Beside the south-west lobe.
+        core.player.inventory.insert(1, 1);
+        set_player_hex(&mut core, -2, 2);
+        core.deposit_item(Some(1)).unwrap();
+        assert_eq!(core.player.inventory.get(&1), None);
+
+        // Three hexes past the south-east lobe is past a two-hex reach from every occupied cell.
+        core.player.inventory.insert(1, 1);
+        set_player_hex(&mut core, 0, 4);
+        assert!(core
+            .deposit_item(Some(1))
+            .unwrap_err()
+            .contains("beside the landing hub"));
     }
 
     /// A board is saved state, restored rather than redrawn.
