@@ -1519,6 +1519,7 @@ const TEST_WORLD_PARAMS: WorldParams = {
       member: ["highland", "cliff"],
       member_water_within: 0,
       center_ocean: false,
+      center_shore: false,
     },
   ],
 };

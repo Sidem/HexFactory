@@ -2371,8 +2371,8 @@
       "material": "sand",
       "guaranteed_walk": null,
       "guaranteed_hexes": 0,
-      "nearest_generated": null,
-      "reachable": false,
+      "nearest_generated": 23,
+      "reachable": true,
       "required_by": 4
     },
     {
@@ -2422,7 +2422,7 @@
       "material": "copper-ore",
       "sites": 183,
       "mean_cell_quantity": 12,
-      "mean_site_yield": [58, 123],
+      "mean_site_yield": [58, 124],
       "mean_same_material": [58, 123]
     },
     {
@@ -2443,19 +2443,27 @@
     },
     {
       "preset": "continental",
+      "material": "sand",
+      "sites": 240,
+      "mean_cell_quantity": 16,
+      "mean_site_yield": [56, 101],
+      "mean_same_material": [55, 101]
+    },
+    {
+      "preset": "continental",
       "material": "clay",
-      "sites": 318,
+      "sites": 206,
       "mean_cell_quantity": 15,
-      "mean_site_yield": [63, 116],
-      "mean_same_material": [63, 115]
+      "mean_site_yield": [63, 118],
+      "mean_same_material": [63, 118]
     },
     {
       "preset": "continental",
       "material": "wood",
-      "sites": 1220,
+      "sites": 861,
       "mean_cell_quantity": 1,
-      "mean_site_yield": [8, 19],
-      "mean_same_material": [8, 18]
+      "mean_site_yield": [8, 18],
+      "mean_same_material": [8, 17]
     },
     {
       "preset": "archipelago",
@@ -2478,7 +2486,7 @@
       "material": "copper-ore",
       "sites": 76,
       "mean_cell_quantity": 12,
-      "mean_site_yield": [56, 121],
+      "mean_site_yield": [56, 120],
       "mean_same_material": [56, 119]
     },
     {
@@ -2500,26 +2508,26 @@
     {
       "preset": "archipelago",
       "material": "sand",
-      "sites": 150,
-      "mean_cell_quantity": 17,
-      "mean_site_yield": [81, 169],
-      "mean_same_material": [81, 169]
+      "sites": 1314,
+      "mean_cell_quantity": 16,
+      "mean_site_yield": [84, 179],
+      "mean_same_material": [84, 179]
     },
     {
       "preset": "archipelago",
       "material": "clay",
-      "sites": 418,
-      "mean_cell_quantity": 15,
-      "mean_site_yield": [65, 117],
-      "mean_same_material": [65, 117]
+      "sites": 247,
+      "mean_cell_quantity": 14,
+      "mean_site_yield": [63, 113],
+      "mean_same_material": [63, 112]
     },
     {
       "preset": "archipelago",
       "material": "wood",
-      "sites": 2197,
+      "sites": 1180,
       "mean_cell_quantity": 1,
       "mean_site_yield": [10, 25],
-      "mean_same_material": [10, 24]
+      "mean_same_material": [10, 23]
     },
     {
       "preset": "highlands",
@@ -2563,19 +2571,27 @@
     },
     {
       "preset": "highlands",
+      "material": "sand",
+      "sites": 15,
+      "mean_cell_quantity": 16,
+      "mean_site_yield": [41, 64],
+      "mean_same_material": [41, 64]
+    },
+    {
+      "preset": "highlands",
       "material": "clay",
-      "sites": 51,
+      "sites": 25,
       "mean_cell_quantity": 14,
-      "mean_site_yield": [66, 121],
-      "mean_same_material": [66, 118]
+      "mean_site_yield": [62, 106],
+      "mean_same_material": [62, 106]
     },
     {
       "preset": "highlands",
       "material": "wood",
-      "sites": 506,
+      "sites": 529,
       "mean_cell_quantity": 1,
-      "mean_site_yield": [9, 21],
-      "mean_same_material": [9, 19]
+      "mean_site_yield": [9, 20],
+      "mean_same_material": [9, 20]
     },
     {
       "preset": "basin",
@@ -2606,21 +2622,29 @@
       "material": "stone",
       "sites": 78,
       "mean_cell_quantity": 12,
-      "mean_site_yield": [66, 149],
+      "mean_site_yield": [66, 148],
       "mean_same_material": [66, 148]
     },
     {
       "preset": "basin",
+      "material": "sand",
+      "sites": 350,
+      "mean_cell_quantity": 17,
+      "mean_site_yield": [49, 85],
+      "mean_same_material": [49, 85]
+    },
+    {
+      "preset": "basin",
       "material": "clay",
-      "sites": 509,
+      "sites": 259,
       "mean_cell_quantity": 14,
-      "mean_site_yield": [62, 112],
-      "mean_same_material": [62, 112]
+      "mean_site_yield": [63, 115],
+      "mean_same_material": [63, 115]
     },
     {
       "preset": "basin",
       "material": "wood",
-      "sites": 1490,
+      "sites": 1143,
       "mean_cell_quantity": 1,
       "mean_site_yield": [8, 19],
       "mean_same_material": [8, 18]

@@ -14,7 +14,8 @@ Generation: **v0.21**. Payload: **Binary Delta v0.12.2**.
   for v0.25 qualification, so these desktop records do not establish the laptop support target.
 - **Every tier checksum below is historical.** v0.18, v0.19, v0.20, v0.21, and the world-scale
   pass, and v0.22 each moved the pinned workload checksum: `2402899979` → `1679299541` →
-  `914129621` → `780276626` → `325426962` → `3745973835` → `1543489001`. The first three added
+  `914129621` → `780276626` → `325426962` → `3745973835` → `1543489001` → `841205484` →
+  `3799495709`. The first three added
   saved, checksummed state; v0.21 and the scale pass moved `WORLD_GENERATOR_VERSION`, and v0.22
   moved the definition protocol and entity roster, all of which the checksum reads. None of them
   changed the workload's shape, entity counts, or delivered totals, so **the timings remain

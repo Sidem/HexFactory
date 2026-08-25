@@ -8661,6 +8661,12 @@ struct SiteRule {
     /// material, and a pond-sized number there means the proxy is wrong.
     #[serde(default)]
     center_ocean: bool,
+    /// If set, the centre must stand next to the shore band. Cheaper than asking `terrain_at` —
+    /// shore is an elevation cut, so one octave answers it — and the right question for a beach
+    /// that is not an ocean: a lake and a sea both grow sandy tiles, and a rule that only asked
+    /// the ocean proxy turned every inland beach into clay.
+    #[serde(default)]
+    center_shore: bool,
 }
 
 fn any_gate() -> i32 {
@@ -8696,6 +8702,10 @@ const RIVER_OCTAVE: u32 = 0xF10DE;
 const RICHNESS_OCTAVE: u32 = 0x0E55;
 /// How far from an ocean-gated centre the coarse octave is probed for open sea.
 const OCEAN_PROBE_RADIUS: i32 = 2;
+/// How far a shore-gated centre may stand from the shore band and still count as a beach site.
+/// Sand's disc is radius 3–5, so a probe shorter than that would refuse the inland side of a
+/// beach the disc itself can still paint.
+const SHORE_PROBE_RADIUS: i32 = 4;
 /// The largest radius a rule may claim, and the largest wander a centre may take inside its cell.
 /// `field_at` scans every lattice cell within reach of a hex and reach grows with both, so a
 /// parameter set is not allowed to make that scan unbounded — the same judgement `MAX_FEATURE_CELL`
@@ -9108,6 +9118,7 @@ fn default_site_rules() -> Vec<SiteRule> {
             member: Vec::new(),
             member_water_within: 0,
             center_ocean: false,
+            center_shore: false,
         };
     // Iron and coal both belong to the tops and the rolling ground under them, so both name the
     // pair as members and neither is clipped to the band its centre happened to land in. That is
@@ -9150,7 +9161,8 @@ fn default_site_rules() -> Vec<SiteRule> {
         // supplies — which is why forestry is a question of area rather than of throughput.
         rule(Terrain::Lowland, WOOD, 30, 5, 6, ANY, 3, 1, 2),
         // Riverbanks and lake shores. Rivers are what make this common rather than decorative,
-        // which is why the two ship together.
+        // which is why the two ship together. Shore-centred clay is the lighter of the two: the
+        // sandy-looking tiles are the shore band, and sand has to be what you find on them first.
         SiteRule {
             member: vec![Terrain::Lowland, Terrain::Shore],
             member_water_within: 2,
@@ -9159,23 +9171,23 @@ fn default_site_rules() -> Vec<SiteRule> {
         SiteRule {
             member: vec![Terrain::Lowland, Terrain::Shore],
             member_water_within: 2,
-            ..rule(Terrain::Shore, CLAY, 24, 2, 3, ANY, 14, 14, 3)
+            ..rule(Terrain::Shore, CLAY, 16, 2, 3, ANY, 14, 14, 3)
         },
-        // Sand sits on real coast, not on the rim of every pond: the disc is clipped to the shore
-        // band, so what survives is a beach strip rather than a blob.
+        // Sand sits on the shore band, clipped to it so a beach is a strip rather than a blob.
+        // Any shore: a lake, a sea, and a pond all look sandy, and a player walking those tiles
+        // should find sand. The ocean proxy used to refuse every inland beach.
         SiteRule {
-            center_ocean: true,
             ..rule(Terrain::Shore, SAND, 40, 3, 5, ANY, 16, 16, 3)
         },
         // The same beach, reached from the land side. A shore band is a thin ribbon — 26 per mille
         // of `highlands` — so a rule that can only start *on* it is a coin flip on how many of a
-        // handful of lattice cells happen to land in the ribbon, and `highlands` lost sand from
-        // the world entirely on that coin flip. A centre just inland clips to exactly the same
-        // strip, and the ocean gate still decides which coast qualifies.
+        // handful of lattice cells happen to land in the ribbon. A centre just inland clips to
+        // exactly the same strip; the shore gate keeps a forest cell from spending itself on an
+        // empty disc that never reaches a beach.
         SiteRule {
             member: vec![Terrain::Shore],
-            center_ocean: true,
-            ..rule(Terrain::Lowland, SAND, 10, 3, 5, ANY, 16, 16, 3)
+            center_shore: true,
+            ..rule(Terrain::Lowland, SAND, 26, 3, 5, ANY, 16, 16, 3)
         },
     ]
 }
@@ -9457,6 +9469,18 @@ fn center_on_ocean(params: &WorldParams, seed: u32, center: (i32, i32)) -> bool 
         })
 }
 
+/// Whether the shore band sits next to a centre — the cheap elevation-cut form of "this is a
+/// beach site". `terrain_at` would also sample cliffs; a water test would also fire on rivers,
+/// which are clay country. Shore is the sandy-looking tiles, and that is the only band asked.
+fn center_on_shore(params: &WorldParams, seed: u32, center: (i32, i32)) -> bool {
+    hexes_in_radius(center, SHORE_PROBE_RADIUS)
+        .into_iter()
+        .any(|(q, r)| {
+            let elevation = elevation_at(params, seed, q, r);
+            elevation >= params.water_level && elevation < params.shore_level
+        })
+}
+
 /// The rules a centre is eligible for, and the pick among them. Returns an index into the rule
 /// table. `None` means this cell holds no site at all, which is how barren ground stays the common
 /// case.
@@ -9470,6 +9494,7 @@ fn eligible_rule(params: &WorldParams, seed: u32, hash: u32, center: (i32, i32))
         RICHNESS_OCTAVE,
     );
     let mut ocean: Option<bool> = None;
+    let mut shore: Option<bool> = None;
     let mut admits = |rule: &SiteRule| {
         if rule.weight == 0 || rule.terrain != band || richness <= rule.site_min {
             return false;
@@ -9477,6 +9502,9 @@ fn eligible_rule(params: &WorldParams, seed: u32, hash: u32, center: (i32, i32))
         if rule.center_ocean {
             // Asked at most once per cell, and only for a rule that got this far.
             return *ocean.get_or_insert_with(|| center_on_ocean(params, seed, center));
+        }
+        if rule.center_shore {
+            return *shore.get_or_insert_with(|| center_on_shore(params, seed, center));
         }
         true
     };
@@ -9653,6 +9681,7 @@ fn bootstrap_rule(
             && rule.item_id == item_id
             && rule.terrain == band
             && (!rule.center_ocean || center_on_ocean(params, seed, center))
+            && (!rule.center_shore || center_on_shore(params, seed, center))
     })
 }
 
@@ -10126,6 +10155,7 @@ fn hash_world_params(hash: &mut u32, params: &WorldParams) {
         hash_u32(hash, u32::MAX);
         hash_u32(hash, rule.member_water_within);
         hash_u32(hash, u32::from(rule.center_ocean));
+        hash_u32(hash, u32::from(rule.center_shore));
     }
     hash_u32(hash, u32::MAX);
 }
@@ -12899,15 +12929,13 @@ mod tests {
             "fields too sparse: {fields} of {land} land hexes"
         );
         // Iron and coal share the tops and the ground below them, copper never climbs, stone hugs
-        // its cliffs, clay follows water across two bands, and sand is clipped to the coast.
+        // its cliffs, clay follows water across two bands, and sand is the shore band's own field.
         assert_eq!(seen.get(&Terrain::Cliff), Some(&BTreeSet::from([STONE])));
         let shore = seen.get(&Terrain::Shore).expect("the opening has a shore");
         assert!(
-            shore.contains(&CLAY),
-            "clay follows water onto the shore, saw {shore:?}"
+            shore.contains(&SAND) || shore.contains(&CLAY),
+            "the shore holds sand or clay, saw {shore:?}"
         );
-        // Sand is clipped to the regional ocean. A 160-hex window of a 512-hex landform often
-        // never reaches a coast, so the shore here may be clay alone.
         assert!(
             shore.is_subset(&BTreeSet::from([SAND, CLAY])),
             "the shore holds {shore:?}"
@@ -12928,6 +12956,48 @@ mod tests {
         // a rule that names a water band, and this is that refusal seen from the world.
         assert!(!seen.contains_key(&Terrain::DeepWater));
         assert!(!seen.contains_key(&Terrain::ShallowWater));
+    }
+
+    /// Sandy-looking tiles are the shore band. Clay may still sit on them, but sand has to be
+    /// what a player walking a beach finds first — not a regional ocean they never reach.
+    #[test]
+    fn sand_is_the_common_field_on_shore_tiles() {
+        let core = game("new-game");
+        let mut shore = 0u32;
+        let mut sand = 0u32;
+        let mut clay = 0u32;
+        for q in -160..160 {
+            for r in -160..160 {
+                if axial_distance((0, 0), (q, r)) <= LANDING_CLEAR_RADIUS {
+                    continue;
+                }
+                if terrain_at(&core.world_params, core.seed, q, r, true) != Terrain::Shore {
+                    continue;
+                }
+                shore += 1;
+                let Some(field) = core.fields.field_at(q, r, true) else {
+                    continue;
+                };
+                match field.item_id {
+                    SAND => sand += 1,
+                    CLAY => clay += 1,
+                    _ => {}
+                }
+            }
+        }
+        assert!(
+            shore > 40,
+            "the sample has to hold a real shore, saw {shore} shore hexes"
+        );
+        assert!(
+            sand > 0,
+            "sandy tiles held no sand at all ({clay} clay on {shore} shore hexes)"
+        );
+        assert!(
+            sand >= clay,
+            "sand should be the common field on shore, saw {sand} sand vs {clay} clay on {shore} \
+             shore hexes"
+        );
     }
 
     /// The seed is no longer the only thing a world can differ by. Two parameter sets on the same
@@ -13413,6 +13483,7 @@ mod tests {
             |p: &mut WorldParams| p.site_rules[0].yield_jitter += 1,
             |p: &mut WorldParams| p.site_rules[0].member_water_within += 1,
             |p: &mut WorldParams| p.site_rules[0].center_ocean = true,
+            |p: &mut WorldParams| p.site_rules[0].center_shore = true,
             |p: &mut WorldParams| p.site_rules[0].member.push(Terrain::Cliff),
             |p: &mut WorldParams| p.site_rules[0].item_id = CRYSTAL,
             |p: &mut WorldParams| p.site_rules[0].terrain = Terrain::Shore,
@@ -13498,6 +13569,7 @@ mod tests {
             member: Vec::new(),
             member_water_within: 0,
             center_ocean: false,
+            center_shore: false,
         };
         let scenario = scenarios
             .scenarios
@@ -18292,7 +18364,10 @@ mod tests {
         // bump moves this number while the workload does not — as did v0.14 adding the splitter's
         // and merger's arbitration cursors to `checksum` — which is why the delivered total and
         // the entity count below are the assertions that say the run is the same run.
-        assert_eq!(first.checksum(), 841_205_484);
+        //
+        // 841_205_484 → 3_799_495_709 when sand left the ocean gate and sat on the shore band.
+        // The workload's shape, entity count, and delivered total did not move.
+        assert_eq!(first.checksum(), 3_799_495_709);
         assert_eq!(first.entities.len(), spec.entities() as usize);
         // Every line must be running end to end, or the tiers would measure an idle blueprint.
         // Four per line rather than fourteen: the line is now extraction-bound, because a

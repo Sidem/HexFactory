@@ -224,6 +224,8 @@ export interface SiteRule {
   member_water_within: number;
   /** The centre must stand against ocean rather than against any pond. */
   center_ocean: boolean;
+  /** The centre must stand next to the shore band — lake and sea beaches both qualify. */
+  center_shore: boolean;
 }
 
 /**
