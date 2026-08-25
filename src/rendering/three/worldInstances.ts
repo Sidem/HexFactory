@@ -104,7 +104,9 @@ export class WorldInstanceLayer {
     trunk: new CylinderGeometry(1, 1, 1, 7),
     canopy: new ConeGeometry(1, 1, 7),
     progress: new BoxGeometry(0.38, 0.08, 0.1),
-    cargo: new IcosahedronGeometry(0.09, 0),
+    // Big enough to be the thing you watch. A belt with a speck on it reads as an empty belt, and
+    // "is anything actually moving?" is the first question a factory has to answer at a glance.
+    cargo: new IcosahedronGeometry(0.17, 0),
     status: new SphereGeometryCompat(0.09),
     plume: new IcosahedronGeometry(0.16, 1),
     scar: new CylinderGeometry(0.34, 0.38, 0.025, 6),
@@ -1309,8 +1311,9 @@ export class WorldInstanceLayer {
         let tx = target?.x;
         let tz = target?.z;
         let targetHeight = targetBuilding
-          ? (this.groundById.get(targetBuilding.id) ?? height) + 0.42
-          : height + 0.42;
+          ? (this.groundById.get(targetBuilding.id) ?? height) +
+            CARGO_RIDE_HEIGHT
+          : height + CARGO_RIDE_HEIGHT;
         if (tx === undefined || tz === undefined) {
           const angle = directionAngle(building.orientation);
           tx = center.x + Math.cos(angle) * 0.78;
@@ -1323,7 +1326,9 @@ export class WorldInstanceLayer {
           tx = center.x + dx * fraction;
           tz = center.z + dz * fraction;
           targetHeight =
-            height + 0.42 + (targetHeight - height - 0.42) * fraction;
+            height +
+            CARGO_RIDE_HEIGHT +
+            (targetHeight - height - CARGO_RIDE_HEIGHT) * fraction;
         }
         const travel = cargoTravel(
           now - this.cargoTickAt,
@@ -1334,7 +1339,9 @@ export class WorldInstanceLayer {
         matrix.compose(
           position.set(
             center.x + (tx - center.x) * travel,
-            height + 0.42 + (targetHeight - height - 0.42) * travel,
+            height +
+              CARGO_RIDE_HEIGHT +
+              (targetHeight - height - CARGO_RIDE_HEIGHT) * travel,
             center.z + (tz - center.z) * travel,
           ),
           quaternion,
@@ -1425,6 +1432,8 @@ const LOCAL_X = new Vector3(1, 0, 0);
 const MACHINE_BASE_SCALE = 1.12;
 /** Where a transport deck rides above the ground beneath it. */
 const DECK_HEIGHT = 0.23;
+/** Where a carried item rides: sitting on the treads of the deck below it, not floating over them. */
+const CARGO_RIDE_HEIGHT = 0.46;
 /**
  * Where an underpass's crossing run rides instead: low enough that its rails pass under the
  * underside of the deck above, high enough that the deck stays clear of the ground.

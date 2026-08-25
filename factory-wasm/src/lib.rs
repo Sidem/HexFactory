@@ -3697,6 +3697,9 @@ impl Core {
     /// **Everything else second**, in ascending entity id, unchanged. A splitter differs only in
     /// having more than one compiled output to offer its cargo to, and it offers them starting from
     /// its own cursor so consecutive items go to different branches.
+    ///
+    /// Either pass, a belt that was handed something this tick keeps it until the next one — see
+    /// `just_received`.
     fn transfer_cargo(&mut self) {
         self.runtime.clear_transfer_scratch();
         if self.runtime.merger_targets.is_empty() {
@@ -3715,7 +3718,7 @@ impl Core {
             let feeder_count = self.runtime.feeders[target].len();
             for offset in 0..feeder_count {
                 let source = self.runtime.feeders[target][(start + offset) % feeder_count];
-                if self.runtime.delivered[source] {
+                if self.runtime.delivered[source] || self.just_received(source) {
                     continue;
                 }
                 let Some((cargo, from_inventory)) = self.cargo_on_offer(source) else {
@@ -3738,6 +3741,23 @@ impl Core {
         self.transfer_along_links();
     }
 
+    /// A belt holding cargo that only arrived this tick, which is a belt with nothing to offer yet.
+    ///
+    /// A belt is a hex of travel, not a wire. Arbitration walks sources in ascending entity id, and
+    /// a line is built the way every line is built — from the source outward — so the walk ran in
+    /// flow order: an item handed onto the first belt was handed down every belt behind it before
+    /// the tick was out. The run vanished between two snapshots. No belt ever reported `Carrying`,
+    /// belt *length* cost a factory nothing, and the renderer — which draws a carried item crossing
+    /// from the belt under it toward the one it is bound for — never had one to draw. Waiting a
+    /// tick is what puts the item on the belt where both the player and the clock can see it.
+    ///
+    /// Only belts wait. A container is a store rather than a hex of travel, and making one skip the
+    /// tick it was filled on would halve the throughput of every buffer in the game; a machine's
+    /// output was produced by `advance_machines`, not handed to it, so it is never holding one.
+    fn just_received(&self, source: usize) -> bool {
+        self.entities[source].kind == BuildingKind::Belt && self.runtime.claimed[source]
+    }
+
     /// Every source that has not already delivered offers its cargo along its compiled edges, in
     /// ascending entity id — the arbitration order the game has always had.
     ///
@@ -3746,7 +3766,10 @@ impl Core {
     fn transfer_along_links(&mut self) {
         for source_offset in 0..self.runtime.transport_order.len() {
             let source = self.runtime.transport_order[source_offset];
-            if self.runtime.delivered[source] || self.graph[source].is_empty() {
+            if self.runtime.delivered[source]
+                || self.just_received(source)
+                || self.graph[source].is_empty()
+            {
                 continue;
             }
             let Some((cargo, from_inventory)) = self.cargo_on_offer(source) else {
@@ -15793,6 +15816,51 @@ mod tests {
         assert_eq!(core.entities[container].cargo, before);
     }
 
+    /// An item crosses a belt line one hex per tick, and rests on each belt on its way.
+    ///
+    /// The line here is built the way every line is built — from the source outward — which makes
+    /// ascending entity id run in flow order, which is exactly the arrangement that used to carry
+    /// an item from the first belt to the last inside a single tick. Three things were wrong with
+    /// that at once: a line's length cost the factory nothing, no belt ever reported `Carrying`,
+    /// and the cargo the renderer draws travelling between two hexes never existed at a tick
+    /// boundary for it to draw. The assertion is the resting place, not the arrival.
+    #[test]
+    fn an_item_crosses_one_belt_a_tick_and_rests_on_each_one() {
+        let mut core = empty_world("new-game");
+        let first = add_test_belt(&mut core, 0, 0, 0);
+        let second = add_test_belt(&mut core, 1, 0, 0);
+        let third = add_test_belt(&mut core, 2, 0, 0);
+        let sink = add_test_entity(&mut core, 3, 0, 4, 0);
+        core.compile_graph();
+        assert_eq!(link_ids(&core, first), vec![second]);
+        assert_eq!(link_ids(&core, second), vec![third]);
+        assert_eq!(link_ids(&core, third), vec![sink]);
+
+        let carrying = |core: &Core| -> Vec<u32> {
+            [first, second, third]
+                .into_iter()
+                .filter(|&id| core.entities[index_of(core, id)].cargo.is_some())
+                .collect()
+        };
+
+        put_cargo(&mut core, first, 1);
+        for expected in [second, third] {
+            core.transfer_cargo();
+            assert_eq!(
+                carrying(&core),
+                vec![expected],
+                "one belt a tick, and on exactly one belt while it crosses"
+            );
+        }
+        core.transfer_cargo();
+        assert!(carrying(&core).is_empty());
+        assert_eq!(
+            core.entities[index_of(&core, sink)].inventory.get(&1),
+            Some(&1),
+            "and three belts later it arrives"
+        );
+    }
+
     #[test]
     fn a_loaded_belt_reports_when_its_output_is_blocked() {
         let mut core = game("factory-demo");
@@ -18022,11 +18090,19 @@ mod tests {
                     put_cargo(&mut core, west, 1);
                     put_cargo(&mut core, north, 1);
                     core.transfer_cargo();
-                    if core.entities[index_of(&core, west)].cargo.is_none() {
+                    let served = if core.entities[index_of(&core, west)].cargo.is_none() {
                         west
                     } else {
                         north
-                    }
+                    };
+                    // The junction is emptied by hand rather than by a second tick of transfers.
+                    // A belt holds what it was handed until the tick after — see `just_received` —
+                    // and this test asks which feeder wins the hex, not how long the cargo then
+                    // spends crossing it. Left full, every round after the first would be answered
+                    // by the junction being occupied instead of by the rotation.
+                    let junction_index = index_of(&core, junction);
+                    core.entities[junction_index].cargo = None;
+                    served
                 })
                 .collect::<Vec<u32>>()
         };
@@ -18077,6 +18153,9 @@ mod tests {
 
         put_cargo(&mut core, entrance, 1);
         put_cargo(&mut core, crossed, 3);
+        // Two ticks, because a crossing is two hexes of travel: the entrance hands to its partner,
+        // and the partner delivers on the tick after — the same wait every belt in a line takes.
+        core.transfer_cargo();
         core.transfer_cargo();
         assert_eq!(
             core.entities[index_of(&core, landing)].inventory.get(&1),
@@ -18448,7 +18527,12 @@ mod tests {
         //
         // 841_205_484 → 3_799_495_709 when sand left the ocean gate and sat on the shore band.
         // The workload's shape, entity count, and delivered total did not move.
-        assert_eq!(first.checksum(), 3_799_495_709);
+        //
+        // 3_799_495_709 → 2_222_187_037 when a belt began holding what it was handed until the tick
+        // after — see `just_received`. The workload's shape and entity count did not move; a line's
+        // cargo now spends a tick on each belt it crosses instead of the whole line in one, so this
+        // window's delivered total is the one below.
+        assert_eq!(first.checksum(), 2_222_187_037);
         assert_eq!(first.entities.len(), spec.entities() as usize);
         // Every line must be running end to end, or the tiers would measure an idle blueprint.
         // Four per line rather than fourteen: the line is now extraction-bound, because a

@@ -708,6 +708,14 @@ describe("Visual Depth terrain and quality contracts", () => {
     const settled = new Matrix4();
     layer.update(0, false);
     cargo.getMatrixAt(0, start);
+    // One loaded belt draws one item, and it is drawn large enough and high enough to be the thing
+    // the eye follows. A speck sunk into the deck reads as an empty belt, and "is anything actually
+    // moving?" is the first question a factory has to answer at a glance. The belt's deck stands
+    // 0.23 over its hex, and its cargo rides on top of that rather than inside it.
+    expect(cargo.count).toBe(1);
+    cargo.geometry.computeBoundingSphere();
+    expect(cargo.geometry.boundingSphere?.radius ?? 0).toBeGreaterThan(0.15);
+    expect(start.elements[13]!).toBeGreaterThan(0.1 + 0.23);
     layer.update(250, false);
     cargo.getMatrixAt(0, end);
     layer.update(600, false);
