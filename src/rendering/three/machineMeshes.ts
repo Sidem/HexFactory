@@ -38,6 +38,18 @@ const PART_QUATERNION = new Quaternion();
 export const MACHINE_VISUAL_SCALE = 1.38;
 
 /**
+ * How wide a machine's *body* is allowed to be against the height the hierarchy above gives it.
+ *
+ * Neighbouring hex centres are `√3` apart at world scale, so a body wider than `√3 / 2` overlaps
+ * the machine next door — which is what every generated silhouette did, because the grammar's
+ * girth and its height came off the same multiplier. Narrowing the bodies alone keeps the authored
+ * height hierarchy intact while a machine stays inside the hex it was placed on. Wheels, masts and
+ * vents are reach rather than bulk, so they keep their full scale; anchors move with the body they
+ * are bolted to.
+ */
+export const MACHINE_BODY_GIRTH = 0.58;
+
+/**
  * Silhouette scale is part of the authored visual hierarchy, not simulation size. Poles stay
  * narrow utility infrastructure, ordinary machines read above the Wayfinder's waist, and the wind
  * turbine owns the skyline. Multi-cell occupancy is still supplied exclusively by native state.
@@ -116,9 +128,11 @@ export function buildPartGeometry(
 ): BufferGeometry {
   switch (kind) {
     case "vessel":
-      return new CylinderGeometry(0.88, 1, 1.35, 8, 1, false);
+      // Six sides, not eight: a machine standing on a hex reads as part of the grid it occupies,
+      // and an octagonal drum on a hexagonal pad never quite lined up with anything around it.
+      return new CylinderGeometry(0.88, 1, 1.35, 6, 1, false);
     case "chamber":
-      return new BoxGeometry(1.75, 1.35, 1.55, 1, 1, 1);
+      return chamberGeometry();
     case "stack":
       return new CylinderGeometry(0.48, 0.72, 2, 6, 1, false);
     case "rotor":
@@ -198,9 +212,16 @@ export function machinePartMatrix(
   const visualScale = MACHINE_VISUAL_SCALE * instance.visualScale;
   const pulse = phase === "pulse" ? 1 + cycle * 0.13 : 1;
   const grind = phase === "grind" ? 0.78 + Math.sin(cycle * Math.PI) * 0.22 : 1;
-  const rise = phase === "rise" ? cycle * part.scale * 1.7 : 0;
-  const lateralX = Math.cos(buildingAngle) * part.x * 1.45 * visualScale;
-  const lateralZ = -Math.sin(buildingAngle) * part.x * 1.45 * visualScale;
+  // `rise` travels along the part's own axis, the same rule the 2D walker follows: an upright vent
+  // puffs upward and a shaft driven to `PI` plunges. Without the sign an extractor's drill rose out
+  // of the ground it is supposed to be biting into.
+  const rise =
+    phase === "rise" ? cycle * part.scale * 1.7 * Math.cos(localRotation) : 0;
+  // Anchors ride the body they are bolted to, so a survey lamp set against a vessel's flank stays
+  // against it once the body is narrowed rather than floating off into the next hex.
+  const lateral = part.x * 1.45 * visualScale * MACHINE_BODY_GIRTH;
+  const lateralX = Math.cos(buildingAngle) * lateral;
+  const lateralZ = -Math.sin(buildingAngle) * lateral;
   const axisLift =
     part.part === "stack"
       ? Math.cos(localRotation) * part.scale * 0.75
@@ -251,11 +272,12 @@ function partScale(
   target: Vector3,
 ): Vector3 {
   const scale = part.scale;
+  const girth = scale * MACHINE_BODY_GIRTH;
   switch (part.part) {
     case "vessel":
-      return target.set(scale * 1.35, scale * 1.25, scale * 1.35);
+      return target.set(girth * 1.35, scale * 1.25, girth * 1.35);
     case "chamber":
-      return target.set(scale * 1.22, scale * 1.2, scale * 1.22);
+      return target.set(girth * 1.22, scale * 1.2, girth * 1.22);
     case "stack":
       return target.set(scale, scale, scale);
     case "rotor":
@@ -267,10 +289,21 @@ function partScale(
     case "band":
       // Part scale names the vessel it embraces. The torus geometry's authored radius is smaller
       // than a vessel's, so the old 1:1 transform buried every brass ring inside the body.
-      return target.set(scale * 1.6, scale * 0.72, scale * 1.6);
+      return target.set(girth * 1.6, scale * 0.72, girth * 1.6);
     case "mouth":
-      return target.set(scale * grind, scale, scale);
+      return target.set(girth * grind, scale, girth);
   }
+}
+
+/**
+ * The chamber is the vessel's opposite number and shares its hexagonal footprint: straight sides
+ * rather than a taper, and turned half a face so the two still read as different machines standing
+ * on the same grid.
+ */
+function chamberGeometry(): BufferGeometry {
+  const body = new CylinderGeometry(0.94, 1, 1.45, 6, 1, false);
+  body.rotateY(Math.PI / 6);
+  return body;
 }
 
 function rotorGeometry(blades: number): BufferGeometry {

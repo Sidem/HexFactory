@@ -252,6 +252,26 @@ describe("Stage D shape grammar", () => {
     }
   });
 
+  it("vents only what burns, and gives the working machine something visibly moving", () => {
+    // Both halves of this came off the map. A container wore a chimney at every tier — a store
+    // drawn as a works — and the extractor, the one silhouette whose whole point is that it is
+    // working, moved nothing anybody could see: its shaft ran inside its own body and its jaws sat
+    // a clear hex below the ground line.
+    for (let tier = 0; tier <= TIER_LADDER.length; tier += 1) {
+      for (const part of partsFor("container", tier)) {
+        expect(part.part).not.toBe("stack");
+      }
+      const moving = partsFor("extractor", tier).filter(
+        (part) => !isStill(part),
+      );
+      // Up out of the body, or out beyond its flank. `y` grows downward, so above the ground line
+      // is negative — a mover that is neither is a mover nobody watches.
+      expect(moving.some((part) => part.y < 0 || Math.abs(part.x) > 0.2)).toBe(
+        true,
+      );
+    }
+  });
+
   it("costs a new building a data row and not a drawing", () => {
     const look = readFileSync(
       new URL("../src/rendering/buildingLook.ts", import.meta.url),

@@ -86,6 +86,13 @@ const BEACON = "#f6c85f";
  * raised rails and transverse treads; the heading tick and cargo remain separate state cues.
  */
 export const BUILDING_SHAPES: Record<SilhouetteKey, readonly ShapePart[]> = {
+  /**
+   * A drill rig, and the one silhouette whose whole point is that it is working. Everything that
+   * moved on the old extractor moved where nothing could see it: the shaft was inside the body, and
+   * the jaws sat a clear hex below the ground line. The winding wheel is on top where it reads from
+   * across the map, and the shaft is set out beyond the body's flank so its plunge is legible
+   * against the ground it bites into.
+   */
   extractor: [
     {
       part: "vessel",
@@ -103,29 +110,30 @@ export const BUILDING_SHAPES: Record<SilhouetteKey, readonly ShapePart[]> = {
       material: "brass",
     },
     {
-      part: "stack",
+      part: "rotor",
       x: 0,
-      y: -0.18,
-      scale: 0.15,
+      y: -0.26,
+      scale: 0.21,
+      count: 4,
+      phase: "spin",
+      material: "brass",
+    },
+    {
+      part: "stack",
+      x: 0.34,
+      y: -0.1,
+      scale: 0.13,
       rotation: Math.PI,
       phase: "rise",
       material: "dark",
     },
     {
       part: "aperture",
-      x: 0.24,
-      y: -0.04,
+      x: -0.26,
+      y: -0.12,
       scale: 0.065,
       phase: "pulse",
       glow: SURVEY,
-    },
-    {
-      part: "mouth",
-      x: 0,
-      y: 0.18,
-      scale: 0.17,
-      phase: "grind",
-      material: "dark",
     },
   ],
   belt: [],
@@ -199,10 +207,13 @@ export const BUILDING_SHAPES: Record<SilhouetteKey, readonly ShapePart[]> = {
     { part: "band", x: 0, y: 0.08, scale: 0.33, count: 2 },
   ],
   crushing: [{ part: "mouth", x: 0, y: 0, scale: 0.38, phase: "grind" }],
+  // A store, deliberately without a vent: nothing burns in a container, and the chimney it used to
+  // wear made it read as a machine doing work. Banded top and bottom instead, which is what tells a
+  // silo apart from a smelter at a glance.
   container: [
     { part: "vessel", x: 0, y: 0, scale: 0.34 },
-    { part: "band", x: 0, y: -0.08, scale: 0.32, count: 4, material: "brass" },
-    { part: "stack", x: 0.18, y: -0.28, scale: 0.1, material: "dark" },
+    { part: "band", x: 0, y: -0.2, scale: 0.32, count: 4, material: "brass" },
+    { part: "band", x: 0, y: -0.02, scale: 0.33, count: 4, material: "brass" },
   ],
   consumer: [
     { part: "mouth", x: 0, y: 0, scale: 0.32, rotation: -Math.PI / 2 },

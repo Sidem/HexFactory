@@ -191,7 +191,7 @@ export function silhouetteSignature(parts: readonly ShapePart[]): string {
  * `TIER_LADDER` rather than a drawing.
  */
 export type ModifierName =
-  | "addStack"
+  | "addVent"
   | "addRotorBlade"
   | "segmentVessel"
   | "platingBand"
@@ -201,21 +201,46 @@ export type ModifierName =
 type Modifier = (parts: readonly ShapePart[]) => ShapePart[];
 
 /**
- * Adds a vent above everything the shape already reaches. This is the one modifier that is
+ * What burns. A shape that turns, grinds, encloses a process, or glows is a works and has exhaust
+ * to carry away; a shape made only of a body, a ring, and a post is a store or a piece of
+ * structure, and putting a chimney on one says it does something it does not do.
+ */
+function isWorks(parts: readonly ShapePart[]): boolean {
+  return parts.some(
+    (part) =>
+      part.part === "chamber" ||
+      part.part === "stack" ||
+      part.part === "rotor" ||
+      part.part === "mouth" ||
+      (part.part === "aperture" && part.glow !== undefined),
+  );
+}
+
+/**
+ * Grows a shape above everything it already reaches. This is the one modifier that is
  * unconditional — every other one needs a part of a particular kind to act on, and a tier step
  * that found no target would be a tier the map cannot show. Anchoring off `profileTop` is what
  * makes it lift the outline of any non-empty shape rather than only of the ones with a body.
+ *
+ * *What* it adds is read off the shape. A works vents, so it gets a chimney. A store has nothing
+ * to burn, so it grows a raised crown instead and reads as a taller silo — which is why a
+ * container is a container at every tier rather than a crate with a smokestack on it.
  */
-const addStack: Modifier = (parts) => [
-  ...parts,
-  {
-    part: "stack",
-    x: 0.17,
-    y: profileTop(parts) + 0.06,
-    scale: 0.085,
-    material: "dark",
-  },
-];
+const addVent: Modifier = (parts) => {
+  const top = profileTop(parts);
+  return [
+    ...parts,
+    isWorks(parts)
+      ? {
+          part: "stack",
+          x: 0.17,
+          y: top + 0.06,
+          scale: 0.085,
+          material: "dark",
+        }
+      : { part: "vessel", x: 0, y: top - 0.07, scale: 0.12, material: "brass" },
+  ];
+};
 
 const addRotorBlade: Modifier = (parts) =>
   parts.map((part) =>
@@ -288,7 +313,7 @@ const raiseMast: Modifier = (parts) => {
 };
 
 const MODIFIERS: Record<ModifierName, Modifier> = {
-  addStack,
+  addVent,
   addRotorBlade,
   segmentVessel,
   platingBand,
@@ -312,14 +337,14 @@ export const TIER_LADDER: readonly TierStep[] = [
   {
     name: "reinforced",
     reads:
-      "plated, vented, open wider, and standing taller than the machine it grew out of",
-    modifiers: ["platingBand", "addStack", "widenMouth", "raiseMast"],
+      "plated, crowned by a vent or a raised cap, open wider, and standing taller than the machine it grew out of",
+    modifiers: ["platingBand", "addVent", "widenMouth", "raiseMast"],
   },
   {
     name: "overbuilt",
     reads:
-      "segmented body, a second vent, another blade on anything that turns, and a mast higher again",
-    modifiers: ["segmentVessel", "addRotorBlade", "addStack", "raiseMast"],
+      "segmented body, a second crown, another blade on anything that turns, and a mast higher again",
+    modifiers: ["segmentVessel", "addRotorBlade", "addVent", "raiseMast"],
   },
 ];
 
@@ -339,8 +364,8 @@ export const HUB_LADDER: readonly TierStep[] = [
   },
   {
     name: "foundry",
-    reads: "segmented again and vented, standing well above what landed here",
-    modifiers: ["segmentVessel", "platingBand", "addStack", "raiseMast"],
+    reads: "segmented again and crowned, standing well above what landed here",
+    modifiers: ["segmentVessel", "platingBand", "addVent", "raiseMast"],
   },
 ];
 
