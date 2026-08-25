@@ -121,17 +121,6 @@
             ></span>
           </button>
           <button
-            id="play"
-            class="icon-button utility-button"
-            type="button"
-            aria-pressed="true"
-            title="Pause simulation (T)"
-            aria-label="Pause simulation"
-          >
-            <span class="utility-icon" aria-hidden="true">Ⅱ</span
-            ><small class="utility-label">Pause</small>
-          </button>
-          <button
             id="sound"
             class="icon-button utility-button"
             type="button"
@@ -456,7 +445,6 @@
                     Shallow water can be forded at a crawl; deep water cannot.
                     The player always faces the pointer.
                     <kbd>Space</kbd> centres the camera back on the player,
-                    <kbd>T</kbd> pauses and resumes the factory,
                     <kbd>M</kbd> mutes the feedback sounds, and dragging with
                     the middle button — or with <kbd>Shift</kbd> held and the
                     left one — pans while the wheel zooms. The right button is
@@ -882,16 +870,8 @@
             </div>
             <hr />
             <div class="simulation-settings">
-              <button id="step" type="button">Single step</button>
               <button id="reset" type="button">Reset</button>
-              <label
-                >Speed<select id="speed" aria-label="Simulation speed">
-                  <option value="4">4 tps</option>
-                  <option value="10" selected>10 tps</option>
-                  <option value="30">30 tps</option>
-                  <option value="60">60 tps</option>
-                </select></label
-              >
+              <span id="simulation-rate">Simulation: 10 ticks per second</span>
             </div>
             <dl class="debug-readout">
               <div>

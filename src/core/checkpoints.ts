@@ -8,13 +8,12 @@
  * one thing a speedrun clock must never be.
  *
  * Two clocks are recorded for every checkpoint because neither is sufficient alone. `tick` is
- * deterministic and survives a replay, but it is bought at whatever rate the speed selector is set
- * to, so it says nothing about how long a person sat there. `elapsedMs` is what a runner races, but
- * it is only comparable between runs that bought ticks at the same price. Recording both, and
- * naming the conditions that make them incomparable, is cheaper than picking wrong.
+ * deterministic and survives a replay; `elapsedMs` says how long a person sat there. The simulation
+ * rate is fixed, but keeping both catches missing wall-clock intervals such as a loaded save.
  */
 
 import type { StorageLike } from "./saveSlots";
+import { SIMULATION_TICKS_PER_SECOND } from "./frameClock";
 
 /** Snapshot facts a checkpoint may ask about, flattened so predicates stay one-liners. */
 export interface CheckpointContext {
@@ -58,6 +57,7 @@ export interface CheckpointRecord {
 /**
  * Why a run's wall clock cannot be compared against another's. Kept as reasons rather than one
  * boolean so a report can say which guarantee was lost instead of only that one was.
+ * `speed-changed` remains readable for reports created before simulation speed became fixed.
  */
 export type RunTaint = "speed-changed" | "loaded-save" | "creative";
 
@@ -65,7 +65,7 @@ export interface RunTimings {
   /** Epoch milliseconds, for naming the run rather than for timing it. */
   startedAt: number;
   startedTick: number;
-  /** Simulation speed the run began at, in ticks per second. */
+  /** Fixed simulation rate, retained in the stored report format for older runs. */
   startedSpeed: number;
   taints: RunTaint[];
   records: CheckpointRecord[];
@@ -132,15 +132,11 @@ export const OPENING_CHECKPOINTS: readonly CheckpointDefinition[] = [
   },
 ];
 
-export function startRun(
-  startedAt: number,
-  startedTick: number,
-  startedSpeed: number,
-): RunTimings {
+export function startRun(startedAt: number, startedTick: number): RunTimings {
   return {
     startedAt,
     startedTick,
-    startedSpeed,
+    startedSpeed: SIMULATION_TICKS_PER_SECOND,
     taints: [],
     records: [],
   };
@@ -196,9 +192,8 @@ export function formatElapsed(elapsedMs: number): string {
 }
 
 /**
- * The report, as plain text meant to be pasted somewhere else. It leads with the conditions rather
- * than the times: a run at 30 tps and a run at 10 tps are different games, and a reader who sees
- * the numbers first has already drawn the wrong conclusion by the time they reach the caveat.
+ * The report, as plain text meant to be pasted somewhere else. It leads with the conditions so a
+ * loaded save or creative run cannot be mistaken for a clean timed opening.
  */
 export function formatRunReport(
   run: RunTimings,

@@ -122,7 +122,13 @@ a pole span a distance no player can see.
   and panel flows, but it did not replace a person's timed feel test. `fixtures/balance.json`
   predicts the material work (32 gathers to
   contract stage one, 97 to stage two, a 65-second combined hand floor) and says nothing about
-  walking, choosing, or placing. A number from a person outranks every number in that file.
+  walking, choosing, or placing. A number from a person outranks every number in that file. A first
+  casual report arrived on 2026-08-25 at 10 tps and reached stage one at a reported 21:25.3, with
+  15:00.6 between the powered composer and delivery. It loaded a save, so the clock missed part of
+  the run and even recorded two checkpoints out of elapsed-time order; it is directional evidence,
+  not the clean opening measurement that closes this item. The same session found that players can
+  accidentally pause and then read the stopped factory as a failure, so player pause, single-step,
+  and variable simulation speed were removed and the game rate fixed at 10 tps.
 - **Visual Depth lacks physical integrated-GPU qualification.** Low, Medium, and High are recorded
   on the reference desktop, but the Iris Xe / AMD Vega-class-or-weaker laptop gate was not available
   and no laptop support claim may be inferred from the desktop ladder.

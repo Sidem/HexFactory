@@ -1559,8 +1559,10 @@ canvas {
   grid-template-columns: 1fr 1fr;
   gap: 7px;
 }
-.simulation-settings label {
-  grid-column: 1 / -1;
+.simulation-settings span {
+  align-self: center;
+  color: var(--muted);
+  font-size: 0.68rem;
 }
 .world-preset-description,
 .world-parameters-note {

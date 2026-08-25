@@ -661,10 +661,9 @@ describe("bounded host input", () => {
     expect(main).toContain("playerTicksPerSecond: host.playerTicksPerSecond");
     expect(clock).toContain("elapsed * state.playerTicksPerSecond");
     expect(main).not.toMatch(/player\.(x|y)\s*\+/);
-    // Player steps are unscaled by the speed setting and unaffected by the pause state, which is
-    // the whole point: the factory's accumulator is the only one that reads either.
+    // Player steps use native's player cadence, independently of the factory's fixed-rate clock.
     expect(clock).not.toMatch(
-      /playerAccumulator \+= [^;]*speedInput|playing\s*&&[^;]*playerAccumulator/,
+      /playerAccumulator \+= [^;]*SIMULATION_TICKS_PER_SECOND/,
     );
   });
 
@@ -1308,13 +1307,18 @@ describe("availability and expanded snapshot adapter", () => {
     expect(main).toContain('KeyP: "quest-panel"');
     // The inspector is the exception: it has no key because it never leaves the world.
     expect(main).not.toContain('"inspector-panel"');
-    // Space centres the camera and pause moved off it. A clicked button must not keep Space:
+    // Space centres the camera. A clicked button must not keep Space:
     // activation is on keyup, so keydown alone would both skip recenter and press the control.
     expect(main).toContain('event.code === "Space") renderer.recenter()');
     expect(main).toContain('event.code === "Space"');
     expect(main).toContain("target.blur()");
     expect(main).toContain('target.tagName === "SUMMARY"');
-    expect(main).toContain('event.code === "KeyT") setPlaying(!playing)');
+    expect(main).not.toContain('event.code === "KeyT"');
+    expect(main).not.toContain("setPlaying");
+    expect(main).not.toContain("speedInput");
+    expect(html).not.toContain('id="play"');
+    expect(html).not.toContain('id="speed"');
+    expect(html).not.toContain('id="step"');
     // Gather and deliver are permanent chrome in the dock, not a panel a new player has to find.
     expect(html).toContain('class="field-actions"');
     expect(html).toContain('id="minimap"');

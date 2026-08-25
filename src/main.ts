@@ -16,7 +16,7 @@ import {
 import { cueForEvent, FeedbackAudio } from "./audio/feedback";
 import { halfTransfer } from "./core/commands";
 import { FactoryHost } from "./core/FactoryHost";
-import { FrameClock } from "./core/frameClock";
+import { FrameClock, SIMULATION_TICKS_PER_SECOND } from "./core/frameClock";
 import { nextAction } from "./core/guidance";
 import { BoundedInputQueue, MOVEMENT_KEYS, movementIntent } from "./core/input";
 import {
@@ -182,14 +182,14 @@ const PANEL_KEYS: Record<string, string> = {
  */
 const SILENT_EVENTS = new Set(["action cooling down"]);
 const canvas = required<HTMLCanvasElement>("factory-canvas");
-const playButton = required<HTMLButtonElement>("play");
 const soundButton = required<HTMLButtonElement>("sound");
 const muteInput = required<HTMLInputElement>("mute");
 const reduceMotionInput = required<HTMLInputElement>("reduce-motion");
 const graphicsProfileInput = required<HTMLSelectElement>("graphics-profile");
 /** Comfort settings are preferences about a room, so they live beside the hotbar, not in a save. */
 const MOTION_KEY = "hexfactory:reduced-motion:v1";
-const speedInput = required<HTMLSelectElement>("speed");
+required<HTMLElement>("simulation-rate").textContent =
+  `Simulation: ${SIMULATION_TICKS_PER_SECOND} ticks per second`;
 const scenarioInput = required<HTMLSelectElement>("scenario");
 const seedInput = required<HTMLInputElement>("seed");
 const saveNameInput = required<HTMLInputElement>("save-name");
@@ -300,7 +300,6 @@ let selectedSaveId: string | null = null;
  * entry rather than scattering across "Auto-save" plus whatever the player typed later.
  */
 let runName = AUTOSAVE_SLOT_NAME;
-let playing = true;
 let tool: Tool = "inspect";
 let orientation = 0;
 let selected: { q: number; r: number } | null = null;
@@ -323,10 +322,8 @@ const AUTOSAVE_INTERVAL_MS = 60_000;
 /**
  * The run clock, and the time it has counted.
  *
- * `runElapsedMs` accrues only while the factory is live and the title screen is closed, which makes
- * it in-game time rather than wall time. That is the convention a run should be measured in — a
- * player who opened the menu to read a recipe did not spend that time playing, and a clock that
- * charged them for it would make every comparison a test of how fast someone reads.
+ * `runElapsedMs` accrues whenever the factory does. Since the factory cannot be paused, excluding a
+ * menu interval would make the report claim less time than the corresponding native ticks consumed.
  */
 let run: RunTimings | null = null;
 let runElapsedMs = 0;
@@ -578,7 +575,7 @@ function evaluateRun(next: FactorySnapshot): void {
 /** Start the clock over. A fresh scenario is a fresh run; nothing else may reset it silently. */
 function beginRun(next: FactorySnapshot): void {
   runElapsedMs = 0;
-  run = startRun(Date.now(), next.tick, Number(speedInput.value));
+  run = startRun(Date.now(), next.tick);
   writeRun(localStorage, run);
   renderRun();
 }
@@ -2511,18 +2508,6 @@ function loadReducedMotion(): boolean {
   }
 }
 
-function setPlaying(value: boolean): void {
-  playing = value;
-  part(playButton, ".utility-icon").textContent = playing ? "Ⅱ" : "▶";
-  part(playButton, ".utility-label").textContent = playing ? "Pause" : "Play";
-  playButton.setAttribute("aria-pressed", String(playing));
-  playButton.setAttribute(
-    "aria-label",
-    playing ? "Pause simulation" : "Play simulation",
-  );
-  playButton.title = playing ? "Pause simulation (T)" : "Play simulation (T)";
-}
-
 function syncSessionInputs(next: FactorySnapshot): void {
   scenarioInput.value = next.scenario;
   showTitleScenario(next.scenario);
@@ -2607,7 +2592,6 @@ async function flushHoverPreview(): Promise<void> {
   previewPending = false;
 }
 
-playButton.addEventListener("click", () => setPlaying(!playing));
 soundButton.addEventListener("click", () => setMuted(!audio.isMuted));
 muteInput.addEventListener("change", () => setMuted(muteInput.checked));
 reduceMotionInput.addEventListener("change", () =>
@@ -2628,10 +2612,6 @@ required<HTMLButtonElement>("research-scope").addEventListener("click", () => {
 required<HTMLButtonElement>("build-scope").addEventListener("click", () => {
   showAllBuildings = !showAllBuildings;
   renderBuildPanel();
-});
-required<HTMLButtonElement>("step").addEventListener("click", () => {
-  setPlaying(false);
-  void host.tick(1).then(update).catch(reportWorkerError);
 });
 required<HTMLButtonElement>("reset").addEventListener("click", () => {
   input.clear();
@@ -2990,7 +2970,6 @@ function openTitleScreen(): void {
   // make the obvious next click overwrite the save the player just walked away from.
   titleSaveNameInput.value = "";
   showCreativeNote();
-  setPlaying(false);
   updateContinueState();
   // The panels are built at boot but only raster while they are on screen, so opening the screen is
   // the moment the first picture can be drawn.
@@ -3002,7 +2981,6 @@ function closeTitleScreen(): void {
   titleResume.hidden = false;
   setTitleOpen(false);
   canvas.focus();
-  setPlaying(true);
 }
 
 function switchTitleTab(tab: "saves" | "new"): void {
@@ -3104,7 +3082,6 @@ required<HTMLButtonElement>("new-game").addEventListener("click", async () => {
     update(next);
     syncSessionInputs(next);
     renderer.recenter();
-    setPlaying(true);
     closePanels();
   } catch (error) {
     reportWorkerError(error);
@@ -3137,15 +3114,6 @@ creativeItems.addEventListener("click", (event) => {
   enqueue({ type: "grant", item_id, quantity });
 });
 
-// Ticks bought at a different price are a different run. The clock keeps counting either way; it
-// just stops claiming the result can be compared against one that did not move the slider.
-speedInput.addEventListener("change", () => {
-  if (!run || Number(speedInput.value) === run.startedSpeed) return;
-  run = taintRun(run, "speed-changed");
-  writeRun(localStorage, run);
-  renderRun();
-});
-
 required<HTMLButtonElement>("run-copy").addEventListener("click", async () => {
   const status = required<HTMLElement>("run-status");
   if (!run) {
@@ -3165,7 +3133,7 @@ required<HTMLButtonElement>("run-copy").addEventListener("click", async () => {
 
 required<HTMLButtonElement>("run-reset").addEventListener("click", () => {
   runElapsedMs = 0;
-  run = startRun(Date.now(), snapshot.tick, Number(speedInput.value));
+  run = startRun(Date.now(), snapshot.tick);
   writeRun(localStorage, run);
   renderRun();
   required<HTMLElement>("run-status").textContent = "Timer reset.";
@@ -3490,11 +3458,10 @@ window.addEventListener("keydown", (event) => {
     closePanels();
   }
   // Space centres the camera, which is what the button beside it does and what a player who has
-  // panned away needs most. Pause moved to T rather than fighting it for the key.
+  // panned away needs most.
   else if (event.code === "Space") renderer.recenter();
   else if (event.code === "Comma") orbitView(-1);
   else if (event.code === "Period") orbitView(1);
-  else if (event.code === "KeyT") setPlaying(!playing);
   else if (event.code === "KeyM") setMuted(!audio.isMuted);
   else if (event.code in PANEL_KEYS)
     togglePanel(PANEL_KEYS[event.code] as string);
@@ -4022,8 +3989,6 @@ function renderTerrainLegend(): void {
 
 function frame(now: number): void {
   const budget = frameClock.update(now, {
-    playing,
-    speed: Number(speedInput.value),
     // Player time accrues only while the player has work. A standing walk goal is work: nobody is
     // holding a key while native steers, so without this the route would be planned, drawn, and
     // then never walked.
@@ -4033,10 +3998,8 @@ function frame(now: number): void {
       snapshot.player.walk_goal !== null,
     playerTicksPerSecond: host.playerTicksPerSecond,
   });
-  // In-game time: the run clock stops with the factory and behind the title screen, so reading a
-  // recipe with the game paused costs a player nothing.
-  if (run && playing && !titleScreen.classList.contains("open"))
-    runElapsedMs += budget.elapsed;
+  // The timer and simulation share the same real-time interval; neither has a player pause state.
+  if (run) runElapsedMs += budget.elapsed;
   if (!advancePending) {
     // A held gather repeats at frame rate and is paced natively by the swing already running, so
     // the player holds the key instead of tapping it once per unit. A held right-click is the same
@@ -4068,7 +4031,6 @@ function frame(now: number): void {
     }
   }
   if (
-    playing &&
     !titleScreen.classList.contains("open") &&
     now - lastAutoSaveTime >= AUTOSAVE_INTERVAL_MS
   ) {
@@ -4076,8 +4038,8 @@ function frame(now: number): void {
     void triggerAutoSave();
   }
   renderer.setGathering(gatherHeld || harvestPointer !== null);
-  // An orbit sweep slides the world under a stationary pointer for as long as it runs, and a paused
-  // factory sends no snapshot to re-sync against, so the highlight is re-read here until it lands.
+  // An orbit sweep slides the world under a stationary pointer, so the highlight is re-read until
+  // the camera lands even when no simulation snapshot arrived during that frame.
   if (renderer.cameraSettling) syncHoverWithCamera();
   renderer.renderFrame(now);
   requestAnimationFrame(frame);
@@ -4563,7 +4525,6 @@ function titleCase(value: string): string {
 }
 
 function reportWorkerError(error: unknown): void {
-  setPlaying(false);
   showFeedback(`Simulation worker error: ${String(error)}`);
 }
 
@@ -4578,8 +4539,8 @@ function closePanels(except?: HTMLElement): void {
 
 /*
  * A dropdown holds the keys while it is being used, because arrow keys and letters are how an
- * option is chosen. It hands them straight back once a choice is made, so picking a speed or a
- * recipe never leaves the player unable to walk.
+ * option is chosen. It hands them straight back once a choice is made, so picking a recipe never
+ * leaves the player unable to walk.
  */
 document.addEventListener("change", (event) => {
   if (event.target instanceof HTMLSelectElement) event.target.blur();
@@ -4682,7 +4643,6 @@ window.__hexFactory = {
     report: run ? formatRunReport(run) : "",
   }),
   step: async (count = 1) => {
-    setPlaying(false);
     const next = await host.tick(count);
     update(next);
     return next;

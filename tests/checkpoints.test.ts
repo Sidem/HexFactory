@@ -44,7 +44,7 @@ function memoryStorage(): StorageLike {
 
 describe("opening checkpoints", () => {
   it("latches the first iron and keeps it after the ore is spent", () => {
-    let run = startRun(0, 0, 10);
+    let run = startRun(0, 0);
     const gathered = recordCheckpoints(
       run,
       context({ tick: 40, carried: { ore: 1 } }),
@@ -65,7 +65,7 @@ describe("opening checkpoints", () => {
   });
 
   it("does not count a built extractor until it is actually producing", () => {
-    const run = startRun(0, 0, 10);
+    const run = startRun(0, 0);
     const brownout = recordCheckpoints(
       run,
       context({
@@ -103,7 +103,7 @@ describe("opening checkpoints", () => {
     // `extracting` is published only while progress is above zero, so a working extractor shows one
     // idle frame per cadence. A blocked one has already produced, which is the same proof.
     const result = recordCheckpoints(
-      startRun(0, 0, 10),
+      startRun(0, 0),
       context({
         buildings: [
           {
@@ -120,7 +120,7 @@ describe("opening checkpoints", () => {
   });
 
   it("requires a composer to be powered, not merely placed", () => {
-    const run = startRun(0, 0, 10);
+    const run = startRun(0, 0);
     const placed = recordCheckpoints(
       run,
       context({
@@ -134,7 +134,7 @@ describe("opening checkpoints", () => {
   });
 
   it("records every checkpoint the same snapshot satisfies at once", () => {
-    const run = startRun(0, 0, 10);
+    const run = startRun(0, 0);
     const result = recordCheckpoints(
       run,
       context({
@@ -164,7 +164,7 @@ describe("opening checkpoints", () => {
   });
 
   it("keeps taints unique so a report names a reason once", () => {
-    let run = startRun(0, 0, 10);
+    let run = startRun(0, 0);
     run = taintRun(run, "speed-changed");
     run = taintRun(run, "speed-changed");
     run = taintRun(run, "loaded-save");
@@ -173,6 +173,10 @@ describe("opening checkpoints", () => {
 });
 
 describe("run reporting", () => {
+  it("starts every new report at the game's fixed simulation rate", () => {
+    expect(startRun(0, 0).startedSpeed).toBe(10);
+  });
+
   it("formats elapsed time as minutes and tenths", () => {
     expect(formatElapsed(0)).toBe("0:00.0");
     expect(formatElapsed(9_400)).toBe("0:09.4");
@@ -180,7 +184,7 @@ describe("run reporting", () => {
   });
 
   it("reports splits between consecutive checkpoints", () => {
-    let run = startRun(0, 0, 10);
+    let run = startRun(0, 0);
     run = recordCheckpoints(run, context({ carried: { ore: 1 } }), 10_000).run;
     run = recordCheckpoints(run, context({ researchedCount: 1 }), 25_000).run;
     const splits = splitDurations(run);
@@ -190,7 +194,7 @@ describe("run reporting", () => {
   });
 
   it("leads a tainted report with the reason it cannot be compared", () => {
-    let run = startRun(Date.UTC(2026, 0, 1), 0, 30);
+    let run = startRun(Date.UTC(2026, 0, 1), 0);
     run = taintRun(run, "speed-changed");
     const report = formatRunReport(run);
     expect(report).toContain("NOT COMPARABLE");
@@ -203,7 +207,7 @@ describe("run reporting", () => {
 describe("run storage", () => {
   it("round-trips a run", () => {
     const storage = memoryStorage();
-    let run = startRun(1_000, 5, 10);
+    let run = startRun(1_000, 5);
     run = recordCheckpoints(run, context({ carried: { ore: 1 } }), 3_000).run;
     writeRun(storage, run);
     expect(readRun(storage)).toEqual(run);

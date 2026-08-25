@@ -1,9 +1,10 @@
 export interface FrameClockState {
-  playing: boolean;
-  speed: number;
   playerActive: boolean;
   playerTicksPerSecond: number;
 }
+
+/** One real-time simulation rate. It is a rule of the game, not a player preference. */
+export const SIMULATION_TICKS_PER_SECOND = 10;
 
 export interface FrameAdvance {
   elapsed: number;
@@ -13,7 +14,7 @@ export interface FrameAdvance {
 
 /**
  * Converts elapsed real time into the two bounded native clocks without inventing game state.
- * Factory time scales and pauses; player time does neither and accrues only while it has work.
+ * Factory time always advances at the game's fixed rate; player time accrues only while it has work.
  */
 export class FrameClock {
   private previousTime: number;
@@ -27,15 +28,13 @@ export class FrameClock {
   update(now: number, state: FrameClockState): FrameAdvance {
     const elapsed = Math.min(250, Math.max(0, now - this.previousTime));
     this.previousTime = now;
-    if (state.playing) this.factoryAccumulator += elapsed * state.speed;
+    this.factoryAccumulator += elapsed * SIMULATION_TICKS_PER_SECOND;
     if (state.playerActive)
       this.playerAccumulator += elapsed * state.playerTicksPerSecond;
     else this.playerAccumulator = 0;
     return {
       elapsed,
-      ticks: state.playing
-        ? Math.min(20, Math.floor(this.factoryAccumulator / 1000))
-        : 0,
+      ticks: Math.min(20, Math.floor(this.factoryAccumulator / 1000)),
       playerSteps: Math.min(20, Math.floor(this.playerAccumulator / 1000)),
     };
   }

@@ -146,18 +146,18 @@ Data or fixture; inspect keys before loading the full file.
 
 Data or fixture; inspect keys before loading the full file.
 
-### `src/main.ts` — 4712 lines / 171.2 KiB
+### `src/main.ts` — 4672 lines / 169.6 KiB
 
-- currentBuild:125, loadHotbar:481, sanitiseSlot:509, saveHotbar:517, checkpointContext:532, evaluateRun:562, beginRun:579, renderRun:586, update:631, refreshLandingHub:716, syncStandingSelection:734, renderHomeReadout:753
-- sameCarry:773, itemById:788, paintChip:802, renderInventory:821, renderCreative:902, renderHotbarSlots:1000, assignHotbarSlot:1075, pinToHotbar:1088, renderHotbar:1112, catalogueVisible:1139, renderBuildPanel:1149, createBuildCard:1195
-- heldOrientationFor:1223, fillBuildCard:1227, renderIngredientRow:1298, fillIngredients:1329, renderCardRecipes:1365, describeRecipe:1410, technologyReach:1437, visibleTechnologies:1473, renderTechnologies:1483, paintHexFace:1555, setMeter:1566, setItemGlyph:1581
-- renderTransferRows:1624, renderInspectorActions:1717, renderInspectorLoad:1737, acceptsByHand:1767, renderInspector:1800, renderInspectorHub:2013, renderInspectorSwitch:2147, renderInspectorTier:2172, costSummary:2217, recipeChoices:2229, fillRecipeOptions:2238, renderInspectorRecipe:2261
-- renderRecipePicker:2284, renderContract:2306, renderRequests:2399, renderNextAction:2444, showFeedback:2452, setMuted:2468, setReducedMotion:2484, setGraphicsProfile:2495, loadReducedMotion:2506, setPlaying:2514, syncSessionInputs:2526, selectTool:2536
-- enqueue:2550, refreshHoverPreview:2557, syncHoverWithCamera:2568, flushHoverPreview:2576, previewItemLook:2729, previewSeed:2767, requestWorldPreview:2784, drawWorldPreview:2791, titleScenarioKey:2856, showTitleScenario:2863, applyPreviewRepair:2873, showWorldParams:2884
-- syncWorldInputs:2916, setRunName:2961, showCreativeNote:2970, setTitleOpen:2981, openTitleScreen:2985, closeTitleScreen:3000, switchTitleTab:3008, currentMovementIntent:3445, orbitView:3451, draggableTool:3749, recipeFor:3761, refreshDragPreview:3778
-- endDrag:3808, rotateUnderCursorOrPending:3822, pickToolUnderCursor:3839, buildingAt:3859, setOrientation:3868, orientationRange:3892, orientationAllowed:3914, rotateNewBuilding:3934, stopAiming:3954, sendAim:3971, togglePanel:3991, renderTerrainLegend:4003
-- frame:4023, triggerAutoSave:4086, updateContinueState:4131, renderSaveSlots:4179, renderTitleSaveSlots:4183, paintSaveSlotList:4192, loadSlot:4253, handleSaveSlotClick:4280, downloadTextFile:4329, exportTextFile:4357, exportSlotFile:4396, exportCurrentSave:4407
-- exportAllSaves:4424, openSaveFilePicker:4445, importSaveFiles:4450, isTypingTarget:4515, isKeyboardFocusedControl:4530, isPointerActivatedControl:4540, titleCase:4561, reportWorkerError:4565, closePanels:4575
+- currentBuild:125, loadHotbar:478, sanitiseSlot:506, saveHotbar:514, checkpointContext:529, evaluateRun:559, beginRun:576, renderRun:583, update:628, refreshLandingHub:713, syncStandingSelection:731, renderHomeReadout:750
+- sameCarry:770, itemById:785, paintChip:799, renderInventory:818, renderCreative:899, renderHotbarSlots:997, assignHotbarSlot:1072, pinToHotbar:1085, renderHotbar:1109, catalogueVisible:1136, renderBuildPanel:1146, createBuildCard:1192
+- heldOrientationFor:1220, fillBuildCard:1224, renderIngredientRow:1295, fillIngredients:1326, renderCardRecipes:1362, describeRecipe:1407, technologyReach:1434, visibleTechnologies:1470, renderTechnologies:1480, paintHexFace:1552, setMeter:1563, setItemGlyph:1578
+- renderTransferRows:1621, renderInspectorActions:1714, renderInspectorLoad:1734, acceptsByHand:1764, renderInspector:1797, renderInspectorHub:2010, renderInspectorSwitch:2144, renderInspectorTier:2169, costSummary:2214, recipeChoices:2226, fillRecipeOptions:2235, renderInspectorRecipe:2258
+- renderRecipePicker:2281, renderContract:2303, renderRequests:2396, renderNextAction:2441, showFeedback:2449, setMuted:2465, setReducedMotion:2481, setGraphicsProfile:2492, loadReducedMotion:2503, syncSessionInputs:2511, selectTool:2521, enqueue:2535
+- refreshHoverPreview:2542, syncHoverWithCamera:2553, flushHoverPreview:2561, previewItemLook:2709, previewSeed:2747, requestWorldPreview:2764, drawWorldPreview:2771, titleScenarioKey:2836, showTitleScenario:2843, applyPreviewRepair:2853, showWorldParams:2864, syncWorldInputs:2896
+- setRunName:2941, showCreativeNote:2950, setTitleOpen:2961, openTitleScreen:2965, closeTitleScreen:2979, switchTitleTab:2986, currentMovementIntent:3413, orbitView:3419, draggableTool:3716, recipeFor:3728, refreshDragPreview:3745, endDrag:3775
+- rotateUnderCursorOrPending:3789, pickToolUnderCursor:3806, buildingAt:3826, setOrientation:3835, orientationRange:3859, orientationAllowed:3881, rotateNewBuilding:3901, stopAiming:3921, sendAim:3938, togglePanel:3958, renderTerrainLegend:3970, frame:3990
+- triggerAutoSave:4048, updateContinueState:4093, renderSaveSlots:4141, renderTitleSaveSlots:4145, paintSaveSlotList:4154, loadSlot:4215, handleSaveSlotClick:4242, downloadTextFile:4291, exportTextFile:4319, exportSlotFile:4358, exportCurrentSave:4369, exportAllSaves:4386
+- openSaveFilePicker:4407, importSaveFiles:4412, isTypingTarget:4477, isKeyboardFocusedControl:4492, isPointerActivatedControl:4502, titleCase:4523, reportWorkerError:4527, closePanels:4536
 
 ### `src/vite-env.d.ts` — 2 lines / 0.0 KiB
 
@@ -190,10 +190,10 @@ Data or fixture; inspect keys before loading the full file.
 
 - CostLine:16, BuildAvailability:24, heldQuantity:33, costLines:41, costAt:64, buildingAvailability:73, technologyAvailability:106
 
-### `src/core/checkpoints.ts` — 321 lines / 11.7 KiB
+### `src/core/checkpoints.ts` — 316 lines / 11.6 KiB
 
-- CheckpointContext:20, CheckpointBuilding:30, CheckpointDefinition:43, CheckpointRecord:51, RunTaint:62, RunTimings:64, RUN_STORAGE_KEY:74, OPENING_CHECKPOINTS:83, startRun:135, taintRun:150, recordCheckpoints:162, isRunComplete:183
-- formatElapsed:191, formatRunReport:203, taintReason:234, readRun:250, writeRun:289, clearRun:293, splitDurations:301
+- CheckpointContext:19, CheckpointBuilding:29, CheckpointDefinition:42, CheckpointRecord:50, RunTaint:62, RunTimings:64, RUN_STORAGE_KEY:74, OPENING_CHECKPOINTS:83, startRun:135, taintRun:146, recordCheckpoints:158, isRunComplete:179
+- formatElapsed:187, formatRunReport:198, taintReason:229, readRun:245, writeRun:284, clearRun:288, splitDurations:296
 
 ### `src/core/commands.ts` — 147 lines / 5.0 KiB
 
@@ -211,9 +211,9 @@ Data or fixture; inspect keys before loading the full file.
 
 - handle:53, requireFactory:177, delta:190, optionalNumber:201, worldParamsJson:209
 
-### `src/core/frameClock.ts` — 48 lines / 1.3 KiB
+### `src/core/frameClock.ts` — 47 lines / 1.4 KiB
 
-- FrameClockState:1, FrameAdvance:8, FrameClock:18
+- FrameClockState:1, SIMULATION_TICKS_PER_SECOND:7, FrameAdvance:9, FrameClock:19
 
 ### `src/core/guidance.ts` — 368 lines / 14.3 KiB
 
@@ -403,7 +403,7 @@ Data or fixture; inspect keys before loading the full file.
 
 Data or fixture; inspect keys before loading the full file.
 
-### `tests/checkpoints.test.ts` — 240 lines / 6.8 KiB
+### `tests/checkpoints.test.ts` — 244 lines / 6.9 KiB
 
 - context:19, memoryStorage:32
 
@@ -415,7 +415,7 @@ Data or fixture; inspect keys before loading the full file.
 
 - angle:22
 
-### `tests/frameClock.test.ts` — 59 lines / 1.5 KiB
+### `tests/frameClock.test.ts` — 49 lines / 1.3 KiB
 
 Data or fixture; inspect keys before loading the full file.
 
@@ -423,9 +423,9 @@ Data or fixture; inspect keys before loading the full file.
 
 - shippedScenario:29, boardFor:50, snapshotAt:78
 
-### `tests/host.test.ts` — 1563 lines / 60.9 KiB
+### `tests/host.test.ts` — 1567 lines / 61.0 KiB
 
-- fakeTransport:1531
+- fakeTransport:1535
 
 ### `tests/look.test.ts` — 431 lines / 17.1 KiB
 
