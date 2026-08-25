@@ -831,7 +831,8 @@
             <p class="save-help">
               Named saves remember the world you started and the build that
               wrote them. An older run stays in the list; if this version cannot
-              load it, the row says why.
+              load it, the row says why. Export writes a file you can keep
+              outside this browser; Import reads that file back into the list.
             </p>
             <label
               >Save name<input
@@ -846,6 +847,10 @@
               <button id="save" type="button">Save</button
               ><button id="continue" type="button">Continue</button
               ><button id="session-main-menu" type="button">Main menu</button>
+            </div>
+            <div class="session-actions">
+              <button id="export-save" type="button">Export</button
+              ><button id="import-save" type="button">Import file</button>
             </div>
             <p id="save-status" class="save-status" role="status">
               No local save yet.
@@ -1246,8 +1251,18 @@
                   <div class="title-view-header">
                     <h3>Saved games</h3>
                     <p id="title-saves-note" class="title-view-note">
-                      Pick a saved factory run to restore or delete.
+                      Saves live in this browser until you export them. An
+                      exported file can be imported here on this machine or
+                      another.
                     </p>
+                    <div class="title-save-file-actions">
+                      <button id="title-import-saves" type="button">
+                        Import file
+                      </button>
+                      <button id="title-export-saves" type="button">
+                        Export all
+                      </button>
+                    </div>
                   </div>
                   <ul
                     id="title-save-slots"
@@ -1427,6 +1442,13 @@
         </section>
       </section>
     </main>
+    <input
+      id="save-file-input"
+      type="file"
+      accept=".hxf1,.json,text/plain,application/json"
+      multiple
+      hidden
+    />
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

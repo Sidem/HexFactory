@@ -17,6 +17,11 @@ import {
   SAVE_VERSION,
   slotFromPayload,
   uniqueSlotName,
+  catalogDocument,
+  CATALOG_DOWNLOAD_NAME,
+  fileStem,
+  saveFileName,
+  slotsFromFileText,
   type CurrentBuild,
   type StorageLike,
   writeCatalog,
@@ -251,6 +256,102 @@ describe("catalog", () => {
     const slot = slotFromPayload(payload, "Hills", build)!;
     expect(formatConfig(slot.config)).toBe(
       "New game · seed 7 · custom (land 40, sea 1000)",
+    );
+  });
+});
+
+describe("desktop save files", () => {
+  it("turns a slot name into a file name a desktop will accept", () => {
+    expect(saveFileName("Landing run")).toBe("Landing run.hxf1");
+    expect(saveFileName("Foo/bar:baz*qux")).toBe("Foo bar baz qux.hxf1");
+    expect(saveFileName("  trailing.  ")).toBe("trailing.hxf1");
+    expect(saveFileName("   ")).toBe("hexfactory-save.hxf1");
+    expect(fileStem("C:\\\\Downloads\\\\Landing run.hxf1")).toBe("Landing run");
+    expect(CATALOG_DOWNLOAD_NAME).toBe("hexfactory-saves.json");
+  });
+
+  it("round-trips one HXF1 file, including a BOM and a Windows line ending", () => {
+    const payload = envelope();
+    const fromNative = slotsFromFileText(payload, build, {
+      fileName: "Landing run.hxf1",
+      now: 50,
+    });
+    expect(fromNative.error).toBeUndefined();
+    expect(fromNative.slots).toHaveLength(1);
+    expect(fromNative.slots[0]?.name).toBe("Landing run");
+    expect(fromNative.slots[0]?.payload).toBe(payload);
+
+    const withBom = slotsFromFileText(`\uFEFF${payload}`, build, {
+      fileName: "download.hxf1",
+      now: 50,
+    });
+    expect(withBom.slots[0]?.name).toMatch(/^New game · /);
+    expect(withBom.slots[0]?.payload.startsWith(HXF1_PREFIX)).toBe(true);
+
+    const crlf = payload.replace("HXF1\n", "HXF1\r\n");
+    const fromWindows = slotsFromFileText(crlf, build, {
+      fileName: "Hills.hxf1",
+      now: 50,
+    });
+    expect(fromWindows.slots[0]?.name).toBe("Hills");
+    expect(parseHxf1(fromWindows.slots[0]!.payload)?.seed).toBe(1213486160);
+  });
+
+  it("imports the catalog JSON the browser already stores, skipping broken rows", () => {
+    const good = slotFromPayload(envelope(), "Landing", build, 1000, "a")!;
+    const document = catalogDocument([
+      good,
+      { name: "gone" } as unknown as typeof good,
+    ]);
+    const imported = slotsFromFileText(document, build, {
+      fileName: "hexfactory-saves.json",
+      now: 2000,
+    });
+    expect(imported.slots).toHaveLength(1);
+    expect(imported.slots[0]?.name).toBe("Landing");
+    expect(imported.slots[0]?.savedAt).toBe(1000);
+    expect(imported.slots[0]?.id).not.toBe("a");
+  });
+
+  it("keeps a name that would not fit a file stem when the JSON wraps the payload", () => {
+    const payload = envelope();
+    const imported = slotsFromFileText(
+      JSON.stringify({ name: "North / West", payload, savedAt: 9 }),
+      build,
+      { fileName: "hexfactory-save.hxf1", now: 1 },
+    );
+    expect(imported.slots[0]?.name).toBe("North / West");
+    expect(imported.slots[0]?.savedAt).toBe(9);
+  });
+
+  it("reads a bare envelope body that lost the HXF1 marker", () => {
+    const body = JSON.stringify({
+      save_version: SAVE_VERSION,
+      world_generator_version: 6,
+      definition_version: 10,
+      technology_version: 5,
+      scenario_key: "new-game",
+      scenario_version: 5,
+      checksum: 1,
+      state: { seed: 7, world_params: continental },
+    });
+    const imported = slotsFromFileText(body, build, {
+      fileName: "untitled.json",
+      now: 1,
+    });
+    expect(imported.slots[0]?.config.seed).toBe(7);
+  });
+
+  it("refuses empty and unrelated files rather than inventing a slot", () => {
+    expect(slotsFromFileText("", build).error).toBe("The file is empty.");
+    expect(slotsFromFileText("{}\n", build).error).toBe(
+      "The file is not a HexFactory save.",
+    );
+    expect(slotsFromFileText('{"slots":[]}', build).error).toBe(
+      "The file does not contain a save.",
+    );
+    expect(slotsFromFileText("not a save", build).error).toBe(
+      "The file is not a HexFactory save.",
     );
   });
 });

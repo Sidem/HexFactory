@@ -146,17 +146,18 @@ Data or fixture; inspect keys before loading the full file.
 
 Data or fixture; inspect keys before loading the full file.
 
-### `src/main.ts` — 4563 lines / 168.2 KiB
+### `src/main.ts` — 4712 lines / 171.2 KiB
 
-- currentBuild:121, loadHotbar:476, sanitiseSlot:504, saveHotbar:512, checkpointContext:527, evaluateRun:557, beginRun:574, renderRun:581, update:626, refreshLandingHub:711, syncStandingSelection:729, renderHomeReadout:748
-- sameCarry:768, itemById:783, paintChip:797, renderInventory:816, renderCreative:897, renderHotbarSlots:995, assignHotbarSlot:1070, pinToHotbar:1083, renderHotbar:1107, catalogueVisible:1134, renderBuildPanel:1144, createBuildCard:1190
-- heldOrientationFor:1218, fillBuildCard:1222, renderIngredientRow:1293, fillIngredients:1324, renderCardRecipes:1360, describeRecipe:1405, technologyReach:1432, visibleTechnologies:1468, renderTechnologies:1478, paintHexFace:1550, setMeter:1561, setItemGlyph:1576
-- renderTransferRows:1619, renderInspectorActions:1712, renderInspectorLoad:1732, acceptsByHand:1762, renderInspector:1795, renderInspectorHub:2008, renderInspectorSwitch:2142, renderInspectorTier:2167, costSummary:2212, recipeChoices:2224, fillRecipeOptions:2233, renderInspectorRecipe:2256
-- renderRecipePicker:2279, renderContract:2301, renderRequests:2394, renderNextAction:2439, showFeedback:2447, setMuted:2463, setReducedMotion:2479, setGraphicsProfile:2490, loadReducedMotion:2501, setPlaying:2509, syncSessionInputs:2521, selectTool:2531
-- enqueue:2545, refreshHoverPreview:2552, syncHoverWithCamera:2563, flushHoverPreview:2571, previewItemLook:2724, previewSeed:2762, requestWorldPreview:2779, drawWorldPreview:2786, titleScenarioKey:2851, showTitleScenario:2858, applyPreviewRepair:2868, showWorldParams:2879
-- syncWorldInputs:2911, setRunName:2956, showCreativeNote:2965, setTitleOpen:2976, openTitleScreen:2980, closeTitleScreen:2995, switchTitleTab:3003, currentMovementIntent:3419, orbitView:3425, draggableTool:3723, recipeFor:3735, refreshDragPreview:3752
-- endDrag:3782, rotateUnderCursorOrPending:3796, pickToolUnderCursor:3813, buildingAt:3833, setOrientation:3842, orientationRange:3866, orientationAllowed:3888, rotateNewBuilding:3908, stopAiming:3928, sendAim:3945, togglePanel:3965, renderTerrainLegend:3977
-- frame:3997, triggerAutoSave:4060, updateContinueState:4105, renderSaveSlots:4153, renderTitleSaveSlots:4207, loadSlot:4261, isTypingTarget:4366, isKeyboardFocusedControl:4381, isPointerActivatedControl:4391, titleCase:4412, reportWorkerError:4416, closePanels:4426
+- currentBuild:125, loadHotbar:481, sanitiseSlot:509, saveHotbar:517, checkpointContext:532, evaluateRun:562, beginRun:579, renderRun:586, update:631, refreshLandingHub:716, syncStandingSelection:734, renderHomeReadout:753
+- sameCarry:773, itemById:788, paintChip:802, renderInventory:821, renderCreative:902, renderHotbarSlots:1000, assignHotbarSlot:1075, pinToHotbar:1088, renderHotbar:1112, catalogueVisible:1139, renderBuildPanel:1149, createBuildCard:1195
+- heldOrientationFor:1223, fillBuildCard:1227, renderIngredientRow:1298, fillIngredients:1329, renderCardRecipes:1365, describeRecipe:1410, technologyReach:1437, visibleTechnologies:1473, renderTechnologies:1483, paintHexFace:1555, setMeter:1566, setItemGlyph:1581
+- renderTransferRows:1624, renderInspectorActions:1717, renderInspectorLoad:1737, acceptsByHand:1767, renderInspector:1800, renderInspectorHub:2013, renderInspectorSwitch:2147, renderInspectorTier:2172, costSummary:2217, recipeChoices:2229, fillRecipeOptions:2238, renderInspectorRecipe:2261
+- renderRecipePicker:2284, renderContract:2306, renderRequests:2399, renderNextAction:2444, showFeedback:2452, setMuted:2468, setReducedMotion:2484, setGraphicsProfile:2495, loadReducedMotion:2506, setPlaying:2514, syncSessionInputs:2526, selectTool:2536
+- enqueue:2550, refreshHoverPreview:2557, syncHoverWithCamera:2568, flushHoverPreview:2576, previewItemLook:2729, previewSeed:2767, requestWorldPreview:2784, drawWorldPreview:2791, titleScenarioKey:2856, showTitleScenario:2863, applyPreviewRepair:2873, showWorldParams:2884
+- syncWorldInputs:2916, setRunName:2961, showCreativeNote:2970, setTitleOpen:2981, openTitleScreen:2985, closeTitleScreen:3000, switchTitleTab:3008, currentMovementIntent:3445, orbitView:3451, draggableTool:3749, recipeFor:3761, refreshDragPreview:3778
+- endDrag:3808, rotateUnderCursorOrPending:3822, pickToolUnderCursor:3839, buildingAt:3859, setOrientation:3868, orientationRange:3892, orientationAllowed:3914, rotateNewBuilding:3934, stopAiming:3954, sendAim:3971, togglePanel:3991, renderTerrainLegend:4003
+- frame:4023, triggerAutoSave:4086, updateContinueState:4131, renderSaveSlots:4179, renderTitleSaveSlots:4183, paintSaveSlotList:4192, loadSlot:4253, handleSaveSlotClick:4280, downloadTextFile:4329, exportTextFile:4357, exportSlotFile:4396, exportCurrentSave:4407
+- exportAllSaves:4424, openSaveFilePicker:4445, importSaveFiles:4450, isTypingTarget:4515, isKeyboardFocusedControl:4530, isPointerActivatedControl:4540, titleCase:4561, reportWorkerError:4565, closePanels:4575
 
 ### `src/vite-env.d.ts` — 2 lines / 0.0 KiB
 
@@ -222,12 +223,13 @@ Data or fixture; inspect keys before loading the full file.
 
 - MAX_INPUT_COMMANDS:3, MOVEMENT_KEYS:4, WALK_SCALE:20, movementIntent:22, BoundedInputQueue:58
 
-### `src/core/saveSlots.ts` — 489 lines / 14.5 KiB
+### `src/core/saveSlots.ts` — 648 lines / 19.3 KiB
 
-- SAVE_VERSION:14, SAVE_CATALOG_KEY:15, LEGACY_SAVE_PREFIX:16, HXF1_PREFIX:17, AUTOSAVE_SLOT_NAME:18, StorageLike:20, GameVersions:28, RememberedConfig:36, SaveSlot:46, VersionMismatch:57, SlotCompatibility:63, CatalogScenario:68
-- CatalogPreset:74, CurrentBuild:80, ParsedEnvelope:86, CatalogRead:97, parseHxf1:104, compatibility:145, describeMismatches:185, configFromEnvelope:196, slotFromPayload:220, defaultSaveName:247, formatSavedAt:260, formatConfig:267
-- formatVersions:276, readCatalog:280, writeCatalog:299, upsertSlot:306, replaceNamedSlot:314, uniqueSlotName:333, removeSlot:344, latestCompatible:348, slotsNewestFirst:360, importLegacySlots:368, newSaveId:404, legacyName:408
-- asSlot:412, asVersions:435, asConfig:454, isRecord:471, asUint:475, asString:481, capitalize:485
+- SAVE_VERSION:16, SAVE_CATALOG_KEY:17, LEGACY_SAVE_PREFIX:18, HXF1_PREFIX:19, AUTOSAVE_SLOT_NAME:20, SAVE_FILE_SUFFIX:22, CATALOG_DOWNLOAD_NAME:23, StorageLike:25, GameVersions:33, RememberedConfig:41, SaveSlot:51, VersionMismatch:62
+- SlotCompatibility:68, CatalogScenario:73, CatalogPreset:79, CurrentBuild:85, ParsedEnvelope:91, CatalogRead:102, FileImport:107, FileImportOptions:112, parseHxf1:119, compatibility:160, describeMismatches:200, configFromEnvelope:211
+- slotFromPayload:235, defaultSaveName:262, formatSavedAt:275, formatConfig:282, formatVersions:291, readCatalog:295, catalogDocument:314, writeCatalog:318, saveFileName:327, fileStem:341, slotsFromFileText:354, asHxf1Payload:428
+- slotFromImportedEntry:439, nameFromFile:451, upsertSlot:465, replaceNamedSlot:473, uniqueSlotName:492, removeSlot:503, latestCompatible:507, slotsNewestFirst:519, importLegacySlots:527, newSaveId:563, legacyName:567, asSlot:571
+- asVersions:594, asConfig:613, isRecord:630, asUint:634, asString:640, capitalize:644
 
 ### `src/core/snapshotDelta.ts` — 94 lines / 3.3 KiB
 
@@ -421,17 +423,17 @@ Data or fixture; inspect keys before loading the full file.
 
 - shippedScenario:29, boardFor:50, snapshotAt:78
 
-### `tests/host.test.ts` — 1559 lines / 60.7 KiB
+### `tests/host.test.ts` — 1563 lines / 60.9 KiB
 
-- fakeTransport:1527
+- fakeTransport:1531
 
 ### `tests/look.test.ts` — 431 lines / 17.1 KiB
 
 - keyOf:51
 
-### `tests/saveSlots.test.ts` — 257 lines / 7.5 KiB
+### `tests/saveSlots.test.ts` — 358 lines / 11.1 KiB
 
-- envelope:46, memoryStorage:63
+- envelope:51, memoryStorage:68
 
 ### `tests/snapshotWire.test.ts` — 107 lines / 4.0 KiB
 

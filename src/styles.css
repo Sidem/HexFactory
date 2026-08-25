@@ -1919,7 +1919,7 @@ canvas {
 }
 .save-slot {
   display: grid;
-  grid-template-columns: 1fr auto auto;
+  grid-template-columns: minmax(0, 1fr) auto;
   gap: 6px;
   align-items: start;
   padding-bottom: 8px;
@@ -1958,7 +1958,14 @@ canvas {
 .save-slot-issue:empty {
   display: none;
 }
+.save-slot-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: flex-end;
+}
 .save-slot-load,
+.save-slot-export,
 .save-slot-delete {
   padding: 5px 8px;
   font-size: 0.66rem;
@@ -2177,6 +2184,12 @@ canvas {
   margin: 3px 0 0;
   font-size: 0.73rem;
   color: var(--muted);
+}
+.title-save-file-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
 }
 .title-save-slots {
   max-height: none;

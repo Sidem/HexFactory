@@ -261,7 +261,9 @@ Before changing a cost, a cadence, or a power figure, run `npm run balance` and 
   Incompatibilities stay visible on the row; they are never hidden by putting those numbers in the
   storage key. Native still refuses a load the numbers cannot support. `SAVE_VERSION` is the one
   literal, because native does not publish it. Leftover `hexfactory:hxf1:` keys are imported into
-  the catalog and left in place.
+  the catalog and left in place. A slot can also be written to a desktop `.hxf1` file (the native
+  envelope) or the whole catalog to `hexfactory-saves.json`; importing either shape mints new slot
+  ids and will not overwrite an existing name.
 - No scripted guide may outrun the rules it is explaining. The next step is derived — the contract's
   outstanding bill, expanded through the recipe tree, plus the technologies those machines sit
   behind and the power branch none of them names — so every step it can produce is achievable in the

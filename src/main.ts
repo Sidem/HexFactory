@@ -21,6 +21,8 @@ import { nextAction } from "./core/guidance";
 import { BoundedInputQueue, MOVEMENT_KEYS, movementIntent } from "./core/input";
 import {
   AUTOSAVE_SLOT_NAME,
+  CATALOG_DOWNLOAD_NAME,
+  catalogDocument,
   compatibility,
   describeMismatches,
   formatConfig,
@@ -33,7 +35,9 @@ import {
   removeSlot,
   replaceNamedSlot,
   SAVE_VERSION,
+  saveFileName,
   slotFromPayload,
+  slotsFromFileText,
   slotsNewestFirst,
   uniqueSlotName,
   upsertSlot,
@@ -227,6 +231,7 @@ const titleWorldParametersReset = required<HTMLButtonElement>(
   "title-world-parameters-reset",
 );
 const titleStartGame = required<HTMLButtonElement>("title-start-game");
+const saveFileInput = required<HTMLInputElement>("save-file-input");
 const titleCreativeInput = required<HTMLInputElement>("title-creative");
 const titleMuteInput = required<HTMLInputElement>("title-mute");
 const titleReduceMotionInput = required<HTMLInputElement>(
@@ -3220,6 +3225,27 @@ required<HTMLButtonElement>("continue").addEventListener("click", () => {
   );
   if (slot) void loadSlot(slot);
 });
+required<HTMLButtonElement>("export-save").addEventListener("click", () => {
+  void exportCurrentSave();
+});
+required<HTMLButtonElement>("import-save").addEventListener("click", () => {
+  openSaveFilePicker();
+});
+required<HTMLButtonElement>("title-export-saves").addEventListener(
+  "click",
+  () => {
+    void exportAllSaves();
+  },
+);
+required<HTMLButtonElement>("title-import-saves").addEventListener(
+  "click",
+  () => {
+    openSaveFilePicker();
+  },
+);
+saveFileInput.addEventListener("change", () => {
+  void importSaveFiles(saveFileInput.files);
+});
 
 toolShelf.addEventListener("click", (event) => {
   // The × on a filled slot clears it rather than selecting it.
@@ -4151,69 +4177,32 @@ function updateContinueState(message?: string): void {
 }
 
 function renderSaveSlots(slots: SaveSlot[], build: CurrentBuild): void {
-  const board = required<HTMLElement>("save-slots");
-  const ordered = slotsNewestFirst(slots);
-  const rows = syncChildren(
-    board,
-    ordered.map((slot) => slot.id),
-    () => {
-      const row = document.createElement("li");
-      row.className = "save-slot";
-      row.innerHTML = `<button type="button" class="save-slot-select"><strong></strong><span class="save-slot-when"></span><span class="save-slot-config"></span><span class="save-slot-versions"></span><span class="save-slot-issue"></span></button><button type="button" class="save-slot-load">Load</button><button type="button" class="save-slot-delete">Delete</button>`;
-      return row;
-    },
-  );
-  ordered.forEach((slot, index) => {
-    const row = rows[index];
-    if (!row) return;
-    const envelope = parseHxf1(slot.payload);
-    const check = envelope
-      ? compatibility(envelope, build)
-      : {
-          compatible: false,
-          mismatches: [
-            {
-              field: "save",
-              expected: "a readable HXF1 file",
-              found: "unreadable",
-            },
-          ],
-        };
-    row.classList.toggle("selected", slot.id === selectedSaveId);
-    row.classList.toggle("incompatible", !check.compatible);
-    part(row, "strong").textContent = slot.name;
-    part(row, ".save-slot-when").textContent = formatSavedAt(slot.savedAt);
-    part(row, ".save-slot-config").textContent = formatConfig(slot.config);
-    part(row, ".save-slot-versions").textContent = formatVersions(
-      slot.versions,
-    );
-    part(row, ".save-slot-issue").textContent = check.compatible
-      ? ""
-      : describeMismatches(check.mismatches);
-    const select = part<HTMLButtonElement>(row, ".save-slot-select");
-    select.dataset.slotId = slot.id;
-    select.setAttribute("aria-pressed", String(slot.id === selectedSaveId));
-    select.setAttribute("aria-label", `Select save ${slot.name}`);
-    const load = part<HTMLButtonElement>(row, ".save-slot-load");
-    load.dataset.slotId = slot.id;
-    load.disabled = !check.compatible;
-    load.setAttribute("aria-label", `Load ${slot.name}`);
-    const remove = part<HTMLButtonElement>(row, ".save-slot-delete");
-    remove.dataset.slotId = slot.id;
-    remove.setAttribute("aria-label", `Delete ${slot.name}`);
-  });
+  paintSaveSlotList(required("save-slots"), slots, build, "save-slot");
 }
 
 function renderTitleSaveSlots(slots: SaveSlot[], build: CurrentBuild): void {
-  const board = required<HTMLElement>("title-save-slots");
+  paintSaveSlotList(
+    required("title-save-slots"),
+    slots,
+    build,
+    "save-slot title-save-slot",
+  );
+}
+
+function paintSaveSlotList(
+  board: HTMLElement,
+  slots: SaveSlot[],
+  build: CurrentBuild,
+  rowClass: string,
+): void {
   const ordered = slotsNewestFirst(slots);
   const rows = syncChildren(
     board,
     ordered.map((slot) => slot.id),
     () => {
       const row = document.createElement("li");
-      row.className = "save-slot title-save-slot";
-      row.innerHTML = `<button type="button" class="save-slot-select"><strong></strong><span class="save-slot-when"></span><span class="save-slot-config"></span><span class="save-slot-versions"></span><span class="save-slot-issue"></span></button><button type="button" class="save-slot-load">Load</button><button type="button" class="save-slot-delete">Delete</button>`;
+      row.className = rowClass;
+      row.innerHTML = `<button type="button" class="save-slot-select"><strong></strong><span class="save-slot-when"></span><span class="save-slot-config"></span><span class="save-slot-versions"></span><span class="save-slot-issue"></span></button><div class="save-slot-actions"><button type="button" class="save-slot-load">Load</button><button type="button" class="save-slot-export">Export</button><button type="button" class="save-slot-delete">Delete</button></div>`;
       return row;
     },
   );
@@ -4252,6 +4241,9 @@ function renderTitleSaveSlots(slots: SaveSlot[], build: CurrentBuild): void {
     load.dataset.slotId = slot.id;
     load.disabled = !check.compatible;
     load.setAttribute("aria-label", `Load ${slot.name}`);
+    const exported = part<HTMLButtonElement>(row, ".save-slot-export");
+    exported.dataset.slotId = slot.id;
+    exported.setAttribute("aria-label", `Export ${slot.name}`);
     const remove = part<HTMLButtonElement>(row, ".save-slot-delete");
     remove.dataset.slotId = slot.id;
     remove.setAttribute("aria-label", `Delete ${slot.name}`);
@@ -4285,12 +4277,13 @@ async function loadSlot(slot: SaveSlot): Promise<void> {
   }
 }
 
-required<HTMLElement>("save-slots").addEventListener("click", (event) => {
+function handleSaveSlotClick(event: Event): void {
   const target = event.target as HTMLElement;
   const load = target.closest<HTMLButtonElement>(".save-slot-load");
+  const exported = target.closest<HTMLButtonElement>(".save-slot-export");
   const remove = target.closest<HTMLButtonElement>(".save-slot-delete");
   const select = target.closest<HTMLButtonElement>(".save-slot-select");
-  const id = (load ?? remove ?? select)?.dataset.slotId;
+  const id = (load ?? exported ?? remove ?? select)?.dataset.slotId;
   if (!id) return;
   const { slots, error } = readCatalog(localStorage);
   if (error) {
@@ -4301,6 +4294,10 @@ required<HTMLElement>("save-slots").addEventListener("click", (event) => {
   if (!slot) return;
   if (load) {
     void loadSlot(slot);
+    return;
+  }
+  if (exported) {
+    void exportSlotFile(slot);
     return;
   }
   if (remove) {
@@ -4318,42 +4315,194 @@ required<HTMLElement>("save-slots").addEventListener("click", (event) => {
   selectedSaveId = slot.id;
   saveNameInput.value = slot.name;
   updateContinueState();
-});
+}
 
-required<HTMLElement>("title-save-slots").addEventListener("click", (event) => {
-  const target = event.target as HTMLElement;
-  const load = target.closest<HTMLButtonElement>(".save-slot-load");
-  const remove = target.closest<HTMLButtonElement>(".save-slot-delete");
-  const select = target.closest<HTMLButtonElement>(".save-slot-select");
-  const id = (load ?? remove ?? select)?.dataset.slotId;
-  if (!id) return;
+required<HTMLElement>("save-slots").addEventListener(
+  "click",
+  handleSaveSlotClick,
+);
+required<HTMLElement>("title-save-slots").addEventListener(
+  "click",
+  handleSaveSlotClick,
+);
+
+function downloadTextFile(filename: string, text: string): void {
+  const blob = new Blob([text], { type: "text/plain;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = filename;
+  anchor.rel = "noopener";
+  document.body.append(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(url);
+}
+
+interface SaveFilePickerWindow {
+  showSaveFilePicker?: (options: {
+    suggestedName?: string;
+    types?: Array<{
+      description?: string;
+      accept: Record<string, string[]>;
+    }>;
+  }) => Promise<{
+    createWritable: () => Promise<{
+      write: (data: string) => Promise<void>;
+      close: () => Promise<void>;
+    }>;
+  }>;
+}
+
+async function exportTextFile(
+  filename: string,
+  text: string,
+  kind: "save" | "catalog",
+): Promise<boolean> {
+  const picker = (window as SaveFilePickerWindow).showSaveFilePicker;
+  if (typeof picker === "function") {
+    try {
+      const handle = await picker({
+        suggestedName: filename,
+        types:
+          kind === "catalog"
+            ? [
+                {
+                  description: "HexFactory save list",
+                  accept: { "application/json": [".json"] },
+                },
+              ]
+            : [
+                {
+                  description: "HexFactory save",
+                  accept: { "text/plain": [".hxf1"] },
+                },
+              ],
+      });
+      const writable = await handle.createWritable();
+      await writable.write(text);
+      await writable.close();
+      return true;
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") {
+        return false;
+      }
+    }
+  }
+  downloadTextFile(filename, text);
+  return true;
+}
+
+async function exportSlotFile(slot: SaveSlot): Promise<void> {
+  const wrote = await exportTextFile(
+    saveFileName(slot.name),
+    slot.payload,
+    "save",
+  );
+  if (!wrote) return;
+  updateContinueState(`Exported “${slot.name}”.`);
+  showFeedback(`Exported “${slot.name}”`);
+}
+
+async function exportCurrentSave(): Promise<void> {
+  try {
+    const payload = await host.save();
+    const build = currentBuild();
+    const named =
+      saveNameInput.value.trim() || runName || snapshot.scenario_name || "Save";
+    const drafted = slotFromPayload(payload, named, build, Date.now());
+    if (!drafted) {
+      updateContinueState("Export failed: the envelope was not readable HXF1.");
+      return;
+    }
+    await exportSlotFile(drafted);
+  } catch (error) {
+    updateContinueState(`Export failed: ${String(error)}`);
+  }
+}
+
+async function exportAllSaves(): Promise<void> {
   const { slots, error } = readCatalog(localStorage);
   if (error) {
     updateContinueState(error);
     return;
   }
-  const slot = slots.find((entry) => entry.id === id);
-  if (!slot) return;
-  if (load) {
-    void loadSlot(slot);
+  if (slots.length === 0) {
+    updateContinueState("No local save yet.");
     return;
   }
-  if (remove) {
-    if (!window.confirm(`Delete “${slot.name}”? This cannot be undone.`))
-      return;
-    if (slot.sourceKey) localStorage.removeItem(slot.sourceKey);
-    writeCatalog(localStorage, removeSlot(slots, slot.id));
-    if (selectedSaveId === slot.id) {
-      selectedSaveId = null;
-      if (saveNameInput.value === slot.name) saveNameInput.value = "";
+  const wrote = await exportTextFile(
+    CATALOG_DOWNLOAD_NAME,
+    catalogDocument(slots),
+    "catalog",
+  );
+  if (!wrote) return;
+  const noun = slots.length === 1 ? "save" : "saves";
+  updateContinueState(`Exported ${slots.length} ${noun}.`);
+  showFeedback(`Exported ${slots.length} ${noun}`);
+}
+
+function openSaveFilePicker(): void {
+  saveFileInput.value = "";
+  saveFileInput.click();
+}
+
+async function importSaveFiles(files: FileList | null): Promise<void> {
+  if (!files || files.length === 0) return;
+  const build = currentBuild();
+  const read = readCatalog(localStorage);
+  if (read.error) {
+    updateContinueState(read.error);
+    return;
+  }
+  let next = read.slots;
+  const names: string[] = [];
+  const problems: string[] = [];
+  for (const file of files) {
+    let text: string;
+    try {
+      text = await file.text();
+    } catch (error) {
+      problems.push(`${file.name}: ${String(error)}`);
+      continue;
     }
-    updateContinueState(`Deleted “${slot.name}”.`);
-    return;
+    const imported = slotsFromFileText(text, build, { fileName: file.name });
+    if (imported.error || imported.slots.length === 0) {
+      problems.push(`${file.name}: ${imported.error ?? "no save found"}`);
+      continue;
+    }
+    for (const slot of imported.slots) {
+      const named = {
+        ...slot,
+        name: uniqueSlotName(slot.name, next),
+      };
+      next = [...next, named];
+      names.push(named.name);
+    }
   }
-  selectedSaveId = slot.id;
-  saveNameInput.value = slot.name;
-  updateContinueState();
-});
+  if (names.length > 0) {
+    try {
+      writeCatalog(localStorage, next);
+    } catch (error) {
+      updateContinueState(
+        `Could not keep the imported save in this browser: ${String(error)}. The file is still on disk.`,
+      );
+      return;
+    }
+  }
+  const importedNote =
+    names.length === 1
+      ? `Imported “${names[0]}”.`
+      : names.length > 1
+        ? `Imported ${names.length} saves.`
+        : "";
+  const problemNote = problems.length > 0 ? problems.join(" ") : "";
+  const message = [importedNote, problemNote].filter(Boolean).join(" ");
+  updateContinueState(message || "Nothing was imported.");
+  // The session status line is behind the title screen, so a toast is how an import
+  // from Saved games reports success or a refused file.
+  if (message) showFeedback(message);
+}
 
 /*
  * Whether a key belongs to the focused control instead of to the world.

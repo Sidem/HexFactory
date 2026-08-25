@@ -2,7 +2,9 @@
  * Named local saves. The catalog key does not carry versions: hiding a slot when a number moved
  * made Continue say there was no save, which is how a factory disappeared after a Pages deploy.
  * Each slot records the envelope versions and the world it was started with; incompatibilities
- * stay visible, and native still refuses a load the numbers cannot support.
+ * stay visible, and native still refuses a load the numbers cannot support. Desktop export is the
+ * same HXF1 string (or the catalog JSON); import mints new ids so a file cannot collide with a
+ * slot already in the list.
  *
  * `SAVE_VERSION` is the one literal because native does not publish it. Keep it aligned with
  * `factory-wasm/src/lib.rs`. v11 carries `request_fills` beside `request_rounds`; v12 carries
@@ -16,6 +18,9 @@ export const SAVE_CATALOG_KEY = "hexfactory:saves:v1";
 export const LEGACY_SAVE_PREFIX = "hexfactory:hxf1:";
 export const HXF1_PREFIX = "HXF1\n";
 export const AUTOSAVE_SLOT_NAME = "Auto-save";
+/** One factory, as native wrote it. The catalog JSON is the other downloadable shape. */
+export const SAVE_FILE_SUFFIX = ".hxf1";
+export const CATALOG_DOWNLOAD_NAME = "hexfactory-saves.json";
 
 export interface StorageLike {
   readonly length: number;
@@ -97,6 +102,16 @@ export interface ParsedEnvelope {
 export interface CatalogRead {
   slots: SaveSlot[];
   error?: string;
+}
+
+export interface FileImport {
+  slots: SaveSlot[];
+  error?: string;
+}
+
+export interface FileImportOptions {
+  fileName?: string;
+  now?: number;
 }
 
 const CATALOG_FILE_VERSION = 1;
@@ -296,12 +311,156 @@ export function readCatalog(storage: StorageLike): CatalogRead {
   }
 }
 
-export function writeCatalog(storage: StorageLike, slots: SaveSlot[]): void {
-  storage.setItem(
-    SAVE_CATALOG_KEY,
-    JSON.stringify({ version: CATALOG_FILE_VERSION, slots }),
-  );
+export function catalogDocument(slots: SaveSlot[]): string {
+  return JSON.stringify({ version: CATALOG_FILE_VERSION, slots });
 }
+
+export function writeCatalog(storage: StorageLike, slots: SaveSlot[]): void {
+  storage.setItem(SAVE_CATALOG_KEY, catalogDocument(slots));
+}
+
+/**
+ * A file name Windows and the common download folders will accept. The stem is the slot name; the
+ * suffix is the native envelope. Trailing dots and spaces are the ones Explorer silently strips,
+ * so they are already gone before the download lands.
+ */
+export function saveFileName(name: string): string {
+  let cleaned = "";
+  for (const char of name.trim()) {
+    const code = char.charCodeAt(0);
+    cleaned += code < 32 || '<>:"/\\|?*'.includes(char) ? " " : char;
+  }
+  const stem =
+    cleaned
+      .replace(/\s+/g, " ")
+      .replace(/[. ]+$/g, "")
+      .slice(0, 80) || "hexfactory-save";
+  return `${stem}${SAVE_FILE_SUFFIX}`;
+}
+
+export function fileStem(fileName: string): string {
+  const base = fileName.replace(/^.*[/\\]/, "").trim();
+  return base.replace(/\.(hxf1|json|txt)$/i, "").trim();
+}
+
+/**
+ * Read a desktop file back into catalog rows. Native still refuses a load the numbers cannot
+ * support; this only has to recognise the two shapes a person can take off the machine: one HXF1
+ * envelope, or the catalog JSON the browser already stores.
+ *
+ * A wrapped `{ name, payload }` object is accepted too, so a name that never fitted a file stem
+ * still survives. New ids are minted so an import cannot collide with a slot already in the list.
+ */
+export function slotsFromFileText(
+  text: string,
+  build: CurrentBuild,
+  options: FileImportOptions = {},
+): FileImport {
+  const now = options.now ?? Date.now();
+  const body = text.replace(/^\uFEFF/, "").trim();
+  if (!body) return { slots: [], error: "The file is empty." };
+
+  const payload = asHxf1Payload(body);
+  if (payload) {
+    const slot = slotFromPayload(
+      payload,
+      nameFromFile(options.fileName),
+      build,
+      now,
+    );
+    if (!slot) {
+      return { slots: [], error: "The file is not a readable HXF1 save." };
+    }
+    return { slots: [slot] };
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(body);
+  } catch {
+    return { slots: [], error: "The file is not a HexFactory save." };
+  }
+
+  if (isRecord(parsed) && Array.isArray(parsed.slots)) {
+    const slots: SaveSlot[] = [];
+    for (const entry of parsed.slots) {
+      const slot = slotFromImportedEntry(entry, build, now);
+      if (slot) slots.push(slot);
+    }
+    if (slots.length === 0) {
+      return { slots: [], error: "The file does not contain a save." };
+    }
+    return { slots };
+  }
+
+  if (isRecord(parsed)) {
+    const wrapped = asHxf1Payload(asString(parsed.payload) ?? "");
+    if (wrapped) {
+      const savedAt = asUint(parsed.savedAt) ?? now;
+      const slot = slotFromPayload(
+        wrapped,
+        asString(parsed.name) ?? nameFromFile(options.fileName),
+        build,
+        savedAt,
+      );
+      if (!slot) {
+        return { slots: [], error: "The file is not a readable HXF1 save." };
+      }
+      return { slots: [slot] };
+    }
+    if (asUint(parsed.save_version) !== undefined) {
+      const slot = slotFromPayload(
+        `${HXF1_PREFIX}${body}`,
+        nameFromFile(options.fileName),
+        build,
+        now,
+      );
+      if (!slot) {
+        return { slots: [], error: "The file is not a readable HXF1 save." };
+      }
+      return { slots: [slot] };
+    }
+  }
+
+  return { slots: [], error: "The file is not a HexFactory save." };
+}
+
+function asHxf1Payload(text: string): string | null {
+  const body = text.trim();
+  if (!body) return null;
+  if (body.startsWith(HXF1_PREFIX)) return body;
+  if (body.startsWith("HXF1\r\n")) return `${HXF1_PREFIX}${body.slice(6)}`;
+  if (/^HXF1\r?\n?\{/.test(body)) {
+    return `${HXF1_PREFIX}${body.slice(4).replace(/^\r?\n/, "")}`;
+  }
+  return null;
+}
+
+function slotFromImportedEntry(
+  value: unknown,
+  build: CurrentBuild,
+  now: number,
+): SaveSlot | null {
+  if (!isRecord(value)) return null;
+  const payload = asHxf1Payload(asString(value.payload) ?? "");
+  if (!payload) return null;
+  const savedAt = asUint(value.savedAt) ?? now;
+  return slotFromPayload(payload, asString(value.name) ?? "", build, savedAt);
+}
+
+function nameFromFile(fileName: string | undefined): string {
+  const stem = fileName ? fileStem(fileName) : "";
+  if (stem && !GENERIC_FILE_STEMS.has(stem.toLocaleLowerCase())) return stem;
+  return "";
+}
+
+const GENERIC_FILE_STEMS = new Set([
+  "download",
+  "save",
+  "untitled",
+  "hexfactory-save",
+  "hexfactory-saves",
+]);
 
 export function upsertSlot(slots: SaveSlot[], next: SaveSlot): SaveSlot[] {
   const index = slots.findIndex((slot) => slot.id === next.id);

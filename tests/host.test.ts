@@ -694,8 +694,7 @@ describe("bounded host input", () => {
       "renderTechnologies",
       "renderInventory",
       "renderTransferRows",
-      "renderSaveSlots",
-      "renderTitleSaveSlots",
+      "paintSaveSlotList",
     ]) {
       const body = main.slice(
         main.indexOf(`function ${renderer}(`),
@@ -725,6 +724,11 @@ describe("bounded host input", () => {
     expect(html).toContain('id="title-save-slots"');
     expect(html).toContain('id="title-start-game"');
     expect(html).toContain('id="session-main-menu"');
+    expect(html).toContain('id="save-file-input"');
+    expect(html).toContain('id="export-save"');
+    expect(html).toContain('id="import-save"');
+    expect(html).toContain('id="title-import-saves"');
+    expect(html).toContain('id="title-export-saves"');
     expect(css).toContain(".title-screen");
     expect(css).toContain(".title-modal");
     expect(css).toContain(".title-save-slots");

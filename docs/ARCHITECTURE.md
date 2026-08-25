@@ -319,8 +319,11 @@ counts. Each is behavior-tested without Wasm or WebGL; `main.ts` wires them to t
 Rust serializes `HXF1` plus JSON containing save/definition/technology/scenario versions, seed,
 generated chunks and resource quantities, player and inventory, research, blueprint/entity IDs,
 machine and cargo state, counters, tick, victory, and a native checksum. Loading validates versions,
-references, uniqueness, and checksum before accepting state. `localStorage` stores only that opaque
-string. Save/resume and uninterrupted runs converge on the same checksum after equal commands.
+references, uniqueness, and checksum before accepting state. The browser catalog stores that opaque
+string in `localStorage`. Export writes the same HXF1 text to a desktop `.hxf1` file, or the whole
+catalog as JSON; import reads either shape back into the catalog. Native still validates the
+envelope on load. Save/resume and uninterrupted runs converge on the same checksum after equal
+commands.
 
 `save_migrations.rs` is the one boundary before typed envelope validation. Current envelopes pass
 through byte-for-byte; newer saves and historical versions with no explicit adjacent migration are
