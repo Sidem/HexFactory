@@ -258,6 +258,83 @@ export interface WorldParams {
   site_rules: SiteRule[];
 }
 
+/**
+ * One deposit as a preview draws it: where its centre lands in preview pixels, how far it reaches
+ * there, and what it holds. Native reports centres rather than per-pixel samples because a patch is
+ * smaller than a pixel at any zoom wide enough to frame a landform.
+ */
+export interface WorldPreviewSite {
+  item_id: number;
+  x: number;
+  y: number;
+  radius: number;
+}
+
+/**
+ * A rectangle of generated terrain for a parameter set nobody has played yet, straight from the
+ * generator the start button will run. `cells` is one byte per pixel in row-major order, holding the
+ * band's index in `TERRAIN_ORDER` — the declaration order `fixtures/terrain-passability.json` pins
+ * on both sides of the wire.
+ *
+ * `unmet` names materials the bootstrap pass could not place. `Core::new` refuses a world over
+ * exactly that list, so it travels with the picture rather than being discovered at start.
+ */
+export interface WorldPreview {
+  width: number;
+  height: number;
+  cells: Uint8Array;
+  sites: WorldPreviewSite[];
+  /** Deposits the window holds, which is not always how many of them are in `sites`. */
+  total: number;
+  /**
+   * Whether the window holds more deposits than native was willing to send. `sites` is then empty
+   * without the world being empty, which is the case this flag exists to keep apart.
+   */
+  dense: boolean;
+  unmet: number[];
+  /** What each unmet material was looking for. Empty whenever `unmet` is. */
+  needs: WorldPreviewNeed[];
+  /** A verified way out of a refused world, or null when there is none and when none was needed. */
+  repair: WorldPreviewRepair | null;
+}
+
+/**
+ * Why one material could not be placed: the bands its rules could seat a centre in, and whether the
+ * opening holds any of that ground at all.
+ *
+ * The two cases want different sentences. `ground: false` is "this world has no such ground near the
+ * landing site", which no seed will fix; `ground: true` is "the ground is there and no patch on it
+ * was big enough", which a reroll often will.
+ */
+export interface WorldPreviewNeed {
+  item_id: number;
+  /** Band keys, spelled as `TERRAIN_ORDER` in `src/core/terrain.ts` spells them. */
+  bands: string[];
+  ground: boolean;
+}
+
+/**
+ * One knob a repair turns, under the same field name {@link WorldParams} uses — which is what lets
+ * the host label it from its own parameter table instead of native shipping prose.
+ */
+export interface WorldPreviewChange {
+  field: string;
+  from: number;
+  to: number;
+}
+
+/**
+ * A way out of a world that cannot be started, every candidate of it checked against a real
+ * bootstrap pass before it was offered. Both halves may be present: they are two different prices,
+ * and which is worth paying is the player's call.
+ */
+export interface WorldPreviewRepair {
+  /** A seed that opens the world with every parameter left where the player put it. */
+  seed: number | null;
+  /** Changes that open the world with the seed left alone. Empty when the search found none. */
+  changes: WorldPreviewChange[];
+}
+
 /** A named parameter set. The preset is what a player picks; the parameters are behind it. */
 export interface WorldPreset {
   key: string;
@@ -658,6 +735,26 @@ export interface NativeFactory {
   ): void;
   /** The parameters the current world was generated from. */
   world_params_json(): string;
+  /**
+   * A terrain raster for a parameter set that has not been generated yet: one byte per pixel,
+   * holding the band's index in the `Terrain` declaration order. `hexesAcross` is the span the
+   * width frames; a pixel is square in world units, so a taller preview shows more world.
+   */
+  world_preview_bytes(
+    worldParamsJson: string,
+    seed: number,
+    width: number,
+    height: number,
+    hexesAcross: number,
+  ): Uint8Array;
+  /** Where the deposit lattice puts a site inside that same window. See {@link WorldPreview}. */
+  world_preview_sites_json(
+    worldParamsJson: string,
+    seed: number,
+    width: number,
+    height: number,
+    hexesAcross: number,
+  ): string;
   apply_commands_json(commands: string): void;
   advance_json(commands: string, count: number, playerSteps: number): void;
   placement_preview_json(

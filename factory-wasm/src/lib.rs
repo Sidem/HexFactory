@@ -6872,6 +6872,295 @@ impl Factory {
     }
 }
 
+/// The largest preview native will raster, per side. A preview is a picture on a settings panel
+/// rather than a viewport, and one pixel of it costs seven elevations, so the ceiling lives here
+/// rather than in whatever asks for one.
+const MAX_PREVIEW_SIDE: u32 = 480;
+/// The widest span a preview may frame, in hexes. Sized well above the largest shipped landform
+/// cell rather than to a round number: a preview that could not frame one landform would be a
+/// picture of noise.
+const MAX_PREVIEW_SPAN: u32 = 16_384;
+/// How many deposits a preview will plot before it reports a count instead.
+///
+/// Deposits stand a dozen hexes apart, so a window wide enough to frame a coastline holds tens of
+/// thousands of them. Drawn, that is a texture rather than a map, and sent, it is a megabyte of JSON
+/// per slider nudge. Past this the overlay says how many there are and leaves the terrain visible.
+const MAX_PREVIEW_SITES: usize = 1_200;
+/// The most lattice cells a preview will walk. A span of `MAX_PREVIEW_SPAN` over a `site_cell` of
+/// one is a legal parameter set and tens of millions of cells; the count above is a property of what
+/// came out, and this is the bound on the looking.
+const MAX_PREVIEW_SITE_CELLS: i64 = 262_144;
+
+/// One deposit site as a preview draws it: where its centre lands in preview pixels, how far it
+/// reaches there, and what it holds.
+#[derive(Serialize)]
+struct PreviewSite {
+    item_id: ItemId,
+    x: i32,
+    y: i32,
+    radius: i32,
+}
+
+/// Why one guarantee could not be placed, in the terms the panel explains it in.
+#[derive(Serialize)]
+struct PreviewNeed {
+    item_id: ItemId,
+    /// The bands a rule could seat this material's centre in.
+    bands: Vec<Terrain>,
+    /// Whether the opening holds any of those bands at all. False is "this world has no such ground
+    /// near the landing site", which no seed will fix; true is "the ground is there and no patch on
+    /// it was big enough", which one often will.
+    ground: bool,
+}
+
+/// One knob a repair turns, named as the form names it so the host can label it without a table of
+/// its own.
+#[derive(Serialize)]
+struct PreviewChange {
+    field: &'static str,
+    from: i32,
+    to: i32,
+}
+
+/// A verified way out of a world that cannot be started. Both halves are optional and both may be
+/// present: they are two different prices, and which one is worth paying is the player's call.
+#[derive(Serialize)]
+struct PreviewRepair {
+    /// A seed that opens the world with every parameter left where the player put it.
+    seed: Option<u32>,
+    /// Parameter changes that open the world with the seed left alone. Empty when the ladder found
+    /// nothing, which is itself worth saying: it means the shape of this world is the problem.
+    changes: Vec<PreviewChange>,
+}
+
+#[derive(Serialize)]
+struct PreviewSites {
+    sites: Vec<PreviewSite>,
+    /// Deposits the window holds, which is not always how many of them are in `sites`.
+    total: u32,
+    /// Whether the window holds more deposits than are worth drawing, or more than were counted.
+    /// Set either way, so an empty `sites` never has to be read as "this world has no deposits".
+    dense: bool,
+    /// Materials the bootstrap pass could not place anywhere. `Core::new` refuses a world over
+    /// exactly this list, so it travels with the picture rather than being discovered on start.
+    unmet: Vec<ItemId>,
+    /// What each of those materials was looking for. Empty whenever `unmet` is.
+    needs: Vec<PreviewNeed>,
+    /// A way out, when one was found. Searched only for a world that is already refused, so a
+    /// parameter set that opens costs nothing to preview.
+    repair: Option<PreviewRepair>,
+}
+
+/// Every scalar a parameter set carries, under the name the form gives it. `site_rules` is the one
+/// field left out: it is a table rather than a knob, and nothing here moves it.
+const WORLD_SCALARS: [(&str, fn(&WorldParams) -> i32); 17] = [
+    ("elevation_coarse_cell", |p| p.elevation_coarse_cell),
+    ("elevation_fine_cell", |p| p.elevation_fine_cell),
+    ("elevation_coarse_weight", |p| p.elevation_coarse_weight),
+    ("moisture_cell", |p| p.moisture_cell),
+    ("richness_cell", |p| p.richness_cell),
+    ("water_level", |p| p.water_level),
+    ("shore_level", |p| p.shore_level),
+    ("hills_level", |p| p.hills_level),
+    ("highland_level", |p| p.highland_level),
+    ("cliff_step", |p| p.cliff_step),
+    ("deep_water_moisture", |p| p.deep_water_moisture),
+    ("site_cell", |p| p.site_cell),
+    ("site_jitter", |p| p.site_jitter),
+    ("river_cell", |p| p.river_cell),
+    ("river_width", |p| p.river_width),
+    ("river_max_elevation", |p| p.river_max_elevation),
+    ("ocean_level", |p| p.ocean_level),
+];
+
+/// What a repair did, as a diff rather than as a list the repair writes for itself. A move that
+/// turned a knob nobody expected still reports that knob, which is the property worth having: the
+/// button says what it is about to change because the change is read off the result.
+fn world_changes(before: &WorldParams, after: &WorldParams) -> Vec<PreviewChange> {
+    WORLD_SCALARS
+        .iter()
+        .filter_map(|&(field, read)| {
+            let (from, to) = (read(before), read(after));
+            (from != to).then_some(PreviewChange { field, from, to })
+        })
+        .collect()
+}
+
+impl Factory {
+    /// The parameters, the clamped preview size, and the world units one preview pixel covers.
+    ///
+    /// Shared by both preview exports so the terrain raster and the site overlay are pictures of
+    /// one window: two windows a pixel apart would be an overlay that does not line up.
+    fn preview_window(
+        &self,
+        world_params_json: &str,
+        width: u32,
+        height: u32,
+        hexes_across: u32,
+    ) -> Result<(WorldParams, i32, i32, i64), String> {
+        let params = world_params_from_json(world_params_json)?;
+        // The same gate `Core::new` puts a new world through, so the panel cannot draw a set the
+        // start button would refuse — and so a slider mid-drag cannot hand the generator a cell
+        // size of zero to divide by.
+        params.validate(&self.definitions)?;
+        let width = width.clamp(1, MAX_PREVIEW_SIDE) as i32;
+        let height = height.clamp(1, MAX_PREVIEW_SIDE) as i32;
+        let across = i64::from(hexes_across.clamp(1, MAX_PREVIEW_SPAN));
+        let step = (across * i64::from(HEX_X) / i64::from(width)).max(1);
+        Ok((params, width, height, step))
+    }
+
+    /// The terrain raster behind {@link Factory::world_preview_bytes}, failing in `String` so a
+    /// native test can drive the refusal as well as the picture.
+    fn preview_cells(
+        &self,
+        world_params_json: &str,
+        seed: u32,
+        width: u32,
+        height: u32,
+        hexes_across: u32,
+    ) -> Result<Vec<u8>, String> {
+        let (params, width, height, step) =
+            self.preview_window(world_params_json, width, height, hexes_across)?;
+        let mut cells = Vec::with_capacity((width * height) as usize);
+        for py in 0..height {
+            let y = (i64::from(py) - i64::from(height) / 2) * step;
+            for px in 0..width {
+                let x = (i64::from(px) - i64::from(width) / 2) * step;
+                let (q, r) = hex_at_world(x, y);
+                cells.push(terrain_at(&params, seed, q, r, true) as u8);
+            }
+        }
+        Ok(cells)
+    }
+
+    /// The deposit overlay behind {@link Factory::world_preview_sites_json}, on the same terms.
+    fn preview_sites(
+        &self,
+        world_params_json: &str,
+        seed: u32,
+        width: u32,
+        height: u32,
+        hexes_across: u32,
+    ) -> Result<PreviewSites, String> {
+        let (params, width, height, step) =
+            self.preview_window(world_params_json, width, height, hexes_across)?;
+        let fields = WorldFields::new(&params, seed);
+        // The lattice cells the window can see, from the axial extent of its four corners. A site
+        // wanders inside its own cell by `site_jitter` and reaches out by `radius_max`, so the
+        // range is widened by `reach` — the same derivation `field_at` scans with, for the same
+        // reason: a range one cell short drops deposits off the edge of the picture in silence.
+        let corners = [
+            (0, 0),
+            (width - 1, 0),
+            (0, height - 1),
+            (width - 1, height - 1),
+        ];
+        let cells: Vec<(i32, i32)> = corners
+            .iter()
+            .map(|&(px, py)| {
+                let x = (i64::from(px) - i64::from(width) / 2) * step;
+                let y = (i64::from(py) - i64::from(height) / 2) * step;
+                let (q, r) = hex_at_world(x, y);
+                (
+                    floor_div(q, params.site_cell),
+                    floor_div(r, params.site_cell),
+                )
+            })
+            .collect();
+        let min_q = cells.iter().map(|cell| cell.0).min().unwrap_or(0) - fields.reach - 1;
+        let max_q = cells.iter().map(|cell| cell.0).max().unwrap_or(0) + fields.reach + 1;
+        let min_r = cells.iter().map(|cell| cell.1).min().unwrap_or(0) - fields.reach - 1;
+        let max_r = cells.iter().map(|cell| cell.1).max().unwrap_or(0) + fields.reach + 1;
+        let unmet: Vec<ItemId> = fields.unmet.iter().map(|&(item_id, _)| item_id).collect();
+        let (needs, repair) = self.preview_diagnosis(&params, seed, &unmet);
+        // The bootstrap verdict does not depend on the scan, so a window too wide to walk still
+        // reports whether the world can be started at all — and how to fix it.
+        if i64::from(max_q - min_q + 1) * i64::from(max_r - min_r + 1) > MAX_PREVIEW_SITE_CELLS {
+            return Ok(PreviewSites {
+                sites: Vec::new(),
+                total: 0,
+                dense: true,
+                unmet,
+                needs,
+                repair,
+            });
+        }
+        let mut sites = Vec::new();
+        for cell_q in min_q..=max_q {
+            for cell_r in min_r..=max_r {
+                let Some(site) = fields.site_at((cell_q, cell_r)) else {
+                    continue;
+                };
+                let (x, y) = axial_world(site.center.0, site.center.1);
+                sites.push(PreviewSite {
+                    item_id: params.site_rules[site.rule].item_id,
+                    x: (i64::from(x) / step + i64::from(width) / 2) as i32,
+                    y: (i64::from(y) / step + i64::from(height) / 2) as i32,
+                    // Hexes to pixels through the same step, so a patch covering a tenth of the
+                    // window is drawn covering a tenth of the window.
+                    radius: (i64::from(site.radius) * i64::from(HEX_X) / step).max(1) as i32,
+                });
+            }
+        }
+        let total = sites.len() as u32;
+        let dense = sites.len() > MAX_PREVIEW_SITES;
+        if dense {
+            sites.clear();
+        }
+        Ok(PreviewSites {
+            sites,
+            total,
+            dense,
+            unmet,
+            needs,
+            repair,
+        })
+    }
+
+    /// Why a world was refused, and a way out of it, or nothing at all when it was not refused.
+    ///
+    /// Both halves are searched here rather than by the host because both are answers about the
+    /// generator: the bands come from this world's own rules, and every repair offered has been put
+    /// through a real bootstrap pass. Nothing is proposed on the strength of the reasoning that
+    /// produced it.
+    ///
+    /// The cost is paid only by a world that already cannot be started, so a parameter set that
+    /// opens previews at the price it always did.
+    fn preview_diagnosis(
+        &self,
+        params: &WorldParams,
+        seed: u32,
+        unmet: &[ItemId],
+    ) -> (Vec<PreviewNeed>, Option<PreviewRepair>) {
+        if unmet.is_empty() {
+            return (Vec::new(), None);
+        }
+        let census = bootstrap_band_census(params, seed);
+        let needs = unmet
+            .iter()
+            .map(|&item_id| {
+                let bands = bootstrap_bands(params, item_id);
+                PreviewNeed {
+                    ground: bands.iter().any(|band| census.contains(band)),
+                    item_id,
+                    bands,
+                }
+            })
+            .collect();
+        let repair = PreviewRepair {
+            seed: repair_seed(params, seed),
+            changes: repair_params(params, seed)
+                .map(|fixed| world_changes(params, &fixed))
+                .unwrap_or_default(),
+        };
+        // A repair with neither half is not a repair; saying so lets the panel fall back to the
+        // hint rather than offering a button that does nothing.
+        let repair = (repair.seed.is_some() || !repair.changes.is_empty()).then_some(repair);
+        (needs, repair)
+    }
+}
+
 #[wasm_bindgen]
 impl Factory {
     #[wasm_bindgen(constructor)]
@@ -6977,6 +7266,60 @@ impl Factory {
     /// owns rather than keeping a copy of its own that can drift.
     pub fn world_presets_json() -> String {
         serde_json::to_string(&world_presets()).expect("world presets serialize")
+    }
+
+    /// A rectangle of generated terrain for a parameter set nobody has played yet: one byte per
+    /// preview pixel, holding the band's index in the `Terrain` declaration order that
+    /// `fixtures/terrain-passability.json` already pins on both sides of the wire.
+    ///
+    /// This is what lets the new-world panel show a world rather than describe one. It goes through
+    /// the same `terrain_at` a played hex goes through, so a preview and the world the start button
+    /// generates cannot disagree — which is the whole reason it is a native export and not a second
+    /// generator written in the host.
+    ///
+    /// `hexes_across` is the span the width frames. A pixel is square in world units, so a taller
+    /// preview shows more world rather than a stretched copy of the same world.
+    ///
+    /// Takes `&self` for the definitions alone: the parameter set is validated against the same
+    /// catalogue `Core::new` validates it against, so the panel cannot draw a world the start
+    /// button would then refuse. Nothing about the run in progress is read or moved.
+    pub fn world_preview_bytes(
+        &self,
+        world_params_json: &str,
+        seed: u32,
+        width: u32,
+        height: u32,
+        hexes_across: u32,
+    ) -> Result<Vec<u8>, JsValue> {
+        self.preview_cells(world_params_json, seed, width, height, hexes_across)
+            .map_err(js_error)
+    }
+
+    /// Where the deposit lattice puts a site inside that same window, in preview pixels.
+    ///
+    /// Sites are reported as centres rather than sampled per pixel because a patch is smaller than
+    /// a pixel at any zoom wide enough to frame a landform — and because a centre is the thing
+    /// `site_cell` and `site_jitter` actually move, so it is the thing worth drawing.
+    ///
+    /// `unmet` carries the guarantees the bootstrap pass gave up on. `Core::new` refuses a world
+    /// over exactly that list, so a preview that stayed quiet about it would be a picture of a
+    /// world the start button then declines to generate.
+    ///
+    /// A window wide enough to frame a coastline holds tens of thousands of deposits, which is a
+    /// texture rather than a map and a megabyte rather than a payload. Past `MAX_PREVIEW_SITES` the
+    /// list is dropped and `total` and `dense` travel alone — `unmet` either way.
+    pub fn world_preview_sites_json(
+        &self,
+        world_params_json: &str,
+        seed: u32,
+        width: u32,
+        height: u32,
+        hexes_across: u32,
+    ) -> Result<String, JsValue> {
+        let sites = self
+            .preview_sites(world_params_json, seed, width, height, hexes_across)
+            .map_err(js_error)?;
+        serde_json::to_string(&sites).map_err(|error| js_error(error.to_string()))
     }
 
     pub fn apply_commands_json(&mut self, commands_json: &str) -> Result<(), JsValue> {
@@ -7125,13 +7468,22 @@ fn parse_world_params(json: Option<&str>) -> Result<Option<WorldParams>, JsValue
     let Some(json) = json.map(str::trim).filter(|json| !json.is_empty()) else {
         return Ok(None);
     };
+    world_params_from_json(json).map(Some).map_err(js_error)
+}
+
+/// The same read with the failure left as a string.
+///
+/// A `JsValue` can only be constructed inside wasm — building one on the host aborts the process —
+/// so anything a native test drives has to fail in `String` and be wrapped at the export.
+fn world_params_from_json(json: &str) -> Result<WorldParams, String> {
     let input: WorldParamsInput = serde_json::from_str(json)
-        .map_err(|error| js_error(format!("malformed world parameters: {error}")))?;
-    Ok(Some(match input {
-        WorldParamsInput::Preset { preset } => preset_params(&preset)
-            .ok_or_else(|| js_error(format!("unknown world preset {preset}")))?,
+        .map_err(|error| format!("malformed world parameters: {error}"))?;
+    Ok(match input {
+        WorldParamsInput::Preset { preset } => {
+            preset_params(&preset).ok_or_else(|| format!("unknown world preset {preset}"))?
+        }
         WorldParamsInput::Params(params) => *params,
-    }))
+    })
 }
 
 fn validate_all(
@@ -7873,6 +8225,47 @@ fn axial_world(q: i32, r: i32) -> (i32, i32) {
     (q * HEX_X + r * (HEX_X / 2), r * HEX_Y)
 }
 
+/// How finely `hex_at_world` divides a hex before it rounds. A twelfth-of-a-thousandth of a hex is
+/// far below anything a preview pixel can show, and keeping it a power of two keeps the fixed point
+/// exact.
+const HEX_SUBDIVISION: i64 = 1 << 12;
+
+/// The hex holding a world point: `axial_world` run backwards, then rounded to the nearest centre.
+///
+/// Fixed point rather than floating point, for the same reason the generator is integer — this maps
+/// a preview pixel onto a hex, and a rounding that differed between two builds would be two
+/// different pictures of one parameter set. It is not a checksum input, but it is compared: by a
+/// player moving one slider and looking at what changed.
+fn hex_at_world(x: i64, y: i64) -> (i32, i32) {
+    let r = y * HEX_SUBDIVISION / i64::from(HEX_Y);
+    let q = x * HEX_SUBDIVISION / i64::from(HEX_X) - r / 2;
+    round_axial(q, r)
+}
+
+/// Cube rounding: round all three axes, then rebuild whichever moved furthest from the other two,
+/// so the result always satisfies `q + r + s == 0` and is the centre actually nearest the point.
+fn round_axial(q: i64, r: i64) -> (i32, i32) {
+    let s = -q - r;
+    let (rounded_q, rounded_r, rounded_s) = (round_hex(q), round_hex(r), round_hex(s));
+    let drift_q = (rounded_q * HEX_SUBDIVISION - q).abs();
+    let drift_r = (rounded_r * HEX_SUBDIVISION - r).abs();
+    let drift_s = (rounded_s * HEX_SUBDIVISION - s).abs();
+    if drift_q > drift_r && drift_q > drift_s {
+        ((-rounded_r - rounded_s) as i32, rounded_r as i32)
+    } else if drift_r > drift_s {
+        (rounded_q as i32, (-rounded_q - rounded_s) as i32)
+    } else {
+        (rounded_q as i32, rounded_r as i32)
+    }
+}
+
+/// One subdivided axis to the nearest whole hex, halves away from zero. Written out because Rust's
+/// integer division truncates toward zero, which would round the negative half of the map the wrong
+/// way and shear the picture across the origin.
+fn round_hex(value: i64) -> i64 {
+    (value * 2 + HEX_SUBDIVISION * value.signum()) / (HEX_SUBDIVISION * 2)
+}
+
 fn world_direction(direction: u8) -> (i16, i16) {
     const WORLD_DIRECTIONS: [(i16, i16); 6] = [
         (1000, 0),
@@ -8364,6 +8757,16 @@ struct WorldParams {
 }
 
 impl WorldParams {
+    /// Whether the four elevation cuts ascend. Ascending cuts are what makes each band reachable:
+    /// out of order, a band is not rare — it is unreachable, and the world silently loses whatever
+    /// the table put in it. Its own predicate because a repair has to ask it before it offers a set
+    /// `validate` would then refuse.
+    fn band_levels_ascend(&self) -> bool {
+        self.water_level < self.shore_level
+            && self.shore_level < self.hills_level
+            && self.hills_level < self.highland_level
+    }
+
     /// Every way a parameter set can be nonsense, asked once, before a world is built from it.
     /// A set that generates an unplayable world is a real failure mode and this is not what
     /// catches it — the survey tool is. This catches the sets that are not worlds at all.
@@ -8397,12 +8800,7 @@ impl WorldParams {
                 return Err(format!("world parameter {name} is outside the noise range"));
             }
         }
-        // Ascending cuts are what makes each band reachable. Out of order, a band is not rare —
-        // it is unreachable, and the world silently loses whatever the table put in it.
-        if !(self.water_level < self.shore_level
-            && self.shore_level < self.hills_level
-            && self.hills_level < self.highland_level)
-        {
+        if !self.band_levels_ascend() {
             return Err("world band levels must ascend: water < shore < hills < highland".into());
         }
         if !(0..=NOISE_MAX).contains(&self.cliff_step) || self.cliff_step == 0 {
@@ -9174,25 +9572,7 @@ fn site_covers(
 fn bootstrap_sites(params: &WorldParams, seed: u32) -> (BootstrapTable, Vec<(ItemId, i32)>) {
     let mut claimed: BootstrapTable = BTreeMap::new();
     let mut unmet = Vec::new();
-    let furthest = BOOTSTRAP_GUARANTEES
-        .iter()
-        .map(|&(_, _, ceiling)| ceiling)
-        .max()
-        .unwrap_or(0)
-        + BOOTSTRAP_WIDEN_CAP;
-    let span = (furthest + MAX_SITE_RADIUS as i32) / params.site_cell + 2;
-    // The spiral, written as a sort rather than as a ring walk. The order has to be fixed and a
-    // hand-rolled ring walk is exactly where that goes wrong; the centre distance is what makes it
-    // a spiral, and the cell breaks every tie so nothing is decided by iteration order.
-    let mut cells: Vec<SpiralStep> = Vec::new();
-    for cell_q in -span..=span {
-        for cell_r in -span..=span {
-            let cell = (cell_q, cell_r);
-            let center = site_center(params, site_hash(seed, cell), cell);
-            cells.push((axial_distance((0, 0), center), cell, center));
-        }
-    }
-    cells.sort_unstable();
+    let cells = bootstrap_cells(params, seed);
     for &(item_id, floor, ceiling) in &BOOTSTRAP_GUARANTEES {
         let mut reach = ceiling;
         let placed = loop {
@@ -9228,6 +9608,34 @@ fn bootstrap_sites(params: &WorldParams, seed: u32) -> (BootstrapTable, Vec<(Ite
         }
     }
     (claimed, unmet)
+}
+
+/// Every lattice cell the bootstrap pass may claim, nearest centre first.
+///
+/// The spiral, written as a sort rather than as a ring walk. The order has to be fixed and a
+/// hand-rolled ring walk is exactly where that goes wrong; the centre distance is what makes it a
+/// spiral, and the cell breaks every tie so nothing is decided by iteration order.
+///
+/// Shared with the diagnosis below, which is the point of it being a function: what a repair
+/// measures has to be the ground the pass actually looked at, not a disc that resembles it.
+fn bootstrap_cells(params: &WorldParams, seed: u32) -> Vec<SpiralStep> {
+    let furthest = BOOTSTRAP_GUARANTEES
+        .iter()
+        .map(|&(_, _, ceiling)| ceiling)
+        .max()
+        .unwrap_or(0)
+        + BOOTSTRAP_WIDEN_CAP;
+    let span = (furthest + MAX_SITE_RADIUS as i32) / params.site_cell + 2;
+    let mut cells: Vec<SpiralStep> = Vec::new();
+    for cell_q in -span..=span {
+        for cell_r in -span..=span {
+            let cell = (cell_q, cell_r);
+            let center = site_center(params, site_hash(seed, cell), cell);
+            cells.push((axial_distance((0, 0), center), cell, center));
+        }
+    }
+    cells.sort_unstable();
+    cells
 }
 
 /// The rule a guaranteed cell is forced to: the first row for this material whose band the centre
@@ -9268,6 +9676,219 @@ fn member_hexes(params: &WorldParams, seed: u32, site: &Site) -> u32 {
                 .is_some()
         })
         .count() as u32
+}
+
+/// The bands a rule could seat this material's guaranteed centre in.
+///
+/// The centre's band is what `bootstrap_rule` gates on, so this is the ground a guarantee is
+/// actually looking for — not the ground its disc ends up covering, which the member test decides
+/// afterwards.
+fn bootstrap_bands(params: &WorldParams, item_id: ItemId) -> Vec<Terrain> {
+    let mut bands: Vec<Terrain> = params
+        .site_rules
+        .iter()
+        .filter(|rule| rule.weight > 0 && rule.item_id == item_id)
+        .map(|rule| rule.terrain)
+        .collect();
+    bands.sort_unstable();
+    bands.dedup();
+    bands
+}
+
+/// The bands the bootstrap pass could actually stand on, as the set of every lattice centre's band.
+///
+/// This is what separates the two ways an opening fails. A band that is not in here at all means
+/// the world holds no such ground near the landing site and no seed will find any; a band that is
+/// in here means the ground exists and the guarantee failed on room, distance, or a patch too
+/// small — which is a different sentence and a different fix.
+fn bootstrap_band_census(params: &WorldParams, seed: u32) -> BTreeSet<Terrain> {
+    bootstrap_cells(params, seed)
+        .iter()
+        .map(|&(_, _, center)| terrain_at(params, seed, center.0, center.1, true))
+        .collect()
+}
+
+/// Whether a parameter set opens at this seed, which is the only question a repair candidate is
+/// judged on. Every suggestion below is put through it, so nothing is offered on the strength of
+/// the reasoning that produced it.
+fn bootstraps(params: &WorldParams, seed: u32) -> bool {
+    bootstrap_sites(params, seed).1.is_empty()
+}
+
+/// The share of the opening a band is widened to when a guarantee cannot find it. A starting point
+/// rather than a rule: what decides a repair is the verification, and this is only where the search
+/// for one begins.
+const REPAIR_BAND_SHARE: usize = 15;
+/// Deposit spacings a repair will try, widest first, so a fix settles on the largest lattice that
+/// still opens the world rather than the smallest one that certainly does.
+const REPAIR_SPACINGS: [i32; 5] = [32, 24, 16, 12, 8];
+/// Seeds a repair will try before it touches a parameter at all. A seed is the one thing on the
+/// form the player did not choose, so rerolling it is the fix that costs them nothing — but a
+/// world that drowns every material drowns them under every seed, which is why the list is short.
+const REPAIR_SEEDS: u32 = 8;
+
+/// A seed that opens this world with every parameter left alone.
+fn repair_seed(params: &WorldParams, seed: u32) -> Option<u32> {
+    (1..=REPAIR_SEEDS)
+        .map(|step| seed.wrapping_add(step))
+        .find(|&candidate| bootstraps(params, candidate))
+}
+
+/// One way a repair may turn a knob. Takes the bands the failed guarantees were looking for,
+/// because a repair that widened every band would be a reset rather than a fix.
+type RepairMove = fn(&WorldParams, u32, &[Terrain]) -> WorldParams;
+
+/// Ways to repair a world, fewest knobs first. Every rung is verified, so a rung that does not open
+/// the world is simply never offered — which is what lets the list stay a list of guesses.
+const REPAIR_LADDER: [&[RepairMove]; 4] = [
+    &[],
+    &[repair_cuts],
+    &[repair_landform],
+    &[repair_cuts, repair_landform, repair_rivers],
+];
+
+/// A parameter set that opens this world at the seed the player is on, or none that was found.
+///
+/// The search is a ladder rather than a solver: a handful of candidates, ordered so the first one
+/// that works is also the one that does least to what the player asked for. Deposit spacing is the
+/// outer loop because it is the knob a repair would rather not touch — a player who set it to an
+/// expedition per material meant it — so everything else is tried at their spacing first.
+fn repair_params(params: &WorldParams, seed: u32) -> Option<WorldParams> {
+    let unmet = bootstrap_sites(params, seed).1;
+    let mut needed: Vec<Terrain> = unmet
+        .iter()
+        .flat_map(|&(item_id, _)| bootstrap_bands(params, item_id))
+        .collect();
+    needed.sort_unstable();
+    needed.dedup();
+    let spacings = std::iter::once(params.site_cell).chain(
+        REPAIR_SPACINGS
+            .into_iter()
+            .filter(|&cell| cell < params.site_cell),
+    );
+    for site_cell in spacings {
+        for moves in REPAIR_LADDER {
+            let mut candidate = WorldParams {
+                site_cell,
+                ..params.clone()
+            };
+            for step in moves {
+                candidate = step(&candidate, seed, &needed);
+            }
+            // The unchanged set is the one that is already known to fail, and a candidate native
+            // would refuse is not a fix — `Core::new` would decline it on arrival.
+            if candidate != *params
+                && candidate.band_levels_ascend()
+                && bootstraps(&candidate, seed)
+            {
+                return Some(candidate);
+            }
+        }
+    }
+    None
+}
+
+/// Give the landform back the scale the opening was tuned against.
+///
+/// Below `LANDING_SCALE_CELL` there is no opening blend at all and the ground near the hub is a
+/// mosaic at the regional cell: every band is present and none of them holds a patch big enough to
+/// stand an extractor on. Raising the cell is what turns that mosaic back into country.
+fn repair_landform(params: &WorldParams, _seed: u32, _needed: &[Terrain]) -> WorldParams {
+    WorldParams {
+        elevation_coarse_cell: params.elevation_coarse_cell.max(LANDING_SCALE_CELL),
+        ..params.clone()
+    }
+}
+
+/// Narrow rivers to the creeks the bootstrap was measured against. A river is shallow water
+/// whatever the elevation cuts say, so a wide enough channel drowns an opening the cuts alone
+/// cannot rescue.
+fn repair_rivers(params: &WorldParams, _seed: u32, _needed: &[Terrain]) -> WorldParams {
+    WorldParams {
+        river_width: params
+            .river_width
+            .min(river_width_for(params.river_cell, 1)),
+        ..params.clone()
+    }
+}
+
+/// Move the band cuts so every band a failed guarantee was looking for has room in the ground the
+/// opening actually holds.
+///
+/// The cuts are quantiles of the elevation around the landing site, which is what makes "give
+/// highland a share of the ground" a thing that can be computed rather than guessed: a band is a
+/// slice of that distribution and not a number on a slider. Each starving band takes its room from
+/// *below*, so its own lower cut is the one that moves — a world missing highland is repaired
+/// without raising the sea, and a drowned world is repaired by lowering the cut that drowned it.
+fn repair_cuts(params: &WorldParams, seed: u32, needed: &[Terrain]) -> WorldParams {
+    let mut samples: Vec<i32> = bootstrap_cells(params, seed)
+        .iter()
+        .map(|&(_, _, center)| elevation_at(params, seed, center.0, center.1))
+        .collect();
+    if samples.is_empty() {
+        return params.clone();
+    }
+    samples.sort_unstable();
+    let room = (samples.len() * REPAIR_BAND_SHARE / 100).max(1);
+    let at = |index: usize| samples[index.min(samples.len() - 1)];
+    let mut next = params.clone();
+    // Top down, so each band is measured against a ceiling that has already stopped moving.
+    if needed.contains(&Terrain::Highland) {
+        let above = samples.len() - samples.partition_point(|&e| e <= next.highland_level);
+        if above < room {
+            next.highland_level = at(samples.len() - room) - 1;
+        }
+    }
+    if needed.contains(&Terrain::Hills) {
+        let ceiling = samples.partition_point(|&e| e <= next.highland_level);
+        if ceiling
+            - samples
+                .partition_point(|&e| e <= next.hills_level)
+                .min(ceiling)
+            < room
+        {
+            next.hills_level = at(ceiling.saturating_sub(room)) - 1;
+        }
+    }
+    if needed.contains(&Terrain::Lowland) {
+        let ceiling = samples.partition_point(|&e| e <= next.hills_level);
+        if ceiling
+            - samples
+                .partition_point(|&e| e < next.shore_level)
+                .min(ceiling)
+            < room
+        {
+            next.shore_level = at(ceiling.saturating_sub(room));
+        }
+    }
+    if needed.contains(&Terrain::Shore) {
+        let ceiling = samples.partition_point(|&e| e < next.shore_level);
+        if ceiling
+            - samples
+                .partition_point(|&e| e < next.water_level)
+                .min(ceiling)
+            < room
+        {
+            next.water_level = at(ceiling.saturating_sub(room));
+        }
+    }
+    for level in [
+        &mut next.water_level,
+        &mut next.shore_level,
+        &mut next.hills_level,
+        &mut next.highland_level,
+    ] {
+        *level = (*level).clamp(0, NOISE_MAX);
+    }
+    // A band that took its room from below can leave a cut stranded above the one over it — a sea
+    // higher than its own shore, which `validate` refuses. Each cut follows the one above it back
+    // down, which keeps the rule the moves are built on: the sea falls, it never rises. A chain
+    // that bottoms out at zero simply fails to ascend, and an unascending candidate is discarded
+    // rather than offered.
+    next.hills_level = next.hills_level.min(next.highland_level.saturating_sub(1));
+    next.shore_level = next.shore_level.min(next.hills_level.saturating_sub(1));
+    next.water_level = next.water_level.min(next.shore_level.saturating_sub(1));
+    next
 }
 
 /// The resource field of one world: a pure function of parameters, seed, and hex, with the lattice
@@ -11811,8 +12432,11 @@ mod tests {
         let fixture: Vec<PassabilityEntry> =
             serde_json::from_str(include_str!("../../fixtures/terrain-passability.json")).unwrap();
         assert_eq!(fixture.len(), BANDS.len(), "a band has no fixture entry");
-        for (entry, band) in fixture.iter().zip(BANDS) {
+        for (index, (entry, band)) in fixture.iter().zip(BANDS).enumerate() {
             assert_eq!(entry.terrain, band, "fixture is in declaration order");
+            // `world_preview_bytes` sends a band as its position in this list and nothing else, so
+            // the row a host reads a preview byte through is pinned to the cast that wrote it.
+            assert_eq!(band as u8, index as u8, "{band:?} moved in the declaration");
             assert_eq!(
                 entry.passable,
                 !band.blocks_movement(),
@@ -11824,6 +12448,270 @@ mod tests {
                 "{band:?} buildability disagrees with the fixture"
             );
         }
+    }
+
+    /// A preview pixel is turned into a world point and the point into the hex holding it. The
+    /// round trip is what makes that a picture of the map rather than of a sheared rhombus, and it
+    /// has to hold on both sides of the origin — truncating division is exactly the bug that would
+    /// pass the northern half and shear the southern one.
+    #[test]
+    fn a_world_point_resolves_to_the_hex_it_was_built_from() {
+        for q in -40..=40 {
+            for r in -40..=40 {
+                let (x, y) = axial_world(q, r);
+                assert_eq!(
+                    hex_at_world(i64::from(x), i64::from(y)),
+                    (q, r),
+                    "centre of hex {q},{r}"
+                );
+            }
+        }
+    }
+
+    /// The preview exists so a player can see a parameter set before playing it, which is only
+    /// worth anything if it is the set that gets played. These are the properties that make it one
+    /// picture of one world rather than a second generator that happens to look similar.
+    #[test]
+    fn world_preview_rasters_the_world_the_run_would_generate() {
+        let factory = test_factory("new-game");
+        let params = factory.core.world_params.clone();
+        let seed = factory.core.seed;
+        let json = serde_json::to_string(&params).unwrap();
+        let (width, height) = (64u32, 48u32);
+        let cells = factory
+            .preview_cells(&json, seed, width, height, 512)
+            .expect("a shipped parameter set rasters");
+        assert_eq!(cells.len(), (width * height) as usize);
+        assert!(
+            cells.iter().all(|&band| band <= Terrain::Cliff as u8),
+            "a preview byte is a band index"
+        );
+        // The window is centred on the landing site, so the middle pixel is the clearing that
+        // `terrain_at` forces there. That pins the centring and the encoding together.
+        let centre = (height / 2 * width + width / 2) as usize;
+        assert_eq!(cells[centre], Terrain::Lowland as u8);
+
+        // The picture is of these parameters and not of a cached world: raising the sea to just
+        // under the shore cut has to flood ground that was dry.
+        let water = |cells: &[u8]| {
+            cells
+                .iter()
+                .filter(|&&band| {
+                    band == Terrain::DeepWater as u8 || band == Terrain::ShallowWater as u8
+                })
+                .count()
+        };
+        let flooded = WorldParams {
+            water_level: params.shore_level - 1,
+            ..params.clone()
+        };
+        let risen = factory
+            .preview_cells(
+                &serde_json::to_string(&flooded).unwrap(),
+                seed,
+                width,
+                height,
+                512,
+            )
+            .unwrap();
+        assert!(water(&risen) > water(&cells), "a risen sea floods nothing");
+
+        // A set `Core::new` would refuse is refused here too, rather than drawn or divided by. A
+        // slider mid-drag is the caller this is for.
+        let broken = WorldParams {
+            site_cell: 0,
+            ..params.clone()
+        };
+        assert!(factory
+            .preview_cells(
+                &serde_json::to_string(&broken).unwrap(),
+                seed,
+                width,
+                height,
+                512
+            )
+            .is_err());
+    }
+
+    /// Deposits are reported as lattice centres rather than sampled, so what pins them is the
+    /// lattice: `site_cell` is how far apart sites stand, and a window of fixed size holds fewer
+    /// of them when they stand further apart.
+    #[test]
+    fn world_preview_places_deposits_on_the_lattice_that_generates_them() {
+        let factory = test_factory("new-game");
+        let params = factory.core.world_params.clone();
+        let seed = factory.core.seed;
+        let read = |params: &WorldParams, across: u32| -> PreviewSites {
+            factory
+                .preview_sites(
+                    &serde_json::to_string(params).unwrap(),
+                    seed,
+                    64,
+                    48,
+                    across,
+                )
+                .expect("a shipped parameter set reports sites")
+        };
+
+        let shipped = read(&params, 64);
+        assert!(!shipped.sites.is_empty(), "a shipped world holds deposits");
+        assert_eq!(shipped.total as usize, shipped.sites.len());
+        assert!(!shipped.dense);
+        // `Core::new` built this world, so its opening is met — a preview claiming otherwise would
+        // be warning about a world that starts fine.
+        assert!(shipped.unmet.is_empty());
+
+        let sparse = read(
+            &WorldParams {
+                site_cell: params.site_cell * 2,
+                ..params.clone()
+            },
+            64,
+        );
+        assert!(
+            sparse.total < shipped.total,
+            "doubling the lattice left the window as crowded"
+        );
+
+        // Wide enough to hold more deposits than are worth drawing: the count still travels, the
+        // list does not, and `dense` is what tells the two apart from a world with no deposits.
+        let wide = read(&params, MAX_PREVIEW_SPAN);
+        assert!(wide.dense);
+        assert!(wide.sites.is_empty());
+        assert!(wide.unmet.is_empty(), "the bootstrap verdict still travels");
+    }
+
+    /// A parameter set that drowns the highlands, which is the shape of the complaint this
+    /// diagnosis exists for: the iron and stone rules seat their centres on ground the world no
+    /// longer has near the landing site.
+    fn drowned_params(base: &WorldParams) -> WorldParams {
+        WorldParams {
+            water_level: 50_000,
+            shore_level: 52_000,
+            hills_level: 58_000,
+            highland_level: 62_000,
+            ..base.clone()
+        }
+    }
+
+    #[test]
+    fn a_world_that_opens_is_diagnosed_at_no_cost() {
+        let factory = test_factory("new-game");
+        let params = factory.core.world_params.clone();
+        assert!(
+            bootstraps(&params, 7),
+            "the shipped parameters have to open, or the rest of this proves nothing"
+        );
+        let (needs, repair) = factory.preview_diagnosis(&params, 7, &[]);
+        // Not merely empty: nothing was searched. A repair ladder run over a world nobody is
+        // stuck in would be two dozen bootstrap passes behind every slider drag.
+        assert!(needs.is_empty());
+        assert!(repair.is_none());
+    }
+
+    #[test]
+    fn a_refused_world_names_the_ground_its_materials_wanted() {
+        let factory = test_factory("new-game");
+        let params = drowned_params(&factory.core.world_params);
+        let (_, unmet) = bootstrap_sites(&params, 7);
+        assert!(
+            !unmet.is_empty(),
+            "drowning the highlands has to refuse the world"
+        );
+        let unmet: Vec<ItemId> = unmet.iter().map(|&(item_id, _)| item_id).collect();
+        let (needs, _) = factory.preview_diagnosis(&params, 7, &unmet);
+        assert_eq!(needs.len(), unmet.len());
+        for need in &needs {
+            assert!(
+                !need.bands.is_empty(),
+                "a guarantee with no band at all would be a rule table this world cannot satisfy \
+                 under any parameters, and the hint would have nothing to say"
+            );
+        }
+        let iron = needs
+            .iter()
+            .find(|need| need.item_id == IRON_ORE)
+            .expect("iron is one of the materials this world cannot place");
+        assert!(iron.bands.contains(&Terrain::Highland));
+        // The distinction the hint is built on: under water there is no highland to find, so no
+        // seed will help and the sentence has to say to move a slider instead.
+        assert!(!iron.ground);
+    }
+
+    #[test]
+    fn every_repair_offered_has_been_run() {
+        let factory = test_factory("new-game");
+        let base = factory.core.world_params.clone();
+        // Two different failures: one the ground is missing for, one where the lattice is simply
+        // too sparse to seat a patch. They want different repairs, and both have to be verified.
+        for params in [
+            drowned_params(&base),
+            WorldParams {
+                site_cell: 128,
+                ..base.clone()
+            },
+        ] {
+            let (_, unmet) = bootstrap_sites(&params, 7);
+            let unmet: Vec<ItemId> = unmet.iter().map(|&(item_id, _)| item_id).collect();
+            assert!(!unmet.is_empty());
+            let (_, repair) = factory.preview_diagnosis(&params, 7, &unmet);
+            let repair = repair.expect("a world this ordinary has to have a way out");
+            if let Some(seed) = repair.seed {
+                assert!(
+                    bootstraps(&params, seed),
+                    "the offered seed has to open the world it was offered for"
+                );
+            }
+            if !repair.changes.is_empty() {
+                // Applied the way the host applies them — field by field, off the diff — so a
+                // change that names a knob nothing reads would fail here rather than in the UI.
+                let mut fixed = params.clone();
+                for change in &repair.changes {
+                    assert_eq!(
+                        read_world_scalar(&params, change.field),
+                        Some(change.from),
+                        "a diff has to report where the knob actually was"
+                    );
+                    write_world_scalar(&mut fixed, change.field, change.to);
+                }
+                assert!(fixed.validate(&factory.definitions).is_ok());
+                assert!(
+                    bootstraps(&fixed, 7),
+                    "the offered changes have to open the world on the seed they were offered for"
+                );
+            }
+        }
+    }
+
+    fn read_world_scalar(params: &WorldParams, field: &str) -> Option<i32> {
+        WORLD_SCALARS
+            .iter()
+            .find(|&&(name, _)| name == field)
+            .map(|&(_, read)| read(params))
+    }
+
+    fn write_world_scalar(params: &mut WorldParams, field: &str, value: i32) {
+        let slot = match field {
+            "elevation_coarse_cell" => &mut params.elevation_coarse_cell,
+            "elevation_fine_cell" => &mut params.elevation_fine_cell,
+            "elevation_coarse_weight" => &mut params.elevation_coarse_weight,
+            "moisture_cell" => &mut params.moisture_cell,
+            "richness_cell" => &mut params.richness_cell,
+            "water_level" => &mut params.water_level,
+            "shore_level" => &mut params.shore_level,
+            "hills_level" => &mut params.hills_level,
+            "highland_level" => &mut params.highland_level,
+            "cliff_step" => &mut params.cliff_step,
+            "deep_water_moisture" => &mut params.deep_water_moisture,
+            "site_cell" => &mut params.site_cell,
+            "site_jitter" => &mut params.site_jitter,
+            "river_cell" => &mut params.river_cell,
+            "river_width" => &mut params.river_width,
+            "river_max_elevation" => &mut params.river_max_elevation,
+            "ocean_level" => &mut params.ocean_level,
+            other => panic!("a repair named a field nothing can set: {other}"),
+        };
+        *slot = value;
     }
 
     #[test]

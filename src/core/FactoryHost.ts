@@ -15,6 +15,7 @@ import type {
   Technologies,
   WorldParams,
   WorldPreset,
+  WorldPreview,
 } from "./types";
 
 export type FactoryWorkerMethod =
@@ -26,7 +27,8 @@ export type FactoryWorkerMethod =
   | "linePreview"
   | "save"
   | "load"
-  | "worldParams";
+  | "worldParams"
+  | "worldPreview";
 
 /**
  * How a caller names the world a new game is generated with: a preset key, a complete parameter
@@ -314,6 +316,30 @@ export class FactoryHost {
         await this.transport.request<WorldParams>("worldParams");
     }
     return this.currentWorldParams;
+  }
+
+  /**
+   * A picture of a world nobody has generated yet, for a parameter set the player is still moving
+   * sliders on. Answered by the same `terrain_at` a played hex goes through, so a preview and the
+   * world the start button generates cannot disagree.
+   *
+   * Reads nothing about the run in progress and moves nothing: the current world is untouched, and
+   * a set the start button would refuse is refused here too rather than drawn.
+   */
+  worldPreview(
+    world: WorldChoice,
+    seed: number,
+    width: number,
+    height: number,
+    hexesAcross: number,
+  ): Promise<WorldPreview> {
+    return this.transport.request<WorldPreview>("worldPreview", {
+      worldParams: world,
+      seed,
+      width,
+      height,
+      hexesAcross,
+    });
   }
 
   /** The preset whose parameters these are, if any. A hand-tuned set matches none. */

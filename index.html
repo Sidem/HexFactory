@@ -9,8 +9,49 @@
       content="Explore, automate, and build a deterministic hex factory in your browser."
     />
     <title>HexFactory — Build beyond the landing zone</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
   </head>
-  <body>
+  <body class="title-open">
+    <!--
+      The mark, defined once. A hexagon holding three linked cells: the tile the world is made of,
+      and the network the game is about. Both places that wear it point at this, so the logo cannot
+      drift between the command bar and the title screen.
+    -->
+    <svg class="brand-sprite" aria-hidden="true" focusable="false">
+      <symbol id="hf-mark" viewBox="0 0 48 48">
+        <path
+          d="M24 2.5 42.6 13.25 42.6 34.75 24 45.5 5.4 34.75 5.4 13.25Z"
+          fill="var(--brand-mark-fill, #16241f)"
+          stroke="var(--gold, #f6c85f)"
+          stroke-width="2.6"
+          stroke-linejoin="round"
+        />
+        <g
+          stroke="var(--mint, #72e2b4)"
+          stroke-width="2.3"
+          stroke-linecap="round"
+        >
+          <path d="M24 15 14.5 31M24 15 33.5 31M14.5 31H33.5" />
+        </g>
+        <path
+          d="M24 8.6 30.06 12.1 30.06 19.1 24 22.6 17.94 19.1 17.94 12.1Z"
+          fill="var(--gold, #f6c85f)"
+        />
+        <g
+          fill="var(--brand-mark-fill, #16241f)"
+          stroke="var(--mint, #72e2b4)"
+          stroke-width="2.2"
+          stroke-linejoin="round"
+        >
+          <path
+            d="M14.5 25.4 20.06 28.6 20.06 35 14.5 38.2 8.94 35 8.94 28.6Z"
+          />
+          <path
+            d="M33.5 25.4 39.06 28.6 39.06 35 33.5 38.2 27.94 35 27.94 28.6Z"
+          />
+        </g>
+      </symbol>
+    </svg>
     <main class="app-shell">
       <header class="command-bar">
         <a
@@ -18,7 +59,9 @@
           href="https://github.com/Sidem/HexFactory"
           aria-label="HexFactory source on GitHub"
         >
-          <span class="brand-mark" aria-hidden="true">HF</span>
+          <svg class="brand-mark" viewBox="0 0 48 48" aria-hidden="true">
+            <use href="#hf-mark" />
+          </svg>
           <span
             ><strong>HexFactory</strong><small>Continuous world</small></span
           >
@@ -771,14 +814,13 @@
               &nbsp;
             </p>
             <details id="world-parameters" class="world-parameters">
-              <summary>World parameters</summary>
+              <summary>Custom world parameters</summary>
               <p class="world-parameters-note">
-                Feature scale is how big a landform is; a band level is how much
-                of the world it covers. Raising the sea level makes more water,
-                not bigger water &mdash; bigger water is a larger landform
-                scale. The resource table comes from the preset.
+                Every control says what it does and what the current value means
+                for the world about to be generated. Editing any of them turns
+                the preset into &ldquo;Custom&rdquo;.
               </p>
-              <div id="world-parameter-fields"></div>
+              <div id="world-parameter-fields" class="world-param-fields"></div>
               <button id="world-parameters-reset" type="button">
                 Back to preset
               </button>
@@ -1105,9 +1147,13 @@
           <div class="title-modal">
             <header class="title-header">
               <div class="title-brand">
-                <span class="brand-mark title-brand-mark" aria-hidden="true"
-                  >HF</span
+                <svg
+                  class="brand-mark title-brand-mark"
+                  viewBox="0 0 48 48"
+                  aria-hidden="true"
                 >
+                  <use href="#hf-mark" />
+                </svg>
                 <div>
                   <h1 class="title-heading">HexFactory</h1>
                   <p class="title-tagline">
@@ -1221,54 +1267,119 @@
                   <div class="title-view-header">
                     <h3>Configure new factory</h3>
                     <p class="title-view-note">
-                      Choose your landing conditions and world seed.
+                      Name the run, pick the landing conditions, and start.
+                      Every setting here says what it does.
                     </p>
                   </div>
 
                   <div class="title-new-game-form">
-                    <label
-                      >Scenario
-                      <select id="title-scenario" aria-label="Scenario">
-                        <option value="new-game">New game</option>
-                        <option value="factory-demo">Factory demo</option>
-                      </select>
-                    </label>
+                    <section class="setup-block">
+                      <label class="setup-label" for="title-save-name"
+                        >Factory name</label
+                      >
+                      <input
+                        id="title-save-name"
+                        type="text"
+                        maxlength="48"
+                        autocomplete="off"
+                        spellcheck="false"
+                        placeholder="Landing run"
+                      />
+                      <p class="setup-hint">
+                        This names the save. Auto-saves and the Save button both
+                        write to it, so the run keeps one entry in Saved games
+                        instead of a stack of anonymous ones. Left blank, the
+                        scenario name is used.
+                      </p>
+                    </section>
 
-                    <div class="title-seed-group">
-                      <label
-                        >World seed
+                    <section class="setup-block">
+                      <span class="setup-label" id="title-scenario-label"
+                        >Scenario</span
+                      >
+                      <!-- Filled from the shipped scenario list, descriptions and all. -->
+                      <div
+                        id="title-scenario-choices"
+                        class="choice-grid"
+                        role="radiogroup"
+                        aria-labelledby="title-scenario-label"
+                      ></div>
+                    </section>
+
+                    <section class="setup-block">
+                      <span class="setup-label" id="title-mode-label"
+                        >Game mode</span
+                      >
+                      <div
+                        class="mode-card"
+                        role="group"
+                        aria-labelledby="title-mode-label"
+                      >
+                        <label class="mode-switch" for="title-creative">
+                          <span class="mode-switch-copy">
+                            <strong>Creative mode</strong>
+                            <small
+                              >Everything unlocked, nothing costs anything, and
+                              you can grant yourself any material. No
+                              achievements are earned in a creative run.</small
+                            >
+                          </span>
+                          <input
+                            id="title-creative"
+                            class="switch-input"
+                            type="checkbox"
+                            role="switch"
+                            aria-describedby="title-creative-note"
+                          />
+                        </label>
+                        <p id="title-creative-note" class="mode-note"></p>
+                      </div>
+                    </section>
+
+                    <section class="setup-block">
+                      <label class="setup-label" for="title-seed"
+                        >World seed</label
+                      >
+                      <div class="title-seed-group">
                         <input
                           id="title-seed"
                           type="number"
                           min="0"
                           max="4294967295"
                           value="1213486160"
+                          aria-describedby="title-seed-hint"
                         />
-                      </label>
-                      <button
-                        id="title-seed-random"
-                        class="icon-button title-seed-random"
-                        type="button"
-                        title="Randomize seed"
-                        aria-label="Randomize seed"
-                      >
-                        🎲
-                      </button>
-                    </div>
+                        <button
+                          id="title-seed-random"
+                          class="icon-button title-seed-random"
+                          type="button"
+                          title="Randomize seed"
+                          aria-label="Randomize seed"
+                        >
+                          🎲
+                        </button>
+                      </div>
+                      <p id="title-seed-hint" class="setup-hint">
+                        The same seed and the same parameters always generate
+                        the same world. Share one to hand someone your map.
+                      </p>
+                    </section>
 
-                    <label
-                      >World preset
+                    <section class="setup-block">
+                      <label class="setup-label" for="title-world-preset"
+                        >World preset</label
+                      >
                       <select
                         id="title-world-preset"
-                        aria-label="World preset"
+                        aria-describedby="title-world-preset-description"
                       ></select>
-                    </label>
-                    <p
-                      id="title-world-preset-description"
-                      class="world-preset-description"
-                    >
-                      &nbsp;
-                    </p>
+                      <p
+                        id="title-world-preset-description"
+                        class="world-preset-description"
+                      >
+                        &nbsp;
+                      </p>
+                    </section>
 
                     <details
                       id="title-world-parameters"
@@ -1276,31 +1387,25 @@
                     >
                       <summary>Custom world parameters</summary>
                       <p class="world-parameters-note">
-                        Feature scale is how big a landform is; a band level is
-                        how much of the world it covers.
+                        Every control says what it does and what the current
+                        value means for the world about to be generated. Editing
+                        any of them turns the preset into &ldquo;Custom&rdquo;.
                       </p>
-                      <div id="title-world-parameter-fields"></div>
+                      <div
+                        id="title-world-parameter-fields"
+                        class="world-param-fields"
+                      ></div>
                       <button id="title-world-parameters-reset" type="button">
                         Back to preset
                       </button>
                     </details>
-
-                    <label class="switch title-creative"
-                      ><input id="title-creative" type="checkbox" />Creative
-                      mode</label
-                    >
-                    <p class="title-view-note">
-                      Everything unlocked, building costs nothing, and you can
-                      give yourself any material. For testing, or for building
-                      without the shopping.
-                    </p>
 
                     <button
                       id="title-start-game"
                       class="primary-action title-start-btn"
                       type="button"
                     >
-                      Start Scenario
+                      Start factory
                     </button>
                   </div>
                 </div>

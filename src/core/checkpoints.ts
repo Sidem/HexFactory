@@ -59,7 +59,7 @@ export interface CheckpointRecord {
  * Why a run's wall clock cannot be compared against another's. Kept as reasons rather than one
  * boolean so a report can say which guarantee was lost instead of only that one was.
  */
-export type RunTaint = "speed-changed" | "loaded-save";
+export type RunTaint = "speed-changed" | "loaded-save" | "creative";
 
 export interface RunTimings {
   /** Epoch milliseconds, for naming the run rather than for timing it. */
@@ -237,6 +237,8 @@ function taintReason(taint: RunTaint): string {
       return "simulation speed changed mid-run";
     case "loaded-save":
       return "a save was loaded, so the clock missed part of the run";
+    case "creative":
+      return "creative mode was used, so nothing here had to be earned";
   }
 }
 
@@ -273,7 +275,9 @@ export function readRun(storage: StorageLike): RunTimings | null {
       startedSpeed: run.startedSpeed,
       taints: run.taints.filter(
         (taint): taint is RunTaint =>
-          taint === "speed-changed" || taint === "loaded-save",
+          taint === "speed-changed" ||
+          taint === "loaded-save" ||
+          taint === "creative",
       ),
       records,
     };

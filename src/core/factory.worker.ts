@@ -11,6 +11,7 @@ import type {
   PlacementPreview,
   WorldParams,
   WorldPreset,
+  WorldPreview,
 } from "./types";
 
 interface WorkerRequest {
@@ -100,6 +101,40 @@ async function handle(request: WorkerRequest): Promise<unknown> {
       // Not part of the per-frame delta: a world's parameters change only when the world does,
       // so the host asks after `newGame` and `load` rather than paying for them every frame.
       return JSON.parse(factory.world_params_json()) as WorldParams;
+    case "worldPreview": {
+      const width = Number(payload.width ?? 0);
+      const height = Number(payload.height ?? 0);
+      const seed = Number(payload.seed ?? 0);
+      const across = Number(payload.hexesAcross ?? 0);
+      const params = worldParamsJson(payload.worldParams) ?? "";
+      const cells = factory.world_preview_bytes(
+        params,
+        seed,
+        width,
+        height,
+        across,
+      );
+      const { sites, total, dense, unmet, needs, repair } = JSON.parse(
+        factory.world_preview_sites_json(params, seed, width, height, across),
+      ) as Pick<
+        WorldPreview,
+        "sites" | "total" | "dense" | "unmet" | "needs" | "repair"
+      >;
+      // Deliberately an object around the bytes rather than the bare buffer a delta travels as:
+      // the transport reads *any* `ArrayBuffer` result as a snapshot delta. The clone costs a
+      // memcpy of at most `MAX_PREVIEW_SIDE²` bytes, which is a settings panel's budget.
+      return {
+        width,
+        height,
+        cells,
+        sites,
+        total,
+        dense,
+        unmet,
+        needs,
+        repair,
+      } satisfies WorldPreview;
+    }
     case "placementPreview":
       return JSON.parse(
         factory.placement_preview_json(

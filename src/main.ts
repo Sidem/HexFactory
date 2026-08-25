@@ -35,6 +35,7 @@ import {
   SAVE_VERSION,
   slotFromPayload,
   slotsNewestFirst,
+  uniqueSlotName,
   upsertSlot,
   writeCatalog,
   type CurrentBuild,
@@ -100,6 +101,15 @@ import {
 } from "./rendering/three/quality";
 import { part, required, syncChildren } from "./ui/dom";
 import { PanelController } from "./ui/panels";
+import { WorldParameterForm } from "./ui/worldParameters";
+import {
+  applyChanges,
+  PREVIEW_HEIGHT,
+  PREVIEW_WIDTH,
+  WorldPreviewPanel,
+  type PreviewItemLook,
+  type RepairChoice,
+} from "./ui/worldPreview";
 import "./styles.css";
 
 type Tool = "inspect" | "erase" | "rotate" | "upgrade" | number;
@@ -201,7 +211,9 @@ const titleResume = required<HTMLButtonElement>("title-resume");
 const titleSavesBadge = required<HTMLElement>("title-saves-badge");
 const titleSavesView = required<HTMLElement>("title-saves-view");
 const titleNewGameView = required<HTMLElement>("title-new-game-view");
-const titleScenarioInput = required<HTMLSelectElement>("title-scenario");
+const titleScenarioChoices = required<HTMLDivElement>("title-scenario-choices");
+const titleSaveNameInput = required<HTMLInputElement>("title-save-name");
+const titleCreativeNote = required<HTMLParagraphElement>("title-creative-note");
 const titleSeedInput = required<HTMLInputElement>("title-seed");
 const titleSeedRandom = required<HTMLButtonElement>("title-seed-random");
 const titleWorldPresetInput = required<HTMLSelectElement>("title-world-preset");
@@ -277,6 +289,12 @@ const panels = new PanelController(document, localStorage);
 let snapshot = host.snapshot();
 /** Which named slot Save will overwrite, if any. Presentation only — the catalog is the store. */
 let selectedSaveId: string | null = null;
+/**
+ * What this run's save is called. The title screen asks once, and everything that writes — the
+ * auto-save and the Save button alike — targets that one name, so a run keeps a single catalogue
+ * entry rather than scattering across "Auto-save" plus whatever the player typed later.
+ */
+let runName = AUTOSAVE_SLOT_NAME;
 let playing = true;
 let tool: Tool = "inspect";
 let orientation = 0;
@@ -878,6 +896,17 @@ const CREATIVE_FILL = 4_294_967_295;
  */
 function renderCreative(): void {
   const { creative, carry_slots } = snapshot.player;
+  // Creative is a different game, so a creative run is not a comparable one. The mark is applied
+  // here rather than at each switch because all three ways in — the title screen, the panel toggle
+  // and the C key — arrive as the same snapshot, and the mark survives switching creative back off.
+  if (creative && run) {
+    const marked = taintRun(run, "creative");
+    if (marked !== run) {
+      run = marked;
+      writeRun(localStorage, run);
+      renderRun();
+    }
+  }
   creativeChip.classList.toggle("creative-on", creative);
   creativeChip.title = creative
     ? "Creative mode is on (C)"
@@ -2491,10 +2520,11 @@ function setPlaying(value: boolean): void {
 
 function syncSessionInputs(next: FactorySnapshot): void {
   scenarioInput.value = next.scenario;
-  titleScenarioInput.value = next.scenario;
+  showTitleScenario(next.scenario);
   seedInput.value = String(next.seed);
   titleSeedInput.value = String(next.seed);
   titleCreativeInput.checked = next.player.creative;
+  showCreativeNote();
   void syncWorldInputs();
 }
 
@@ -2658,49 +2688,8 @@ required<HTMLButtonElement>("toggle-grid").addEventListener(
       : "Show construction grid";
   },
 );
-/**
- * The scalar parameters the new-world flow exposes, in the order the two questions are actually
- * asked: how big is a landform, then how much of the world each band covers. The resource table is
- * the fourth kind of parameter and is not edited here — a preset supplies it whole.
- *
- * Ranges are the native validator's, restated so a form cannot offer a value native will refuse.
- */
-type WorldScalar = Exclude<keyof WorldParams, "site_rules">;
-
-const WORLD_PARAMETER_FIELDS: {
-  key: WorldScalar;
-  label: string;
-  min: number;
-  max: number;
-}[] = [
-  { key: "elevation_coarse_cell", label: "Landform scale", min: 1, max: 1024 },
-  { key: "elevation_fine_cell", label: "Detail scale", min: 1, max: 1024 },
-  {
-    key: "elevation_coarse_weight",
-    label: "Landform share %",
-    min: 0,
-    max: 100,
-  },
-  { key: "moisture_cell", label: "Moisture scale", min: 1, max: 1024 },
-  { key: "richness_cell", label: "Richness scale", min: 1, max: 1024 },
-  { key: "water_level", label: "Sea level", min: 0, max: 65535 },
-  { key: "shore_level", label: "Shore level", min: 0, max: 65535 },
-  { key: "hills_level", label: "Hills level", min: 0, max: 65535 },
-  { key: "highland_level", label: "Highland level", min: 0, max: 65535 },
-  { key: "cliff_step", label: "Cliff steepness", min: 1, max: 65535 },
-  { key: "deep_water_moisture", label: "Deep water", min: -1, max: 65535 },
-  { key: "site_cell", label: "Deposit spacing", min: 1, max: 1024 },
-  { key: "site_jitter", label: "Deposit wander", min: 0, max: 16 },
-  { key: "river_cell", label: "River spacing", min: 1, max: 1024 },
-  { key: "river_width", label: "River width", min: 0, max: 65535 },
-  { key: "river_max_elevation", label: "River ceiling", min: 0, max: 65535 },
-  { key: "ocean_level", label: "Ocean cut", min: 0, max: 65535 },
-];
-
 /** What Start scenario will generate. Native validates it again on arrival. */
 let pendingWorld: WorldParams | null = null;
-const worldParameterInputs = new Map<WorldScalar, HTMLInputElement>();
-const titleWorldParameterInputs = new Map<WorldScalar, HTMLInputElement>();
 
 for (const preset of host.worldPresets) {
   const option = document.createElement("option");
@@ -2728,63 +2717,169 @@ titleCustomOption.hidden = true;
 titleWorldPresetInput.append(titleCustomOption);
 
 // Built once and only ever written to. A form rebuilt under a pointer loses the control it was
-// rebuilt for, which is the same rule the catalogue and the research list live under.
-for (const field of WORLD_PARAMETER_FIELDS) {
-  const label = document.createElement("label");
-  label.textContent = field.label;
-  const control = document.createElement("input");
-  control.type = "number";
-  control.min = String(field.min);
-  control.max = String(field.max);
-  control.setAttribute("aria-label", field.label);
-  control.addEventListener("input", () => {
-    if (!pendingWorld) return;
-    const value = Number(control.value);
-    if (!Number.isSafeInteger(value)) return;
-    pendingWorld = { ...pendingWorld, [field.key]: value };
-    customOption.hidden = false;
-    titleCustomOption.hidden = false;
-    worldPresetInput.value = "custom";
-    titleWorldPresetInput.value = "custom";
-    const matching = titleWorldParameterInputs.get(field.key);
-    if (matching && matching !== control) matching.value = String(value);
-  });
-  label.append(control);
-  worldParameterFields.append(label);
-  worldParameterInputs.set(field.key, control);
+// rebuilt for, which is the same rule the catalogue and the research list live under. The two
+// mountings are the same form: neither owns the values, both report a whole set, and both are
+// shown whatever the other reported.
+/** What the preview panel needs from an item, looked up once per draw rather than kept in a copy. */
+function previewItemLook(itemId: number): PreviewItemLook | undefined {
+  const item = host.definitions.items.find((entry) => entry.id === itemId);
+  return item ? { name: item.name, color: item.color } : undefined;
+}
 
-  const titleLabel = document.createElement("label");
-  titleLabel.textContent = field.label;
-  const titleControl = document.createElement("input");
-  titleControl.type = "number";
-  titleControl.min = String(field.min);
-  titleControl.max = String(field.max);
-  titleControl.setAttribute("aria-label", field.label);
-  titleControl.addEventListener("input", () => {
-    if (!pendingWorld) return;
-    const value = Number(titleControl.value);
-    if (!Number.isSafeInteger(value)) return;
-    pendingWorld = { ...pendingWorld, [field.key]: value };
-    customOption.hidden = false;
-    titleCustomOption.hidden = false;
-    worldPresetInput.value = "custom";
-    titleWorldPresetInput.value = "custom";
-    const matching = worldParameterInputs.get(field.key);
-    if (matching && matching !== titleControl) matching.value = String(value);
+const worldPreviewPanels: WorldPreviewPanel[] = [
+  new WorldPreviewPanel(
+    "world-preview",
+    previewItemLook,
+    () => requestWorldPreview(),
+    applyPreviewRepair,
+  ),
+  new WorldPreviewPanel(
+    "title-world-preview",
+    previewItemLook,
+    () => requestWorldPreview(),
+    applyPreviewRepair,
+  ),
+];
+
+const worldParameterForm = new WorldParameterForm(
+  worldParameterFields,
+  "world-param",
+  (next) => showWorldParams(next),
+  worldPreviewPanels[0],
+);
+const titleWorldParameterForm = new WorldParameterForm(
+  titleWorldParameterFields,
+  "title-world-param",
+  (next) => showWorldParams(next),
+  worldPreviewPanels[1],
+);
+
+/**
+ * The seed the preview draws, read from the same field the Start button reads. A world is its
+ * parameters *and* its seed, so a preview of a different seed would be a picture of a world nobody
+ * is about to generate.
+ */
+function previewSeed(): number {
+  const parsed = Number(titleSeedInput.value);
+  return Number.isFinite(parsed)
+    ? Math.abs(Math.trunc(parsed)) % 4294967296
+    : 0;
+}
+
+let worldPreviewTimer: number | undefined;
+let worldPreviewTicket = 0;
+
+/**
+ * Redraw the preview, at most once per idle moment.
+ *
+ * Debounced because a slider drag is a stream of edits and each one is a raster, and ticketed
+ * because the worker answers in order but a drag can outrun it — a picture that arrives after the
+ * parameters moved on is a picture of a world the player has already left.
+ */
+function requestWorldPreview(): void {
+  if (worldPreviewTimer !== undefined) clearTimeout(worldPreviewTimer);
+  worldPreviewTimer = window.setTimeout(() => {
+    void drawWorldPreview();
+  }, 120);
+}
+
+async function drawWorldPreview(): Promise<void> {
+  const params = pendingWorld;
+  if (!params) return;
+  // Both forms exist from boot and only one is ever shown, so rastering for the hidden one would be
+  // asking the generator to draw a picture nobody is looking at.
+  const panels = worldPreviewPanels.filter((panel) => panel.visible);
+  if (panels.length === 0) return;
+  worldPreviewTicket += 1;
+  const ticket = worldPreviewTicket;
+  const seed = previewSeed();
+  // Asked for together rather than one after the other. The worker runs a queue either way, so this
+  // costs nothing extra — but it puts every panel of a request in front of the next request, where a
+  // sequential loop would let a slider drag keep starving whichever panel came last.
+  await Promise.all(
+    panels.map(async (panel) => {
+      try {
+        const preview = await host.worldPreview(
+          params,
+          seed,
+          PREVIEW_WIDTH,
+          PREVIEW_HEIGHT,
+          panel.hexesAcross,
+        );
+        if (ticket === worldPreviewTicket) panel.draw(preview, params);
+      } catch (error) {
+        if (ticket !== worldPreviewTicket) return;
+        // Native refuses a set the Start button would also refuse, so this is the panel saying what
+        // is wrong with the parameters rather than the host reporting a worker fault.
+        panel.showError(error instanceof Error ? error.message : String(error));
+      }
+    }),
+  );
+}
+
+/**
+ * Scenario as a card each rather than a dropdown. The shipped list already carries a sentence
+ * about every scenario, and a bare name does not tell a first-time player what they are choosing.
+ * The session panel keeps its select — that one is a running game's control, not a first
+ * impression, and the two stay in step through the handlers below.
+ */
+const titleScenarioChoiceInputs = new Map<string, HTMLInputElement>();
+for (const scenario of host.scenarios.scenarios) {
+  const card = document.createElement("label");
+  card.className = "choice-card";
+  const choice = document.createElement("input");
+  choice.type = "radio";
+  choice.name = "title-scenario";
+  choice.value = scenario.key;
+  choice.checked = scenario.key === scenarioInput.value;
+  choice.addEventListener("change", () => {
+    if (choice.checked) scenarioInput.value = scenario.key;
   });
-  titleLabel.append(titleControl);
-  titleWorldParameterFields.append(titleLabel);
-  titleWorldParameterInputs.set(field.key, titleControl);
+  const body = document.createElement("span");
+  body.className = "choice-card-body";
+  const name = document.createElement("strong");
+  name.textContent = scenario.name;
+  const note = document.createElement("small");
+  note.textContent = scenario.description;
+  body.append(name, note);
+  card.append(choice, body);
+  titleScenarioChoices.append(card);
+  titleScenarioChoiceInputs.set(scenario.key, choice);
+}
+
+/** The scenario the title screen is offering, falling back to the panel's own pick. */
+function titleScenarioKey(): string {
+  for (const [key, choice] of titleScenarioChoiceInputs) {
+    if (choice.checked) return key;
+  }
+  return scenarioInput.value;
+}
+
+function showTitleScenario(key: string): void {
+  for (const [candidate, choice] of titleScenarioChoiceInputs) {
+    choice.checked = candidate === key;
+  }
+}
+
+/**
+ * Apply a repair the preview offered. Both halves are already verified against a real bootstrap
+ * pass; this is only how they land on the same fields the player already has.
+ */
+function applyPreviewRepair(choice: RepairChoice): void {
+  if (choice.kind === "seed") {
+    seedInput.value = String(choice.seed);
+    titleSeedInput.value = String(choice.seed);
+    requestWorldPreview();
+    return;
+  }
+  if (!pendingWorld) return;
+  showWorldParams(applyChanges(pendingWorld, choice.changes));
 }
 
 function showWorldParams(params: WorldParams): void {
   pendingWorld = params;
-  for (const [key, control] of worldParameterInputs) {
-    control.value = String(params[key]);
-  }
-  for (const [key, control] of titleWorldParameterInputs) {
-    control.value = String(params[key]);
-  }
+  worldParameterForm.setValues(params);
+  titleWorldParameterForm.setValues(params);
   const preset = host.presetKeyFor(params);
   customOption.hidden = preset !== undefined;
   titleCustomOption.hidden = preset !== undefined;
@@ -2795,6 +2890,7 @@ function showWorldParams(params: WorldParams): void {
       ?.description ?? "Hand-tuned parameters.";
   worldPresetDescription.textContent = desc;
   titleWorldPresetDescription.textContent = desc;
+  requestWorldPreview();
 }
 
 worldPresetInput.addEventListener("change", () => {
@@ -2839,33 +2935,67 @@ titleWorldParametersReset.addEventListener("click", () => {
 });
 
 scenarioInput.addEventListener("input", () => {
-  titleScenarioInput.value = scenarioInput.value;
-});
-titleScenarioInput.addEventListener("input", () => {
-  scenarioInput.value = titleScenarioInput.value;
+  showTitleScenario(scenarioInput.value);
 });
 seedInput.addEventListener("input", () => {
   titleSeedInput.value = seedInput.value;
+  requestWorldPreview();
 });
 titleSeedInput.addEventListener("input", () => {
   seedInput.value = titleSeedInput.value;
+  requestWorldPreview();
 });
 titleSeedRandom.addEventListener("click", () => {
   const randomized = Math.floor(Math.random() * 4294967295);
   seedInput.value = String(randomized);
   titleSeedInput.value = String(randomized);
+  requestWorldPreview();
 });
+
+/** The one place the run's save name is set, so the panel field and the catalogue cannot disagree. */
+function setRunName(name: string): void {
+  runName = name;
+  saveNameInput.value = name;
+}
+
+/**
+ * What the mode switch is promising, in the present tense. The card's copy explains what creative
+ * does; this line says what the player is currently choosing, which is the part that changes.
+ */
+function showCreativeNote(): void {
+  titleCreativeNote.textContent = titleCreativeInput.checked
+    ? "Creative run: the clock still counts, but the run is marked as not comparable and earns no achievements."
+    : "Standard run: everything is built and earned, and the run time counts.";
+}
+
+titleCreativeInput.addEventListener("change", showCreativeNote);
+
+// The top bar belongs to a running factory. Behind the title screen it is a strip of controls for a
+// game the player has not chosen yet, so the shell drops the row entirely rather than dimming it —
+// the renderer watches the canvas for resizes, so the reclaimed height is picked up on its own.
+function setTitleOpen(open: boolean): void {
+  document.body.classList.toggle("title-open", open);
+}
 
 function openTitleScreen(): void {
   titleScreen.classList.add("open");
   titleResume.hidden = false;
+  setTitleOpen(true);
+  // A blank field means "name this one for me". Carrying the running factory's name over would
+  // make the obvious next click overwrite the save the player just walked away from.
+  titleSaveNameInput.value = "";
+  showCreativeNote();
   setPlaying(false);
   updateContinueState();
+  // The panels are built at boot but only raster while they are on screen, so opening the screen is
+  // the moment the first picture can be drawn.
+  requestWorldPreview();
 }
 
 function closeTitleScreen(): void {
   titleScreen.classList.remove("open");
   titleResume.hidden = false;
+  setTitleOpen(false);
   canvas.focus();
   setPlaying(true);
 }
@@ -2880,6 +3010,7 @@ function switchTitleTab(tab: "saves" | "new"): void {
   titleSavesView.classList.toggle("active", showSaves);
   titleNewGameView.hidden = showSaves;
   titleNewGameView.classList.toggle("active", !showSaves);
+  if (!showSaves) requestWorldPreview();
 }
 
 titleTabSaves.addEventListener("click", () => switchTitleTab("saves"));
@@ -2916,13 +3047,24 @@ titleStartGame.addEventListener("click", async () => {
     parsedSeed <= 0xffffffff
       ? parsedSeed
       : undefined;
+  const scenario = titleScenarioKey();
+  // A typed name is an instruction — if it matches a slot, the player means that slot. A defaulted
+  // one is not, so it steps aside rather than overwriting a factory nobody asked to replace.
+  const typed = titleSaveNameInput.value.trim();
+  const fallback =
+    host.scenarios.scenarios.find((entry) => entry.key === scenario)?.name ??
+    AUTOSAVE_SLOT_NAME;
   try {
     const next = await host.newGame(
-      titleScenarioInput.value,
+      scenario,
       seed,
       pendingWorld ?? undefined,
       titleCreativeInput.checked,
     );
+    setRunName(
+      typed || uniqueSlotName(fallback, readCatalog(localStorage).slots),
+    );
+    selectedSaveId = null;
     beginRun(next);
     update(next);
     syncSessionInputs(next);
@@ -3035,7 +3177,7 @@ required<HTMLButtonElement>("save").addEventListener("click", async () => {
         )
       : undefined;
     const overwriteName =
-      named || selected?.name || snapshot.scenario_name || "Save";
+      named || selected?.name || runName || snapshot.scenario_name || "Save";
     const drafted = slotFromPayload(
       payload,
       overwriteName,
@@ -3062,7 +3204,9 @@ required<HTMLButtonElement>("save").addEventListener("click", async () => {
         : replaceNamedSlot(slots, drafted);
     writeCatalog(localStorage, nextSlots);
     selectedSaveId = drafted.id;
-    saveNameInput.value = drafted.name;
+    // Saving under a name adopts it: the auto-save follows the player rather than continuing to
+    // write to the name they just moved away from.
+    setRunName(drafted.name);
     updateContinueState(`Saved “${drafted.name}”.`);
     showFeedback("Game saved");
   } catch (error) {
@@ -3820,6 +3964,9 @@ function sendAim(): void {
  */
 function togglePanel(id: string): void {
   panels.toggle(id);
+  // The session rail carries the second copy of the world form. Its preview cannot raster while the
+  // panel is closed, so opening one is the other moment a picture becomes drawable.
+  requestWorldPreview();
 }
 
 /**
@@ -3916,12 +4063,9 @@ async function triggerAutoSave(silent = true): Promise<void> {
   try {
     const payload = await host.save();
     const build = currentBuild();
-    const drafted = slotFromPayload(
-      payload,
-      AUTOSAVE_SLOT_NAME,
-      build,
-      Date.now(),
-    );
+    // The run's own name, not a shared "Auto-save" bucket: the player named this factory, and an
+    // auto-save is that factory, so it lands in that factory's slot instead of a second one.
+    const drafted = slotFromPayload(payload, runName, build, Date.now());
     if (!drafted) return;
     const { slots, error } = readCatalog(localStorage);
     if (error) return;
@@ -4131,7 +4275,7 @@ async function loadSlot(slot: SaveSlot): Promise<void> {
     syncSessionInputs(next);
     renderer.recenter();
     selectedSaveId = slot.id;
-    saveNameInput.value = slot.name;
+    setRunName(slot.name);
     showFeedback(`Restored “${slot.name}”`);
     closePanels();
     closeTitleScreen();

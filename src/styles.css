@@ -88,6 +88,19 @@ kbd {
   display: grid;
   grid-template-rows: 64px minmax(0, 1fr);
 }
+/*
+ * The top bar is a running factory's instrument panel — tick count, mission strip, tool buttons.
+ * Behind the title screen none of it applies to anything the player has chosen yet, so the shell
+ * drops the row outright rather than dimming it. The renderer watches the canvas for resizes, so
+ * the reclaimed height is taken up on its own.
+ */
+body.title-open .command-bar {
+  display: none;
+}
+/* One row, because there is one child left: a two-row track would put the stage in the empty one. */
+body.title-open .app-shell {
+  grid-template-rows: minmax(0, 1fr);
+}
 .command-bar {
   position: relative;
   z-index: 20;
@@ -107,18 +120,22 @@ kbd {
   text-decoration: none;
   width: max-content;
 }
+/* The sprite is markup, not a picture: it holds the symbol every mark below draws from. */
+.brand-sprite {
+  position: absolute;
+  width: 0;
+  height: 0;
+  overflow: hidden;
+}
 .brand-mark {
-  display: grid;
-  place-items: center;
   width: 38px;
-  aspect-ratio: 1;
-  border: 1px solid #e9bd55;
-  clip-path: polygon(25% 7%, 75% 7%, 100% 50%, 75% 93%, 25% 93%, 0 50%);
-  color: var(--gold);
-  background: #2a2919;
-  font-weight: 900;
-  font-size: 0.73rem;
-  letter-spacing: -0.03em;
+  height: 38px;
+  flex: none;
+  filter: drop-shadow(0 2px 6px #0009);
+}
+.title-brand-mark {
+  width: 54px;
+  height: 54px;
 }
 .brand > span:last-child {
   display: grid;
@@ -1561,15 +1578,267 @@ canvas {
 .world-parameters-note {
   margin-bottom: 7px;
 }
-/* Two columns, because these read as pairs: a scale beside a scale, a level beside a level. */
-#world-parameter-fields {
+/*
+ * World parameters, both places they are mounted. One column, not two: each row is a sentence
+ * about the world plus the control that changes it, and two of those side by side stop reading
+ * as sentences. The rail is narrow, so the type steps down there rather than the layout changing.
+ */
+.world-param-fields {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 6px;
-  margin-bottom: 7px;
+  gap: 12px;
+  margin-bottom: 8px;
 }
-#world-parameter-fields label {
-  font-size: 0.64rem;
+.world-param-group {
+  display: grid;
+  gap: 7px;
+  padding: 9px 10px;
+  border: 1px solid #24403a;
+  border-radius: 9px;
+  background: #0c1b18;
+}
+.world-param-group h4 {
+  margin: 0;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--gold);
+}
+.world-param-group-note {
+  margin: -3px 0 0;
+  font-size: 0.66rem;
+  line-height: 1.45;
+  color: var(--muted);
+}
+.world-param {
+  display: grid;
+  gap: 3px;
+}
+.world-param-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.world-param-head label {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--ink);
+}
+.world-param-number {
+  width: 84px;
+  padding: 3px 6px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.world-param-slider {
+  width: 100%;
+  margin: 1px 0 2px;
+  accent-color: var(--gold);
+  cursor: pointer;
+}
+.world-param-hint {
+  margin: 0;
+  font-size: 0.66rem;
+  line-height: 1.45;
+  color: var(--muted);
+}
+/* What this value means for the world about to be generated — the part that changes as you drag. */
+.world-param-reading {
+  margin: 0;
+  font-size: 0.68rem;
+  line-height: 1.4;
+  color: #9fe6c9;
+}
+/*
+ * The strip stays put. It is the answer to "what am I making", and the cuts that move it are only
+ * four of seventeen controls — scrolling down to the rivers must not take the coastline with it.
+ * Opaque, because the form scrolls underneath it.
+ */
+.world-param-pinned {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: grid;
+  gap: 5px;
+  padding: 8px 10px;
+  border: 1px solid #2e4c45;
+  border-radius: 9px;
+  background: #0c1b18;
+  box-shadow: 0 8px 18px #060d0ccc;
+}
+.world-param-pinned-caption {
+  margin: 0;
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--gold);
+}
+/* The elevation cuts are shares of one range, so they are shown as one bar rather than four numbers. */
+.world-param-strip {
+  display: flex;
+  width: 100%;
+  height: 26px;
+  border: 1px solid #24403a;
+  border-radius: 6px;
+  overflow: hidden;
+}
+.world-param-strip-cell {
+  display: grid;
+  place-items: center;
+  min-width: 0;
+  flex-basis: 0;
+  padding: 0 2px;
+  border-right: 1px solid;
+  overflow: hidden;
+  font-size: 0.58rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: #06100e;
+  white-space: nowrap;
+}
+.world-param-strip-cell:last-child {
+  border-right: none;
+}
+/*
+ * The live raster. Every other control here explains a number in a sentence; this shows what the
+ * numbers make, drawn by the same generator the Start button runs.
+ */
+.world-preview {
+  display: grid;
+  gap: 5px;
+}
+.world-preview-zooms {
+  display: flex;
+  gap: 4px;
+}
+.world-preview-zoom {
+  flex: 1;
+  padding: 3px 6px;
+  border: 1px solid #24403a;
+  border-radius: 5px;
+  background: #0f221e;
+  font-size: 0.6rem;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  color: var(--muted);
+  cursor: pointer;
+}
+.world-preview-zoom:hover {
+  border-color: #3a6157;
+  color: var(--ink);
+}
+.world-preview-zoom[aria-pressed="true"] {
+  border-color: var(--gold);
+  background: #1b3129;
+  color: var(--gold);
+}
+.world-preview-canvas {
+  /* The bare `canvas` rule above fills a stage — it is written for the world and the minimap, both
+     of which are the whole of the box they sit in. This one is a picture in a column of controls,
+     so it takes its position back before anything else. */
+  position: static;
+  inset: auto;
+  height: auto;
+  display: block;
+  width: 100%;
+  /* The raster is 16:9 and scaled to fit, so the box is reserved before the first picture lands and
+     the form below it does not jump when one arrives. */
+  aspect-ratio: 16 / 9;
+  border: 1px solid #24403a;
+  border-radius: 6px;
+  background: #0c1b18;
+}
+.world-preview-caption,
+.world-preview-status {
+  margin: 0;
+  font-size: 0.6rem;
+  line-height: 1.35;
+  color: var(--muted);
+}
+.world-preview-status:empty {
+  display: none;
+}
+.world-preview-status.is-warning {
+  color: var(--danger);
+}
+.world-preview-repairs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.world-preview-repairs[hidden] {
+  display: none;
+}
+.world-preview-repair {
+  padding: 4px 8px;
+  border: 1px solid #3a6157;
+  border-radius: 5px;
+  background: #1b3129;
+  font-size: 0.6rem;
+  font-weight: 600;
+  line-height: 1.35;
+  color: var(--gold);
+  cursor: pointer;
+  text-align: left;
+}
+.world-preview-repair:hover {
+  border-color: var(--gold);
+}
+.world-preview-repair[hidden] {
+  display: none;
+}
+/*
+ * The title screen is twice the rail's width and its form scrolls in a 600-pixel box, so a stacked
+ * picture would pin a third of that box open. Here the picture takes the width and the words that
+ * explain it stack beside it, which costs the form the height of one canvas and nothing more.
+ * `display: contents` because the two halves have to be siblings to share the grid.
+ */
+#title-world-parameter-fields .world-param-pinned {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 320px);
+  /* Named rather than left implicit: `-1` on the canvas below has to mean "the last of these", and
+     an implicit grid has no last line for it to mean. A warning and its fix buttons take implicit
+     rows below the four named ones. */
+  align-items: start;
+  column-gap: 10px;
+}
+#title-world-parameter-fields .world-preview {
+  display: contents;
+}
+#title-world-parameter-fields .world-param-pinned-caption {
+  grid-area: 1 / 1;
+}
+#title-world-parameter-fields .world-param-strip {
+  grid-area: 2 / 1;
+}
+#title-world-parameter-fields .world-preview-zooms {
+  grid-area: 3 / 1;
+}
+#title-world-parameter-fields .world-preview-caption {
+  grid-area: 4 / 1;
+}
+#title-world-parameter-fields .world-preview-status {
+  grid-area: 5 / 1;
+}
+#title-world-parameter-fields .world-preview-repairs {
+  grid-area: 6 / 1;
+}
+#title-world-parameter-fields .world-preview-canvas {
+  grid-column: 2;
+  grid-row: 1 / -1;
+}
+/* The session rail is 300-odd pixels wide; the title screen is not. Only the type needs to know. */
+#world-parameter-fields .world-param-head label,
+#world-parameter-fields .world-param-reading {
+  font-size: 0.66rem;
+}
+#world-parameter-fields .world-param-hint,
+#world-parameter-fields .world-param-group-note {
+  font-size: 0.62rem;
+}
+#world-parameter-fields .world-param-number {
+  width: 70px;
 }
 .save-help,
 .save-status {
@@ -1766,15 +2035,6 @@ canvas {
   align-items: center;
   gap: 14px;
 }
-.title-brand-mark {
-  width: 40px;
-  height: 40px;
-  font-size: 1.15rem;
-  font-weight: 700;
-  border-color: var(--gold);
-  color: var(--gold);
-  background: #192724;
-}
 .title-heading {
   margin: 0;
   font-size: 1.45rem;
@@ -1926,14 +2186,173 @@ canvas {
 }
 .title-new-game-form {
   display: grid;
-  gap: 12px;
-  max-width: 480px;
+  gap: 16px;
+  max-width: 560px;
 }
 .title-new-game-form label {
   display: grid;
   gap: 5px;
   font-size: 0.74rem;
   color: var(--muted);
+}
+/* One question per block: what it is called, the control, and what it does, in that order. */
+.setup-block {
+  display: grid;
+  gap: 6px;
+}
+.setup-label {
+  display: block;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: #f0fbf6;
+}
+.setup-hint {
+  margin: 0;
+  font-size: 0.68rem;
+  line-height: 1.5;
+  color: var(--muted);
+}
+/*
+ * Scenario as cards. Each one already ships with a sentence about itself, and a dropdown can only
+ * show the name — which is exactly the thing a first-time player cannot use to choose.
+ */
+.choice-grid {
+  display: grid;
+  gap: 8px;
+}
+.title-new-game-form .choice-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 11px 12px;
+  border: 1px solid #3b5851;
+  border-radius: 10px;
+  background: #132420;
+  cursor: pointer;
+  transition:
+    border-color 0.15s ease,
+    background 0.15s ease;
+}
+.title-new-game-form .choice-card:hover {
+  border-color: var(--gold);
+  background: #1b332d;
+}
+.choice-card input {
+  margin-top: 2px;
+  width: 15px;
+  height: 15px;
+  flex: none;
+  accent-color: var(--gold);
+  cursor: pointer;
+}
+.choice-card:has(input:checked) {
+  border-color: var(--gold);
+  background: #1d3129;
+}
+.choice-card:has(input:focus-visible) {
+  outline: 2px solid var(--gold);
+  outline-offset: 2px;
+}
+.choice-card-body {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+.choice-card-body strong {
+  font-size: 0.82rem;
+  color: #f0fbf6;
+}
+.choice-card-body small {
+  font-size: 0.68rem;
+  line-height: 1.45;
+  color: var(--muted);
+}
+/*
+ * The mode switch used to be a bare checkbox with a word beside it, which said what it was called
+ * and nothing about what agreeing to it costs. The card carries that, and the note below says
+ * which of the two runs the player is currently choosing.
+ */
+.mode-card {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid #3b5851;
+  border-radius: 10px;
+  background: #132420;
+}
+.title-new-game-form .mode-switch {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin: 0;
+  cursor: pointer;
+}
+.mode-switch-copy {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+.mode-switch-copy strong {
+  font-size: 0.85rem;
+  color: #f0fbf6;
+}
+.mode-switch-copy small {
+  font-size: 0.68rem;
+  line-height: 1.45;
+  color: var(--muted);
+}
+/* A track and a thumb, so an on/off choice looks like one rather than like a form field. */
+.switch-input {
+  appearance: none;
+  position: relative;
+  flex: none;
+  width: 46px;
+  height: 26px;
+  margin: 0;
+  border: 1px solid #3b5851;
+  border-radius: 999px;
+  background: #0b1715;
+  cursor: pointer;
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease;
+}
+.switch-input::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #7f9c94;
+  transition:
+    transform 0.15s ease,
+    background 0.15s ease;
+}
+.switch-input:checked {
+  border-color: var(--gold);
+  background: #46381a;
+}
+.switch-input:checked::after {
+  transform: translateX(20px);
+  background: var(--gold);
+}
+.switch-input:focus-visible {
+  outline: 2px solid var(--gold);
+  outline-offset: 2px;
+}
+.mode-note {
+  margin: 0;
+  padding-top: 8px;
+  border-top: 1px solid #24403a;
+  font-size: 0.68rem;
+  line-height: 1.45;
+  color: var(--muted);
+}
+.mode-card:has(.switch-input:checked) .mode-note {
+  color: #e6c877;
 }
 .title-seed-group {
   display: grid;
@@ -2439,8 +2858,7 @@ canvas {
   display: grid;
   gap: 10px;
 }
-.creative-panel .switch,
-.title-creative {
+.creative-panel .switch {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -2448,8 +2866,7 @@ canvas {
   font-size: 0.78rem;
   cursor: pointer;
 }
-.creative-panel .switch input,
-.title-creative input {
+.creative-panel .switch input {
   width: 15px;
   height: 15px;
   accent-color: var(--gold);

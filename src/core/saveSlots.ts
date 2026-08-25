@@ -322,6 +322,25 @@ export function replaceNamedSlot(
   return upsertSlot(slots, { ...next, id: match.id });
 }
 
+/**
+ * A save name no existing slot already answers to.
+ *
+ * Writes match slots by name, so a run that takes a name already in the catalogue would overwrite
+ * somebody else's factory. That is the right behaviour when the player typed the name — they are
+ * saying which save they mean — and the wrong one when the name was defaulted for them, which is
+ * what this is for: the default becomes "Landing run 2" rather than eating "Landing run".
+ */
+export function uniqueSlotName(name: string, slots: SaveSlot[]): string {
+  const taken = new Set(slots.map((slot) => slot.name.toLocaleLowerCase()));
+  if (!taken.has(name.toLocaleLowerCase())) return name;
+  // Two is where a second one starts; the cap is a runaway guard, not a real limit.
+  for (let suffix = 2; suffix < 1000; suffix += 1) {
+    const candidate = `${name} ${suffix}`;
+    if (!taken.has(candidate.toLocaleLowerCase())) return candidate;
+  }
+  return name;
+}
+
 export function removeSlot(slots: SaveSlot[], id: string): SaveSlot[] {
   return slots.filter((slot) => slot.id !== id);
 }

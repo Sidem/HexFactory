@@ -16,6 +16,7 @@ import {
   SAVE_CATALOG_KEY,
   SAVE_VERSION,
   slotFromPayload,
+  uniqueSlotName,
   type CurrentBuild,
   type StorageLike,
   writeCatalog,
@@ -192,6 +193,16 @@ describe("catalog", () => {
       slots.find((slot) => slot.name === AUTOSAVE_SLOT_NAME)?.savedAt,
     ).toBe(2500);
     expect(latestCompatible(slots, build)?.name).toBe(AUTOSAVE_SLOT_NAME);
+  });
+
+  it("steps a defaulted save name aside rather than over an existing factory", () => {
+    const taken = [
+      slotFromPayload(envelope(), "Landing run", build, 1000, "a")!,
+      slotFromPayload(envelope(), "landing run 2", build, 2000, "b")!,
+    ];
+    expect(uniqueSlotName("Landing run", taken)).toBe("Landing run 3");
+    expect(uniqueSlotName("Second landing", taken)).toBe("Second landing");
+    expect(uniqueSlotName("Landing run", [])).toBe("Landing run");
   });
 
   it("Continue is the newest compatible slot, not the newest row", () => {
