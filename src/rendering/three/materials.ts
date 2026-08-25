@@ -15,7 +15,13 @@ export interface WorldMaterials {
   readonly terrainSurfaces: TerrainSurfaces;
   readonly machine: MeshStandardMaterial;
   readonly machineDark: MeshStandardMaterial;
-  readonly resource: MeshBasicMaterial;
+  readonly resource: MeshStandardMaterial;
+  /** Specular anthracite: coal has to glint, not sit as another mid-grey lump. */
+  readonly resourceCoal: MeshStandardMaterial;
+  /** Matte rock: high roughness, so stone reads as grey mass instead of metal. */
+  readonly resourceStone: MeshStandardMaterial;
+  /** Dry grit: no metal, almost no specular, so sand stays beige dunes. */
+  readonly resourceSand: MeshStandardMaterial;
   readonly emissive: MeshStandardMaterial;
   readonly overlayLegal: MeshBasicMaterial;
   readonly overlayIllegal: MeshBasicMaterial;
@@ -66,8 +72,37 @@ export function createWorldMaterials(): WorldMaterials {
     emissiveIntensity: 0.08,
     flatShading: true,
   });
-  const resource = new MeshBasicMaterial({
+  const resource = new MeshStandardMaterial({
     color: 0xffffff,
+    roughness: 0.62,
+    metalness: 0.22,
+    emissive: "#09110f",
+    emissiveIntensity: 0.06,
+    flatShading: true,
+  });
+  const resourceCoal = new MeshStandardMaterial({
+    color: 0xffffff,
+    roughness: 0.18,
+    metalness: 0.74,
+    emissive: "#141a24",
+    emissiveIntensity: 0.16,
+    flatShading: true,
+  });
+  const resourceStone = new MeshStandardMaterial({
+    color: 0xffffff,
+    roughness: 0.88,
+    metalness: 0.08,
+    emissive: "#000000",
+    emissiveIntensity: 0,
+    flatShading: true,
+  });
+  const resourceSand = new MeshStandardMaterial({
+    color: 0xffffff,
+    roughness: 0.98,
+    metalness: 0,
+    emissive: "#000000",
+    emissiveIntensity: 0,
+    flatShading: true,
   });
   const emissive = new MeshStandardMaterial({
     color: 0xffffff,
@@ -128,6 +163,9 @@ export function createWorldMaterials(): WorldMaterials {
     machine,
     machineDark,
     resource,
+    resourceCoal,
+    resourceStone,
+    resourceSand,
     emissive,
     overlayLegal,
     overlayIllegal,
@@ -143,6 +181,9 @@ export function createWorldMaterials(): WorldMaterials {
     machine,
     machineDark,
     resource,
+    resourceCoal,
+    resourceStone,
+    resourceSand,
     emissive,
     overlayLegal,
     overlayIllegal,

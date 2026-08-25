@@ -57,6 +57,7 @@ import {
 } from "../src/rendering/three/transportGeometry";
 import { directionAngle } from "../src/rendering/three/directionAngle";
 import {
+  fieldShade,
   fieldVisualColor,
   FIELD_RESOURCE_SHAPES,
   powerWireLinks,
@@ -327,7 +328,37 @@ describe("Visual Depth terrain and quality contracts", () => {
     expect(materials.machine.vertexColors).toBe(false);
     expect(materials.machineDark.vertexColors).toBe(false);
     expect(materials.resource.vertexColors).toBe(false);
-    expect(fieldVisualColor("#39404a")).not.toBe("#39404a");
+    expect(materials.resourceCoal.vertexColors).toBe(false);
+    for (const material of materials.materials) material.dispose();
+  });
+
+  it("gives coal, stone, and sand different field materials and does not flatten their colours", () => {
+    const materials = createWorldMaterials();
+    expect(materials.resourceCoal.metalness).toBeGreaterThan(0.6);
+    expect(materials.resourceCoal.roughness).toBeLessThan(0.3);
+    expect(materials.resourceStone.roughness).toBeGreaterThan(0.7);
+    expect(materials.resourceStone.metalness).toBeLessThan(
+      materials.resourceCoal.metalness,
+    );
+    expect(materials.resourceSand.metalness).toBe(0);
+    expect(materials.resourceSand.roughness).toBeGreaterThan(
+      materials.resourceStone.roughness,
+    );
+
+    const hslOf = (hex: string): { h: number; s: number; l: number } => {
+      const hsl = { h: 0, s: 0, l: 0 };
+      new Color(hex).getHSL(hsl);
+      return hsl;
+    };
+    const coal = hslOf(fieldVisualColor("#1a1e26"));
+    const stone = hslOf(fieldVisualColor("#8b9098"));
+    const sand = hslOf(fieldVisualColor("#e6d197"));
+    expect(coal.l).toBeLessThan(0.28);
+    expect(stone.l).toBeGreaterThan(coal.l);
+    expect(stone.s).toBeLessThan(0.15);
+    expect(sand.l).toBeGreaterThan(0.55);
+    expect(sand.s).toBeGreaterThan(stone.s);
+    expect(fieldShade("#8b9098", 0.12)).not.toBe(fieldShade("#8b9098", -0.14));
     for (const material of materials.materials) material.dispose();
   });
 

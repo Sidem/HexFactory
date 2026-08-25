@@ -844,7 +844,10 @@ export class WorldInstanceLayer {
     this.resourceGroup.name = "field-resources";
     const ore: ResourcePartInstance[] = [];
     const lumps: ResourcePartInstance[] = [];
+    const coalLumps: ResourcePartInstance[] = [];
+    const stoneLumps: ResourcePartInstance[] = [];
     const grains: ResourcePartInstance[] = [];
+    const sandMounds: ResourcePartInstance[] = [];
     const crystals: ResourcePartInstance[] = [];
     const trunks: ResourcePartInstance[] = [];
     const canopies: ResourcePartInstance[] = [];
@@ -928,11 +931,83 @@ export class WorldInstanceLayer {
           add(crystals, 0.18, 0.2, 0.1, 0.44, 0.1, 0.22);
           break;
         case "grains":
+          if (item.key === "sand") {
+            add(
+              sandMounds,
+              -0.19,
+              -0.08,
+              0.25,
+              0.13,
+              0.22,
+              0.065,
+              fieldShade(fieldColor, -0.08),
+            );
+            add(sandMounds, 0.17, -0.03, 0.28, 0.16, 0.24, 0.08);
+            add(
+              sandMounds,
+              0.02,
+              0.21,
+              0.22,
+              0.11,
+              0.2,
+              0.055,
+              fieldShade(fieldColor, 0.07),
+            );
+            break;
+          }
           add(grains, -0.19, -0.08, 0.25, 0.13, 0.22, 0.065);
           add(grains, 0.17, -0.03, 0.28, 0.16, 0.24, 0.08);
           add(grains, 0.02, 0.21, 0.22, 0.11, 0.2, 0.055);
           break;
         case "lump":
+          if (item.key === "coal") {
+            add(
+              coalLumps,
+              -0.18,
+              -0.06,
+              0.24,
+              0.18,
+              0.21,
+              0.18,
+              fieldShade(fieldColor, -0.04),
+            );
+            add(coalLumps, 0.16, -0.04, 0.29, 0.22, 0.25, 0.22);
+            add(
+              coalLumps,
+              0.03,
+              0.22,
+              0.2,
+              0.15,
+              0.18,
+              0.15,
+              fieldShade(fieldColor, 0.1),
+            );
+            break;
+          }
+          if (item.key === "stone") {
+            add(
+              stoneLumps,
+              -0.18,
+              -0.06,
+              0.24,
+              0.18,
+              0.21,
+              0.18,
+              fieldShade(fieldColor, -0.14),
+            );
+            add(stoneLumps, 0.16, -0.04, 0.29, 0.22, 0.25, 0.22);
+            add(
+              stoneLumps,
+              0.03,
+              0.22,
+              0.2,
+              0.15,
+              0.18,
+              0.15,
+              fieldShade(fieldColor, 0.12),
+            );
+            break;
+          }
           add(lumps, -0.18, -0.06, 0.24, 0.18, 0.21, 0.18);
           add(lumps, 0.16, -0.04, 0.29, 0.22, 0.25, 0.22);
           add(lumps, 0.03, 0.22, 0.2, 0.15, 0.18, 0.15);
@@ -946,7 +1021,25 @@ export class WorldInstanceLayer {
 
     this.addResourceParts("ore-field-shards", this.geometry.ore, ore);
     this.addResourceParts("lump-field-clusters", this.geometry.lump, lumps);
+    this.addResourceParts(
+      "coal-field-clusters",
+      this.geometry.lump,
+      coalLumps,
+      this.materials.resourceCoal,
+    );
+    this.addResourceParts(
+      "stone-field-clusters",
+      this.geometry.lump,
+      stoneLumps,
+      this.materials.resourceStone,
+    );
     this.addResourceParts("grain-field-mounds", this.geometry.grains, grains);
+    this.addResourceParts(
+      "sand-field-mounds",
+      this.geometry.grains,
+      sandMounds,
+      this.materials.resourceSand,
+    );
     this.addResourceParts(
       "signal-crystal-spires",
       this.geometry.crystal,
@@ -1000,8 +1093,12 @@ export class WorldInstanceLayer {
       | ConeGeometry
       | CylinderGeometry,
     instances: readonly ResourcePartInstance[],
-    material: WorldMaterials["resource"] | WorldMaterials["emissive"] = this
-      .materials.resource,
+    material:
+      | WorldMaterials["resource"]
+      | WorldMaterials["resourceCoal"]
+      | WorldMaterials["resourceStone"]
+      | WorldMaterials["resourceSand"]
+      | WorldMaterials["emissive"] = this.materials.resource,
   ): void {
     if (!instances.length) return;
     const mesh = new InstancedMesh(geometry, material, instances.length);
@@ -1335,16 +1432,25 @@ function wirePoint(
     .addScaledVector(WORLD_UP, -4 * sag * t * (1 - t));
 }
 
-/** Preserve each item's hue while ensuring even coal and stone stay legible against dark terrain. */
+/**
+ * Field colour is the item's colour. A near-void is lifted just enough to read as a lump against
+ * dark highland; everything else keeps the hue, saturation, and lightness the catalogue already
+ * chose. The old floor at 0.46 turned coal, stone, and sand into one mid-grey.
+ */
 export function fieldVisualColor(source: string): string {
   const color = new Color(source);
   const hsl = { h: 0, s: 0, l: 0 };
   color.getHSL(hsl);
-  color.setHSL(
-    hsl.h,
-    Math.min(1, Math.max(0.18, hsl.s * 1.2)),
-    Math.min(0.72, Math.max(0.46, hsl.l * 1.08)),
-  );
+  color.setHSL(hsl.h, hsl.s, hsl.l < 0.12 ? 0.16 : hsl.l);
+  return `#${color.getHexString()}`;
+}
+
+/** One boulder or mound a step darker or lighter, so a cluster is a pile rather than a clone. */
+export function fieldShade(source: string, delta: number): string {
+  const color = new Color(source);
+  const hsl = { h: 0, s: 0, l: 0 };
+  color.getHSL(hsl);
+  color.setHSL(hsl.h, hsl.s, Math.min(0.88, Math.max(0.08, hsl.l + delta)));
   return `#${color.getHexString()}`;
 }
 

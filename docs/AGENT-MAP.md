@@ -330,9 +330,9 @@ Data or fixture; inspect keys before loading the full file.
 
 - MACHINE_VISUAL_SCALE:33, MachinePartInstance:35, PartGeometryLibrary:48, geometryKey:72, buildPartGeometry:77, collectMachineParts:101, machinePartMatrix:147, partScale:193, rotorGeometry:220, mastGeometry:235, bandGeometry:246, mouthGeometry:261
 
-### `src/rendering/three/materials.ts` — 157 lines / 4.1 KiB
+### `src/rendering/three/materials.ts` — 198 lines / 5.3 KiB
 
-- WorldMaterials:12, createWorldMaterials:35
+- WorldMaterials:12, createWorldMaterials:41
 
 ### `src/rendering/three/overlays.ts` — 404 lines / 13.1 KiB
 
@@ -358,10 +358,10 @@ Data or fixture; inspect keys before loading the full file.
 
 - TransportGeometrySet:7, CurvedTransportGeometry:13, createTransportGeometry:19, beltFrameGeometry:28, beltTreadGeometry:38, createCurvedTransportGeometry:50, quadraticPoint:89, quadraticTangent:101, mergeAndDispose:112, isTransportKind:120, transportScale:133
 
-### `src/rendering/three/worldInstances.ts` — 1383 lines / 46.9 KiB
+### `src/rendering/three/worldInstances.ts` — 1489 lines / 49.7 KiB
 
-- PowerWireLink:66, FIELD_RESOURCE_SHAPES:72, WorldInstanceLayer:80, normalizeAngle:1205, outputIndicatorGeometry:1209, hasDirectionalOutput:1215, connectedTransportLinks:1235, transportRun:1254, powerWireLinks:1267, footprintDistance:1302, poleWireHeight:1319, wirePoint:1326
-- fieldVisualColor:1339, SphereGeometryCompat:1352, markInstancesDirty:1358, adjacentFootprintPairs:1363
+- PowerWireLink:66, FIELD_RESOURCE_SHAPES:72, WorldInstanceLayer:80, normalizeAngle:1302, outputIndicatorGeometry:1306, hasDirectionalOutput:1312, connectedTransportLinks:1332, transportRun:1351, powerWireLinks:1364, footprintDistance:1399, poleWireHeight:1416, wirePoint:1423
+- fieldVisualColor:1440, fieldShade:1449, SphereGeometryCompat:1458, markInstancesDirty:1464, adjacentFootprintPairs:1469
 
 
 ## Browser UI
@@ -439,9 +439,9 @@ Data or fixture; inspect keys before loading the full file.
 
 - FakeClassList:5, element:40, harness:56
 
-### `tests/visualDepth.test.ts` — 979 lines / 30.4 KiB
+### `tests/visualDepth.test.ts` — 1010 lines / 31.7 KiB
 
-- heading:67, turnedBy:71, settle:77, surfaceBody:838, uniformValue:844, compileTerrain:854, minimalSnapshot:868, beltDefinition:938, entity:954
+- heading:68, turnedBy:72, settle:78, surfaceBody:869, uniformValue:875, compileTerrain:885, minimalSnapshot:899, beltDefinition:969, entity:985
 
 ### `tests/worldParameters.test.ts` — 155 lines / 5.0 KiB
 
