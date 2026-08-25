@@ -35,6 +35,10 @@ export interface WorldMaterials {
   readonly overlayLegal: MeshBasicMaterial;
   readonly overlayIllegal: MeshBasicMaterial;
   readonly overlaySelection: MeshBasicMaterial;
+  /** Dedicated range colours: changing one never recolours selection or placement feedback. */
+  readonly buildRange: MeshBasicMaterial;
+  readonly poleSupplyRange: MeshBasicMaterial;
+  readonly poleLinkRange: MeshBasicMaterial;
   readonly grid: LineBasicMaterial;
   readonly frontier: LineBasicMaterial;
   /** The ribbon along an autonomous walk, and the ring on the hex it ends at. */
@@ -144,6 +148,24 @@ export function createWorldMaterials(): WorldMaterials {
     opacity: 0.72,
     depthTest: false,
   });
+  const buildRange = new MeshBasicMaterial({
+    color: "#8fd4ff",
+    transparent: true,
+    opacity: 0.68,
+    depthTest: false,
+  });
+  const poleSupplyRange = new MeshBasicMaterial({
+    color: "#f6c85f",
+    transparent: true,
+    opacity: 0.62,
+    depthTest: false,
+  });
+  const poleLinkRange = new MeshBasicMaterial({
+    color: "#ff7669",
+    transparent: true,
+    opacity: 0.54,
+    depthTest: false,
+  });
   const grid = new LineBasicMaterial({
     color: "#80b7a8",
     transparent: true,
@@ -191,6 +213,9 @@ export function createWorldMaterials(): WorldMaterials {
     overlayLegal,
     overlayIllegal,
     overlaySelection,
+    buildRange,
+    poleSupplyRange,
+    poleLinkRange,
     grid,
     frontier,
     route,
@@ -216,6 +241,9 @@ export function createWorldMaterials(): WorldMaterials {
     overlayLegal,
     overlayIllegal,
     overlaySelection,
+    buildRange,
+    poleSupplyRange,
+    poleLinkRange,
     grid,
     frontier,
     route,

@@ -45,6 +45,14 @@ export interface SpatialOverlayState {
 const OVERLAY_CAPACITY = 512;
 export const HEX_RING_START = Math.PI / 6;
 
+/** World-space widths stay constant while radius grows; the remote pole link is the quietest rim. */
+export const RANGE_RING_WIDTH = Object.freeze({
+  build: 0.045,
+  extract: 0.04,
+  supply: 0.035,
+  link: 0.018,
+});
+
 /**
  * How many route hexes the ribbon can draw, matching `MAX_WALK_PATH_CELLS` in the core. Native
  * cannot hand over a longer route, so the buffer is allocated once at this size and refilled in
@@ -102,11 +110,11 @@ export class SpatialOverlays {
       materials.overlayLegal,
       OVERLAY_CAPACITY,
     );
-    this.rangeRing = ringMesh(materials.overlaySelection);
+    this.rangeRing = ringMesh(materials.buildRange, "build-range-ring");
     this.reachRings = [
-      ringMesh(materials.overlayLegal),
-      ringMesh(materials.overlaySelection),
-      ringMesh(materials.overlayIllegal),
+      ringMesh(materials.overlayLegal, "extract-range-ring"),
+      ringMesh(materials.poleSupplyRange, "pole-supply-range-ring"),
+      ringMesh(materials.poleLinkRange, "pole-link-range-ring"),
     ];
     this.routeGeometry.setAttribute(
       "position",
@@ -198,6 +206,7 @@ export class SpatialOverlays {
       this.heightAt(terrain, playerAxial?.q ?? 0, playerAxial?.r ?? 0) + 0.025,
       buildRange,
       state.buildMode,
+      RANGE_RING_WIDTH.build,
     );
     const reachValues = state.buildReach
       ? [
@@ -206,6 +215,11 @@ export class SpatialOverlays {
           state.buildReach.link,
         ]
       : [state.gathering ? snapshot.player.extract_radius : null, null, null];
+    const reachWidths = [
+      RANGE_RING_WIDTH.extract,
+      RANGE_RING_WIDTH.supply,
+      RANGE_RING_WIDTH.link,
+    ];
     for (const [index, ring] of this.reachRings.entries()) {
       const radius = reachValues[index];
       const center = state.hover ?? playerAxial;
@@ -221,6 +235,7 @@ export class SpatialOverlays {
         this.heightAt(terrain, center.q, center.r) + 0.035,
         Math.max(0.82, radius * Math.sqrt(3) + 0.92),
         true,
+        reachWidths[index],
       );
     }
   }
@@ -367,10 +382,17 @@ export class SpatialOverlays {
     y: number,
     radius: number,
     visible: boolean,
+    fixedWidth?: number,
   ): void {
     ring.visible = visible;
     ring.position.set(x, y, z);
-    ring.scale.setScalar(radius);
+    if (!visible) return;
+    if (fixedWidth !== undefined) {
+      setFixedWorldRingGeometry(ring, radius, fixedWidth);
+      ring.scale.setScalar(1);
+    } else {
+      ring.scale.setScalar(radius);
+    }
   }
 
   private axialFromPlayer(x: number, y: number): AxialCoordinate {
@@ -386,11 +408,36 @@ export class SpatialOverlays {
   }
 }
 
-function ringMesh(material: WorldMaterials["overlaySelection"]): Mesh {
-  const mesh = new Mesh(new RingGeometry(0.97, 1.03, 48), material);
+function ringMesh(
+  material: WorldMaterials["overlaySelection"],
+  name?: string,
+): Mesh {
+  const mesh = new Mesh(new RingGeometry(0.99, 1.01, 48), material);
+  if (name) mesh.name = name;
   mesh.rotateX(-Math.PI / 2);
   mesh.visible = false;
   return mesh;
+}
+
+function setFixedWorldRingGeometry(
+  ring: Mesh,
+  radius: number,
+  width: number,
+): void {
+  if (
+    ring.userData.worldRadius === radius &&
+    ring.userData.worldWidth === width
+  )
+    return;
+  const halfWidth = width / 2;
+  ring.geometry.dispose();
+  ring.geometry = new RingGeometry(
+    Math.max(0.001, radius - halfWidth),
+    radius + halfWidth,
+    96,
+  );
+  ring.userData.worldRadius = radius;
+  ring.userData.worldWidth = width;
 }
 
 function hexCorner(

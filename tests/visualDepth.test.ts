@@ -7,6 +7,8 @@ import {
   Quaternion,
   ShaderLib,
   Vector3,
+  type Mesh,
+  type RingGeometry,
   type WebGLProgramParametersWithUniforms,
   type WebGLRenderer,
 } from "three";
@@ -35,6 +37,7 @@ import {
 import { createWorldMaterials } from "../src/rendering/three/materials";
 import {
   HEX_RING_START,
+  RANGE_RING_WIDTH,
   SpatialOverlays,
 } from "../src/rendering/three/overlays";
 import {
@@ -876,6 +879,54 @@ describe("Visual Depth terrain and quality contracts", () => {
 
   it("starts six-sided interaction rings on the pointy-top tile vertices", () => {
     expect(HEX_RING_START).toBeCloseTo(Math.PI / 6, 12);
+  });
+
+  it("keeps range rims thin at every radius and separates build from pole colours", () => {
+    const materials = createWorldMaterials();
+    const overlays = new SpatialOverlays(materials);
+    const state = {
+      hover: { q: 0, r: 0 },
+      selection: null,
+      placement: null,
+      dragPath: [],
+      buildMode: true,
+      gridToggled: false,
+      buildFootprint: [{ q: 0, r: 0 }],
+      buildOrientation: 0,
+      buildReach: { extract: null, supply: 3, link: 6 },
+      gathering: false,
+    };
+    overlays.update(minimalSnapshot(), state, new Map());
+
+    const build = overlays.group.getObjectByName(
+      "build-range-ring",
+    ) as Mesh<RingGeometry>;
+    const supply = overlays.group.getObjectByName(
+      "pole-supply-range-ring",
+    ) as Mesh<RingGeometry>;
+    const link = overlays.group.getObjectByName(
+      "pole-link-range-ring",
+    ) as Mesh<RingGeometry>;
+    const width = (mesh: Mesh<RingGeometry>): number =>
+      mesh.geometry.parameters.outerRadius -
+      mesh.geometry.parameters.innerRadius;
+
+    expect(width(build)).toBeCloseTo(RANGE_RING_WIDTH.build, 8);
+    expect(width(supply)).toBeCloseTo(RANGE_RING_WIDTH.supply, 8);
+    expect(width(link)).toBeCloseTo(RANGE_RING_WIDTH.link, 8);
+    expect(width(link)).toBeLessThan(width(supply));
+    expect(build.material).toBe(materials.buildRange);
+    expect(supply.material).toBe(materials.poleSupplyRange);
+    expect(materials.buildRange.color.getHex()).not.toBe(
+      materials.poleSupplyRange.color.getHex(),
+    );
+
+    state.buildReach.link = 12;
+    overlays.update(minimalSnapshot(), state, new Map());
+    expect(width(link)).toBeCloseTo(RANGE_RING_WIDTH.link, 8);
+
+    overlays.dispose();
+    for (const material of materials.materials) material.dispose();
   });
 
   it("has one total height/material row for the pinned terrain union", () => {

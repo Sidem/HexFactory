@@ -332,13 +332,13 @@ Data or fixture; inspect keys before loading the full file.
 - MACHINE_VISUAL_SCALE:38, MACHINE_BODY_GIRTH:50, MACHINE_SILHOUETTE_SCALE:57, MachinePartInstance:81, PartGeometryLibrary:96, geometryKey:120, buildPartGeometry:125, collectMachineParts:151, machinePartMatrix:199, partScale:268, chamberGeometry:303, rotorGeometry:309
 - mastGeometry:324, bandGeometry:335, mouthGeometry:350
 
-### `src/rendering/three/materials.ts` — 313 lines / 9.2 KiB
+### `src/rendering/three/materials.ts` — 341 lines / 10.0 KiB
 
-- WorldMaterials:14, createWorldMaterials:50, machineMaterial:241, injectMachineVertex:270, injectMachineFragment:286
+- WorldMaterials:14, createWorldMaterials:54, machineMaterial:269, injectMachineVertex:298, injectMachineFragment:314
 
-### `src/rendering/three/overlays.ts` — 404 lines / 13.1 KiB
+### `src/rendering/three/overlays.ts` — 451 lines / 14.2 KiB
 
-- SpatialOverlayState:32, HEX_RING_START:46, SpatialOverlays:58, ringMesh:389, hexCorner:396
+- SpatialOverlayState:32, HEX_RING_START:46, RANGE_RING_WIDTH:49, SpatialOverlays:66, ringMesh:411, setFixedWorldRingGeometry:422, hexCorner:443
 
 ### `src/rendering/three/quality.ts` — 51 lines / 1.2 KiB
 
@@ -441,9 +441,9 @@ Data or fixture; inspect keys before loading the full file.
 
 - FakeClassList:5, element:40, harness:56
 
-### `tests/visualDepth.test.ts` — 1170 lines / 37.4 KiB
+### `tests/visualDepth.test.ts` — 1221 lines / 39.2 KiB
 
-- heading:73, turnedBy:77, settle:83, surfaceBody:1029, uniformValue:1035, compileTerrain:1045, minimalSnapshot:1059, beltDefinition:1129, entity:1145
+- heading:76, turnedBy:80, settle:86, surfaceBody:1080, uniformValue:1086, compileTerrain:1096, minimalSnapshot:1110, beltDefinition:1180, entity:1196
 
 ### `tests/worldParameters.test.ts` — 155 lines / 5.0 KiB
 
