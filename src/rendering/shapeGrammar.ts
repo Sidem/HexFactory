@@ -27,6 +27,13 @@ export type PartKind =
  */
 export type PartPhase = "still" | "spin" | "pulse" | "rise" | "grind";
 
+/**
+ * A bounded surface vocabulary shared by every generated machine. The role names what a piece is
+ * made from rather than choosing a renderer material directly, so Canvas can ignore it while the
+ * Three.js renderer gives the same part powder coat, refractory ceramic, brass, or dark hardware.
+ */
+export type MachineMaterialRole = "structure" | "ceramic" | "brass" | "dark";
+
 export interface ShapePart {
   readonly part: PartKind;
   /** Anchor, in hex sizes from the hex centre. */
@@ -42,6 +49,10 @@ export interface ShapePart {
   readonly count?: number;
   /** Emissive colour, for an aperture. Every other part draws in the trim it is given. */
   readonly glow?: string;
+  /** Absent is the shared powder-coated structure. */
+  readonly material?: MachineMaterialRole;
+  /** A rotor mounted on a face instead of lying across the machine's top. */
+  readonly upright?: boolean;
 }
 
 const TAU = Math.PI * 2;
@@ -166,6 +177,8 @@ export function silhouetteSignature(parts: readonly ShapePart[]): string {
         (part.rotation ?? 0).toFixed(3),
         part.count ?? 0,
         part.phase ?? "still",
+        part.material ?? "structure",
+        part.upright ? "upright" : "flat",
       ].join(":"),
     )
     .join("|");
@@ -195,7 +208,13 @@ type Modifier = (parts: readonly ShapePart[]) => ShapePart[];
  */
 const addStack: Modifier = (parts) => [
   ...parts,
-  { part: "stack", x: 0.17, y: profileTop(parts) + 0.06, scale: 0.085 },
+  {
+    part: "stack",
+    x: 0.17,
+    y: profileTop(parts) + 0.06,
+    scale: 0.085,
+    material: "dark",
+  },
 ];
 
 const addRotorBlade: Modifier = (parts) =>
@@ -220,6 +239,7 @@ const segmentVessel: Modifier = (parts) => {
         y: vessel.y,
         scale: vessel.scale * 0.92,
         count: 3,
+        material: "brass",
       }),
     );
   return [...grown, ...seams];
@@ -233,6 +253,7 @@ const platingBand: Modifier = (parts) => [
     y: 0.19,
     scale: Math.max(0.18, profileWidth(parts) * 0.86),
     count: 2,
+    material: "brass",
   },
 ];
 

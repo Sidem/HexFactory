@@ -77,6 +77,9 @@ export const FIELD_RESOURCE_SHAPES = Object.freeze({
   log: "trunk-and-canopy",
 });
 
+/** A person must read at world scale, not as another inventory token dropped on one hex. */
+export const WAYFINDER_VISUAL_SCALE = 3.2;
+
 export class WorldInstanceLayer {
   readonly group = new Group();
   readonly geometryLibrary = new PartGeometryLibrary();
@@ -103,6 +106,7 @@ export class WorldInstanceLayer {
     progress: new BoxGeometry(0.38, 0.08, 0.1),
     cargo: new IcosahedronGeometry(0.09, 0),
     status: new SphereGeometryCompat(0.09),
+    plume: new IcosahedronGeometry(0.16, 1),
     scar: new CylinderGeometry(0.34, 0.38, 0.025, 6),
     outputIndicator: outputIndicatorGeometry(),
     wireSegment: new CylinderGeometry(1, 1, 1, 6),
@@ -120,9 +124,20 @@ export class WorldInstanceLayer {
   private statusMesh: InstancedMesh | null = null;
   private progressMesh: InstancedMesh | null = null;
   private cargoMesh: InstancedMesh | null = null;
+  private plumeMesh: InstancedMesh | null = null;
   private readonly playerBody: Mesh;
+  private readonly playerShell: Mesh;
+  private readonly playerHead: Mesh;
   private readonly playerFacing: Mesh;
+  private readonly playerPack: Mesh;
+  private readonly playerBeacon: Mesh;
+  private readonly playerLeftLeg: Mesh;
+  private readonly playerRightLeg: Mesh;
+  private readonly playerLeftArm: Mesh;
+  private readonly playerRightArm: Mesh;
+  private readonly playerTool: Mesh;
   private readonly playerWork: Mesh;
+  private readonly playerMeshes: readonly Mesh[];
   private readonly pointById = new Map<number, { x: number; z: number }>();
   private readonly groundById = new Map<number, number>();
   private readonly buildingById = new Map<number, EntitySnapshot>();
@@ -149,6 +164,7 @@ export class WorldInstanceLayer {
     this.resourceGroup.name = "field-resources";
     this.dynamicGroup.name = "dynamic-factory-state";
     this.playerGroup.name = "player";
+    this.playerGroup.scale.setScalar(WAYFINDER_VISUAL_SCALE);
     this.group.add(
       this.staticGroup,
       this.resourceGroup,
@@ -156,22 +172,95 @@ export class WorldInstanceLayer {
       this.playerGroup,
     );
     this.playerBody = new Mesh(
-      new CylinderGeometry(0.18, 0.24, 0.48, 7),
-      materials.machine,
+      new CylinderGeometry(0.13, 0.16, 0.25, 7),
+      materials.wayfinderHull,
     );
     this.playerBody.castShadow = true;
-    this.playerBody.material = materials.machine;
-    this.playerFacing = new Mesh(
-      new ConeGeometry(0.09, 0.36, 5),
-      materials.emissive,
+    this.playerBody.position.y = 0.31;
+    this.playerShell = new Mesh(
+      new CylinderGeometry(0.17, 0.14, 0.13, 7),
+      materials.wayfinderShell,
     );
-    this.playerFacing.rotateX(Math.PI / 2);
+    this.playerShell.castShadow = true;
+    this.playerShell.position.y = 0.43;
+    this.playerHead = new Mesh(
+      new IcosahedronGeometry(0.095, 1),
+      materials.wayfinderShell,
+    );
+    this.playerHead.castShadow = true;
+    this.playerHead.position.y = 0.535;
+    this.playerFacing = new Mesh(
+      new BoxGeometry(0.115, 0.045, 0.035),
+      materials.wayfinderSignal,
+    );
+    this.playerFacing.position.set(0, 0.545, 0.083);
+    this.playerPack = new Mesh(
+      new BoxGeometry(0.17, 0.22, 0.1),
+      materials.wayfinderBrass,
+    );
+    this.playerPack.castShadow = true;
+    this.playerPack.position.set(0, 0.34, -0.13);
+    this.playerBeacon = new Mesh(
+      new OctahedronGeometry(0.035, 0),
+      materials.wayfinderBrass,
+    );
+    this.playerBeacon.position.set(0, 0.65, -0.025);
+    this.playerLeftLeg = new Mesh(
+      new CylinderGeometry(0.04, 0.05, 0.2, 6),
+      materials.wayfinderHull,
+    );
+    this.playerLeftLeg.position.set(-0.07, 0.105, 0);
+    this.playerRightLeg = new Mesh(
+      new CylinderGeometry(0.04, 0.05, 0.2, 6),
+      materials.wayfinderHull,
+    );
+    this.playerRightLeg.position.set(0.07, 0.105, 0);
+    this.playerLeftArm = new Mesh(
+      new CylinderGeometry(0.03, 0.04, 0.21, 6),
+      materials.wayfinderShell,
+    );
+    this.playerLeftArm.position.set(-0.17, 0.34, 0.015);
+    this.playerLeftArm.rotation.z = -0.18;
+    this.playerRightArm = new Mesh(
+      new CylinderGeometry(0.03, 0.04, 0.21, 6),
+      materials.wayfinderShell,
+    );
+    this.playerRightArm.position.set(0.17, 0.34, 0.015);
+    this.playerRightArm.rotation.z = 0.18;
+    for (const limb of [
+      this.playerLeftLeg,
+      this.playerRightLeg,
+      this.playerLeftArm,
+      this.playerRightArm,
+    ])
+      limb.castShadow = true;
+    this.playerTool = new Mesh(
+      new CylinderGeometry(0.025, 0.04, 0.24, 6),
+      materials.wayfinderBrass,
+    );
+    this.playerTool.castShadow = true;
+    this.playerTool.position.set(0.22, 0.25, 0.075);
+    this.playerTool.rotation.z = -0.5;
     this.playerWork = new Mesh(
       new RingGeometry(0.31, 0.36, 32),
       materials.overlaySelection,
     );
     this.playerWork.rotateX(-Math.PI / 2);
-    this.playerGroup.add(this.playerBody, this.playerFacing, this.playerWork);
+    this.playerWork.position.y = 0.025;
+    this.playerMeshes = [
+      this.playerBody,
+      this.playerShell,
+      this.playerHead,
+      this.playerFacing,
+      this.playerPack,
+      this.playerBeacon,
+      this.playerLeftLeg,
+      this.playerRightLeg,
+      this.playerLeftArm,
+      this.playerRightArm,
+      this.playerTool,
+    ];
+    this.playerGroup.add(...this.playerMeshes, this.playerWork);
   }
 
   setSnapshot(
@@ -254,8 +343,7 @@ export class WorldInstanceLayer {
       geometry.detail.dispose();
     }
     this.curvedTransportGeometry.clear();
-    this.playerBody.geometry.dispose();
-    this.playerFacing.geometry.dispose();
+    for (const mesh of this.playerMeshes) mesh.geometry.dispose();
     this.playerWork.geometry.dispose();
   }
 
@@ -793,7 +881,7 @@ export class WorldInstanceLayer {
     );
     const buckets = new Map<string, MachinePartInstance[]>();
     for (const instance of parts) {
-      const key = `${instance.key}:${instance.glow ? "glow" : "solid"}:${instance.animated ? "animated" : "static"}`;
+      const key = `${instance.key}:${instance.glow ? "glow" : instance.material}:${instance.animated ? "animated" : "static"}`;
       const bucket = buckets.get(key);
       if (bucket) bucket.push(instance);
       else buckets.set(key, [instance]);
@@ -804,7 +892,9 @@ export class WorldInstanceLayer {
       const first = instances[0]!;
       const mesh = new InstancedMesh(
         this.geometryLibrary.get(first.part),
-        first.glow ? this.materials.emissive : this.materials.machine,
+        first.glow
+          ? this.materials.emissive
+          : machineMaterialFor(this.materials, first.material),
         instances.length,
       );
       mesh.name = `machine-part-${key}`;
@@ -817,14 +907,7 @@ export class WorldInstanceLayer {
           index,
           instance.glow
             ? color.set(instance.glow)
-            : color
-                .set(instance.color)
-                .lerp(
-                  this.scratchTrim.set(
-                    tier > 0 ? trimOf(tier).stroke : "#dcefe6",
-                  ),
-                  tier > 0 ? 0.2 : 0.04,
-                ),
+            : machinePartColor(color, this.scratchTrim, instance, tier),
         );
       }
       mesh.instanceMatrix.needsUpdate = true;
@@ -1144,7 +1227,19 @@ export class WorldInstanceLayer {
       max,
     );
     this.cargoMesh.name = "moving-cargo";
-    this.dynamicGroup.add(this.statusMesh, this.progressMesh, this.cargoMesh);
+    this.plumeMesh = new InstancedMesh(
+      this.geometry.plume,
+      this.materials.smoke,
+      max * 3,
+    );
+    this.plumeMesh.name = "machine-plumes";
+    this.plumeMesh.frustumCulled = false;
+    this.dynamicGroup.add(
+      this.statusMesh,
+      this.progressMesh,
+      this.cargoMesh,
+      this.plumeMesh,
+    );
   }
 
   private updateDynamicBuildings(
@@ -1152,7 +1247,13 @@ export class WorldInstanceLayer {
     now: number,
     reducedMotion: boolean,
   ): void {
-    if (!this.statusMesh || !this.progressMesh || !this.cargoMesh) return;
+    if (
+      !this.statusMesh ||
+      !this.progressMesh ||
+      !this.cargoMesh ||
+      !this.plumeMesh
+    )
+      return;
     const matrix = this.scratchMatrix;
     const color = this.scratchColor;
     const position = this.scratchPosition;
@@ -1161,6 +1262,7 @@ export class WorldInstanceLayer {
     let statuses = 0;
     let progresses = 0;
     let cargos = 0;
+    let plumes = 0;
     for (const building of snapshot.buildings) {
       const center = this.pointById.get(building.id);
       if (!center) continue;
@@ -1245,13 +1347,45 @@ export class WorldInstanceLayer {
         );
         cargos += 1;
       }
+      const definition = this.definitions.get(building.definition_id);
+      const plume = plumeFor(building, definition);
+      if (plume) {
+        const puffCount = reducedMotion ? 1 : 3;
+        for (let puff = 0; puff < puffCount; puff += 1) {
+          const cycle = reducedMotion
+            ? 0.42
+            : positiveFraction(now / 2_200 + building.id * 0.137 + puff / 3);
+          const drift = building.id * 1.71 + cycle * Math.PI * 1.4;
+          const spread = 0.035 + cycle * 0.075;
+          const size = 0.5 + cycle * 0.9;
+          matrix.compose(
+            position.set(
+              center.x + Math.sin(drift) * spread,
+              height + plumeOriginHeight(building, definition) + cycle * 0.82,
+              center.z + Math.cos(drift) * spread,
+            ),
+            quaternion,
+            scale.set(size, size * 0.82, size),
+          );
+          this.plumeMesh.setMatrixAt(plumes, matrix);
+          this.plumeMesh.setColorAt(
+            plumes,
+            color
+              .set(plume === "steam" ? "#dceff0" : "#78817d")
+              .lerp(this.scratchTrim.set("#edf3ed"), cycle * 0.34),
+          );
+          plumes += 1;
+        }
+      }
     }
     this.statusMesh.count = statuses;
     this.progressMesh.count = progresses;
     this.cargoMesh.count = cargos;
+    this.plumeMesh.count = plumes;
     markInstancesDirty(this.statusMesh);
     markInstancesDirty(this.progressMesh);
     markInstancesDirty(this.cargoMesh);
+    markInstancesDirty(this.plumeMesh);
   }
 
   private updatePlayer(snapshot: FactorySnapshot): void {
@@ -1260,18 +1394,23 @@ export class WorldInstanceLayer {
     const height = this.groundHeight(axial.q, axial.r);
     const x = player.x / WORLD_SCALE;
     const z = player.y / WORLD_SCALE;
-    this.playerGroup.position.set(x, height + 0.26, z);
-    this.playerBody.position.set(0, 0, 0);
-    this.playerBody.scale.set(1, 1, 1);
+    this.playerGroup.position.set(x, height + 0.02, z);
     const facing = Math.atan2(player.facing_x, player.facing_y);
-    this.playerFacing.position.set(
-      Math.sin(facing) * 0.32,
-      0.12,
-      Math.cos(facing) * 0.32,
-    );
-    this.playerFacing.rotation.set(Math.PI / 2, 0, -facing);
+    this.playerGroup.rotation.y = facing;
+    const walking = player.walk_path.length > 0;
+    const stride = walking
+      ? Math.sin(((player.x + player.y) / WORLD_SCALE) * 8) * 0.48
+      : 0;
+    this.playerBody.rotation.x = walking ? -0.06 : 0;
+    this.playerShell.rotation.x = walking ? -0.04 : 0;
+    this.playerLeftLeg.rotation.x = stride;
+    this.playerRightLeg.rotation.x = -stride;
+    this.playerLeftArm.rotation.x = -stride * 0.72;
+    this.playerRightArm.rotation.x = stride * 0.72;
     const total = player.action_cooldown_total;
     const done = total > 0 ? 1 - player.action_cooldown / total : 0;
+    this.playerTool.visible = player.action_cooldown > 0;
+    this.playerTool.rotation.z = -0.5 - done * 0.75;
     this.playerWork.visible = player.action_cooldown > 0;
     this.playerWork.scale.setScalar(Math.max(0.05, done));
   }
@@ -1459,6 +1598,82 @@ class SphereGeometryCompat extends IcosahedronGeometry {
   constructor(radius: number) {
     super(radius, 1);
   }
+}
+
+function machineMaterialFor(
+  materials: WorldMaterials,
+  role: MachinePartInstance["material"],
+) {
+  switch (role) {
+    case "ceramic":
+      return materials.machineCeramic;
+    case "brass":
+      return materials.machineBrass;
+    case "dark":
+      return materials.machineDark;
+    case "structure":
+      return materials.machine;
+  }
+}
+
+function machinePartColor(
+  target: Color,
+  scratch: Color,
+  instance: MachinePartInstance,
+  tier: number,
+): Color {
+  target.set(instance.color);
+  switch (instance.material) {
+    case "ceramic":
+      return target.lerp(scratch.set("#d9d1b8"), 0.68);
+    case "brass":
+      return target.lerp(scratch.set("#bf8948"), 0.78);
+    case "dark":
+      return target.lerp(scratch.set("#142126"), 0.74);
+    case "structure":
+      return target.lerp(
+        scratch.set(tier > 0 ? trimOf(tier).stroke : "#dcefe6"),
+        tier > 0 ? 0.2 : 0.04,
+      );
+  }
+}
+
+type PlumeKind = "smoke" | "steam";
+
+/** Published status decides whether a chimney is live; the effect never guesses simulation work. */
+export function plumeFor(
+  building: EntitySnapshot,
+  definition?: BuildingDefinition,
+): PlumeKind | null {
+  if (building.status === "generating") {
+    if (building.kind === "boiler" || definition?.power_source === "turbine")
+      return "steam";
+    if (definition?.power_source === "burner") return "smoke";
+  }
+  if (
+    building.status === "composing" &&
+    (definition?.recipe_category === "smelting" ||
+      definition?.recipe_category === "firing")
+  )
+    return "smoke";
+  return null;
+}
+
+/** Effect sockets follow the authored silhouette scale so smoke leaves a chimney, not its deck. */
+function plumeOriginHeight(
+  building: EntitySnapshot,
+  definition?: BuildingDefinition,
+): number {
+  if (building.kind === "boiler") return 1.9;
+  if (definition?.power_source === "turbine") return 1.85;
+  if (definition?.power_source === "burner") return 1.65;
+  if (definition?.recipe_category === "smelting") return 1.75;
+  if (definition?.recipe_category === "firing") return 1.55;
+  return 1.35;
+}
+
+function positiveFraction(value: number): number {
+  return value - Math.floor(value);
 }
 
 function markInstancesDirty(mesh: InstancedMesh): void {

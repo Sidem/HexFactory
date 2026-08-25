@@ -262,10 +262,10 @@ Data or fixture; inspect keys before loading the full file.
 
 - MinimapRenderer:41, writeInstance:401, grow:409
 
-### `src/rendering/buildingLook.ts` — 467 lines / 13.8 KiB
+### `src/rendering/buildingLook.ts` — 608 lines / 15.8 KiB
 
-- SilhouetteKey:20, BuildingTrim:29, BUILDING_SHAPE_VERSION:39, silhouetteOf:45, trimOf:66, BUILDING_SHAPES:86, PLAYER_RING:213, PLAYER_BODY:216, partsFor:228, buildingStamp:253, bakedStills:261, BuildingLookInput:288
-- drawBuildingLook:302, drawShape:334, STALL_MARKS:380, stallMark:390, cargoTravel:394, workCycle:404, NORTH:422, facingTip:436, spanEnd:456
+- SilhouetteKey:20, BuildingTrim:29, BUILDING_SHAPE_VERSION:39, silhouetteOf:45, trimOf:66, BUILDING_SHAPES:88, PLAYER_RING:354, PLAYER_BODY:357, partsFor:369, buildingStamp:394, bakedStills:402, BuildingLookInput:429
+- drawBuildingLook:443, drawShape:475, STALL_MARKS:521, stallMark:531, cargoTravel:535, workCycle:545, NORTH:563, facingTip:577, spanEnd:597
 
 ### `src/rendering/gl/WorldGl.ts` — 1155 lines / 33.8 KiB
 
@@ -299,10 +299,10 @@ Data or fixture; inspect keys before loading the full file.
 
 - WORLD_SCALE:14, findLandingHub:17, buildingBeside:39, HomeBearing:62, homeBearing:80
 
-### `src/rendering/shapeGrammar.ts` — 537 lines / 15.9 KiB
+### `src/rendering/shapeGrammar.ts` — 558 lines / 16.7 KiB
 
-- PartKind:13, PartPhase:28, ShapePart:30, isStill:49, PartExtent:55, partExtent:66, profileTop:136, profileWidth:143, silhouetteSignature:158, ModifierName:180, TierStep:278, TIER_LADDER:290
-- HUB_LADDER:313, applyLadder:330, applyTier:346, drawParts:359, drawPart:378, strokeRoundedRect:510
+- PartKind:13, PartPhase:28, MachineMaterialRole:35, ShapePart:37, isStill:60, PartExtent:66, partExtent:77, profileTop:147, profileWidth:154, silhouetteSignature:169, ModifierName:193, TierStep:299
+- TIER_LADDER:311, HUB_LADDER:334, applyLadder:351, applyTier:367, drawParts:380, drawPart:399, strokeRoundedRect:531
 
 ### `src/rendering/terrainLook.ts` — 437 lines / 13.1 KiB
 
@@ -310,9 +310,9 @@ Data or fixture; inspect keys before loading the full file.
 - TerrainTiles:116, drawTerrainCell:141, drawDepletion:190, drawFringe:229, drawDetailMarks:272, drawWaterShimmer:312, bakeBand:345, valueNoise:393, hash2:410, fade:416, rgbOf:420, clampByte:429
 - withAlpha:433
 
-### `src/rendering/three/ContactSheetRenderer.ts` — 281 lines / 8.3 KiB
+### `src/rendering/three/ContactSheetRenderer.ts` — 298 lines / 9.0 KiB
 
-- ContactSheetRenderer:40, fakeEntity:261
+- ContactSheetRenderer:41, contactPartColour:267, fakeEntity:278
 
 ### `src/rendering/three/HexSceneCamera.ts` — 258 lines / 8.6 KiB
 
@@ -326,13 +326,14 @@ Data or fixture; inspect keys before loading the full file.
 
 - directionAngle:6
 
-### `src/rendering/three/machineMeshes.ts` — 274 lines / 8.7 KiB
+### `src/rendering/three/machineMeshes.ts` — 330 lines / 10.6 KiB
 
-- MACHINE_VISUAL_SCALE:33, MachinePartInstance:35, PartGeometryLibrary:48, geometryKey:72, buildPartGeometry:77, collectMachineParts:101, machinePartMatrix:147, partScale:193, rotorGeometry:220, mastGeometry:235, bandGeometry:246, mouthGeometry:261
+- MACHINE_VISUAL_SCALE:38, MACHINE_SILHOUETTE_SCALE:45, MachinePartInstance:69, PartGeometryLibrary:84, geometryKey:108, buildPartGeometry:113, collectMachineParts:137, machinePartMatrix:185, partScale:247, rotorGeometry:276, mastGeometry:291, bandGeometry:302
+- mouthGeometry:317
 
-### `src/rendering/three/materials.ts` — 198 lines / 5.3 KiB
+### `src/rendering/three/materials.ts` — 313 lines / 9.2 KiB
 
-- WorldMaterials:12, createWorldMaterials:41
+- WorldMaterials:14, createWorldMaterials:50, machineMaterial:241, injectMachineVertex:270, injectMachineFragment:286
 
 ### `src/rendering/three/overlays.ts` — 404 lines / 13.1 KiB
 
@@ -358,10 +359,10 @@ Data or fixture; inspect keys before loading the full file.
 
 - TransportGeometrySet:7, CurvedTransportGeometry:13, createTransportGeometry:19, beltFrameGeometry:28, beltTreadGeometry:38, createCurvedTransportGeometry:50, quadraticPoint:89, quadraticTangent:101, mergeAndDispose:112, isTransportKind:120, transportScale:133
 
-### `src/rendering/three/worldInstances.ts` — 1489 lines / 49.7 KiB
+### `src/rendering/three/worldInstances.ts` — 1704 lines / 56.5 KiB
 
-- PowerWireLink:66, FIELD_RESOURCE_SHAPES:72, WorldInstanceLayer:80, normalizeAngle:1302, outputIndicatorGeometry:1306, hasDirectionalOutput:1312, connectedTransportLinks:1332, transportRun:1351, powerWireLinks:1364, footprintDistance:1399, poleWireHeight:1416, wirePoint:1423
-- fieldVisualColor:1440, fieldShade:1449, SphereGeometryCompat:1458, markInstancesDirty:1464, adjacentFootprintPairs:1469
+- PowerWireLink:66, FIELD_RESOURCE_SHAPES:72, WAYFINDER_VISUAL_SCALE:81, WorldInstanceLayer:83, normalizeAngle:1441, outputIndicatorGeometry:1445, hasDirectionalOutput:1451, connectedTransportLinks:1471, transportRun:1490, powerWireLinks:1503, footprintDistance:1538, poleWireHeight:1555
+- wirePoint:1562, fieldVisualColor:1579, fieldShade:1588, SphereGeometryCompat:1597, machineMaterialFor:1603, machinePartColor:1619, plumeFor:1644, plumeOriginHeight:1663, positiveFraction:1675, markInstancesDirty:1679, adjacentFootprintPairs:1684
 
 
 ## Browser UI
@@ -439,9 +440,9 @@ Data or fixture; inspect keys before loading the full file.
 
 - FakeClassList:5, element:40, harness:56
 
-### `tests/visualDepth.test.ts` — 1010 lines / 31.7 KiB
+### `tests/visualDepth.test.ts` — 1162 lines / 36.8 KiB
 
-- heading:68, turnedBy:72, settle:78, surfaceBody:869, uniformValue:875, compileTerrain:885, minimalSnapshot:899, beltDefinition:969, entity:985
+- heading:73, turnedBy:77, settle:83, surfaceBody:1021, uniformValue:1027, compileTerrain:1037, minimalSnapshot:1051, beltDefinition:1121, entity:1137
 
 ### `tests/worldParameters.test.ts` — 155 lines / 5.0 KiB
 

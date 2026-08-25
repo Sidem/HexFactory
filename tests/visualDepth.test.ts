@@ -4,7 +4,9 @@ import {
   Color,
   InstancedMesh,
   Matrix4,
+  Quaternion,
   ShaderLib,
+  Vector3,
   type WebGLProgramParametersWithUniforms,
   type WebGLRenderer,
 } from "three";
@@ -25,6 +27,7 @@ import type { PartKind, ShapePart } from "../src/rendering/shapeGrammar";
 import { HexSceneCamera } from "../src/rendering/three/HexSceneCamera";
 import {
   buildPartGeometry,
+  MACHINE_SILHOUETTE_SCALE,
   MACHINE_VISUAL_SCALE,
   machinePartMatrix,
   type MachinePartInstance,
@@ -60,7 +63,9 @@ import {
   fieldShade,
   fieldVisualColor,
   FIELD_RESOURCE_SHAPES,
+  plumeFor,
   powerWireLinks,
+  WAYFINDER_VISUAL_SCALE,
   WorldInstanceLayer,
 } from "../src/rendering/three/worldInstances";
 
@@ -254,8 +259,10 @@ describe("Visual Depth generated geometry", () => {
               animated: part.phase !== undefined && part.phase !== "still",
               color: "#ffffff",
               glow: part.glow ?? null,
+              material: part.material ?? "structure",
               groundHeight: 0.1,
               footprintScale: 1,
+              visualScale: MACHINE_SILHOUETTE_SCALE[key],
               x: 0,
               z: 0,
             };
@@ -300,14 +307,89 @@ describe("Visual Depth generated geometry", () => {
       animated: true,
       color: "#fff",
       glow: null,
+      material: "ceramic",
       groundHeight: 0,
       footprintScale: 1,
+      visualScale: MACHINE_SILHOUETTE_SCALE.wind,
       x: 0,
       z: 0,
     };
     expect(machinePartMatrix(instance, 10, true).elements).toEqual(
       machinePartMatrix(instance, 9_999, true).elements,
     );
+  });
+
+  it("keeps the Wayfinder human-sized and gives the wind turbine the skyline", () => {
+    expect(WAYFINDER_VISUAL_SCALE).toBeGreaterThanOrEqual(3);
+    expect(MACHINE_SILHOUETTE_SCALE.wind).toBeGreaterThan(
+      MACHINE_SILHOUETTE_SCALE.pole * 3,
+    );
+    expect(MACHINE_SILHOUETTE_SCALE.extractor).toBeGreaterThan(
+      MACHINE_SILHOUETTE_SCALE.pole,
+    );
+    const materials = createWorldMaterials();
+    const layer = new WorldInstanceLayer(
+      { version: 1, items: [], recipes: [], requests: [], buildings: [] },
+      materials,
+    );
+    expect(layer.group.getObjectByName("player")?.scale.x).toBe(
+      WAYFINDER_VISUAL_SCALE,
+    );
+    layer.dispose();
+    for (const material of materials.materials) material.dispose();
+  });
+
+  it("spins an upright turbine in its vertical rotor disc", () => {
+    const part: ShapePart = {
+      part: "rotor",
+      x: 0,
+      y: -0.56,
+      scale: 0.38,
+      count: 3,
+      phase: "spin",
+      upright: true,
+    };
+    const building: EntitySnapshot = {
+      id: 14,
+      definition_id: 14,
+      kind: "generator",
+      q: 0,
+      r: 0,
+      orientation: 0,
+      scenario_owned: false,
+      inventory: [],
+      progress: 0,
+      progress_total: 0,
+      status: "generating",
+      footprint: [{ q: 0, r: 0 }],
+    };
+    const instance: MachinePartInstance = {
+      building,
+      part,
+      key: "rotor:3",
+      animated: true,
+      color: "#fff",
+      glow: null,
+      material: "ceramic",
+      groundHeight: 0,
+      footprintScale: 1,
+      visualScale: MACHINE_SILHOUETTE_SCALE.wind,
+      x: 0,
+      z: 0,
+    };
+    const position = new Vector3();
+    const scale = new Vector3();
+    const first = new Quaternion();
+    const second = new Quaternion();
+    machinePartMatrix(instance, 0, false).decompose(position, first, scale);
+    machinePartMatrix(instance, 175, false).decompose(position, second, scale);
+    const firstNormal = new Vector3(0, 1, 0).applyQuaternion(first);
+    const secondNormal = new Vector3(0, 1, 0).applyQuaternion(second);
+    expect(Math.abs(firstNormal.y)).toBeLessThan(1e-6);
+    expect(firstNormal.distanceTo(secondNormal)).toBeLessThan(1e-6);
+    const firstBlade = new Vector3(0, 0, 1).applyQuaternion(first);
+    const secondBlade = new Vector3(0, 0, 1).applyQuaternion(second);
+    expect(firstBlade.dot(secondBlade)).toBeLessThan(0.9);
   });
 });
 
@@ -326,9 +408,79 @@ describe("Visual Depth terrain and quality contracts", () => {
   it("keeps instance identity colour instead of multiplying it by a missing vertex colour", () => {
     const materials = createWorldMaterials();
     expect(materials.machine.vertexColors).toBe(false);
+    expect(materials.machineCeramic.vertexColors).toBe(false);
+    expect(materials.machineBrass.vertexColors).toBe(false);
     expect(materials.machineDark.vertexColors).toBe(false);
     expect(materials.resource.vertexColors).toBe(false);
     expect(materials.resourceCoal.vertexColors).toBe(false);
+    for (const material of materials.materials) material.dispose();
+  });
+
+  it("gives the bounded machine surfaces distinct physical and shader treatments", () => {
+    const materials = createWorldMaterials();
+    expect(materials.machineCeramic.roughness).toBeGreaterThan(
+      materials.machineBrass.roughness,
+    );
+    expect(materials.machineBrass.metalness).toBeGreaterThan(
+      materials.machine.metalness,
+    );
+    const keys = [
+      materials.machine,
+      materials.machineCeramic,
+      materials.machineBrass,
+      materials.machineDark,
+    ].map((material) => material.customProgramCacheKey());
+    expect(new Set(keys).size).toBe(keys.length);
+    const shader = {
+      uniforms: {},
+      vertexShader: ShaderLib.physical.vertexShader,
+      fragmentShader: ShaderLib.physical.fragmentShader,
+    } as unknown as WebGLProgramParametersWithUniforms;
+    materials.machineCeramic.onBeforeCompile(
+      shader,
+      undefined as unknown as WebGLRenderer,
+    );
+    expect(shader.vertexShader).toContain("hfMachineLocal");
+    expect(shader.fragmentShader).toContain("hfMachineGrain");
+    for (const material of materials.materials) material.dispose();
+  });
+
+  it("pools status-driven plumes and freezes them under reduced motion", () => {
+    const materials = createWorldMaterials();
+    const burner = {
+      ...beltDefinition(),
+      id: 13,
+      key: "burner-generator",
+      name: "Burner generator",
+      kind: "generator" as const,
+      power_source: "burner" as const,
+    };
+    const layer = new WorldInstanceLayer(
+      { version: 1, items: [], recipes: [], requests: [], buildings: [burner] },
+      materials,
+    );
+    const snapshot = minimalSnapshot();
+    const generator = entity(1, burner.id, "generator", 0, 0, 0);
+    generator.status = "generating";
+    snapshot.buildings.push(generator);
+    expect(plumeFor(generator, burner)).toBe("smoke");
+    layer.setSnapshot(snapshot, new Map(), 0);
+    layer.update(300, false);
+    const plumes = layer.group.getObjectByName(
+      "machine-plumes",
+    ) as InstancedMesh;
+    expect(plumes.count).toBe(3);
+    const before = new Matrix4();
+    const after = new Matrix4();
+    layer.update(300, true);
+    plumes.getMatrixAt(0, before);
+    expect(plumes.count).toBe(1);
+    layer.update(9_000, true);
+    plumes.getMatrixAt(0, after);
+    expect(after.elements).toEqual(before.elements);
+    generator.status = "idle";
+    expect(plumeFor(generator, burner)).toBeNull();
+    layer.dispose();
     for (const material of materials.materials) material.dispose();
   });
 

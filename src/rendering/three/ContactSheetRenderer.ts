@@ -20,6 +20,7 @@ import type { BuildingDefinition, EntitySnapshot } from "../../core/types";
 import { partsFor, silhouetteOf, stallMark } from "../buildingLook";
 import { BUILDING_COLORS } from "../FactoryRenderer";
 import {
+  MACHINE_SILHOUETTE_SCALE,
   machinePartMatrix,
   PartGeometryLibrary,
   type MachinePartInstance,
@@ -172,14 +173,19 @@ export class ContactSheetRenderer {
         animated: part.phase !== undefined && part.phase !== "still",
         color: baseColour,
         glow: part.glow ?? null,
+        material: part.material ?? "structure",
         groundHeight: 0,
         footprintScale: 1,
+        visualScale: MACHINE_SILHOUETTE_SCALE[key],
         x: 0,
         z: 0,
       };
+      const partColour = colour
+        ? contactPartColour(baseColour, part.material ?? "structure")
+        : baseColour;
       const material = part.glow
         ? this.material(`glow:${part.glow}`, part.glow, true)
-        : this.material(`body:${baseColour}`, baseColour);
+        : this.material(`body:${partColour}`, partColour);
       const mesh = new Mesh(this.geometries.get(part), material);
       mesh.matrixAutoUpdate = false;
       mesh.matrix.copy(machinePartMatrix(instance, now, false));
@@ -256,6 +262,17 @@ export class ContactSheetRenderer {
     }
     return material;
   }
+}
+
+function contactPartColour(
+  base: string,
+  role: MachinePartInstance["material"],
+): string {
+  const color = new Color(base);
+  if (role === "ceramic") color.lerp(new Color("#d9d1b8"), 0.68);
+  else if (role === "brass") color.lerp(new Color("#bf8948"), 0.78);
+  else if (role === "dark") color.lerp(new Color("#142126"), 0.74);
+  return `#${color.getHexString()}`;
 }
 
 function fakeEntity(

@@ -4,8 +4,10 @@ import {
   MeshBasicMaterial,
   MeshStandardMaterial,
 } from "three";
+import type { WebGLProgramParametersWithUniforms } from "three";
 
 import type { Terrain } from "../../core/types";
+import type { MachineMaterialRole } from "../shapeGrammar";
 import { TERRAIN_STYLE } from "./terrainStyle";
 import { TerrainSurfaces } from "./terrainSurface";
 
@@ -14,7 +16,14 @@ export interface WorldMaterials {
   /** The procedural landform surfaces: one clock, one detail switch, seven materials. */
   readonly terrainSurfaces: TerrainSurfaces;
   readonly machine: MeshStandardMaterial;
+  readonly machineCeramic: MeshStandardMaterial;
+  readonly machineBrass: MeshStandardMaterial;
   readonly machineDark: MeshStandardMaterial;
+  readonly wayfinderHull: MeshStandardMaterial;
+  readonly wayfinderShell: MeshStandardMaterial;
+  readonly wayfinderBrass: MeshStandardMaterial;
+  readonly wayfinderSignal: MeshStandardMaterial;
+  readonly smoke: MeshBasicMaterial;
   readonly resource: MeshStandardMaterial;
   /** Specular anthracite: coal has to glint, not sit as another mid-grey lump. */
   readonly resourceCoal: MeshStandardMaterial;
@@ -56,21 +65,26 @@ export function createWorldMaterials(): WorldMaterials {
   const terrainSurfaces = new TerrainSurfaces();
   for (const [key, material] of Object.entries(terrain))
     terrainSurfaces.attach(material, key as Terrain);
-  const machine = new MeshStandardMaterial({
-    color: 0xffffff,
-    roughness: 0.7,
-    metalness: 0.3,
-    emissive: "#09110f",
-    emissiveIntensity: 0.12,
+  const machine = machineMaterial("#ffffff", "structure", 0.7, 0.3);
+  const machineCeramic = machineMaterial("#ffffff", "ceramic", 0.86, 0.04);
+  const machineBrass = machineMaterial("#ffffff", "brass", 0.42, 0.62);
+  const machineDark = machineMaterial("#ffffff", "dark", 0.9, 0.15);
+  const wayfinderHull = machineMaterial("#14262a", "dark", 0.82, 0.18);
+  const wayfinderShell = machineMaterial("#d9d1b8", "ceramic", 0.8, 0.05);
+  const wayfinderBrass = machineMaterial("#bf8948", "brass", 0.4, 0.64);
+  const wayfinderSignal = new MeshStandardMaterial({
+    color: "#f4ead0",
+    roughness: 0.32,
+    metalness: 0.02,
+    emissive: "#7fe0c0",
+    emissiveIntensity: 0.72,
     flatShading: true,
   });
-  const machineDark = new MeshStandardMaterial({
-    color: 0xffffff,
-    roughness: 0.9,
-    metalness: 0.15,
-    emissive: "#050908",
-    emissiveIntensity: 0.08,
-    flatShading: true,
+  const smoke = new MeshBasicMaterial({
+    color: "#ffffff",
+    transparent: true,
+    opacity: 0.32,
+    depthWrite: false,
   });
   const resource = new MeshStandardMaterial({
     color: 0xffffff,
@@ -161,7 +175,14 @@ export function createWorldMaterials(): WorldMaterials {
   const materials = [
     ...Object.values(terrain),
     machine,
+    machineCeramic,
+    machineBrass,
     machineDark,
+    wayfinderHull,
+    wayfinderShell,
+    wayfinderBrass,
+    wayfinderSignal,
+    smoke,
     resource,
     resourceCoal,
     resourceStone,
@@ -179,7 +200,14 @@ export function createWorldMaterials(): WorldMaterials {
     terrain,
     terrainSurfaces,
     machine,
+    machineCeramic,
+    machineBrass,
     machineDark,
+    wayfinderHull,
+    wayfinderShell,
+    wayfinderBrass,
+    wayfinderSignal,
+    smoke,
     resource,
     resourceCoal,
     resourceStone,
@@ -194,4 +222,91 @@ export function createWorldMaterials(): WorldMaterials {
     routeGoal,
     materials,
   };
+}
+
+interface MachineSurfaceSpec {
+  readonly frequency: number;
+  readonly contrast: number;
+  readonly wear: number;
+}
+
+const MACHINE_SURFACES: Record<MachineMaterialRole, MachineSurfaceSpec> = {
+  structure: { frequency: 17, contrast: 0.055, wear: 0.045 },
+  ceramic: { frequency: 24, contrast: 0.035, wear: 0.025 },
+  brass: { frequency: 31, contrast: 0.07, wear: 0.065 },
+  dark: { frequency: 13, contrast: 0.045, wear: 0.025 },
+};
+
+/** Object-space procedural grain: generated geometry needs no UV atlas or per-definition texture. */
+function machineMaterial(
+  color: string,
+  role: MachineMaterialRole,
+  roughness: number,
+  metalness: number,
+): MeshStandardMaterial {
+  const material = new MeshStandardMaterial({
+    color,
+    roughness,
+    metalness,
+    emissive: role === "dark" ? "#050908" : "#09110f",
+    emissiveIntensity: role === "dark" ? 0.08 : 0.12,
+    flatShading: true,
+  });
+  const surface = MACHINE_SURFACES[role];
+  material.onBeforeCompile = (
+    parameters: WebGLProgramParametersWithUniforms,
+  ) => {
+    parameters.vertexShader = injectMachineVertex(parameters.vertexShader);
+    parameters.fragmentShader = injectMachineFragment(
+      parameters.fragmentShader,
+      surface,
+    );
+  };
+  material.customProgramCacheKey = () => `hf-machine-${role}`;
+  material.needsUpdate = true;
+  return material;
+}
+
+function injectMachineVertex(source: string): string {
+  return source
+    .replace(
+      "#include <common>",
+      "#include <common>\nvarying vec3 hfMachineLocal;\nvarying vec3 hfMachineNormal;",
+    )
+    .replace(
+      "#include <beginnormal_vertex>",
+      "#include <beginnormal_vertex>\nhfMachineNormal = objectNormal;",
+    )
+    .replace(
+      "#include <begin_vertex>",
+      "#include <begin_vertex>\nhfMachineLocal = position;",
+    );
+}
+
+function injectMachineFragment(
+  source: string,
+  surface: MachineSurfaceSpec,
+): string {
+  const frequency = surface.frequency.toFixed(1);
+  const wear = surface.wear.toFixed(3);
+  return source
+    .replace(
+      "#include <common>",
+      `#include <common>
+varying vec3 hfMachineLocal;
+varying vec3 hfMachineNormal;
+float hfMachineHash(vec3 p) {
+  return fract(sin(dot(p, vec3(12.9898, 78.233, 37.719))) * 43758.5453);
+}`,
+    )
+    .replace(
+      "#include <color_fragment>",
+      `#include <color_fragment>
+float hfMachineGrain = hfMachineHash(floor(hfMachineLocal * ${frequency}));
+float hfMachineBand = 0.5 + 0.5 * sin((hfMachineLocal.y + hfMachineLocal.x * 0.22) * ${frequency});
+float hfMachineTexture = mix(hfMachineGrain, hfMachineBand, 0.36);
+diffuseColor.rgb *= mix(${(1 - surface.contrast).toFixed(3)}, ${(1 + surface.contrast).toFixed(3)}, hfMachineTexture);
+float hfMachineWear = pow(1.0 - abs(normalize(hfMachineNormal).y), 3.0) * ${wear};
+diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.94, 0.89, 0.76), hfMachineWear);`,
+    );
 }

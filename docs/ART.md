@@ -170,6 +170,29 @@ part/material buckets. Belt and bridge geometry is likewise shared between the g
 sheet, one mesh scaled per heading rather than one mesh per heading. No definition owns a model and
 no building owns a draw call.
 
+The grammar also names one of four bounded **material roles** — powder-coated `structure`, fired
+`ceramic`, `brass`, or `dark` hardware. Three.js maps those roles to distinct roughness, metalness,
+and object-space procedural grain, while Canvas may ignore them; no UV atlas or per-definition
+texture enters the bundle. The Wayfinder uses the same surfaces in one generated faceted assembly:
+separate dark legs and hull, ceramic arms, shoulder shell and survey helmet, a brass pack, tool and
+beacon, and a bright forward visor. It is scaled as a person rather than an inventory token, turns
+as one group from the native facing vector, unfolds its tool only while the published action
+cooldown is live, and swings opposed limbs from the published walk path.
+
+Scale is an authored hierarchy over the grammar. Belts remain narrow deck infrastructure, poles
+remain slender and below the factory skyline, ordinary machines gain enough mass for their vessel,
+bands and working head to read beside the Wayfinder, and the wind turbine is the dominant landmark.
+Its rotor geometry is tilted into a vertical disc and spins about its own local shaft axis. Brass
+bands are scaled to embrace the vessel they reinforce rather than disappearing inside it. These are
+presentation multipliers only: they never invent occupied cells. Any larger logical footprint must
+come from the versioned building definition and native placement/save contracts.
+
+Smoke and steam are likewise presentation of published state, never a second simulation. One pooled
+instanced plume mesh draws burner exhaust, hot composer smoke, boiler steam, and turbine exhaust only
+while the corresponding native status says the machine is working. Ordinary motion advances three
+reused low-poly puffs per emitter; reduced motion holds one fixed puff. No emitter owns a particle
+system, timer, or draw call.
+
 Terrain prisms use the exact public pointy-top axial radius. Adjacent centres therefore meet at one
 apothem with no triangular holes. Grid, hover, selection, legality, native drag preview, arrows, and
 reach rings use the same pointy-top start angle (`pi / 6`), so an overlay cannot present a hex rotated

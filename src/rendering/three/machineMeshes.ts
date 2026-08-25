@@ -18,8 +18,13 @@ import type {
   EntitySnapshot,
   FactorySnapshot,
 } from "../../core/types";
-import { partsFor, silhouetteOf, workCycle } from "../buildingLook";
-import type { PartKind, ShapePart } from "../shapeGrammar";
+import {
+  partsFor,
+  silhouetteOf,
+  workCycle,
+  type SilhouetteKey,
+} from "../buildingLook";
+import type { MachineMaterialRole, PartKind, ShapePart } from "../shapeGrammar";
 import { directionAngle } from "./directionAngle";
 
 const TAU = Math.PI * 2;
@@ -32,6 +37,35 @@ const PART_QUATERNION = new Quaternion();
  * belt-sized token. This presentation-only multiplier grows the generated grammar uniformly. */
 export const MACHINE_VISUAL_SCALE = 1.38;
 
+/**
+ * Silhouette scale is part of the authored visual hierarchy, not simulation size. Poles stay
+ * narrow utility infrastructure, ordinary machines read above the Wayfinder's waist, and the wind
+ * turbine owns the skyline. Multi-cell occupancy is still supplied exclusively by native state.
+ */
+export const MACHINE_SILHOUETTE_SCALE: Readonly<Record<SilhouetteKey, number>> =
+  Object.freeze({
+    extractor: 2.05,
+    belt: 1,
+    composer: 2.05,
+    assembly: 2.05,
+    smelting: 2.1,
+    firing: 2.05,
+    cutting: 2,
+    crushing: 2.05,
+    container: 2,
+    consumer: 1.55,
+    hub: 1.45,
+    pump: 1.95,
+    pole: 0.9,
+    generator: 2.05,
+    burner: 2.1,
+    wind: 3.1,
+    hydro: 2.1,
+    turbine: 2.1,
+    boiler: 2.1,
+    bridge: 1,
+  });
+
 export interface MachinePartInstance {
   readonly building: EntitySnapshot;
   readonly part: ShapePart;
@@ -39,8 +73,10 @@ export interface MachinePartInstance {
   readonly animated: boolean;
   readonly color: string;
   readonly glow: string | null;
+  readonly material: MachineMaterialRole;
   readonly groundHeight: number;
   readonly footprintScale: number;
+  readonly visualScale: number;
   readonly x: number;
   readonly z: number;
 }
@@ -122,7 +158,7 @@ export function collectMachineParts(
     );
     center.x /= centers.length;
     center.y /= centers.length;
-    const footprintScale = 1 + Math.min(2, cells.length - 1) * 0.35;
+    const footprintScale = 1 + Math.min(2, cells.length - 1) * 0.18;
     const buildingGround = Math.max(
       ...cells.map((cell) => groundHeight(cell.q, cell.r)),
     );
@@ -134,8 +170,10 @@ export function collectMachineParts(
         animated: part.phase !== undefined && part.phase !== "still",
         color: buildingColors[building.kind],
         glow: part.glow ?? null,
+        material: part.material ?? "structure",
         groundHeight: buildingGround,
         footprintScale,
+        visualScale: MACHINE_SILHOUETTE_SCALE[key],
         x: center.x,
         z: center.y,
       });
@@ -156,13 +194,13 @@ export function machinePartMatrix(
   const phase = part.phase ?? "still";
   const localRotation = part.rotation ?? 0;
   const animatedRotation = phase === "spin" ? cycle * TAU : 0;
+  const uprightRotor = part.part === "rotor" && part.upright === true;
+  const visualScale = MACHINE_VISUAL_SCALE * instance.visualScale;
   const pulse = phase === "pulse" ? 1 + cycle * 0.13 : 1;
   const grind = phase === "grind" ? 0.78 + Math.sin(cycle * Math.PI) * 0.22 : 1;
   const rise = phase === "rise" ? cycle * part.scale * 1.7 : 0;
-  const lateralX =
-    Math.cos(buildingAngle) * part.x * 1.45 * MACHINE_VISUAL_SCALE;
-  const lateralZ =
-    -Math.sin(buildingAngle) * part.x * 1.45 * MACHINE_VISUAL_SCALE;
+  const lateralX = Math.cos(buildingAngle) * part.x * 1.45 * visualScale;
+  const lateralZ = -Math.sin(buildingAngle) * part.x * 1.45 * visualScale;
   const axisLift =
     part.part === "stack"
       ? Math.cos(localRotation) * part.scale * 0.75
@@ -173,22 +211,38 @@ export function machinePartMatrix(
     instance.x + lateralX,
     instance.groundHeight +
       0.2 +
-      (-part.y * 1.25 + axisLift + rise) * MACHINE_VISUAL_SCALE,
+      (-part.y * 1.25 + axisLift + rise) * visualScale,
     instance.z + lateralZ,
   );
   partScale(part, pulse, grind, PART_SCALE);
-  PART_SCALE.multiplyScalar(MACHINE_VISUAL_SCALE);
+  PART_SCALE.multiplyScalar(visualScale);
   PART_SCALE.x *= instance.footprintScale;
   PART_SCALE.z *= instance.footprintScale;
   PART_SCALE.y *= 1 + (instance.footprintScale - 1) * 0.3;
-  PART_ROTATION.set(
-    part.part === "rotor" || part.part === "band" ? 0 : localRotation,
-    buildingAngle + animatedRotation,
-    part.part === "stack" ? localRotation : 0,
-  );
-  PART_QUATERNION.setFromEuler(PART_ROTATION);
+  if (uprightRotor) {
+    // Rotor geometry is authored in the XZ plane around local Y. Tilt that disc upright, yaw its
+    // normal with the building, then spin around the rotor's own local Y axis. Euler Z rotation
+    // made the old turbine tumble like a ceiling fan seen edge-on.
+    PART_QUATERNION.setFromAxisAngle(WORLD_Y, buildingAngle)
+      .multiply(ROTOR_UPRIGHT)
+      .multiply(PART_SPIN.setFromAxisAngle(WORLD_Y, animatedRotation));
+  } else {
+    PART_ROTATION.set(
+      part.part === "rotor" || part.part === "band" ? 0 : localRotation,
+      buildingAngle + animatedRotation,
+      part.part === "stack" ? localRotation : 0,
+    );
+    PART_QUATERNION.setFromEuler(PART_ROTATION);
+  }
   return target.compose(PART_POSITION, PART_QUATERNION, PART_SCALE);
 }
+
+const WORLD_Y = new Vector3(0, 1, 0);
+const ROTOR_UPRIGHT = new Quaternion().setFromAxisAngle(
+  new Vector3(1, 0, 0),
+  Math.PI / 2,
+);
+const PART_SPIN = new Quaternion();
 
 function partScale(
   part: ShapePart,
@@ -211,7 +265,9 @@ function partScale(
     case "mast":
       return target.set(scale, scale, scale);
     case "band":
-      return target.set(scale, scale * 0.72, scale);
+      // Part scale names the vessel it embraces. The torus geometry's authored radius is smaller
+      // than a vessel's, so the old 1:1 transform buried every brass ring inside the body.
+      return target.set(scale * 1.6, scale * 0.72, scale * 1.6);
     case "mouth":
       return target.set(scale * grind, scale, scale);
   }
