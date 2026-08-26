@@ -115,8 +115,11 @@ The Rust `Core` owns all state that can change a game result:
    verified by the survey reporting the size of the body nearest each patch.
 
 2. The player has native integer `x/y`, facing and bounded movement intent vectors, action cooldown,
-   world-unit build range, a carrying slot count, and an ordered `item_id → quantity` inventory.
-   Gathering, delivery, construction costs, erasing, withdrawal, and research are native.
+   world-unit build range, a carrying slot count, an ordered `item_id → quantity` inventory, and at
+   most one cursor-held stack. The cursor stack is real inventory state: picking up, placing, and
+   quick-moving it are bounded native commands, and it is saved and checksummed so closing the game
+   while carrying a stack cannot duplicate or discard items. Gathering, delivery, construction
+   costs, erasing, withdrawal, and research are native.
 3. Walking runs on the player's own native cadence rather than inside the simulation tick, so a
    paused or slowed factory does not pin the player in place. The host converts elapsed real time
    into a step count using a rate native publishes, and sends that count beside the tick count; it
@@ -157,7 +160,8 @@ The Rust `Core` owns all state that can change a game result:
    partially refund, and spill that keeps item conservation exact and leaves the recovery available
    once there is room; a withdrawal moves what fits and leaves the rest in the container. Like
    `build_range`, the slot count is a scenario property validated on load rather than a checksum
-   input, so the save format and every existing checksum are untouched by it.
+   input. The cursor-held stack is outside those slots while it is being moved, but remains native
+   quantity and took the save envelope to 16.
 5. Placement asks whether the hex is a field cell (for extractors) or blocking terrain (for
    everything). `deposit_candidates` and `resource_at_world` share that field predicate. Extractors
    harvest every field cell within hex radius 1, and a player's gather goes through the same
@@ -176,15 +180,17 @@ The Rust `Core` owns all state that can change a game result:
 7. Fuel is a property of `ItemDefinition`, never an entry in a recipe's `inputs`. A smelting recipe
    therefore names no fuel at all, and coal, charcoal, wood, and every fuel added later are
    interchangeable at different values; naming one would force a separate recipe per fuel and
-   hardcode the bootstrap path. A machine burns from its own stock, lowest item id first, and never
-   from the quantity a recipe input reserves — steel names coal as carbon, and a smelter that burned
-   those units would starve itself on its own recipe. `burnable_item` is the one predicate that
-   decides it, asked by the tick that burns and by the status line that explains why nothing did.
+   hardcode the bootstrap path. A machine burns from its fuel compartment, lowest item id first, and
+   never from its ingredient compartment — steel names coal as carbon, and a smelter that burned
+   those units would starve itself on its own recipe. `stock_kind_for_item` classifies hand-fed and
+   transported material; recipe inputs outrank fuel so coal goes to a steel recipe's ingredient
+   compartment, while `burnable_item` remains the one predicate that decides what a firebox consumes.
    Smelter, kiln, cutter, crusher, and composer are one `BuildingKind` separated by a
    `recipe_category` field and one check, asked at placement and again at reassignment. `Pump` is a
    kind of its own only because it draws from terrain rather than a deposit and never depletes it.
-8. Placed entities keep definition, axial anchor, orientation, cargo, inventory, reserved recipe
-   inputs, progress, fuel charge, and scenario ownership separate. Definitions include a bounded axial footprint;
+8. Placed entities keep definition, axial anchor, orientation, transport cargo, general container
+   inventory, machine ingredient/fuel/output inventories, reserved recipe inputs, progress, fuel
+   charge, and scenario ownership separate. Definitions include a bounded axial footprint;
    occupancy, collision, edit targeting, scenario validation, and snapshots rotate the same data.
    Initial entity IDs derive from sorted anchors; later IDs are monotonic.
 9. `compile_graph` resolves each entity output into one directed transport edge after edits. Runtime
@@ -216,9 +222,12 @@ The Rust `Core` owns all state that can change a game result:
     tests pin both the reference and the status against the scans they replace.
 12. Extractors consume one unit from the finite deposit only when an output can be created.
     Composers reserve exact recipe inputs, charge the recipe's fuel at the moment the craft starts,
-    run for integer ticks, and emit only on completion. Pumps produce on a cadence while water is in
-    reach and write nothing down, because a basin cannot be depleted. Containers store exact
-    quantities; hubs and demo consumers count exact deliveries.
+    run for integer ticks, and emit only on completion. Extractors, pumps, and composers write to a
+    bounded output inventory and keep working until that buffer cannot fit the next whole output;
+    a blocked transport edge therefore buffers several cycles without consuming inputs for an
+    output it cannot retain. Pumps produce on a cadence while water is in reach and write nothing
+    into terrain, because a basin cannot be depleted. Containers store exact quantities; hubs and
+    demo consumers count exact deliveries.
 13. The landing hub awards integer insight from data-defined item values. Research prerequisites,
     costs, atomic spending, unlocks, objective progress, and persistent victory all live in Rust.
 

@@ -49,7 +49,7 @@ This is permanent and is not a scope item.
 
 ## Where the project stands
 
-The engine arc, the generator arc, and the shipped milestones through **v0.25.2 Wayfinding** are
+The engine arc, the generator arc, and the shipped milestones through **v0.25.3 Compartment Storage** are
 present in this tree. A run today looks like this: land beside a hub in a world chosen by preset
 or by raw parameters, walk out under fog across rivers and coastline — on the keys, or by
 **clicking a selected hex a second time** and watching the route native found — find **fields** of
@@ -428,6 +428,12 @@ both test suites say so.
 
 One line per release, newest first. The reasoning behind a shipped rule lives in the git history of
 this file and in the code that implements it; what follows is the index.
+
+- **v0.25.3** Compartment Storage — Machines keep independent ingredient, fuel, and bounded
+  output inventories; blocked outputs buffer complete cycles. The inspector presents those maps as
+  item-slot grids beside the cargo pack. A native cursor-held stack supports full, half, single, and
+  Shift quick moves without making the host authoritative for reach, compatibility, or quantity.
+  Save 16, definitions 15, wire 11.
 
 - **v0.25.2** Wayfinding — A second click on a selected hex walks the player there. The goal joins
   `PlayerState`: saved, checksummed, and resumed, because where the player is headed is a standing

@@ -24,6 +24,14 @@ export function halfTransfer(quantity: number): number {
   return Math.max(1, Math.ceil(quantity / 2));
 }
 
+const STOCK_CODE = {
+  auto: 0,
+  inventory: 1,
+  input: 2,
+  fuel: 3,
+  output: 4,
+} as const;
+
 export function encodeCommand(command: NativeInputCommand): EncodedCommand {
   switch (command.type) {
     case "move_intent":
@@ -96,7 +104,13 @@ export function encodeCommand(command: NativeInputCommand): EncodedCommand {
     case "withdraw":
       return {
         opcode: 10,
-        args: [command.q, command.r, command.item_id, command.quantity],
+        args: [
+          command.q,
+          command.r,
+          command.item_id,
+          command.quantity,
+          STOCK_CODE[command.stock ?? "auto"],
+        ],
       };
     case "set_recipe":
       return {
@@ -110,7 +124,38 @@ export function encodeCommand(command: NativeInputCommand): EncodedCommand {
     case "store":
       return {
         opcode: 15,
-        args: [command.q, command.r, command.item_id, command.quantity],
+        args: [
+          command.q,
+          command.r,
+          command.item_id,
+          command.quantity,
+          STOCK_CODE[command.stock ?? "auto"],
+        ],
+      };
+    case "pickup_player_stack":
+      return { opcode: 23, args: [command.item_id, command.quantity] };
+    case "pickup_building_stack":
+      return {
+        opcode: 24,
+        args: [
+          command.q,
+          command.r,
+          STOCK_CODE[command.stock],
+          command.item_id,
+          command.quantity,
+        ],
+      };
+    case "place_player_stack":
+      return { opcode: 25, args: [command.quantity] };
+    case "place_building_stack":
+      return {
+        opcode: 26,
+        args: [
+          command.q,
+          command.r,
+          STOCK_CODE[command.stock],
+          command.quantity,
+        ],
       };
     // A pass names a slot and nothing else. Which row replaces it, and what passing costs, are
     // native's — the host never re-derives the draw order.

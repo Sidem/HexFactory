@@ -4,9 +4,9 @@ HexFactory is a browser factory-automation game. Player experience is the tiebre
 native ownership, sparse cost, and measured claims exist to keep a large living factory responsive
 and trustworthy.
 
-Current release: **v0.25.2 Wayfinding**. Next: **Living Lattice v0.26** in
-`docs/HEXFACTORY-PLAN.md`. Envelopes: save 15, definitions 14, technologies 7, scenarios 5, world 8,
-wire 10.
+Current release: **v0.25.3 Compartment Storage**. Next: **Living Lattice v0.26** in
+`docs/HEXFACTORY-PLAN.md`. Envelopes: save 16, definitions 15, technologies 7, scenarios 5, world 8,
+wire 11.
 
 ## Localize before reading
 

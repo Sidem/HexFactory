@@ -1,6 +1,6 @@
 {
   "reference": {
-    "definition_version": 14,
+    "definition_version": 15,
     "technology_version": 7,
     "ticks_per_second": 10,
     "player_ticks_per_second": 30,

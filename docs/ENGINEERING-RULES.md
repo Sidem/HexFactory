@@ -12,9 +12,9 @@ change. The next milestones live in `docs/HEXFACTORY-PLAN.md`, architecture deci
 
 ## Where things stand
 
-Shipped through **v0.25.2 Wayfinding**. Current envelope versions,
-all five of which native refuses a load on: **save 15, definitions 14, technologies 7, scenarios 5,
-world generator 8**, and wire (snapshot delta) **10**. `SAVE_VERSION` is the one literal in the host,
+Shipped through **v0.25.3 Compartment Storage**. Current envelope versions,
+all five of which native refuses a load on: **save 16, definitions 15, technologies 7, scenarios 5,
+world generator 8**, and wire (snapshot delta) **11**. `SAVE_VERSION` is the one literal in the host,
 because native does not publish it; every other number the browser's save catalog shows is read from
 what native publishes.
 
@@ -185,10 +185,11 @@ Before changing a cost, a cadence, or a power figure, run `npm run balance` and 
   number, and nothing whose identity matters may be re-derived into one: field cells are addressed
   by their tile key, never by an id packed from the same two coordinates.
 - Fuel is a property of the item, never an entry in a recipe's `inputs`. A recipe that named its
-  fuel would need one variant per fuel and would hardcode the bootstrap path. A machine burns from
-  its own stock and never from the quantity a recipe input reserves — steel names coal as carbon,
-  and a smelter that burned those units starves itself on its own recipe. `burnable_item` is the one
-  predicate; the tick that burns and the status that explains why nothing did must keep asking it.
+  fuel would need one variant per fuel and would hardcode the bootstrap path. Machine ingredient,
+  fuel, and output inventories are separate native maps. `stock_kind_for_item` puts recipe inputs
+  first — coal is ingredient in steel — and only then admits another burnable item as fuel.
+  `burnable_item` is still the one fuel predicate; the tick, hand transfer, transport acceptance,
+  and status that explains a stop must keep asking it.
 - A new machine is a `recipe_category` and a check, not a `BuildingKind` and a tick path. Smelter,
   kiln, cutter, crusher, and composer are one kind. Add a kind only when a building's _source_ is
   genuinely different, which is the whole reason `Pump` is one: it draws from terrain rather than a
@@ -221,10 +222,18 @@ Before changing a cost, a cadence, or a power figure, run `npm run balance` and 
   array: each item takes one slot per part-filled stack of its own `stack_size`, against a slot
   count the scenario fixes. Every path that adds to the player asks first. An erase whose full
   refund will not fit is refused rather than partially paid, so the policy stays exactly 100%.
+- A cursor-held stack is native inventory state, not DOM drag data. Left click lifts or places a
+  full stack, right click halves a lift or places one, Ctrl-click moves one, and Shift applies the
+  same quantity as a quick move between the pack and selected building. Every gesture sends a
+  bounded command; native owns reach, stock compatibility, remaining room, save, and checksum.
+- Extractors, pumps, and composers write into bounded output inventories. They request work only
+  while the next whole output fits, so a blocked edge fills a finite buffer and then stops without
+  consuming a deposit or recipe inputs it cannot preserve. Transport offers from that buffer, not
+  from a presentation-side queue.
 - Any host list carrying a control is patched in place, never rebuilt. A `replaceChildren` between
   pointerdown and pointerup detaches the pressed control and the delegated click resolves to
   nothing. This now covers the hotbar slots and the catalogue cards as well as the research list and
-  the transfer rows, which since v0.20.1 are one function for both directions. An item chip is
+  the inventory and machine-compartment grids. An item chip is
   created once per holder and patched from then on, so a chip inside such a list satisfies the rule
   by construction rather than by being remembered at each call site.
 - An item is drawn one way, by `src/rendering/itemChip.ts`, and never by a second shape. Every

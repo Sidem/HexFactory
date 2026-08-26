@@ -73,6 +73,7 @@ import type {
   NativeInputCommand,
   PlacementPreview,
   RecipeDefinition,
+  StockKind,
   TechnologyDefinition,
   WorldParams,
   WorldPoint,
@@ -840,6 +841,10 @@ function renderInventory(): void {
       short: true,
     });
     const item = itemById(stack?.item_id);
+    cell.dataset.stackSource = "player";
+    cell.dataset.itemId = stack ? String(stack.item_id) : "";
+    cell.dataset.quantity = stack ? String(stack.quantity) : "0";
+    cell.tabIndex = 0;
     cell.setAttribute(
       "aria-label",
       item && stack
@@ -877,6 +882,16 @@ function renderInventory(): void {
   peek.dataset.overflow =
     stacks.length > visible.length ? `+${stacks.length - visible.length}` : "";
   peek.classList.toggle("empty", stacks.length === 0);
+
+  const cursor = required<HTMLElement>("cursor-stack");
+  const hand = snapshot.player.hand ?? undefined;
+  cursor.hidden = !hand;
+  if (hand)
+    paintChip(cursor, hand.item_id, {
+      count: hand.quantity,
+      named: false,
+      short: true,
+    });
 }
 
 /**
@@ -1584,108 +1599,6 @@ function setItemGlyph(
   element.innerHTML = icon && color ? itemIconSvg(icon, color) : "";
 }
 
-/** Which way stock moves across a transfer row, and everything that differs because of it. */
-const TRANSFER: Record<
-  "take" | "put",
-  { label: string; command: "withdraw" | "store"; describe: string }
-> = {
-  take: { label: "Take", command: "withdraw", describe: "out" },
-  put: { label: "Put", command: "store", describe: "in" },
-};
-
-type TransferDirection = keyof typeof TRANSFER;
-
-/**
- * Both halves of hand transfer, as one function.
- *
- * Take and Put were near-identical: the same row markup, the same glyph call, the same button
- * class, differing only in the data source, the button label, and the command. Two copies of one
- * function is how the two halves drift, and the fractional deposit is the proof — it belongs to
- * both and would otherwise be written twice.
- *
- * The full amount stays the default, because it is what the gesture meant before and what it means
- * now; half and one are further buttons beside it. Native already carries a quantity on `store` and
- * `withdraw`, already clamps it to what the building holds, to what the player can still carry,
- * and to what there is room for, and already reports how much actually moved — the host has only
- * ever sent the maximum. So this adds a number to a command that has always taken one, and no rule
- * about capacity moves to the host.
- *
- * Single is the one amount none of the others can express. Half of three is two, and full is three;
- * a player topping a firebox up by one lump, or pulling one plate off a pile to see what it is, had
- * no control that meant one. Both partial buttons hide when they would only repeat a neighbour:
- * half of one is the whole pile, and of two, half is already one.
- *
- * Patched in place like every list that carries a control: a `replaceChildren` here would drop the
- * press between pointerdown and pointerup.
- */
-function renderTransferRows(
-  list: HTMLElement,
-  entries: { item_id: number; quantity: number }[],
-  direction: TransferDirection,
-  building: EntitySnapshot | undefined,
-  actionable: boolean,
-): void {
-  const { label, describe } = TRANSFER[direction];
-  const rows = syncChildren(
-    list,
-    entries.map(({ item_id }) => String(item_id)),
-    () => {
-      const row = document.createElement("div");
-      row.className = "inspect-stock-row";
-      const holder = document.createElement("div");
-      holder.className = "inspect-stock-item chip-host";
-      const controls = document.createElement("div");
-      controls.className = "transfer-controls";
-      const all = document.createElement("button");
-      all.type = "button";
-      all.className = "withdraw-button";
-      const half = document.createElement("button");
-      half.type = "button";
-      half.className = "withdraw-button transfer-half";
-      half.textContent = "½";
-      const one = document.createElement("button");
-      one.type = "button";
-      one.className = "withdraw-button transfer-one";
-      one.textContent = "1";
-      controls.append(all, half, one);
-      row.append(holder, controls);
-      return row;
-    },
-  );
-  entries.forEach(({ item_id, quantity }, index) => {
-    const row = rows[index];
-    if (!row) return;
-    const chip = paintChip(part<HTMLElement>(row, ".chip-host"), item_id, {
-      count: quantity,
-    });
-    const name = itemById(item_id)?.name ?? `Item ${item_id}`;
-    const controls = part<HTMLElement>(row, ".transfer-controls");
-    controls.hidden = !actionable;
-    for (const button of controls.querySelectorAll<HTMLButtonElement>(
-      "button",
-    )) {
-      const half = button.classList.contains("transfer-half");
-      const one = button.classList.contains("transfer-one");
-      const amount = half ? halfTransfer(quantity) : one ? 1 : quantity;
-      button.dataset.direction = direction;
-      button.dataset.itemId = String(item_id);
-      button.dataset.quantity = String(amount);
-      button.dataset.q = String(building?.q ?? 0);
-      button.dataset.r = String(building?.r ?? 0);
-      // Hidden rather than disabled: a control that would move exactly what the button beside it
-      // moves is not a lesser option, it is the same option twice. Of two, half is already one, so
-      // the single button only earns its place from three up.
-      button.hidden = half ? quantity < 2 : one && quantity < 3;
-      if (!half && !one) button.textContent = label;
-      button.setAttribute(
-        "aria-label",
-        `${label} ${amount} ${name} ${describe}`,
-      );
-    }
-    chip.title = `${name}: ${quantity}`;
-  });
-}
-
 /**
  * The kinds a hand can reach into, mirroring `stock_is_reachable_by_hand` in the core.
  *
@@ -1694,6 +1607,8 @@ function renderTransferRows(
  * a control that earns a refusal — a cosmetic bug. Leaving it out would show one on every belt.
  */
 const HAND_REACHABLE = new Set<string>([
+  "extractor",
+  "pump",
   "container",
   "composer",
   "generator",
@@ -1711,15 +1626,217 @@ const HAND_REACHABLE = new Set<string>([
  * rule here, because native keeps reserved inputs in a different map from `inventory`. What this
  * list shows is free stock, so what it offers is exactly what native will give.
  */
+interface MachineStockSlot {
+  key: string;
+  item_id?: number;
+  quantity: number;
+  ghost?: boolean;
+  accepts: boolean;
+}
+
+/**
+ * Slot layout is derived from the current recipe (and kind), not from a second building schema.
+ * One expected field per named input, a fuel field when the machine burns, and an output field
+ * when it produces — a kiln with clay in the bed still shows an empty coal slot.
+ */
+function machineStockSlots(
+  stored: { item_id: number; quantity: number }[],
+  expected: number[],
+  accepts: boolean,
+  capacity?: number,
+): MachineStockSlot[] {
+  const byId = new Map(stored.map((entry) => [entry.item_id, entry.quantity]));
+  const slots: MachineStockSlot[] = [];
+  const seen = new Set<number>();
+  for (const item_id of expected) {
+    if (item_id <= 0 || seen.has(item_id)) continue;
+    seen.add(item_id);
+    const quantity = byId.get(item_id) ?? 0;
+    slots.push({
+      key: `expected-${item_id}`,
+      item_id,
+      quantity,
+      ghost: quantity === 0,
+      accepts,
+    });
+  }
+  for (const entry of stored) {
+    if (seen.has(entry.item_id)) continue;
+    seen.add(entry.item_id);
+    slots.push({
+      key: `stored-${entry.item_id}`,
+      item_id: entry.item_id,
+      quantity: entry.quantity,
+      accepts,
+    });
+  }
+  const total = stored.reduce((sum, entry) => sum + entry.quantity, 0);
+  if (
+    accepts &&
+    expected.length === 0 &&
+    !slots.some((slot) => slot.quantity === 0) &&
+    (capacity === undefined || total < capacity)
+  ) {
+    slots.push({ key: "drop", quantity: 0, accepts: true });
+  }
+  if (slots.length === 0) {
+    slots.push({ key: "empty", quantity: 0, accepts });
+  }
+  return slots;
+}
+
 function renderInspectorActions(building: EntitySnapshot | undefined): void {
-  const stored = building?.inventory ?? [];
-  required<HTMLElement>("inspect-stock").hidden = stored.length === 0;
-  renderTransferRows(
-    required<HTMLDivElement>("inspector-actions"),
-    stored,
-    "take",
-    building,
-    HAND_REACHABLE.has(building?.kind ?? ""),
+  const container = required<HTMLElement>("inspect-stock");
+  const list = required<HTMLDivElement>("inspector-actions");
+  if (!building || !HAND_REACHABLE.has(building.kind)) {
+    container.hidden = true;
+    syncChildren(list, [], () => document.createElement("section"));
+    return;
+  }
+  const definition = host.definitions.buildings.find(
+    ({ id }) => id === building.definition_id,
+  );
+  const recipe = host.definitions.recipes.find(
+    ({ id }) => id === building.recipe_id,
+  );
+  const waterId = host.definitions.items.find(
+    (item) => item.key === "water",
+  )?.id;
+  const compartments: {
+    stock: Exclude<StockKind, "auto">;
+    label: string;
+    accepts: boolean;
+    expected: number[];
+    entries: { item_id: number; quantity: number }[];
+  }[] = [];
+  if (building.kind === "container")
+    compartments.push({
+      stock: "inventory",
+      label: "Storage",
+      accepts: true,
+      expected: [],
+      entries: building.inventory,
+    });
+  else {
+    const hasInputs =
+      building.kind === "boiler" ||
+      Boolean(recipe?.inputs.length) ||
+      Boolean(building.input_inventory?.length);
+    const firebox =
+      (building.kind === "generator" || building.kind === "boiler") &&
+      (definition?.power_source === undefined ||
+        definition.power_source === "burner");
+    const hasFuel =
+      Boolean(recipe?.fuel) ||
+      firebox ||
+      Boolean(building.fuel_inventory?.length);
+    const hasOutput =
+      building.kind === "composer" ||
+      building.kind === "extractor" ||
+      building.kind === "pump" ||
+      Boolean(building.output_inventory?.length);
+    if (hasInputs)
+      compartments.push({
+        stock: "input",
+        label: "Ingredient",
+        accepts: true,
+        expected: [
+          ...(recipe?.inputs.map((input) => input.item_id) ?? []),
+          ...(building.kind === "boiler" && waterId ? [waterId] : []),
+        ],
+        entries: building.input_inventory ?? [],
+      });
+    if (hasFuel)
+      compartments.push({
+        stock: "fuel",
+        label: "Fuel",
+        accepts: true,
+        expected: [],
+        entries: building.fuel_inventory ?? [],
+      });
+    if (hasOutput)
+      compartments.push({
+        stock: "output",
+        label: "Output",
+        accepts: false,
+        expected: [
+          ...(recipe ? [recipe.output.item_id] : []),
+          ...(definition?.output_item_id ? [definition.output_item_id] : []),
+        ],
+        entries: building.output_inventory ?? [],
+      });
+  }
+  container.hidden = compartments.length === 0;
+  const cards = syncChildren(
+    list,
+    compartments.map(({ stock }) => stock),
+    () => {
+      const card = document.createElement("section");
+      card.className = "machine-compartment";
+      card.innerHTML = `<div class="machine-compartment-header"><span></span><span class="machine-compartment-count"></span></div><div class="machine-stock-grid" role="list"></div>`;
+      return card;
+    },
+  );
+  compartments.forEach(
+    ({ stock, label, accepts, expected, entries }, index) => {
+      const card = cards[index];
+      if (!card) return;
+      card.className = `machine-compartment ${stock}`;
+      part<HTMLElement>(card, ".machine-compartment-header span").textContent =
+        label;
+      const total = entries.reduce((sum, entry) => sum + entry.quantity, 0);
+      part<HTMLElement>(card, ".machine-compartment-count").textContent =
+        definition?.capacity === undefined
+          ? String(total)
+          : `${total} / ${definition.capacity}`;
+      const layout = machineStockSlots(
+        entries,
+        expected,
+        accepts,
+        definition?.capacity,
+      );
+      const slots = part<HTMLElement>(card, ".machine-stock-grid");
+      const cells = syncChildren(
+        slots,
+        layout.map((slot) => slot.key),
+        () => {
+          const cell = document.createElement("div");
+          cell.className = "machine-stock-slot chip-host";
+          cell.setAttribute("role", "listitem");
+          cell.tabIndex = 0;
+          return cell;
+        },
+      );
+      cells.forEach((cell, slot) => {
+        const entry = layout[slot];
+        if (!entry) return;
+        const filled = entry.quantity > 0;
+        cell.classList.toggle("filled", filled);
+        cell.classList.toggle("ghost", Boolean(entry.ghost));
+        cell.dataset.stackSource = "building";
+        cell.dataset.stock = stock;
+        cell.dataset.accepts = entry.accepts ? "1" : "0";
+        cell.dataset.q = String(building.q);
+        cell.dataset.r = String(building.r);
+        cell.dataset.itemId =
+          filled && entry.item_id ? String(entry.item_id) : "";
+        cell.dataset.quantity = String(entry.quantity);
+        paintChip(cell, entry.item_id, {
+          count: filled ? entry.quantity : undefined,
+          named: false,
+          short: true,
+        });
+        const item = itemById(entry.item_id);
+        cell.setAttribute(
+          "aria-label",
+          item && filled
+            ? `${label}: ${item.name}, ${entry.quantity}`
+            : item
+              ? `Empty ${label.toLowerCase()} slot for ${item.name}`
+              : `Empty ${label.toLowerCase()} slot`,
+        );
+      });
+    },
   );
 }
 
@@ -1732,66 +1849,8 @@ function renderInspectorActions(building: EntitySnapshot | undefined): void {
  * a courtesy and not a rule — native refuses the rest anyway, and says which reason it refused for.
  */
 function renderInspectorLoad(building: EntitySnapshot | undefined): void {
-  const carried = HAND_REACHABLE.has(building?.kind ?? "")
-    ? snapshot.player.carry_stacks.filter(({ item_id }) =>
-        acceptsByHand(building, item_id),
-      )
-    : [];
-  // One row per item, not one per stack: a Put moves everything of that item that fits.
-  const totals = new Map<number, number>();
-  for (const { item_id, quantity } of carried)
-    totals.set(item_id, (totals.get(item_id) ?? 0) + quantity);
-  required<HTMLElement>("inspect-load").hidden = totals.size === 0;
-  renderTransferRows(
-    required<HTMLDivElement>("inspector-load"),
-    [...totals]
-      .sort(([a], [b]) => a - b)
-      .map(([item_id, quantity]) => ({ item_id, quantity })),
-    "put",
-    building,
-    true,
-  );
-}
-
-/**
- * Whether this building has any use for this item, mirroring `accepts_item` in the core.
- *
- * A container takes anything. A firebox takes fuel — and only a burner has one, which is why a wind
- * turbine offers nothing however much coal the player is carrying. A machine takes the inputs of
- * the recipe it is currently set to, and nothing else: an unset composer is a machine with no job,
- * so there is nothing it is waiting for.
- */
-function acceptsByHand(
-  building: EntitySnapshot | undefined,
-  itemId: number,
-): boolean {
-  if (!building) return false;
-  if (building.kind === "container") return true;
-  const burnable = Boolean(itemById(itemId)?.fuel_value);
-  if (building.kind === "generator" || building.kind === "boiler") {
-    const definition = host.definitions.buildings.find(
-      ({ id }) => id === building.definition_id,
-    );
-    // A plant with a power source that is not a firebox has nowhere to put fuel at all.
-    const firebox =
-      definition?.power_source === undefined ||
-      definition.power_source === "burner";
-    // And a boiler drinks, which is the one thing it takes that it does not burn.
-    const drinks =
-      building.kind === "boiler" && itemById(itemId)?.key === "water";
-    return (firebox && burnable) || drinks;
-  }
-  if (building.recipe_id === undefined || building.recipe_id === null)
-    return false;
-  const recipe = host.definitions.recipes.find(
-    ({ id }) => id === building.recipe_id,
-  );
-  // Fuel counts for a machine that burns as well as crafts, on the same reasoning as the plant:
-  // it is not in `inputs`, so a recipe that needs heat has to admit fuel some other way.
-  return (
-    (recipe?.inputs ?? []).some(({ item_id }) => item_id === itemId) ||
-    (burnable && (recipe?.fuel ?? 0) > 0)
-  );
+  void building;
+  required<HTMLElement>("inspect-load").hidden = true;
 }
 
 function renderInspector(): void {
@@ -1986,8 +2045,8 @@ function renderInspector(): void {
       !building.scenario_owned;
     renderInspectorSwitch(building);
     const cargo = required<HTMLElement>("inspect-cargo");
-    cargo.hidden = !building.cargo;
-    if (building.cargo)
+    cargo.hidden = building.kind !== "belt" || !building.cargo;
+    if (building.kind === "belt" && building.cargo)
       paintChip(
         required<HTMLElement>("inspect-cargo-chip"),
         building.cargo.item_id,
@@ -3391,24 +3450,107 @@ required<HTMLButtonElement>("inspect-power-switch").addEventListener(
     });
   },
 );
-// One listener for both lists, because the row that raised the press already says which way the
-// stock is moving. The button carries the amount, so the full, half, and single controls are one
-// path.
-for (const id of ["inspector-actions", "inspector-load"])
-  required<HTMLDivElement>(id).addEventListener("click", (event) => {
-    const button = (event.target as Element).closest<HTMLButtonElement>(
-      "button[data-item-id]",
-    );
-    const direction = button?.dataset.direction;
-    if (!button || (direction !== "take" && direction !== "put")) return;
+function stackGesture(event: MouseEvent): void {
+  const slot = (event.target as Element).closest<HTMLElement>(
+    "[data-stack-source]",
+  );
+  if (!slot) return;
+  event.preventDefault();
+  const source = slot.dataset.stackSource;
+  if (source !== "player" && source !== "building") return;
+  const hand = snapshot.player.hand ?? undefined;
+  const right = event.type === "contextmenu" || event.button === 2;
+  const itemId = Number(slot.dataset.itemId);
+  const available = Number(slot.dataset.quantity) || 0;
+  const quantity =
+    event.ctrlKey || event.metaKey
+      ? 1
+      : right
+        ? halfTransfer(available)
+        : available;
+
+  // A held stack turns every accepting slot into a destination. Right-click and Ctrl-click place
+  // one; a normal left-click places as much as the destination has room for. Output is never a
+  // drop target — native will not take a hand-placed brick back into a kiln's product buffer.
+  if (hand) {
+    if (source === "building" && slot.dataset.accepts === "0") return;
+    const placed = right || event.ctrlKey || event.metaKey ? 1 : hand.quantity;
+    if (source === "player") {
+      enqueue({ type: "place_player_stack", quantity: placed });
+      return;
+    }
+    const stock = slot.dataset.stock as Exclude<StockKind, "auto">;
     enqueue({
-      type: TRANSFER[direction].command,
-      q: Number(button.dataset.q),
-      r: Number(button.dataset.r),
-      item_id: Number(button.dataset.itemId),
-      quantity: Number(button.dataset.quantity),
+      type: "place_building_stack",
+      q: Number(slot.dataset.q),
+      r: Number(slot.dataset.r),
+      stock,
+      quantity: placed,
     });
-  });
+    return;
+  }
+
+  if (!Number.isInteger(itemId) || itemId <= 0 || quantity <= 0) return;
+  if (event.shiftKey) {
+    const quickQuantity =
+      event.ctrlKey || event.metaKey
+        ? 1
+        : right
+          ? halfTransfer(available)
+          : available;
+    if (source === "building") {
+      enqueue({
+        type: "withdraw",
+        q: Number(slot.dataset.q),
+        r: Number(slot.dataset.r),
+        stock: slot.dataset.stock as Exclude<StockKind, "auto">,
+        item_id: itemId,
+        quantity: quickQuantity,
+      });
+      return;
+    }
+    const target = selected ? buildingAt(selected) : undefined;
+    if (!target || !HAND_REACHABLE.has(target.kind)) return;
+    enqueue({
+      type: "store",
+      q: target.q,
+      r: target.r,
+      stock: "auto",
+      item_id: itemId,
+      quantity: quickQuantity,
+    });
+    return;
+  }
+
+  if (source === "player") {
+    enqueue({ type: "pickup_player_stack", item_id: itemId, quantity });
+  } else {
+    enqueue({
+      type: "pickup_building_stack",
+      q: Number(slot.dataset.q),
+      r: Number(slot.dataset.r),
+      stock: slot.dataset.stock as Exclude<StockKind, "auto">,
+      item_id: itemId,
+      quantity,
+    });
+  }
+}
+
+for (const id of ["inventory", "inspector-actions"]) {
+  const grid = required<HTMLElement>(id);
+  grid.addEventListener("click", stackGesture);
+  grid.addEventListener("contextmenu", stackGesture);
+}
+
+let cursorStackX = 0;
+let cursorStackY = 0;
+window.addEventListener("pointermove", (event) => {
+  cursorStackX = event.clientX;
+  cursorStackY = event.clientY;
+  const cursor = required<HTMLElement>("cursor-stack");
+  cursor.style.left = `${cursorStackX}px`;
+  cursor.style.top = `${cursorStackY}px`;
+});
 
 function currentMovementIntent(running = false): NativeInputCommand {
   return movementIntent(pressedMovement, running, (x, y) =>

@@ -73,7 +73,13 @@ const SAVE_PREFIX: &str = "HXF1\n";
 /// the same run. A version-14 envelope has no goal, which is a real and representable state — the
 /// 14 → 15 step in `save_migrations` writes `null` rather than leaving the field absent, so an old
 /// file loads standing still instead of being refused.
-const SAVE_VERSION: u16 = 15;
+///
+/// Bumped to 16 for compartment storage and the held stack. Inputs, fuel, and buffered outputs are
+/// now distinct native inventories, and the stack on the cursor is player state: all four survive
+/// a save and participate in its checksum. Version 15 has none of those fields; its original
+/// `inventory` and `cargo` remain valid legacy stock and drain through the new rules without being
+/// reinterpreted at the migration boundary.
+const SAVE_VERSION: u16 = 16;
 /// Bumped to 6 for World Parameters. `WorldParams` is now part of a run's identity — it is in the
 /// save envelope and in the checksum — so a version-5 envelope carries no answer to the question
 /// "which world is this" and is rejected rather than assumed to be the default.
@@ -910,6 +916,11 @@ struct PlayerState {
     move_x: i16,
     move_y: i16,
     inventory: BTreeMap<ItemId, u32>,
+    /// The stack currently carried by the pointer. It is outside the pack's slot count but remains
+    /// native-owned inventory: picking it up removes it from its source, placing it commits it to a
+    /// destination, and a save in between loses neither quantity nor identity.
+    #[serde(default)]
+    hand: Option<Cargo>,
     action_cooldown: u32,
     build_range: u32,
     /// Slots the player can carry, from the scenario. Like `build_range` it is a fixed scenario
@@ -939,6 +950,14 @@ struct Entity {
     kind: BuildingKind,
     cargo: Option<Cargo>,
     inventory: BTreeMap<ItemId, u32>,
+    /// Native storage compartments. `inventory` remains the general store used by containers and
+    /// by version-15 machine saves; new machine deliveries go only to these named buffers.
+    #[serde(default)]
+    input_inventory: BTreeMap<ItemId, u32>,
+    #[serde(default)]
+    fuel_inventory: BTreeMap<ItemId, u32>,
+    #[serde(default)]
+    output_inventory: BTreeMap<ItemId, u32>,
     reserved_inputs: BTreeMap<ItemId, u32>,
     progress: u32,
     /// Energy left in the machine from fuel it has already burned. Real state: it is saved,
@@ -1193,6 +1212,12 @@ struct EntitySnapshot {
     scenario_owned: bool,
     cargo: Option<Cargo>,
     inventory: Vec<Ingredient>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    input_inventory: Vec<Ingredient>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    fuel_inventory: Vec<Ingredient>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    output_inventory: Vec<Ingredient>,
     progress: u32,
     progress_total: u32,
     /// Energy the machine is holding, and what one craft of its recipe costs. Both are published
@@ -1518,6 +1543,19 @@ struct LinePreviewCell {
     legal: bool,
 }
 
+/// A building's native stock compartment. `Auto` exists only at the command boundary for quick
+/// transfers; explicit slot clicks always name the field they are interacting with.
+#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+enum StockKind {
+    #[default]
+    Auto,
+    Inventory,
+    Input,
+    Fuel,
+    Output,
+}
+
 #[derive(Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 enum InputCommand {
@@ -1592,12 +1630,40 @@ enum InputCommand {
         r: i32,
         item_id: ItemId,
         quantity: u32,
+        #[serde(default)]
+        stock: StockKind,
     },
     /// Put stock into a container by hand — the mirror of `Withdraw`, on the same contract.
     Store {
         q: i32,
         r: i32,
         item_id: ItemId,
+        quantity: u32,
+        #[serde(default)]
+        stock: StockKind,
+    },
+    /// Lift a bounded amount out of the pack and hold it on the cursor.
+    PickupPlayerStack {
+        item_id: ItemId,
+        quantity: u32,
+    },
+    /// Lift a bounded amount out of one named building compartment.
+    PickupBuildingStack {
+        q: i32,
+        r: i32,
+        stock: StockKind,
+        item_id: ItemId,
+        quantity: u32,
+    },
+    /// Return some or all of the cursor stack to the pack.
+    PlacePlayerStack {
+        quantity: u32,
+    },
+    /// Put some or all of the cursor stack into one named building compartment.
+    PlaceBuildingStack {
+        q: i32,
+        r: i32,
+        stock: StockKind,
         quantity: u32,
     },
     /// Give a machine a different job. With fourteen recipes across five machine categories,
@@ -1857,6 +1923,7 @@ impl Core {
                 move_x: 0,
                 move_y: 0,
                 inventory,
+                hand: None,
                 action_cooldown: 0,
                 build_range: scenario.build_range.saturating_mul(HEX_X as u32),
                 carry_slots: scenario.carry_slots,
@@ -1910,6 +1977,9 @@ impl Core {
                 kind,
                 cargo: None,
                 inventory: BTreeMap::new(),
+                input_inventory: BTreeMap::new(),
+                fuel_inventory: BTreeMap::new(),
+                output_inventory: BTreeMap::new(),
                 reserved_inputs: BTreeMap::new(),
                 progress: 0,
                 fuel_charge: 0,
@@ -2916,25 +2986,25 @@ impl Core {
         match entity.kind {
             // A blocked extractor or pump has produced something nobody has taken. It is not
             // waiting on power and must not hold a share of it.
-            BuildingKind::Extractor | BuildingKind::Pump => entity.cargo.is_none(),
+            BuildingKind::Extractor | BuildingKind::Pump => {
+                self.room_for_stock(index, StockKind::Output, 0) > 0
+            }
             BuildingKind::Composer => {
-                if entity.cargo.is_some() {
-                    return false;
-                }
                 let Some(recipe) = entity.placed.recipe_id.and_then(|id| self.recipe(id)) else {
                     return false;
                 };
+                if self.room_for_stock(index, StockKind::Output, recipe.output.item_id)
+                    < recipe.output.quantity
+                {
+                    return false;
+                }
                 // Mid-craft always wants power: the inputs are already spent and the only thing
                 // between the machine and its output is time it has to be paid for.
                 if entity.progress > 0 {
                     return true;
                 }
                 let stocked = recipe.inputs.iter().all(|ingredient| {
-                    entity
-                        .inventory
-                        .get(&ingredient.item_id)
-                        .copied()
-                        .unwrap_or(0)
+                    self.stock_quantity(index, StockKind::Input, ingredient.item_id)
                         >= ingredient.quantity
                 });
                 stocked && self.fuel_ready(entity)
@@ -3076,13 +3146,20 @@ impl Core {
             Some(PowerSource::Turbine) => {
                 if let Some(boiler) = self.adjacent_live_boiler_index(index) {
                     let water = self.entities[boiler]
-                        .inventory
+                        .input_inventory
                         .get(&WATER_ITEM)
                         .copied()
                         .unwrap_or(0)
+                        .saturating_add(
+                            self.entities[boiler]
+                                .inventory
+                                .get(&WATER_ITEM)
+                                .copied()
+                                .unwrap_or(0),
+                        )
                         .min(units);
                     if water > 0 {
-                        subtract_item(&mut self.entities[boiler].inventory, WATER_ITEM, water);
+                        self.subtract_stock(boiler, StockKind::Input, WATER_ITEM, water);
                     }
                     if self.charge_fuel(boiler, units, &[]) {
                         self.entities[boiler].fuel_charge -= units;
@@ -3142,7 +3219,9 @@ impl Core {
 
     fn generator_has_fuel(&self, index: usize) -> bool {
         let entity = &self.entities[index];
-        entity.fuel_charge > 0 || self.burnable_item(&entity.inventory, &[]).is_some()
+        entity.fuel_charge > 0
+            || self.burnable_item(&entity.fuel_inventory, &[]).is_some()
+            || self.burnable_item(&entity.inventory, &[]).is_some()
     }
 
     fn boiler_live(&self, index: usize) -> bool {
@@ -3150,8 +3229,10 @@ impl Core {
         // A boiler switched off raises no steam, so the turbines beside it read as having no
         // boiler at all — the switch travels the pair the same way fuel and water do.
         !entity.disabled
-            && entity.inventory.get(&WATER_ITEM).copied().unwrap_or(0) >= 1
-            && (entity.fuel_charge > 0 || self.burnable_item(&entity.inventory, &[]).is_some())
+            && self.stock_quantity(index, StockKind::Input, WATER_ITEM) >= 1
+            && (entity.fuel_charge > 0
+                || self.burnable_item(&entity.fuel_inventory, &[]).is_some()
+                || self.burnable_item(&entity.inventory, &[]).is_some())
     }
 
     fn adjacent_live_boiler(&self, index: usize) -> bool {
@@ -3439,7 +3520,7 @@ impl Core {
     }
 
     fn advance_extractor(&mut self, index: usize) {
-        if self.entities[index].cargo.is_some() {
+        if self.room_for_stock(index, StockKind::Output, 0) == 0 {
             return;
         }
         let (q, r, definition_id) = {
@@ -3482,10 +3563,10 @@ impl Core {
         let item_id = field.item_id;
         let depleted = remaining == 0;
         self.dirty.resources.push(resource_key);
-        self.entities[index].cargo = Some(Cargo {
-            item_id,
-            quantity: 1,
-        });
+        *self.entities[index]
+            .output_inventory
+            .entry(item_id)
+            .or_default() += 1;
         self.entities[index].progress = 0;
         *self.produced.entry(item_id).or_default() += 1;
         if depleted {
@@ -3501,9 +3582,6 @@ impl Core {
     /// not finite: there is no overlay entry to write down and nothing to deplete, so a pump is an
     /// extractor without the deposit rather than a special case of one.
     fn advance_pump(&mut self, index: usize) {
-        if self.entities[index].cargo.is_some() {
-            return;
-        }
         let (q, r, definition_id) = {
             let placed = self.entities[index].placed;
             (placed.q, placed.r, placed.definition_id)
@@ -3515,6 +3593,9 @@ impl Core {
         let Some(item_id) = definition.and_then(|value| value.output_item_id) else {
             return;
         };
+        if self.room_for_stock(index, StockKind::Output, item_id) == 0 {
+            return;
+        }
         let radius = definition
             .and_then(|value| value.extract_radius)
             .unwrap_or(PUMP_RADIUS as u32) as i32;
@@ -3530,10 +3611,10 @@ impl Core {
         if self.entities[index].progress < cadence {
             return;
         }
-        self.entities[index].cargo = Some(Cargo {
-            item_id,
-            quantity: 1,
-        });
+        *self.entities[index]
+            .output_inventory
+            .entry(item_id)
+            .or_default() += 1;
         self.entities[index].progress = 0;
         *self.produced.entry(item_id).or_default() += 1;
     }
@@ -3569,11 +3650,24 @@ impl Core {
     /// got there.
     fn charge_fuel(&mut self, index: usize, required: u32, inputs: &[Ingredient]) -> bool {
         while self.entities[index].fuel_charge < required {
-            let Some(item_id) = self.burnable_item(&self.entities[index].inventory, inputs) else {
+            let item_id = self
+                .burnable_item(&self.entities[index].fuel_inventory, &[])
+                .or_else(|| self.burnable_item(&self.entities[index].inventory, inputs));
+            let Some(item_id) = item_id else {
                 return false;
             };
             let value = self.fuel_value(item_id);
-            subtract_item(&mut self.entities[index].inventory, item_id, 1);
+            if self.entities[index]
+                .fuel_inventory
+                .get(&item_id)
+                .copied()
+                .unwrap_or(0)
+                > 0
+            {
+                subtract_item(&mut self.entities[index].fuel_inventory, item_id, 1);
+            } else {
+                subtract_item(&mut self.entities[index].inventory, item_id, 1);
+            }
             self.entities[index].fuel_charge += value;
             // Burning is a visible change even on a tick the craft does not start, because the
             // machine banks the charge and its stock went down.
@@ -3590,7 +3684,9 @@ impl Core {
         let Some(recipe) = self.recipe(recipe_id).cloned() else {
             return;
         };
-        if self.entities[index].cargo.is_some() {
+        if self.room_for_stock(index, StockKind::Output, recipe.output.item_id)
+            < recipe.output.quantity
+        {
             return;
         }
         if self.entities[index].progress > 0 {
@@ -3598,22 +3694,17 @@ impl Core {
             self.dirty.entities.push(id);
             self.entities[index].progress += self.power_progress(index, 1);
             if self.entities[index].progress >= recipe.duration {
-                self.entities[index].cargo = Some(Cargo {
-                    item_id: recipe.output.item_id,
-                    quantity: recipe.output.quantity,
-                });
+                *self.entities[index]
+                    .output_inventory
+                    .entry(recipe.output.item_id)
+                    .or_default() += recipe.output.quantity;
                 self.entities[index].progress = 0;
                 self.entities[index].reserved_inputs.clear();
             }
             return;
         }
         let can_start = recipe.inputs.iter().all(|ingredient| {
-            self.entities[index]
-                .inventory
-                .get(&ingredient.item_id)
-                .copied()
-                .unwrap_or(0)
-                >= ingredient.quantity
+            self.stock_quantity(index, StockKind::Input, ingredient.item_id) >= ingredient.quantity
         });
         // Fuel is charged at the moment a craft starts, beside the inputs it reserves, so a
         // half-finished job can never be holding energy it has not paid for.
@@ -3625,8 +3716,9 @@ impl Core {
             self.dirty.entities.push(id);
             self.entities[index].fuel_charge -= recipe.fuel;
             for ingredient in &recipe.inputs {
-                subtract_item(
-                    &mut self.entities[index].inventory,
+                self.subtract_stock(
+                    index,
+                    StockKind::Input,
                     ingredient.item_id,
                     ingredient.quantity,
                 );
@@ -3644,7 +3736,7 @@ impl Core {
     /// A container feeds from its store and everything else from the single cargo it is holding.
     /// Lifted out of `transfer_cargo` unchanged so the two arbitration passes below ask it once
     /// each rather than each carrying its own copy of the rule.
-    fn cargo_on_offer(&self, source: usize) -> Option<(Cargo, bool)> {
+    fn cargo_on_offer(&self, source: usize) -> Option<(Cargo, StockKind)> {
         let entity = &self.entities[source];
         if entity.kind == BuildingKind::Container {
             let (&item_id, _) = entity.inventory.iter().find(|(_, value)| **value > 0)?;
@@ -3653,22 +3745,30 @@ impl Core {
                     item_id,
                     quantity: 1,
                 },
-                true,
+                StockKind::Inventory,
             ));
         }
-        Some((entity.cargo?, false))
+        if let Some(cargo) = entity.cargo {
+            return Some((cargo, StockKind::Auto));
+        }
+        let (&item_id, _) = entity
+            .output_inventory
+            .iter()
+            .find(|(_, value)| **value > 0)?;
+        Some((
+            Cargo {
+                item_id,
+                quantity: 1,
+            },
+            StockKind::Output,
+        ))
     }
 
     /// Move one cargo out of `source` and into `target`, with no question left to ask.
-    fn hand_over(&mut self, source: usize, target: usize, cargo: Cargo, from_inventory: bool) {
-        if from_inventory {
-            subtract_item(
-                &mut self.entities[source].inventory,
-                cargo.item_id,
-                cargo.quantity,
-            );
-        } else {
-            self.entities[source].cargo = None;
+    fn hand_over(&mut self, source: usize, target: usize, cargo: Cargo, stock: StockKind) {
+        match stock {
+            StockKind::Auto => self.entities[source].cargo = None,
+            _ => self.subtract_stock(source, stock, cargo.item_id, cargo.quantity),
         }
         let (source_id, target_id) = (self.entities[source].id, self.entities[target].id);
         self.dirty.entities.push(source_id);
@@ -3721,7 +3821,7 @@ impl Core {
                 if self.runtime.delivered[source] || self.just_received(source) {
                     continue;
                 }
-                let Some((cargo, from_inventory)) = self.cargo_on_offer(source) else {
+                let Some((cargo, stock)) = self.cargo_on_offer(source) else {
                     continue;
                 };
                 if !self.can_accept(target, cargo) {
@@ -3729,7 +3829,7 @@ impl Core {
                     // reason to move the cursor: the rotation resumes where it stopped.
                     break;
                 }
-                self.hand_over(source, target, cargo, from_inventory);
+                self.hand_over(source, target, cargo, stock);
                 self.entities[target].merge_cursor = self.entities[source].id;
                 self.runtime.claimed[target] = true;
                 self.runtime.delivered[source] = true;
@@ -3772,7 +3872,7 @@ impl Core {
             {
                 continue;
             }
-            let Some((cargo, from_inventory)) = self.cargo_on_offer(source) else {
+            let Some((cargo, stock)) = self.cargo_on_offer(source) else {
                 continue;
             };
             let links = self.graph[source];
@@ -3789,7 +3889,7 @@ impl Core {
                 {
                     continue;
                 }
-                self.hand_over(source, target, cargo, from_inventory);
+                self.hand_over(source, target, cargo, stock);
                 // The next item starts at the branch after the one this item took, which is the
                 // whole of the round robin. Left where it is on a blocked branch, so a splitter
                 // with one jammed output keeps feeding the other rather than stalling every other
@@ -3846,15 +3946,188 @@ impl Core {
         }
     }
 
-    /// How much more stock this building's store will hold. `u32::MAX` for a kind that keeps none,
-    /// which is exactly the "unbounded" the capacity lookup has always fallen back to.
-    fn room_for_stock(&self, target: usize) -> u32 {
+    /// Resolve the one compartment that may receive this item. Inputs outrank fuel deliberately:
+    /// coal is an ingredient in steel as well as something that burns, and feeding that recipe must
+    /// not silently divert its bill into the firebox.
+    fn stock_kind_for_item(&self, target: usize, item_id: ItemId) -> Option<StockKind> {
+        let entity = &self.entities[target];
+        match entity.kind {
+            BuildingKind::Container => Some(StockKind::Inventory),
+            BuildingKind::Composer => {
+                let recipe = entity.placed.recipe_id.and_then(|id| self.recipe(id))?;
+                if recipe.inputs.iter().any(|input| input.item_id == item_id) {
+                    Some(StockKind::Input)
+                } else if recipe.fuel > 0 && self.fuel_value(item_id) > 0 {
+                    Some(StockKind::Fuel)
+                } else {
+                    None
+                }
+            }
+            BuildingKind::Boiler if item_id == WATER_ITEM => Some(StockKind::Input),
+            BuildingKind::Generator | BuildingKind::Boiler
+                if self.fuel_value(item_id) > 0
+                    && matches!(
+                        self.building_definition(entity.placed.definition_id)
+                            .and_then(|definition| definition.power_source),
+                        Some(PowerSource::Burner) | None
+                    ) =>
+            {
+                Some(StockKind::Fuel)
+            }
+            _ => None,
+        }
+    }
+
+    fn stock_accepts_item(&self, target: usize, stock: StockKind, item_id: ItemId) -> bool {
+        match stock {
+            StockKind::Auto => self.stock_kind_for_item(target, item_id).is_some(),
+            StockKind::Output => false,
+            named => self.stock_kind_for_item(target, item_id) == Some(named),
+        }
+    }
+
+    /// Quantity visible in one compartment. Version-15 machine stock still lives in `inventory`;
+    /// classifying it here lets an old kiln immediately present clay as input and coal as fuel while
+    /// preserving the old save checksum until either stack is next moved.
+    fn stock_quantity(&self, target: usize, stock: StockKind, item_id: ItemId) -> u32 {
+        let entity = &self.entities[target];
+        let explicit = match stock {
+            StockKind::Inventory => entity.inventory.get(&item_id),
+            StockKind::Input => entity.input_inventory.get(&item_id),
+            StockKind::Fuel => entity.fuel_inventory.get(&item_id),
+            StockKind::Output => entity.output_inventory.get(&item_id),
+            StockKind::Auto => None,
+        }
+        .copied()
+        .unwrap_or(0);
+        let legacy = if stock != StockKind::Inventory
+            && self.stock_kind_for_item(target, item_id) == Some(stock)
+        {
+            entity.inventory.get(&item_id).copied().unwrap_or(0)
+        } else {
+            0
+        };
+        let cargo = if stock == StockKind::Output {
+            entity
+                .cargo
+                .filter(|cargo| cargo.item_id == item_id)
+                .map_or(0, |cargo| cargo.quantity)
+        } else {
+            0
+        };
+        explicit.saturating_add(legacy).saturating_add(cargo)
+    }
+
+    fn stock_total(&self, target: usize, stock: StockKind) -> u32 {
+        let entity = &self.entities[target];
+        let explicit = match stock {
+            StockKind::Inventory => inventory_total(&entity.inventory),
+            StockKind::Input => inventory_total(&entity.input_inventory),
+            StockKind::Fuel => inventory_total(&entity.fuel_inventory),
+            StockKind::Output => inventory_total(&entity.output_inventory),
+            StockKind::Auto => 0,
+        };
+        let legacy = if matches!(stock, StockKind::Input | StockKind::Fuel) {
+            entity
+                .inventory
+                .iter()
+                .filter(|&(&item_id, _)| self.stock_kind_for_item(target, item_id) == Some(stock))
+                .map(|(_, &quantity)| quantity)
+                .sum()
+        } else {
+            0
+        };
+        let cargo = if stock == StockKind::Output {
+            entity.cargo.map_or(0, |cargo| cargo.quantity)
+        } else {
+            0
+        };
+        explicit.saturating_add(legacy).saturating_add(cargo)
+    }
+
+    fn add_stock(&mut self, target: usize, stock: StockKind, cargo: Cargo) {
+        let map = match stock {
+            StockKind::Inventory => &mut self.entities[target].inventory,
+            StockKind::Input => &mut self.entities[target].input_inventory,
+            StockKind::Fuel => &mut self.entities[target].fuel_inventory,
+            StockKind::Output => &mut self.entities[target].output_inventory,
+            StockKind::Auto => return,
+        };
+        *map.entry(cargo.item_id).or_default() += cargo.quantity;
+    }
+
+    fn subtract_stock(&mut self, target: usize, stock: StockKind, item_id: ItemId, quantity: u32) {
+        let explicit = match stock {
+            StockKind::Inventory => self.entities[target]
+                .inventory
+                .get(&item_id)
+                .copied()
+                .unwrap_or(0),
+            StockKind::Input => self.entities[target]
+                .input_inventory
+                .get(&item_id)
+                .copied()
+                .unwrap_or(0),
+            StockKind::Fuel => self.entities[target]
+                .fuel_inventory
+                .get(&item_id)
+                .copied()
+                .unwrap_or(0),
+            StockKind::Output => self.entities[target]
+                .output_inventory
+                .get(&item_id)
+                .copied()
+                .unwrap_or(0),
+            StockKind::Auto => 0,
+        };
+        let from_explicit = explicit.min(quantity);
+        if from_explicit > 0 {
+            match stock {
+                StockKind::Inventory => {
+                    subtract_item(&mut self.entities[target].inventory, item_id, from_explicit)
+                }
+                StockKind::Input => subtract_item(
+                    &mut self.entities[target].input_inventory,
+                    item_id,
+                    from_explicit,
+                ),
+                StockKind::Fuel => subtract_item(
+                    &mut self.entities[target].fuel_inventory,
+                    item_id,
+                    from_explicit,
+                ),
+                StockKind::Output => subtract_item(
+                    &mut self.entities[target].output_inventory,
+                    item_id,
+                    from_explicit,
+                ),
+                StockKind::Auto => {}
+            }
+        }
+        let remainder = quantity - from_explicit;
+        if remainder == 0 {
+            return;
+        }
+        if stock == StockKind::Output
+            && self.entities[target]
+                .cargo
+                .is_some_and(|cargo| cargo.item_id == item_id && cargo.quantity <= remainder)
+        {
+            self.entities[target].cargo = None;
+        } else if stock != StockKind::Inventory {
+            subtract_item(&mut self.entities[target].inventory, item_id, remainder);
+        }
+    }
+
+    /// How much more this one compartment will hold. A kiln's clay, coal, and brick therefore each
+    /// receive the definition's named capacity instead of competing for one undifferentiated total.
+    fn room_for_stock(&self, target: usize, stock: StockKind, _item_id: ItemId) -> u32 {
         let entity = &self.entities[target];
         let capacity = self
             .building_definition(entity.placed.definition_id)
             .and_then(|definition| definition.capacity)
             .unwrap_or(u32::MAX);
-        capacity.saturating_sub(inventory_total(&entity.inventory))
+        capacity.saturating_sub(self.stock_total(target, stock))
     }
 
     fn can_accept(&self, target: usize, cargo: Cargo) -> bool {
@@ -3866,7 +4139,11 @@ impl Core {
             BuildingKind::Belt => entity.cargo.is_none(),
             BuildingKind::Consumer => true,
             BuildingKind::Hub => self.hub_demand(cargo.item_id) >= u64::from(cargo.quantity),
-            _ => self.room_for_stock(target) >= cargo.quantity,
+            _ => self
+                .stock_kind_for_item(target, cargo.item_id)
+                .is_some_and(|stock| {
+                    self.room_for_stock(target, stock, cargo.item_id) >= cargo.quantity
+                }),
         }
     }
 
@@ -3877,10 +4154,9 @@ impl Core {
             | BuildingKind::Container
             | BuildingKind::Generator
             | BuildingKind::Boiler => {
-                *self.entities[target]
-                    .inventory
-                    .entry(cargo.item_id)
-                    .or_default() += cargo.quantity;
+                if let Some(stock) = self.stock_kind_for_item(target, cargo.item_id) {
+                    self.add_stock(target, stock, cargo);
+                }
             }
             BuildingKind::Consumer => {
                 // A consumer is a sink, not the landing hub. It records what left the factory and
@@ -5050,6 +5326,9 @@ impl Core {
             kind: definition.kind,
             cargo: None,
             inventory: BTreeMap::new(),
+            input_inventory: BTreeMap::new(),
+            fuel_inventory: BTreeMap::new(),
+            output_inventory: BTreeMap::new(),
             reserved_inputs: BTreeMap::new(),
             progress: 0,
             fuel_charge: 0,
@@ -5527,6 +5806,9 @@ impl Core {
             add_ingredients(&mut refund, definition.cost_at(entity.placed.orientation));
         }
         add_inventory(&mut refund, &entity.inventory);
+        add_inventory(&mut refund, &entity.input_inventory);
+        add_inventory(&mut refund, &entity.fuel_inventory);
+        add_inventory(&mut refund, &entity.output_inventory);
         add_inventory(&mut refund, &entity.reserved_inputs);
         if let Some(cargo) = entity.cargo {
             *refund.entry(cargo.item_id).or_default() += cargo.quantity;
@@ -5543,7 +5825,9 @@ impl Core {
     fn stock_is_reachable_by_hand(kind: BuildingKind) -> bool {
         matches!(
             kind,
-            BuildingKind::Container
+            BuildingKind::Extractor
+                | BuildingKind::Pump
+                | BuildingKind::Container
                 | BuildingKind::Composer
                 | BuildingKind::Generator
                 | BuildingKind::Boiler
@@ -5571,13 +5855,31 @@ impl Core {
     /// claimed have already moved to `reserved_inputs`, and energy already released from a coal
     /// sits in `fuel_charge`. Neither is reachable, which is what keeps "take the coal back out of
     /// a burner" honest: the unburned lumps are yours, the heat already in the firebox is spent.
+    #[cfg(test)]
     fn withdraw(&mut self, q: i32, r: i32, item_id: ItemId, quantity: u32) -> Result<(), String> {
+        self.withdraw_from(q, r, StockKind::Auto, item_id, quantity)
+    }
+
+    fn withdraw_from(
+        &mut self,
+        q: i32,
+        r: i32,
+        stock: StockKind,
+        item_id: ItemId,
+        quantity: u32,
+    ) -> Result<(), String> {
         let index = self.hand_transfer_target(q, r, "withdraw")?;
-        let stored = self.entities[index]
-            .inventory
-            .get(&item_id)
-            .copied()
-            .unwrap_or(0);
+        let stock = if stock == StockKind::Auto {
+            self.stock_kind_for_item(index, item_id)
+                .or_else(|| {
+                    (self.stock_quantity(index, StockKind::Output, item_id) > 0)
+                        .then_some(StockKind::Output)
+                })
+                .unwrap_or(StockKind::Inventory)
+        } else {
+            stock
+        };
+        let stored = self.stock_quantity(index, stock, item_id);
         if stored == 0 {
             return Err("this building holds none of that item".into());
         }
@@ -5585,7 +5887,7 @@ impl Core {
         if moved == 0 {
             return Err("carrying capacity is full".into());
         }
-        subtract_item(&mut self.entities[index].inventory, item_id, moved);
+        self.subtract_stock(index, stock, item_id, moved);
         *self.player.inventory.entry(item_id).or_default() += moved;
         let id = self.entities[index].id;
         self.dirty.entities.push(id);
@@ -5713,7 +6015,16 @@ impl Core {
         // A container that already holds more than the next tier can is a capacity *downgrade*
         // dressed as an upgrade. Refuse rather than silently strand the overflow.
         if let Some(capacity) = next.capacity {
-            let stored: u32 = self.entities[index].inventory.values().copied().sum();
+            let stored = [
+                StockKind::Inventory,
+                StockKind::Input,
+                StockKind::Fuel,
+                StockKind::Output,
+            ]
+            .into_iter()
+            .map(|stock| self.stock_total(index, stock))
+            .max()
+            .unwrap_or(0);
             if stored > capacity {
                 return Err(format!(
                     "{} holds {stored}, more than the next tier stores",
@@ -5757,21 +6068,48 @@ impl Core {
     /// its recipe's inputs and anything that burns" is written down. The room is asked separately,
     /// which is what lets a refusal say whether the building had no use for the item or simply no
     /// space left — two different problems the player fixes two different ways.
+    #[cfg(test)]
     fn store(&mut self, q: i32, r: i32, item_id: ItemId, quantity: u32) -> Result<(), String> {
+        self.store_into(q, r, StockKind::Auto, item_id, quantity)
+    }
+
+    fn store_into(
+        &mut self,
+        q: i32,
+        r: i32,
+        stock: StockKind,
+        item_id: ItemId,
+        quantity: u32,
+    ) -> Result<(), String> {
         let index = self.hand_transfer_target(q, r, "store")?;
         let held = self.player.inventory.get(&item_id).copied().unwrap_or(0);
         if held == 0 {
             return Err("you are not carrying any of that item".into());
         }
-        if !self.accepts_item(index, item_id) {
+        let stock = if stock == StockKind::Auto {
+            self.stock_kind_for_item(index, item_id)
+                .ok_or("this building has no use for that")?
+        } else {
+            stock
+        };
+        if !self.stock_accepts_item(index, stock, item_id) {
             return Err("this building has no use for that".into());
         }
-        let moved = quantity.min(held).min(self.room_for_stock(index));
+        let moved = quantity
+            .min(held)
+            .min(self.room_for_stock(index, stock, item_id));
         if moved == 0 {
             return Err("this building is full".into());
         }
         subtract_item(&mut self.player.inventory, item_id, moved);
-        *self.entities[index].inventory.entry(item_id).or_default() += moved;
+        self.add_stock(
+            index,
+            stock,
+            Cargo {
+                item_id,
+                quantity: moved,
+            },
+        );
         let id = self.entities[index].id;
         self.dirty.entities.push(id);
         let name = self
@@ -5779,6 +6117,108 @@ impl Core {
             .map(|definition| definition.name.clone())
             .unwrap_or_else(|| format!("item {item_id}"));
         self.events.push(format!("Stored {moved} × {name}"));
+        Ok(())
+    }
+
+    fn pickup_player_stack(&mut self, item_id: ItemId, quantity: u32) -> Result<(), String> {
+        if self.player.hand.is_some() {
+            return Err("your hand is already holding a stack".into());
+        }
+        let held = self.player.inventory.get(&item_id).copied().unwrap_or(0);
+        let moved = quantity.min(held).min(self.stack_size(item_id));
+        if moved == 0 {
+            return Err("you are not carrying any of that item".into());
+        }
+        subtract_item(&mut self.player.inventory, item_id, moved);
+        self.player.hand = Some(Cargo {
+            item_id,
+            quantity: moved,
+        });
+        Ok(())
+    }
+
+    fn pickup_building_stack(
+        &mut self,
+        q: i32,
+        r: i32,
+        stock: StockKind,
+        item_id: ItemId,
+        quantity: u32,
+    ) -> Result<(), String> {
+        if self.player.hand.is_some() {
+            return Err("your hand is already holding a stack".into());
+        }
+        if matches!(stock, StockKind::Auto) {
+            return Err("pick a named building compartment".into());
+        }
+        let index = self.hand_transfer_target(q, r, "pick up")?;
+        let stored = self.stock_quantity(index, stock, item_id);
+        let moved = quantity.min(stored).min(self.stack_size(item_id));
+        if moved == 0 {
+            return Err("this compartment holds none of that item".into());
+        }
+        self.subtract_stock(index, stock, item_id, moved);
+        self.player.hand = Some(Cargo {
+            item_id,
+            quantity: moved,
+        });
+        self.dirty.entities.push(self.entities[index].id);
+        Ok(())
+    }
+
+    fn place_player_stack(&mut self, quantity: u32) -> Result<(), String> {
+        let hand = self.player.hand.ok_or("your hand is empty")?;
+        let moved = quantity
+            .min(hand.quantity)
+            .min(self.player_room_for(hand.item_id));
+        if moved == 0 {
+            return Err("carrying capacity is full".into());
+        }
+        *self.player.inventory.entry(hand.item_id).or_default() += moved;
+        if moved == hand.quantity {
+            self.player.hand = None;
+        } else if let Some(held) = &mut self.player.hand {
+            held.quantity -= moved;
+        }
+        Ok(())
+    }
+
+    fn place_building_stack(
+        &mut self,
+        q: i32,
+        r: i32,
+        stock: StockKind,
+        quantity: u32,
+    ) -> Result<(), String> {
+        if matches!(stock, StockKind::Auto) {
+            return Err("pick a named building compartment".into());
+        }
+        let hand = self.player.hand.ok_or("your hand is empty")?;
+        let index = self.hand_transfer_target(q, r, "place")?;
+        if !self.stock_accepts_item(index, stock, hand.item_id) {
+            return Err("that item does not belong in this compartment".into());
+        }
+        let moved =
+            quantity
+                .min(hand.quantity)
+                .min(self.room_for_stock(index, stock, hand.item_id));
+        if moved == 0 {
+            return Err("this compartment is full".into());
+        }
+        self.add_stock(
+            index,
+            stock,
+            Cargo {
+                item_id: hand.item_id,
+                quantity: moved,
+            },
+        );
+        if moved == hand.quantity {
+            self.player.hand = None;
+        } else if let Some(held) = &mut self.player.hand {
+            held.quantity -= moved;
+        }
+        self.dirty.entities.push(self.entities[index].id);
         Ok(())
     }
 
@@ -6043,13 +6483,32 @@ impl Core {
                     r,
                     item_id,
                     quantity,
-                } => self.withdraw(q, r, item_id, quantity),
+                    stock,
+                } => self.withdraw_from(q, r, stock, item_id, quantity),
                 InputCommand::Store {
                     q,
                     r,
                     item_id,
                     quantity,
-                } => self.store(q, r, item_id, quantity),
+                    stock,
+                } => self.store_into(q, r, stock, item_id, quantity),
+                InputCommand::PickupPlayerStack { item_id, quantity } => {
+                    self.pickup_player_stack(item_id, quantity)
+                }
+                InputCommand::PickupBuildingStack {
+                    q,
+                    r,
+                    stock,
+                    item_id,
+                    quantity,
+                } => self.pickup_building_stack(q, r, stock, item_id, quantity),
+                InputCommand::PlacePlayerStack { quantity } => self.place_player_stack(quantity),
+                InputCommand::PlaceBuildingStack {
+                    q,
+                    r,
+                    stock,
+                    quantity,
+                } => self.place_building_stack(q, r, stock, quantity),
                 InputCommand::SetRecipe { q, r, recipe_id } => self.set_recipe(q, r, recipe_id),
                 InputCommand::SetEnabled { q, r, enabled } => self.set_enabled(q, r, enabled),
                 InputCommand::Undo => self.undo(),
@@ -6079,6 +6538,7 @@ impl Core {
         };
         recipe.fuel == 0
             || entity.fuel_charge >= recipe.fuel
+            || self.burnable_item(&entity.fuel_inventory, &[]).is_some()
             || self
                 .burnable_item(&entity.inventory, &recipe.inputs)
                 .is_some()
@@ -6101,17 +6561,32 @@ impl Core {
             return EntityStatus::SwitchedOff;
         }
         match entity.kind {
-            BuildingKind::Extractor if entity.cargo.is_some() => EntityStatus::OutputBlocked,
+            BuildingKind::Extractor if self.room_for_stock(index, StockKind::Output, 0) == 0 => {
+                EntityStatus::OutputBlocked
+            }
             BuildingKind::Extractor if !deposit_available => EntityStatus::DepositDepleted,
             BuildingKind::Extractor if !powered => EntityStatus::NoPower,
             BuildingKind::Extractor if brownout => EntityStatus::Brownout,
             BuildingKind::Extractor if entity.progress > 0 => EntityStatus::Extracting,
-            BuildingKind::Pump if entity.cargo.is_some() => EntityStatus::OutputBlocked,
+            BuildingKind::Pump if self.room_for_stock(index, StockKind::Output, 0) == 0 => {
+                EntityStatus::OutputBlocked
+            }
             BuildingKind::Pump if !deposit_available => EntityStatus::NoWaterInReach,
             BuildingKind::Pump if !powered => EntityStatus::NoPower,
             BuildingKind::Pump if brownout => EntityStatus::Brownout,
             BuildingKind::Pump => EntityStatus::Pumping,
-            BuildingKind::Composer if entity.cargo.is_some() => EntityStatus::OutputBlocked,
+            BuildingKind::Composer
+                if entity
+                    .placed
+                    .recipe_id
+                    .and_then(|id| self.recipe(id))
+                    .is_some_and(|recipe| {
+                        self.room_for_stock(index, StockKind::Output, recipe.output.item_id)
+                            < recipe.output.quantity
+                    }) =>
+            {
+                EntityStatus::OutputBlocked
+            }
             BuildingKind::Composer if entity.progress > 0 && brownout => EntityStatus::Brownout,
             BuildingKind::Composer if entity.progress > 0 => EntityStatus::Composing,
             BuildingKind::Composer if !powered => EntityStatus::NoPower,
@@ -6139,7 +6614,7 @@ impl Core {
             BuildingKind::Generator => self.generator_status(index),
             BuildingKind::Boiler if self.boiler_live(index) => EntityStatus::Generating,
             BuildingKind::Boiler
-                if entity.inventory.get(&WATER_ITEM).copied().unwrap_or(0) == 0 =>
+                if self.stock_quantity(index, StockKind::Input, WATER_ITEM) == 0 =>
             {
                 EntityStatus::WaitingForInputs
             }
@@ -6162,6 +6637,38 @@ impl Core {
         }
     }
 
+    fn stock_snapshot(&self, index: usize, stock: StockKind) -> Vec<Ingredient> {
+        let entity = &self.entities[index];
+        let mut item_ids: BTreeSet<ItemId> = match stock {
+            StockKind::Inventory => entity.inventory.keys().copied().collect(),
+            StockKind::Input => entity.input_inventory.keys().copied().collect(),
+            StockKind::Fuel => entity.fuel_inventory.keys().copied().collect(),
+            StockKind::Output => entity.output_inventory.keys().copied().collect(),
+            StockKind::Auto => BTreeSet::new(),
+        };
+        if matches!(stock, StockKind::Input | StockKind::Fuel) {
+            item_ids.extend(
+                entity
+                    .inventory
+                    .keys()
+                    .copied()
+                    .filter(|&item_id| self.stock_kind_for_item(index, item_id) == Some(stock)),
+            );
+        }
+        if stock == StockKind::Output {
+            if let Some(cargo) = entity.cargo {
+                item_ids.insert(cargo.item_id);
+            }
+        }
+        item_ids
+            .into_iter()
+            .filter_map(|item_id| {
+                let quantity = self.stock_quantity(index, stock, item_id);
+                (quantity > 0).then_some(Ingredient { item_id, quantity })
+            })
+            .collect()
+    }
+
     /// One entity's snapshot. Every path that reports an entity to the host — the complete
     /// snapshot and the incremental delta alike — builds it here, so the sparse path cannot drift
     /// from the full one.
@@ -6182,6 +6689,14 @@ impl Core {
             }
             _ => false,
         };
+        let inventory = if self.entities[index].kind == BuildingKind::Container {
+            self.stock_snapshot(index, StockKind::Inventory)
+        } else {
+            Vec::new()
+        };
+        let input_inventory = self.stock_snapshot(index, StockKind::Input);
+        let fuel_inventory = self.stock_snapshot(index, StockKind::Fuel);
+        let output_inventory = self.stock_snapshot(index, StockKind::Output);
         let entity = &self.entities[index];
         let fuel_required = entity
             .placed
@@ -6216,11 +6731,10 @@ impl Core {
             recipe_id: entity.placed.recipe_id,
             scenario_owned: entity.placed.scenario_owned,
             cargo: entity.cargo,
-            inventory: entity
-                .inventory
-                .iter()
-                .map(|(&item_id, &quantity)| Ingredient { item_id, quantity })
-                .collect(),
+            inventory,
+            input_inventory,
+            fuel_inventory,
+            output_inventory,
             progress: entity.progress,
             progress_total,
             fuel_charge: entity.fuel_charge,
@@ -6467,6 +6981,11 @@ impl Core {
             hash_u32(&mut hash, u32::from(item));
             hash_u32(&mut hash, quantity);
         }
+        if let Some(hand) = self.player.hand {
+            hash_u32(&mut hash, u32::MAX - 20);
+            hash_u32(&mut hash, u32::from(hand.item_id));
+            hash_u32(&mut hash, hand.quantity);
+        }
         hash_u32(&mut hash, u32::MAX);
         for &technology in &self.researched {
             hash_u32(&mut hash, u32::from(technology));
@@ -6509,6 +7028,18 @@ impl Core {
             hash_u32(&mut hash, entity.merge_cursor);
             hash_inventory(&mut hash, &entity.inventory);
             hash_inventory(&mut hash, &entity.reserved_inputs);
+            if !entity.input_inventory.is_empty() {
+                hash_u32(&mut hash, u32::MAX - 21);
+                hash_inventory(&mut hash, &entity.input_inventory);
+            }
+            if !entity.fuel_inventory.is_empty() {
+                hash_u32(&mut hash, u32::MAX - 22);
+                hash_inventory(&mut hash, &entity.fuel_inventory);
+            }
+            if !entity.output_inventory.is_empty() {
+                hash_u32(&mut hash, u32::MAX - 23);
+                hash_inventory(&mut hash, &entity.output_inventory);
+            }
             if let Some(cargo) = entity.cargo {
                 hash_u32(&mut hash, u32::from(cargo.item_id));
                 hash_u32(&mut hash, cargo.quantity);
@@ -8169,6 +8700,14 @@ fn validate_saved_state(
                 .allows(entity.placed.orientation)
             || !footprint_valid
             || !entity_ids.insert(entity.id)
+            || entity
+                .inventory
+                .keys()
+                .chain(entity.input_inventory.keys())
+                .chain(entity.fuel_inventory.keys())
+                .chain(entity.output_inventory.keys())
+                .chain(entity.reserved_inputs.keys())
+                .any(|item| !item_ids.contains(item))
         {
             return Err("save contains invalid entity state".into());
         }
@@ -8189,6 +8728,15 @@ fn validate_saved_state(
             .inventory
             .keys()
             .any(|item| !item_ids.contains(item))
+        || state.player.hand.is_some_and(|hand| {
+            hand.quantity == 0
+                || !item_ids.contains(&hand.item_id)
+                || definitions
+                    .items
+                    .iter()
+                    .find(|item| item.id == hand.item_id)
+                    .is_none_or(|item| hand.quantity > item.stack_size)
+        })
         || state
             .researched
             .iter()
@@ -11887,11 +12435,12 @@ mod tests {
         let snapshot = lit.entity_snapshot(burner);
         assert_eq!(snapshot.status, EntityStatus::Generating);
         assert!(snapshot.power_satisfied > 0);
-        // The extractor has produced and nobody has taken it: it is blocked, not waiting on power,
-        // so it is not on the meter. Before v0.19 it would still have been booking its full draw
-        // and costing the burner a unit of coal a tick for work it could not do.
-        assert!(lit.entities[extractor_index(&lit)].cargo.is_some());
-        assert_eq!(snapshot.power_demand, 0);
+        // The extractor has produced, but its output buffer still has room. It keeps booking power
+        // until that buffer fills, which is the headroom that lets a short belt jam preserve work.
+        assert!(!lit.entities[extractor_index(&lit)]
+            .output_inventory
+            .is_empty());
+        assert!(snapshot.power_demand > 0);
     }
 
     /// The other half of the same rule, and the one the player pays for: a plant carrying a small
@@ -11900,7 +12449,10 @@ mod tests {
     fn a_generator_burns_for_the_work_it_powers_and_not_for_the_clock() {
         let coal = |core: &Core, index: usize| {
             let entity = &core.entities[index];
-            entity.inventory.get(&5).copied().unwrap_or(0) * core.fuel_value(5) + entity.fuel_charge
+            (entity.inventory.get(&5).copied().unwrap_or(0)
+                + entity.fuel_inventory.get(&5).copied().unwrap_or(0))
+                * core.fuel_value(5)
+                + entity.fuel_charge
         };
 
         // One burner, one pole, one extractor with a deposit to work.
@@ -12129,17 +12681,17 @@ mod tests {
         core.tick_many(2);
         assert_eq!(core.power_of[first], core.power_of[second]);
 
-        // Both banks empty, and both machines holding an output nobody has taken. The only
-        // difference between them is the one we are about to make.
+        // Both banks empty, and both output buffers full. The only difference between them is the
+        // one slot we are about to free.
+        let output_capacity = core.building_definition(1).unwrap().capacity.unwrap();
         for index in [first, second] {
             core.entities[index].power_charge = 0;
-            core.entities[index].cargo = Some(Cargo {
-                item_id: 1,
-                quantity: 1,
-            });
+            core.entities[index]
+                .output_inventory
+                .insert(1, output_capacity);
         }
         // A belt takes the first one's output. Now it has work and the other still does not.
-        core.entities[first].cargo = None;
+        core.entities[first].output_inventory.remove(&1);
         core.tick_many(1);
 
         assert!(
@@ -12192,6 +12744,13 @@ mod tests {
                 .get(&5)
                 .copied()
                 .unwrap_or(0)
+                .saturating_add(
+                    core.entities[burner]
+                        .fuel_inventory
+                        .get(&5)
+                        .copied()
+                        .unwrap_or(0),
+                )
                 * core.fuel_value(5);
 
         // Fuel energy spent, times the exchange rate, is grid energy produced. That grid energy
@@ -12232,10 +12791,25 @@ mod tests {
                 // `progress_total` rather than the building's `cadence` is what keeps this honest
                 // now that an extractor's cycle comes from the material it is standing on: the
                 // flat cadence would price a coal cycle at a fifth of what the machine paid.
-                let finished = match entity.cargo {
-                    Some(_) => core.progress_total(index) * draw,
-                    None => 0,
-                };
+                let buffered_cycles = match entity.kind {
+                    BuildingKind::Composer => entity
+                        .placed
+                        .recipe_id
+                        .and_then(|id| core.recipe(id))
+                        .map_or(0, |recipe| {
+                            entity
+                                .output_inventory
+                                .get(&recipe.output.item_id)
+                                .copied()
+                                .unwrap_or(0)
+                                / recipe.output.quantity.max(1)
+                        }),
+                    BuildingKind::Extractor | BuildingKind::Pump => {
+                        inventory_total(&entity.output_inventory)
+                    }
+                    _ => 0,
+                } + u32::from(entity.cargo.is_some());
+                let finished = buffered_cycles * core.progress_total(index) * draw;
                 entity.power_charge + entity.progress * draw + finished
             })
             .sum()
@@ -12395,6 +12969,9 @@ mod tests {
             kind,
             cargo: None,
             inventory: BTreeMap::new(),
+            input_inventory: BTreeMap::new(),
+            fuel_inventory: BTreeMap::new(),
+            output_inventory: BTreeMap::new(),
             reserved_inputs: BTreeMap::new(),
             progress: 0,
             fuel_charge: 0,
@@ -13764,16 +14341,10 @@ mod tests {
         // One coal is 160 energy against an 80-energy craft, so the change is banked.
         core.entities[smelter].inventory.insert(5, 1);
         core.tick_many(30);
-        assert_eq!(
-            core.entities[smelter].cargo,
-            Some(Cargo {
-                item_id: 11,
-                quantity: 1
-            })
-        );
-        assert_eq!(core.entities[smelter].fuel_charge, 80);
+        assert_eq!(core.entities[smelter].output_inventory.get(&11), Some(&2));
+        assert_eq!(core.entities[smelter].fuel_charge, 0);
         assert_eq!(core.entities[smelter].inventory.get(&5), None);
-        assert_eq!(core.entities[smelter].inventory.get(&1), Some(&2));
+        assert_eq!(core.entities[smelter].inventory.get(&1), None);
 
         // Steel, whose inputs name coal. Exactly the two it needs must not be burned.
         core.player.inventory.insert(1, 40);
@@ -13790,13 +14361,7 @@ mod tests {
         // A third coal is surplus, and surplus is what burns.
         core.entities[steel].inventory.insert(5, 3);
         core.tick_many(40);
-        assert_eq!(
-            core.entities[steel].cargo,
-            Some(Cargo {
-                item_id: 23,
-                quantity: 1
-            })
-        );
+        assert_eq!(core.entities[steel].output_inventory.get(&23), Some(&1));
         assert_eq!(core.entities[steel].inventory.get(&5), None);
     }
 
@@ -13852,17 +14417,8 @@ mod tests {
         core.place(3, 1, 11, 0, None).unwrap();
         let index = core.entity_at(3, 1).unwrap();
         core.tick_many(6);
-        assert_eq!(
-            core.entities[index].cargo,
-            Some(Cargo {
-                item_id: 10,
-                quantity: 1
-            })
-        );
-        assert_eq!(
-            core.entity_snapshot(index).status,
-            EntityStatus::OutputBlocked
-        );
+        assert_eq!(core.entities[index].output_inventory.get(&10), Some(&3));
+        assert_eq!(core.entity_snapshot(index).status, EntityStatus::Pumping);
         assert!(core.tiles.get(&(2, 1)).is_none());
         assert!(core
             .place(3, -1, 11, 0, None)
@@ -15332,6 +15888,83 @@ mod tests {
     /// pins the rule that replaced it: the four kinds that hold stock a player can see are the four
     /// a player can reach into, in both directions, and a firebox is one of them.
     #[test]
+    fn a_kiln_keeps_ingredient_fuel_and_blocked_output_in_separate_buffers() {
+        let mut core = game("new-game");
+        core.researched.extend([1, 2, 3, 5]);
+        core.player.build_range = 1 << 20;
+        core.player.inventory.insert(6, 20);
+        core.player.inventory.insert(8, 40);
+        set_player_hex(&mut core, 0, 3);
+        core.place(0, 4, 8, 0, Some(6)).unwrap();
+        let kiln = core.entity_at(0, 4).unwrap();
+
+        core.player.inventory.clear();
+        core.player.inventory.insert(8, 16);
+        core.player.inventory.insert(5, 16);
+        core.store_into(0, 4, StockKind::Input, 8, 16).unwrap();
+        core.store_into(0, 4, StockKind::Fuel, 5, 16).unwrap();
+        assert_eq!(core.entities[kiln].input_inventory.get(&8), Some(&16));
+        assert_eq!(core.entities[kiln].fuel_inventory.get(&5), Some(&16));
+
+        core.tick_many(100);
+        assert_eq!(core.entities[kiln].output_inventory.get(&14), Some(&15));
+        assert_eq!(core.entities[kiln].input_inventory.get(&8), Some(&6));
+        assert_eq!(
+            core.status_of(kiln, true, true, true, false),
+            EntityStatus::OutputBlocked
+        );
+    }
+
+    #[test]
+    fn cursor_stack_moves_all_half_and_single_without_leaving_native_state() {
+        let (definitions, technologies, scenarios) = catalogs();
+        let mut core = game("new-game");
+        core.researched.extend([1, 2, 3, 5]);
+        core.player.build_range = 1 << 20;
+        core.player.inventory.insert(6, 20);
+        core.player.inventory.insert(8, 20);
+        core.player.inventory.insert(5, 11);
+        set_player_hex(&mut core, 0, 3);
+        core.place(0, 4, 8, 0, Some(6)).unwrap();
+
+        core.pickup_player_stack(5, 6).unwrap();
+        assert_eq!(
+            core.player.hand,
+            Some(Cargo {
+                item_id: 5,
+                quantity: 6
+            })
+        );
+        core.place_building_stack(0, 4, StockKind::Fuel, 1).unwrap();
+        assert_eq!(
+            core.player.hand,
+            Some(Cargo {
+                item_id: 5,
+                quantity: 5
+            })
+        );
+        core.place_building_stack(0, 4, StockKind::Fuel, 5).unwrap();
+        assert_eq!(core.player.hand, None);
+        let kiln = core.entity_at(0, 4).unwrap();
+        assert_eq!(core.entities[kiln].fuel_inventory.get(&5), Some(&6));
+
+        core.pickup_building_stack(0, 4, StockKind::Fuel, 5, 3)
+            .unwrap();
+        assert_eq!(
+            core.player.hand,
+            Some(Cargo {
+                item_id: 5,
+                quantity: 3
+            })
+        );
+        core.player.build_range = core.scenario.build_range.saturating_mul(HEX_X as u32);
+        let saved = core.save_string().unwrap();
+        let restored = Core::from_save(&definitions, &technologies, &scenarios, &saved).unwrap();
+        assert_eq!(restored.player.hand, core.player.hand);
+        assert_eq!(restored.checksum(), core.checksum());
+    }
+
+    #[test]
     fn a_hand_reaches_into_the_machines_that_hold_stock() {
         let mut core = game("new-game");
         core.researched.extend([1, 2, 3, 8]);
@@ -15351,13 +15984,16 @@ mod tests {
         core.player.inventory.clear();
         core.player.inventory.insert(5, 20);
         core.store(3, 0, 5, 999).unwrap();
-        assert_eq!(core.entities[burner].inventory.get(&5), Some(&capacity));
+        assert_eq!(
+            core.entities[burner].fuel_inventory.get(&5),
+            Some(&capacity)
+        );
         assert_eq!(core.player.inventory.get(&5), Some(&(20 - capacity)));
         // Bounded: the thirteenth lump has nowhere to go and says so.
         assert!(core.store(3, 0, 5, 1).unwrap_err().contains("full"));
         core.withdraw(3, 0, 5, 5).unwrap();
         assert_eq!(
-            core.entities[burner].inventory.get(&5),
+            core.entities[burner].fuel_inventory.get(&5),
             Some(&(capacity - 5))
         );
 
@@ -15432,11 +16068,19 @@ mod tests {
             .contains("already switched off"));
 
         // The point of the switch: a stopped burner stops eating.
-        let fuel_before = core.entities[burner].inventory.get(&5).copied().unwrap();
+        let fuel_before = core.entities[burner]
+            .fuel_inventory
+            .get(&5)
+            .copied()
+            .unwrap();
         let charge_before = core.entities[burner].fuel_charge;
         core.tick_many(200);
         assert_eq!(
-            core.entities[burner].inventory.get(&5).copied().unwrap(),
+            core.entities[burner]
+                .fuel_inventory
+                .get(&5)
+                .copied()
+                .unwrap(),
             fuel_before,
             "a switched-off burner burns nothing"
         );
@@ -15461,7 +16105,11 @@ mod tests {
             EntityStatus::SwitchedOff
         );
         assert_eq!(
-            core.entities[burner].inventory.get(&5).copied().unwrap(),
+            core.entities[burner]
+                .fuel_inventory
+                .get(&5)
+                .copied()
+                .unwrap(),
             fuel_before
         );
     }
@@ -15528,8 +16176,8 @@ mod tests {
                 .iter()
                 .position(|entity| entity.placed.q == 3)
                 .unwrap();
-            assert!(core.entities[index].cargo.is_some());
-            core.entities[index].cargo = None;
+            assert_eq!(core.entities[index].output_inventory.get(&1), Some(&1));
+            core.entities[index].output_inventory.clear();
         }
         core.tick_many(100);
         let entity = core
@@ -15639,6 +16287,9 @@ mod tests {
                         .map(|cargo| cargo.quantity)
                         .unwrap_or(0),
                 ) + u64::from(entity.inventory.get(&1).copied().unwrap_or(0))
+                    + u64::from(entity.input_inventory.get(&1).copied().unwrap_or(0))
+                    + u64::from(entity.fuel_inventory.get(&1).copied().unwrap_or(0))
+                    + u64::from(entity.output_inventory.get(&1).copied().unwrap_or(0))
                     + u64::from(entity.reserved_inputs.get(&1).copied().unwrap_or(0))
             })
             .sum();
@@ -15921,16 +16572,10 @@ mod tests {
         for _ in 1..8 {
             core.advance_composer(composer);
         }
-        assert_eq!(
-            core.entities[composer].cargo,
-            Some(Cargo {
-                item_id: 2,
-                quantity: 1
-            })
-        );
+        assert_eq!(core.entities[composer].output_inventory.get(&2), Some(&1));
         assert!(core.entities[composer].reserved_inputs.is_empty());
         core.advance_composer(composer);
-        assert_eq!(core.entities[composer].cargo.unwrap().quantity, 1);
+        assert_eq!(core.entities[composer].output_inventory.get(&2), Some(&1));
     }
 
     #[test]
@@ -15943,9 +16588,13 @@ mod tests {
             .unwrap();
         core.graph[extractor] = Links::default();
         let resource_before = core.deposit_quantity((-4, 0));
-        core.tick_many(100);
-        assert_eq!(core.entities[extractor].cargo.unwrap().quantity, 1);
-        assert_eq!(core.deposit_quantity((-4, 0)), resource_before - 1);
+        core.tick_many(400);
+        let capacity = core.building_definition(1).unwrap().capacity.unwrap();
+        assert_eq!(
+            core.entities[extractor].output_inventory.get(&1),
+            Some(&capacity)
+        );
+        assert_eq!(core.deposit_quantity((-4, 0)), resource_before - capacity);
         let container = core
             .entities
             .iter()
@@ -16402,30 +17051,35 @@ mod tests {
             1,
         );
         assert!(Core::from_save(&definitions, &technologies, &scenarios, &incompatible).is_err());
-        // Version 14 is the one older envelope that has a released migration: click-to-walk added a
-        // field whose absence is a real state, so a 14 comes forward rather than being refused. It
-        // must come forward to the *same run* — same checksum — which is the whole claim the
-        // migration makes.
-        let previous_envelope = save.replacen(
-            &format!("\"save_version\":{SAVE_VERSION}"),
-            &format!("\"save_version\":{}", SAVE_VERSION - 1),
-            1,
-        );
+        // Version 15 is the previous envelope. Its machines do not have named maps and its player
+        // has no cursor hand; the accompanying definition 14 lacked bounded source buffers. An
+        // empty fresh run can therefore be spelled exactly as that release did, and must migrate
+        // to the same checksum rather than merely deserialize.
+        let previous_source = game("new-game").save_string().unwrap();
+        let previous_envelope = previous_source
+            .replacen("\"definition_version\":15", "\"definition_version\":14", 1)
+            .replacen("\"hand\":null,", "", 1)
+            .replacen(
+                &format!("\"save_version\":{SAVE_VERSION}"),
+                &format!("\"save_version\":{}", SAVE_VERSION - 1),
+                1,
+            );
         let migrated = Core::from_save(&definitions, &technologies, &scenarios, &previous_envelope)
-            .expect("a version-14 envelope migrates forward");
-        let baseline = Core::from_save(&definitions, &technologies, &scenarios, &save).unwrap();
+            .expect("a version-15 envelope migrates forward");
+        let baseline =
+            Core::from_save(&definitions, &technologies, &scenarios, &previous_source).unwrap();
         assert_eq!(migrated.checksum(), baseline.checksum());
         assert_eq!(migrated.player.walk_goal, None);
         // Everything older still is. There is no migration for it, and reading one as a newer
         // spelling of the same thing is exactly what the boundary refuses to do.
         let unmigratable = save.replacen(
             &format!("\"save_version\":{SAVE_VERSION}"),
-            &format!("\"save_version\":{}", SAVE_VERSION - 2),
+            &format!("\"save_version\":{}", SAVE_VERSION - 3),
             1,
         );
         assert!(
             Core::from_save(&definitions, &technologies, &scenarios, &unmigratable).is_err(),
-            "a v0.13 save must be refused rather than read with six-direction orientations"
+            "a version-13 save must be refused rather than read with six-direction orientations"
         );
         // v0.16 takes the generator to 6 because `WorldParams` entered the envelope and the
         // checksum. A version-5 envelope names no parameters at all, so it cannot be read as the
@@ -16656,6 +17310,10 @@ mod tests {
                     move_x: 0,
                     move_y: -1,
                     inventory: BTreeMap::from([(1, 40), (3, 20), (65_535, 1)]),
+                    hand: Some(Cargo {
+                        item_id: 5,
+                        quantity: 3,
+                    }),
                     action_cooldown: 5,
                     build_range: 4096,
                     carry_slots: 12,
@@ -16779,6 +17437,9 @@ mod tests {
                         scenario_owned: false,
                         cargo: None,
                         inventory: Vec::new(),
+                        input_inventory: Vec::new(),
+                        fuel_inventory: Vec::new(),
+                        output_inventory: Vec::new(),
                         progress: 0,
                         progress_total: 0,
                         fuel_charge: 0,
@@ -16820,6 +17481,18 @@ mod tests {
                                 quantity: 300,
                             },
                         ],
+                        input_inventory: vec![Ingredient {
+                            item_id: 2,
+                            quantity: 12,
+                        }],
+                        fuel_inventory: vec![Ingredient {
+                            item_id: 5,
+                            quantity: 7,
+                        }],
+                        output_inventory: vec![Ingredient {
+                            item_id: 4,
+                            quantity: 9,
+                        }],
                         progress: 17,
                         progress_total: 40,
                         fuel_charge: 250,

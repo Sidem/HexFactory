@@ -1,5 +1,5 @@
 {
-  "version": 14,
+  "version": 15,
   "items": [
     {
       "id": 1,
@@ -516,6 +516,7 @@
       "description": "Harvests every field cell within one hex and emits one item at a time. Slower than your own hands on the same material — but it never stops, and you can walk away.",
       "icon": "EXT",
       "cadence": 5,
+      "capacity": 12,
       "extract_radius": 1,
       "extract_speed": 100,
       "power_draw": 4,
@@ -810,6 +811,7 @@
       "description": "Draws water from a basin it stands beside. The basin never runs dry.",
       "icon": "PMP",
       "cadence": 2,
+      "capacity": 12,
       "extract_radius": 1,
       "power_draw": 4,
       "output_item_id": 10,
@@ -1024,6 +1026,7 @@
       "icon": "EX2",
       "tier": 1,
       "cadence": 4,
+      "capacity": 24,
       "extract_radius": 2,
       "extract_speed": 200,
       "power_draw": 7,

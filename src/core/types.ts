@@ -362,6 +362,9 @@ export interface EntitySnapshot extends AxialCoordinate {
   scenario_owned: boolean;
   cargo?: Cargo | null;
   inventory: Ingredient[];
+  input_inventory?: Ingredient[];
+  fuel_inventory?: Ingredient[];
+  output_inventory?: Ingredient[];
   progress: number;
   progress_total: number;
   /**
@@ -396,6 +399,8 @@ export interface WorldPoint {
   x: number;
   y: number;
 }
+
+export type StockKind = "auto" | "inventory" | "input" | "fuel" | "output";
 
 /**
  * One field cell. `q`/`r` is its identity — the tile key native stores it under and the key a
@@ -435,6 +440,8 @@ export interface PlayerSnapshot extends WorldPoint {
   move_x: number;
   move_y: number;
   inventory: Record<string, number>;
+  /** The native-owned stack currently attached to the pointer, outside the pack's slots. */
+  hand?: Cargo | null;
   /**
    * Work still outstanding on the field action in flight, in player steps. It is the swing itself
    * rather than a wait after one: nothing is taken until this reaches zero.
@@ -664,6 +671,7 @@ export type NativeInputCommand =
       r: number;
       item_id: number;
       quantity: number;
+      stock?: StockKind;
     }
   /**
    * Put stock into a building by hand — the mirror of `withdraw`, on the same contract. `quantity`
@@ -675,6 +683,24 @@ export type NativeInputCommand =
       q: number;
       r: number;
       item_id: number;
+      quantity: number;
+      stock?: StockKind;
+    }
+  | { type: "pickup_player_stack"; item_id: number; quantity: number }
+  | {
+      type: "pickup_building_stack";
+      q: number;
+      r: number;
+      stock: Exclude<StockKind, "auto">;
+      item_id: number;
+      quantity: number;
+    }
+  | { type: "place_player_stack"; quantity: number }
+  | {
+      type: "place_building_stack";
+      q: number;
+      r: number;
+      stock: Exclude<StockKind, "auto">;
       quantity: number;
     }
   /**

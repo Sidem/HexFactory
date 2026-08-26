@@ -13,7 +13,7 @@
  * creative run can widen — both are run state now rather than fixed properties of the scenario.
  */
 
-export const SAVE_VERSION = 15;
+export const SAVE_VERSION = 16;
 export const SAVE_CATALOG_KEY = "hexfactory:saves:v1";
 export const LEGACY_SAVE_PREFIX = "hexfactory:hxf1:";
 export const HXF1_PREFIX = "HXF1\n";
@@ -162,6 +162,15 @@ export function compatibility(
   build: CurrentBuild,
 ): SlotCompatibility {
   const mismatches: VersionMismatch[] = [];
+  // Native has explicit adjacent migrations from the two definition-14 releases into the current
+  // compartment-storage envelope. The catalog has to mirror that narrow entrance or it disables
+  // Load before native can perform the migration. This is deliberately a pair, not "older is OK":
+  // every other historical shape remains a refusal at the native boundary.
+  const migratesToCompartmentStorage =
+    build.versions.save === 16 &&
+    build.versions.definitions === 15 &&
+    (envelope.saveVersion === 14 || envelope.saveVersion === 15) &&
+    envelope.definitionVersion === 14;
   const expect = (
     field: string,
     expected: string | number,
@@ -174,9 +183,15 @@ export function compatibility(
       found: String(found),
     });
   };
-  expect("save format", build.versions.save, envelope.saveVersion);
+  if (!migratesToCompartmentStorage) {
+    expect("save format", build.versions.save, envelope.saveVersion);
+    expect(
+      "definitions",
+      build.versions.definitions,
+      envelope.definitionVersion,
+    );
+  }
   expect("world generator", build.versions.world, envelope.worldVersion);
-  expect("definitions", build.versions.definitions, envelope.definitionVersion);
   expect("technology", build.versions.technology, envelope.technologyVersion);
   const scenario = build.scenarios.find(
     (entry) => entry.key === envelope.scenarioKey,

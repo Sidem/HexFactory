@@ -226,9 +226,9 @@
               </button>
             </div>
             <p class="panel-copy">
-              Each material fills slots one stack at a time. A full pack refuses
-              both gathering and the refund from a demolition, so deliver at the
-              landing hub or take stacks out of a container to make room.
+              Left-click lifts a stack, right-click lifts half or places one,
+              and Ctrl-click lifts one. Shift-click quick-moves the same amounts
+              between this pack and the inspected building.
             </p>
             <div
               id="inventory"
@@ -700,11 +700,16 @@
                     <div class="chip-host" id="inspect-cargo-chip"></div>
                   </div>
                   <div class="inspect-stock" id="inspect-stock" hidden>
-                    <span class="inspect-kind">Stored</span>
+                    <div class="inspect-storage-heading">
+                      <span class="inspect-kind">Storage</span>
+                      <span class="inspect-storage-hint"
+                        >Click · right-click · Ctrl · Shift</span
+                      >
+                    </div>
                     <div
                       id="inspector-actions"
-                      class="inspect-stock-list"
-                      aria-label="What this building is holding"
+                      class="inspect-storage-grid"
+                      aria-label="Building storage compartments"
                     ></div>
                   </div>
                   <div class="inspect-stock" id="inspect-load" hidden>
@@ -1429,6 +1434,7 @@
       multiple
       hidden
     />
+    <div id="cursor-stack" class="cursor-stack chip-host" hidden></div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

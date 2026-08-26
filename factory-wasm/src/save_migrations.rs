@@ -33,6 +33,10 @@ pub(super) fn migrate<'a>(json: &'a str, target_version: u16) -> Result<Cow<'a, 
         walk_goal_14_to_15(&mut value);
         version = 15;
     }
+    if version == 15 {
+        compartment_storage_15_to_16(&mut value);
+        version = 16;
+    }
 
     if version == target_version {
         return Ok(Cow::Owned(serde_json::to_string(&value).map_err(
@@ -42,6 +46,27 @@ pub(super) fn migrate<'a>(json: &'a str, target_version: u16) -> Result<Cow<'a, 
     Err(format!(
         "no migration path from save version {version} to {target_version}"
     ))
+}
+
+/// Compartment storage adds only default-empty maps and an empty cursor hand. Existing `inventory`
+/// and `cargo` fields stay where they are so their checksum is unchanged; the version-16 runtime
+/// classifies that legacy stock when it is read and drains it through the new compartments. The
+/// accompanying definition revision only adds bounded source buffers, so it advances with this
+/// migration instead of making every version-15 factory incompatible.
+fn compartment_storage_15_to_16(value: &mut Value) {
+    if let Some(player) = value
+        .get_mut("state")
+        .and_then(|state| state.get_mut("player"))
+        .and_then(Value::as_object_mut)
+    {
+        player.insert("hand".into(), Value::Null);
+    }
+    if let Some(object) = value.as_object_mut() {
+        object.insert("save_version".into(), Value::from(16));
+        if object.get("definition_version") == Some(&Value::from(14)) {
+            object.insert("definition_version".into(), Value::from(15));
+        }
+    }
 }
 
 /// Click-to-walk: the player carries the hex an autonomous walk is headed for.
@@ -69,8 +94,8 @@ mod tests {
 
     #[test]
     fn current_envelopes_pass_through_without_reserialization() {
-        let json = r#"{ "save_version": 15, "sentinel": [3, 2, 1] }"#;
-        let migrated = migrate(json, 15).expect("current save");
+        let json = r#"{ "save_version": 16, "sentinel": [3, 2, 1] }"#;
+        let migrated = migrate(json, 16).expect("current save");
         assert!(matches!(migrated, Cow::Borrowed(_)));
         assert_eq!(migrated, json);
     }
@@ -78,21 +103,21 @@ mod tests {
     #[test]
     fn unknown_older_and_newer_versions_fail_at_the_boundary() {
         assert_eq!(
-            migrate(r#"{"save_version":13}"#, 15).unwrap_err(),
-            "no migration path from save version 13 to 15"
+            migrate(r#"{"save_version":13}"#, 16).unwrap_err(),
+            "no migration path from save version 13 to 16"
         );
         assert_eq!(
-            migrate(r#"{"save_version":16}"#, 15).unwrap_err(),
-            "save version 16 is newer than supported version 15"
+            migrate(r#"{"save_version":17}"#, 16).unwrap_err(),
+            "save version 17 is newer than supported version 16"
         );
     }
 
     #[test]
     fn version_fourteen_gains_an_explicit_absent_walk_goal() {
         let json = r#"{"save_version":14,"state":{"player":{"x":7,"carry_slots":4}}}"#;
-        let migrated = migrate(json, 15).expect("migrated save");
+        let migrated = migrate(json, 16).expect("migrated save");
         let value: Value = serde_json::from_str(&migrated).expect("migrated json");
-        assert_eq!(value["save_version"], 15);
+        assert_eq!(value["save_version"], 16);
         assert_eq!(value["state"]["player"]["walk_goal"], Value::Null);
         // Nothing else about the player moves: the step adds a field, it does not rewrite a save.
         assert_eq!(value["state"]["player"]["x"], 7);
@@ -104,8 +129,20 @@ mod tests {
         // The step must not depend on a shape it did not verify. A file the typed envelope will
         // reject for other reasons should reach that rejection, not be turned away here as
         // unmigratable.
-        let migrated = migrate(r#"{"save_version":14}"#, 15).expect("migrated save");
+        let migrated = migrate(r#"{"save_version":14}"#, 16).expect("migrated save");
         let value: Value = serde_json::from_str(&migrated).expect("migrated json");
-        assert_eq!(value["save_version"], 15);
+        assert_eq!(value["save_version"], 16);
+    }
+
+    #[test]
+    fn version_fifteen_gains_an_explicit_empty_hand_without_moving_machine_stock() {
+        let json = r#"{"save_version":15,"definition_version":14,"state":{"player":{"inventory":{"3":4}},"entities":[{"inventory":{"5":12},"cargo":{"item_id":4,"quantity":1}}]}}"#;
+        let migrated = migrate(json, 16).expect("migrated save");
+        let value: Value = serde_json::from_str(&migrated).expect("migrated json");
+        assert_eq!(value["save_version"], 16);
+        assert_eq!(value["definition_version"], 15);
+        assert_eq!(value["state"]["player"]["hand"], Value::Null);
+        assert_eq!(value["state"]["entities"][0]["inventory"]["5"], 12);
+        assert_eq!(value["state"]["entities"][0]["cargo"]["item_id"], 4);
     }
 }

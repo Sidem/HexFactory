@@ -75,7 +75,11 @@ pub(crate) const WIRE_MAGIC: [u8; 4] = *b"HXFD";
 /// A version-9 decoder would stop at that flag and read the route as whatever group came next,
 /// mis-framing the rest of the buffer — the same failure version 8 was cut for, and the same reason
 /// a trailing addition is still a new version.
-pub(crate) const WIRE_VERSION: u8 = 10;
+///
+/// Version 11 is compartment storage. The player group gains its cursor-held stack, and entity
+/// flags may carry sparse input, fuel, and output inventories. An older decoder would otherwise
+/// read the first compartment length as progress and mis-frame every entity after it.
+pub(crate) const WIRE_VERSION: u8 = 11;
 
 /// Which optional groups the buffer carries, in the order they are written.
 mod group {
@@ -123,6 +127,9 @@ mod entity_flag {
     /// written length, because every other entity in the world would otherwise pay a byte to say
     /// it has none.
     pub(super) const BRANCH_IDS: u16 = 1 << 10;
+    pub(super) const INPUT_INVENTORY: u16 = 1 << 11;
+    pub(super) const FUEL_INVENTORY: u16 = 1 << 12;
+    pub(super) const OUTPUT_INVENTORY: u16 = 1 << 13;
 }
 
 /// Set on a group whose list replaces the host's rather than patching it.
@@ -388,6 +395,11 @@ fn write_player(writer: &mut Writer, player: &PlayerSnapshot) {
     writer.uvarint(u64::from(player.action_cooldown_total));
     writer.uvarint(u64::from(player.extract_radius));
     writer.bool(player.creative);
+    writer.bool(state.hand.is_some());
+    if let Some(hand) = state.hand {
+        writer.uvarint(u64::from(hand.item_id));
+        writer.uvarint(u64::from(hand.quantity));
+    }
     writer.bool(state.walk_goal.is_some());
     if let Some(goal) = state.walk_goal {
         writer.svarint(i64::from(goal.q));
@@ -502,6 +514,15 @@ fn write_entities(writer: &mut Writer, entities: &[EntitySnapshot]) {
         if !entity.branch_ids.is_empty() {
             flags |= entity_flag::BRANCH_IDS;
         }
+        if !entity.input_inventory.is_empty() {
+            flags |= entity_flag::INPUT_INVENTORY;
+        }
+        if !entity.fuel_inventory.is_empty() {
+            flags |= entity_flag::FUEL_INVENTORY;
+        }
+        if !entity.output_inventory.is_empty() {
+            flags |= entity_flag::OUTPUT_INVENTORY;
+        }
         if entity.power_satisfied != 0 {
             flags |= entity_flag::POWER_SATISFIED;
         }
@@ -524,6 +545,15 @@ fn write_entities(writer: &mut Writer, entities: &[EntitySnapshot]) {
             writer.uvarint(u64::from(cargo.quantity));
         }
         writer.ingredients(&entity.inventory);
+        if flags & entity_flag::INPUT_INVENTORY != 0 {
+            writer.ingredients(&entity.input_inventory);
+        }
+        if flags & entity_flag::FUEL_INVENTORY != 0 {
+            writer.ingredients(&entity.fuel_inventory);
+        }
+        if flags & entity_flag::OUTPUT_INVENTORY != 0 {
+            writer.ingredients(&entity.output_inventory);
+        }
         writer.uvarint(u64::from(entity.progress));
         writer.uvarint(u64::from(entity.progress_total));
         if entity.fuel_charge != 0 {
@@ -879,6 +909,10 @@ pub(crate) mod decode {
         let action_cooldown_total = reader.uvarint() as u32;
         let extract_radius = reader.uvarint() as u32;
         let creative = reader.bool();
+        let hand = reader.bool().then(|| Cargo {
+            item_id: reader.uvarint() as ItemId,
+            quantity: reader.uvarint() as u32,
+        });
         let walk_goal = reader.bool().then(|| Coordinate {
             q: reader.svarint() as i32,
             r: reader.svarint() as i32,
@@ -902,6 +936,7 @@ pub(crate) mod decode {
                 move_x,
                 move_y,
                 inventory,
+                hand,
                 action_cooldown,
                 build_range,
                 carry_slots,
@@ -935,6 +970,21 @@ pub(crate) mod decode {
                 quantity: reader.uvarint() as u32,
             });
             let inventory = reader.ingredients();
+            let input_inventory = if flags & entity_flag::INPUT_INVENTORY != 0 {
+                reader.ingredients()
+            } else {
+                Vec::new()
+            };
+            let fuel_inventory = if flags & entity_flag::FUEL_INVENTORY != 0 {
+                reader.ingredients()
+            } else {
+                Vec::new()
+            };
+            let output_inventory = if flags & entity_flag::OUTPUT_INVENTORY != 0 {
+                reader.ingredients()
+            } else {
+                Vec::new()
+            };
             let progress = reader.uvarint() as u32;
             let progress_total = reader.uvarint() as u32;
             let fuel_charge = if flags & entity_flag::FUEL_CHARGE != 0 {
@@ -993,6 +1043,9 @@ pub(crate) mod decode {
                 scenario_owned: flags & entity_flag::SCENARIO_OWNED != 0,
                 cargo,
                 inventory,
+                input_inventory,
+                fuel_inventory,
+                output_inventory,
                 progress,
                 progress_total,
                 fuel_charge,

@@ -35,7 +35,7 @@ import type {
  */
 
 const MAGIC = 0x48584644; // "HXFD"
-const VERSION = 10;
+const VERSION = 11;
 
 /** Wire code is the index. Pinned against Rust by `fixtures/snapshot-delta-wire.json`. */
 const KINDS: BuildingKind[] = [
@@ -115,6 +115,9 @@ const ENTITY_FLAG = {
   powerCharge: 1 << 8,
   powerCapacity: 1 << 9,
   branchIds: 1 << 10,
+  inputInventory: 1 << 11,
+  fuelInventory: 1 << 12,
+  outputInventory: 1 << 13,
 } as const;
 
 const PATCH_REPLACE = 1 << 0;
@@ -330,6 +333,9 @@ function readPlayer(reader: Reader): FactorySnapshotDelta["player"] {
   const action_cooldown_total = reader.uvarint();
   const extract_radius = reader.uvarint();
   const creative = reader.bool();
+  const hand = reader.bool()
+    ? { item_id: reader.uvarint(), quantity: reader.uvarint() }
+    : null;
   const walk_goal = reader.bool()
     ? { q: reader.svarint(), r: reader.svarint() }
     : null;
@@ -353,6 +359,7 @@ function readPlayer(reader: Reader): FactorySnapshotDelta["player"] {
     move_x,
     move_y,
     inventory,
+    hand,
     action_cooldown,
     build_range,
     carry_slots,
@@ -468,6 +475,12 @@ function readBuildings(reader: Reader): BuildingsPatch {
         ? { item_id: reader.uvarint(), quantity: reader.uvarint() }
         : null;
     const inventory = reader.ingredients();
+    const input_inventory =
+      (flags & ENTITY_FLAG.inputInventory) !== 0 ? reader.ingredients() : [];
+    const fuel_inventory =
+      (flags & ENTITY_FLAG.fuelInventory) !== 0 ? reader.ingredients() : [];
+    const output_inventory =
+      (flags & ENTITY_FLAG.outputInventory) !== 0 ? reader.ingredients() : [];
     const progress = reader.uvarint();
     const progress_total = reader.uvarint();
     const fuel_charge =
@@ -514,6 +527,9 @@ function readBuildings(reader: Reader): BuildingsPatch {
       next_id,
       footprint,
     };
+    if (input_inventory.length > 0) entity.input_inventory = input_inventory;
+    if (fuel_inventory.length > 0) entity.fuel_inventory = fuel_inventory;
+    if (output_inventory.length > 0) entity.output_inventory = output_inventory;
     // Absent rather than zero, because that is what native sends: two numbers per entity per delta
     // saying "this is not a furnace" cost 86 KB at the largest measured tier, which is why they are
     // skipped in the first place. The flag bit already carried the distinction.

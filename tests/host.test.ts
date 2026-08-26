@@ -304,7 +304,7 @@ describe("bounded host input", () => {
         item_id: 6,
         quantity: halfTransfer(30),
       }),
-    ).toEqual({ opcode: 15, args: [1, 1, 6, 15] });
+    ).toEqual({ opcode: 15, args: [1, 1, 6, 15, 0] });
   });
 
   it("sends a drag as two endpoints and never resolves the run itself", () => {
@@ -338,7 +338,7 @@ describe("bounded host input", () => {
     ).toEqual({ opcode: 5, args: [2, -1, 1] });
     expect(
       encodeCommand({ type: "withdraw", q: 1, r: 1, item_id: 2, quantity: 7 }),
-    ).toEqual({ opcode: 10, args: [1, 1, 2, 7] });
+    ).toEqual({ opcode: 10, args: [1, 1, 2, 7, 0] });
     expect(
       encodeCommand({ type: "set_recipe", q: 1, r: 1, recipe_id: 6 }),
     ).toEqual({ opcode: 11, args: [1, 1, 6] });
@@ -357,7 +357,33 @@ describe("bounded host input", () => {
     // Storing is the mirror of withdrawing, on the same ceiling-not-demand contract.
     expect(
       encodeCommand({ type: "store", q: 1, r: 1, item_id: 2, quantity: 7 }),
-    ).toEqual({ opcode: 15, args: [1, 1, 2, 7] });
+    ).toEqual({ opcode: 15, args: [1, 1, 2, 7, 0] });
+    expect(
+      encodeCommand({
+        type: "pickup_building_stack",
+        q: 1,
+        r: 1,
+        stock: "fuel",
+        item_id: 5,
+        quantity: 4,
+      }),
+    ).toEqual({ opcode: 24, args: [1, 1, 3, 5, 4] });
+    expect(
+      encodeCommand({ type: "pickup_player_stack", item_id: 5, quantity: 4 }),
+    ).toEqual({ opcode: 23, args: [5, 4] });
+    expect(encodeCommand({ type: "place_player_stack", quantity: 1 })).toEqual({
+      opcode: 25,
+      args: [1],
+    });
+    expect(
+      encodeCommand({
+        type: "place_building_stack",
+        q: 1,
+        r: 1,
+        stock: "input",
+        quantity: 4,
+      }),
+    ).toEqual({ opcode: 26, args: [1, 1, 2, 4] });
     // The switch carries the state it wants rather than a flip. Two presses of "off" have to be
     // one answer, not none — a toggle opcode would make the stream order-dependent and let a
     // coalesced or replayed pair cancel out.
@@ -452,10 +478,12 @@ describe("bounded host input", () => {
     // or which cell "close to the player" resolves to — that is the shared gather predicate.
     expect(main).toContain('type: "gather_at"');
     expect(main).not.toMatch(/EXTRACT_RADIUS|axialDistance\(.*player/);
-    // A Put sends what the row's control names as a ceiling, exactly as a Take does. Neither side
-    // re-derives the container's remaining room: native clamps and reports what actually moved.
-    expect(main).toContain('command: "store"');
-    expect(main).toContain('command: "withdraw"');
+    // A stack gesture names an amount and compartment. Native still clamps reach, compatibility,
+    // stock, and remaining room, so the host never turns the displayed capacity into authority.
+    expect(main).toContain('type: "place_building_stack"');
+    expect(main).toContain('type: "pickup_building_stack"');
+    expect(main).toContain('type: "store"');
+    expect(main).toContain('type: "withdraw"');
     expect(main).not.toMatch(/capacity\s*-\s*/);
     // A held right-click repeats through the frame loop and is paced by the native cooldown, the
     // same way a held F is. Sending it only on release would make the player click per unit, and
@@ -469,17 +497,16 @@ describe("bounded host input", () => {
     expect(repeat).toContain('type: "gather_at"');
     expect(repeat).toContain('type: "gather"');
     expect(repeat).not.toMatch(/setInterval|setTimeout/);
-    // Take and Put are one function, so the direction is data and not a second copy of the row.
-    // Two near-identical renderers is how the two halves drift, and the fractional deposit — which
-    // belongs to both — is what would have been written twice.
-    expect(main).toContain("function renderTransferRows(");
+    // Pack and building slots are one gesture function, so full, half, single, quick-move, pickup,
+    // and placement cannot drift into separate interpretations of the same click.
+    expect(main).toContain("function stackGesture(");
     expect(main).not.toContain("function renderInspectorActionsRow");
-    // That one list carries a control, so it must be patched rather than rebuilt: a
-    // `replaceChildren` between pointerdown and pointerup detaches the pressed button and the
-    // delegated click resolves to nothing.
+    // Those slots carry gestures, so they must be patched rather than rebuilt: a `replaceChildren`
+    // between pointerdown and pointerup detaches the pressed slot and the delegated click resolves
+    // to nothing.
     const transfer = main.slice(
-      main.indexOf("function renderTransferRows("),
       main.indexOf("function renderInspectorActions("),
+      main.indexOf("function renderInspectorRecipe("),
     );
     expect(transfer).toContain("syncChildren(");
     expect(transfer).not.toContain("replaceChildren");
@@ -692,7 +719,7 @@ describe("bounded host input", () => {
     for (const renderer of [
       "renderTechnologies",
       "renderInventory",
-      "renderTransferRows",
+      "renderInspectorActions",
       "paintSaveSlotList",
     ]) {
       const body = main.slice(
@@ -783,15 +810,16 @@ describe("bounded host input", () => {
     expect(main).toContain('type: "set_enabled"');
     expect(main).not.toMatch(/enabled:\s*!/);
     expect(html).toContain('id="inspect-power-switch"');
-    // Take is offered on whatever the building freely holds. It is safe on a mid-craft machine only
-    // because native keeps reserved inputs in a different map from `inventory` — so the host must
-    // keep reading `inventory` and must never try to net the reservation out itself.
+    // The inspector displays the native compartments directly. It must never try to infer free
+    // input or subtract a reservation in presentation code.
     const actions = main.slice(
       main.indexOf("function renderInspectorActions("),
       main.indexOf("\n}", main.indexOf("function renderInspectorActions(")),
     );
-    expect(actions).toContain("building?.inventory");
-    expect(actions).not.toMatch(/reserved/);
+    expect(actions).toContain("building.input_inventory");
+    expect(actions).toContain("building.fuel_inventory");
+    expect(actions).toContain("building.output_inventory");
+    expect(actions).not.toMatch(/reserved_inputs/);
   });
 
   it("keeps the save envelope number the host reports level with native's", () => {
