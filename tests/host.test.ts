@@ -160,6 +160,7 @@ const snapshot: FactorySnapshot = {
       ],
     },
   ],
+  ground_items: [],
   events: [],
 };
 
@@ -384,6 +385,14 @@ describe("bounded host input", () => {
         quantity: 4,
       }),
     ).toEqual({ opcode: 26, args: [1, 1, 2, 4] });
+    expect(
+      encodeCommand({
+        type: "drop_player_stack",
+        q: 2,
+        r: -1,
+        quantity: 5,
+      }),
+    ).toEqual({ opcode: 27, args: [2, -1, 5] });
     // The switch carries the state it wants rather than a flip. Two presses of "off" have to be
     // one answer, not none — a toggle opcode would make the stream order-dependent and let a
     // coalesced or replayed pair cancel out.

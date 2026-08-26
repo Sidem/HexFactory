@@ -1173,6 +1173,7 @@ function minimalSnapshot(): FactorySnapshot {
     ],
     resources: [],
     buildings: [],
+    ground_items: [],
     events: [],
   };
 }

@@ -161,6 +161,7 @@ function snapshotAt(state: {
       scenario_owned: false,
       footprint: [{ q: index, r: 0 }],
     })),
+    ground_items: [],
     events: [],
   };
 }

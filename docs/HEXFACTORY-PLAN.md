@@ -433,7 +433,7 @@ this file and in the code that implements it; what follows is the index.
   output inventories; blocked outputs buffer complete cycles. The inspector presents those maps as
   item-slot grids beside the cargo pack. A native cursor-held stack supports full, half, single, and
   Shift quick moves without making the host authoritative for reach, compatibility, or quantity.
-  Save 16, definitions 15, wire 11.
+  Save 16, definitions 15, wire 12.
 
 - **v0.25.2** Wayfinding — A second click on a selected hex walks the player there. The goal joins
   `PlayerState`: saved, checksummed, and resumed, because where the player is headed is a standing

@@ -527,6 +527,13 @@ export interface ContractRequirement {
   required: number;
 }
 
+export interface GroundItemSnapshot extends AxialCoordinate {
+  id: number;
+  item_id: number;
+  quantity: number;
+  despawn_tick: number;
+}
+
 export interface FactorySnapshot {
   scenario: string;
   scenario_name: string;
@@ -547,6 +554,7 @@ export interface FactorySnapshot {
   terrain: TerrainSnapshot[];
   resources: ResourceSnapshot[];
   buildings: EntitySnapshot[];
+  ground_items: GroundItemSnapshot[];
   events: string[];
 }
 
@@ -703,6 +711,7 @@ export type NativeInputCommand =
       stock: Exclude<StockKind, "auto">;
       quantity: number;
     }
+  | { type: "drop_player_stack"; q: number; r: number; quantity: number }
   /**
    * Give a machine a different job. Native enforces the same category rule placement does, and
    * refuses a machine that is mid-craft.

@@ -157,6 +157,11 @@ export function encodeCommand(command: NativeInputCommand): EncodedCommand {
           command.quantity,
         ],
       };
+    case "drop_player_stack":
+      return {
+        opcode: 27,
+        args: [command.q, command.r, command.quantity],
+      };
     // A pass names a slot and nothing else. Which row replaces it, and what passing costs, are
     // native's — the host never re-derives the draw order.
     case "skip_request":

@@ -32,7 +32,7 @@ function bytesOf(hex: string): ArrayBuffer {
 describe("binary snapshot delta", () => {
   it("agrees with the Rust encoder on the format's identity", () => {
     expect(fixture.magic).toBe("HXFD");
-    expect(fixture.version).toBe(11);
+    expect(fixture.version).toBe(12);
   });
 
   it.each(fixture.cases)("decodes $name to exactly the JSON delta", (test) => {

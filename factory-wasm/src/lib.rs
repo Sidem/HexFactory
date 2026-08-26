@@ -854,6 +854,19 @@ struct Cargo {
     quantity: u32,
 }
 
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
+pub(crate) struct GroundItem {
+    pub(crate) id: u32,
+    pub(crate) q: i32,
+    pub(crate) r: i32,
+    pub(crate) item_id: ItemId,
+    pub(crate) quantity: u32,
+    pub(crate) despawn_tick: u64,
+}
+
+/// Ticks a dropped item stays on the ground before disappearing (1 minute = 600 ticks at 10 TPS).
+pub(crate) const GROUND_ITEM_LIFETIME_TICKS: u64 = 600;
+
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq, PartialOrd, Ord)]
 #[serde(rename_all = "snake_case")]
 enum Terrain {
@@ -1024,6 +1037,8 @@ struct Snapshot {
     terrain: Vec<TileSnapshot>,
     resources: Vec<ResourceSnapshot>,
     buildings: Vec<EntitySnapshot>,
+    #[serde(default)]
+    ground_items: Vec<GroundItem>,
     events: Vec<String>,
 }
 
@@ -1319,6 +1334,8 @@ struct SnapshotDirty {
     terrain: bool,
     /// Set when the generated chunk set or any chunk's entity count may differ.
     chunks: bool,
+    /// Set when dropped ground items change.
+    ground_items: bool,
 }
 
 /// Take a mark list as the ascending, duplicate-free order the delta must travel in.
@@ -1368,6 +1385,8 @@ struct SnapshotDelta {
     #[serde(skip_serializing_if = "Option::is_none")]
     buildings: Option<BuildingsDelta>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    ground_items: Option<Vec<GroundItem>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     events: Option<Vec<String>>,
 }
 
@@ -1401,6 +1420,7 @@ impl SnapshotDelta {
                 changed: current.buildings.clone(),
                 removed: Vec::new(),
             }),
+            ground_items: Some(current.ground_items.clone()),
             events: Some(current.events.clone()),
         }
     }
@@ -1431,6 +1451,7 @@ impl SnapshotDelta {
             terrain: changed(&previous.terrain, &current.terrain),
             resources: resources_delta(&previous.resources, &current.resources),
             buildings: buildings_delta(&previous.buildings, &current.buildings),
+            ground_items: changed(&previous.ground_items, &current.ground_items),
             events: changed(&previous.events, &current.events),
         }
     }
@@ -1666,6 +1687,12 @@ enum InputCommand {
         stock: StockKind,
         quantity: u32,
     },
+    /// Drop some or all of the cursor stack onto the ground in the world.
+    DropPlayerStack {
+        q: i32,
+        r: i32,
+        quantity: u32,
+    },
     /// Give a machine a different job. With fourteen recipes across five machine categories,
     /// erasing and rebuilding to change one assignment is friction the material base would add to
     /// every layout decision.
@@ -1763,6 +1790,8 @@ struct Core {
     /// saved, and it is never hashed or checksummed.
     flora_regrowth: BTreeSet<(i32, i32)>,
     entities: Vec<Entity>,
+    ground_items: Vec<GroundItem>,
+    next_ground_item_id: u32,
     graph: Vec<Links>,
     /// Stable hot-path orders and reverse transport edges derived from `entities` and `graph`.
     /// Rebuilt after edits and loads; never saved, hashed, or checksummed.
@@ -1909,6 +1938,8 @@ impl Core {
                 .collect(),
             flora_regrowth: BTreeSet::new(),
             entities: Vec::new(),
+            ground_items: Vec::new(),
+            next_ground_item_id: 1,
             graph: Vec::new(),
             runtime: RuntimeIndex::default(),
             power_of: Vec::new(),
@@ -3473,6 +3504,19 @@ impl Core {
             self.transfer_cargo();
             self.tick += 1;
             self.regrow_flora();
+            self.advance_ground_items();
+        }
+    }
+
+    fn advance_ground_items(&mut self) {
+        if self.ground_items.is_empty() {
+            return;
+        }
+        let before_len = self.ground_items.len();
+        self.ground_items
+            .retain(|item| item.despawn_tick > self.tick);
+        if self.ground_items.len() != before_len {
+            self.dirty.ground_items = true;
         }
     }
 
@@ -3498,6 +3542,59 @@ impl Core {
             // above runs on the same clock and the two have never blocked each other.
             self.steer_walk();
             self.advance_player();
+            self.collect_ground_items();
+        }
+    }
+
+    fn collect_ground_items(&mut self) {
+        if self.ground_items.is_empty() {
+            return;
+        }
+        let moving =
+            self.player.move_x != 0 || self.player.move_y != 0 || self.player.walk_goal.is_some();
+        if !moving {
+            return;
+        }
+        let player_hex = world_to_axial(self.player.x, self.player.y);
+        let mut changed = false;
+        let mut idx = 0;
+        while idx < self.ground_items.len() {
+            let item = self.ground_items[idx];
+            if item.despawn_tick.saturating_sub(self.tick) > GROUND_ITEM_LIFETIME_TICKS - 30 {
+                idx += 1;
+                continue;
+            }
+            let hex_dist = axial_distance(player_hex, (item.q, item.r));
+            let within_reach = if hex_dist == 0 {
+                true
+            } else if hex_dist == 1 {
+                self.within_world_range(item.q, item.r, (PLAYER_RADIUS as u32) + 400)
+            } else {
+                false
+            };
+            if within_reach {
+                let room = self.player_room_for(item.item_id);
+                if room > 0 {
+                    let collected = item.quantity.min(room);
+                    *self.player.inventory.entry(item.item_id).or_default() += collected;
+                    let name = self
+                        .item_definition(item.item_id)
+                        .map(|definition| definition.name.clone())
+                        .unwrap_or_else(|| format!("item {}", item.item_id));
+                    self.events.push(format!("Picked up {collected} × {name}"));
+                    changed = true;
+                    if collected == item.quantity {
+                        self.ground_items.remove(idx);
+                        continue;
+                    } else {
+                        self.ground_items[idx].quantity -= collected;
+                    }
+                }
+            }
+            idx += 1;
+        }
+        if changed {
+            self.dirty.ground_items = true;
         }
     }
 
@@ -4936,6 +5033,33 @@ impl Core {
             return Err("action cooling down".into());
         }
         self.ensure_neighborhood(self.player.x, self.player.y);
+        let (player_q, player_r) = world_to_axial(self.player.x, self.player.y);
+        let origin = (player_q, player_r);
+        if let Some(pos) = self
+            .ground_items
+            .iter()
+            .position(|item| axial_distance(origin, (item.q, item.r)) <= EXTRACT_RADIUS)
+        {
+            let item_id = self.ground_items[pos].item_id;
+            let room = self.player_room_for(item_id);
+            if room == 0 {
+                return Err("carrying capacity is full".into());
+            }
+            let quantity = self.ground_items[pos].quantity.min(room);
+            *self.player.inventory.entry(item_id).or_default() += quantity;
+            let name = self
+                .item_definition(item_id)
+                .map(|definition| definition.name.clone())
+                .unwrap_or_else(|| format!("item {item_id}"));
+            self.events.push(format!("Picked up {quantity} × {name}"));
+            if quantity == self.ground_items[pos].quantity {
+                self.ground_items.remove(pos);
+            } else {
+                self.ground_items[pos].quantity -= quantity;
+            }
+            self.dirty.ground_items = true;
+            return Ok(());
+        }
         // The same question placement and every extractor ask — the field cells the player's own
         // hex covers, nearest first — so a gather can never reach a cell an extractor standing
         // here could not. Facing is deliberately not part of it. Nothing on screen shows which way
@@ -4962,6 +5086,34 @@ impl Core {
         }
         self.ensure_neighborhood(self.player.x, self.player.y);
         let origin = world_to_axial(self.player.x, self.player.y);
+        if axial_distance(origin, (q, r)) > EXTRACT_RADIUS {
+            return Err("that hex is out of reach".into());
+        }
+        if let Some(pos) = self
+            .ground_items
+            .iter()
+            .position(|item| item.q == q && item.r == r)
+        {
+            let item_id = self.ground_items[pos].item_id;
+            let room = self.player_room_for(item_id);
+            if room == 0 {
+                return Err("carrying capacity is full".into());
+            }
+            let quantity = self.ground_items[pos].quantity.min(room);
+            *self.player.inventory.entry(item_id).or_default() += quantity;
+            let name = self
+                .item_definition(item_id)
+                .map(|definition| definition.name.clone())
+                .unwrap_or_else(|| format!("item {item_id}"));
+            self.events.push(format!("Picked up {quantity} × {name}"));
+            if quantity == self.ground_items[pos].quantity {
+                self.ground_items.remove(pos);
+            } else {
+                self.ground_items[pos].quantity -= quantity;
+            }
+            self.dirty.ground_items = true;
+            return Ok(());
+        }
         if !self.field_covered_at(origin, (q, r), EXTRACT_RADIUS) {
             return Err("that hex is out of reach".into());
         }
@@ -6222,6 +6374,56 @@ impl Core {
         Ok(())
     }
 
+    fn drop_player_stack(&mut self, q: i32, r: i32, quantity: u32) -> Result<(), String> {
+        let hand = self.player.hand.ok_or("your hand is empty")?;
+        if !self.within_build_range_of_target(q, r) {
+            return Err("that hex is out of reach".into());
+        }
+        self.ensure_neighborhood(self.player.x, self.player.y);
+        self.ensure_tile(q, r);
+        let terrain = self.terrain_at(q, r);
+        if terrain.blocks_movement() {
+            return Err("items cannot land on impassable terrain".into());
+        }
+        let moved = quantity.min(hand.quantity);
+        if moved == 0 {
+            return Err("nothing to drop".into());
+        }
+        let item_id = hand.item_id;
+        if moved == hand.quantity {
+            self.player.hand = None;
+        } else if let Some(held) = &mut self.player.hand {
+            held.quantity -= moved;
+        }
+        let despawn_tick = self.tick + GROUND_ITEM_LIFETIME_TICKS;
+        if let Some(existing) = self
+            .ground_items
+            .iter_mut()
+            .find(|item| item.q == q && item.r == r && item.item_id == item_id)
+        {
+            existing.quantity += moved;
+            existing.despawn_tick = despawn_tick;
+        } else {
+            let id = self.next_ground_item_id;
+            self.next_ground_item_id = self.next_ground_item_id.wrapping_add(1);
+            self.ground_items.push(GroundItem {
+                id,
+                q,
+                r,
+                item_id,
+                quantity: moved,
+                despawn_tick,
+            });
+        }
+        self.dirty.ground_items = true;
+        let name = self
+            .item_definition(item_id)
+            .map(|definition| definition.name.clone())
+            .unwrap_or_else(|| format!("item {item_id}"));
+        self.events.push(format!("Dropped {moved} × {name}"));
+        Ok(())
+    }
+
     /// Give the machine at this hex a different recipe. Bounded and range-checked like every other
     /// edit, and it enforces the same category rule placement does, so a kiln can no more be
     /// reassigned to a circuit than it could be built with one.
@@ -6509,6 +6711,9 @@ impl Core {
                     stock,
                     quantity,
                 } => self.place_building_stack(q, r, stock, quantity),
+                InputCommand::DropPlayerStack { q, r, quantity } => {
+                    self.drop_player_stack(q, r, quantity)
+                }
                 InputCommand::SetRecipe { q, r, recipe_id } => self.set_recipe(q, r, recipe_id),
                 InputCommand::SetEnabled { q, r, enabled } => self.set_enabled(q, r, enabled),
                 InputCommand::Undo => self.undo(),
@@ -6934,6 +7139,7 @@ impl Core {
             terrain,
             resources,
             buildings,
+            ground_items: self.ground_items.clone(),
             events: self.events.clone(),
         }
     }
@@ -7072,6 +7278,17 @@ impl Core {
             hash_u32(&mut hash, u32::from(request));
             hash_u32(&mut hash, fills);
         }
+        if !self.ground_items.is_empty() {
+            hash_u32(&mut hash, u32::MAX - 24);
+            for item in &self.ground_items {
+                hash_u32(&mut hash, item.id);
+                hash_i32(&mut hash, item.q);
+                hash_i32(&mut hash, item.r);
+                hash_u32(&mut hash, u32::from(item.item_id));
+                hash_u32(&mut hash, item.quantity);
+                hash_u64(&mut hash, item.despawn_tick);
+            }
+        }
         hash
     }
 
@@ -7102,6 +7319,8 @@ impl Core {
             request_fills: self.request_fills.clone(),
             produced: self.produced.clone(),
             creative: self.creative,
+            ground_items: self.ground_items.clone(),
+            next_ground_item_id: self.next_ground_item_id,
         };
         let envelope = SaveEnvelope {
             save_version: SAVE_VERSION,
@@ -7185,7 +7404,7 @@ impl Core {
         core.player = envelope.state.player;
         core.pending_gather = envelope.state.pending_gather;
         core.researched = envelope.state.researched;
-        // Restored directly rather than through set_creative: the saved esearched set is
+        // Restored directly rather than through set_creative: the saved esearched set is
         // already the whole truth about what this run knows, and re-running the unlock would be a
         // second author for a value the checksum below is about to check.
         core.creative = envelope.state.creative;
@@ -7205,6 +7424,14 @@ impl Core {
         core.request_fills = envelope.state.request_fills;
         core.last_action_cooldown_total = core.player.action_cooldown;
         core.produced = envelope.state.produced;
+        core.ground_items = envelope.state.ground_items;
+        core.next_ground_item_id = envelope.state.next_ground_item_id.max(
+            core.ground_items
+                .iter()
+                .map(|item| item.id.saturating_add(1))
+                .max()
+                .unwrap_or(1),
+        );
         core.events = vec!["HXF1 save restored".into()];
         core.compile_graph();
         if core.checksum() != envelope.checksum {
@@ -7261,6 +7488,10 @@ struct SavedState {
     /// Whether the run was creative. Checksummed like the rest of this struct, so it cannot be
     /// edited out of a file to turn a creative run back into a priced one.
     creative: bool,
+    #[serde(default)]
+    ground_items: Vec<GroundItem>,
+    #[serde(default)]
+    next_ground_item_id: u32,
 }
 
 /// The snapshot state the host was last sent, retained so the next delta can be built from the
@@ -7286,6 +7517,7 @@ struct SnapshotBaseline {
     researched: Vec<TechnologyId>,
     chunks: Vec<ChunkSnapshot>,
     buildings: BTreeMap<u32, EntitySnapshot>,
+    ground_items: Vec<GroundItem>,
     events: Vec<String>,
 }
 
@@ -7310,6 +7542,7 @@ impl SnapshotBaseline {
                 .iter()
                 .map(|entity| (entity.id, entity.clone()))
                 .collect(),
+            ground_items: snapshot.ground_items.clone(),
             events: snapshot.events.clone(),
         }
     }
@@ -7410,6 +7643,13 @@ impl Factory {
             })
         };
 
+        let ground_items = if dirty.ground_items || baseline.ground_items != core.ground_items {
+            baseline.ground_items = core.ground_items.clone();
+            Some(core.ground_items.clone())
+        } else {
+            None
+        };
+
         SnapshotDelta {
             base_revision,
             revision,
@@ -7442,6 +7682,7 @@ impl Factory {
             terrain: dirty.terrain.then(|| core.terrain_snapshots()),
             resources,
             buildings,
+            ground_items,
             events: take_changed(&mut baseline.events, core.events.clone()),
         }
     }
@@ -8775,6 +9016,11 @@ fn validate_saved_state(
         || state.tiles.iter().any(|tile| tile.resource.is_none())
     {
         return Err("save contains duplicate or empty overlay tiles".into());
+    }
+    for ground_item in &state.ground_items {
+        if ground_item.quantity == 0 || !item_ids.contains(&ground_item.item_id) {
+            return Err("save contains invalid ground item state".into());
+        }
     }
     Ok(())
 }
@@ -17212,6 +17458,7 @@ mod tests {
             terrain: None,
             resources: None,
             buildings: None,
+            ground_items: None,
             events: None,
         };
 
@@ -17369,6 +17616,24 @@ mod tests {
                 // Multi-byte UTF-8, because the string length is written in bytes and a decoder
                 // that reads it as characters would desynchronise the rest of the buffer.
                 "Delivered 3 × Steel — objective met".to_owned(),
+            ]),
+            ground_items: Some(vec![
+                GroundItem {
+                    id: 1,
+                    q: -2,
+                    r: 5,
+                    item_id: 11,
+                    quantity: 4,
+                    despawn_tick: 900,
+                },
+                GroundItem {
+                    id: 2,
+                    q: 10,
+                    r: -3,
+                    item_id: 6,
+                    quantity: 1,
+                    despawn_tick: 600,
+                },
             ]),
             ..empty()
         };
@@ -19374,5 +19639,96 @@ mod tests {
         let table = capacity::format_table(&report);
         assert!(specs.iter().all(|spec| table.contains(spec.key)));
         assert!(capacity::format_json(&report).contains("\"schema\""));
+    }
+
+    #[test]
+    fn dropped_items_land_on_ground_can_be_picked_up_and_despawn_after_one_minute() {
+        let mut core = game("new-game");
+        set_player_hex(&mut core, 0, 0);
+        core.player.hand = Some(Cargo {
+            item_id: 1,
+            quantity: 10,
+        });
+
+        // Dropping onto an adjacent passable hex
+        core.drop_player_stack(0, 1, 6).unwrap();
+        assert_eq!(
+            core.player.hand,
+            Some(Cargo {
+                item_id: 1,
+                quantity: 4
+            })
+        );
+        assert_eq!(core.ground_items.len(), 1);
+        assert_eq!(core.ground_items[0].q, 0);
+        assert_eq!(core.ground_items[0].r, 1);
+        assert_eq!(core.ground_items[0].item_id, 1);
+        assert_eq!(core.ground_items[0].quantity, 6);
+        assert_eq!(
+            core.ground_items[0].despawn_tick,
+            GROUND_ITEM_LIFETIME_TICKS
+        );
+
+        // Dropping more onto the same hex stacks and refreshes despawn tick
+        core.advance_ticks(50);
+        core.drop_player_stack(0, 1, 4).unwrap();
+        assert_eq!(core.player.hand, None);
+        assert_eq!(core.ground_items.len(), 1);
+        assert_eq!(core.ground_items[0].quantity, 10);
+        assert_eq!(
+            core.ground_items[0].despawn_tick,
+            50 + GROUND_ITEM_LIFETIME_TICKS
+        );
+
+        // Gathering at hex picks up ground item
+        core.gather_at(0, 1).unwrap();
+        assert_eq!(core.player.inventory.get(&1), Some(&10));
+        assert_eq!(core.ground_items.len(), 0);
+
+        // Drop again to test auto-collect on walk and despawn
+        core.player.hand = Some(Cargo {
+            item_id: 1,
+            quantity: 5,
+        });
+        core.drop_player_stack(0, 1, 5).unwrap();
+        assert_eq!(core.ground_items.len(), 1);
+
+        // Advance 30 ticks past the drop cooldown and walk over (0, 1)
+        core.advance_ticks(30);
+        core.player.move_x = 100;
+        set_player_hex(&mut core, 0, 1);
+        core.advance_player_steps(1);
+        assert_eq!(core.ground_items.len(), 0);
+        assert_eq!(core.player.inventory.get(&1), Some(&15));
+
+        // Test despawn after 600 ticks
+        core.player.hand = Some(Cargo {
+            item_id: 2,
+            quantity: 3,
+        });
+        core.drop_player_stack(0, 1, 3).unwrap();
+        assert_eq!(core.ground_items.len(), 1);
+        // 599 ticks: still there
+        core.advance_ticks(599);
+        assert_eq!(core.ground_items.len(), 1);
+        // 1 more tick (600 ticks total): despawned
+        core.advance_ticks(1);
+        assert_eq!(core.ground_items.len(), 0);
+    }
+
+    #[test]
+    fn ground_items_save_and_restore() {
+        let (definitions, technologies, scenarios) = catalogs();
+        let mut core = game("new-game");
+        set_player_hex(&mut core, 0, 0);
+        core.player.hand = Some(Cargo {
+            item_id: 1,
+            quantity: 7,
+        });
+        core.drop_player_stack(0, 1, 7).unwrap();
+        let before_ground = core.ground_items.clone();
+        let save = core.save_string().unwrap();
+        let restored = Core::from_save(&definitions, &technologies, &scenarios, &save).unwrap();
+        assert_eq!(restored.ground_items, before_ground);
     }
 }

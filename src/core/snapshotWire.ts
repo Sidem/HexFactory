@@ -7,6 +7,7 @@ import type {
   ContractRequirement,
   EntitySnapshot,
   FactorySnapshotDelta,
+  GroundItemSnapshot,
   Ingredient,
   RequestSnapshot,
   ResourceSnapshot,
@@ -35,7 +36,7 @@ import type {
  */
 
 const MAGIC = 0x48584644; // "HXFD"
-const VERSION = 11;
+const VERSION = 12;
 
 /** Wire code is the index. Pinned against Rust by `fixtures/snapshot-delta-wire.json`. */
 const KINDS: BuildingKind[] = [
@@ -101,6 +102,7 @@ const GROUP = {
   resources: 1 << 14,
   buildings: 1 << 15,
   events: 1 << 16,
+  groundItems: 1 << 17,
 } as const;
 
 const ENTITY_FLAG = {
@@ -301,6 +303,23 @@ export function decodeSnapshotDelta(buffer: ArrayBuffer): FactorySnapshotDelta {
     for (let index = 0; index < count; index += 1)
       events[index] = reader.string();
     delta.events = events;
+  }
+  if (has(GROUP.groundItems)) {
+    const count = reader.uvarint();
+    const groundItems: GroundItemSnapshot[] = new Array<GroundItemSnapshot>(
+      count,
+    );
+    for (let index = 0; index < count; index += 1) {
+      groundItems[index] = {
+        id: reader.uvarint(),
+        q: reader.svarint(),
+        r: reader.svarint(),
+        item_id: reader.uvarint(),
+        quantity: reader.uvarint(),
+        despawn_tick: reader.uvarint(),
+      };
+    }
+    delta.ground_items = groundItems;
   }
 
   // A buffer with bytes left over means the two sides disagree about the layout, which would

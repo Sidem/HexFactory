@@ -478,6 +478,7 @@ export class CanvasFactoryRenderer implements FactoryRenderer {
     this.drawForest(width, height, size);
     for (const building of this.snapshot.buildings)
       this.drawBuilding(building, width, height, size);
+    this.drawGroundItems(width, height, size);
     this.drawFog(width, height);
     this.drawEnvironment(width, height, size);
     this.drawPlayer(width, height, size);
@@ -922,6 +923,48 @@ export class CanvasFactoryRenderer implements FactoryRenderer {
     );
     ctx.stroke();
     ctx.restore();
+  }
+
+  private drawGroundItems(width: number, height: number, size: number): void {
+    if (!this.snapshot?.ground_items) return;
+    const ctx = this.context;
+    for (const item of this.snapshot.ground_items) {
+      const center = this.camera.project(item, width, height);
+      if (!visible(center, size, width, height)) continue;
+      const def = this.itemsById.get(item.item_id);
+      const remainingTicks =
+        item.despawn_tick > this.snapshot.tick
+          ? item.despawn_tick - this.snapshot.tick
+          : 0;
+      if (remainingTicks < 100 && Math.floor(this.now / 150) % 2 === 0) {
+        continue;
+      }
+      const bob = this.reducedMotion
+        ? 0
+        : Math.sin(this.now / 300 + item.id) * 3;
+      const point = { x: center.x, y: center.y + bob };
+      ctx.beginPath();
+      ctx.arc(point.x, point.y, Math.max(6, size * 0.22), 0, Math.PI * 2);
+      ctx.fillStyle = def?.color ?? "#ffffff";
+      ctx.shadowColor = def?.color ?? "#ffffff";
+      ctx.shadowBlur = 8;
+      ctx.fill();
+      ctx.shadowBlur = 0;
+      if (def) {
+        drawItemIcon(ctx, def.icon, def.color, point.x, point.y, size * 0.55);
+      }
+      if (item.quantity > 1) {
+        ctx.fillStyle = "#ffffff";
+        ctx.font = `bold ${Math.max(10, Math.round(size * 0.24))}px monospace`;
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText(
+          String(item.quantity),
+          point.x + size * 0.22,
+          point.y - size * 0.22,
+        );
+      }
+    }
   }
 }
 

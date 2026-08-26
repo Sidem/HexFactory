@@ -3715,6 +3715,17 @@ canvas.addEventListener("pointerdown", (event) => {
   // an ordinary click rather than leaving a panel covering the action.
   closePanels();
   if (event.button === 2) {
+    if (snapshot?.player.hand) {
+      const dropHex = renderer.pick(event.clientX, event.clientY);
+      enqueue({
+        type: "drop_player_stack",
+        q: dropHex.q,
+        r: dropHex.r,
+        quantity: 1,
+      });
+      event.preventDefault();
+      return;
+    }
     // A right press starts working the hex under it straight away and keeps working it while the
     // button is down; the frame loop repeats it and the swing already running paces the repeat,
     // exactly as a held F is paced. Dragging moves the hold to the next hex rather than cancelling
@@ -3743,7 +3754,7 @@ canvas.addEventListener("pointerdown", (event) => {
     event.preventDefault();
     return;
   }
-  if (event.button !== 0 || !draggableTool()) return;
+  if (event.button !== 0 || !draggableTool() || snapshot?.player.hand) return;
   const from = renderer.pick(event.clientX, event.clientY);
   dragBuild = {
     id: event.pointerId,
@@ -3825,6 +3836,17 @@ canvas.addEventListener("click", (event) => {
     return;
   }
   const coordinate = renderer.pick(event.clientX, event.clientY);
+  if (snapshot?.player.hand) {
+    const placed =
+      event.ctrlKey || event.metaKey ? 1 : snapshot.player.hand.quantity;
+    enqueue({
+      type: "drop_player_stack",
+      q: coordinate.q,
+      r: coordinate.r,
+      quantity: placed,
+    });
+    return;
+  }
   // Read the old selection before it is replaced: the second click on a hex is the walk gesture, and
   // it is only free to mean that under `inspect`, where every other tool's second click already
   // means place, erase, rotate, or upgrade again.

@@ -126,6 +126,7 @@ export class WorldInstanceLayer {
   private statusMesh: InstancedMesh | null = null;
   private progressMesh: InstancedMesh | null = null;
   private cargoMesh: InstancedMesh | null = null;
+  private groundItemMesh: InstancedMesh | null = null;
   private plumeMesh: InstancedMesh | null = null;
   private readonly playerBody: Mesh;
   private readonly playerShell: Mesh;
@@ -1229,6 +1230,12 @@ export class WorldInstanceLayer {
       max,
     );
     this.cargoMesh.name = "moving-cargo";
+    this.groundItemMesh = new InstancedMesh(
+      this.geometry.cargo,
+      this.materials.resource,
+      Math.max(256, max),
+    );
+    this.groundItemMesh.name = "ground-items";
     this.plumeMesh = new InstancedMesh(
       this.geometry.plume,
       this.materials.smoke,
@@ -1240,6 +1247,7 @@ export class WorldInstanceLayer {
       this.statusMesh,
       this.progressMesh,
       this.cargoMesh,
+      this.groundItemMesh,
       this.plumeMesh,
     );
   }
@@ -1253,6 +1261,7 @@ export class WorldInstanceLayer {
       !this.statusMesh ||
       !this.progressMesh ||
       !this.cargoMesh ||
+      !this.groundItemMesh ||
       !this.plumeMesh
     )
       return;
@@ -1393,6 +1402,47 @@ export class WorldInstanceLayer {
     markInstancesDirty(this.progressMesh);
     markInstancesDirty(this.cargoMesh);
     markInstancesDirty(this.plumeMesh);
+
+    let groundItems = 0;
+    const groundCapacity = this.groundItemMesh.instanceMatrix.count;
+    for (const item of snapshot.ground_items ?? []) {
+      if (groundItems >= groundCapacity) break;
+      const point = axialToPixel(item, 1, { x: 0, y: 0 });
+      const height = this.groundHeight(item.q, item.r);
+      const remainingTicks =
+        item.despawn_tick > snapshot.tick
+          ? item.despawn_tick - snapshot.tick
+          : 0;
+
+      // Flash/blink during the last 100 ticks (10 seconds)
+      if (remainingTicks < 100 && Math.floor(now / 150) % 2 === 0) {
+        continue;
+      }
+
+      const bob = reducedMotion
+        ? 0.32
+        : 0.32 + Math.sin(now / 350 + item.id * 1.3) * 0.07;
+      const angle = reducedMotion
+        ? 0
+        : (now / 1200 + item.id * 0.8) % (Math.PI * 2);
+      quaternion.setFromAxisAngle(WORLD_UP, angle);
+      const scaleVal = item.quantity > 1 ? 2.2 : 1.8;
+      scale.set(scaleVal, scaleVal, scaleVal);
+
+      matrix.compose(
+        position.set(point.x, height + bob, point.y),
+        quaternion,
+        scale,
+      );
+      this.groundItemMesh.setMatrixAt(groundItems, matrix);
+      this.groundItemMesh.setColorAt(
+        groundItems,
+        color.set(this.items.get(item.item_id)?.color ?? "#ffffff"),
+      );
+      groundItems += 1;
+    }
+    this.groundItemMesh.count = groundItems;
+    markInstancesDirty(this.groundItemMesh);
   }
 
   private updatePlayer(snapshot: FactorySnapshot): void {

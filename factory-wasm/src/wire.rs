@@ -79,7 +79,9 @@ pub(crate) const WIRE_MAGIC: [u8; 4] = *b"HXFD";
 /// Version 11 is compartment storage. The player group gains its cursor-held stack, and entity
 /// flags may carry sparse input, fuel, and output inventories. An older decoder would otherwise
 /// read the first compartment length as progress and mis-frame every entity after it.
-pub(crate) const WIRE_VERSION: u8 = 11;
+///
+/// Version 12 adds ground items for dropped player cargo with 1-minute despawn timers.
+pub(crate) const WIRE_VERSION: u8 = 12;
 
 /// Which optional groups the buffer carries, in the order they are written.
 mod group {
@@ -100,6 +102,7 @@ mod group {
     pub(super) const RESOURCES: u32 = 1 << 14;
     pub(super) const BUILDINGS: u32 = 1 << 15;
     pub(super) const EVENTS: u32 = 1 << 16;
+    pub(super) const GROUND_ITEMS: u32 = 1 << 17;
 }
 
 /// Per-entity presence bits, so an absent option costs a bit rather than a field name and a `null`.
@@ -278,6 +281,7 @@ pub(crate) fn encode_delta(delta: &SnapshotDelta) -> Vec<u8> {
     set(group::RESOURCES, delta.resources.is_some());
     set(group::BUILDINGS, delta.buildings.is_some());
     set(group::EVENTS, delta.events.is_some());
+    set(group::GROUND_ITEMS, delta.ground_items.is_some());
     writer.uvarint(u64::from(mask));
 
     if let Some(scenario) = &delta.scenario {
@@ -371,7 +375,22 @@ pub(crate) fn encode_delta(delta: &SnapshotDelta) -> Vec<u8> {
             writer.string(event);
         }
     }
+    if let Some(ground_items) = &delta.ground_items {
+        write_ground_items(&mut writer, ground_items);
+    }
     writer.bytes
+}
+
+fn write_ground_items(writer: &mut Writer, ground_items: &[GroundItem]) {
+    writer.uvarint(ground_items.len() as u64);
+    for item in ground_items {
+        writer.uvarint(u64::from(item.id));
+        writer.svarint(i64::from(item.q));
+        writer.svarint(i64::from(item.r));
+        writer.uvarint(u64::from(item.item_id));
+        writer.uvarint(u64::from(item.quantity));
+        writer.uvarint(item.despawn_tick);
+    }
 }
 
 fn write_player(writer: &mut Writer, player: &PlayerSnapshot) {
@@ -849,6 +868,18 @@ pub(crate) mod decode {
         });
         let events =
             has(group::EVENTS).then(|| (0..reader.count()).map(|_| reader.string()).collect());
+        let ground_items = has(group::GROUND_ITEMS).then(|| {
+            (0..reader.count())
+                .map(|_| GroundItem {
+                    id: reader.uvarint() as u32,
+                    q: reader.svarint() as i32,
+                    r: reader.svarint() as i32,
+                    item_id: reader.uvarint() as ItemId,
+                    quantity: reader.uvarint() as u32,
+                    despawn_tick: reader.uvarint(),
+                })
+                .collect()
+        });
 
         assert_eq!(
             reader.offset,
@@ -876,6 +907,7 @@ pub(crate) mod decode {
             terrain,
             resources,
             buildings,
+            ground_items,
             events,
         }
     }
