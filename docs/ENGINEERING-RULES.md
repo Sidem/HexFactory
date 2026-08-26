@@ -13,8 +13,8 @@ change. The next milestones live in `docs/HEXFACTORY-PLAN.md`, architecture deci
 ## Where things stand
 
 Shipped through **v0.25.3 Compartment Storage**. Current envelope versions,
-all five of which native refuses a load on: **save 16, definitions 15, technologies 7, scenarios 5,
-world generator 8**, and wire (snapshot delta) **11**. `SAVE_VERSION` is the one literal in the host,
+all five of which native refuses a load on: **save 17, definitions 15, technologies 8, scenarios 5,
+world generator 8**, and wire (snapshot delta) **12**. `SAVE_VERSION` is the one literal in the host,
 because native does not publish it; every other number the browser's save catalog shows is read from
 what native publishes.
 

@@ -317,6 +317,12 @@ export function validateTechnologies(
       !technology.name ||
       !technology.description ||
       !positiveInteger(technology.cost) ||
+      (technology.carry_slots_bonus !== undefined &&
+        (!positiveInteger(technology.carry_slots_bonus) ||
+          technology.carry_slots_bonus > 240)) ||
+      (technology.build_range_bonus !== undefined &&
+        (!positiveInteger(technology.build_range_bonus) ||
+          technology.build_range_bonus > 96)) ||
       technology.prerequisites.some((id) => !ids.has(id)) ||
       technology.unlocks.some((id) => !buildingIds.has(id))
     )

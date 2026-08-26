@@ -1,5 +1,5 @@
 {
-  "version": 7,
+  "version": 8,
   "technologies": [
     {
       "id": 1,
@@ -153,6 +153,26 @@
       "prerequisites": [16, 11],
       "cost": 12,
       "unlocks": [26]
+    },
+    {
+      "id": 18,
+      "key": "expanded-pack",
+      "name": "Expanded Pack",
+      "description": "Reinforce the field pack with four additional cargo slots.",
+      "prerequisites": [4],
+      "cost": 8,
+      "unlocks": [],
+      "carry_slots_bonus": 4
+    },
+    {
+      "id": 19,
+      "key": "surveyed-construction",
+      "name": "Surveyed Construction",
+      "description": "Extend the player's construction reach by three hexes.",
+      "prerequisites": [2],
+      "cost": 9,
+      "unlocks": [],
+      "build_range_bonus": 3
     }
   ]
 }

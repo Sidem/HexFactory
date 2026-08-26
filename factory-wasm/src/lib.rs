@@ -79,7 +79,12 @@ const SAVE_PREFIX: &str = "HXF1\n";
 /// a save and participate in its checksum. Version 15 has none of those fields; its original
 /// `inventory` and `cargo` remain valid legacy stock and drain through the new rules without being
 /// reinterpreted at the migration boundary.
-const SAVE_VERSION: u16 = 16;
+///
+/// Bumped to 17 for player-capability research. The new technology rows can widen the pack and the
+/// build radius, so a version-16 envelope using technology catalog 7 is advanced explicitly to
+/// catalog 8. Its researched set contains neither new id, which makes both earned bonuses zero and
+/// preserves the old player's exact state and checksum.
+const SAVE_VERSION: u16 = 17;
 /// Bumped to 6 for World Parameters. `WorldParams` is now part of a run's identity — it is in the
 /// save envelope and in the checksum — so a version-5 envelope carries no answer to the question
 /// "which world is this" and is rejected rather than assumed to be the default.
@@ -757,6 +762,12 @@ struct TechnologyDefinition {
     prerequisites: Vec<TechnologyId>,
     cost: u32,
     unlocks: Vec<DefinitionId>,
+    /// Extra pack slots permanently earned when this technology is researched.
+    #[serde(default)]
+    carry_slots_bonus: u32,
+    /// Extra construction reach in hexes, converted to native world units when earned.
+    #[serde(default)]
+    build_range_bonus: u32,
 }
 
 #[derive(Clone, Deserialize)]
@@ -1983,6 +1994,7 @@ impl Core {
             dirty: SnapshotDirty::default(),
             undo_stack: Vec::new(),
         };
+        core.apply_research_effects();
         core.ensure_neighborhood(core.player.x, core.player.y);
         for resource in &scenario.resources {
             core.ensure_tile(resource.q, resource.r);
@@ -2152,6 +2164,7 @@ impl Core {
             for technology in &self.technologies.technologies {
                 self.researched.insert(technology.id);
             }
+            self.apply_research_effects();
             if self.researched.len() != known {
                 self.refill_requests();
             }
@@ -2222,15 +2235,15 @@ impl Core {
 
     /// Widen or narrow the pack. Creative only.
     ///
-    /// The scenario's own number is the floor: creative may hand out room, never take away room the
-    /// run was designed with. `MAX_CARRY_SLOTS` is the ceiling. Narrowing below what is already
-    /// carried is refused rather than dropping the difference, because there is no honest place for
-    /// stranded stock to go.
+    /// The scenario plus researched bonuses is the floor: creative may hand out room, never take
+    /// away room the run earned. `MAX_CARRY_SLOTS` is the ceiling. Narrowing below what is already
+    /// carried is refused rather than dropping the difference, because there is no honest place
+    /// for stranded stock to go.
     fn set_carry_slots(&mut self, slots: u32) -> Result<(), String> {
         if !self.creative {
             return Err("resizing the pack needs creative mode".into());
         }
-        if slots < self.scenario.carry_slots || slots > MAX_CARRY_SLOTS {
+        if slots < self.earned_carry_slots() || slots > MAX_CARRY_SLOTS {
             return Err("that pack size is out of range".into());
         }
         if slots < self.slots_used(&self.player.inventory) {
@@ -2590,6 +2603,30 @@ impl Core {
             .technologies
             .iter()
             .find(|value| value.id == id)
+    }
+
+    fn earned_carry_slots(&self) -> u32 {
+        let (carry_slots, _) = research_bonuses(&self.technologies, &self.researched);
+        self.scenario
+            .carry_slots
+            .saturating_add(carry_slots)
+            .min(MAX_CARRY_SLOTS)
+    }
+
+    fn earned_build_range(&self) -> u32 {
+        let (_, build_range) = research_bonuses(&self.technologies, &self.researched);
+        self.scenario
+            .build_range
+            .saturating_add(build_range)
+            .saturating_mul(HEX_X as u32)
+    }
+
+    /// Apply capability research through the same native player fields placement and carrying use.
+    /// Pack size is a floor because creative mode may have widened it further; build range has no
+    /// separate editor and is therefore exactly the researched value.
+    fn apply_research_effects(&mut self) {
+        self.player.carry_slots = self.player.carry_slots.max(self.earned_carry_slots());
+        self.player.build_range = self.earned_build_range();
     }
 
     fn generate_chunk(&mut self, chunk_q: i32, chunk_r: i32) {
@@ -5287,6 +5324,7 @@ impl Core {
         }
         self.insight -= u64::from(technology.cost);
         self.researched.insert(technology_id);
+        self.apply_research_effects();
         // A breakthrough can make a request reachable that was not, which matters only when the
         // board is short of a slot — the usual case is a full board that turns over on its own.
         self.refill_requests();
@@ -5911,11 +5949,9 @@ impl Core {
         if self.entities[index].placed.scenario_owned {
             return Err("scenario-owned objects are protected".into());
         }
-        // Erase refunds the construction cost plus everything the building held, so it is the
-        // largest single addition to the player's inventory in the game. Of the three defensible
-        // answers to a refund that will not fit — refuse, refund partially, or spill on the ground
-        // — this picks refusal, because it is the only one that keeps item conservation exact and
-        // leaves the recovery available once the player has made room.
+        // Construction cost and stored contents return to the pack atomically. Cargo currently in
+        // transit is different: removing its belt spills it onto that belt's hex as a real ground
+        // item, so demolition never teleports a moving resource into the player's inventory.
         let refund = self.erase_refund(index);
         if !self.player_can_carry(&refund) {
             return Err("no room to carry what this would recover".into());
@@ -5935,14 +5971,22 @@ impl Core {
             .map(|definition| definition.name.clone())
             .unwrap_or_else(|| "building".into());
         add_inventory(&mut self.player.inventory, &refund);
+        if let Some(cargo) = entity.cargo {
+            self.add_ground_item(
+                entity.placed.q,
+                entity.placed.r,
+                cargo.item_id,
+                cargo.quantity,
+            );
+        }
         self.recompile_graph_components(&old_links, &changed_cells, &BTreeSet::from([entity.id]));
         self.events.push(format!("Recovered {name}"));
         Ok(())
     }
 
-    /// Everything erasing this entity hands back: its construction cost, its stored inventory, its
-    /// reserved recipe inputs, and any cargo in transit through it. Resolved before the removal so
-    /// the carrying check and the refund cannot describe different things.
+    /// Everything erasing this entity hands back: its construction cost, stored inventory, and
+    /// reserved recipe inputs. In-transit cargo is deliberately absent because `erase` spills it
+    /// on the ground at the removed entity's anchor.
     ///
     /// Creative recovers nothing. Building costs nothing there, so there is nothing owed back, and a
     /// refund that could not fit is the one thing that makes an erase *fail* — a creative player
@@ -5962,9 +6006,6 @@ impl Core {
         add_inventory(&mut refund, &entity.fuel_inventory);
         add_inventory(&mut refund, &entity.output_inventory);
         add_inventory(&mut refund, &entity.reserved_inputs);
-        if let Some(cargo) = entity.cargo {
-            *refund.entry(cargo.item_id).or_default() += cargo.quantity;
-        }
         refund
     }
 
@@ -6395,13 +6436,29 @@ impl Core {
         } else if let Some(held) = &mut self.player.hand {
             held.quantity -= moved;
         }
+        self.add_ground_item(q, r, item_id, moved);
+        let name = self
+            .item_definition(item_id)
+            .map(|definition| definition.name.clone())
+            .unwrap_or_else(|| format!("item {item_id}"));
+        self.events.push(format!("Dropped {moved} × {name}"));
+        Ok(())
+    }
+
+    /// Add deterministic world-owned cargo at one hex. Player drops and demolished transport both
+    /// use this path, so stacking, lifetime refresh, dirty tracking, saves, and wire snapshots
+    /// cannot disagree about what counts as an item on the ground.
+    fn add_ground_item(&mut self, q: i32, r: i32, item_id: ItemId, quantity: u32) {
+        if quantity == 0 {
+            return;
+        }
         let despawn_tick = self.tick + GROUND_ITEM_LIFETIME_TICKS;
         if let Some(existing) = self
             .ground_items
             .iter_mut()
             .find(|item| item.q == q && item.r == r && item.item_id == item_id)
         {
-            existing.quantity += moved;
+            existing.quantity += quantity;
             existing.despawn_tick = despawn_tick;
         } else {
             let id = self.next_ground_item_id;
@@ -6411,17 +6468,11 @@ impl Core {
                 q,
                 r,
                 item_id,
-                quantity: moved,
+                quantity,
                 despawn_tick,
             });
         }
         self.dirty.ground_items = true;
-        let name = self
-            .item_definition(item_id)
-            .map(|definition| definition.name.clone())
-            .unwrap_or_else(|| format!("item {item_id}"));
-        self.events.push(format!("Dropped {moved} × {name}"));
-        Ok(())
     }
 
     /// Give the machine at this hex a different recipe. Bounded and range-checked like every other
@@ -7404,9 +7455,9 @@ impl Core {
         core.player = envelope.state.player;
         core.pending_gather = envelope.state.pending_gather;
         core.researched = envelope.state.researched;
-        // Restored directly rather than through set_creative: the saved esearched set is
-        // already the whole truth about what this run knows, and re-running the unlock would be a
-        // second author for a value the checksum below is about to check.
+        // Restored directly rather than through set_creative: the saved researched set is the
+        // checksum truth. A migrated creative save is upgraded only after that original truth has
+        // been verified below.
         core.creative = envelope.state.creative;
         core.next_entity_id = envelope.state.next_entity_id;
         core.tick = envelope.state.tick;
@@ -7436,6 +7487,16 @@ impl Core {
         core.compile_graph();
         if core.checksum() != envelope.checksum {
             return Err("save checksum does not match its native state".into());
+        }
+        // Creative means the whole current tree, including technologies added after the save was
+        // written. Verify the saved state first, then extend it through the ordinary capability
+        // path; this preserves tamper detection without leaving an older creative world partially
+        // locked. A current save already containing the whole tree is unchanged.
+        if core.creative {
+            for technology in &core.technologies.technologies {
+                core.researched.insert(technology.id);
+            }
+            core.apply_research_effects();
         }
         core.player.move_x = 0;
         core.player.move_y = 0;
@@ -8715,6 +8776,14 @@ fn validate_technologies(
         {
             return Err(format!("technology {} is incomplete", technology.id));
         }
+        if technology.carry_slots_bonus > MAX_CARRY_SLOTS
+            || technology.build_range_bonus > MAX_WALK_DISTANCE as u32
+        {
+            return Err(format!(
+                "technology {} has an excessive player bonus",
+                technology.id
+            ));
+        }
         if technology.prerequisites.iter().any(|id| !ids.contains(id)) {
             return Err(format!(
                 "technology {} has an unknown prerequisite",
@@ -8953,16 +9022,25 @@ fn validate_saved_state(
             return Err("save contains invalid entity state".into());
         }
     }
+    let (carry_slots_bonus, build_range_bonus) = research_bonuses(technologies, &state.researched);
+    let earned_carry_slots = scenario
+        .carry_slots
+        .saturating_add(carry_slots_bonus)
+        .min(MAX_CARRY_SLOTS);
+    let earned_build_range = scenario
+        .build_range
+        .saturating_add(build_range_bonus)
+        .saturating_mul(HEX_X as u32);
     if !(-1000..=1000).contains(&state.player.facing_x)
         || !(-1000..=1000).contains(&state.player.facing_y)
         || !(-1000..=1000).contains(&state.player.move_x)
         || !(-1000..=1000).contains(&state.player.move_y)
-        || state.player.build_range != scenario.build_range.saturating_mul(HEX_X as u32)
-        // A range rather than an equality now: creative may widen the pack, so the scenario's number
-        // is the floor a save may not go under and `MAX_CARRY_SLOTS` is the ceiling it may not go
-        // over. Which value inside that range is right for this run is the checksum's answer, not
-        // this function's.
-        || state.player.carry_slots < scenario.carry_slots
+        || state.player.build_range != earned_build_range
+        // A range rather than an equality: creative may widen the pack, so the earned
+        // scenario-plus-research number is the floor a save may not go under and
+        // `MAX_CARRY_SLOTS` is the ceiling it may not go over. Which value inside that range is
+        // right for this run is the checksum's answer, not this function's.
+        || state.player.carry_slots < earned_carry_slots
         || state.player.carry_slots > MAX_CARRY_SLOTS
         || state
             .player
@@ -9023,6 +9101,22 @@ fn validate_saved_state(
         }
     }
     Ok(())
+}
+
+fn research_bonuses(
+    technologies: &TechnologiesInput,
+    researched: &BTreeSet<TechnologyId>,
+) -> (u32, u32) {
+    technologies
+        .technologies
+        .iter()
+        .filter(|technology| researched.contains(&technology.id))
+        .fold((0u32, 0u32), |(carry_slots, build_range), technology| {
+            (
+                carry_slots.saturating_add(technology.carry_slots_bonus),
+                build_range.saturating_add(technology.build_range_bonus),
+            )
+        })
 }
 
 fn unique_positive_ids(ids: impl Iterator<Item = u16>, label: &str) -> Result<(), String> {
@@ -15802,8 +15896,8 @@ mod tests {
             "creative construction must not reach into the pack"
         );
 
-        // And recovers nothing, so a full pack can never refuse an erase. The belt is given cargo
-        // first: in a priced run that cargo comes back and would need room.
+        // And recovers no construction cost, so a full pack can never refuse an erase. The belt's
+        // in-transit cargo still spills into the world instead of being destroyed.
         let index = core.entity_at(2, 0).unwrap();
         core.entities[index].cargo = Some(Cargo {
             item_id: 3,
@@ -15817,6 +15911,8 @@ mod tests {
         let full = core.player.inventory.clone();
         core.erase(2, 0).unwrap();
         assert_eq!(core.player.inventory, full);
+        assert_eq!(core.ground_items[0].item_id, 3);
+        assert_eq!(core.ground_items[0].quantity, 1);
 
         // Placement's other rules are untouched: creative is free, not lawless.
         assert!(core
@@ -15879,6 +15975,8 @@ mod tests {
         let mut core = game("new-game");
         let scenario_slots = core.player.carry_slots;
         core.set_creative(true);
+        let earned_slots = core.player.carry_slots;
+        assert!(earned_slots > scenario_slots);
 
         core.set_carry_slots(MAX_CARRY_SLOTS).unwrap();
         assert_eq!(core.player.carry_slots, MAX_CARRY_SLOTS);
@@ -15887,21 +15985,21 @@ mod tests {
             .unwrap_err()
             .contains("out of range"));
         assert!(core
-            .set_carry_slots(scenario_slots - 1)
+            .set_carry_slots(earned_slots - 1)
             .unwrap_err()
             .contains("out of range"));
 
         // Narrowing under what is already carried is refused rather than dropping the difference.
-        // One item per slot, one more than the scenario's pack holds.
-        for item_id in 1..=(scenario_slots as ItemId + 1) {
+        // One item per slot, one more than the researched pack holds.
+        for item_id in 1..=(earned_slots as ItemId + 1) {
             core.grant(item_id, 1).unwrap();
         }
         assert!(core
-            .set_carry_slots(scenario_slots)
+            .set_carry_slots(earned_slots)
             .unwrap_err()
             .contains("too much carried"));
         core.discard(None, 0).unwrap();
-        core.set_carry_slots(scenario_slots).unwrap();
+        core.set_carry_slots(earned_slots).unwrap();
     }
 
     /// Both halves of creative are run state now, so both survive a save and both are hashed. A file
@@ -15946,7 +16044,46 @@ mod tests {
     }
 
     #[test]
-    fn erase_refunds_full_cost_and_contents_but_protects_scenario_objects() {
+    fn an_old_creative_save_learns_new_capability_research_after_checksum_verification() {
+        let (definitions, technologies, scenarios) = catalogs();
+        let mut old = game("new-game");
+        old.set_creative(true);
+        old.researched.remove(&18);
+        old.researched.remove(&19);
+        old.player.carry_slots = old.scenario.carry_slots;
+        old.player.build_range = old.scenario.build_range.saturating_mul(HEX_X as u32);
+        let old_checksum = old.checksum();
+        let save = old
+            .save_string()
+            .unwrap()
+            .replacen("\"save_version\":17", "\"save_version\":16", 1)
+            .replacen("\"technology_version\":8", "\"technology_version\":7", 1);
+        assert!(save.contains(&format!("\"checksum\":{old_checksum}")));
+
+        let restored = Core::from_save(&definitions, &technologies, &scenarios, &save).unwrap();
+        assert!(restored.creative);
+        assert!(restored.researched.contains(&18));
+        assert!(restored.researched.contains(&19));
+        assert_eq!(restored.player.carry_slots, old.scenario.carry_slots + 4);
+        assert_eq!(
+            restored.player.build_range,
+            (old.scenario.build_range + 3) * HEX_X as u32
+        );
+
+        let forged = save.replace(
+            &format!("\"checksum\":{old_checksum}"),
+            &format!("\"checksum\":{}", old_checksum.wrapping_add(1)),
+        );
+        assert!(
+            Core::from_save(&definitions, &technologies, &scenarios, &forged)
+                .err()
+                .unwrap()
+                .contains("checksum")
+        );
+    }
+
+    #[test]
+    fn erase_refunds_cost_and_contents_spills_cargo_and_protects_scenario_objects() {
         let mut core = game("new-game");
         core.researched.insert(1);
         core.player.inventory.insert(1, 2);
@@ -15962,7 +16099,18 @@ mod tests {
         });
         core.erase(2, 0).unwrap();
         assert_eq!(core.player.inventory.get(&1), Some(&2));
-        assert_eq!(core.player.inventory.get(&3), Some(&1));
+        assert_eq!(core.player.inventory.get(&3), None);
+        assert_eq!(
+            core.ground_items,
+            vec![GroundItem {
+                id: 1,
+                q: 2,
+                r: 0,
+                item_id: 3,
+                quantity: 1,
+                despawn_tick: GROUND_ITEM_LIFETIME_TICKS,
+            }]
+        );
         assert!(core.erase(0, 0).unwrap_err().contains("protected"));
     }
 
@@ -16489,6 +16637,31 @@ mod tests {
         core.player.inventory.insert(1, 1);
         core.place(2, 0, 2, 0, None).unwrap();
         assert!(core.research(2).is_err());
+    }
+
+    #[test]
+    fn research_permanently_expands_cargo_space_and_build_range() {
+        let mut core = game("new-game");
+        core.insight = 100;
+        let starting_slots = core.player.carry_slots;
+        let starting_range = core.player.build_range;
+
+        core.research(1).unwrap();
+        core.research(2).unwrap();
+        core.research(4).unwrap();
+        core.research(18).unwrap();
+        assert_eq!(core.player.carry_slots, starting_slots + 4);
+        core.research(19).unwrap();
+        assert_eq!(core.player.build_range, starting_range + 3 * HEX_X as u32);
+
+        let save = core.save_string().unwrap();
+        let (definitions, technologies, scenarios) = catalogs();
+        let restored = Core::from_save(&definitions, &technologies, &scenarios, &save).unwrap();
+        assert_eq!(restored.player.carry_slots, starting_slots + 4);
+        assert_eq!(
+            restored.player.build_range,
+            starting_range + 3 * HEX_X as u32
+        );
     }
 
     #[test]
@@ -17297,21 +17470,19 @@ mod tests {
             1,
         );
         assert!(Core::from_save(&definitions, &technologies, &scenarios, &incompatible).is_err());
-        // Version 15 is the previous envelope. Its machines do not have named maps and its player
-        // has no cursor hand; the accompanying definition 14 lacked bounded source buffers. An
-        // empty fresh run can therefore be spelled exactly as that release did, and must migrate
-        // to the same checksum rather than merely deserialize.
+        // Version 16 is the previous envelope. Technology catalog 7 has neither capability row, so
+        // an empty fresh run can be spelled exactly as that release did and must migrate to the
+        // same checksum without being granted research.
         let previous_source = game("new-game").save_string().unwrap();
         let previous_envelope = previous_source
-            .replacen("\"definition_version\":15", "\"definition_version\":14", 1)
-            .replacen("\"hand\":null,", "", 1)
+            .replacen("\"technology_version\":8", "\"technology_version\":7", 1)
             .replacen(
                 &format!("\"save_version\":{SAVE_VERSION}"),
                 &format!("\"save_version\":{}", SAVE_VERSION - 1),
                 1,
             );
         let migrated = Core::from_save(&definitions, &technologies, &scenarios, &previous_envelope)
-            .expect("a version-15 envelope migrates forward");
+            .expect("a version-16 envelope migrates forward");
         let baseline =
             Core::from_save(&definitions, &technologies, &scenarios, &previous_source).unwrap();
         assert_eq!(migrated.checksum(), baseline.checksum());
@@ -17320,7 +17491,7 @@ mod tests {
         // spelling of the same thing is exactly what the boundary refuses to do.
         let unmigratable = save.replacen(
             &format!("\"save_version\":{SAVE_VERSION}"),
-            &format!("\"save_version\":{}", SAVE_VERSION - 3),
+            &format!("\"save_version\":{}", SAVE_VERSION - 4),
             1,
         );
         assert!(

@@ -154,14 +154,15 @@ The Rust `Core` owns all state that can change a game result:
    deliberately does not.
 
 4. Carrying capacity is a rule over the ordinary inventory, not a stored array of slots: each item
-   occupies `ceil(quantity / stack_size)` slots and a scenario fixes the slot count. Every path that
+   occupies `ceil(quantity / stack_size)` slots and a scenario fixes the starting slot count. Every path that
    adds to the player — gathering, erasing, withdrawing — asks first. Gathering into a full pack is
    refused; an erase whose refund would not fit is refused whole, which is the only one of refuse,
    partially refund, and spill that keeps item conservation exact and leaves the recovery available
-   once there is room; a withdrawal moves what fits and leaves the rest in the container. Like
-   `build_range`, the slot count is a scenario property validated on load rather than a checksum
-   input. The cursor-held stack is outside those slots while it is being moved, but remains native
-   quantity and took the save envelope to 16.
+   once there is room; a withdrawal moves what fits and leaves the rest in the container. Research
+   can raise the pack floor and build range through data-defined bonuses; native applies those
+   bonuses to the same player fields every carrying and placement path already reads, and validates
+   them against the researched set on load. Creative may widen the pack beyond that earned floor.
+   The cursor-held stack is outside those slots while it is being moved, but remains native quantity.
 5. Placement asks whether the hex is a field cell (for extractors) or blocking terrain (for
    everything). `deposit_candidates` and `resource_at_world` share that field predicate. Extractors
    harvest every field cell within hex radius 1, and a player's gather goes through the same
@@ -229,7 +230,8 @@ The Rust `Core` owns all state that can change a game result:
     into terrain, because a basin cannot be depleted. Containers store exact quantities; hubs and
     demo consumers count exact deliveries.
 13. The landing hub awards integer insight from data-defined item values. Research prerequisites,
-    costs, atomic spending, unlocks, objective progress, and persistent victory all live in Rust.
+    costs, atomic spending, building unlocks, cargo-slot bonuses, build-range bonuses, objective
+    progress, and persistent victory all live in Rust.
 
 Blueprint edits retain the previous graph by stable entity ID, invalidate output rays crossing the
 changed footprint, and recompile only the affected weak transport components. Component closure
@@ -248,22 +250,23 @@ blueprint and graph after both full and incremental compilation.
 
 `definitions.json` contains a version plus dynamic items, recipes, and buildings. Buildings include
 construction cost, unlock requirement, placement rule, original host icon metadata, description,
-movement collision, and one-to-seven-cell footprints. `technologies.json` contains dynamic IDs, prerequisites, positive integer
-costs, descriptions, and definition unlocks; both host and core validate the DAG and references.
+movement collision, and one-to-seven-cell footprints. `technologies.json` contains dynamic IDs,
+prerequisites, positive integer costs, descriptions, definition unlocks, and bounded player-capability
+bonuses; both host and core validate the DAG, references, and bonus bounds.
 
 `scenarios.json` defines the default **New game** and retained **Factory demo**. The default seed has
 guaranteed nearby finite ore and crystal plus deterministic generated terrain. The hub and all demo
 objects are scenario-owned and cannot be erased.
 
-Items carry a `stack_size`, and scenarios carry a `carry_slots` count; together they are the whole
-of the carrying rule. Since v0.24 the scenario's count is the run's _starting_ pack size rather than
-its permanent one: creative mode can widen it, so a save carries the current count and the loader
-accepts anything from the scenario's figure up to `MAX_CARRY_SLOTS`.
+Items carry a `stack_size`, scenarios carry a starting `carry_slots` count, and researched
+technologies may add `carry_slots_bonus`; together they are the whole carrying rule. The save carries
+the current count and the loader accepts anything from the earned scenario-plus-research floor up to
+`MAX_CARRY_SLOTS`, because creative mode may widen it further.
 
 Erasing a player-built entity uses one fixed refund policy: return 100% of its construction cost,
-plus its cargo, inventory, and reserved recipe inputs. This is native and covered by conservation
-tests. Since v0.10 the whole refund is resolved before the removal and refused if it will not fit
-in the player's pack, so the policy stays exactly 100% rather than becoming "as much as fits".
+stored inventories, and reserved recipe inputs. In-transit cargo does not teleport into the pack:
+it becomes a timed ground item at the removed entity's anchor. The pack refund is resolved before
+removal and refused if it will not fit, while spilled cargo remains world-owned and collectible.
 
 **Creative mode** is one native flag on the core, not a host mode. It enters `checksum()` and the
 save envelope beside the pack size, so a creative run is a run like any other rather than a session

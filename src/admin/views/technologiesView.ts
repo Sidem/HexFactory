@@ -136,6 +136,29 @@ export function renderTechnologiesView(
             }
           </div>
         </div>
+        <div class="tech-link-group">
+          <span class="tech-link-label">Player Bonuses:</span>
+          <div class="tech-badge-list">
+            ${
+              tech.carry_slots_bonus || tech.build_range_bonus
+                ? [
+                    tech.carry_slots_bonus
+                      ? `+${tech.carry_slots_bonus} cargo slots`
+                      : "",
+                    tech.build_range_bonus
+                      ? `+${tech.build_range_bonus} hex build range`
+                      : "",
+                  ]
+                    .filter(Boolean)
+                    .map(
+                      (bonus) =>
+                        `<span class="tech-unlock-pill">${bonus}</span>`,
+                    )
+                    .join("")
+                : `<span class="dim-text">No direct player bonuses</span>`
+            }
+          </div>
+        </div>
       </div>
 
       <div class="card-actions">
@@ -224,6 +247,17 @@ function renderTechnologyModal(
           </label>
         </div>
 
+        <div class="form-row form-row-2">
+          <label>
+            <span>Cargo Slot Bonus</span>
+            <input type="number" name="carry_slots_bonus" value="${currentTech.carry_slots_bonus ?? 0}" min="0" max="240" />
+          </label>
+          <label>
+            <span>Build Range Bonus (hexes)</span>
+            <input type="number" name="build_range_bonus" value="${currentTech.build_range_bonus ?? 0}" min="0" max="96" />
+          </label>
+        </div>
+
         <div class="form-section">
           <span class="section-title">Prerequisites (Required Technologies)</span>
           <div class="multi-select-grid" id="prereq-select-grid">
@@ -291,6 +325,8 @@ function renderTechnologyModal(
     const name = String(formData.get("name")).trim();
     const description = String(formData.get("description")).trim();
     const cost = Number(formData.get("cost"));
+    const carrySlotsBonus = Number(formData.get("carry_slots_bonus"));
+    const buildRangeBonus = Number(formData.get("build_range_bonus"));
 
     const prerequisites: number[] = [];
     store.technologies.technologies.forEach((t) => {
@@ -314,6 +350,8 @@ function renderTechnologyModal(
       prerequisites,
       cost,
       unlocks,
+      ...(carrySlotsBonus > 0 ? { carry_slots_bonus: carrySlotsBonus } : {}),
+      ...(buildRangeBonus > 0 ? { build_range_bonus: buildRangeBonus } : {}),
     };
 
     store.saveTechnology(updated);

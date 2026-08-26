@@ -5,7 +5,7 @@ native ownership, sparse cost, and measured claims exist to keep a large living 
 and trustworthy.
 
 Current release: **v0.25.3 Compartment Storage**. Next: **Living Lattice v0.26** in
-`docs/HEXFACTORY-PLAN.md`. Envelopes: save 16, definitions 15, technologies 7, scenarios 5, world 8,
+`docs/HEXFACTORY-PLAN.md`. Envelopes: save 17, definitions 15, technologies 8, scenarios 5, world 8,
 wire 12.
 
 ## Localize before reading

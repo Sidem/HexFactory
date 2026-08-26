@@ -1524,13 +1524,16 @@ function renderTechnologies(): void {
           host.technologies.technologies.find((value) => value.id === id)
             ?.name ?? `#${id}`,
       );
-    const unlocks = technology.unlocks
-      .map(
-        (id) =>
-          host.definitions.buildings.find((value) => value.id === id)?.name ??
-          `#${id}`,
-      )
-      .join(", ");
+    const benefits = technology.unlocks.map(
+      (id) =>
+        host.definitions.buildings.find((value) => value.id === id)?.name ??
+        `#${id}`,
+    );
+    if (technology.carry_slots_bonus)
+      benefits.push(`+${technology.carry_slots_bonus} cargo slots`);
+    if (technology.build_range_bonus)
+      benefits.push(`+${technology.build_range_bonus} hex build range`);
+    const benefitText = benefits.join(", ");
     const status = state.complete
       ? "Researched"
       : missing.length
@@ -1548,13 +1551,13 @@ function renderTechnologies(): void {
         : "";
     part(button, "strong").textContent = technology.name;
     part(button, ".technology-detail").textContent = technology.description;
-    part(button, ".technology-unlocks").textContent = unlocks
-      ? `Unlocks ${unlocks}`
+    part(button, ".technology-unlocks").textContent = benefitText
+      ? `Provides ${benefitText}`
       : "";
     part(button, "small").textContent = status;
     button.setAttribute("aria-label", `${technology.name}. ${status}.`);
-    button.title = unlocks
-      ? `${technology.description} Unlocks ${unlocks}.`
+    button.title = benefitText
+      ? `${technology.description} Provides ${benefitText}.`
       : technology.description;
   });
 }
@@ -3564,6 +3567,19 @@ function orbitView(step: -1 | 1): void {
   if (pressedMovement.size) enqueue(currentMovementIntent(runningHeld));
 }
 
+/** Delete the hovered building when there is one, otherwise the selected building. */
+function deleteBuildingUnderCursorOrSelected(): void {
+  const target = hover && buildingAt(hover) ? hover : selected;
+  const building = target ? buildingAt(target) : undefined;
+  if (!target || !building) {
+    showFeedback("No building selected to delete");
+    return;
+  }
+  selected = target;
+  renderer.setSelection(target);
+  enqueue({ type: "erase", q: target.q, r: target.r });
+}
+
 window.addEventListener("keydown", (event) => {
   if (isTypingTarget(event.target)) return;
   // Space presses a button the keyboard tabbed to. A mouse-focused button must not keep it:
@@ -3576,6 +3592,11 @@ window.addEventListener("keydown", (event) => {
     return;
   }
   if (event.ctrlKey || event.metaKey || event.altKey) return;
+  if (event.code === "Backspace" || event.code === "Delete") {
+    event.preventDefault();
+    if (!event.repeat) deleteBuildingUnderCursorOrSelected();
+    return;
+  }
   if (event.code in MOVEMENT_KEYS) {
     event.preventDefault();
     if (!pressedMovement.has(event.code)) {

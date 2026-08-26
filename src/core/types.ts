@@ -174,6 +174,10 @@ export interface TechnologyDefinition {
   prerequisites: number[];
   cost: number;
   unlocks: number[];
+  /** Permanent extra inventory stacks granted by this research. */
+  carry_slots_bonus?: number;
+  /** Permanent extra construction reach, measured in hexes. */
+  build_range_bonus?: number;
 }
 
 export interface Technologies {

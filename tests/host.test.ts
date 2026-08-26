@@ -1348,6 +1348,9 @@ describe("availability and expanded snapshot adapter", () => {
     // activation is on keyup, so keydown alone would both skip recenter and press the control.
     expect(main).toContain('event.code === "Space") renderer.recenter()');
     expect(main).toContain('event.code === "Space"');
+    expect(main).toContain('event.code === "Backspace"');
+    expect(main).toContain('event.code === "Delete"');
+    expect(main).toContain("deleteBuildingUnderCursorOrSelected()");
     expect(main).toContain("target.blur()");
     expect(main).toContain('target.tagName === "SUMMARY"');
     expect(main).not.toContain('event.code === "KeyT"');

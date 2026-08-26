@@ -119,22 +119,46 @@ describe("compatibility", () => {
     expect(compatibility(parsed, build).compatible).toBe(true);
   });
 
-  it("offers the exact released compartment-storage migration to native", () => {
+  it("offers the exact released migration chain to native", () => {
     const current = {
       ...build,
-      versions: { ...build.versions, save: 16, definitions: 15 },
+      versions: {
+        ...build.versions,
+        save: 17,
+        definitions: 15,
+        technology: 8,
+      },
     };
     for (const save_version of [14, 15]) {
       const parsed = parseHxf1(
-        envelope({ save_version, definition_version: 14 }),
+        envelope({
+          save_version,
+          definition_version: 14,
+          technology_version: 7,
+        }),
       )!;
       expect(compatibility(parsed, current)).toEqual({
         compatible: true,
         mismatches: [],
       });
     }
+    const version16 = parseHxf1(
+      envelope({
+        save_version: 16,
+        definition_version: 15,
+        technology_version: 7,
+      }),
+    )!;
+    expect(compatibility(version16, current)).toEqual({
+      compatible: true,
+      mismatches: [],
+    });
     const unknown = parseHxf1(
-      envelope({ save_version: 13, definition_version: 14 }),
+      envelope({
+        save_version: 13,
+        definition_version: 14,
+        technology_version: 7,
+      }),
     )!;
     expect(compatibility(unknown, current).compatible).toBe(false);
   });

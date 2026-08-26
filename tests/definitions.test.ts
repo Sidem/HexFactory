@@ -54,7 +54,17 @@ describe("data-defined content", () => {
       "shallow-crossings",
       "belt-junctions",
       "grade-separation",
+      "expanded-pack",
+      "surveyed-construction",
     ]);
+    expect(
+      technologies.technologies.find(({ key }) => key === "expanded-pack"),
+    ).toMatchObject({ carry_slots_bonus: 4 });
+    expect(
+      technologies.technologies.find(
+        ({ key }) => key === "surveyed-construction",
+      ),
+    ).toMatchObject({ build_range_bonus: 3 });
   });
 
   it("keeps an upgrade ladder a taller version of the same machine", () => {
@@ -227,5 +237,11 @@ describe("data-defined content", () => {
     expect(() => validateTechnologies(cycle, typedDefinitions)).toThrow(
       /acyclic/,
     );
+
+    const excessiveBonus = structuredClone(technologies);
+    excessiveBonus.technologies[0]!.build_range_bonus = 999;
+    expect(() =>
+      validateTechnologies(excessiveBonus, typedDefinitions),
+    ).toThrow(/invalid/);
   });
 });
