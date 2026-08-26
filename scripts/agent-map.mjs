@@ -119,6 +119,7 @@ function group(path) {
   if (path.startsWith("src/core")) return "Browser core";
   if (path.startsWith("src/ui")) return "Browser UI";
   if (path.startsWith("src/bench")) return "Browser benchmark";
+  if (path.startsWith("src/admin")) return "Browser admin";
   if (path.startsWith("tests")) return "TypeScript tests";
   return "Application";
 }
