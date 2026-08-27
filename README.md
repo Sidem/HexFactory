@@ -27,10 +27,12 @@ The world and the minimap draw on WebGL2 with a Canvas 2D overlay for the player
 machine decorations.
 
 Research opens a large central technology map with four independent starting branches,
-icon-only nodes and prerequisite connections. Hover or focus an icon for its name, costs and effects.
-Select a node to inspect unlocks, blockers and exact costs; use the separate Research button to
-spend insight. Search, discipline filters, keyboard navigation, zoom and a compact list view help
-explore all 19 technologies. Hover previews never replace the readable detail panel.
+icon-only nodes and prerequisite connections. Completing the first hub commission grants belts,
+storage, extractors and on-site power — those four are not insight purchases. Hover or focus an icon
+for its name, costs and effects. Select a node to inspect unlocks, blockers and exact costs; use the
+separate Research button to spend insight on later work. Search, discipline filters, keyboard
+navigation, zoom and a compact list view help explore all 19 technologies. Hover previews never
+replace the readable detail panel.
 
 ## Controls
 

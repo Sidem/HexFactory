@@ -49,10 +49,13 @@ import type {
   FactorySnapshotDelta,
   ResourceSnapshot,
   Terrain,
+  Technologies,
   WorldParams,
 } from "../src/core/types";
 import definitions from "../src/data/definitions.json";
-import technologies from "../src/data/technologies.json";
+import technologiesJson from "../src/data/technologies.json";
+
+const technologies = technologiesJson as unknown as Technologies;
 import { HexCamera, isSurveyed } from "../src/rendering/CanvasFactoryRenderer";
 import {
   buildingBeside,
@@ -905,6 +908,7 @@ describe("availability and expanded snapshot adapter", () => {
       complete: true,
       prerequisitesMet: true,
       affordable: true,
+      purchasable: false,
       missingPrerequisites: [],
       insightShortfall: 0,
     });

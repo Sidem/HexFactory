@@ -6,8 +6,11 @@ import {
   heldQuantity,
   technologyAvailability,
 } from "../src/core/availability";
+import type { Technologies } from "../src/core/types";
 import definitionData from "../src/data/definitions.json";
-import technologies from "../src/data/technologies.json";
+import technologiesJson from "../src/data/technologies.json";
+
+const technologies = technologiesJson as unknown as Technologies;
 import { orderTechnologies, technologyContext } from "../src/ui/research";
 import {
   RESEARCH_ICON_KEYS,
@@ -182,6 +185,7 @@ describe("research presentation", () => {
       complete: false,
       prerequisitesMet: false,
       affordable: false,
+      purchasable: false,
       missingPrerequisites: [2],
       insightShortfall: 7,
     });

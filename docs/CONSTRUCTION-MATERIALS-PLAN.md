@@ -17,8 +17,9 @@ the progression design for this workstream; costs, unlocks and recipes must be d
 
 Delivery status: [Primitive Workshops](OPENING-FOUNDATION-RECORD.md) implements the recoverable
 furnace/workshop capability, stock and attended-job foundation, with initial rates and regression
-coverage. Slice 1 is not complete: essential bills, belt kits, commissions and timed standard
-opening comparisons remain. The diagnosis below records the pre-v0.26.0 starting point.
+coverage. v0.27/v0.28 price transport and essential stations in parts; v0.31 grants first
+automation from the opening commission. Slice 1 is not complete: remaining industrial bills
+are still raw material. The diagnosis below records the pre-v0.26.0 starting point.
 
 Turn a clearing into a place: compact a footpath, lay a gravel yard, pave a fast route between
 outposts, enclose a workshop, and eventually stack production floors with explicit belt lifts.
@@ -261,12 +262,26 @@ use a documented deterministic refund rule; never promise full refund and rubble
 material. Changes under a building are allowed only when its support, footprint, and stock remain
 valid. The tool must refuse an unsafe change without charging it.
 
-### Later delivery: real levelling and earthworks
+### Delivered alongside paving: real levelling and earthworks
 
-The user should eventually be able to choose a target grade and genuinely even the ground. This
-requires **native integer elevation**, slope and retaining rules, and revised movement and building
-legality. Do not infer it from Three.js terrain vertices. It follows the evidence gate in
-[Visual Depth](VISUAL-DEPTH-PLAN.md#decision-after-v025).
+**Priority raised 2026-08-27 at the user's direction.** Evening the ground is not a later delivery
+any more: it ships in the same slice as the surface treatments above, because both own walking
+speed, pathfinding cost, route invalidation and building legality, and doing them separately means
+rewriting that code twice and designing a road's grade transitions apart from its grades. The
+Visual Depth laptop evidence gate that used to hold this back was withdrawn with the laptop support
+target itself; the reference desktop is now the whole claim, so nothing external blocks native
+height.
+
+The user should be able to choose a target grade and genuinely even the ground. This requires
+**native integer elevation**, slope and retaining rules, and revised movement and building
+legality. Do not infer it from Three.js terrain vertices; see
+[Visual Depth](VISUAL-DEPTH-PLAN.md#decision-after-v025) for what the renderer does and does not
+already know. Elevation is a save, wire, checksum and building-legality migration — a bigger change
+than any surface treatment, and the reason this slice is the largest one in the plan.
+
+Raising this does **not** pull the vertical factory forward with it. Supported floors, stairs and
+belt lifts stay in their own later slice, because they need the steel beams and concrete this same
+phase is still learning to produce.
 
 Start with bounded cut/fill on dry land and foundations that provide level pads. A preview shows
 excavation, required fill, final grade, blocked edges, and affected structures before applying work.
@@ -309,6 +324,15 @@ clear. Roofs do not create walkable floors until the structural system exists.
 This is a separate, gated milestone after foundations, enclosure UX, and native layer semantics.
 Start with ground plus one usable upper floor; expand only after it is legible and measured. The
 purpose is a compact factory, not a voxel building editor or a structural-collapse simulator.
+
+**Stated goal, 2026-08-27:** the destination is a genuinely multi-level building — machines
+processing materials on several floors, with conveyor belts moving those materials both within a
+floor and between floors, inside one structure the player reads as a single works. That is the
+target this milestone builds toward, not the first release. Ground plus one floor with a working
+lift is still the first shippable step, and the bullets below are what it has to get right before
+a second floor is worth adding. A machine that occupies more than one level is a later extension of
+the same level-ID model: it reserves its footprint on every level it stands on, exposes its intake
+and output on named levels, and never acquires implicit connections to the cells above or below it.
 
 - **Logical levels:** extend position to an axial cell plus an explicit level ID. A cell on floor 1
   is not occupied by the machine at the same axial cell on floor 0. Foundation grade and floor index
@@ -363,22 +387,22 @@ improve construction; stored concrete/asphalt units are a stated game abstractio
 
 ## Delivery sequence and acceptance
 
-| Slice                          | Scope                                                                                                    | Must be demonstrated before shipping                                                                                                                                                                      |
-| ------------------------------ | -------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1. Recipe and opening audit    | Primitive furnace/workshop, credible essential bills, cheap batched belts, revised research and guidance | A fresh player can repeatedly reach belts, storage, power, extraction and assembly without circular dependencies or distant materials. Compare timed opening playtests and recorded balance before/after. |
-| 2. Paths and enclosure         | Compacted/gravel/timber paths, fences and gates, bounded surface tools                                   | Visible travel benefit; exact bills/refunds; native movement and route costs agree; edge occupancy and gate edits do not strand cargo or create phantom crossings. No real levelling claim yet.           |
-| 3. Masonry and foundations     | Limestone, cement, corrected concrete, brick/concrete walls and prepared pads                            | A complete oil-free construction branch with reachable supply; distinct foundation and wall roles; all new items priced and explained. Pads are not native terrain elevation.                             |
-| 4. Petroleum roads             | Well, small refinery, bitumen, asphalt, fuel consumer                                                    | Requires alternative/joint-output recipe work; whole chain runs, backs up safely and resumes; roads are attractive but not required to keep a factory operating.                                          |
-| 5. Native earthworks           | Integer grades, cut/fill, retaining and slope rules                                                      | Visual Depth evidence gate met; conserved earthwork; preview parity; explicit save/wire migration; water and occupied-site exclusions are clear.                                                          |
-| 6. Structural floors and lifts | Support classes, first upper floor, stairs, belt lifts, layer view                                       | Useful stacked factory with no hidden routing; load/removal validation; full cargo conservation; desktop and physical laptop readability/performance evidence.                                            |
+| Slice                          | Scope                                                                                                                                          | Must be demonstrated before shipping                                                                                                                                                                                                                                                                               |
+| ------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 1. Recipe and opening audit    | Primitive furnace/workshop, credible essential bills, cheap batched belts, revised research and guidance                                       | A fresh player can repeatedly reach belts, storage, power, extraction and assembly without circular dependencies or distant materials. Compare recorded balance before/after; the timed human playtest that used to sit beside it was withdrawn on 2026-08-27.                                                     |
+| 2. Ground works                | Compacted/gravel/timber paths, fences and gates, bounded surface tools, **and native integer grades with cut/fill, retaining and slope rules** | Visible travel benefit; exact bills/refunds; native movement and route costs agree; edge occupancy and gate edits do not strand cargo or create phantom crossings. Earthwork is conserved, preview matches commit, the save/wire/checksum migration is explicit, and water and occupied-site exclusions are clear. |
+| 3. Masonry and foundations     | Limestone, cement, corrected concrete, brick/concrete walls, prepared pads and the concrete surface                                            | A complete oil-free construction branch with reachable supply; distinct foundation and wall roles; all new items priced and explained. A pad sits on a grade rather than substituting for one.                                                                                                                     |
+| 4. Petroleum roads             | Well, small refinery, bitumen, asphalt, fuel consumer                                                                                          | Requires alternative/joint-output recipe work; whole chain runs, backs up safely and resumes; roads are attractive but not required to keep a factory operating.                                                                                                                                                   |
+| 5. Structural floors and lifts | Support classes, first upper floor, stairs, belt lifts, layer view                                                                             | Useful stacked factory with no hidden routing; load/removal validation; full cargo conservation; desktop readability and performance evidence at the recorded tier.                                                                                                                                                |
 
 Across these slices, use the [progression foundation](PROGRESSION-PLAN.md) for branch identities,
 stages, prerequisite groups, project rewards, separate player skills and later icon references.
 Adding material or construction nodes must also review the insight budget and guidance path.
 
 Slices are planning units, not release promises; their priority is now set by the roadmap's
-combined sequence. Masonry can proceed without oil. Earthworks and floors do not block the early
-recipe correction, but remain part of this workstream before the older roadmap resumes. Implement
+combined sequence. Masonry can proceed without oil. Earthworks no longer trail the workstream —
+they ship in slice 2 with the surfaces that share their code — while floors still do not block the
+early recipe correction and remain part of this workstream before the older roadmap resumes. Implement
 required multi-output costing here for later reuse by Living Lattice. Deliver useful limestone/oil
 sites and their access measurements with construction; the broader Regional Discovery system and
 ecological land-use consequences follow later. Optional extensions remain optional.
@@ -404,8 +428,10 @@ Extend existing tests and harnesses before inventing parallel ones:
   saves, world and wire deliberately. Update Rust/TypeScript wire fixtures together; never encode
   layer-plus-coordinate identities into an unsafe JavaScript number.
 - **Presentation:** preview/commit parity, protected deposits, wall apertures, active-floor picking,
-  readable travel benefit, undo feedback and keyboard/touch controls. Run a real opening playtest;
-  an arithmetic gather-time floor excludes walking, planning and placement.
+  readable travel benefit, undo feedback and keyboard/touch controls. Drive these in a real browser
+  session rather than asserting on source strings; the arithmetic gather-time floor still excludes
+  walking, planning and placement, and since the human playtest was withdrawn nothing else measures
+  those — say so plainly rather than implying the browser run covers feel.
 - **Scale:** record native and complete-browser measurements for large static paved areas, wall
   perimeters, edited support regions and vertical networks. Static construction must not add a
   per-cell host tick or a full-world scan to each frame. Make no capacity claim before committing

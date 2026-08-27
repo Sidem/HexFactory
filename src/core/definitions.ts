@@ -3,6 +3,8 @@ import type {
   Definitions,
   RecipeDefinition,
   Technologies,
+  TechnologyDefinition,
+  TechnologyEffect,
 } from "./types";
 
 /** Presentation mirror of native capability validation; never grants a recipe itself. */
@@ -417,19 +419,12 @@ export function validateTechnologies(
       !branches.has(technology.branch) ||
       !stages.has(technology.stage) ||
       !Array.isArray(technology.prerequisites) ||
-      !Array.isArray(technology.unlocks) ||
+      !Array.isArray(technology.effects) ||
       new Set(technology.prerequisites).size !==
         technology.prerequisites.length ||
-      new Set(technology.unlocks).size !== technology.unlocks.length ||
-      !positiveInteger(technology.cost) ||
-      (technology.carry_slots_bonus !== undefined &&
-        (!positiveInteger(technology.carry_slots_bonus) ||
-          technology.carry_slots_bonus > 240)) ||
-      (technology.build_range_bonus !== undefined &&
-        (!positiveInteger(technology.build_range_bonus) ||
-          technology.build_range_bonus > 96)) ||
+      !validGrant(technology) ||
       technology.prerequisites.some((id) => !ids.has(id)) ||
-      technology.unlocks.some((id) => !buildingIds.has(id))
+      !validEffects(technology.effects, buildingIds)
     )
       throw new TypeError(`technology ${technology.id} is invalid`);
     keys.add(technology.key);
@@ -449,6 +444,94 @@ export function validateTechnologies(
       !ids.has(building.unlock_technology_id)
     )
       throw new TypeError(`building ${building.id} has an invalid unlock`);
+}
+
+export function technologyPurchasable(
+  technology: TechnologyDefinition,
+): boolean {
+  return technology.grant?.kind !== "contract_stage";
+}
+
+export function technologyGrantLabel(
+  technology: TechnologyDefinition,
+): string | undefined {
+  return technology.grant?.kind === "contract_stage"
+    ? technology.grant.name
+    : undefined;
+}
+
+export function technologyBuildingUnlocks(
+  technology: TechnologyDefinition,
+): number[] {
+  return technology.effects.flatMap((effect) =>
+    effect.kind === "unlock_building" ? [effect.building_id] : [],
+  );
+}
+
+export function technologyCarrySlotsBonus(
+  technology: TechnologyDefinition,
+): number {
+  return technology.effects.reduce(
+    (total, effect) =>
+      effect.kind === "carry_slots" ? total + effect.amount : total,
+    0,
+  );
+}
+
+export function technologyBuildRangeBonus(
+  technology: TechnologyDefinition,
+): number {
+  return technology.effects.reduce(
+    (total, effect) =>
+      effect.kind === "build_range" ? total + effect.amount : total,
+    0,
+  );
+}
+
+function validGrant(technology: TechnologyDefinition): boolean {
+  const grant = technology.grant;
+  if (grant === undefined || grant.kind === "purchase")
+    return positiveInteger(technology.cost);
+  if (grant.kind !== "contract_stage") return false;
+  return (
+    technology.cost === 0 &&
+    /^[a-z][a-z0-9-]*$/.test(grant.key) &&
+    grant.name.trim().length > 0
+  );
+}
+
+function validEffects(
+  effects: TechnologyEffect[],
+  buildingIds: Set<number>,
+): boolean {
+  const buildings = new Set<number>();
+  let carry = false;
+  let range = false;
+  for (const effect of effects) {
+    if (effect.kind === "unlock_building") {
+      if (
+        !buildingIds.has(effect.building_id) ||
+        buildings.has(effect.building_id)
+      )
+        return false;
+      buildings.add(effect.building_id);
+      continue;
+    }
+    if (effect.kind === "carry_slots") {
+      if (carry || !positiveInteger(effect.amount) || effect.amount > 240)
+        return false;
+      carry = true;
+      continue;
+    }
+    if (effect.kind === "build_range") {
+      if (range || !positiveInteger(effect.amount) || effect.amount > 96)
+        return false;
+      range = true;
+      continue;
+    }
+    return false;
+  }
+  return true;
 }
 
 function uniqueIds(values: Array<{ id: number }>, label: string): void {

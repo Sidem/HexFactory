@@ -1,4 +1,9 @@
-import type { TechnologyDefinition } from "../../core/types";
+import {
+  technologyBuildingUnlocks,
+  technologyBuildRangeBonus,
+  technologyCarrySlotsBonus,
+} from "../../core/definitions";
+import type { TechnologyDefinition, TechnologyEffect } from "../../core/types";
 import type { AdminStore } from "../state";
 import { showToast } from "../toast";
 
@@ -48,7 +53,7 @@ export function renderTechnologiesView(
       stage: store.technologies.stages[0]!.key,
       prerequisites: [],
       cost: 5,
-      unlocks: [],
+      effects: [],
     };
     store.setEditingTarget({ type: "technology", data: newTech, isNew: true });
   };
@@ -60,7 +65,7 @@ export function renderTechnologiesView(
   const query = store.searchQuery.toLowerCase();
   const filteredTechs = store.technologies.technologies.filter((t) => {
     if (query) {
-      const unlockNames = t.unlocks
+      const unlockNames = technologyBuildingUnlocks(t)
         .map((uid) => buildingMap.get(uid)?.name ?? "")
         .join(" ");
       const matchText =
@@ -127,8 +132,8 @@ export function renderTechnologiesView(
           <span class="tech-link-label">Unlocks Buildings:</span>
           <div class="tech-badge-list">
             ${
-              tech.unlocks.length > 0
-                ? tech.unlocks
+              technologyBuildingUnlocks(tech).length > 0
+                ? technologyBuildingUnlocks(tech)
                     .map((bid) => {
                       const bld = buildingMap.get(bid);
                       return `<span class="tech-unlock-pill">🏗 ${bld?.name ?? `#${bid}`}</span>`;
@@ -142,13 +147,13 @@ export function renderTechnologiesView(
           <span class="tech-link-label">Player Bonuses:</span>
           <div class="tech-badge-list">
             ${
-              tech.carry_slots_bonus || tech.build_range_bonus
+              technologyCarrySlotsBonus(tech) || technologyBuildRangeBonus(tech)
                 ? [
-                    tech.carry_slots_bonus
-                      ? `+${tech.carry_slots_bonus} cargo slots`
+                    technologyCarrySlotsBonus(tech)
+                      ? `+${technologyCarrySlotsBonus(tech)} cargo slots`
                       : "",
-                    tech.build_range_bonus
-                      ? `+${tech.build_range_bonus} hex build range`
+                    technologyBuildRangeBonus(tech)
+                      ? `+${technologyBuildRangeBonus(tech)} hex build range`
                       : "",
                   ]
                     .filter(Boolean)
@@ -238,7 +243,7 @@ function renderTechnologyModal(
           </label>
           <label>
             <span>Insight Cost *</span>
-            <input type="number" name="cost" value="${currentTech.cost}" min="1" required />
+            <input type="number" name="cost" value="${currentTech.cost}" min="0" required />
           </label>
         </div>
 
@@ -252,11 +257,11 @@ function renderTechnologyModal(
         <div class="form-row form-row-2">
           <label>
             <span>Cargo Slot Bonus</span>
-            <input type="number" name="carry_slots_bonus" value="${currentTech.carry_slots_bonus ?? 0}" min="0" max="240" />
+            <input type="number" name="carry_slots_bonus" value="${technologyCarrySlotsBonus(currentTech)}" min="0" max="240" />
           </label>
           <label>
             <span>Build Range Bonus (hexes)</span>
-            <input type="number" name="build_range_bonus" value="${currentTech.build_range_bonus ?? 0}" min="0" max="96" />
+            <input type="number" name="build_range_bonus" value="${technologyBuildRangeBonus(currentTech)}" min="0" max="96" />
           </label>
         </div>
 
@@ -283,7 +288,9 @@ function renderTechnologyModal(
           <div class="multi-select-grid" id="unlocks-select-grid">
             ${store.definitions.buildings
               .map((b) => {
-                const checked = currentTech.unlocks.includes(b.id);
+                const checked = technologyBuildingUnlocks(currentTech).includes(
+                  b.id,
+                );
                 return `
                   <label class="multi-select-item">
                     <input type="checkbox" name="unlock_${b.id}" value="${b.id}" ${checked ? "checked" : ""} />
@@ -367,6 +374,14 @@ function renderTechnologyModal(
         unlocks.push(b.id);
       }
     });
+    const effects: TechnologyEffect[] = unlocks.map((building_id) => ({
+      kind: "unlock_building",
+      building_id,
+    }));
+    if (carrySlotsBonus > 0)
+      effects.push({ kind: "carry_slots", amount: carrySlotsBonus });
+    if (buildRangeBonus > 0)
+      effects.push({ kind: "build_range", amount: buildRangeBonus });
 
     const updated: TechnologyDefinition = {
       id,
@@ -377,9 +392,8 @@ function renderTechnologyModal(
       stage: String(formData.get("stage")),
       prerequisites,
       cost,
-      unlocks,
-      ...(carrySlotsBonus > 0 ? { carry_slots_bonus: carrySlotsBonus } : {}),
-      ...(buildRangeBonus > 0 ? { build_range_bonus: buildRangeBonus } : {}),
+      effects,
+      ...(currentTech.grant ? { grant: currentTech.grant } : {}),
     };
 
     store.saveTechnology(updated);

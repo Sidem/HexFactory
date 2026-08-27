@@ -5,6 +5,7 @@ import type {
   TechnologyDefinition,
 } from "../core/types";
 import { technologyAvailability } from "../core/availability";
+import { technologyGrantLabel } from "../core/definitions";
 import {
   researchBranchColor,
   researchIconSvg,
@@ -189,6 +190,7 @@ export class ResearchTree {
       if (
         !state.known ||
         state.complete ||
+        !state.purchasable ||
         !state.prerequisitesMet ||
         !state.affordable
       )
@@ -331,7 +333,7 @@ export class ResearchTree {
         ? "unknown"
         : state.complete
           ? "complete"
-          : !state.prerequisitesMet
+          : !state.prerequisitesMet || !state.purchasable
             ? "locked"
             : state.affordable
               ? "ready"
@@ -344,7 +346,7 @@ export class ResearchTree {
           : "";
       button.setAttribute(
         "aria-label",
-        `${tech.name}. ${tech.cost} insight. ${status}. Select for details.`,
+        `${tech.name}. ${state.purchasable ? `${tech.cost} insight` : `Granted by ${technologyGrantLabel(tech)}`}. ${status}. Select for details.`,
       );
     }
     this.filter();
@@ -359,11 +361,13 @@ export class ResearchTree {
       ? "Status unavailable"
       : state.complete
         ? "✓ Researched"
-        : !state.prerequisitesMet
-          ? "Locked"
-          : state.affordable
-            ? "Ready to research"
-            : `Need ${state.insightShortfall} more insight`;
+        : !state.purchasable
+          ? `Complete ${technologyGrantLabel(tech) ?? "the hub commission"}`
+          : !state.prerequisitesMet
+            ? "Locked"
+            : state.affordable
+              ? "Ready to research"
+              : `Need ${state.insightShortfall} more insight`;
   }
 
   private filter(reveal = false): void {
@@ -498,9 +502,14 @@ export class ResearchTree {
       .map((value) => value.id);
     links(part(this.details, ".research-next"), next);
     part(this.details, ".research-next-section").hidden = !next.length;
-    part(this.details, ".research-cost").textContent = `${tech.cost} insight`;
+    const grant = technologyGrantLabel(tech);
+    part(this.details, ".research-cost").textContent = state.purchasable
+      ? `${tech.cost} insight`
+      : grant
+        ? `Granted by ${grant}`
+        : "Hub commission";
     part(this.details, ".research-wallet").textContent =
-      `You have ${this.snapshot.insight}${state.affordable && !state.complete ? ` · ${this.snapshot.insight - tech.cost} after` : ""}`;
+      `You have ${this.snapshot.insight}${state.purchasable && state.affordable && !state.complete ? ` · ${this.snapshot.insight - tech.cost} after` : ""}`;
     const missing = state.missingPrerequisites.map(
       (id) => this.technologies.get(id)?.name ?? `#${id}`,
     );
@@ -508,15 +517,18 @@ export class ResearchTree {
       ? "This capability is available in your factory."
       : !state.known
         ? "Waiting for native research status."
-        : missing.length
-          ? `Requires ${missing.join(" and ")}.${state.insightShortfall ? ` Also need ${state.insightShortfall} more insight.` : ""}`
-          : !state.affordable
-            ? `Earn ${state.insightShortfall} more insight by completing hub jobs.`
-            : `Unlock this capability for ${tech.cost} insight.`;
+        : !state.purchasable
+          ? `The landing hub grants this when you complete ${grant ?? "the opening commission"}. It cannot be bought with insight.`
+          : missing.length
+            ? `Requires ${missing.join(" and ")}.${state.insightShortfall ? ` Also need ${state.insightShortfall} more insight.` : ""}`
+            : !state.affordable
+              ? `Earn ${state.insightShortfall} more insight by completing hub jobs.`
+              : `Unlock this capability for ${tech.cost} insight.`;
     this.purchase.disabled =
       this.pending !== null ||
       !state.known ||
       state.complete ||
+      !state.purchasable ||
       !state.prerequisitesMet ||
       !state.affordable;
     this.purchase.textContent =
@@ -524,7 +536,9 @@ export class ResearchTree {
         ? "Researching…"
         : state.complete
           ? "✓ Researched"
-          : `Research · ${tech.cost} insight`;
+          : !state.purchasable
+            ? `Complete ${grant ?? "the commission"}`
+            : `Research · ${tech.cost} insight`;
   }
 
   private showTooltip(id: number): void {
@@ -537,8 +551,12 @@ export class ResearchTree {
       tech.description;
     part(this.tooltip, ".research-tooltip-benefits").textContent =
       researchBenefits(tech, this.definitions).join(" · ");
-    part(this.tooltip, ".research-tooltip-cost").textContent =
-      `${tech.cost} insight · ${this.status(tech)}`;
+    const purchasable = this.snapshot
+      ? technologyAvailability(tech, this.snapshot).purchasable
+      : true;
+    part(this.tooltip, ".research-tooltip-cost").textContent = purchasable
+      ? `${tech.cost} insight · ${this.status(tech)}`
+      : `${technologyGrantLabel(tech) ?? "Hub commission"} · ${this.status(tech)}`;
     const prerequisites = tech.prerequisites.map(
       (parent) => this.technologies.get(parent)!.name,
     );

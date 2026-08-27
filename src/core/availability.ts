@@ -4,6 +4,7 @@ import type {
   ItemDefinition,
   TechnologyDefinition,
 } from "./types";
+import { technologyPurchasable } from "./definitions";
 
 /**
  * One line of a cost, with what the player holds against it.
@@ -111,6 +112,7 @@ export function technologyAvailability(
   complete: boolean;
   prerequisitesMet: boolean;
   affordable: boolean;
+  purchasable: boolean;
   missingPrerequisites: number[];
   insightShortfall: number;
 } {
@@ -118,12 +120,14 @@ export function technologyAvailability(
     (row) => row.technology_id === technology.id,
   );
   // Missing status fails closed. Never substitute host purchase rules for a native answer.
+  // Grant-only nodes are catalog data both sides already validated; native still owns complete.
   return {
     known: native !== undefined,
     complete: native?.complete ?? false,
     prerequisitesMet:
       native !== undefined && native.missing_prerequisites.length === 0,
     affordable: native !== undefined && native.insight_shortfall === 0,
+    purchasable: technologyPurchasable(technology),
     missingPrerequisites: native?.missing_prerequisites ?? [],
     insightShortfall: native?.insight_shortfall ?? 0,
   };

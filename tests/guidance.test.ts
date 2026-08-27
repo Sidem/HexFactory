@@ -305,6 +305,10 @@ describe("guidance derived from the rules rather than scripted against them", ()
         );
         if (!outstanding) {
           state.stage += 1;
+          if (state.stage === 1) {
+            for (const id of [1, 2, 4, 8]) researched.add(id);
+            state.researched = [...researched];
+          }
           state.delivered = {};
         }
         state.inventory = { ...state.inventory, [String(line.item_id)]: 4 };
@@ -317,14 +321,20 @@ describe("guidance derived from the rules rather than scripted against them", ()
 
     // The walk has to actually finish the contract, or the loop above proved nothing.
     expect(seen).toContain("complete");
-    // And it has to have gone through power before any machine that draws it. On-site Power is
-    // not any recipe's category, so nothing but a deliberate rule puts it in the chain at all.
-    const power = seen.indexOf("research:on-site-power");
-    const composer = seen.indexOf("build:kiln");
-    expect(power).toBeGreaterThanOrEqual(0);
-    expect(composer).toBeGreaterThan(power);
+    // Starter automation is granted by the opening commission, so the walk must not tell the
+    // player to buy belts, extractors or power. Industrial firing still costs insight.
+    expect(seen.some((key) => key.startsWith("research:on-site-power"))).toBe(
+      false,
+    );
+    expect(seen.some((key) => key.startsWith("research:field-logistics"))).toBe(
+      false,
+    );
+    const processing = seen.indexOf("research:material-processing");
+    const kiln = seen.indexOf("build:kiln");
+    expect(processing).toBeGreaterThanOrEqual(0);
+    expect(kiln).toBeGreaterThan(processing);
     expect(seen[0]).toBe("build:manual-workshop");
-    expect(seen.indexOf("workshop")).toBeLessThan(power);
+    expect(seen.indexOf("workshop")).toBeLessThan(processing);
   });
 
   it("names one posted request, with its price, rather than the accounting behind it", () => {
@@ -333,7 +343,7 @@ describe("guidance derived from the rules rather than scripted against them", ()
     const opening = nextAction(
       snapshotAt({
         stage: 1,
-        researched: [],
+        researched: [1, 2, 4, 8],
         insight: 0,
         inventory: {},
         buildings: [],
@@ -349,7 +359,7 @@ describe("guidance derived from the rules rather than scripted against them", ()
     const carrying = nextAction(
       snapshotAt({
         stage: 1,
-        researched: [],
+        researched: [1, 2, 4, 8],
         insight: 0,
         inventory: { "1": 10 },
         buildings: [],

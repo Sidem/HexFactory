@@ -49,14 +49,15 @@ This is permanent and is not a scope item.
 
 ## Where the project stands
 
-The engine arc, the generator arc, and the shipped milestones through **v0.30.0 Research Atlas** are
+The engine arc, the generator arc, and the shipped milestones through **v0.31.0 Foundation Commissions** are
 present in this tree. A run today looks like this: land beside a hub in a world chosen by preset
 or by raw parameters, walk out under fog across rivers and coastline — on the keys, or by
 **clicking a selected hex a second time** and watching the route native found — find **fields** of
 eight raw
 materials rather than scattered cells, cross rivers on **bridges**, gather from forests that visibly
 thin and regrow, fill the hub's posted **requests** for insight and
-its staged founding **contract** for hub growth, research a nineteen-technology tree, and build a
+its staged founding **contract** for hub growth — completing Prove the line grants belts, storage,
+extractors and on-site power — research the remaining technologies, and build a
 powered, automated line of buildings and fourteen recipes across five machine categories — including
 belt lines that **split**, **merge**, climb the two-row period on the same belt definition once it is
 researched, and **pass under** the lanes they cross.
@@ -69,17 +70,19 @@ catalog shows which one moved rather than hiding the row:
 
 | Envelope              | Version |
 | --------------------- | ------: |
-| `HXF1` save           |      22 |
+| `HXF1` save           |      23 |
 | Definitions           |      18 |
-| Technologies          |      10 |
-| Scenarios             |       5 |
+| Technologies          |      11 |
+| Scenarios             |       6 |
 | World generator       |       8 |
 | Wire (snapshot delta) |      13 |
 
 **Current measured capacity.** At 6,144 entities the complete Three.js browser frame is 27.4% of
 60 Hz on Low, 25.1% on Medium, and 21.7% on High on the reference desktop at 1440×900/DPR 1.
 Generation costs at most 1.42 µs per hex on the v0.21 site lattice, against 0.52 µs for the model it
-replaced on the same harness. Physical integrated-GPU qualification is not yet available. See
+replaced on the same harness. **The reference desktop is the support target**, decided 2026-08-27:
+integrated-GPU laptops are no longer a supported configuration, and the Iris Xe / AMD Vega-class
+qualification run that was outstanding is withdrawn rather than pending. See
 `docs/BENCHMARKS.md`; no claim beyond a recorded tier or machine is supported.
 
 **The shipped ledger is at the bottom of this document**, one line per release. Read it for what
@@ -96,19 +99,29 @@ movement factors and other tuning hypotheses still require their stated validati
 
 Work through this combined sequence, using the detailed acceptance gates in both plans:
 
-| Order | Work                                                      | Dependency and scope                                                                                                                                                                                             |
-| ----- | --------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1     | Opening, recipes and progression foundations              | Time the current opening; audit bills, rewards and prerequisites; build the repeatable primitive manufacturing path and expandable progression definitions. Keep essentials accessible.                          |
-| 2     | Research map, insight projects and separate player skills | Stage the discipline branches visually; replace repeat-income farming with reachable projects; migrate cargo/reach to skill points. Ship replacement income and guidance before reward cuts. Reserve icon slots. |
-| 3     | Construction materials, paths and enclosures              | Timber, gravel, masonry, cement/concrete, useful shaped metal, fences, gates, walls and surface movement benefits. Use the new research branches.                                                                |
-| 4     | Oil, bitumen and asphalt                                  | Deliver the useful petroleum-to-road chain. Pull shared alternative-recipe and joint-output costing/stock work forward here; do not wait for Living Lattice.                                                     |
-| 5     | Native levelling, supported floors and belt lifts         | Meet the native height, support, save/wire, picking and physical laptop evidence gates. Start with the bounded earthworks and first upper floor described in the construction plan.                              |
-| 6     | Icon pass and integrated validation                       | Generate/review the planned UI icon families after the visual contract is stable, and finish opening, migration, accessibility and measured-performance acceptance across the workstream.                        |
+| Order | Work                                                      | Dependency and scope                                                                                                                                                                                                                                |
+| ----- | --------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1     | Opening, recipes and progression foundations              | Audit bills, rewards and prerequisites; build the repeatable primitive manufacturing path and expandable progression definitions. Keep essentials accessible. The timed opening measurement that used to head this row was withdrawn on 2026-08-27. |
+| 2     | Research map, insight projects and separate player skills | Stage the discipline branches visually; replace repeat-income farming with reachable projects; migrate cargo/reach to skill points. Ship replacement income and guidance before reward cuts. Reserve icon slots.                                    |
+| 3     | Construction materials, ground works and enclosures       | Timber, gravel, masonry, cement/concrete, useful shaped metal, fences, gates and walls — **and native integer elevation with bounded cut and fill**, delivered with the surface treatments. Use the new research branches.                          |
+| 4     | Oil, bitumen and asphalt                                  | Deliver the useful petroleum-to-road chain. Pull shared alternative-recipe and joint-output costing/stock work forward here; do not wait for Living Lattice.                                                                                        |
+| 5     | Supported floors and vertical transport                   | Support classes, the first upper floor, stairs, belt lifts and a layer view, standing on phase 3's grades. Multi-floor machines and belts that move material within and between floors are the intent this builds toward.                           |
+| 6     | Icon pass and integrated validation                       | Generate/review the planned UI icon families after the visual contract is stable, and finish opening, migration, accessibility and measured-performance acceptance across the workstream.                                                           |
 
 These are delivery phases, not a single giant release. Icons come later within this workstream,
 not before the foundations. Explicitly optional extensions in either plan remain optional; this
 priority does not pull in underground strata, full fluid simulation, every chemical candidate or
 every future skill merely because the plans mention them.
+
+**Priority raise, 2026-08-27: evening the ground moves up.** Native integer elevation and bounded
+cut/fill were the back half of a phase 5 that also carried floors and lifts, and they were gated on
+laptop evidence that no longer applies. They now ship inside phase 3, paired with the surface
+treatments, because both own the same code: walking speed, pathfinding cost, route invalidation and
+building legality get rewritten once instead of twice, and a road's grade transitions are designed
+beside the grades themselves. Floors, stairs and belt lifts deliberately did **not** move with them —
+they need the steel beams and concrete that phase 3 is still producing, so they become phase 5 on
+their own. Elevation is a save, wire and building-legality migration; it is not a licence to start
+the vertical factory early.
 
 **Phase 1 delivery: v0.26.0 Primitive Workshops.** Baseline fuel-fired smelting and an attended
 manual workshop now provide a repeatable local route to plates, timber, gears, frames and the
@@ -143,11 +156,17 @@ are ordered by stage and discipline, and both cards and guidance consume the nat
 availability answer. Save 21 preserves existing state and checksum; the save picker now recognizes
 every released migration from save 14 onward. See [the research foundations record](RESEARCH-FOUNDATIONS-RECORD.md).
 
-Phase 1 remains active: next are foundation commissions, typed progression requirements/effects, and
-the timed human opening comparison — the last of which this delivery makes overdue, since the
-opening's cost moved and only a person can say whether it moved the right way. The industrial bills
-below the smelter are still raw material. Do not treat these additive releases as completion of
-either plan or move on to paths, oil, or floors yet.
+**Phase 1 delivery: v0.31.0 Foundation Commissions.** Completing Prove the line grants Field
+Logistics, Automated Extraction, Storage Planning and On-site Power. Those four are no longer
+insight purchases. Technology effects are a typed native list. Save 23 / technologies 11 /
+scenarios 6 migrate a finished opening commission forward without refunding insight. See
+[the commissions record](FOUNDATION-COMMISSIONS-RECORD.md).
+
+Phase 1 remains active: the industrial bills below the smelter are still raw material. The timed human opening comparison
+that used to sit alongside them was **withdrawn on 2026-08-27 by user decision**; the opening's cost
+now stands on `fixtures/balance.json` and the before/after arithmetic recorded in each release
+record, with no person's clock owed against it. Do not treat these additive releases as completion
+of either plan or move on to ground works, oil, or floors yet.
 
 **Only afterward:** Living Lattice, then Regional Discovery, then the remaining longer horizon.
 Their former v0.26/v0.27 reservations are withdrawn; assign new version numbers when release
@@ -185,30 +204,28 @@ a pole span a distance no player can see.
 
 ### Open, unassigned to a milestone
 
-- **A timed keyboard-and-pointer playtest of the opening, done by a person.** Owed since v0.18 and
-  still outstanding. v0.25 exercised real browser walking, gathering, the cooldown, construction,
-  and panel flows, but it did not replace a person's timed feel test. `fixtures/balance.json`
-  predicts the material work (32 gathers to
-  contract stage one, 97 to stage two, a 65-second combined hand floor) and says nothing about
-  walking, choosing, or placing. A number from a person outranks every number in that file. A first
-  casual report arrived on 2026-08-25 at 10 tps and reached stage one at a reported 21:25.3, with
-  15:00.6 between the powered composer and delivery. It loaded a save, so the clock missed part of
-  the run and even recorded two checkpoints out of elapsed-time order; it is directional evidence,
-  not the clean opening measurement that closes this item. The same session found that players can
-  accidentally pause and then read the stopped factory as a failure, so player pause, single-step,
-  and variable simulation speed were removed and the game rate fixed at 10 tps.
-- **Visual Depth lacks physical integrated-GPU qualification.** Low, Medium, and High are recorded
-  on the reference desktop, but the Iris Xe / AMD Vega-class-or-weaker laptop gate was not available
-  and no laptop support claim may be inferred from the desktop ladder.
+**Withdrawn on 2026-08-27 by user decision.** Recorded rather than deleted, so neither returns as a
+surprise gate and nobody re-derives them from an older revision:
+
+- _A timed keyboard-and-pointer playtest of the opening, done by a person._ Owed since v0.18 and
+  never delivered. `fixtures/balance.json` predicts the material work (32 gathers to contract stage
+  one, 97 to stage two, a 65-second combined hand floor) and says nothing about walking, choosing,
+  or placing; a casual report on 2026-08-25 reached stage one at a reported 21:25.3 but loaded a
+  save mid-run and recorded two checkpoints out of elapsed-time order. The opening is now taken as
+  in order, and the same withdrawal covers the companion item that the opening had not been walked
+  since the nearest guaranteed patch moved nine hexes out. What that session found is already
+  shipped and stays shipped: players read an accidentally paused factory as a failure, so player
+  pause, single-step and variable simulation speed were removed and the rate fixed at 10 tps.
+- _Physical integrated-GPU qualification for Visual Depth._ Withdrawn along with the laptop support
+  target itself. Low, Medium and High on the reference desktop are the whole performance claim, and
+  no phase waits on an Iris Xe / AMD Vega-class run any more.
+
+Still open:
+
 - **Belts on field cells stay legal, but paving a crystal field without reading it first should
   not.** The [construction brief](CONSTRUCTION-MATERIALS-PLAN.md#preparing-and-paving-the-ground)
   assigns deposit warnings, explicit cover confirmation and conserved remaining deposits to the
   surface tool. This remains planned, not an existing protection.
-- **The opening has not been walked since it stopped being a supermarket.** Every material used to
-  be inside the clearing; now the nearest guaranteed patch is nine hexes out, coal and stone and
-  clay are fifteen to twenty-five, and copper is twenty-five to forty. `fixtures/balance.json`
-  prices the gathers and says nothing about the walking. This is the same debt as the playtest item
-  above, and v0.21 made it bigger rather than smaller.
 - **The header `Establish component production 0 / 3` never explained the 3.** Largely answered by
   v0.18's contract bill and v0.20.1's item chips; confirm in a real session before closing it.
 
@@ -249,7 +266,7 @@ rather than a generator; its scheduling now follows the priority decision above.
 ## Shipped brief — Earned Insight v0.23
 
 Historical design brief: the figures and acceptance intentions below are not a current economy
-audit. The [2026-08-27 progression review](PROGRESSION-PLAN.md) records 19 entries costing 153 insight,
+audit. The [2026-08-27 progression review](PROGRESSION-PLAN.md) records 19 entries costing 137 purchasable insight,
 repeating raw payouts, and processed requests that retain their full reward. The current native
 raw-cycle test covers one cycle, not an unlimited-income bound. Use that review for the next redesign.
 
@@ -397,11 +414,10 @@ collapse into one solved blueprint.
 Rust/Wasm still owns every ecological tick. Use sparse scheduled populations or active fronts, not a
 JavaScript cell loop and not HexLife source imports.
 
-**Four things it should know before it starts**, all handed over by earlier milestones rather than
-invented here:
+**Three things it should know before it starts**, all handed over by earlier milestones rather than
+invented here. A fourth used to head this list — play and time the opening by hand first — and it
+was withdrawn on 2026-08-27 with the rest of that debt; ecology no longer waits on it:
 
-- **Play the opening first, with hands, and time it.** See the open items above — this playtest has
-  been owed since v0.18 and no system should be added before it.
 - **Reuse the recipe and joint-output foundation delivered by construction.** Today's
   `Economy::recipe_for` still asserts one recipe per item; the
   [construction brief](CONSTRUCTION-MATERIALS-PLAN.md#several-production-routes-require-honest-costing)
@@ -512,6 +528,7 @@ both test suites say so.
 One line per release, newest first. The reasoning behind a shipped rule lives in the git history of
 this file and in the code that implements it; what follows is the index.
 
+- **v0.31.0** Foundation Commissions — Completing the first founding stage grants belts, storage, extractors and on-site power. Those four technologies are grant-only, with typed effects replacing ad-hoc unlock and bonus fields. Save 23 advances technology 10 to 11 and scenario 5 to 6; a factory already past Prove the line receives the grants. Insight prices of later nodes are unchanged. [Verification record](FOUNDATION-COMMISSIONS-RECORD.md).
 - **v0.30.0** Research Atlas — Large central technology tree with all 19 SVG emblems, prerequisite
   lines and selected ancestry, hover/focus details, deliberate purchases, search, discipline and
   in-reach filters, pan/zoom and keyboard navigation. Four independent starting technologies

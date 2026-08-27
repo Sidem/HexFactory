@@ -12,18 +12,20 @@ change. The next milestones live in `docs/HEXFACTORY-PLAN.md`, architecture deci
 
 ## Where things stand
 
-Shipped through **v0.26.0 Primitive Workshops**. Current envelope versions,
-all five of which native refuses a load on: **save 18, definitions 16, technologies 8, scenarios 5,
-world generator 8**, and wire (snapshot delta) **12**. `SAVE_VERSION` is the one literal in the host,
+Shipped through **v0.31.0 Foundation Commissions**. Current envelope versions,
+all five of which native refuses a load on: **save 23, definitions 18, technologies 11, scenarios 6,
+world generator 8**, and wire (snapshot delta) **13**. `SAVE_VERSION` is the one literal in the host,
 because native does not publish it; every other number the browser's save catalog shows is read from
 what native publishes.
 
 **What to pick up next** is the progression and construction workstream in
 `docs/HEXFACTORY-PLAN.md#what-to-do-next`, detailed in `docs/PROGRESSION-PLAN.md` and
 `docs/CONSTRUCTION-MATERIALS-PLAN.md`. It precedes Living Lattice, Regional Discovery and other
-roadmap features. Visual Depth is shipped as a measured, presentation-only Three.js renderer;
-physical integrated-GPU laptop qualification remains required evidence for the planned native
-height work, not a support claim that has already been met.
+roadmap features. Visual Depth is shipped as a measured, presentation-only Three.js renderer, and
+the reference desktop is the support target: integrated-GPU laptop qualification was withdrawn on
+2026-08-27, so it is no longer required evidence for anything. Native integer height is
+consequently unblocked and has moved up into construction's ground-works slice — treat it as a
+save, wire, checksum and building-legality migration, not a rendering change.
 
 Before changing a cost, a cadence, or a power figure, run `npm run balance` and read
 `fixtures/balance.json`. Before touching `src/rendering/buildingLook.ts` or the shape grammar, read

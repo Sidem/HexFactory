@@ -61,6 +61,10 @@ pub(super) fn migrate<'a>(json: &'a str, target_version: u16) -> Result<Cow<'a, 
         research_branches_21_to_22(&mut value);
         version = 22;
     }
+    if version == 22 && target_version >= 23 {
+        foundation_commissions_22_to_23(&mut value);
+        version = 23;
+    }
 
     if version == target_version {
         return Ok(Cow::Owned(serde_json::to_string(&value).map_err(
@@ -70,6 +74,44 @@ pub(super) fn migrate<'a>(json: &'a str, target_version: u16) -> Result<Cow<'a, 
     Err(format!(
         "no migration path from save version {version} to {target_version}"
     ))
+}
+
+/// Foundation commissions: technology catalog 11 makes the four starter automation nodes
+/// grant-only. A factory that already finished Prove the line receives those four IDs if they
+/// were missing; insight is not refunded or charged. Stage-zero factories are unchanged.
+fn foundation_commissions_22_to_23(value: &mut Value) {
+    let Some(object) = value.as_object_mut() else {
+        return;
+    };
+    object.insert("save_version".into(), Value::from(23));
+    if object.get("technology_version") == Some(&Value::from(10)) {
+        object.insert("technology_version".into(), Value::from(11));
+    }
+    if object.get("scenario_version") == Some(&Value::from(5)) {
+        object.insert("scenario_version".into(), Value::from(6));
+    }
+    let Some(state) = object.get_mut("state").and_then(Value::as_object_mut) else {
+        return;
+    };
+    let stage = state
+        .get("contract_stage")
+        .and_then(Value::as_u64)
+        .unwrap_or(0);
+    if stage < 1 {
+        return;
+    }
+    let mut researched: std::collections::BTreeSet<u64> = state
+        .get("researched")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_u64)
+        .collect();
+    researched.extend([1, 2, 4, 8]);
+    state.insert(
+        "researched".into(),
+        Value::Array(researched.into_iter().map(Value::from).collect()),
+    );
 }
 
 /// Independent entry points remove three prerequisite edges without granting or revoking
@@ -275,6 +317,31 @@ mod tests {
         assert_eq!(value["save_version"], 20);
         assert_eq!(value["definition_version"], 18);
         assert_eq!(value["technology_version"], 8);
+    }
+
+    #[test]
+    fn version_twenty_two_grants_foundation_automation_after_the_opening_commission() {
+        let json = r#"{"save_version":22,"technology_version":10,"scenario_version":5,"state":{"contract_stage":1,"researched":[3],"insight":12}}"#;
+        let migrated = migrate(json, 23).expect("migrated save");
+        let value: Value = serde_json::from_str(&migrated).expect("migrated json");
+        assert_eq!(value["save_version"], 23);
+        assert_eq!(value["technology_version"], 11);
+        assert_eq!(value["scenario_version"], 6);
+        assert_eq!(value["state"]["insight"], 12);
+        assert_eq!(
+            value["state"]["researched"],
+            serde_json::json!([1, 2, 3, 4, 8])
+        );
+    }
+
+    #[test]
+    fn version_twenty_two_leaves_a_stage_zero_factory_unresearched() {
+        let json = r#"{"save_version":22,"technology_version":10,"scenario_version":5,"state":{"contract_stage":0,"researched":[],"insight":4}}"#;
+        let migrated = migrate(json, 23).expect("migrated save");
+        let value: Value = serde_json::from_str(&migrated).expect("migrated json");
+        assert_eq!(value["save_version"], 23);
+        assert_eq!(value["state"]["researched"], serde_json::json!([]));
+        assert_eq!(value["state"]["insight"], 4);
     }
 
     #[test]

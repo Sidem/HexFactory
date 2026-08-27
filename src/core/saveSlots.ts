@@ -14,9 +14,10 @@
  * v17 advances technology catalog 7 to 8 for the two new, initially unresearched player-capability
  * rows; the old player values and checksum remain unchanged.
  * v18 adds two primitive station definitions; the v17 state and checksum pass through unchanged.
+ * v23 grants the four starter automation technologies when Prove the line is already complete.
  */
 
-export const SAVE_VERSION = 22;
+export const SAVE_VERSION = 23;
 export const SAVE_CATALOG_KEY = "hexfactory:saves:v1";
 export const LEGACY_SAVE_PREFIX = "hexfactory:hxf1:";
 export const HXF1_PREFIX = "HXF1\n";
@@ -177,6 +178,7 @@ export function compatibility(
     [20, 18, 8],
     [21, 18, 9],
     [22, 18, 10],
+    [23, 18, 11],
   ];
   const from = released.findIndex(
     ([save, definitions, technology]) =>

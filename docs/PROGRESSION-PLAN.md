@@ -11,14 +11,14 @@ Their old v0.26/v0.27 reservations are withdrawn. Tuning proposals and validatio
 **Delivery status:** v0.26.0 [Primitive Workshops](OPENING-FOUNDATION-RECORD.md) supplies baseline
 manufacturing and recovery; v0.27/v0.28 price transport and essential stations in parts.
 v0.29.0 [Research Foundations](RESEARCH-FOUNDATIONS-RECORD.md) supplies branch/stage registries and
-native research availability shared by purchase, map and guidance. That release kept prices, prerequisites, effects and request rewards unchanged. Continue phase 1 with commissions, typed requirements
-and effects, remaining industrial bills and timed opening validation. This is not the finite insight
-economy or separate skill system. At the user's explicit UI priority, v0.30.0
-[Research Atlas](RESEARCH-ATLAS-RECORD.md) pulls forward the central spatial tree, original SVG
-emblems, hover/focus details and deliberate purchases. Its four independent entry points remove
-the Field Logistics prerequisite from extraction, storage and on-site power; prices and rewards
-remain unchanged. Save 22 migrates existing research unchanged to technology catalog 10. This maps the current 19 nodes; larger
-future discipline lanes, evidence projects, tracking and skills remain planned.
+native research availability shared by purchase, map and guidance. That release kept prices, prerequisites, effects and request rewards unchanged.
+v0.30.0 [Research Atlas](RESEARCH-ATLAS-RECORD.md) pulls forward the central spatial tree, original SVG
+emblems, hover/focus details and deliberate purchases. v0.31.0
+[Foundation Commissions](FOUNDATION-COMMISSIONS-RECORD.md) grants the four starter automation
+nodes when Prove the line completes, with typed effects replacing ad-hoc unlock and bonus fields.
+Those four are no longer insight purchases; later prices and request rewards are unchanged. Continue
+phase 1 with remaining industrial bills. Timed opening validation is withdrawn. This is not the finite insight
+economy or separate skill system. Larger future discipline lanes, evidence projects, tracking and skills remain planned.
 
 ## Design commitments
 
@@ -41,16 +41,16 @@ Inspected `src/data/technologies.json`, request rows in `src/data/definitions.js
 `request_payout`, `next_request`, `research`, and the current research UI. Re-ran `npm run balance`
 on 2026-08-27 without changing its inputs.
 
-| Current fact                                                                                   | Why it matters                                                                                                                                |
-| ---------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
-| 19 technology entries cost 153 insight in total, including the two personal capability entries | Catalogue arithmetic, not a measured completion time. Older roadmap figures of 113 belong to an earlier catalogue.                            |
-| Eight first raw-resource requests total 73 insight, including 5 from machine-extracted crystal | Almost half the present total; not all are available by hand or at spawn.                                                                     |
-| Repeated raw requests pay 2 insight indefinitely                                               | A smaller payout slows accumulation but does not bound it. The existing native test proves only that one raw cycle cannot buy the tree.       |
-| Processed requests omit `repeat_insight`; native defaults to the full first payout             | Eight iron plates pay 26; five circuits pay 61; five steel pay 72, including on later fills. Unchanged production can keep funding research.  |
-| Technology prices range from 3 to 16                                                           | One processed request can afford several nodes, subject to prerequisites. This supports a pacing concern, not a measured playtime conclusion. |
-| A board slot already favours the deepest reachable recipe                                      | Recipe depth guides the player somewhat, but does not prove a new achievement or justify a reward budget.                                     |
-| Research is a keyed vertical list with a reachable/full-tree toggle                            | It preserves controls during updates, but has no separate discipline lanes or spatial dependency graph.                                       |
-| Expanded Pack and Surveyed Construction are ordinary technologies                              | They spend factory insight and belong in the proposed player tree.                                                                            |
+| Current fact                                                                                   | Why it matters                                                                                                                                                                    |
+| ---------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 19 technology entries cost 137 insight in total, including the two personal capability entries | Catalogue arithmetic after v0.31 grants the four starter automation nodes at cost 0. Older roadmap figures of 153 counted those as purchases; 113 belong to an earlier catalogue. |
+| Eight first raw-resource requests total 73 insight, including 5 from machine-extracted crystal | Almost half the present total; not all are available by hand or at spawn.                                                                                                         |
+| Repeated raw requests pay 2 insight indefinitely                                               | A smaller payout slows accumulation but does not bound it. The existing native test proves only that one raw cycle cannot buy the tree.                                           |
+| Processed requests omit `repeat_insight`; native defaults to the full first payout             | Eight iron plates pay 26; five circuits pay 61; five steel pay 72, including on later fills. Unchanged production can keep funding research.                                      |
+| Technology prices range from 3 to 16                                                           | One processed request can afford several nodes, subject to prerequisites. This supports a pacing concern, not a measured playtime conclusion.                                     |
+| A board slot already favours the deepest reachable recipe                                      | Recipe depth guides the player somewhat, but does not prove a new achievement or justify a reward budget.                                                                         |
+| Research is a keyed vertical list with a reachable/full-tree toggle                            | It preserves controls during updates, but has no separate discipline lanes or spatial dependency graph.                                                                           |
+| Expanded Pack and Surveyed Construction are ordinary technologies                              | They spend factory insight and belong in the proposed player tree.                                                                                                                |
 
 Keep keyed controls, reachable-state guidance and deterministic native spending. Reconsider the
 unlimited repeat income and the reward-to-price ratio. Raising all prices alone delays the same

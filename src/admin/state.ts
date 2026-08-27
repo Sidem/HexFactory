@@ -297,7 +297,10 @@ export class AdminStore {
       if (b.upgrades_to === id) delete b.upgrades_to;
     }
     for (const t of this.technologies.technologies) {
-      t.unlocks = t.unlocks.filter((uid) => uid !== id);
+      t.effects = t.effects.filter(
+        (effect) =>
+          effect.kind !== "unlock_building" || effect.building_id !== id,
+      );
     }
     this.pushHistory(`Delete building: ${building?.name ?? id}`);
     if (

@@ -98,10 +98,10 @@ export function nextAction(
     .map((id) => technologies.technologies.find((value) => value.id === id))
     .filter((value): value is TechnologyDefinition => value !== undefined)
     .filter((value) => !researched.has(value.id));
-  const ready = missing.find(
-    (technology) =>
-      technologyAvailability(technology, snapshot).prerequisitesMet,
-  );
+  const ready = missing.find((technology) => {
+    const availability = technologyAvailability(technology, snapshot);
+    return availability.prerequisitesMet && availability.purchasable;
+  });
   if (ready) {
     const availability = technologyAvailability(ready, snapshot);
     if (availability.affordable)

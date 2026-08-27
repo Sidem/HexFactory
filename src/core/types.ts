@@ -179,6 +179,21 @@ export interface ProgressionGroup {
   order: number;
 }
 
+/** A supported native capability this technology grants when complete. */
+export type TechnologyEffect =
+  | { kind: "unlock_building"; building_id: number }
+  | { kind: "carry_slots"; amount: number }
+  | { kind: "build_range"; amount: number };
+
+/**
+ * How this technology enters the researched set. Omitted or `purchase` is an
+ * insight spend. A contract-stage grant is issued by native on stage completion
+ * and cannot be bought.
+ */
+export type TechnologyGrant =
+  | { kind: "purchase" }
+  | { kind: "contract_stage"; key: string; name: string };
+
 export interface TechnologyDefinition {
   id: number;
   key: string;
@@ -188,11 +203,8 @@ export interface TechnologyDefinition {
   stage: string;
   prerequisites: number[];
   cost: number;
-  unlocks: number[];
-  /** Permanent extra inventory stacks granted by this research. */
-  carry_slots_bonus?: number;
-  /** Permanent extra construction reach, measured in hexes. */
-  build_range_bonus?: number;
+  effects: TechnologyEffect[];
+  grant?: TechnologyGrant;
 }
 
 export interface Technologies {

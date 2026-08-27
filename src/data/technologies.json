@@ -1,5 +1,5 @@
 {
-  "version": 10,
+  "version": 11,
   "technologies": [
     {
       "id": 1,
@@ -7,8 +7,13 @@
       "name": "Field Logistics",
       "description": "Unlock directional transport belts.",
       "prerequisites": [],
-      "cost": 3,
-      "unlocks": [2],
+      "cost": 0,
+      "grant": {
+        "kind": "contract_stage",
+        "key": "components",
+        "name": "Prove the line"
+      },
+      "effects": [{ "kind": "unlock_building", "building_id": 2 }],
       "branch": "logistics",
       "stage": "foundations"
     },
@@ -18,8 +23,13 @@
       "name": "Automated Extraction",
       "description": "Unlock extractors that harvest a field within one hex.",
       "prerequisites": [],
-      "cost": 5,
-      "unlocks": [1],
+      "cost": 0,
+      "grant": {
+        "kind": "contract_stage",
+        "key": "components",
+        "name": "Prove the line"
+      },
+      "effects": [{ "kind": "unlock_building", "building_id": 1 }],
       "branch": "manufacturing",
       "stage": "foundations"
     },
@@ -30,7 +40,7 @@
       "description": "Unlock component composers and the landing objective path.",
       "prerequisites": [2],
       "cost": 8,
-      "unlocks": [3],
+      "effects": [{ "kind": "unlock_building", "building_id": 3 }],
       "branch": "manufacturing",
       "stage": "workshops"
     },
@@ -40,8 +50,13 @@
       "name": "Storage Planning",
       "description": "Optional branch that unlocks exact-quantity containers.",
       "prerequisites": [],
-      "cost": 4,
-      "unlocks": [4],
+      "cost": 0,
+      "grant": {
+        "kind": "contract_stage",
+        "key": "components",
+        "name": "Prove the line"
+      },
+      "effects": [{ "kind": "unlock_building", "building_id": 4 }],
       "branch": "logistics",
       "stage": "foundations"
     },
@@ -52,7 +67,10 @@
       "description": "Unlock the smelter and the kiln, and with them plate, glass, brick, and charcoal.",
       "prerequisites": [2],
       "cost": 6,
-      "unlocks": [7, 8],
+      "effects": [
+        { "kind": "unlock_building", "building_id": 7 },
+        { "kind": "unlock_building", "building_id": 8 }
+      ],
       "branch": "metallurgy",
       "stage": "workshops"
     },
@@ -63,7 +81,10 @@
       "description": "Unlock the cutter and the crusher, which turn wood and stone into timber and gravel.",
       "prerequisites": [5],
       "cost": 10,
-      "unlocks": [9, 10],
+      "effects": [
+        { "kind": "unlock_building", "building_id": 9 },
+        { "kind": "unlock_building", "building_id": 10 }
+      ],
       "branch": "woodwork",
       "stage": "workshops"
     },
@@ -74,7 +95,7 @@
       "description": "Unlock the pump, so a basin becomes a reason to build beside it.",
       "prerequisites": [5],
       "cost": 12,
-      "unlocks": [11],
+      "effects": [{ "kind": "unlock_building", "building_id": 11 }],
       "branch": "plumbing",
       "stage": "workshops"
     },
@@ -84,8 +105,16 @@
       "name": "On-site Power",
       "description": "Unlock poles and the burner generator, so a region can afford to run.",
       "prerequisites": [],
-      "cost": 4,
-      "unlocks": [12, 13],
+      "cost": 0,
+      "grant": {
+        "kind": "contract_stage",
+        "key": "components",
+        "name": "Prove the line"
+      },
+      "effects": [
+        { "kind": "unlock_building", "building_id": 12 },
+        { "kind": "unlock_building", "building_id": 13 }
+      ],
       "branch": "electricity",
       "stage": "foundations"
     },
@@ -96,7 +125,10 @@
       "description": "Unlock wind on the ridges and hydro at the basin edge.",
       "prerequisites": [8],
       "cost": 8,
-      "unlocks": [14, 15],
+      "effects": [
+        { "kind": "unlock_building", "building_id": 14 },
+        { "kind": "unlock_building", "building_id": 15 }
+      ],
       "branch": "electricity",
       "stage": "industrial-systems"
     },
@@ -107,7 +139,10 @@
       "description": "Unlock the boiler and turbine pair. Water rides belts; this is not a fluid network.",
       "prerequisites": [7, 8],
       "cost": 10,
-      "unlocks": [16, 17],
+      "effects": [
+        { "kind": "unlock_building", "building_id": 16 },
+        { "kind": "unlock_building", "building_id": 17 }
+      ],
       "branch": "electricity",
       "stage": "industrial-systems"
     },
@@ -118,7 +153,7 @@
       "description": "Teach the belt the six vertex headings between the ordinary hex edges. A corner belt spans two rows for twice the price, so the reach is a choice rather than a replacement.",
       "prerequisites": [1],
       "cost": 6,
-      "unlocks": [],
+      "effects": [],
       "branch": "logistics",
       "stage": "workshops"
     },
@@ -129,7 +164,10 @@
       "description": "Unlock the deep extractor and the deep container, and the upgrade that grows one into the other in place.",
       "prerequisites": [5],
       "cost": 12,
-      "unlocks": [19, 20],
+      "effects": [
+        { "kind": "unlock_building", "building_id": 19 },
+        { "kind": "unlock_building", "building_id": 20 }
+      ],
       "branch": "manufacturing",
       "stage": "industrial-systems"
     },
@@ -140,7 +178,7 @@
       "description": "Unlock the relay pole, and the upgrade that grows a pole into one in place. A wider disc means fewer poles between the plant and the work.",
       "prerequisites": [8, 5],
       "cost": 9,
-      "unlocks": [21],
+      "effects": [{ "kind": "unlock_building", "building_id": 21 }],
       "branch": "electricity",
       "stage": "industrial-systems"
     },
@@ -151,7 +189,7 @@
       "description": "Unlock the trunk pole, which spans twelve hexes to the next. A line of them reaches a site too far to give its own generator.",
       "prerequisites": [13, 12],
       "cost": 16,
-      "unlocks": [22],
+      "effects": [{ "kind": "unlock_building", "building_id": 22 }],
       "branch": "electricity",
       "stage": "industrial-systems"
     },
@@ -162,7 +200,7 @@
       "description": "Unlock stone-and-timber bridge decks for carrying transport across shallow water.",
       "prerequisites": [1],
       "cost": 4,
-      "unlocks": [23],
+      "effects": [{ "kind": "unlock_building", "building_id": 23 }],
       "branch": "infrastructure",
       "stage": "foundations"
     },
@@ -173,7 +211,10 @@
       "description": "Unlock the splitter and the merger. One divides a lane between every output that will take it; the other takes from its feeders in turn, so no line that shares a junction starves another.",
       "prerequisites": [1],
       "cost": 7,
-      "unlocks": [24, 25],
+      "effects": [
+        { "kind": "unlock_building", "building_id": 24 },
+        { "kind": "unlock_building", "building_id": 25 }
+      ],
       "branch": "logistics",
       "stage": "workshops"
     },
@@ -184,7 +225,7 @@
       "description": "Unlock the underpass. A pair of them carries a lane beneath up to four hexes of anything already built, so two belt lines can finally cross.",
       "prerequisites": [16, 11],
       "cost": 12,
-      "unlocks": [26],
+      "effects": [{ "kind": "unlock_building", "building_id": 26 }],
       "branch": "logistics",
       "stage": "industrial-systems"
     },
@@ -195,8 +236,7 @@
       "description": "Reinforce the field pack with four additional cargo slots.",
       "prerequisites": [4],
       "cost": 8,
-      "unlocks": [],
-      "carry_slots_bonus": 4,
+      "effects": [{ "kind": "carry_slots", "amount": 4 }],
       "branch": "field-capabilities",
       "stage": "workshops"
     },
@@ -207,8 +247,7 @@
       "description": "Extend the player's construction reach by three hexes.",
       "prerequisites": [2],
       "cost": 9,
-      "unlocks": [],
-      "build_range_bonus": 3,
+      "effects": [{ "kind": "build_range", "amount": 3 }],
       "branch": "field-capabilities",
       "stage": "workshops"
     }

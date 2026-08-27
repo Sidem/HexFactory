@@ -6,7 +6,7 @@
       "key": "new-game",
       "name": "New game",
       "description": "Explore, gather, research, automate, and raise the landing hub's first module.",
-      "version": 5,
+      "version": 6,
       "seed": 1213486160,
       "world_preset": "continental",
       "chunk_size": 8,
@@ -22,7 +22,7 @@
           {
             "key": "components",
             "name": "Prove the line",
-            "brief": "Deliver three components to the landing hub. Build a manual workshop from four wood and two stone, load six iron ore, and work three batches beside it. No research or electricity is needed; powered assembly comes later.",
+            "brief": "Deliver three components to the landing hub. Build a manual workshop from four wood and two stone, load six iron ore, and work three batches beside it. Completing this grants belts, storage, extractors and on-site power — no insight purchase. Powered assembly comes later.",
             "reads": "the hub plates its base and raises a second mast",
             "requirements": [{ "item_id": 2, "quantity": 3 }]
           },
@@ -54,7 +54,7 @@
       "key": "factory-demo",
       "name": "Factory demo",
       "description": "The founding prebuilt turning-belt architecture proof.",
-      "version": 5,
+      "version": 6,
       "seed": 404112911,
       "chunk_size": 8,
       "generated_environment": false,

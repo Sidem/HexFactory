@@ -1,7 +1,7 @@
 {
   "reference": {
     "definition_version": 18,
-    "technology_version": 10,
+    "technology_version": 11,
     "ticks_per_second": 10,
     "player_ticks_per_second": 30,
     "gather_cooldown_steps": 15,
@@ -3040,8 +3040,8 @@
         "material-processing",
         "on-site-power"
       ],
-      "insight": 15,
-      "insight_items": 16,
+      "insight": 6,
+      "insight_items": 8,
       "insight_request": "coal-seam",
       "buildings": ["burner-generator", "manual-workshop", "smelter"],
       "gathers": [
@@ -3060,19 +3060,19 @@
       ],
       "fuel_energy": 240,
       "fuel_items": 2,
-      "gather_total": 43,
+      "gather_total": 35,
       "machine_ticks": 30,
       "player_work_ticks": 88,
-      "hand_seconds_milli": 54500,
+      "hand_seconds_milli": 42500,
       "machine_seconds_milli": 3000,
       "player_work_seconds_milli": 8800
     },
     {
       "name": "first power",
       "technologies": ["on-site-power"],
-      "insight": 4,
-      "insight_items": 8,
-      "insight_request": "coal-seam",
+      "insight": 0,
+      "insight_items": 0,
+      "insight_request": "clay-survey",
       "buildings": [
         "burner-generator",
         "manual-workshop",
@@ -3099,18 +3099,18 @@
       ],
       "fuel_energy": 320,
       "fuel_items": 2,
-      "gather_total": 36,
+      "gather_total": 28,
       "machine_ticks": 80,
       "player_work_ticks": 136,
-      "hand_seconds_milli": 40667,
+      "hand_seconds_milli": 28667,
       "machine_seconds_milli": 8000,
       "player_work_seconds_milli": 13600
     },
     {
       "name": "first extractor",
       "technologies": ["automated-extraction", "on-site-power"],
-      "insight": 9,
-      "insight_items": 10,
+      "insight": 0,
+      "insight_items": 0,
       "insight_request": "clay-survey",
       "buildings": [
         "burner-generator",
@@ -3138,19 +3138,19 @@
       ],
       "fuel_energy": 560,
       "fuel_items": 4,
-      "gather_total": 46,
+      "gather_total": 36,
       "machine_ticks": 140,
       "player_work_ticks": 144,
-      "hand_seconds_milli": 47333,
+      "hand_seconds_milli": 40667,
       "machine_seconds_milli": 14000,
       "player_work_seconds_milli": 14400
     },
     {
       "name": "first composer",
       "technologies": ["automated-extraction", "composition", "on-site-power"],
-      "insight": 17,
-      "insight_items": 20,
-      "insight_request": "clay-survey",
+      "insight": 8,
+      "insight_items": 8,
+      "insight_request": "coal-seam",
       "buildings": [
         "burner-generator",
         "composer",
@@ -3177,10 +3177,10 @@
       ],
       "fuel_energy": 640,
       "fuel_items": 4,
-      "gather_total": 58,
+      "gather_total": 46,
       "machine_ticks": 194,
       "player_work_ticks": 48,
-      "hand_seconds_milli": 57000,
+      "hand_seconds_milli": 55667,
       "machine_seconds_milli": 19400,
       "player_work_seconds_milli": 4800
     },
@@ -3192,8 +3192,8 @@
         "material-processing",
         "on-site-power"
       ],
-      "insight": 23,
-      "insight_items": 24,
+      "insight": 14,
+      "insight_items": 16,
       "insight_request": "coal-seam",
       "buildings": [
         "burner-generator",
@@ -3230,10 +3230,10 @@
       ],
       "fuel_energy": 900,
       "fuel_items": 6,
-      "gather_total": 82,
+      "gather_total": 74,
       "machine_ticks": 172,
       "player_work_ticks": 48,
-      "hand_seconds_milli": 104000,
+      "hand_seconds_milli": 92000,
       "machine_seconds_milli": 17200,
       "player_work_seconds_milli": 4800
     },
@@ -3304,9 +3304,9 @@
     {
       "name": "24 starter belts",
       "technologies": ["field-logistics"],
-      "insight": 3,
-      "insight_items": 8,
-      "insight_request": "coal-seam",
+      "insight": 0,
+      "insight_items": 0,
+      "insight_request": "clay-survey",
       "buildings": ["belt", "manual-workshop", "primitive-furnace"],
       "gathers": [
         {
@@ -3328,19 +3328,19 @@
       ],
       "fuel_energy": 560,
       "fuel_items": 4,
-      "gather_total": 46,
+      "gather_total": 38,
       "machine_ticks": 140,
       "player_work_ticks": 320,
-      "hand_seconds_milli": 53667,
+      "hand_seconds_milli": 41667,
       "machine_seconds_milli": 14000,
       "player_work_seconds_milli": 32000
     },
     {
       "name": "100 starter belts",
       "technologies": ["field-logistics"],
-      "insight": 3,
-      "insight_items": 8,
-      "insight_request": "coal-seam",
+      "insight": 0,
+      "insight_items": 0,
+      "insight_request": "clay-survey",
       "buildings": ["belt", "manual-workshop", "primitive-furnace"],
       "gathers": [
         {
@@ -3362,10 +3362,10 @@
       ],
       "fuel_energy": 2080,
       "fuel_items": 13,
-      "gather_total": 103,
+      "gather_total": 95,
       "machine_ticks": 520,
       "player_work_ticks": 1168,
-      "hand_seconds_milli": 129167,
+      "hand_seconds_milli": 117167,
       "machine_seconds_milli": 52000,
       "player_work_seconds_milli": 116800
     }
@@ -3435,8 +3435,8 @@
           "material-processing",
           "on-site-power"
         ],
-        "insight": 15,
-        "insight_items": 16,
+        "insight": 6,
+        "insight_items": 8,
         "insight_request": "coal-seam",
         "buildings": [
           "burner-generator",
@@ -3464,10 +3464,10 @@
         ],
         "fuel_energy": 2080,
         "fuel_items": 13,
-        "gather_total": 108,
+        "gather_total": 100,
         "machine_ticks": 464,
         "player_work_ticks": 88,
-        "hand_seconds_milli": 131667,
+        "hand_seconds_milli": 119667,
         "machine_seconds_milli": 46400,
         "player_work_seconds_milli": 8800
       }

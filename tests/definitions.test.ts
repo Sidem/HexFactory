@@ -5,9 +5,12 @@ import {
   supportsRecipe,
   validateTechnologies,
 } from "../src/core/definitions";
-import type { Definitions } from "../src/core/types";
+import type { Definitions, Technologies } from "../src/core/types";
 import definitions from "../src/data/definitions.json";
-import technologies from "../src/data/technologies.json";
+import scenariosJson from "../src/data/scenarios.json";
+import technologiesJson from "../src/data/technologies.json";
+
+const technologies = technologiesJson as unknown as Technologies;
 import { isItemIconKey } from "../src/rendering/icons";
 
 describe("data-defined content", () => {
@@ -96,12 +99,39 @@ describe("data-defined content", () => {
     ]);
     expect(
       technologies.technologies.find(({ key }) => key === "expanded-pack"),
-    ).toMatchObject({ carry_slots_bonus: 4 });
+    ).toMatchObject({
+      effects: [{ kind: "carry_slots", amount: 4 }],
+    });
     expect(
       technologies.technologies.find(
         ({ key }) => key === "surveyed-construction",
       ),
-    ).toMatchObject({ build_range_bonus: 3 });
+    ).toMatchObject({
+      effects: [{ kind: "build_range", amount: 3 }],
+    });
+    expect(
+      technologies.technologies.find(({ key }) => key === "field-logistics"),
+    ).toMatchObject({
+      cost: 0,
+      grant: {
+        kind: "contract_stage",
+        key: "components",
+        name: "Prove the line",
+      },
+    });
+    const commissionKeys = new Set(
+      (
+        scenariosJson as unknown as {
+          scenarios: { contract: { stages: { key: string }[] } }[];
+        }
+      ).scenarios.flatMap((scenario) =>
+        scenario.contract.stages.map((stage) => stage.key),
+      ),
+    );
+    for (const technology of technologies.technologies) {
+      if (technology.grant?.kind === "contract_stage")
+        expect(commissionKeys.has(technology.grant.key)).toBe(true);
+    }
   });
 
   it("keeps an upgrade ladder a taller version of the same machine", () => {
@@ -299,7 +329,9 @@ describe("data-defined content", () => {
     expect(() => validateDefinitions(unstackable)).toThrow(/incomplete/);
 
     const badUnlock = structuredClone(technologies);
-    badUnlock.technologies[0]!.unlocks = [999];
+    badUnlock.technologies[0]!.effects = [
+      { kind: "unlock_building", building_id: 999 },
+    ];
     expect(() => validateTechnologies(badUnlock, typedDefinitions)).toThrow(
       /invalid/,
     );
@@ -311,7 +343,9 @@ describe("data-defined content", () => {
     );
 
     const excessiveBonus = structuredClone(technologies);
-    excessiveBonus.technologies[0]!.build_range_bonus = 999;
+    excessiveBonus.technologies[0]!.effects = [
+      { kind: "build_range", amount: 999 },
+    ];
     expect(() =>
       validateTechnologies(excessiveBonus, typedDefinitions),
     ).toThrow(/invalid/);

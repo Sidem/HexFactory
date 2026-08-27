@@ -1,3 +1,8 @@
+import {
+  technologyBuildingUnlocks,
+  technologyBuildRangeBonus,
+  technologyCarrySlotsBonus,
+} from "../core/definitions";
 import type {
   Definitions,
   Technologies,
@@ -139,7 +144,7 @@ export function researchBenefits(
   technology: TechnologyDefinition,
   definitions: Definitions,
 ): string[] {
-  const benefits = technology.unlocks.map(
+  const benefits = technologyBuildingUnlocks(technology).map(
     (id) =>
       definitions.buildings.find((building) => building.id === id)?.name ??
       `Building ${id}`,
@@ -151,10 +156,10 @@ export function researchBenefits(
     benefits.push(
       `Six corner headings for ${headings.map((building) => building.name).join(", ")} (building research still required)`,
     );
-  if (technology.carry_slots_bonus)
-    benefits.push(`+${technology.carry_slots_bonus} cargo slots`);
-  if (technology.build_range_bonus)
-    benefits.push(`+${technology.build_range_bonus} hex construction reach`);
+  const carry = technologyCarrySlotsBonus(technology);
+  if (carry) benefits.push(`+${carry} cargo slots`);
+  const reach = technologyBuildRangeBonus(technology);
+  if (reach) benefits.push(`+${reach} hex construction reach`);
   return benefits;
 }
 

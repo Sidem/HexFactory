@@ -95,7 +95,7 @@ const SAVE_PREFIX: &str = "HXF1\n";
 /// one ore â€” exactly what rebuilding it now costs, which conserves the line rather than paying a
 /// premium on it. Kits have no recipe back to ore, so the boundary cannot mint raw material.
 /// Version 21 adds progression registries (technology 9); saved state and checksum are unchanged.
-const SAVE_VERSION: u16 = 22;
+const SAVE_VERSION: u16 = 23;
 /// Bumped to 6 for World Parameters. `WorldParams` is now part of a run's identity — it is in the
 /// save envelope and in the checksum — so a version-5 envelope carries no answer to the question
 /// "which world is this" and is rejected rather than assumed to be the default.
@@ -807,13 +807,66 @@ struct TechnologyDefinition {
     stage: String,
     prerequisites: Vec<TechnologyId>,
     cost: u32,
-    unlocks: Vec<DefinitionId>,
-    /// Extra pack slots permanently earned when this technology is researched.
     #[serde(default)]
-    carry_slots_bonus: u32,
-    /// Extra construction reach in hexes, converted to native world units when earned.
+    effects: Vec<TechnologyEffect>,
+    /// Insight purchase unless a contract stage grants this on completion.
     #[serde(default)]
-    build_range_bonus: u32,
+    grant: TechnologyGrant,
+}
+
+/// A supported native capability this technology grants when complete.
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+enum TechnologyEffect {
+    UnlockBuilding { building_id: DefinitionId },
+    CarrySlots { amount: u32 },
+    BuildRange { amount: u32 },
+}
+
+/// How this technology enters the researched set. Purchases spend insight;
+/// contract-stage grants are issued by native on stage completion and cannot be bought.
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, Eq)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+enum TechnologyGrant {
+    #[default]
+    Purchase,
+    ContractStage {
+        key: String,
+        name: String,
+    },
+}
+
+impl TechnologyDefinition {
+    fn purchasable(&self) -> bool {
+        matches!(self.grant, TechnologyGrant::Purchase)
+    }
+
+    fn building_unlocks(&self) -> impl Iterator<Item = DefinitionId> + '_ {
+        self.effects.iter().filter_map(|effect| match effect {
+            TechnologyEffect::UnlockBuilding { building_id } => Some(*building_id),
+            _ => None,
+        })
+    }
+
+    fn carry_slots_bonus(&self) -> u32 {
+        self.effects
+            .iter()
+            .filter_map(|effect| match effect {
+                TechnologyEffect::CarrySlots { amount } => Some(*amount),
+                _ => None,
+            })
+            .fold(0, u32::saturating_add)
+    }
+
+    fn build_range_bonus(&self) -> u32 {
+        self.effects
+            .iter()
+            .filter_map(|effect| match effect {
+                TechnologyEffect::BuildRange { amount } => Some(*amount),
+                _ => None,
+            })
+            .fold(0, u32::saturating_add)
+    }
 }
 
 #[derive(Clone, Deserialize)]
@@ -4757,6 +4810,7 @@ impl Core {
             }
             let consumed = stage.requirements.clone();
             let name = stage.name.clone();
+            let key = stage.key.clone();
             for need in &consumed {
                 let held = self.contract_contributed.entry(need.item_id).or_default();
                 *held = held.saturating_sub(u64::from(need.quantity));
@@ -4764,6 +4818,7 @@ impl Core {
             self.contract_stage += 1;
             self.events
                 .push(format!("{name} complete — the landing hub grows"));
+            self.grant_contract_stage(&key);
             if self.contract_stage >= self.scenario.contract.stages.len() {
                 self.victory = true;
                 self.events
@@ -5389,6 +5444,33 @@ impl Core {
         Ok(())
     }
 
+    /// Mark every technology this completed stage grants. Insight is not charged, and a
+    /// technology already researched is left untouched so a legacy factory that bought the
+    /// same unlock is neither refunded nor double-granted.
+    fn grant_contract_stage(&mut self, stage_key: &str) {
+        let granted: Vec<(TechnologyId, String)> = self
+            .technologies
+            .technologies
+            .iter()
+            .filter(|technology| {
+                matches!(
+                    &technology.grant,
+                    TechnologyGrant::ContractStage { key, .. } if key == stage_key
+                ) && !self.researched.contains(&technology.id)
+            })
+            .map(|technology| (technology.id, technology.name.clone()))
+            .collect();
+        if granted.is_empty() {
+            return;
+        }
+        for (id, name) in granted {
+            self.researched.insert(id);
+            self.events.push(format!("The hub grants {name}"));
+        }
+        self.apply_research_effects();
+        self.refill_requests();
+    }
+
     fn research_availability(&self, technology: &TechnologyDefinition) -> ResearchAvailability {
         ResearchAvailability {
             technology_id: technology.id,
@@ -5419,6 +5501,14 @@ impl Core {
         let availability = self.research_availability(&technology);
         if availability.complete {
             return Err("technology already researched".into());
+        }
+        if !technology.purchasable() {
+            return Err(match &technology.grant {
+                TechnologyGrant::ContractStage { name, .. } => {
+                    format!("granted by completing {name}")
+                }
+                TechnologyGrant::Purchase => "technology cannot be purchased".into(),
+            });
         }
         if !availability.missing_prerequisites.is_empty() {
             return Err("technology prerequisites are not complete".into());
@@ -9046,7 +9136,6 @@ fn validate_technologies(
         if technology.key.trim().is_empty()
             || technology.name.trim().is_empty()
             || technology.description.trim().is_empty()
-            || technology.cost == 0
             || !keys.insert(&technology.key)
             || !branches.contains(&technology.branch)
             || !stages.contains(&technology.stage)
@@ -9056,31 +9145,14 @@ fn validate_technologies(
                 .collect::<BTreeSet<_>>()
                 .len()
                 != technology.prerequisites.len()
-            || technology.unlocks.iter().collect::<BTreeSet<_>>().len() != technology.unlocks.len()
+            || !valid_technology_grant(technology)
+            || !valid_technology_effects(technology, &building_ids)
         {
             return Err(format!("technology {} is incomplete", technology.id));
-        }
-        if technology.carry_slots_bonus > MAX_CARRY_SLOTS
-            || technology.build_range_bonus > MAX_WALK_DISTANCE as u32
-        {
-            return Err(format!(
-                "technology {} has an excessive player bonus",
-                technology.id
-            ));
         }
         if technology.prerequisites.iter().any(|id| !ids.contains(id)) {
             return Err(format!(
                 "technology {} has an unknown prerequisite",
-                technology.id
-            ));
-        }
-        if technology
-            .unlocks
-            .iter()
-            .any(|id| !building_ids.contains(id))
-        {
-            return Err(format!(
-                "technology {} has an unknown unlock",
                 technology.id
             ));
         }
@@ -9115,6 +9187,52 @@ fn validate_technologies(
         }
     }
     Ok(())
+}
+
+fn valid_technology_grant(technology: &TechnologyDefinition) -> bool {
+    match &technology.grant {
+        TechnologyGrant::Purchase => technology.cost > 0,
+        TechnologyGrant::ContractStage { key, name } => {
+            technology.cost == 0
+                && key.as_bytes().first().is_some_and(u8::is_ascii_lowercase)
+                && key
+                    .bytes()
+                    .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
+                && !name.trim().is_empty()
+        }
+    }
+}
+
+fn valid_technology_effects(
+    technology: &TechnologyDefinition,
+    building_ids: &BTreeSet<DefinitionId>,
+) -> bool {
+    let mut buildings = BTreeSet::new();
+    for building_id in technology.building_unlocks() {
+        if !building_ids.contains(&building_id) || !buildings.insert(building_id) {
+            return false;
+        }
+    }
+    let mut carry = false;
+    let mut range = false;
+    for effect in &technology.effects {
+        match effect {
+            TechnologyEffect::UnlockBuilding { .. } => {}
+            TechnologyEffect::CarrySlots { amount } => {
+                if carry || *amount == 0 || *amount > MAX_CARRY_SLOTS {
+                    return false;
+                }
+                carry = true;
+            }
+            TechnologyEffect::BuildRange { amount } => {
+                if range || *amount == 0 || *amount > MAX_WALK_DISTANCE as u32 {
+                    return false;
+                }
+                range = true;
+            }
+        }
+    }
+    true
 }
 
 fn validate_scenarios(
@@ -9414,8 +9532,8 @@ fn research_bonuses(
         .filter(|technology| researched.contains(&technology.id))
         .fold((0u32, 0u32), |(carry_slots, build_range), technology| {
             (
-                carry_slots.saturating_add(technology.carry_slots_bonus),
-                build_range.saturating_add(technology.build_range_bonus),
+                carry_slots.saturating_add(technology.carry_slots_bonus()),
+                build_range.saturating_add(technology.build_range_bonus()),
             )
         })
 }
@@ -13556,6 +13674,12 @@ mod tests {
         core
     }
 
+    /// The four starter automation technologies the hub grants after Prove the line.
+    fn grant_foundations(core: &mut Core) {
+        core.researched.extend([1, 2, 4, 8]);
+        core.apply_research_effects();
+    }
+
     /// Work a swing through to the step it lands on, the way a player does — on their own clock,
     /// with the factory untouched. Spends whatever the last gather actually cost, so a coal seam
     /// and a wood cell share one helper.
@@ -17451,16 +17575,14 @@ mod tests {
             .map(|technology| technology.id)
             .collect();
         assert_eq!(roots, vec![1, 2, 4, 8]);
-        for id in roots {
-            let mut core = game("new-game");
-            core.insight = 100;
-            let cost = u64::from(core.technology(id).unwrap().cost);
-            core.research(id).unwrap();
-            assert_eq!(core.insight, 100 - cost);
-            assert_eq!(
-                core.researched.iter().copied().collect::<Vec<_>>(),
-                vec![id]
-            );
+        for id in &roots {
+            assert!(!catalogs()
+                .1
+                .technologies
+                .iter()
+                .find(|technology| technology.id == *id)
+                .unwrap()
+                .purchasable());
         }
         let mut old = primitive_test_core();
         old.technologies.version = 9;
@@ -17470,7 +17592,7 @@ mod tests {
             }
         }
         old.insight = 31;
-        old.research(1).unwrap();
+        old.researched.insert(1);
         old.place(0, 4, 28, 0, Some(8)).unwrap();
         old.store(0, 4, 9, 3).unwrap();
         old.set_enabled(0, 4, true).unwrap();
@@ -17491,18 +17613,46 @@ mod tests {
     }
 
     #[test]
+    fn foundation_commissions_grant_starter_automation_without_insight() {
+        let mut core = game("new-game");
+        let insight = core.insight;
+        assert!(core.research(1).unwrap_err().contains("Prove the line"));
+        assert!(core.researched.is_empty());
+        set_player_hex(&mut core, 0, -1);
+        core.player.inventory.insert(2, 3);
+        core.deposit_inventory().unwrap();
+        assert_eq!(core.contract_stage, 1);
+        assert_eq!(core.insight, insight);
+        for id in [1, 2, 4, 8] {
+            assert!(core.researched.contains(&id), "granted technology {id}");
+        }
+        assert!(core.events.iter().any(|event| event.contains("grants")));
+        assert!(core
+            .technology(1)
+            .unwrap()
+            .building_unlocks()
+            .eq([2].into_iter()));
+        core.player.inventory.insert(24, 1);
+        core.place(2, 0, 2, 0, None).unwrap();
+        assert!(core.research(1).unwrap_err().contains("already researched"));
+        core.insight = 8;
+        core.research(3).unwrap();
+        assert_eq!(core.insight, 0);
+        assert!(core.researched.contains(&3));
+    }
+
+    #[test]
     fn research_is_atomic_validates_prerequisites_and_unlocks() {
         let mut core = game("new-game");
         core.insight = 20;
         assert!(core.research(3).unwrap_err().contains("prerequisites"));
         assert_eq!(core.insight, 20);
-        core.research(1).unwrap();
-        assert_eq!(core.insight, 17);
-        core.research(2).unwrap();
+        grant_foundations(&mut core);
+        core.research(3).unwrap();
         assert_eq!(core.insight, 12);
         core.player.inventory.insert(24, 1);
         core.place(2, 0, 2, 0, None).unwrap();
-        assert!(core.research(2).is_err());
+        assert!(core.research(3).is_err());
     }
 
     #[test]
@@ -17521,7 +17671,8 @@ mod tests {
                         row.insight_shortfall,
                         u64::from(technology.cost).saturating_sub(insight)
                     );
-                    let expected = !row.complete
+                    let expected = technology.purchasable()
+                        && !row.complete
                         && row.missing_prerequisites.is_empty()
                         && row.insight_shortfall == 0;
                     let before = core.checksum();
@@ -17547,13 +17698,14 @@ mod tests {
         let quiet = factory.snapshot_delta_json();
         assert!(!quiet.contains("research_availability"));
         let mut previous = factory.core.snapshot();
-        factory.core.insight = 3;
+        grant_foundations(&mut factory.core);
+        factory.core.insight = 6;
         assert_delta_matches_full_diff(
             &mut factory,
             &mut previous,
             "first research becomes affordable",
         );
-        factory.core.research(1).unwrap();
+        factory.core.research(5).unwrap();
         assert_delta_matches_full_diff(
             &mut factory,
             &mut previous,
@@ -17577,7 +17729,7 @@ mod tests {
         let mut old = primitive_test_core();
         old.technologies.version = 8;
         old.insight = 31;
-        old.research(1).unwrap();
+        old.researched.insert(1);
         old.place(0, 4, 28, 0, Some(8)).unwrap();
         old.store(0, 4, 9, 3).unwrap();
         old.set_enabled(0, 4, true).unwrap();
@@ -17599,7 +17751,8 @@ mod tests {
             restored.research_availability_snapshot()
         );
         for core in [&mut old, &mut restored] {
-            core.research(2).unwrap();
+            core.researched.insert(2);
+            core.research(5).unwrap();
             core.tick_many(40);
         }
         assert_eq!(old.checksum(), restored.checksum());
@@ -17612,9 +17765,7 @@ mod tests {
         let starting_slots = core.player.carry_slots;
         let starting_range = core.player.build_range;
 
-        core.research(1).unwrap();
-        core.research(2).unwrap();
-        core.research(4).unwrap();
+        grant_foundations(&mut core);
         core.research(18).unwrap();
         assert_eq!(core.player.carry_slots, starting_slots + 4);
         core.research(19).unwrap();
@@ -18011,9 +18162,7 @@ mod tests {
             core.deposit_inventory().unwrap();
         }
         assert_eq!(core.insight, 30);
-        core.research(1).unwrap();
-        core.research(8).unwrap();
-        core.research(2).unwrap();
+        grant_foundations(&mut core);
         core.research(3).unwrap();
         stock_for(&mut core, 1, 1);
         stock_for(&mut core, 3, 1);
@@ -18075,6 +18224,12 @@ mod tests {
         core.player.inventory.insert(11, 16);
         core.player.inventory.insert(14, 20);
         core.deposit_inventory().unwrap();
+        for id in [1, 2, 4, 8] {
+            assert!(
+                core.researched.contains(&id),
+                "closing the opening commission grants {id}"
+            );
+        }
         // Both stages close in the same delivery, which is the reason the advance loops rather
         // than closing one stage per arriving item.
         assert_eq!(core.contract_stage, 2);
@@ -18240,9 +18395,8 @@ mod tests {
             }
         }
         core.insight = 100;
-        for technology in [1, 2, 5] {
-            core.research(technology).unwrap();
-        }
+        grant_foundations(&mut core);
+        core.research(5).unwrap();
         assert!(core.item_reachable(11, 0), "the smelter unlocks the plate");
         assert!(
             core.item_reachable(CRYSTAL, 0),
@@ -18274,9 +18428,8 @@ mod tests {
         let mut core = game("new-game");
         set_player_hex(&mut core, 1, 0);
         core.insight = 100;
-        for technology in [1, 2, 5] {
-            core.research(technology).unwrap();
-        }
+        grant_foundations(&mut core);
+        core.research(5).unwrap();
         assert!(core.item_reachable(11, 0));
         let before: Vec<String> = core
             .request_snapshots()
@@ -19648,6 +19801,7 @@ mod tests {
         // native paths. Shrinking a guaranteed deposit lets the run reach depletion. The starting
         // pack stays inside the carrying rule, or the gathering steps below would be refused.
         factory.core.player.inventory.insert(1, 40);
+        factory.core.player.inventory.insert(2, 3);
         factory.core.player.inventory.insert(3, 20);
         factory.core.player.inventory.insert(6, 8);
         set_player_hex(&mut factory.core, 4, -2);
@@ -19690,20 +19844,18 @@ mod tests {
             .advance(r#"[{"type":"deposit"}]"#, 1, 0)
             .unwrap();
         check(&mut factory, "delivering inventory to the hub");
-        // Four technologies cost twenty insight and one board row pays ten, so the rest is funded
-        // directly. Insight is compared against the baseline rather than marked, so a direct change
-        // is exactly what the host would see from any native path that moves it.
-        factory.core.insight += 20;
-        check(&mut factory, "funding the research");
-        for technology in [1, 2, 3, 4] {
-            let command = format!(r#"[{{"type":"research","technology_id":{technology}}}]"#);
-            factory.core.advance(&command, 1, 0).unwrap();
-            check(
-                &mut factory,
-                &format!("researching technology {technology}"),
-            );
-        }
+        // Prove the line grants the four starter technologies; Composition is still an insight
+        // purchase. Insight is compared against the baseline rather than marked, so a direct
+        // change is exactly what the host would see from any native path that moves it.
         assert_eq!(factory.core.researched.len(), 4);
+        factory.core.insight += 8;
+        check(&mut factory, "funding the research");
+        factory
+            .core
+            .advance(r#"[{"type":"research","technology_id":3}]"#, 1, 0)
+            .unwrap();
+        check(&mut factory, "researching composition");
+        assert_eq!(factory.core.researched.len(), 5);
 
         // Player state is compared against the baseline rather than marked, so restocking directly
         // is exactly what the host would see from any native path that changes inventory.
