@@ -241,50 +241,189 @@
             </p>
           </aside>
 
-          <aside
+          <dialog
             id="research-panel"
             class="glass-panel research-panel"
-            aria-label="Research"
+            aria-labelledby="research-title"
+            aria-describedby="research-help"
           >
-            <div class="panel-heading">
+            <header class="research-header">
               <div>
-                <span class="section-kicker">Development · O</span>
-                <h2>Research</h2>
+                <span class="section-kicker"
+                  >Development / Technology atlas</span
+                >
+                <h2 id="research-title">Research</h2>
+              </div>
+              <div class="research-account">
+                <strong
+                  ><span aria-hidden="true">✧</span>
+                  <span id="research-insight">0</span>
+                  <small>insight</small></strong
+                ><span id="research-progress"></span>
               </div>
               <button
                 class="panel-close"
                 type="button"
                 aria-label="Close research panel"
+                title="Close research (Esc or O)"
               >
                 ×
               </button>
+            </header>
+            <div class="research-toolbar">
+              <label class="research-search"
+                ><span class="sr-only">Search research</span
+                ><input
+                  id="research-search"
+                  type="search"
+                  placeholder="Find a technology, machine or benefit…"
+                  autocomplete="off"
+              /></label>
+              <label
+                ><span class="sr-only">Research discipline</span
+                ><select id="research-branch">
+                  <option value="">All disciplines</option>
+                </select></label
+              >
+              <button id="research-scope" type="button" aria-pressed="false">
+                In reach
+              </button>
+              <button id="research-view" type="button" aria-pressed="false">
+                List view
+              </button>
+              <button id="research-clear" type="button" hidden>
+                Clear filters
+              </button>
             </div>
-            <p class="panel-copy">
-              Spend insight on capabilities. The landing hub's jobs are the
-              source of insight, and each breakthrough expands the build dock.
-            </p>
-            <button
-              class="panel-link panel-toggle"
-              type="button"
-              data-panel-target="quest-panel"
-              aria-controls="quest-panel"
-              aria-expanded="false"
+            <div class="research-workspace">
+              <section class="research-map" aria-label="Technology map">
+                <div class="research-map-caption">
+                  <span id="research-results"></span
+                  ><span>Follow the connections</span>
+                </div>
+                <div
+                  class="research-viewport"
+                  tabindex="0"
+                  aria-label="Scrollable technology map. Use arrow keys on a technology to explore."
+                  role="region"
+                >
+                  <div class="research-surface">
+                    <div class="research-canvas">
+                      <svg class="research-edges" aria-hidden="true"></svg>
+                      <div
+                        id="technology-list"
+                        class="research-nodes"
+                        aria-label="Technologies"
+                      ></div>
+                    </div>
+                  </div>
+                </div>
+                <p id="research-empty" class="research-empty" hidden>
+                  No technologies match. Try another search or clear filters.
+                </p>
+                <div class="research-map-bottom">
+                  <span id="research-help"
+                    >Hover to discover · Select for details · Drag to
+                    explore</span
+                  >
+                  <div class="research-zoom" role="group" aria-label="Map zoom">
+                    <button
+                      id="research-zoom-out"
+                      type="button"
+                      aria-label="Zoom out"
+                    >
+                      −</button
+                    ><button
+                      id="research-reset"
+                      type="button"
+                      title="Reset zoom and center selected technology"
+                      aria-label="Reset zoom and center selection"
+                    >
+                      100%</button
+                    ><button
+                      id="research-zoom-in"
+                      type="button"
+                      aria-label="Zoom in"
+                    >
+                      +</button
+                    ><button id="research-fit" type="button">Fit all</button>
+                  </div>
+                </div>
+              </section>
+              <section
+                class="research-details"
+                aria-label="Selected technology details"
+              >
+                <div class="research-detail-content">
+                  <button
+                    id="research-details-close"
+                    type="button"
+                    aria-label="Close technology details"
+                  >
+                    Back to map <span aria-hidden="true">×</span>
+                  </button>
+                  <span class="research-detail-icon" aria-hidden="true"></span>
+                  <p class="research-context"></p>
+                  <h3></h3>
+                  <p class="research-description"></p>
+                  <h4>What you unlock</h4>
+                  <ul class="research-benefits"></ul>
+                  <h4>Prerequisites</h4>
+                  <p class="research-no-prerequisites">
+                    Start here. No prerequisites.
+                  </p>
+                  <div class="research-prerequisites research-links"></div>
+                  <div class="research-next-section">
+                    <h4>Leads to</h4>
+                    <div class="research-next research-links"></div>
+                  </div>
+                </div>
+                <div class="research-action">
+                  <div class="research-price">
+                    <strong class="research-cost"></strong
+                    ><span class="research-wallet"></span>
+                  </div>
+                  <p class="research-reason" id="research-reason"></p>
+                  <button
+                    id="research-purchase"
+                    type="button"
+                    aria-describedby="research-reason"
+                    disabled
+                  >
+                    Research
+                  </button>
+                  <button
+                    class="panel-link panel-toggle"
+                    type="button"
+                    data-panel-target="quest-panel"
+                    aria-controls="quest-panel"
+                    aria-expanded="false"
+                  >
+                    Earn insight at the hub <span aria-hidden="true">↗</span>
+                  </button>
+                </div>
+              </section>
+            </div>
+            <span
+              id="research-announcement"
+              class="sr-only"
+              role="status"
+              aria-live="polite"
+            ></span>
+            <div
+              id="research-tooltip"
+              class="research-tooltip"
+              role="tooltip"
+              hidden
             >
-              <span>View hub jobs and contract</span><kbd>P</kbd>
-            </button>
-            <!--
-              Progressive disclosure. The default view is what you have, what you can take next, and
-              what those unlock; the whole tree is one press away for planning, and the count says
-              what is being held back so nothing feels hidden.
-            -->
-            <button
-              id="research-scope"
-              class="scope-toggle"
-              type="button"
-              aria-pressed="false"
-            ></button>
-            <div id="technology-list" class="technology-list"></div>
-          </aside>
+              <strong></strong>
+              <p class="research-tooltip-description"></p>
+              <p class="research-tooltip-benefits"></p>
+              <p class="research-tooltip-needs"></p>
+              <span class="research-tooltip-cost"></span
+              ><small>Select for full details</small>
+            </div>
+          </dialog>
 
           <aside
             id="build-panel"

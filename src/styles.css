@@ -410,7 +410,6 @@ canvas {
 .quest-panel {
   width: 400px;
 }
-.research-panel,
 .inventory-panel,
 .creative-panel {
   width: 360px;
@@ -907,64 +906,6 @@ canvas {
   color: #ffbdb2;
 }
 
-.technology-list {
-  display: grid;
-  gap: 7px;
-}
-.technology-list button {
-  position: relative;
-  display: grid;
-  gap: 3px;
-  width: 100%;
-  overflow: hidden;
-  text-align: left;
-}
-.technology-list button::before {
-  content: "";
-  position: absolute;
-  inset: 0 auto 0 0;
-  width: 3px;
-  background: #60756f;
-}
-.technology-list button.available::before {
-  background: var(--gold);
-  box-shadow: 0 0 10px var(--gold);
-}
-.technology-list button:disabled {
-  /* Blocked research still carries the explanation the player needs to read. */
-  opacity: 1;
-}
-.technology-list button.complete {
-  border-color: #4d806c;
-  background: #19362c;
-  opacity: 0.74;
-}
-.technology-list button.complete::before {
-  background: var(--mint);
-}
-.technology-list button span,
-.technology-list button small {
-  color: var(--muted);
-  font-size: 0.65rem;
-  line-height: 1.35;
-}
-.technology-list button .technology-unlocks:empty {
-  display: none;
-}
-.technology-list button .technology-unlocks {
-  color: #9fd8c4;
-}
-.technology-list button .technology-context {
-  color: #c4d9e3;
-  font-weight: 600;
-}
-.technology-list button small {
-  color: #d7e5df;
-  font-weight: 700;
-}
-.technology-list button.available small {
-  color: var(--gold);
-}
 .inspect-heading-row {
   display: flex;
   align-items: center;

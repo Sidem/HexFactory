@@ -305,7 +305,7 @@ describe("data-defined content", () => {
     );
 
     const cycle = structuredClone(technologies);
-    cycle.technologies[0]!.prerequisites = [3];
+    cycle.technologies[1]!.prerequisites = [3];
     expect(() => validateTechnologies(cycle, typedDefinitions)).toThrow(
       /acyclic/,
     );

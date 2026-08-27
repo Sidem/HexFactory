@@ -122,7 +122,12 @@ describe("compatibility", () => {
   it("offers the exact released migration chain to native", () => {
     const latest = {
       ...build,
-      versions: { ...build.versions, save: 21, definitions: 18, technology: 9 },
+      versions: {
+        ...build.versions,
+        save: 22,
+        definitions: 18,
+        technology: 10,
+      },
     };
     for (const [saveVersion, definitionVersion, technologyVersion] of [
       [14, 14, 7],
@@ -133,6 +138,7 @@ describe("compatibility", () => {
       [19, 17, 8],
       [20, 18, 8],
       [21, 18, 9],
+      [22, 18, 10],
     ]) {
       const parsed = parseHxf1(
         envelope({

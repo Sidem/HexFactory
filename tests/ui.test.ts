@@ -31,6 +31,19 @@ class FakeClassList {
 
 interface FakeElement {
   id: string;
+  tagName: string;
+  open: boolean;
+  focused: boolean;
+  visible: boolean;
+  getClientRects(): unknown[];
+  listeners: Map<string, (event: { preventDefault(): void }) => void>;
+  addEventListener(
+    name: string,
+    listener: (event: { preventDefault(): void }) => void,
+  ): void;
+  showModal(): void;
+  close(): void;
+  focus(): void;
   classList: FakeClassList;
   dataset: Record<string, string>;
   attributes: Map<string, string>;
@@ -44,6 +57,26 @@ function element(
 ): FakeElement {
   return {
     id,
+    tagName: "ASIDE",
+    open: false,
+    focused: false,
+    visible: true,
+    getClientRects() {
+      return this.visible ? [{}] : [];
+    },
+    listeners: new Map(),
+    addEventListener(name, listener) {
+      this.listeners.set(name, listener);
+    },
+    showModal() {
+      this.open = true;
+    },
+    close() {
+      this.open = false;
+    },
+    focus() {
+      this.focused = true;
+    },
     classList: new FakeClassList(...classes),
     dataset,
     attributes: new Map(),
@@ -56,6 +89,11 @@ function element(
 function harness(stored = "[]") {
   const left = element("left", ["glass-panel", "open"]);
   const right = element("right", ["glass-panel"]);
+  const modal = element("research-panel", ["glass-panel"]);
+  modal.tagName = "DIALOG";
+  const modalToggle = element("research-toggle", ["panel-toggle"], {
+    panelTarget: modal.id,
+  });
   const leftToggle = element("left-toggle", ["panel-toggle"], {
     panelTarget: "left",
   });
@@ -63,19 +101,27 @@ function harness(stored = "[]") {
     panelTarget: "right",
   });
   const elements = new Map(
-    [left, right, leftToggle, rightToggle].map((value) => [value.id, value]),
+    [left, right, modal, modalToggle, leftToggle, rightToggle].map((value) => [
+      value.id,
+      value,
+    ]),
   );
   const root = {
     getElementById(id: string) {
       return elements.get(id) ?? null;
     },
     querySelectorAll(selector: string) {
-      if (selector === ".panel-toggle") return [leftToggle, rightToggle];
+      if (selector === ".panel-toggle")
+        return [leftToggle, rightToggle, modalToggle];
+      if (selector === "dialog.glass-panel") return [modal];
       if (selector === ".glass-panel.open")
-        return [left, right].filter(({ classList }) =>
+        return [left, right, modal].filter(({ classList }) =>
           classList.contains("open"),
         );
       return [];
+    },
+    querySelector() {
+      return modalToggle;
     },
   };
   const values = new Map([["hexfactory:panels:v1", stored]]);
@@ -96,11 +142,53 @@ function harness(stored = "[]") {
     right,
     leftToggle,
     rightToggle,
+    modal,
+    modalToggle,
     values,
   };
 }
 
 describe("panel controller", () => {
+  it("returns to the main toggle when a cross-link opener is now hidden", () => {
+    const view = harness();
+    view.controller.toggle(
+      "research-panel",
+      view.rightToggle as unknown as HTMLElement,
+    );
+    view.rightToggle.visible = false;
+    view.controller.close();
+    expect(view.rightToggle.focused).toBe(false);
+    expect(view.modalToggle.focused).toBe(true);
+  });
+  it("opens research modally, closes on Escape, and returns focus to its opener", () => {
+    const view = harness();
+    view.controller.bind();
+    view.controller.toggle("research-panel");
+    expect(view.modal.open).toBe(true);
+    expect(view.left.classList.contains("open")).toBe(false);
+    expect(view.modalToggle.attributes.get("aria-expanded")).toBe("true");
+    let prevented = false;
+    view.modal.listeners.get("cancel")!({
+      preventDefault: () => {
+        prevented = true;
+      },
+    });
+    expect(prevented).toBe(true);
+    expect(view.modal.open).toBe(false);
+    expect(view.modalToggle.focused).toBe(true);
+    expect(view.values.get("hexfactory:panels:v1")).toBe("[]");
+  });
+
+  it("does not restore a modal over the title screen and dismisses it when opening another workspace", () => {
+    const view = harness('["research-panel"]');
+    view.controller.restore();
+    expect(view.modal.open).toBe(false);
+    expect(view.modal.classList.contains("open")).toBe(false);
+    view.controller.toggle("research-panel");
+    view.controller.toggle("right");
+    expect(view.modal.open).toBe(false);
+    expect(view.right.classList.contains("open")).toBe(true);
+  });
   it("restores only the last valid workspace and synchronizes its toggles", () => {
     const view = harness('["missing","left","right"]');
     view.left.classList.remove("open");

@@ -1,7 +1,7 @@
 {
   "reference": {
     "definition_version": 18,
-    "technology_version": 9,
+    "technology_version": 10,
     "ticks_per_second": 10,
     "player_ticks_per_second": 30,
     "gather_cooldown_steps": 15,
@@ -3036,14 +3036,13 @@
     {
       "name": "first smelter",
       "technologies": [
-        "field-logistics",
         "automated-extraction",
         "material-processing",
         "on-site-power"
       ],
-      "insight": 18,
-      "insight_items": 20,
-      "insight_request": "clay-survey",
+      "insight": 15,
+      "insight_items": 16,
+      "insight_request": "coal-seam",
       "buildings": ["burner-generator", "manual-workshop", "smelter"],
       "gathers": [
         {
@@ -3061,17 +3060,17 @@
       ],
       "fuel_energy": 240,
       "fuel_items": 2,
-      "gather_total": 47,
+      "gather_total": 43,
       "machine_ticks": 30,
       "player_work_ticks": 88,
-      "hand_seconds_milli": 43833,
+      "hand_seconds_milli": 54500,
       "machine_seconds_milli": 3000,
       "player_work_seconds_milli": 8800
     },
     {
       "name": "first power",
-      "technologies": ["field-logistics", "on-site-power"],
-      "insight": 7,
+      "technologies": ["on-site-power"],
+      "insight": 4,
       "insight_items": 8,
       "insight_request": "coal-seam",
       "buildings": [
@@ -3109,14 +3108,10 @@
     },
     {
       "name": "first extractor",
-      "technologies": [
-        "field-logistics",
-        "automated-extraction",
-        "on-site-power"
-      ],
-      "insight": 12,
-      "insight_items": 16,
-      "insight_request": "coal-seam",
+      "technologies": ["automated-extraction", "on-site-power"],
+      "insight": 9,
+      "insight_items": 10,
+      "insight_request": "clay-survey",
       "buildings": [
         "burner-generator",
         "extractor",
@@ -3143,22 +3138,17 @@
       ],
       "fuel_energy": 560,
       "fuel_items": 4,
-      "gather_total": 52,
+      "gather_total": 46,
       "machine_ticks": 140,
       "player_work_ticks": 144,
-      "hand_seconds_milli": 64667,
+      "hand_seconds_milli": 47333,
       "machine_seconds_milli": 14000,
       "player_work_seconds_milli": 14400
     },
     {
       "name": "first composer",
-      "technologies": [
-        "field-logistics",
-        "automated-extraction",
-        "composition",
-        "on-site-power"
-      ],
-      "insight": 20,
+      "technologies": ["automated-extraction", "composition", "on-site-power"],
+      "insight": 17,
       "insight_items": 20,
       "insight_request": "clay-survey",
       "buildings": [
@@ -3197,15 +3187,14 @@
     {
       "name": "first circuit",
       "technologies": [
-        "field-logistics",
         "automated-extraction",
         "composition",
         "material-processing",
         "on-site-power"
       ],
-      "insight": 26,
-      "insight_items": 30,
-      "insight_request": "clay-survey",
+      "insight": 23,
+      "insight_items": 24,
+      "insight_request": "coal-seam",
       "buildings": [
         "burner-generator",
         "composer",
@@ -3241,10 +3230,10 @@
       ],
       "fuel_energy": 900,
       "fuel_items": 6,
-      "gather_total": 88,
+      "gather_total": 82,
       "machine_ticks": 172,
       "player_work_ticks": 48,
-      "hand_seconds_milli": 88000,
+      "hand_seconds_milli": 104000,
       "machine_seconds_milli": 17200,
       "player_work_seconds_milli": 4800
     },
@@ -3442,14 +3431,13 @@
       "opening": {
         "name": "new-game: foundry",
         "technologies": [
-          "field-logistics",
           "automated-extraction",
           "material-processing",
           "on-site-power"
         ],
-        "insight": 18,
-        "insight_items": 20,
-        "insight_request": "clay-survey",
+        "insight": 15,
+        "insight_items": 16,
+        "insight_request": "coal-seam",
         "buildings": [
           "burner-generator",
           "kiln",
@@ -3476,10 +3464,10 @@
         ],
         "fuel_energy": 2080,
         "fuel_items": 13,
-        "gather_total": 112,
+        "gather_total": 108,
         "machine_ticks": 464,
         "player_work_ticks": 88,
-        "hand_seconds_milli": 121000,
+        "hand_seconds_milli": 131667,
         "machine_seconds_milli": 46400,
         "player_work_seconds_milli": 8800
       }

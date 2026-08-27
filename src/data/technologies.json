@@ -1,5 +1,5 @@
 {
-  "version": 9,
+  "version": 10,
   "technologies": [
     {
       "id": 1,
@@ -17,11 +17,11 @@
       "key": "automated-extraction",
       "name": "Automated Extraction",
       "description": "Unlock extractors that harvest a field within one hex.",
-      "prerequisites": [1],
+      "prerequisites": [],
       "cost": 5,
       "unlocks": [1],
       "branch": "manufacturing",
-      "stage": "workshops"
+      "stage": "foundations"
     },
     {
       "id": 3,
@@ -39,7 +39,7 @@
       "key": "storage-planning",
       "name": "Storage Planning",
       "description": "Optional branch that unlocks exact-quantity containers.",
-      "prerequisites": [1],
+      "prerequisites": [],
       "cost": 4,
       "unlocks": [4],
       "branch": "logistics",
@@ -83,11 +83,11 @@
       "key": "on-site-power",
       "name": "On-site Power",
       "description": "Unlock poles and the burner generator, so a region can afford to run.",
-      "prerequisites": [1],
+      "prerequisites": [],
       "cost": 4,
       "unlocks": [12, 13],
       "branch": "electricity",
-      "stage": "workshops"
+      "stage": "foundations"
     },
     {
       "id": 9,

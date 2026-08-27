@@ -11,10 +11,14 @@ Their old v0.26/v0.27 reservations are withdrawn. Tuning proposals and validatio
 **Delivery status:** v0.26.0 [Primitive Workshops](OPENING-FOUNDATION-RECORD.md) supplies baseline
 manufacturing and recovery; v0.27/v0.28 price transport and essential stations in parts.
 v0.29.0 [Research Foundations](RESEARCH-FOUNDATIONS-RECORD.md) supplies branch/stage registries and
-native research availability shared by purchase, list and guidance. Technology prices, prerequisites,
-effects and request rewards remain unchanged. Continue phase 1 with commissions, typed requirements
+native research availability shared by purchase, map and guidance. That release kept prices, prerequisites, effects and request rewards unchanged. Continue phase 1 with commissions, typed requirements
 and effects, remaining industrial bills and timed opening validation. This is not the finite insight
-economy, separate skill system or completed research map.
+economy or separate skill system. At the user's explicit UI priority, v0.30.0
+[Research Atlas](RESEARCH-ATLAS-RECORD.md) pulls forward the central spatial tree, original SVG
+emblems, hover/focus details and deliberate purchases. Its four independent entry points remove
+the Field Logistics prerequisite from extraction, storage and on-site power; prices and rewards
+remain unchanged. Save 22 migrates existing research unchanged to technology catalog 10. This maps the current 19 nodes; larger
+future discipline lanes, evidence projects, tracking and skills remain planned.
 
 ## Design commitments
 
@@ -323,7 +327,9 @@ new pause control. Measure the complete browser frame with the graph open.
 
 ## Icons later: reserve the contract now
 
-No icons are generated in this task. Begin with readable labels and consistent simple placeholders.
+The initial planning brief deferred icons. The user subsequently requested them for the research UI;
+v0.30.0 supplies original code-native SVG emblems for the current technologies. Broader image asset
+families remain deferred.
 Define presentation-only manifest keys for branches, technologies, skills, materials, recipes and
 buildings. Missing assets fall back to a generic emblem plus text, never a blank button or invalid
 research definition. Fixed image boxes prevent later artwork from shifting the layout.

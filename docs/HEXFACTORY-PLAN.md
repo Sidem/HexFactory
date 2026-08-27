@@ -49,7 +49,7 @@ This is permanent and is not a scope item.
 
 ## Where the project stands
 
-The engine arc, the generator arc, and the shipped milestones through **v0.26.0 Primitive Workshops** are
+The engine arc, the generator arc, and the shipped milestones through **v0.30.0 Research Atlas** are
 present in this tree. A run today looks like this: land beside a hub in a world chosen by preset
 or by raw parameters, walk out under fog across rivers and coastline — on the keys, or by
 **clicking a selected hex a second time** and watching the route native found — find **fields** of
@@ -69,12 +69,12 @@ catalog shows which one moved rather than hiding the row:
 
 | Envelope              | Version |
 | --------------------- | ------: |
-| `HXF1` save           |      15 |
-| Definitions           |      14 |
-| Technologies          |       7 |
+| `HXF1` save           |      22 |
+| Definitions           |      18 |
+| Technologies          |      10 |
 | Scenarios             |       5 |
 | World generator       |       8 |
-| Wire (snapshot delta) |      10 |
+| Wire (snapshot delta) |      13 |
 
 **Current measured capacity.** At 6,144 entities the complete Three.js browser frame is 27.4% of
 60 Hz on Low, 25.1% on Medium, and 21.7% on High on the reference desktop at 1440×900/DPR 1.
@@ -129,6 +129,13 @@ the first circuit needs none where it needed three. The opening gets longer in e
 power rises from 17 gathers to 36, because a pole now has a furnace and a workshop standing behind
 it. See [the essential bills record](ESSENTIAL-BILLS-RECORD.md) for the full comparison, the curve
 argument, and the refund revaluation.
+
+**User-directed UI delivery: v0.30.0 Research Atlas.** The current 19 technologies now have a
+central modal map with four independent downward trees, icon-only nodes, lock markers, hover
+details, explicit purchases and search/filter/zoom controls. Clicking opens a detail pane; the
+optional list remains available for text navigation. This pulls the map forward at the
+user's request without changing research prices or income; the unfinished Phase 1 economy work
+below remains the next priority. See [the atlas record](RESEARCH-ATLAS-RECORD.md).
 
 **Phase 1 delivery: v0.29.0 Research Foundations.** Validated branch/stage registries classify the
 existing 19 technologies without changing their prices, prerequisites or effects. Research cards
@@ -505,6 +512,10 @@ both test suites say so.
 One line per release, newest first. The reasoning behind a shipped rule lives in the git history of
 this file and in the code that implements it; what follows is the index.
 
+- **v0.30.0** Research Atlas — Large central technology tree with all 19 SVG emblems, prerequisite
+  lines and selected ancestry, hover/focus details, deliberate purchases, search, discipline and
+  in-reach filters, pan/zoom and keyboard navigation. Four independent starting technologies
+  replace the universal logistics gate. Save 22 / technologies 10 migrate existing knowledge intact. [Verification record](RESEARCH-ATLAS-RECORD.md).
 - **v0.29.0** Research Foundations — Branch/stage registries classify all 19 technologies; the
   keyed list shows discipline, stage, costs, blockers and corner-heading benefits. Native publishes
   the same availability used by atomic purchases, and guidance consumes it. Prices, prerequisites,

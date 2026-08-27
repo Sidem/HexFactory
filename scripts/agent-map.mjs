@@ -39,6 +39,11 @@ const routes = [
   ],
   ["Frame loop and application wiring", "src/main.ts", "frame, update"],
   [
+    "Research tree and icons",
+    "src/ui/researchTree.ts; src/ui/researchGraph.ts; src/rendering/researchIcons.ts",
+    "ResearchTree, layoutResearch, researchIconSvg",
+  ],
+  [
     "Panels and keyed DOM",
     "src/ui/panels.ts; src/ui/dom.ts",
     "PanelController, syncChildren",

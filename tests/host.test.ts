@@ -633,7 +633,6 @@ describe("bounded host input", () => {
     expect(glass).not.toMatch(/position:\s*absolute/);
     for (const panel of [
       "inventory-panel",
-      "research-panel",
       "quest-panel",
       "build-panel",
       "inspector-panel",
@@ -732,6 +731,14 @@ describe("bounded host input", () => {
     expect(dom).toContain("export function syncChildren(");
     expect(dom).not.toContain("replaceChildren()");
     expect(main).toContain('from "./ui/dom"');
+    const research = readFileSync(
+      new URL("../src/ui/researchTree.ts", import.meta.url),
+      "utf8",
+    );
+    expect(research).toContain("syncChildren(");
+    expect(research).toContain("technologyAvailability(tech, this.snapshot)");
+    expect(main).toContain("researchTree.update(snapshot)");
+    expect(main).toContain("if (researchDialog.open)");
     // The hotbar's buttons are built once, so it needs no reconciler — but rewriting their inner
     // nodes on every snapshot loses a click the same way, so it patches text instead.
     const hotbar = main.slice(
@@ -740,7 +747,6 @@ describe("bounded host input", () => {
     );
     expect(hotbar).not.toMatch(/innerHTML\s*=/);
     for (const renderer of [
-      "renderTechnologies",
       "renderInventory",
       "renderInspectorActions",
       "paintSaveSlotList",
@@ -1185,7 +1191,7 @@ describe("availability and expanded snapshot adapter", () => {
     expect(html).toContain('id="technology-list"');
     expect(html).toContain('id="inventory-peek"');
     // Mission control and research cross-link, and the physical hub exposes both delivery loops.
-    expect(html).toContain("View hub jobs and contract");
+    expect(html).toContain("Earn insight at the hub");
     expect(html).toContain("Spend insight in Research");
     expect(html).toContain('id="inspect-hub-contract"');
     expect(html).toContain('id="inspect-hub-requests"');

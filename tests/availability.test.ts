@@ -6,10 +6,29 @@ import {
   heldQuantity,
   technologyAvailability,
 } from "../src/core/availability";
-import definitions from "../src/data/definitions.json";
+import definitionData from "../src/data/definitions.json";
 import technologies from "../src/data/technologies.json";
 import { orderTechnologies, technologyContext } from "../src/ui/research";
-import type { BuildingDefinition, FactorySnapshot } from "../src/core/types";
+import {
+  RESEARCH_ICON_KEYS,
+  researchIconSvg,
+} from "../src/rendering/researchIcons";
+import {
+  layoutResearch,
+  researchAncestors,
+  researchBenefits,
+  researchMatches,
+  researchNeighbor,
+  RESEARCH_NODE_WIDTH,
+  RESEARCH_NODE_HEIGHT,
+} from "../src/ui/researchGraph";
+import type {
+  BuildingDefinition,
+  Definitions,
+  FactorySnapshot,
+} from "../src/core/types";
+
+const definitions = definitionData as Definitions;
 
 /**
  * The shortfall is plain arithmetic over a snapshot, so it is tested without a DOM. That is the
@@ -29,6 +48,123 @@ const building = (key: string): BuildingDefinition =>
   ) as BuildingDefinition;
 
 describe("research presentation", () => {
+  it("provides a distinct accessible emblem for every authored technology", () => {
+    expect([...RESEARCH_ICON_KEYS].sort()).toEqual(
+      technologies.technologies.map((tech) => tech.key).sort(),
+    );
+    const icons = technologies.technologies.map((tech) =>
+      researchIconSvg(tech.key),
+    );
+    expect(new Set(icons).size).toBe(technologies.technologies.length);
+    for (const icon of icons) expect(icon).toContain('aria-hidden="true"');
+    expect(researchIconSvg("future-technology")).toContain(
+      'viewBox="0 0 32 32"',
+    );
+  });
+
+  it("refuses malformed graph dependencies instead of recursing indefinitely", () => {
+    const first = technologies.technologies[0]!;
+    expect(() =>
+      layoutResearch({
+        ...technologies,
+        technologies: [{ ...first, prerequisites: [first.id] }],
+      }),
+    ).toThrow("acyclic");
+    expect(() =>
+      layoutResearch({
+        ...technologies,
+        technologies: [{ ...first, prerequisites: [999] }],
+      }),
+    ).toThrow("Unknown prerequisite 999");
+  });
+  it("lays out every node and prerequisite deterministically with no overlapping cards", () => {
+    const layout = layoutResearch(technologies);
+    const reversed = {
+      ...technologies,
+      technologies: [...technologies.technologies].reverse(),
+    };
+    expect(layoutResearch(reversed)).toEqual(layout);
+    expect(layout.nodes).toHaveLength(19);
+    expect(layout.edges).toHaveLength(
+      technologies.technologies.reduce(
+        (count, node) => count + node.prerequisites.length,
+        0,
+      ),
+    );
+    for (const node of layout.nodes) {
+      expect(node.x + RESEARCH_NODE_WIDTH).toBeLessThanOrEqual(layout.width);
+      expect(node.y + RESEARCH_NODE_HEIGHT).toBeLessThanOrEqual(layout.height);
+      for (const other of layout.nodes.filter(
+        (candidate) => candidate.id !== node.id,
+      ))
+        expect(
+          Math.abs(node.x - other.x) >= RESEARCH_NODE_WIDTH ||
+            Math.abs(node.y - other.y) >= RESEARCH_NODE_HEIGHT,
+        ).toBe(true);
+    }
+    for (const edge of layout.edges)
+      expect(
+        layout.nodes.find((node) => node.id === edge.from)!.rank,
+      ).toBeLessThan(layout.nodes.find((node) => node.id === edge.to)!.rank);
+    // Every drawn segment must stay outside unrelated icon hit targets.
+    for (const edge of layout.edges) {
+      const [x1, y1, lane, x2, y2] = edge.path
+        .match(/[\d.]+/g)!
+        .map(Number) as [number, number, number, number, number];
+      for (const node of layout.nodes.filter(
+        (node) => node.id !== edge.from && node.id !== edge.to,
+      )) {
+        for (const [ax, ay, bx, by] of [
+          [x1, y1, x1, lane],
+          [x1, lane, x2, lane],
+          [x2, lane, x2, y2],
+        ] as [number, number, number, number][]) {
+          const crosses =
+            ax === bx
+              ? ax > node.x &&
+                ax < node.x + RESEARCH_NODE_WIDTH &&
+                Math.max(ay, by) > node.y &&
+                Math.min(ay, by) < node.y + RESEARCH_NODE_HEIGHT
+              : ay > node.y &&
+                ay < node.y + RESEARCH_NODE_HEIGHT &&
+                Math.max(ax, bx) > node.x &&
+                Math.min(ax, bx) < node.x + RESEARCH_NODE_WIDTH;
+          expect(
+            crosses,
+            `${edge.from}→${edge.to} crosses icon ${node.id}`,
+          ).toBe(false);
+        }
+      }
+    }
+    expect(researchAncestors(14, technologies)).toEqual(
+      new Set([14, 13, 8, 5, 2, 12]),
+    );
+    expect(researchNeighbor(layout.nodes, 1, "ArrowRight")).toBeDefined();
+    expect(researchNeighbor(layout.nodes, 1, "ArrowLeft")).toBeDefined();
+  });
+
+  it("searches unlocks and player effects as well as research names", () => {
+    const corner = technologies.technologies.find(
+      (technology) => technology.id === 11,
+    )!;
+    expect(researchBenefits(corner, definitions).join(" ")).toContain(
+      "Six corner headings",
+    );
+    expect(
+      researchMatches(corner, "underpass", technologies, definitions),
+    ).toBe(true);
+    expect(
+      researchMatches(
+        technologies.technologies[17]!,
+        "cargo slots",
+        technologies,
+        definitions,
+      ),
+    ).toBe(true);
+    expect(
+      researchMatches(corner, "unobtainium", technologies, definitions),
+    ).toBe(false);
+  });
   it("uses the native answer even when catalog arithmetic would allow a purchase", () => {
     const technology = technologies.technologies[0]!;
     const snapshot = carrying({});

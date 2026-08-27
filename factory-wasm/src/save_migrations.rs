@@ -57,6 +57,10 @@ pub(super) fn migrate<'a>(json: &'a str, target_version: u16) -> Result<Cow<'a, 
         research_foundations_20_to_21(&mut value);
         version = 21;
     }
+    if version == 21 && target_version >= 22 {
+        research_branches_21_to_22(&mut value);
+        version = 22;
+    }
 
     if version == target_version {
         return Ok(Cow::Owned(serde_json::to_string(&value).map_err(
@@ -66,6 +70,17 @@ pub(super) fn migrate<'a>(json: &'a str, target_version: u16) -> Result<Cow<'a, 
     Err(format!(
         "no migration path from save version {version} to {target_version}"
     ))
+}
+
+/// Independent entry points remove three prerequisite edges without granting or revoking
+/// research. Existing stock, insight, jobs and researched IDs survive byte-for-byte in state.
+fn research_branches_21_to_22(value: &mut Value) {
+    if let Some(object) = value.as_object_mut() {
+        object.insert("save_version".into(), Value::from(22));
+        if object.get("technology_version") == Some(&Value::from(9)) {
+            object.insert("technology_version".into(), Value::from(10));
+        }
+    }
 }
 
 /// Branches and stages annotate the same technologies. Availability is derived from existing

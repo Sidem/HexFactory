@@ -10,7 +10,6 @@ import {
   costAt,
   costLines,
   heldQuantity,
-  technologyAvailability,
   type CostLine,
 } from "./core/availability";
 import { cueForEvent, FeedbackAudio } from "./audio/feedback";
@@ -19,7 +18,7 @@ import { supportsRecipe } from "./core/definitions";
 import { FactoryHost } from "./core/FactoryHost";
 import { FrameClock, SIMULATION_TICKS_PER_SECOND } from "./core/frameClock";
 import { nextAction } from "./core/guidance";
-import { orderTechnologies, technologyContext } from "./ui/research";
+import { ResearchTree } from "./ui/researchTree";
 import { BoundedInputQueue, MOVEMENT_KEYS, movementIntent } from "./core/input";
 import {
   AUTOSAVE_SLOT_NAME,
@@ -76,7 +75,6 @@ import type {
   PlacementPreview,
   RecipeDefinition,
   StockKind,
-  TechnologyDefinition,
   WorldParams,
   WorldPoint,
 } from "./core/types";
@@ -292,7 +290,23 @@ const minimap = new MinimapRenderer(
   required<HTMLCanvasElement>("minimap"),
   host.definitions,
 );
-const panels = new PanelController(document, localStorage);
+const researchDialog = required<HTMLDialogElement>("research-panel");
+const panels = new PanelController(document, localStorage, (id, open) => {
+  if (id !== "research-panel" || !open) return;
+  gatherHeld = false;
+  harvestPointer = null;
+  runningHeld = false;
+  stopAiming();
+  pressedMovement.clear();
+  enqueue(currentMovementIntent());
+  researchTree.onOpen();
+});
+const researchTree = new ResearchTree(
+  researchDialog,
+  host.technologies,
+  host.definitions,
+  (id) => enqueue({ type: "research", technology_id: id }),
+);
 
 let snapshot = host.snapshot();
 /** Which named slot Save will overwrite, if any. Presentation only — the catalog is the store. */
@@ -473,7 +487,6 @@ const DEFAULT_HOTBAR: (Tool | null)[] = [28, 27, 2, 4, 1, 3, 12, 13, 8];
  * with the game, never hashed: it is a preference about a keyboard, not a fact about a factory. */
 let hotbar: (Tool | null)[] = loadHotbar();
 /** Panel scope, not game state: which side of progressive disclosure each catalogue is showing. */
-let showAllTechnologies = false;
 let showAllBuildings = false;
 /** The slot a drag is currently over, so the drop target can be shown before the pointer lands. */
 let hotbarDragOver: number | null = null;
@@ -1481,104 +1494,8 @@ function technologyReach(): Map<number, number> {
   return depth;
 }
 
-/**
- * Which technologies the research panel shows by default: everything the player has, everything
- * they can take now, and everything one more breakthrough opens. What that leaves out is the far
- * end of a tree they have no live choice about, which is what made minute zero read as the whole
- * locked game. The full tree stays one press away, because planning is a real reason to want it
- * and hiding it would be a different defect.
- */
-function visibleTechnologies(): TechnologyDefinition[] {
-  const all = host.technologies.technologies;
-  if (showAllTechnologies) return all;
-  const reach = technologyReach();
-  return all.filter(
-    (technology) =>
-      (reach.get(technology.id) ?? Number.MAX_SAFE_INTEGER) <= DISCLOSURE_REACH,
-  );
-}
-
 function renderTechnologies(): void {
-  const list = required<HTMLDivElement>("technology-list");
-  const technologies = orderTechnologies(
-    visibleTechnologies(),
-    host.technologies,
-  );
-  const hidden = host.technologies.technologies.length - technologies.length;
-  const scope = required<HTMLButtonElement>("research-scope");
-  scope.textContent = showAllTechnologies
-    ? "Show what is in reach"
-    : hidden > 0
-      ? `Show the full tree (${hidden} more)`
-      : "Show the full tree";
-  scope.setAttribute("aria-pressed", String(showAllTechnologies));
-  const buttons = syncChildren(
-    list,
-    technologies.map(({ id }) => String(id)),
-    () => {
-      const button = document.createElement("button");
-      button.type = "button";
-      button.innerHTML =
-        '<strong></strong><span class="technology-context"></span><span class="technology-detail"></span><span class="technology-unlocks"></span><small></small>';
-      return button;
-    },
-  );
-  technologies.forEach((technology, index) => {
-    const button = buttons[index] as HTMLButtonElement;
-    const state = technologyAvailability(technology, snapshot);
-    const missing = state.missingPrerequisites.map(
-      (id) =>
-        host.technologies.technologies.find((value) => value.id === id)?.name ??
-        `#${id}`,
-    );
-    const benefits = technology.unlocks.map(
-      (id) =>
-        host.definitions.buildings.find((value) => value.id === id)?.name ??
-        `#${id}`,
-    );
-    if (technology.carry_slots_bonus)
-      benefits.push(`+${technology.carry_slots_bonus} cargo slots`);
-    if (technology.build_range_bonus)
-      benefits.push(`+${technology.build_range_bonus} hex build range`);
-    for (const building of host.definitions.buildings)
-      if (building.corner_technology_id === technology.id)
-        benefits.push(`${building.name}: six corner headings`);
-    const benefitText = benefits.join(", ");
-    const status = !state.known
-      ? "Research status unavailable"
-      : state.complete
-        ? "Researched"
-        : missing.length
-          ? `Needs ${missing.join(" and ")}`
-          : state.affordable
-            ? `Research for ${technology.cost} insight`
-            : `${technology.cost} insight · you have ${snapshot.insight}`;
-    button.dataset.technologyId = String(technology.id);
-    button.disabled =
-      state.complete || !state.prerequisitesMet || !state.affordable;
-    button.className = state.complete
-      ? "complete"
-      : state.prerequisitesMet && state.affordable
-        ? "available"
-        : "";
-    part(button, "strong").textContent = technology.name;
-    part(button, ".technology-context").textContent = technologyContext(
-      technology,
-      host.technologies,
-    );
-    part(button, ".technology-detail").textContent = technology.description;
-    part(button, ".technology-unlocks").textContent = benefitText
-      ? `Provides ${benefitText}`
-      : "";
-    part(button, "small").textContent = status;
-    button.setAttribute(
-      "aria-label",
-      `${technology.name}. ${technologyContext(technology, host.technologies)}. ${status}.`,
-    );
-    button.title = benefitText
-      ? `${technology.description} Provides ${benefitText}.`
-      : technology.description;
-  });
+  researchTree.update(snapshot);
 }
 
 /**
@@ -2631,11 +2548,13 @@ function selectTool(next: Tool): void {
   );
 }
 
-function enqueue(command: NativeInputCommand): void {
-  if (!input.enqueue(command))
+function enqueue(command: NativeInputCommand): boolean {
+  const accepted = input.enqueue(command);
+  if (!accepted)
     showFeedback(
       "Input queue full; command deferred by the bounded host limit",
     );
+  return accepted;
 }
 
 function refreshHoverPreview(): void {
@@ -2704,10 +2623,7 @@ titleGraphicsProfileInput.addEventListener("change", () => {
   const profile = parseGraphicsProfile(titleGraphicsProfileInput.value);
   if (profile) setGraphicsProfile(profile);
 });
-required<HTMLButtonElement>("research-scope").addEventListener("click", () => {
-  showAllTechnologies = !showAllTechnologies;
-  renderTechnologies();
-});
+
 required<HTMLButtonElement>("build-scope").addEventListener("click", () => {
   showAllBuildings = !showAllBuildings;
   renderBuildPanel();
@@ -3434,19 +3350,6 @@ buildGroups.addEventListener("dragstart", (event) => {
     card.dataset.definitionId ?? "",
   );
 });
-required<HTMLDivElement>("technology-list").addEventListener(
-  "click",
-  (event) => {
-    const button = (event.target as Element).closest<HTMLButtonElement>(
-      "button[data-technology-id]",
-    );
-    if (!button || button.disabled) return;
-    enqueue({
-      type: "research",
-      technology_id: Number(button.dataset.technologyId),
-    });
-  },
-);
 required<HTMLSelectElement>("recipe").addEventListener("change", (event) => {
   const select = event.currentTarget as HTMLSelectElement;
   if (typeof tool !== "number") return;
@@ -3618,6 +3521,20 @@ function deleteBuildingUnderCursorOrSelected(): void {
 }
 
 window.addEventListener("keydown", (event) => {
+  if (researchDialog.open) {
+    if (
+      event.code === "KeyO" &&
+      !isTypingTarget(event.target) &&
+      !event.repeat &&
+      !event.ctrlKey &&
+      !event.metaKey &&
+      !event.altKey
+    ) {
+      event.preventDefault();
+      panels.close();
+    }
+    return;
+  }
   if (isTypingTarget(event.target)) return;
   // Space presses a button the keyboard tabbed to. A mouse-focused button must not keep it:
   // activation happens on keyup, so returning here would both skip recenter and click the control.
@@ -3692,6 +3609,7 @@ window.addEventListener("keydown", (event) => {
 });
 
 window.addEventListener("keyup", (event) => {
+  if (researchDialog.open) return;
   if (
     event.code === "Space" &&
     !isTypingTarget(event.target) &&
@@ -4738,6 +4656,7 @@ window.addEventListener("pointerup", (event) => {
   // A clicked button keeps focus, and Space then activates it instead of recentring. Give the
   // keys back to the world once the pointer is done; a tabbed control still has :focus-visible.
   const target = event.target;
+  if (target instanceof Element && target.closest("dialog[open]")) return;
   if (!isPointerActivatedControl(target) || isTypingTarget(target)) return;
   if (target instanceof HTMLElement) target.blur();
 });
@@ -4765,7 +4684,11 @@ function closePanels(except?: HTMLElement): void {
  * leaves the player unable to walk.
  */
 document.addEventListener("change", (event) => {
-  if (event.target instanceof HTMLSelectElement) event.target.blur();
+  if (
+    event.target instanceof HTMLSelectElement &&
+    !event.target.closest("dialog[open]")
+  )
+    event.target.blur();
 });
 
 // A close button closes the panel it is in and nothing else. Clearing the screen is Escape's job.

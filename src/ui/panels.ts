@@ -7,17 +7,48 @@ const INSPECTOR = "inspector-panel";
 
 /** Owns presentation-only workspace state and its DOM/storage synchronization. */
 export class PanelController {
+  private readonly dialogOpeners = new Map<string, HTMLElement>();
   constructor(
     private readonly root: Document,
     private readonly storage: Storage,
+    private readonly onDialogChange?: (id: string, open: boolean) => void,
   ) {}
 
   bind(): void {
+    for (const dialog of this.root.querySelectorAll<HTMLDialogElement>(
+      "dialog.glass-panel",
+    )) {
+      dialog.addEventListener("keydown", (event) => {
+        if (event.key !== "Escape") return;
+        event.preventDefault();
+        event.stopPropagation();
+        dialog.classList.remove("open");
+        this.syncAndSave();
+      });
+      dialog.addEventListener("cancel", (event) => {
+        event.preventDefault();
+        dialog.classList.remove("open");
+        this.syncAndSave();
+      });
+      dialog.addEventListener("click", (event) => {
+        const bounds = dialog.getBoundingClientRect();
+        if (
+          event.target !== dialog ||
+          (event.clientX >= bounds.left &&
+            event.clientX <= bounds.right &&
+            event.clientY >= bounds.top &&
+            event.clientY <= bounds.bottom)
+        )
+          return;
+        dialog.classList.remove("open");
+        this.syncAndSave();
+      });
+    }
     for (const toggle of this.root.querySelectorAll<HTMLButtonElement>(
       ".panel-toggle",
     )) {
       toggle.addEventListener("click", () =>
-        this.toggle(toggle.dataset.panelTarget ?? ""),
+        this.toggle(toggle.dataset.panelTarget ?? "", toggle),
       );
     }
     for (const close of this.root.querySelectorAll<HTMLButtonElement>(
@@ -30,10 +61,18 @@ export class PanelController {
     }
   }
 
-  toggle(id: string): void {
+  toggle(id: string, opener?: HTMLElement): void {
     const target = this.root.getElementById(id);
     if (!target) return;
     const opening = !target.classList.contains("open");
+    if (opening && target.tagName === "DIALOG") {
+      const control =
+        opener ??
+        this.root.querySelector<HTMLElement>(
+          `.panel-toggle[data-panel-target="${id}"]`,
+        );
+      if (control) this.dialogOpeners.set(id, control);
+    }
     if (opening) this.close(target);
     target.classList.toggle("open", opening);
     this.syncAndSave();
@@ -78,6 +117,7 @@ export class PanelController {
     const ids = stored.filter(
       (id): id is string =>
         typeof id === "string" &&
+        this.root.getElementById(id)?.tagName !== "DIALOG" &&
         this.root.getElementById(id)?.classList.contains("glass-panel") ===
           true,
     );
@@ -93,6 +133,25 @@ export class PanelController {
   }
 
   private syncAndSave(): void {
+    for (const dialog of this.root.querySelectorAll<HTMLDialogElement>(
+      "dialog.glass-panel",
+    )) {
+      const open = dialog.classList.contains("open");
+      if (dialog.open === open) continue;
+      if (open) dialog.showModal();
+      else {
+        dialog.close();
+        const opener = this.dialogOpeners.get(dialog.id);
+        // Cross-links can live inside the panel that opening this dialog just hid.
+        const visibleOpener = opener?.getClientRects().length
+          ? opener
+          : this.root.querySelector<HTMLElement>(
+              `.panel-toggle[data-panel-target="${dialog.id}"]`,
+            );
+        visibleOpener?.focus({ preventScroll: true });
+      }
+      this.onDialogChange?.(dialog.id, open);
+    }
     this.syncToggles();
     try {
       this.storage.setItem(PANEL_KEY, JSON.stringify(this.openIds()));

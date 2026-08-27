@@ -95,7 +95,7 @@ const SAVE_PREFIX: &str = "HXF1\n";
 /// one ore â€” exactly what rebuilding it now costs, which conserves the line rather than paying a
 /// premium on it. Kits have no recipe back to ore, so the boundary cannot mint raw material.
 /// Version 21 adds progression registries (technology 9); saved state and checksum are unchanged.
-const SAVE_VERSION: u16 = 21;
+const SAVE_VERSION: u16 = 22;
 /// Bumped to 6 for World Parameters. `WorldParams` is now part of a run's identity — it is in the
 /// save envelope and in the checksum — so a version-5 envelope carries no answer to the question
 /// "which world is this" and is rejected rather than assumed to be the default.
@@ -17442,10 +17442,59 @@ mod tests {
     }
 
     #[test]
+    fn research_atlas_has_four_independent_entry_points_and_preserves_legacy_state() {
+        let roots: Vec<_> = catalogs()
+            .1
+            .technologies
+            .iter()
+            .filter(|technology| technology.prerequisites.is_empty())
+            .map(|technology| technology.id)
+            .collect();
+        assert_eq!(roots, vec![1, 2, 4, 8]);
+        for id in roots {
+            let mut core = game("new-game");
+            core.insight = 100;
+            let cost = u64::from(core.technology(id).unwrap().cost);
+            core.research(id).unwrap();
+            assert_eq!(core.insight, 100 - cost);
+            assert_eq!(
+                core.researched.iter().copied().collect::<Vec<_>>(),
+                vec![id]
+            );
+        }
+        let mut old = primitive_test_core();
+        old.technologies.version = 9;
+        for technology in &mut old.technologies.technologies {
+            if [2, 4, 8].contains(&technology.id) {
+                technology.prerequisites = vec![1];
+            }
+        }
+        old.insight = 31;
+        old.research(1).unwrap();
+        old.place(0, 4, 28, 0, Some(8)).unwrap();
+        old.store(0, 4, 9, 3).unwrap();
+        old.set_enabled(0, 4, true).unwrap();
+        old.tick_many(5);
+        let save = old.save_string().unwrap().replace(
+            &format!("\"save_version\":{SAVE_VERSION}"),
+            "\"save_version\":21",
+        );
+        let (definitions, technologies, scenarios) = catalogs();
+        let mut restored = Core::from_save(&definitions, &technologies, &scenarios, &save).unwrap();
+        assert_eq!(old.checksum(), restored.checksum());
+        assert_eq!(old.researched, restored.researched);
+        assert_eq!(old.insight, restored.insight);
+        for core in [&mut old, &mut restored] {
+            core.tick_many(40);
+        }
+        assert_eq!(old.checksum(), restored.checksum());
+    }
+
+    #[test]
     fn research_is_atomic_validates_prerequisites_and_unlocks() {
         let mut core = game("new-game");
         core.insight = 20;
-        assert!(core.research(2).unwrap_err().contains("prerequisites"));
+        assert!(core.research(3).unwrap_err().contains("prerequisites"));
         assert_eq!(core.insight, 20);
         core.research(1).unwrap();
         assert_eq!(core.insight, 17);
@@ -19844,7 +19893,7 @@ mod tests {
     #[test]
     fn malformed_technology_graphs_and_locked_forged_commands_are_rejected() {
         let (definitions, mut technologies, scenarios) = catalogs();
-        technologies.technologies[0].prerequisites = vec![3];
+        technologies.technologies[1].prerequisites = vec![3];
         assert!(validate_technologies(&definitions, &technologies).is_err());
         let mut core = game("new-game");
         core.player.inventory.insert(1, 100);
