@@ -159,8 +159,42 @@ describe("opening checkpoints", () => {
       }),
       600_000,
     );
-    expect(result.reached).toHaveLength(OPENING_CHECKPOINTS.length);
+    expect(result.reached.map(({ id }) => id)).toContain("stage-one");
     expect(isRunComplete(result.run)).toBe(true);
+  });
+
+  it("completes a primitive opening without the optional industrial expedition", () => {
+    let run = startRun(0, 0);
+    run = recordCheckpoints(
+      run,
+      context({
+        buildings: [
+          {
+            key: "manual-workshop",
+            kind: "composer",
+            status: "switched off",
+            powered: true,
+          },
+        ],
+      }),
+      1000,
+    ).run;
+    run = recordCheckpoints(run, context({ carried: { ore: 6 } }), 2000).run;
+    run = recordCheckpoints(run, context({ contractStage: 1 }), 3000).run;
+    expect(isRunComplete(run)).toBe(true);
+    expect(splitDurations(run).map(({ elapsedMs }) => elapsedMs)).toEqual([
+      1000, 1000, 1000,
+    ]);
+    expect(
+      isRunComplete({
+        ...run,
+        records: Array.from({ length: OPENING_CHECKPOINTS.length }, () => ({
+          id: "unknown",
+          tick: 0,
+          elapsedMs: 0,
+        })),
+      }),
+    ).toBe(false);
   });
 
   it("keeps taints unique so a report names a reason once", () => {

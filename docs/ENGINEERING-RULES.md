@@ -12,15 +12,18 @@ change. The next milestones live in `docs/HEXFACTORY-PLAN.md`, architecture deci
 
 ## Where things stand
 
-Shipped through **v0.25.3 Compartment Storage**. Current envelope versions,
-all five of which native refuses a load on: **save 17, definitions 15, technologies 8, scenarios 5,
+Shipped through **v0.26.0 Primitive Workshops**. Current envelope versions,
+all five of which native refuses a load on: **save 18, definitions 16, technologies 8, scenarios 5,
 world generator 8**, and wire (snapshot delta) **12**. `SAVE_VERSION` is the one literal in the host,
 because native does not publish it; every other number the browser's save catalog shows is read from
 what native publishes.
 
-**What to pick up next** is `docs/HEXFACTORY-PLAN.md`: **Living Lattice v0.26**. Visual Depth is
-shipped as a measured, presentation-only Three.js renderer; physical integrated-GPU laptop
-qualification remains an external validation item and is not a support claim.
+**What to pick up next** is the progression and construction workstream in
+`docs/HEXFACTORY-PLAN.md#what-to-do-next`, detailed in `docs/PROGRESSION-PLAN.md` and
+`docs/CONSTRUCTION-MATERIALS-PLAN.md`. It precedes Living Lattice, Regional Discovery and other
+roadmap features. Visual Depth is shipped as a measured, presentation-only Three.js renderer;
+physical integrated-GPU laptop qualification remains required evidence for the planned native
+height work, not a support claim that has already been met.
 
 Before changing a cost, a cadence, or a power figure, run `npm run balance` and read
 `fixtures/balance.json`. Before touching `src/rendering/buildingLook.ts` or the shape grammar, read

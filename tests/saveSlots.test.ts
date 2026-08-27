@@ -124,8 +124,8 @@ describe("compatibility", () => {
       ...build,
       versions: {
         ...build.versions,
-        save: 17,
-        definitions: 15,
+        save: 18,
+        definitions: 16,
         technology: 8,
       },
     };
@@ -153,6 +153,18 @@ describe("compatibility", () => {
       compatible: true,
       mismatches: [],
     });
+    const version17 = parseHxf1(
+      envelope({
+        save_version: 17,
+        definition_version: 15,
+        technology_version: 8,
+      }),
+    )!;
+    expect(compatibility(version17, current).compatible).toBe(true);
+    expect(
+      compatibility({ ...version17, definitionVersion: 14 }, current)
+        .compatible,
+    ).toBe(false);
     const unknown = parseHxf1(
       envelope({
         save_version: 13,

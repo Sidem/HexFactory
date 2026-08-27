@@ -41,6 +41,10 @@ pub(super) fn migrate<'a>(json: &'a str, target_version: u16) -> Result<Cow<'a, 
         player_capabilities_16_to_17(&mut value);
         version = 17;
     }
+    if version == 17 && target_version >= 18 {
+        primitive_workshops_17_to_18(&mut value);
+        version = 18;
+    }
 
     if version == target_version {
         return Ok(Cow::Owned(serde_json::to_string(&value).map_err(
@@ -50,6 +54,17 @@ pub(super) fn migrate<'a>(json: &'a str, target_version: u16) -> Result<Cow<'a, 
     Err(format!(
         "no migration path from save version {version} to {target_version}"
     ))
+}
+
+/// Two additive, initially unbuilt stations. Existing recipes, bills, entity state and checksum
+/// are unchanged, including reserved jobs. No stock or insight is granted by this migration.
+fn primitive_workshops_17_to_18(value: &mut Value) {
+    if let Some(object) = value.as_object_mut() {
+        object.insert("save_version".into(), Value::from(18));
+        if object.get("definition_version") == Some(&Value::from(15)) {
+            object.insert("definition_version".into(), Value::from(16));
+        }
+    }
 }
 
 /// Technology catalog 8 only adds two unresearched capability rows. A catalog-7 save therefore

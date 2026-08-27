@@ -1,6 +1,6 @@
 {
   "reference": {
-    "definition_version": 15,
+    "definition_version": 16,
     "technology_version": 8,
     "ticks_per_second": 10,
     "player_ticks_per_second": 30,
@@ -601,6 +601,128 @@
       "power_draw": 7,
       "grid_energy_per_cycle": 35,
       "grid_energy_per_minute_milli": 4200000,
+      "fuel_energy_per_cycle": 0,
+      "fuel_energy_per_minute_milli": 0
+    },
+    {
+      "building": "primitive-furnace",
+      "recipe": "iron-plate",
+      "ticks_per_cycle": 20,
+      "output_item": "iron-plate",
+      "output_per_cycle": 1,
+      "per_minute_milli": 30000,
+      "inputs_per_minute": [
+        {
+          "item": "ore",
+          "quantity_milli": 60000
+        }
+      ],
+      "power_draw": 0,
+      "grid_energy_per_cycle": 0,
+      "grid_energy_per_minute_milli": 0,
+      "fuel_energy_per_cycle": 80,
+      "fuel_energy_per_minute_milli": 2400000
+    },
+    {
+      "building": "primitive-furnace",
+      "recipe": "copper-plate",
+      "ticks_per_cycle": 20,
+      "output_item": "copper-plate",
+      "output_per_cycle": 1,
+      "per_minute_milli": 30000,
+      "inputs_per_minute": [
+        {
+          "item": "copper-ore",
+          "quantity_milli": 60000
+        }
+      ],
+      "power_draw": 0,
+      "grid_energy_per_cycle": 0,
+      "grid_energy_per_minute_milli": 0,
+      "fuel_energy_per_cycle": 80,
+      "fuel_energy_per_minute_milli": 2400000
+    },
+    {
+      "building": "manual-workshop",
+      "manual_work": true,
+      "recipe": "component",
+      "ticks_per_cycle": 32,
+      "output_item": "component",
+      "output_per_cycle": 1,
+      "per_minute_milli": 18750,
+      "inputs_per_minute": [
+        {
+          "item": "ore",
+          "quantity_milli": 37500
+        }
+      ],
+      "power_draw": 0,
+      "grid_energy_per_cycle": 0,
+      "grid_energy_per_minute_milli": 0,
+      "fuel_energy_per_cycle": 0,
+      "fuel_energy_per_minute_milli": 0
+    },
+    {
+      "building": "manual-workshop",
+      "manual_work": true,
+      "recipe": "timber",
+      "ticks_per_cycle": 24,
+      "output_item": "timber",
+      "output_per_cycle": 2,
+      "per_minute_milli": 50000,
+      "inputs_per_minute": [
+        {
+          "item": "wood",
+          "quantity_milli": 25000
+        }
+      ],
+      "power_draw": 0,
+      "grid_energy_per_cycle": 0,
+      "grid_energy_per_minute_milli": 0,
+      "fuel_energy_per_cycle": 0,
+      "fuel_energy_per_minute_milli": 0
+    },
+    {
+      "building": "manual-workshop",
+      "manual_work": true,
+      "recipe": "gear",
+      "ticks_per_cycle": 32,
+      "output_item": "gear",
+      "output_per_cycle": 1,
+      "per_minute_milli": 18750,
+      "inputs_per_minute": [
+        {
+          "item": "iron-plate",
+          "quantity_milli": 37500
+        }
+      ],
+      "power_draw": 0,
+      "grid_energy_per_cycle": 0,
+      "grid_energy_per_minute_milli": 0,
+      "fuel_energy_per_cycle": 0,
+      "fuel_energy_per_minute_milli": 0
+    },
+    {
+      "building": "manual-workshop",
+      "manual_work": true,
+      "recipe": "frame",
+      "ticks_per_cycle": 40,
+      "output_item": "frame",
+      "output_per_cycle": 1,
+      "per_minute_milli": 15000,
+      "inputs_per_minute": [
+        {
+          "item": "timber",
+          "quantity_milli": 30000
+        },
+        {
+          "item": "iron-plate",
+          "quantity_milli": 15000
+        }
+      ],
+      "power_draw": 0,
+      "grid_energy_per_cycle": 0,
+      "grid_energy_per_minute_milli": 0,
       "fuel_energy_per_cycle": 0,
       "fuel_energy_per_minute_milli": 0
     }
@@ -2162,6 +2284,92 @@
       "batch_units": 8,
       "batch_fuel_energy": 160,
       "machine_ticks": 28
+    },
+    {
+      "building": "primitive-furnace",
+      "kind": "composer",
+      "tier": 0,
+      "unlock_technology": null,
+      "direct": [
+        {
+          "item": "stone",
+          "quantity": 6
+        },
+        {
+          "item": "clay",
+          "quantity": 4
+        }
+      ],
+      "depth": 0,
+      "raw": [
+        {
+          "item": "stone",
+          "quantity_milli": 6000
+        },
+        {
+          "item": "clay",
+          "quantity_milli": 4000
+        }
+      ],
+      "raw_units_milli": 10000,
+      "fuel_energy_milli": 0,
+      "effort_milli": 10000,
+      "batch": [
+        {
+          "item": "stone",
+          "quantity": 6
+        },
+        {
+          "item": "clay",
+          "quantity": 4
+        }
+      ],
+      "batch_units": 10,
+      "batch_fuel_energy": 0,
+      "machine_ticks": 0
+    },
+    {
+      "building": "manual-workshop",
+      "kind": "composer",
+      "tier": 0,
+      "unlock_technology": null,
+      "direct": [
+        {
+          "item": "wood",
+          "quantity": 4
+        },
+        {
+          "item": "stone",
+          "quantity": 2
+        }
+      ],
+      "depth": 0,
+      "raw": [
+        {
+          "item": "stone",
+          "quantity_milli": 2000
+        },
+        {
+          "item": "wood",
+          "quantity_milli": 4000
+        }
+      ],
+      "raw_units_milli": 6000,
+      "fuel_energy_milli": 0,
+      "effort_milli": 6000,
+      "batch": [
+        {
+          "item": "stone",
+          "quantity": 2
+        },
+        {
+          "item": "wood",
+          "quantity": 4
+        }
+      ],
+      "batch_units": 6,
+      "batch_fuel_energy": 0,
+      "machine_ticks": 0
     }
   ],
   "curve": [
@@ -2365,7 +2573,7 @@
       "guaranteed_hexes": 37,
       "nearest_generated": 12,
       "reachable": true,
-      "required_by": 12
+      "required_by": 14
     },
     {
       "material": "sand",
@@ -2381,7 +2589,7 @@
       "guaranteed_hexes": 14,
       "nearest_generated": 8,
       "reachable": true,
-      "required_by": 5
+      "required_by": 6
     },
     {
       "material": "wood",
@@ -2389,7 +2597,7 @@
       "guaranteed_hexes": 47,
       "nearest_generated": 8,
       "reachable": true,
-      "required_by": 4
+      "required_by": 5
     },
     {
       "material": "water",
@@ -2677,8 +2885,10 @@
       "fuel_items": 0,
       "gather_total": 40,
       "machine_ticks": 0,
+      "player_work_ticks": 0,
       "hand_seconds_milli": 37333,
-      "machine_seconds_milli": 0
+      "machine_seconds_milli": 0,
+      "player_work_seconds_milli": 0
     },
     {
       "name": "first power",
@@ -2701,8 +2911,10 @@
       "fuel_items": 0,
       "gather_total": 17,
       "machine_ticks": 0,
+      "player_work_ticks": 0,
       "hand_seconds_milli": 23500,
-      "machine_seconds_milli": 0
+      "machine_seconds_milli": 0,
+      "player_work_seconds_milli": 0
     },
     {
       "name": "first circuit",
@@ -2716,7 +2928,12 @@
       "insight": 26,
       "insight_items": 30,
       "insight_request": "clay-survey",
-      "buildings": ["burner-generator", "composer", "smelter"],
+      "buildings": [
+        "burner-generator",
+        "composer",
+        "primitive-furnace",
+        "smelter"
+      ],
       "gathers": [
         {
           "item": "ore",
@@ -2732,19 +2949,133 @@
         },
         {
           "item": "stone",
-          "quantity": 12
+          "quantity": 18
         },
         {
           "item": "sand",
           "quantity": 2
+        },
+        {
+          "item": "clay",
+          "quantity": 4
         }
       ],
       "fuel_energy": 260,
       "fuel_items": 2,
-      "gather_total": 66,
+      "gather_total": 76,
       "machine_ticks": 58,
-      "hand_seconds_milli": 63333,
-      "machine_seconds_milli": 5800
+      "player_work_ticks": 0,
+      "hand_seconds_milli": 72000,
+      "machine_seconds_milli": 5800,
+      "player_work_seconds_milli": 0
+    },
+    {
+      "name": "first primitive plate",
+      "technologies": [],
+      "insight": 0,
+      "insight_items": 0,
+      "insight_request": "clay-survey",
+      "buildings": ["primitive-furnace"],
+      "gathers": [
+        {
+          "item": "ore",
+          "quantity": 2
+        },
+        {
+          "item": "stone",
+          "quantity": 6
+        },
+        {
+          "item": "clay",
+          "quantity": 4
+        }
+      ],
+      "fuel_energy": 80,
+      "fuel_items": 1,
+      "gather_total": 13,
+      "machine_ticks": 20,
+      "player_work_ticks": 0,
+      "hand_seconds_milli": 13167,
+      "machine_seconds_milli": 2000,
+      "player_work_seconds_milli": 0
+    },
+    {
+      "name": "first manual frame",
+      "technologies": [],
+      "insight": 0,
+      "insight_items": 0,
+      "insight_request": "clay-survey",
+      "buildings": ["manual-workshop", "primitive-furnace"],
+      "gathers": [
+        {
+          "item": "ore",
+          "quantity": 2
+        },
+        {
+          "item": "stone",
+          "quantity": 8
+        },
+        {
+          "item": "clay",
+          "quantity": 4
+        },
+        {
+          "item": "wood",
+          "quantity": 5
+        }
+      ],
+      "fuel_energy": 80,
+      "fuel_items": 1,
+      "gather_total": 20,
+      "machine_ticks": 20,
+      "player_work_ticks": 64,
+      "hand_seconds_milli": 17667,
+      "machine_seconds_milli": 2000,
+      "player_work_seconds_milli": 6400
+    },
+    {
+      "name": "24 starter belts",
+      "technologies": ["field-logistics"],
+      "insight": 3,
+      "insight_items": 8,
+      "insight_request": "coal-seam",
+      "buildings": ["belt"],
+      "gathers": [
+        {
+          "item": "ore",
+          "quantity": 24
+        }
+      ],
+      "fuel_energy": 0,
+      "fuel_items": 0,
+      "gather_total": 32,
+      "machine_ticks": 0,
+      "player_work_ticks": 0,
+      "hand_seconds_milli": 48000,
+      "machine_seconds_milli": 0,
+      "player_work_seconds_milli": 0
+    },
+    {
+      "name": "100 starter belts",
+      "technologies": ["field-logistics"],
+      "insight": 3,
+      "insight_items": 8,
+      "insight_request": "coal-seam",
+      "buildings": ["belt"],
+      "gathers": [
+        {
+          "item": "ore",
+          "quantity": 100
+        }
+      ],
+      "fuel_energy": 0,
+      "fuel_items": 0,
+      "gather_total": 108,
+      "machine_ticks": 0,
+      "player_work_ticks": 0,
+      "hand_seconds_milli": 162000,
+      "machine_seconds_milli": 0,
+      "player_work_seconds_milli": 0
     }
   ],
   "contracts": [
@@ -2761,36 +3092,33 @@
       "raw_materials": 1,
       "opening": {
         "name": "new-game: components",
-        "technologies": [
-          "field-logistics",
-          "automated-extraction",
-          "composition",
-          "on-site-power"
-        ],
-        "insight": 20,
-        "insight_items": 20,
+        "technologies": [],
+        "insight": 0,
+        "insight_items": 0,
         "insight_request": "clay-survey",
-        "buildings": ["burner-generator", "composer"],
+        "buildings": ["manual-workshop"],
         "gathers": [
           {
             "item": "ore",
-            "quantity": 15
-          },
-          {
-            "item": "crystal",
-            "quantity": 3
+            "quantity": 6
           },
           {
             "item": "stone",
+            "quantity": 2
+          },
+          {
+            "item": "wood",
             "quantity": 4
           }
         ],
         "fuel_energy": 0,
         "fuel_items": 0,
-        "gather_total": 42,
-        "machine_ticks": 24,
-        "hand_seconds_milli": 41333,
-        "machine_seconds_milli": 2400
+        "gather_total": 12,
+        "machine_ticks": 0,
+        "player_work_ticks": 96,
+        "hand_seconds_milli": 13000,
+        "machine_seconds_milli": 0,
+        "player_work_seconds_milli": 9600
       }
     },
     {
@@ -2819,27 +3147,29 @@
         "insight": 18,
         "insight_items": 20,
         "insight_request": "clay-survey",
-        "buildings": ["burner-generator", "kiln", "smelter"],
+        "buildings": ["burner-generator", "kiln", "primitive-furnace"],
         "gathers": [
           {
             "item": "ore",
-            "quantity": 40
+            "quantity": 36
           },
           {
             "item": "stone",
-            "quantity": 18
+            "quantity": 16
           },
           {
             "item": "clay",
-            "quantity": 18
+            "quantity": 22
           }
         ],
         "fuel_energy": 1840,
         "fuel_items": 12,
-        "gather_total": 108,
-        "machine_ticks": 244,
-        "hand_seconds_milli": 121333,
-        "machine_seconds_milli": 24400
+        "gather_total": 106,
+        "machine_ticks": 404,
+        "player_work_ticks": 0,
+        "hand_seconds_milli": 116000,
+        "machine_seconds_milli": 40400,
+        "player_work_seconds_milli": 0
       }
     }
   ],

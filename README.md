@@ -13,8 +13,9 @@ and construction costs close to the world on desktop and touch layouts. A
 new game starts beside a landing hub inside a small surveyed clearing, with the rest of the world
 under fog: explore to lift it, ford rivers or bridge them for transport, cross coastline, basins, and highlands, find the fields
 of ore, coal, stone, clay, and forest the world guarantees within sight of the hub, fill the hub's
-posted requests for insight, unlock a short technology tree, build a compiled transport
-line, compose three components, and win. Pick the **world** as well as the seed — Continental,
+posted requests for insight, make the first components at a manual workshop, then unlock powered
+production and supply the foundry module. Primitive furnaces smelt plates without electricity;
+manual workshops make timber and simple parts one attended batch at a time. Pick the **world** as well as the seed — Continental,
 Archipelago, Highlands, or Basin, with the raw generator parameters exposed behind the preset. The
 founding prebuilt architecture proof remains available as the **Factory demo** scenario.
 
@@ -27,6 +28,9 @@ machine decorations.
 
 ## Controls
 
+- The default hotbar starts with the manual workshop and primitive furnace. Existing pinned bars
+  are preserved. Load a workshop's ingredients, stand within one hex, and press **Work one batch**
+  in its inspector. Walking or gathering pauses work; dismantling refunds reserved ingredients.
 - Move freely with `W/A/S/D` or the narrow-layout touch pad; movement is not snapped to building
   cells. Travelling past the dashed survey frontier generates new world and permanently lifts its
   fog.
@@ -111,8 +115,14 @@ rather than from reading its numbers.
   never imports HexLife source or package internals.
 
 See the [goal, state, and roadmap](docs/HEXFACTORY-PLAN.md),
+[construction and materials plan](docs/CONSTRUCTION-MATERIALS-PLAN.md),
+[research and player progression plan](docs/PROGRESSION-PLAN.md),
 [architecture](docs/ARCHITECTURE.md), [art direction](docs/ART.md),
 [measured capacity](docs/BENCHMARKS.md), and [agent invariants](AGENTS.md).
+
+**Next roadmap priority:** deliver the progression and construction plans, beginning with recipe
+and research foundations, before Living Lattice, Regional Discovery or other roadmap features.
+The [combined delivery sequence](docs/HEXFACTORY-PLAN.md#what-to-do-next) defines the order and gates.
 
 ## Measured capacity
 

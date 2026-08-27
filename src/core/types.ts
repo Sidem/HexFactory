@@ -92,6 +92,11 @@ export interface BuildingDefinition {
   capacity?: number;
   /** The recipe category a composer-kind machine may be assigned. */
   recipe_category?: string;
+  /** Explicit supported recipe IDs, replacing the category match on primitive equipment. */
+  recipe_ids?: number[];
+  /** One attended batch per work command; native owns the work permit and progress. */
+  manual_work?: boolean;
+  duration_multiplier?: number;
   /** What a source building produces, for a pump. */
   output_item_id?: number;
   /** Electricity this machine spends per tick of work. Idle time is free. */

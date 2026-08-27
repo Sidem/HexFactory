@@ -1,4 +1,8 @@
-import { validateDefinitions, validateTechnologies } from "../core/definitions";
+import {
+  supportsRecipe,
+  validateDefinitions,
+  validateTechnologies,
+} from "../core/definitions";
 import type {
   BuildingDefinition,
   Definitions,
@@ -155,7 +159,6 @@ export function runDiagnostics(
 
   const buildingMap = new Map<number, BuildingDefinition>();
   const buildingKeys = new Map<string, number>();
-  const buildingCategories = new Set<string>();
 
   for (const building of definitions.buildings) {
     if (buildingMap.has(building.id)) {
@@ -181,10 +184,6 @@ export function runDiagnostics(
       });
     }
     buildingKeys.set(building.key, building.id);
-
-    if (building.recipe_category) {
-      buildingCategories.add(building.recipe_category);
-    }
 
     // Validate costs
     for (const cost of building.construction_cost) {
@@ -236,14 +235,18 @@ export function runDiagnostics(
 
   // Check recipes matching building categories
   for (const recipe of definitions.recipes) {
-    if (!buildingCategories.has(recipe.category)) {
+    if (
+      !definitions.buildings.some((building) =>
+        supportsRecipe(building, recipe),
+      )
+    ) {
       issues.push({
         id: `orphan-recipe-${recipe.id}`,
         severity: "error",
         category: "Economy Balance",
         entity: "recipe",
         entityId: recipe.id,
-        message: `Recipe "${recipe.name}" has category "${recipe.category}", but no composer building is assigned to that category`,
+        message: `Recipe "${recipe.name}" has category "${recipe.category}", but no machine supports this recipe`,
         field: "category",
       });
     }

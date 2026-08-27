@@ -328,6 +328,17 @@ counts. Each is behavior-tested without Wasm or WebGL; `main.ts` wires them to t
 
 ## Save contract
 
+Primitive processing (v0.26.0) uses the existing composer kind and compartment inventories.
+An optional `recipe_ids` capability list replaces category matching; `duration_multiplier` scales
+the same recipe's native work duration. `manual_work` stations start disabled. Their existing
+saved `disabled` flag is a one-batch work permit, with at most one attended workshop active.
+Native checks stationary attendance within one hex and an idle gather action before working,
+pauses when those conditions fail, and disables the station at completion. Pausing retains the
+job; dismantling cancels and refunds reserved inputs through the normal erase path. No host timer
+or new wire state is involved. Save 18 advances definition catalog 15 to 16 without changing
+existing entity state, research, quantities, bills or checksum; the adjacent migration is tested
+against a running legacy factory. Scenario text changes do not change scenario version 5.
+
 Rust serializes `HXF1` plus JSON containing save/definition/technology/scenario versions, seed,
 generated chunks and resource quantities, player and inventory, research, blueprint/entity IDs,
 machine and cargo state, counters, tick, victory, and a native checksum. Loading validates versions,

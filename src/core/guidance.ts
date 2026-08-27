@@ -1,8 +1,10 @@
+import { supportsRecipe } from "./definitions";
 import type {
   BuildingDefinition,
   Definitions,
   FactorySnapshot,
   RequestSnapshot,
+  RecipeDefinition,
   Technologies,
   TechnologyDefinition,
 } from "./types";
@@ -82,7 +84,12 @@ export function nextAction(
     (need) => need.delivered < need.required,
   );
   const wanted = outstanding.map((need) => need.item_id);
-  const needs = expand(wanted, definitions, technologies);
+  const needs = expand(
+    wanted,
+    definitions,
+    technologies,
+    new Set(snapshot.buildings.map((building) => building.definition_id)),
+  );
 
   // 1. Research, in dependency order. Only a technology whose prerequisites are all met can be
   //    named, so the step is always one the research panel will actually accept.
@@ -162,26 +169,36 @@ export function nextAction(
   const missingMachine = needs.machines.find(
     (machine) =>
       !built.some((entity) => entity.definition_id === machine.id) &&
-      researched.has(machine.unlock_technology_id ?? -1),
+      (machine.unlock_technology_id === undefined ||
+        researched.has(machine.unlock_technology_id)),
   );
   if (missingMachine) {
     // A machine whose recipes burn is a machine that stands idle without fuel, and "out of fuel"
     // is a status rather than a missing input, so nothing in the recipe row would ever say so.
     const burns = definitions.recipes.some(
       (recipe) =>
-        recipe.category === missingMachine.recipe_category &&
-        (recipe.fuel ?? 0) > 0,
+        supportsRecipe(missingMachine, recipe) && (recipe.fuel ?? 0) > 0,
     );
     return {
       key: `build:${missingMachine.key}`,
       title: `Build a ${missingMachine.name.toLowerCase()}`,
-      detail: `${missingMachine.description} The hub is asking for something only this can make.${
-        burns
-          ? " It burns fuel as well as drawing power, so keep coal, charcoal, or wood arriving."
-          : ""
+      detail: `${missingMachine.description} This station can make part of the hub's bill.${
+        burns ? " Keep coal, charcoal, or wood in its fuel compartment." : ""
       }`,
     };
   }
+
+  const line = outstanding[0];
+  const item = definitions.items.find((value) => value.id === line?.item_id);
+  const carrying = line
+    ? (snapshot.player.inventory[String(line.item_id)] ?? 0)
+    : 0;
+  if (line && carrying > 0)
+    return {
+      key: "deliver",
+      title: `Deliver ${item?.name ?? "the bill"}`,
+      detail: `The hub wants ${line.required - line.delivered} more. You are carrying ${carrying}: walk to the landing hub and deliver.`,
+    };
 
   // 4. Material. A raw line the player is neither carrying nor extracting is the reason a chain
   //    stands idle, and the answer is the hand until an extractor covers it.
@@ -190,7 +207,24 @@ export function nextAction(
       definitionOf(entity.definition_id, definitions)?.kind === "extractor",
   ).length;
   const missingRaw = needs.raw.find(
-    (item) => (snapshot.player.inventory[String(item)] ?? 0) === 0,
+    (item) =>
+      (snapshot.player.inventory[String(item)] ?? 0) === 0 &&
+      !built.some(
+        (entity) =>
+          needs.machines.some(
+            (machine) => machine.id === entity.definition_id,
+          ) &&
+          ((entity.input_inventory ?? entity.inventory ?? []).some(
+            (stock) => stock.item_id === item && stock.quantity > 0,
+          ) ||
+            (definitions.recipes
+              .find((recipe) => recipe.id === entity.recipe_id)
+              ?.inputs.some((input) => input.item_id === item) &&
+              (entity.progress > 0 ||
+                (entity.output_inventory ?? []).some(
+                  (stock) => stock.quantity > 0,
+                )))),
+      ),
   );
   if (missingRaw !== undefined && extractors === 0) {
     const item = definitions.items.find((value) => value.id === missingRaw);
@@ -203,16 +237,13 @@ export function nextAction(
   }
 
   // 5. Everything the bill needs exists. What is left is the delivery itself.
-  const line = outstanding[0];
-  const item = definitions.items.find((value) => value.id === line?.item_id);
-  const carrying = line
-    ? (snapshot.player.inventory[String(line.item_id)] ?? 0)
-    : 0;
-  if (line && carrying > 0)
+  const workshop = needs.machines.find((machine) => machine.manual_work);
+  if (workshop)
     return {
-      key: "deliver",
-      title: `Deliver ${item?.name ?? "the bill"}`,
-      detail: `The hub wants ${line.required - line.delivered} more. You are carrying ${carrying}: walk to the landing hub and deliver.`,
+      key: "workshop",
+      title: "Work at the manual workshop",
+      detail:
+        "Inspect the workshop, choose a recipe and load its ingredients. Stand within one hex and press Work one batch. Take the output and carry it to the hub; walking or gathering pauses work.",
     };
   return {
     key: "supply",
@@ -247,6 +278,7 @@ function expand(
   wanted: number[],
   definitions: Definitions,
   technologies: Technologies,
+  installed: ReadonlySet<number>,
 ): Requirements {
   const machines: BuildingDefinition[] = [];
   const raw: number[] = [];
@@ -268,7 +300,7 @@ function expand(
       }
       return;
     }
-    const machine = cheapestFor(recipe.category, definitions);
+    const machine = cheapestFor(recipe, definitions, installed);
     if (machine && !machines.some((value) => value.id === machine.id))
       machines.push(machine);
     // Inputs first in the returned order, so "build the smelter" comes before "build the composer
@@ -288,7 +320,14 @@ function expand(
   // named here for the same reason the balance report names it: a machine that draws power and a
   // world with no generator in it is a factory that cannot run. It goes first because a player who
   // unlocks the machines before the network builds a line and then watches it stand still.
-  if (needsPower) add(cheapestGenerator(definitions)?.unlock_technology_id);
+  if (
+    needsPower &&
+    !definitions.buildings.some(
+      (building) =>
+        installed.has(building.id) && (building.power_output ?? 0) > 0,
+    )
+  )
+    add(cheapestGenerator(definitions)?.unlock_technology_id);
   for (const machine of machines) add(machine.unlock_technology_id);
   return {
     machines,
@@ -329,16 +368,21 @@ function definitionOf(
   return definitions.buildings.find((building) => building.id === id);
 }
 
-/** The cheapest buildable machine that runs a category, by construction cost item count. */
+/** The cheapest buildable machine that supports this recipe, by construction cost item count. */
 function cheapestFor(
-  category: string,
+  recipe: RecipeDefinition,
   definitions: Definitions,
+  installed: ReadonlySet<number>,
 ): BuildingDefinition | undefined {
   return definitions.buildings
     .filter(
-      (building) => building.buildable && building.recipe_category === category,
+      (building) => building.buildable && supportsRecipe(building, recipe),
     )
-    .sort((a, b) => cost(a) - cost(b))[0];
+    .sort(
+      (a, b) =>
+        Number(installed.has(b.id)) - Number(installed.has(a.id)) ||
+        cost(a) - cost(b),
+    )[0];
 }
 
 function cheapestExtractor(

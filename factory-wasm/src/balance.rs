@@ -203,6 +203,8 @@ pub struct HandGather {
 #[derive(Clone, Debug, Serialize)]
 pub struct MachineRate {
     pub building: String,
+    #[serde(skip_serializing_if = "is_false")]
+    pub manual_work: bool,
     pub recipe: Option<String>,
     /// Ticks from the start of one output to the start of the next, unblocked and fully powered:
     /// a source's `cadence`, a composer's recipe `duration`.
@@ -390,11 +392,14 @@ pub struct Opening {
     pub fuel_items: u64,
     pub gather_total: u64,
     pub machine_ticks: u64,
+    /// Attended factory-clock ticks, kept separate from unattended machine work.
+    pub player_work_ticks: u64,
     /// A floor, not a prediction: hand time at the player's own clock plus machine time at the
     /// reference rate, with no walking, no travel, and one machine of each kind. What it excludes
     /// is what a playtest measures.
     pub hand_seconds_milli: u64,
     pub machine_seconds_milli: u64,
+    pub player_work_seconds_milli: u64,
 }
 
 /// What the landing hub is asking for, priced the same way an opening is.
@@ -873,6 +878,7 @@ fn machines(economy: &Economy) -> Vec<MachineRate> {
                     let rate = per_minute(1, cadence);
                     rows.push(MachineRate {
                         building: building.key.clone(),
+                        manual_work: building.manual_work,
                         recipe: None,
                         ticks_per_cycle: cadence,
                         output_item: Some(item.key.clone()),
@@ -896,6 +902,7 @@ fn machines(economy: &Economy) -> Vec<MachineRate> {
                 let rate = per_minute(1, cadence);
                 rows.push(MachineRate {
                     building: building.key.clone(),
+                    manual_work: building.manual_work,
                     recipe: None,
                     ticks_per_cycle: cadence,
                     output_item: building.output_item_id.map(|id| economy.item_key(id)),
@@ -912,19 +919,18 @@ fn machines(economy: &Economy) -> Vec<MachineRate> {
                 });
             }
             BuildingKind::Composer => {
-                let Some(category) = building.recipe_category.as_ref() else {
-                    continue;
-                };
                 for recipe in &economy.definitions.recipes {
-                    if &recipe.category != category {
+                    if !building.supports_recipe(recipe) {
                         continue;
                     }
-                    let rate = per_minute(recipe.output.quantity, recipe.duration);
-                    let cycles = per_minute(1, recipe.duration);
+                    let duration = building.recipe_duration(recipe);
+                    let rate = per_minute(recipe.output.quantity, duration);
+                    let cycles = per_minute(1, duration);
                     rows.push(MachineRate {
                         building: building.key.clone(),
+                        manual_work: building.manual_work,
                         recipe: Some(recipe.key.clone()),
-                        ticks_per_cycle: recipe.duration,
+                        ticks_per_cycle: duration,
                         output_item: Some(economy.item_key(recipe.output.item_id)),
                         output_per_cycle: recipe.output.quantity,
                         per_minute_milli: rate.milli(),
@@ -937,9 +943,9 @@ fn machines(economy: &Economy) -> Vec<MachineRate> {
                             })
                             .collect(),
                         power_draw,
-                        grid_energy_per_cycle: power_draw * recipe.duration,
+                        grid_energy_per_cycle: power_draw * duration,
                         grid_energy_per_minute_milli: cycles
-                            .mul(Ratio::whole(power_draw * recipe.duration))
+                            .mul(Ratio::whole(power_draw * duration))
                             .milli(),
                         fuel_energy_per_cycle: recipe.fuel,
                         fuel_energy_per_minute_milli: cycles.mul(Ratio::whole(recipe.fuel)).milli(),
@@ -1394,8 +1400,18 @@ fn openings(economy: &Economy, best_fuel_id: ItemId, best_fuel_value: u32) -> Ve
         ("first smelter", vec!["smelter"], Vec::new()),
         ("first power", vec!["burner-generator", "pole"], Vec::new()),
         ("first circuit", Vec::new(), vec![("circuit", 1)]),
+        (
+            "first primitive plate",
+            vec!["primitive-furnace"],
+            vec![("iron-plate", 1)],
+        ),
+        (
+            "first manual frame",
+            vec!["manual-workshop"],
+            vec![("frame", 1)],
+        ),
     ];
-    targets
+    let mut rows: Vec<_> = targets
         .into_iter()
         .map(|(name, building_keys, item_keys)| {
             let wanted = item_keys
@@ -1421,7 +1437,28 @@ fn openings(economy: &Economy, best_fuel_id: ItemId, best_fuel_value: u32) -> Ve
                 wanted,
             )
         })
-        .collect()
+        .collect();
+    if let Some(belt) = economy.building_by_key("belt") {
+        for count in [24, 100] {
+            let wanted = belt
+                .construction_cost
+                .iter()
+                .map(|input| Ingredient {
+                    item_id: input.item_id,
+                    quantity: input.quantity * (count - 1),
+                })
+                .collect();
+            rows.push(opening(
+                economy,
+                best_fuel_id,
+                best_fuel_value,
+                &format!("{count} starter belts"),
+                &["belt"],
+                wanted,
+            ));
+        }
+    }
+    rows
 }
 
 /// Every standing request the hub can post, priced through its whole tree.
@@ -1550,14 +1587,19 @@ fn opening(
                 ingredients.extend(building.construction_cost.iter().copied());
             }
         }
-        let categories = categories_used(economy, &ingredients);
+        let recipes = recipes_used(economy, &ingredients);
         let mut grew = false;
-        for category in categories {
+        for recipe_id in recipes {
+            let recipe = economy
+                .definitions
+                .recipes
+                .iter()
+                .find(|recipe| recipe.id == recipe_id)
+                .unwrap();
             let already = needed.iter().any(|&id| {
                 economy
                     .building(id)
-                    .and_then(|building| building.recipe_category.clone())
-                    == Some(category.clone())
+                    .is_some_and(|building| building.supports_recipe(recipe))
             });
             if already {
                 continue;
@@ -1566,9 +1608,7 @@ fn opening(
                 .definitions
                 .buildings
                 .iter()
-                .filter(|building| {
-                    building.buildable && building.recipe_category.as_ref() == Some(&category)
-                })
+                .filter(|building| building.buildable && building.supports_recipe(recipe))
                 .min_by_key(|building| {
                     economy
                         .cost_of(&building.construction_cost)
@@ -1620,6 +1660,7 @@ fn opening(
         }
     }
     let expansion = economy.cost_of(&ingredients);
+    let (machine_ticks, player_work_ticks) = opening_work(economy, &needed, &ingredients);
 
     // Research is paid in insight, and insight is paid in items delivered to the hub. The best
     // rate the landing clearing offers is the fewest items that research can cost.
@@ -1694,19 +1735,26 @@ fn opening(
         fuel_energy: expansion.batch_energy,
         fuel_items,
         gather_total,
-        machine_ticks: expansion.batch_ticks,
+        machine_ticks,
+        player_work_ticks,
         hand_seconds_milli: Ratio::new(i128::from(hand_ticks), i128::from(PLAYER_TICKS_PER_SECOND))
             .milli(),
         machine_seconds_milli: Ratio::new(
-            i128::from(expansion.batch_ticks),
+            i128::from(machine_ticks),
+            i128::from(REFERENCE_TICKS_PER_SECOND),
+        )
+        .milli(),
+        player_work_seconds_milli: Ratio::new(
+            i128::from(player_work_ticks),
             i128::from(REFERENCE_TICKS_PER_SECOND),
         )
         .milli(),
     }
 }
 
-/// Every recipe category the tree under these ingredients runs through.
-fn categories_used(economy: &Economy, ingredients: &[Ingredient]) -> BTreeSet<String> {
+/// Every recipe the tree under these ingredients runs through. A primitive capability does not
+/// cover the other recipes in its category.
+fn recipes_used(economy: &Economy, ingredients: &[Ingredient]) -> BTreeSet<RecipeId> {
     let mut categories = BTreeSet::new();
     let mut stack: Vec<ItemId> = ingredients
         .iter()
@@ -1720,10 +1768,55 @@ fn categories_used(economy: &Economy, ingredients: &[Ingredient]) -> BTreeSet<St
         let Some(recipe) = economy.recipe_for(item) else {
             continue;
         };
-        categories.insert(recipe.category.clone());
+        categories.insert(recipe.id);
         stack.extend(recipe.inputs.iter().map(|input| input.item_id));
     }
     categories
+}
+
+fn opening_work(
+    economy: &Economy,
+    machines: &BTreeSet<DefinitionId>,
+    ingredients: &[Ingredient],
+) -> (u64, u64) {
+    fn walk(
+        economy: &Economy,
+        machines: &BTreeSet<DefinitionId>,
+        item: ItemId,
+        quantity: u64,
+    ) -> (u64, u64) {
+        let Some(recipe) = economy.recipe_for(item) else {
+            return (0, 0);
+        };
+        let crafts = divide_up(quantity, u64::from(recipe.output.quantity));
+        let machine = machines
+            .iter()
+            .filter_map(|id| economy.building(*id))
+            .filter(|building| building.supports_recipe(recipe))
+            .min_by_key(|building| (building.recipe_duration(recipe), building.id))
+            .expect("opening resolves a machine for every recipe");
+        let ticks = crafts * u64::from(machine.recipe_duration(recipe));
+        let mut total = if machine.manual_work {
+            (0, ticks)
+        } else {
+            (ticks, 0)
+        };
+        for input in &recipe.inputs {
+            let child = walk(
+                economy,
+                machines,
+                input.item_id,
+                crafts * u64::from(input.quantity),
+            );
+            total.0 += child.0;
+            total.1 += child.1;
+        }
+        total
+    }
+    ingredients.iter().fold((0, 0), |total, input| {
+        let child = walk(economy, machines, input.item_id, u64::from(input.quantity));
+        (total.0 + child.0, total.1 + child.1)
+    })
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -1772,7 +1865,7 @@ pub fn format_report(report: &BalanceReport) -> String {
             .join(" | ")
     ));
 
-    out.push_str("machine rates\n");
+    out.push_str("machine rates (manual stations: attended work, one command per batch)\n");
     out.push_str("  building         recipe            ticks   per min   draw   fuel/cycle\n");
     for machine in &report.machines {
         out.push_str(&format!(
@@ -1926,11 +2019,12 @@ pub fn format_report(report: &BalanceReport) -> String {
             opening.machine_ticks
         ));
         out.push_str(&format!(
-            "      buildings: {} | research: {} insight | hand {}s + machine {}s\n",
+            "      buildings: {} | research: {} insight | gather {}s + machine {}s + player work {}s\n",
             opening.buildings.join(", "),
             opening.insight,
             milli(opening.hand_seconds_milli),
-            milli(opening.machine_seconds_milli)
+            milli(opening.machine_seconds_milli),
+            milli(opening.player_work_seconds_milli)
         ));
     }
 
@@ -1949,13 +2043,14 @@ pub fn format_report(report: &BalanceReport) -> String {
             stage.raw_materials
         ));
         out.push_str(&format!(
-            "      {} gathers ({} for research, {} fuel) | buildings: {} | hand {}s + machine {}s\n",
+            "      {} gathers ({} for research, {} fuel) | buildings: {} | gather {}s + machine {}s + player work {}s\n",
             stage.opening.gather_total,
             stage.opening.insight_items,
             stage.opening.fuel_items,
             stage.opening.buildings.join(", "),
             milli(stage.opening.hand_seconds_milli),
-            milli(stage.opening.machine_seconds_milli)
+            milli(stage.opening.machine_seconds_milli),
+            milli(stage.opening.player_work_seconds_milli)
         ));
     }
     out

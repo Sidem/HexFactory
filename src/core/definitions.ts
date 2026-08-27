@@ -1,4 +1,22 @@
-import type { BuildingDefinition, Definitions, Technologies } from "./types";
+import type {
+  BuildingDefinition,
+  Definitions,
+  RecipeDefinition,
+  Technologies,
+} from "./types";
+
+/** Presentation mirror of native capability validation; never grants a recipe itself. */
+export function supportsRecipe(
+  building: BuildingDefinition,
+  recipe: RecipeDefinition,
+): boolean {
+  return (
+    building.kind === "composer" &&
+    (building.recipe_ids
+      ? building.recipe_ids.includes(recipe.id)
+      : building.recipe_category === recipe.category)
+  );
+}
 
 const KINDS = new Set([
   "extractor",
@@ -82,11 +100,6 @@ export function validateDefinitions(
     )
       throw new TypeError(`request ${request.id} is incomplete`);
   }
-  const categories = new Set(
-    data.buildings
-      .map((building) => building.recipe_category)
-      .filter((category): category is string => Boolean(category)),
-  );
   for (const recipe of data.recipes) {
     if (
       !recipe.key ||
@@ -100,7 +113,7 @@ export function validateDefinitions(
     }
     // A recipe no machine can be assigned is unreachable content, which is a defect in the
     // catalog rather than something to discover in play.
-    if (!categories.has(recipe.category))
+    if (!data.buildings.some((building) => supportsRecipe(building, recipe)))
       throw new TypeError(
         `recipe ${recipe.id} has category ${recipe.category}, which no building runs`,
       );
@@ -144,6 +157,53 @@ export function validateDefinitions(
     if ((building.kind === "composer") !== Boolean(building.recipe_category))
       throw new TypeError(
         `building ${building.id} has a recipe category that does not match its kind`,
+      );
+    if (
+      building.recipe_ids !== undefined &&
+      (building.kind !== "composer" ||
+        !Array.isArray(building.recipe_ids) ||
+        !building.recipe_ids.length ||
+        new Set(building.recipe_ids).size !== building.recipe_ids.length ||
+        building.recipe_ids.some(
+          (id) => !data.recipes!.some((recipe) => recipe.id === id),
+        ))
+    )
+      throw new TypeError(
+        `building ${building.id} has invalid recipe capabilities`,
+      );
+    if (
+      building.duration_multiplier !== undefined &&
+      (building.kind !== "composer" ||
+        !positiveInteger(building.duration_multiplier) ||
+        building.duration_multiplier > 60 ||
+        data.recipes.some(
+          (recipe) =>
+            supportsRecipe(building, recipe) &&
+            recipe.duration * building.duration_multiplier! > 0xffffffff,
+        ))
+    )
+      throw new TypeError(
+        `building ${building.id} has invalid recipe duration multiplier`,
+      );
+    if (
+      building.manual_work !== undefined &&
+      typeof building.manual_work !== "boolean"
+    )
+      throw new TypeError(
+        `building ${building.id} has invalid manual work flag`,
+      );
+    if (
+      building.manual_work &&
+      (building.kind !== "composer" ||
+        !building.recipe_ids ||
+        (building.power_draw ?? 0) !== 0 ||
+        data.recipes.some(
+          (recipe) =>
+            supportsRecipe(building, recipe) && (recipe.fuel ?? 0) !== 0,
+        ))
+    )
+      throw new TypeError(
+        `building ${building.id} has invalid manual work capabilities`,
       );
     if (
       building.kind === "pump" &&
@@ -277,6 +337,9 @@ function validateUpgradeLadders(buildings: BuildingDefinition[]): void {
     if (
       next.kind !== building.kind ||
       next.recipe_category !== building.recipe_category ||
+      JSON.stringify(next.recipe_ids ?? null) !==
+        JSON.stringify(building.recipe_ids ?? null) ||
+      Boolean(next.manual_work) !== Boolean(building.manual_work) ||
       (next.orientation_axis ?? "edge") !==
         (building.orientation_axis ?? "edge")
     )

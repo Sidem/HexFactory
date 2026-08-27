@@ -44,6 +44,8 @@ export interface CheckpointDefinition {
   label: string;
   /** What this moment proves, shown in the panel and carried into the report. */
   note: string;
+  /** An alternative opening route may finish without this milestone. */
+  optional?: boolean;
   reached(context: CheckpointContext): boolean;
 }
 
@@ -74,11 +76,8 @@ export interface RunTimings {
 export const RUN_STORAGE_KEY = "hexfactory:run:v1";
 
 /**
- * The opening ladder, in the order the dependency graph actually forces rather than the order the
- * contract brief implies. Stage one asks for three components; a component needs a composer; a
- * composer costs three signal crystal; signal crystal has no hand rate and needs a powered
- * extractor standing on a highland field the landing bootstrap explicitly refuses to guarantee.
- * So the crystal expedition sits *inside* stage one, and the checkpoints say so.
+ * Opening milestones for both the primitive and industrial routes. Stable IDs preserve older
+ * reports; optional industrial steps must not make a completed manual opening read unfinished.
  */
 export const OPENING_CHECKPOINTS: readonly CheckpointDefinition[] = [
   {
@@ -89,12 +88,14 @@ export const OPENING_CHECKPOINTS: readonly CheckpointDefinition[] = [
   },
   {
     id: "first-research",
+    optional: true,
     label: "First technology researched",
     note: "Field Logistics costs 3 insight and gates both extraction and power.",
     reached: (context) => context.researchedCount > 0,
   },
   {
     id: "first-extraction",
+    optional: true,
     label: "First extractor producing",
     note: "Needs 12 insight across three technologies, a burner, and coal in it. An extractor with no network banks nothing and browns out.",
     // `extracting` is only published while progress is above zero, so an extractor emits one idle
@@ -111,12 +112,14 @@ export const OPENING_CHECKPOINTS: readonly CheckpointDefinition[] = [
   },
   {
     id: "first-crystal",
+    optional: true,
     label: "First signal crystal",
     note: "No hand rate exists for it. This is an expedition plus power delivered to wherever the seam is.",
     reached: (context) => (context.carried.crystal ?? 0) > 0,
   },
   {
     id: "composer-live",
+    optional: true,
     label: "Composer built and powered",
     note: "Costs 5 iron and 3 crystal, and 8 more insight to unlock.",
     reached: (context) =>
@@ -125,9 +128,31 @@ export const OPENING_CHECKPOINTS: readonly CheckpointDefinition[] = [
       ),
   },
   {
+    id: "first-workshop",
+    label: "Manual workshop built",
+    optional: true,
+    note: "Four wood and two stone; no insight or power. Materials and walking count in the real run clock.",
+    reached: (context) =>
+      context.buildings.some((building) => building.key === "manual-workshop"),
+  },
+  {
+    id: "first-timber",
+    label: "First timber carried",
+    optional: true,
+    note: "One wood makes two timber; a manual batch takes 24 factory ticks of attended work.",
+    reached: (context) => (context.carried.timber ?? 0) > 0,
+  },
+  {
+    id: "first-plate",
+    label: "First iron plate carried",
+    optional: true,
+    note: "The primitive furnace uses ordinary fuel without electricity; this records withdrawal as well as production.",
+    reached: (context) => (context.carried["iron-plate"] ?? 0) > 0,
+  },
+  {
     id: "stage-one",
     label: "Stage 1 complete — three components delivered",
-    note: "20 insight, four technologies, and a crossing. The brief calls this the loop in miniature.",
+    note: "Three manual batches need six iron ore and 96 factory ticks of player work. Research and a crystal expedition are no longer required for this stage.",
     reached: (context) => context.contractStage >= 1,
   },
 ];
@@ -180,7 +205,10 @@ export function isRunComplete(
   run: RunTimings,
   checkpoints: readonly CheckpointDefinition[] = OPENING_CHECKPOINTS,
 ): boolean {
-  return run.records.length >= checkpoints.length;
+  const reached = new Set(run.records.map((record) => record.id));
+  return checkpoints.every(
+    (checkpoint) => checkpoint.optional || reached.has(checkpoint.id),
+  );
 }
 
 /** `mm:ss.d`, which is the resolution a human stopwatch was ever going to deliver anyway. */
@@ -301,7 +329,10 @@ export function splitDurations(
   const splits: { label: string; elapsedMs: number }[] = [];
   let previous = 0;
   let previousLabel = "start";
-  for (const checkpoint of checkpoints) {
+  const chronological = checkpoints
+    .filter((checkpoint) => byId.has(checkpoint.id))
+    .sort((a, b) => byId.get(a.id)!.elapsedMs - byId.get(b.id)!.elapsedMs);
+  for (const checkpoint of chronological) {
     const record = byId.get(checkpoint.id);
     if (!record) break;
     splits.push({

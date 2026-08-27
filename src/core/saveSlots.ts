@@ -13,9 +13,10 @@
  * creative run can widen — both are run state now rather than fixed properties of the scenario.
  * v17 advances technology catalog 7 to 8 for the two new, initially unresearched player-capability
  * rows; the old player values and checksum remain unchanged.
+ * v18 adds two primitive station definitions; the v17 state and checksum pass through unchanged.
  */
 
-export const SAVE_VERSION = 17;
+export const SAVE_VERSION = 18;
 export const SAVE_CATALOG_KEY = "hexfactory:saves:v1";
 export const LEGACY_SAVE_PREFIX = "hexfactory:hxf1:";
 export const HXF1_PREFIX = "HXF1\n";
@@ -169,13 +170,21 @@ export function compatibility(
   // envelope. The catalog mirrors only that released chain so it does not disable Load before
   // native can migrate it or admit an unknown historical shape.
   const migratesToPlayerCapabilities =
-    build.versions.save === 17 &&
-    build.versions.definitions === 15 &&
+    ((build.versions.save === 17 && build.versions.definitions === 15) ||
+      (build.versions.save === 18 && build.versions.definitions === 16)) &&
     build.versions.technology === 8 &&
     envelope.technologyVersion === 7 &&
     ((envelope.saveVersion === 14 && envelope.definitionVersion === 14) ||
       (envelope.saveVersion === 15 && envelope.definitionVersion === 14) ||
       (envelope.saveVersion === 16 && envelope.definitionVersion === 15));
+  const migrates =
+    migratesToPlayerCapabilities ||
+    (build.versions.save === 18 &&
+      build.versions.definitions === 16 &&
+      build.versions.technology === 8 &&
+      envelope.saveVersion === 17 &&
+      envelope.definitionVersion === 15 &&
+      envelope.technologyVersion === 8);
   const expect = (
     field: string,
     expected: string | number,
@@ -188,7 +197,7 @@ export function compatibility(
       found: String(found),
     });
   };
-  if (!migratesToPlayerCapabilities) {
+  if (!migrates) {
     expect("save format", build.versions.save, envelope.saveVersion);
     expect(
       "definitions",
@@ -197,7 +206,7 @@ export function compatibility(
     );
   }
   expect("world generator", build.versions.world, envelope.worldVersion);
-  if (!migratesToPlayerCapabilities)
+  if (!migrates)
     expect("technology", build.versions.technology, envelope.technologyVersion);
   const scenario = build.scenarios.find(
     (entry) => entry.key === envelope.scenarioKey,

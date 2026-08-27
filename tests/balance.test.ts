@@ -25,6 +25,41 @@ import type { Definitions, Ingredient } from "../src/core/types";
 
 const catalogue = definitions as Definitions;
 
+function openingWork(
+  ingredients: Ingredient[],
+  machines: string[],
+): [number, number] {
+  const total: [number, number] = [0, 0];
+  const walk = (itemId: number, quantity: number): void => {
+    const recipe = catalogue.recipes.find(
+      (recipe) => recipe.output.item_id === itemId,
+    );
+    if (!recipe) return;
+    const crafts = Math.ceil(quantity / recipe.output.quantity);
+    const machine = catalogue.buildings
+      .filter(
+        (building) =>
+          machines.includes(building.key) &&
+          (building.recipe_ids
+            ? building.recipe_ids.includes(recipe.id)
+            : building.recipe_category === recipe.category),
+      )
+      .sort(
+        (a, b) =>
+          (a.duration_multiplier ?? 1) - (b.duration_multiplier ?? 1) ||
+          a.id - b.id,
+      )[0];
+    if (!machine) throw new Error(`No machine for ${recipe.key}`);
+    total[machine.manual_work ? 1 : 0] +=
+      crafts * recipe.duration * (machine.duration_multiplier ?? 1);
+    recipe.inputs.forEach((input) =>
+      walk(input.item_id, crafts * input.quantity),
+    );
+  };
+  ingredients.forEach((input) => walk(input.item_id, input.quantity));
+  return total;
+}
+
 // Exact rationals, for the same reason Rust uses them: a kiln fires three bricks at once, so a
 // pump that wants four of them costs four thirds of a batch, and rounding that at every step of a
 // tree and then comparing two buildings compares rounding errors.
@@ -246,8 +281,14 @@ describe("the economy's stated curve", () => {
         if (!recipe) continue;
         // A machine only runs recipes of its own category. That is the check that stops a kiln
         // being quoted at a smelter's rate.
-        expect(recipe.category).toBe(building.recipe_category);
-        expect(machine.ticks_per_cycle).toBe(recipe.duration);
+        expect(
+          building.recipe_ids
+            ? building.recipe_ids.includes(recipe.id)
+            : recipe.category === building.recipe_category,
+        ).toBe(true);
+        expect(machine.ticks_per_cycle).toBe(
+          recipe.duration * (building.duration_multiplier ?? 1),
+        );
         expect(machine.output_per_cycle).toBe(recipe.output.quantity);
         expect(machine.fuel_energy_per_cycle).toBe(recipe.fuel ?? 0);
       }
@@ -360,7 +401,21 @@ describe("the economy's stated curve", () => {
       );
       const expansion = expand(stage.requirements);
       expect(row.raw_materials).toBe(expansion.raw.size);
-      expect(row.opening.machine_ticks).toBe(expansion.batchTicks);
+      const ingredients = [
+        ...stage.requirements,
+        ...catalogue.buildings
+          .filter((building) => row.opening.buildings.includes(building.key))
+          .flatMap((building) => building.construction_cost),
+      ];
+      const [machineTicks, playerTicks] = openingWork(
+        ingredients,
+        row.opening.buildings,
+      );
+      expect(row.opening.machine_ticks).toBe(machineTicks);
+      expect(row.opening.player_work_ticks).toBe(playerTicks);
+      expect(row.opening.player_work_seconds_milli).toBe(
+        (playerTicks * 1000) / fixture.reference.ticks_per_second,
+      );
       expect(row.opening.fuel_energy).toBe(expansion.batchEnergy);
     }
 

@@ -1,3 +1,4 @@
+import { supportsRecipe } from "../../core/definitions";
 import type { Ingredient, RecipeDefinition } from "../../core/types";
 import { itemIconSvg } from "../../rendering/icons";
 import type { AdminStore } from "../state";
@@ -113,8 +114,8 @@ export function renderRecipesView(
     card.className = "recipe-card";
 
     const outputItem = itemMap.get(recipe.output.item_id);
-    const machinesRunning = store.definitions.buildings.filter(
-      (b) => b.recipe_category === recipe.category,
+    const machinesRunning = store.definitions.buildings.filter((b) =>
+      supportsRecipe(b, recipe),
     );
 
     // Calculate production rate (per minute at 60 ticks/s)

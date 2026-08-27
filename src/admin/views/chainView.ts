@@ -1,3 +1,4 @@
+import { supportsRecipe } from "../../core/definitions";
 import { itemIconSvg } from "../../rendering/icons";
 import type { AdminStore } from "../state";
 
@@ -135,8 +136,8 @@ export function renderChainView(
       const rBox = document.createElement("div");
       rBox.className = "chain-node-box node-recipe";
 
-      const machines = store.definitions.buildings.filter(
-        (b) => b.recipe_category === recipe.category,
+      const machines = store.definitions.buildings.filter((b) =>
+        supportsRecipe(b, recipe),
       );
 
       rBox.innerHTML = `

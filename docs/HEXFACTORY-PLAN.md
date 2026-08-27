@@ -49,14 +49,14 @@ This is permanent and is not a scope item.
 
 ## Where the project stands
 
-The engine arc, the generator arc, and the shipped milestones through **v0.25.3 Compartment Storage** are
+The engine arc, the generator arc, and the shipped milestones through **v0.26.0 Primitive Workshops** are
 present in this tree. A run today looks like this: land beside a hub in a world chosen by preset
 or by raw parameters, walk out under fog across rivers and coastline — on the keys, or by
 **clicking a selected hex a second time** and watching the route native found — find **fields** of
 eight raw
 materials rather than scattered cells, cross rivers on **bridges**, gather from forests that visibly
 thin and regrow, fill the hub's posted **requests** for insight and
-its staged founding **contract** for hub growth, research a seventeen-technology tree, and build a
+its staged founding **contract** for hub growth, research a nineteen-technology tree, and build a
 powered, automated line of buildings and fourteen recipes across five machine categories — including
 belt lines that **split**, **merge**, climb the two-row period on the same belt definition once it is
 researched, and **pass under** the lanes they cross.
@@ -88,24 +88,61 @@ to change.
 
 ## What to do next
 
-**Living Lattice v0.26.** With the presentation-only Three.js diorama shipped, return to the
-world/economy consequence system described below. Visual terrain height remains presentation-only;
-native coordinates, saves, the wire, and gameplay rules are still two-dimensional. Physical
-integrated-GPU qualification for v0.25 remains a separate external validation item, not a reason to
-smuggle elevation or underground play into v0.26.
+**Priority decision, 2026-08-27: progression and construction come immediately next, before any
+other roadmap feature.** The [progression plan](PROGRESSION-PLAN.md) and
+[construction and materials plan](CONSTRUCTION-MATERIALS-PLAN.md) are the active workstream, not
+unassigned longer-horizon ideas. Their direction and priority are approved; detailed costs,
+movement factors and other tuning hypotheses still require their stated validation.
+
+Work through this combined sequence, using the detailed acceptance gates in both plans:
+
+| Order | Work                                                      | Dependency and scope                                                                                                                                                                                             |
+| ----- | --------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1     | Opening, recipes and progression foundations              | Time the current opening; audit bills, rewards and prerequisites; build the repeatable primitive manufacturing path and expandable progression definitions. Keep essentials accessible.                          |
+| 2     | Research map, insight projects and separate player skills | Stage the discipline branches visually; replace repeat-income farming with reachable projects; migrate cargo/reach to skill points. Ship replacement income and guidance before reward cuts. Reserve icon slots. |
+| 3     | Construction materials, paths and enclosures              | Timber, gravel, masonry, cement/concrete, useful shaped metal, fences, gates, walls and surface movement benefits. Use the new research branches.                                                                |
+| 4     | Oil, bitumen and asphalt                                  | Deliver the useful petroleum-to-road chain. Pull shared alternative-recipe and joint-output costing/stock work forward here; do not wait for Living Lattice.                                                     |
+| 5     | Native levelling, supported floors and belt lifts         | Meet the native height, support, save/wire, picking and physical laptop evidence gates. Start with the bounded earthworks and first upper floor described in the construction plan.                              |
+| 6     | Icon pass and integrated validation                       | Generate/review the planned UI icon families after the visual contract is stable, and finish opening, migration, accessibility and measured-performance acceptance across the workstream.                        |
+
+These are delivery phases, not a single giant release. Icons come later within this workstream,
+not before the foundations. Explicitly optional extensions in either plan remain optional; this
+priority does not pull in underground strata, full fluid simulation, every chemical candidate or
+every future skill merely because the plans mention them.
+
+**Phase 1 delivery: v0.26.0 Primitive Workshops.** Baseline fuel-fired smelting and an attended
+manual workshop now provide a repeatable local route to plates, timber, gears, frames and the
+first component contract. Existing bills and insight rewards are unchanged. See
+[the opening record](OPENING-FOUNDATION-RECORD.md) for arithmetic, tests and limits.
+Phase 1 remains active: next are credible essential bills and batched transport kits, foundation
+commissions, expandable progression definitions, and the timed opening comparison. Do not treat
+this additive release as completion of either plan or move on to paths, oil, or floors yet.
+
+**Only afterward:** Living Lattice, then Regional Discovery, then the remaining longer horizon.
+Their former v0.26/v0.27 reservations are withdrawn; assign new version numbers when release
+boundaries are chosen. Do not start those milestones or unrelated roadmap features in parallel
+with this workstream unless the user changes priority. Necessary fixes, measurements and shared
+prerequisites are part of delivering this work, not reasons to skip it. An unmet gate must be
+resolved or brought back to the user rather than silently switching to a deferred feature.
+
+Today, visual terrain height remains presentation-only and gameplay is two-dimensional. The new
+priority does not claim native elevation, new recipes or the new research economy already exist.
 
 ### Open decisions, each with what would settle it
 
 - **Does `regrowth_ticks` move** now that a forest cell holds one to four wood instead of ten to
-  twenty-two? (v0.23 — the shape change shipped and the rate change with it; v0.26 then slowed the
+  twenty-two? (v0.23 — the shape change shipped and the rate change with it; subsequent tuning slowed the
   cadence fivefold, 90 to 450, so a cut forest reads as a place that has to recover rather than one
   that refills behind the axe. That was a judgement about pace, not a measurement: what still has
   _not_ been measured is an extractor's starve rate over seven cells against a `regrowth_ticks` of
   450, which is now the number that decides whether forestry is viable at all. The
   balance report's `mean_same_material` for wood is 5–11 units at the base reach and 11–26 at the
   deep one, which says forestry is a question of area, but says nothing about the cadence.)
-- **Is one board slot reserved for the deepest eligible request?** (v0.23 — consider it, measure it,
-  and reject it in writing if a three-slot board cannot afford the reservation.)
+- **Does the board lead to meaningful new research rather than repeat-income farming?** Native
+  `next_request` already reserves a deepest-reachable slot, as checked on 2026-08-27. The remaining
+  problem is the earning model and the reward-to-cost ratio; the
+  [progression brief](PROGRESSION-PLAN.md#current-diagnosis-what-the-catalogue-actually-does) records
+  the current catalogue and the proposed project model. A depth reservation alone does not cap income.
 - **Rails or free-floating panels** was settled by shipping the rail. What would reopen it: wanting
   positions the player chooses, at which point the rail becomes the docked default rather than the
   destination, and the saved-coordinate, overlap, off-screen-recovery, and touch-gesture questions
@@ -133,8 +170,9 @@ a pole span a distance no player can see.
   on the reference desktop, but the Iris Xe / AMD Vega-class-or-weaker laptop gate was not available
   and no laptop support claim may be inferred from the desktop ladder.
 - **Belts on field cells stay legal, but paving a crystal field without reading it first should
-  not.** The clearing no longer holds a crystal cell to pave, so this is now about the highland
-  disc a player walked to rather than about the first minute.
+  not.** The [construction brief](CONSTRUCTION-MATERIALS-PLAN.md#preparing-and-paving-the-ground)
+  assigns deposit warnings, explicit cover confirmation and conserved remaining deposits to the
+  surface tool. This remains planned, not an existing protection.
 - **The opening has not been walked since it stopped being a supermarket.** Every material used to
   be inside the clearing; now the nearest guaranteed patch is nine hexes out, coal and stone and
   clay are fifteen to twenty-five, and copper is twenty-five to forty. `fixtures/balance.json`
@@ -174,10 +212,15 @@ generator landed first, and the economy is now tuned against the world that exis
 **Regional Discovery is split, not deleted.** Its _generation_ half — a landing clearing that
 guarantees a bootstrap path rather than a sample platter, and a survey that proves every preset still
 works — was exactly what v0.21 had to do anyway for fields to mean anything, so it moved forward into
-v0.21 and shipped there. What stays at v0.27 is the half that is a play system rather than a
-generator.
+v0.21 and shipped there. What remains in Regional Discovery is the half that is a play system
+rather than a generator; its scheduling now follows the priority decision above.
 
 ## Shipped brief — Earned Insight v0.23
+
+Historical design brief: the figures and acceptance intentions below are not a current economy
+audit. The [2026-08-27 progression review](PROGRESSION-PLAN.md) records 19 entries costing 153 insight,
+repeating raw payouts, and processed requests that retain their full reward. The current native
+raw-cycle test covers one cycle, not an unlimited-income bound. Use that review for the next redesign.
 
 The five economy notes, tuned against the world v0.21 and v0.22 built.
 
@@ -298,7 +341,10 @@ later one, because they are what make the hand-rate change read as an invitation
 - The board never posts three rows the player cannot supply, whatever is decided about reserving a
   slot for depth. If the reservation is rejected, the reason is written down.
 
-## Deferred — Living Lattice v0.26
+## Deferred — Living Lattice
+
+Starts only after the progression and construction workstream above. Formerly reserved for
+v0.26; its new release number is unassigned. Its ecological scope is preserved.
 
 Animals, biomatter, and waste remain one milestone, and the purpose is sharper than the roster: this
 is the first system that makes HexFactory something other than a factory game drawn on hexes. A
@@ -325,13 +371,13 @@ invented here:
 
 - **Play the opening first, with hands, and time it.** See the open items above — this playtest has
   been owed since v0.18 and no system should be added before it.
-- **`Economy::recipe_for` still asserts one recipe per item, and ecology is what breaks it.** A
-  byproduct is a second producer, and "what does a plate cost" has no answer without a stated rule
-  for dividing a craft's cost between its outputs. `outputs: Vec<Ingredient>` arrives here for the
-  same reason. Pick the allocation rule deliberately and write it down beside the fixture; do not
-  make the secondary output free, charge every output the full craft, or silently select one
-  producer. The `contracts` and `requests` sections expand bills through the same tree, so they
-  break in the same place and for the same reason.
+- **Reuse the recipe and joint-output foundation delivered by construction.** Today's
+  `Economy::recipe_for` still asserts one recipe per item; the
+  [construction brief](CONSTRUCTION-MATERIALS-PLAN.md#several-production-routes-require-honest-costing)
+  now owns replacing that assumption before refinery co-products ship. Ecology must reuse its
+  named-route costing, multi-output stock handling, allocation rule, contract/request expansion
+  and guidance rather than implement a second economy. Check that the allocation remains valid
+  for ecological inputs and outputs; secondary outputs are not automatically free.
 - **A new contract stage is a data row, and the hub already knows how to grow into it.** Stages live
   in `scenarios.json`; `HUB_LADDER` has one entry per stage the hub can finish, and
   `tests/look.test.ts` fails if a shipped contract can complete a stage the ladder cannot draw. If
@@ -356,7 +402,11 @@ invented here:
 - The native capacity ladder and complete browser frame are re-measured if the entity or world
   snapshot changes. No claim beyond the measured tier.
 
-## Later — Regional Discovery v0.27
+## Later — Regional Discovery
+
+Follows Living Lattice, after progression and construction. Formerly reserved for v0.27; its new
+release number is unassigned. Construction's necessary limestone/oil access and surveys arrive
+with construction; the broader regional discovery system remains here.
 
 **Its generation half moved forward into v0.21** — the bootstrap guarantee that replaces the sample
 platter, and the survey that proves every preset still works. What remains here is the half that is
@@ -391,7 +441,9 @@ needs; do not build a programmable system in search of a problem.
 
 ## Longer horizon
 
-Named as decisions rather than omissions, each with the thing it is waiting for.
+Named as decisions rather than omissions, each with the thing it is waiting for. These follow
+the active progression/construction workstream and the deferred milestones above; necessary
+shared prerequisites do not bring their entire feature families forward.
 
 - **Hub programmes.** Player-chosen modules grow around the landing hub's rings and create different
   material demands. Finite authored systems and visible construction, not endless random chores —
@@ -406,7 +458,8 @@ Named as decisions rather than omissions, each with the thing it is waiting for.
   deterministic function of tick and position, never a runtime roll.
 - **A day cycle, and solar with it.** A presentation and simulation change at once, chosen for what
   it does to the game's feel rather than smuggled in as a power source.
-- **Terraforming.** Whether the player may reshape elevation, and what that costs.
+- **Water reshaping.** Bounded dry-land levelling and foundations have moved into the active
+  construction sequence. River diversion and seabed work remain deferred beyond that scope.
 - **Fluid grade separation.** Tunnels shipped in v0.25.1 as the underpass pair, exactly as this list
   predicted: one arm in the graph trace, the covered cells still walkable and still their own lane.
   What is left of the entry is the half it promised for free — pipes inheriting the same arm when
@@ -414,11 +467,10 @@ Named as decisions rather than omissions, each with the thing it is waiting for.
 - **Organic tileables.** The later half of the art generator: systems that produce tileable textures
   and shapes so a hex lattice reads as organic terrain and organic objects. Same invariants —
   generated, presentation-only, derived from published snapshot facts, never a checksum input.
-- **Gameplay elevation and underground strata.** Visual Depth v0.25 gives the existing bands shape
-  without changing simulation truth. Only its shipped camera, picking, readability, and laptop
-  measurements can justify native height. If underground follows, it is separate sparse axial
-  strata joined by explicit shafts or elevators, not a voxel world. See
-  `docs/VISUAL-DEPTH-PLAN.md` for the post-v0.25 decision gate.
+- **Underground strata.** Native surface elevation and the first supported upper floor now belong
+  to the active construction sequence, with the Visual Depth evidence gates intact. Underground
+  remains separate sparse axial strata joined by explicit shafts or elevators, not a voxel world
+  or an automatic consequence of adding floors.
 
 Whatever comes next, `fixtures/balance.json` remains the thing every new building or recipe has to
 face: a definition that never reaches it is a definition nothing has compared against the curve, and
@@ -429,6 +481,14 @@ both test suites say so.
 One line per release, newest first. The reasoning behind a shipped rule lives in the git history of
 this file and in the code that implements it; what follows is the index.
 
+- **v0.26.0** Primitive Workshops — A stone-and-clay furnace smelts plates with ordinary fuel
+  and no grid. A wood-and-stone workshop makes a restricted set of existing recipes with native
+  attended work, one batch per press. Walking/gathering pauses it; jobs survive save/load, and
+  dismantling refunds reserved ingredients. Capability lists and duration multipliers are validated
+  in both languages; guidance, hotbar defaults, recipe controls, shapes and opening checkpoints
+  cover the primitive route. Balance separates player work from machine time. Save 18 migrates
+  existing factories unchanged to definitions 16; technologies 8, scenarios 5, world 8 and wire 12
+  remain. This is the first foundation delivery, not the full progression or construction overhaul.
 - **v0.25.3** Compartment Storage — Machines keep independent ingredient, fuel, and bounded
   output inventories; blocked outputs buffer complete cycles. The inspector presents those maps as
   item-slot grids beside the cargo pack. A native cursor-held stack supports full, half, single, and

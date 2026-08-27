@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   validateDefinitions,
+  supportsRecipe,
   validateTechnologies,
 } from "../src/core/definitions";
 import type { Definitions } from "../src/core/types";
@@ -190,6 +191,8 @@ describe("data-defined content", () => {
       "crushing",
       "cutting",
       "firing",
+      "manual-workshop",
+      "primitive-smelting",
       "smelting",
     ]);
     for (const recipe of definitions.recipes)
@@ -198,7 +201,7 @@ describe("data-defined content", () => {
 
   it("rejects a recipe no machine can run and a machine that claims the wrong category", () => {
     const orphan = structuredClone(definitions);
-    orphan.recipes[0]!.category = "alchemy";
+    orphan.recipes.find(({ key }) => key === "circuit")!.category = "alchemy";
     expect(() => validateDefinitions(orphan)).toThrow(/no building runs/);
 
     const miscategorised = structuredClone(definitions);
@@ -210,6 +213,37 @@ describe("data-defined content", () => {
     expect(() => validateDefinitions(miscategorised)).toThrow(
       /does not match its kind/,
     );
+  });
+
+  it("validates explicit primitive capabilities and bounded attended work", () => {
+    const workshop = typedDefinitions.buildings.find(
+      ({ key }) => key === "manual-workshop",
+    )!;
+    const recipes = typedDefinitions.recipes.filter((recipe) =>
+      supportsRecipe(workshop, recipe),
+    );
+    expect(recipes.map(({ key }) => key)).toEqual([
+      "component",
+      "timber",
+      "gear",
+      "frame",
+    ]);
+    for (const patch of [
+      { recipe_ids: [] },
+      { recipe_ids: [8, 8] },
+      { recipe_ids: [9999] },
+      { duration_multiplier: 0 },
+      { duration_multiplier: 61 },
+      { power_draw: 1 },
+      { recipe_ids: [2] },
+    ]) {
+      const invalid = structuredClone(typedDefinitions);
+      Object.assign(
+        invalid.buildings.find(({ id }) => id === workshop.id)!,
+        patch,
+      );
+      expect(() => validateDefinitions(invalid)).toThrow(/invalid/);
+    }
   });
 
   it("rejects duplicate IDs, invalid costs, unknown unlocks, and cycles", () => {

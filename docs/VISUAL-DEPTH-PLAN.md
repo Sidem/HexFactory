@@ -347,15 +347,15 @@ or gameplay elevation into this sequence.
 
 ## Decision after v0.25
 
-Only after the renderer ships and physical laptop evidence exists should height become simulation
-state. The next design review chooses among:
+The 2026-08-27 [roadmap priority decision](HEXFACTORY-PLAN.md#what-to-do-next) puts progression and
+construction before Living Lattice and other roadmap features. Height stays presentation-only
+while the recipe/progression foundation, surface treatments and materials arrive. The later
+construction phases add native integer grades, foundations, supported floors and vertical transport.
 
-- keep height presentation-only and proceed to Living Lattice;
-- add native integer surface elevation, slope/foundation rules, and vertical transport as a new
-  gameplay milestone;
-- prototype underground as separate sparse axial strata, with the surface and each underground
-  level retaining the current two-coordinate rules and explicit shaft/elevator graph edges joining
-  them.
+The evidence gate is unchanged: only after the renderer ships and physical laptop evidence exists
+should height become simulation state. Complete that validation as a prerequisite of construction's
+native height phase; priority does not waive it. Underground remains deferred as separate sparse
+axial strata connected by explicit shafts or elevators, not part of the first upper-floor release.
 
 A free-form voxel world is not on this path. Sparse strata preserve the deterministic chunk,
 occupancy, transport, save, and measurement architecture that already works.

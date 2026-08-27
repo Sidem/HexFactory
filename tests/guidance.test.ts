@@ -272,6 +272,16 @@ describe("guidance derived from the rules rather than scripted against them", ()
         continue;
       }
 
+      if (guidance.key === "workshop") {
+        const line = snapshot.contract.requirements.find(
+          (need) => need.delivered < need.required,
+        )!;
+        state.inventory = {
+          ...state.inventory,
+          [String(line.item_id)]: line.required,
+        };
+        continue;
+      }
       if (guidance.key === "deliver" || guidance.key === "supply") {
         const line = snapshot.contract.requirements.find(
           (need) => need.delivered < need.required,
@@ -302,9 +312,11 @@ describe("guidance derived from the rules rather than scripted against them", ()
     // And it has to have gone through power before any machine that draws it. On-site Power is
     // not any recipe's category, so nothing but a deliberate rule puts it in the chain at all.
     const power = seen.indexOf("research:on-site-power");
-    const composer = seen.indexOf("build:composer");
+    const composer = seen.indexOf("build:kiln");
     expect(power).toBeGreaterThanOrEqual(0);
     expect(composer).toBeGreaterThan(power);
+    expect(seen[0]).toBe("build:manual-workshop");
+    expect(seen.indexOf("workshop")).toBeLessThan(power);
   });
 
   it("names one posted request, with its price, rather than the accounting behind it", () => {
@@ -312,7 +324,7 @@ describe("guidance derived from the rules rather than scripted against them", ()
     // now that the hub pays only for what it asked for. Filling a named row is.
     const opening = nextAction(
       snapshotAt({
-        stage: 0,
+        stage: 1,
         researched: [],
         insight: 0,
         inventory: {},
@@ -328,7 +340,7 @@ describe("guidance derived from the rules rather than scripted against them", ()
     // Carrying the outstanding units changes the answer, because now the hub is one walk away.
     const carrying = nextAction(
       snapshotAt({
-        stage: 0,
+        stage: 1,
         researched: [],
         insight: 0,
         inventory: { "1": 10 },
@@ -353,6 +365,42 @@ describe("guidance derived from the rules rather than scripted against them", ()
       technologies,
     );
     expect(done.key).toBe("complete");
+  });
+
+  it("keeps an existing industrial route instead of asking for a redundant primitive station", () => {
+    const action = nextAction(
+      snapshotAt({
+        stage: 0,
+        researched: [1, 2, 3, 8],
+        insight: 0,
+        inventory: { "1": 6 },
+        buildings: [
+          { definition_id: 3, kind: "composer" },
+          { definition_id: 13, kind: "generator" },
+        ],
+      }),
+      definitions,
+      technologies,
+    );
+    expect(action.key).toBe("supply");
+  });
+
+  it("uses loaded workshop stock and prioritizes delivery over gathering more raw inputs", () => {
+    const snapshot = snapshotAt({
+      stage: 0,
+      researched: [],
+      insight: 0,
+      inventory: {},
+      buildings: [{ definition_id: 28, kind: "composer" }],
+    });
+    snapshot.buildings[0]!.recipe_id = 1;
+    snapshot.buildings[0]!.input_inventory = [{ item_id: 1, quantity: 6 }];
+    expect(nextAction(snapshot, definitions, technologies).key).toBe(
+      "workshop",
+    );
+    snapshot.buildings[0]!.input_inventory = [];
+    snapshot.player.inventory["2"] = 3;
+    expect(nextAction(snapshot, definitions, technologies).key).toBe("deliver");
   });
 
   it("puts a full pack ahead of everything, because it blocks the rest", () => {

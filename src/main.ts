@@ -15,6 +15,7 @@ import {
 } from "./core/availability";
 import { cueForEvent, FeedbackAudio } from "./audio/feedback";
 import { halfTransfer } from "./core/commands";
+import { supportsRecipe } from "./core/definitions";
 import { FactoryHost } from "./core/FactoryHost";
 import { FrameClock, SIMULATION_TICKS_PER_SECOND } from "./core/frameClock";
 import { nextAction } from "./core/guidance";
@@ -443,7 +444,7 @@ const BUILD_GROUPS: {
     key: "processing",
     title: "Processing",
     blurb:
-      "Turn one material into another. Each machine runs one category of recipe.",
+      "Turn one material into another. Each station lists the recipes it supports.",
     holds: ({ kind }) => BUILD_GROUP_BY_KIND[kind] === "processing",
   },
   {
@@ -466,7 +467,7 @@ const HOTBAR_KEY = "hexfactory:hotbar:v1";
  * What the bar starts with: the early game in the order it is met, then power, then the junction
  * that turns one line into a network. Anything else is a pin away.
  */
-const DEFAULT_HOTBAR: (Tool | null)[] = [2, 1, 3, 4, 7, 8, 12, 13, 24];
+const DEFAULT_HOTBAR: (Tool | null)[] = [28, 27, 2, 4, 1, 3, 12, 13, 8];
 /** Which slot each definition sits in, or null for an empty slot. Presentation only — never saved
  * with the game, never hashed: it is a preference about a keyboard, not a fact about a factory. */
 let hotbar: (Tool | null)[] = loadHotbar();
@@ -619,7 +620,8 @@ function renderRun(): void {
     part<HTMLElement>(row, ".run-time").textContent = record
       ? formatElapsed(record.elapsedMs)
       : "--:--";
-    part<HTMLElement>(row, ".run-label").textContent = checkpoint.label;
+    part<HTMLElement>(row, ".run-label").textContent =
+      checkpoint.label + (checkpoint.optional ? " (optional)" : "");
     part<HTMLElement>(row, ".run-note").textContent = record
       ? `tick ${record.tick.toLocaleString()}`
       : checkpoint.note;
@@ -1408,7 +1410,10 @@ function renderCardRecipes(
       costLines(recipe.inputs, snapshot),
     );
     fillIngredients(part<HTMLElement>(row, ".recipe-out"), [recipe.output]);
-    const meta = [`${recipe.duration} ticks`];
+    const meta = [
+      `${recipe.duration * (definition.duration_multiplier ?? 1)} ticks`,
+    ];
+    if (definition.manual_work) meta.push("player work");
     if (recipe.fuel) meta.push(`${recipe.fuel} fuel`);
     part(row, ".recipe-meta").textContent = meta.join(" · ");
     row.setAttribute(
@@ -1923,7 +1928,12 @@ function renderInspector(): void {
     kicker.textContent = "Building";
     title.textContent = definition?.name ?? titleCase(building.kind);
     status.hidden = false;
-    status.textContent = building.status;
+    status.textContent =
+      definition?.manual_work && building.status === "switched off"
+        ? building.progress > 0
+          ? "work paused"
+          : "awaiting player work"
+        : building.status;
     status.className = `inspect-status ${STATUS_TONE[building.status] ?? "wait"}`;
   } else if (resource) {
     kicker.textContent = "Field";
@@ -2213,14 +2223,27 @@ function renderInspectorSwitch(building: EntitySnapshot | undefined): void {
   button.hidden = !switchable;
   if (!switchable || !building) return;
   const off = building.status === "switched off";
+  const manual = host.definitions.buildings.find(
+    ({ id }) => id === building.definition_id,
+  )?.manual_work;
   button.dataset.q = String(building.q);
   button.dataset.r = String(building.r);
   button.dataset.enable = off ? "1" : "0";
   button.classList.toggle("is-off", off);
-  button.textContent = off ? "Switch on" : "Switch off";
-  button.title = off
-    ? "Resume this machine — it keeps everything it was holding"
-    : "Stop this machine without losing its stock, progress, or charge";
+  button.textContent = manual
+    ? off
+      ? building.progress > 0
+        ? "Resume work"
+        : "Work one batch"
+      : "Pause work"
+    : off
+      ? "Switch on"
+      : "Switch off";
+  button.title = manual
+    ? "Stand within one hex and stop walking or gathering. One batch per press; pausing preserves ingredients and progress. Dismantling cancels and refunds ingredients."
+    : off
+      ? "Resume this machine — it keeps everything it was holding"
+      : "Stop this machine without losing its stock, progress, or charge";
 }
 
 /**
@@ -2289,8 +2312,8 @@ function recipeChoices(
   definition: BuildingDefinition | undefined,
 ): RecipeDefinition[] {
   if (!definition?.recipe_category) return [];
-  return host.definitions.recipes.filter(
-    ({ category }) => category === definition.recipe_category,
+  return host.definitions.recipes.filter((recipe) =>
+    supportsRecipe(definition, recipe),
   );
 }
 

@@ -60,6 +60,8 @@ export const MACHINE_SILHOUETTE_SCALE: Readonly<Record<SilhouetteKey, number>> =
     belt: 1,
     composer: 2.05,
     assembly: 2.05,
+    "primitive-smelting": 1.7,
+    "manual-workshop": 1.8,
     smelting: 2.1,
     firing: 2.05,
     cutting: 2,

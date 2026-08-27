@@ -84,7 +84,8 @@ const SAVE_PREFIX: &str = "HXF1\n";
 /// build radius, so a version-16 envelope using technology catalog 7 is advanced explicitly to
 /// catalog 8. Its researched set contains neither new id, which makes both earned bonuses zero and
 /// preserves the old player's exact state and checksum.
-const SAVE_VERSION: u16 = 17;
+/// Version 18 adds primitive definitions without changing existing jobs, stock, bills, or checksum.
+const SAVE_VERSION: u16 = 18;
 /// Bumped to 6 for World Parameters. `WorldParams` is now part of a run's identity — it is in the
 /// save envelope and in the checksum — so a version-5 envelope carries no answer to the question
 /// "which world is this" and is rejected rather than assumed to be the default.
@@ -413,6 +414,16 @@ struct BuildingDefinition {
     /// `BuildingKind` exists for it.
     #[serde(default)]
     recipe_category: Option<String>,
+    /// An explicit capability list replaces the category match for primitive equipment. It
+    /// reuses recipe identities, so teaching a workshop timber does not create a second recipe.
+    #[serde(default)]
+    recipe_ids: Option<Vec<RecipeId>>,
+    /// Manual stations run one batch only while the player is attending them. The existing
+    /// disabled flag is their saved work permit; placement starts with that permit off.
+    #[serde(default)]
+    manual_work: bool,
+    #[serde(default)]
+    duration_multiplier: Option<u32>,
     /// What a pump produces. Data-defined for the same reason recipes are: a source building's
     /// output is content, not a branch in the tick.
     #[serde(default)]
@@ -514,6 +525,18 @@ struct BuildingDefinition {
 }
 
 impl BuildingDefinition {
+    fn supports_recipe(&self, recipe: &RecipeDefinition) -> bool {
+        self.kind == BuildingKind::Composer
+            && self.recipe_ids.as_ref().map_or_else(
+                || self.recipe_category.as_deref() == Some(recipe.category.as_str()),
+                |ids| ids.contains(&recipe.id),
+            )
+    }
+
+    fn recipe_duration(&self, recipe: &RecipeDefinition) -> u32 {
+        recipe.duration * self.duration_multiplier.unwrap_or(1)
+    }
+
     /// What one of this building costs when built at that heading.
     ///
     /// The single place the two-row price lives. Every charge, refund, preview budget, and upgrade
@@ -2010,6 +2033,9 @@ impl Core {
         buildings.sort_by_key(placed_sort_key);
         for placed in buildings {
             core.ensure_tile(placed.q, placed.r);
+            let manual_work = core
+                .building_definition(placed.definition_id)
+                .is_some_and(|definition| definition.manual_work);
             let kind = core
                 .building_definition(placed.definition_id)
                 .ok_or_else(|| format!("unknown building definition {}", placed.definition_id))?
@@ -2028,7 +2054,7 @@ impl Core {
                 fuel_charge: 0,
                 power_charge: 0,
                 burn_progress: 0,
-                disabled: false,
+                disabled: manual_work,
                 route_cursor: 0,
                 merge_cursor: 0,
             });
@@ -2592,7 +2618,12 @@ impl Core {
                 .placed
                 .recipe_id
                 .and_then(|id| self.recipe(id))
-                .map(|recipe| recipe.duration)
+                .map(|recipe| {
+                    self.building_definition(entity.placed.definition_id)
+                        .map_or(recipe.duration, |definition| {
+                            definition.recipe_duration(recipe)
+                        })
+                })
                 .unwrap_or(0),
             _ => 0,
         }
@@ -3812,6 +3843,12 @@ impl Core {
     }
 
     fn advance_composer(&mut self, index: usize) {
+        let manual = self.is_manual_workshop(index);
+        if manual && !self.can_work_here(index) {
+            self.entities[index].disabled = true;
+            self.dirty.entities.push(self.entities[index].id);
+            return;
+        }
         let Some(recipe_id) = self.entities[index].placed.recipe_id else {
             return;
         };
@@ -3827,13 +3864,17 @@ impl Core {
             let id = self.entities[index].id;
             self.dirty.entities.push(id);
             self.entities[index].progress += self.power_progress(index, 1);
-            if self.entities[index].progress >= recipe.duration {
+            if self.entities[index].progress >= self.progress_total(index) {
                 *self.entities[index]
                     .output_inventory
                     .entry(recipe.output.item_id)
                     .or_default() += recipe.output.quantity;
                 self.entities[index].progress = 0;
                 self.entities[index].reserved_inputs.clear();
+                if manual {
+                    self.entities[index].disabled = true;
+                    self.events.push(format!("Finished {}", recipe.name));
+                }
             }
             return;
         }
@@ -4531,7 +4572,7 @@ impl Core {
             .find(|recipe| recipe.output.item_id == item)
         {
             Some(recipe) => {
-                self.category_unlocked(&recipe.category)
+                self.recipe_unlocked(recipe)
                     && recipe
                         .inputs
                         .iter()
@@ -4565,11 +4606,15 @@ impl Core {
         }
     }
 
-    fn category_unlocked(&self, category: &str) -> bool {
+    fn recipe_unlocked(&self, recipe: &RecipeDefinition) -> bool {
         self.definitions.buildings.iter().any(|building| {
             building.buildable
-                && building.recipe_category.as_deref() == Some(category)
+                && building.supports_recipe(recipe)
                 && self.technology_met(building)
+                // Baseline primitive knowledge should not put gears on a brand-new player's
+                // board before they have any station. Purchased industrial knowledge keeps its
+                // existing eligibility rule; primitive requests appear once their station exists.
+                && (building.recipe_ids.is_none() || self.entities.iter().any(|entity| entity.placed.definition_id == building.id))
         })
     }
 
@@ -5441,7 +5486,7 @@ impl Core {
                 .ok_or_else(|| format!("unknown recipe {id}"))?;
             // One field, one check: a kiln cannot be given a circuit recipe because the categories
             // disagree, not because there is a separate building kind for every machine.
-            if definition.recipe_category.as_deref() != Some(recipe.category.as_str()) {
+            if !definition.supports_recipe(recipe) {
                 return Err(format!(
                     "{} cannot run a {} recipe",
                     definition.name, recipe.category
@@ -5524,7 +5569,7 @@ impl Core {
             fuel_charge: 0,
             power_charge: 0,
             burn_progress: 0,
-            disabled: false,
+            disabled: definition.manual_work,
             route_cursor: 0,
             merge_cursor: 0,
         });
@@ -6507,13 +6552,17 @@ impl Core {
         let definition = self
             .building_definition(self.entities[index].placed.definition_id)
             .ok_or("unknown building definition")?;
-        if definition.recipe_category.as_deref() != Some(recipe.category.as_str()) {
+        if !definition.supports_recipe(&recipe) {
             return Err(format!(
                 "{} cannot run a {} recipe",
                 definition.name, recipe.category
             ));
         }
+        let manual = definition.manual_work;
         self.entities[index].placed.recipe_id = Some(recipe_id);
+        if manual {
+            self.entities[index].disabled = true;
+        }
         let id = self.entities[index].id;
         self.dirty.entities.push(id);
         self.events.push(format!("Set recipe to {}", recipe.name));
@@ -6548,6 +6597,42 @@ impl Core {
                 "this building is already switched off".into()
             });
         }
+        let manual = self.is_manual_workshop(index);
+        if manual && enabled {
+            if !self.can_work_here(index) {
+                return Err(
+                    "stand beside the workshop and stop walking or gathering to work".into(),
+                );
+            }
+            let recipe = self.entities[index]
+                .placed
+                .recipe_id
+                .and_then(|id| self.recipe(id))
+                .ok_or("choose a workshop recipe first")?;
+            if self.room_for_stock(index, StockKind::Output, recipe.output.item_id)
+                < recipe.output.quantity
+            {
+                return Err("workshop output is full".into());
+            }
+            if self.entities[index].progress == 0
+                && !recipe.inputs.iter().all(|input| {
+                    self.stock_quantity(index, StockKind::Input, input.item_id) >= input.quantity
+                })
+            {
+                return Err("load the workshop ingredients before starting work".into());
+            }
+            // One player can attend one station. This scan runs only on an explicit work command,
+            // never on a player step or as a separate per-tick traversal.
+            for other in 0..self.entities.len() {
+                if other != index
+                    && !self.entities[other].disabled
+                    && self.is_manual_workshop(other)
+                {
+                    self.entities[other].disabled = true;
+                    self.dirty.entities.push(self.entities[other].id);
+                }
+            }
+        }
         self.entities[index].disabled = !enabled;
         let id = self.entities[index].id;
         self.dirty.entities.push(id);
@@ -6555,12 +6640,29 @@ impl Core {
             .building_definition(self.entities[index].placed.definition_id)
             .map(|definition| definition.name.clone())
             .unwrap_or_else(|| "Building".into());
-        self.events.push(if enabled {
+        self.events.push(if manual && enabled {
+            format!("Working at {name} — one batch")
+        } else if manual {
+            format!("Paused work at {name}")
+        } else if enabled {
             format!("Switched {name} on")
         } else {
             format!("Switched {name} off")
         });
         Ok(())
+    }
+
+    fn is_manual_workshop(&self, index: usize) -> bool {
+        self.building_definition(self.entities[index].placed.definition_id)
+            .is_some_and(|definition| definition.manual_work)
+    }
+
+    fn can_work_here(&self, index: usize) -> bool {
+        self.player.move_x == 0
+            && self.player.move_y == 0
+            && self.player.walk_goal.is_none()
+            && self.player.action_cooldown == 0
+            && self.within_hex_range_of_entity(index, 1)
     }
 
     /// The kinds that have work a switch can suspend: anything that extracts, crafts, pumps, or
@@ -6962,8 +7064,14 @@ impl Core {
         let fuel_ready = self.fuel_ready(entity);
         // Two different failures, and the player fixes them with two different buildings: `powered`
         // is "wired to something that generates" and wants a pole or a plant, `brownout` is "wired
-        // in but the bank ran dry" and wants more generation.
-        let powered = self.entity_connected(index);
+        // in but the bank ran dry" and wants more generation. Fuel-only and manual stations
+        // have no grid requirement and must report their actual input/fuel condition instead.
+        let needs_power = self
+            .building_definition(entity.placed.definition_id)
+            .and_then(|definition| definition.power_draw)
+            .unwrap_or(0)
+            > 0;
+        let powered = !needs_power || self.entity_connected(index);
         let brownout = powered && !self.entity_powered(index);
         let (power_satisfied, power_demand) = self.network_of(index);
         let power_charge = entity.power_charge;
@@ -8467,11 +8575,6 @@ fn validate_definitions(definitions: &DefinitionsInput) -> Result<(), String> {
             ));
         }
     }
-    let categories: BTreeSet<&str> = definitions
-        .buildings
-        .iter()
-        .filter_map(|building| building.recipe_category.as_deref())
-        .collect();
     for recipe in &definitions.recipes {
         if recipe.key.trim().is_empty()
             || recipe.name.trim().is_empty()
@@ -8485,7 +8588,11 @@ fn validate_definitions(definitions: &DefinitionsInput) -> Result<(), String> {
         }
         // A recipe no machine can be assigned is content that cannot be reached, which is a defect
         // in the catalog rather than something to discover in play.
-        if !categories.contains(recipe.category.as_str()) {
+        if !definitions
+            .buildings
+            .iter()
+            .any(|building| building.supports_recipe(recipe))
+        {
             return Err(format!(
                 "recipe {} has category {}, which no building runs",
                 recipe.id, recipe.category
@@ -8521,6 +8628,49 @@ fn validate_definitions(definitions: &DefinitionsInput) -> Result<(), String> {
         if (building.kind == BuildingKind::Composer) != building.recipe_category.is_some() {
             return Err(format!(
                 "building {} has a recipe category that does not match its kind",
+                building.id
+            ));
+        }
+        if let Some(ids) = &building.recipe_ids {
+            if building.kind != BuildingKind::Composer
+                || ids.is_empty()
+                || ids.iter().collect::<BTreeSet<_>>().len() != ids.len()
+                || ids
+                    .iter()
+                    .any(|id| !definitions.recipes.iter().any(|recipe| recipe.id == *id))
+            {
+                return Err(format!(
+                    "building {} has invalid recipe capabilities",
+                    building.id
+                ));
+            }
+        }
+        if let Some(multiplier) = building.duration_multiplier {
+            if building.kind != BuildingKind::Composer
+                || !(1..=60).contains(&multiplier)
+                || definitions
+                    .recipes
+                    .iter()
+                    .filter(|recipe| building.supports_recipe(recipe))
+                    .any(|recipe| recipe.duration.checked_mul(multiplier).is_none())
+            {
+                return Err(format!(
+                    "building {} has invalid recipe duration multiplier",
+                    building.id
+                ));
+            }
+        }
+        if building.manual_work
+            && (building.kind != BuildingKind::Composer
+                || building.recipe_ids.is_none()
+                || building.power_draw.unwrap_or(0) != 0
+                || definitions
+                    .recipes
+                    .iter()
+                    .any(|recipe| building.supports_recipe(recipe) && recipe.fuel != 0))
+        {
+            return Err(format!(
+                "building {} has invalid manual work capabilities",
                 building.id
             ));
         }
@@ -8713,7 +8863,11 @@ fn validate_upgrade_ladders(definitions: &DefinitionsInput) -> Result<(), String
                 building.id
             ));
         }
-        if next.kind != building.kind || next.recipe_category != building.recipe_category {
+        if next.kind != building.kind
+            || next.recipe_category != building.recipe_category
+            || next.recipe_ids != building.recipe_ids
+            || next.manual_work != building.manual_work
+        {
             return Err(format!(
                 "building {} upgrades into a different machine, not a higher tier of itself",
                 building.id
@@ -8978,12 +9132,29 @@ fn validate_saved_state(
         .collect();
     let mut coordinates = BTreeMap::new();
     let mut entity_ids = BTreeSet::new();
+    let mut active_workshops = 0;
     for entity in &state.entities {
         let definition = definitions
             .buildings
             .iter()
             .find(|value| value.id == entity.placed.definition_id)
             .ok_or("save references an unknown building")?;
+        if definition.manual_work && !entity.disabled {
+            active_workshops += 1;
+            if active_workshops > 1 {
+                return Err("save contains multiple attended workshops".into());
+            }
+        }
+        if definition.recipe_ids.is_some()
+            && entity.placed.recipe_id.is_some_and(|id| {
+                !definitions
+                    .recipes
+                    .iter()
+                    .any(|recipe| recipe.id == id && definition.supports_recipe(recipe))
+            })
+        {
+            return Err("save contains an unsupported workshop recipe".into());
+        }
         let footprint_valid = definition.footprint.iter().all(|offset| {
             let turns = if entity.placed.orientation >= NORTH {
                 entity.placed.orientation - NORTH
@@ -14874,6 +15045,240 @@ mod tests {
     }
 
     #[test]
+    fn explicit_recipe_capabilities_replace_categories_without_unlocking_the_whole_category() {
+        let mut core = game("new-game");
+        let kiln = core
+            .definitions
+            .buildings
+            .iter_mut()
+            .find(|b| b.id == 8)
+            .unwrap();
+        kiln.recipe_ids = Some(vec![2, 8]);
+        kiln.unlock_technology_id = None;
+        let kiln = core.building_definition(8).unwrap();
+        assert!(kiln.supports_recipe(core.recipe(2).unwrap()));
+        assert!(kiln.supports_recipe(core.recipe(8).unwrap()));
+        assert!(!kiln.supports_recipe(core.recipe(6).unwrap()));
+        assert!(!core.item_reachable(23, 0));
+        core.player.inventory.extend([(1, 40), (6, 40), (8, 20)]);
+        set_player_hex(&mut core, 0, 3);
+        core.place(0, 4, 8, 0, Some(2)).unwrap();
+        assert!(core.item_reachable(11, 0));
+        core.set_recipe(0, 4, 8).unwrap();
+        assert!(core.set_recipe(0, 4, 6).is_err());
+    }
+
+    fn primitive_test_core() -> Core {
+        let mut core = game("new-game");
+        core.power_unmetered = false;
+        core.player.inventory.clear();
+        core.player
+            .inventory
+            .extend([(6, 20), (8, 10), (9, 20), (1, 10)]);
+        set_player_hex(&mut core, 0, 3);
+        core
+    }
+
+    #[test]
+    fn primitive_recipe_capabilities_are_validated_natively() {
+        let (definitions, _, _) = catalogs();
+        for ids in [vec![], vec![8, 8], vec![9999], vec![2]] {
+            let mut invalid = definitions.clone();
+            invalid
+                .buildings
+                .iter_mut()
+                .find(|building| building.id == 28)
+                .unwrap()
+                .recipe_ids = Some(ids);
+            assert!(validate_definitions(&invalid).is_err());
+        }
+        for multiplier in [0, 61, u32::MAX] {
+            let mut invalid = definitions.clone();
+            invalid
+                .buildings
+                .iter_mut()
+                .find(|building| building.id == 28)
+                .unwrap()
+                .duration_multiplier = Some(multiplier);
+            assert!(validate_definitions(&invalid).is_err());
+        }
+    }
+
+    #[test]
+    fn primitive_furnace_uses_local_fuel_without_power_and_recovers_its_build_cost() {
+        let mut core = primitive_test_core();
+        let original = core.player.inventory.clone();
+        core.place(0, 4, 27, 0, Some(2)).unwrap();
+        let index = core.entity_at(0, 4).unwrap();
+        assert_eq!(core.entity_snapshot(index).status, EntityStatus::OutOfFuel);
+        core.store(0, 4, 1, 2).unwrap();
+        core.store(0, 4, 9, 2).unwrap();
+        assert_eq!(
+            core.entity_snapshot(index).status,
+            EntityStatus::WaitingForInputs
+        );
+        core.tick_many(1);
+        assert_eq!(core.entity_snapshot(index).status, EntityStatus::Composing);
+        core.tick_many(19);
+        assert_eq!(core.entities[index].output_inventory.get(&11), Some(&1));
+        assert_eq!(core.entity_snapshot(index).status, EntityStatus::OutOfFuel);
+        assert_eq!(core.entities[index].fuel_charge, 0);
+        assert_eq!(core.entities[index].power_charge, 0);
+        assert!(core.set_recipe(0, 4, 5).is_err());
+        core.erase(0, 4).unwrap();
+        let mut expected = original;
+        subtract_item(&mut expected, 1, 2);
+        subtract_item(&mut expected, 9, 2);
+        expected.insert(11, 1);
+        assert_eq!(core.player.inventory, expected);
+        // No one-time gift or researched unlock is required to rebuild.
+        core.place(0, 4, 27, 0, Some(2)).unwrap();
+        core.erase(0, 4).unwrap();
+        assert_eq!(core.player.inventory, expected);
+    }
+
+    #[test]
+    fn manual_workshop_requires_attendance_and_runs_exactly_one_batch() {
+        let mut core = primitive_test_core();
+        core.place(0, 4, 28, 0, Some(8)).unwrap();
+        let index = core.entity_at(0, 4).unwrap();
+        assert!(core.set_enabled(0, 4, true).is_err());
+        core.store(0, 4, 9, 4).unwrap();
+        core.tick_many(100);
+        assert_eq!(core.entities[index].progress, 0);
+        assert!(core.entities[index].output_inventory.is_empty());
+        core.set_enabled(0, 4, true).unwrap();
+        core.tick_many(10);
+        assert_eq!(core.entities[index].progress, 10);
+        core.set_move_intent(1000, 0).unwrap();
+        core.tick_many(1);
+        assert!(core.entities[index].disabled);
+        assert_eq!(core.entities[index].progress, 10);
+        assert!(core.set_enabled(0, 4, true).is_err());
+        core.set_move_intent(0, 0).unwrap();
+        core.set_enabled(0, 4, true).unwrap();
+        core.tick_many(14);
+        assert_eq!(core.entities[index].output_inventory.get(&16), Some(&2));
+        assert!(core.entities[index].disabled);
+        core.tick_many(100);
+        assert_eq!(core.entities[index].output_inventory.get(&16), Some(&2));
+        assert_eq!(core.entities[index].input_inventory.get(&9), Some(&3));
+        set_player_hex(&mut core, 0, 2);
+        assert!(core.set_enabled(0, 4, true).is_err());
+        set_player_hex(&mut core, 0, 3);
+        core.player.action_cooldown = 1;
+        assert!(core.set_enabled(0, 4, true).is_err());
+    }
+
+    #[test]
+    fn manual_workshop_jobs_resume_after_save_and_cancel_without_losing_reserved_inputs() {
+        let mut core = primitive_test_core();
+        let original = core.player.inventory.clone();
+        core.place(0, 4, 28, 0, Some(8)).unwrap();
+        core.store(0, 4, 9, 2).unwrap();
+        core.set_enabled(0, 4, true).unwrap();
+        core.tick_many(7);
+        let (definitions, technologies, scenarios) = catalogs();
+        let mut restored = Core::from_save(
+            &definitions,
+            &technologies,
+            &scenarios,
+            &core.save_string().unwrap(),
+        )
+        .unwrap();
+        assert_eq!(restored.checksum(), core.checksum());
+        core.tick_many(17);
+        restored.tick_many(17);
+        assert_eq!(restored.checksum(), core.checksum());
+        restored.set_enabled(0, 4, true).unwrap();
+        restored.tick_many(2);
+        restored.set_enabled(0, 4, false).unwrap();
+        assert!(restored
+            .set_recipe(0, 4, 11)
+            .unwrap_err()
+            .contains("mid-craft"));
+        restored.erase(0, 4).unwrap();
+        let mut expected = original;
+        subtract_item(&mut expected, 9, 1);
+        expected.insert(16, 2);
+        assert_eq!(restored.player.inventory, expected);
+    }
+
+    #[test]
+    fn manual_workshop_permit_is_exclusive_and_blocked_starts_leave_state_unchanged() {
+        let mut core = primitive_test_core();
+        core.place(0, 4, 28, 0, Some(8)).unwrap();
+        core.place(-1, 4, 28, 0, Some(8)).unwrap();
+        core.store(0, 4, 9, 2).unwrap();
+        core.store(-1, 4, 9, 2).unwrap();
+        core.set_enabled(0, 4, true).unwrap();
+        core.tick_many(5);
+        let first = core.entity_at(0, 4).unwrap();
+        core.set_enabled(-1, 4, true).unwrap();
+        assert!(core.entities[first].disabled);
+        core.tick_many(24);
+        assert_eq!(core.entities[first].progress, 5);
+        let second = core.entity_at(-1, 4).unwrap();
+        core.entities[second].output_inventory.insert(16, 24);
+        let before = core.checksum();
+        assert!(core.set_enabled(-1, 4, true).unwrap_err().contains("full"));
+        assert_eq!(core.checksum(), before);
+    }
+
+    #[test]
+    fn manual_workshop_dirty_deltas_cover_permits_progress_completion_and_erasure() {
+        let mut factory = test_factory("new-game");
+        factory.core = primitive_test_core();
+        let _ = factory.snapshot_json();
+        let mut previous = factory.core.snapshot();
+        factory.core.place(0, 4, 28, 0, Some(8)).unwrap();
+        factory.core.store(0, 4, 9, 3).unwrap();
+        assert_delta_matches_full_diff(&mut factory, &mut previous, "workshop placed and loaded");
+        factory.core.set_enabled(0, 4, true).unwrap();
+        for tick in 0..24 {
+            factory.core.tick_many(1);
+            assert_delta_matches_full_diff(
+                &mut factory,
+                &mut previous,
+                &format!("manual tick {tick}"),
+            );
+        }
+        factory.core.set_enabled(0, 4, true).unwrap();
+        factory.core.tick_many(3);
+        factory.core.set_move_intent(1000, 0).unwrap();
+        factory.core.tick_many(1);
+        assert_delta_matches_full_diff(&mut factory, &mut previous, "movement pauses work");
+        factory.core.erase(0, 4).unwrap();
+        assert_delta_matches_full_diff(&mut factory, &mut previous, "cancel with reserved refund");
+    }
+
+    #[test]
+    fn version_seventeen_factories_keep_stock_jobs_insight_and_checksum() {
+        let (mut legacy, technologies, scenarios) = catalogs();
+        legacy.version = 15;
+        legacy.buildings.retain(|building| building.id < 27);
+        let scenario = scenarios
+            .scenarios
+            .iter()
+            .find(|scenario| scenario.key == "factory-demo")
+            .unwrap();
+        let mut old = Core::new(&legacy, &technologies, scenario, None, None).unwrap();
+        old.tick_many(123);
+        let json =
+            old.save_string()
+                .unwrap()
+                .replacen("\"save_version\":18", "\"save_version\":17", 1);
+        let (definitions, _, _) = catalogs();
+        let mut restored = Core::from_save(&definitions, &technologies, &scenarios, &json).unwrap();
+        assert_eq!(old.checksum(), restored.checksum());
+        assert_eq!(old.entities, restored.entities);
+        assert_eq!(old.insight, restored.insight);
+        old.tick_many(97);
+        restored.tick_many(97);
+        assert_eq!(old.checksum(), restored.checksum());
+    }
+
+    #[test]
     fn continuous_movement_intent_and_collision_are_native() {
         let mut core = game("new-game");
         // Stay inside the landing clearing so derived water and cliffs cannot interrupt the walk.
@@ -16056,7 +16461,8 @@ mod tests {
         let save = old
             .save_string()
             .unwrap()
-            .replacen("\"save_version\":17", "\"save_version\":16", 1)
+            .replacen("\"save_version\":18", "\"save_version\":16", 1)
+            .replacen("\"definition_version\":16", "\"definition_version\":15", 1)
             .replacen("\"technology_version\":8", "\"technology_version\":7", 1);
         assert!(save.contains(&format!("\"checksum\":{old_checksum}")));
 
@@ -17476,9 +17882,10 @@ mod tests {
         let previous_source = game("new-game").save_string().unwrap();
         let previous_envelope = previous_source
             .replacen("\"technology_version\":8", "\"technology_version\":7", 1)
+            .replacen("\"definition_version\":16", "\"definition_version\":15", 1)
             .replacen(
                 &format!("\"save_version\":{SAVE_VERSION}"),
-                &format!("\"save_version\":{}", SAVE_VERSION - 1),
+                "\"save_version\":16",
                 1,
             );
         let migrated = Core::from_save(&definitions, &technologies, &scenarios, &previous_envelope)
@@ -17491,7 +17898,7 @@ mod tests {
         // spelling of the same thing is exactly what the boundary refuses to do.
         let unmigratable = save.replacen(
             &format!("\"save_version\":{SAVE_VERSION}"),
-            &format!("\"save_version\":{}", SAVE_VERSION - 4),
+            "\"save_version\":13",
             1,
         );
         assert!(
@@ -18446,16 +18853,26 @@ mod tests {
             "the project must cost more than the beat that proves the line"
         );
         for stage in &founding {
-            assert!(
-                stage
-                    .opening
-                    .technologies
+            let needs_power = stage.opening.buildings.iter().any(|key| {
+                let (definitions, _, _) = catalogs();
+                definitions
+                    .buildings
                     .iter()
-                    .any(|key| key == "on-site-power"),
+                    .any(|building| building.key == *key && building.power_draw.unwrap_or(0) > 0)
+            });
+            assert!(
+                !needs_power
+                    || stage
+                        .opening
+                        .technologies
+                        .iter()
+                        .any(|key| key == "on-site-power"),
                 "{} is payable without power, so the guidance may lead somewhere the rules refuse",
                 stage.stage
             );
         }
+        assert!(first.opening.technologies.is_empty());
+        assert!(first.opening.player_work_ticks > 0);
     }
 
     /// An opening that needs a machine the rules will not run is not an opening.

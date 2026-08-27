@@ -22,14 +22,14 @@
           {
             "key": "components",
             "name": "Prove the line",
-            "brief": "Deliver three components to the landing hub. Two iron ore make one, so this is the whole loop in miniature: find the material, deliver it for insight, research, and let a machine do it next time.",
+            "brief": "Deliver three components to the landing hub. Build a manual workshop from four wood and two stone, load six iron ore, and work three batches beside it. No research or electricity is needed; powered assembly comes later.",
             "reads": "the hub plates its base and raises a second mast",
             "requirements": [{ "item_id": 2, "quantity": 3 }]
           },
           {
             "key": "foundry",
             "name": "Raise the foundry module",
-            "brief": "The hub can build its own foundry, but only from smelted plate and fired brick. Iron sits in the highland and clay on the wet shore, so this is two chains in two landscapes, and neither machine turns without a powered network.",
+            "brief": "Supply smelted plate and fired brick for the foundry module. The primitive furnace can make the plates with fuel alone. Unlock a kiln and power it to fire the clay into brick.",
             "reads": "the foundry body segments, vents, and rises above the landing pad",
             "requirements": [
               { "item_id": 11, "quantity": 16 },

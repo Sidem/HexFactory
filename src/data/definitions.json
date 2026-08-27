@@ -1,5 +1,5 @@
 {
-  "version": 15,
+  "version": 16,
   "items": [
     {
       "id": 1,
@@ -1312,6 +1312,69 @@
       "placement_rule": "ground",
       "buildable": true,
       "blocks_movement": false,
+      "footprint": [
+        {
+          "q": 0,
+          "r": 0
+        }
+      ]
+    },
+    {
+      "id": 27,
+      "key": "primitive-furnace",
+      "name": "Primitive Furnace",
+      "kind": "composer",
+      "description": "Smelt iron and copper plates with ordinary fuel and no electricity. Twice the industrial craft time. Built from local stone and clay; recoverable by dismantling.",
+      "icon": "FRN",
+      "capacity": 24,
+      "recipe_category": "primitive-smelting",
+      "recipe_ids": [2, 3],
+      "duration_multiplier": 2,
+      "construction_cost": [
+        {
+          "item_id": 6,
+          "quantity": 6
+        },
+        {
+          "item_id": 8,
+          "quantity": 4
+        }
+      ],
+      "placement_rule": "ground",
+      "buildable": true,
+      "blocks_movement": true,
+      "footprint": [
+        {
+          "q": 0,
+          "r": 0
+        }
+      ]
+    },
+    {
+      "id": 28,
+      "key": "manual-workshop",
+      "name": "Manual Workshop",
+      "kind": "composer",
+      "description": "Stand beside this bench, load ingredients, and choose Work one batch. Make timber, components, gears, and frames at four times industrial craft time. Walking or gathering pauses work; dismantling recovers reserved ingredients.",
+      "icon": "WRK",
+      "capacity": 24,
+      "recipe_category": "manual-workshop",
+      "recipe_ids": [1, 8, 11, 12],
+      "manual_work": true,
+      "duration_multiplier": 4,
+      "construction_cost": [
+        {
+          "item_id": 9,
+          "quantity": 4
+        },
+        {
+          "item_id": 6,
+          "quantity": 2
+        }
+      ],
+      "placement_rule": "ground",
+      "buildable": true,
+      "blocks_movement": true,
       "footprint": [
         {
           "q": 0,

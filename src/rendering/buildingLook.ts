@@ -24,6 +24,8 @@ export type SilhouetteKey =
   | "firing"
   | "cutting"
   | "crushing"
+  | "primitive-smelting"
+  | "manual-workshop"
   | PowerSource;
 
 export interface BuildingTrim {
@@ -48,6 +50,8 @@ export function silhouetteOf(
   powerSource?: PowerSource,
 ): SilhouetteKey {
   if (kind === "composer") {
+    if (recipeCategory === "primitive-smelting") return "primitive-smelting";
+    if (recipeCategory === "manual-workshop") return "manual-workshop";
     if (recipeCategory === "smelting") return "smelting";
     if (recipeCategory === "firing") return "firing";
     if (recipeCategory === "cutting") return "cutting";
@@ -86,6 +90,24 @@ const BEACON = "#f6c85f";
  * raised rails and transverse treads; the heading tick and cargo remain separate state cues.
  */
 export const BUILDING_SHAPES: Record<SilhouetteKey, readonly ShapePart[]> = {
+  "primitive-smelting": [
+    { part: "vessel", x: 0, y: 0.08, scale: 0.36, material: "dark" },
+    {
+      part: "aperture",
+      x: 0,
+      y: 0.1,
+      scale: 0.2,
+      phase: "pulse",
+      glow: HEARTH,
+    },
+    { part: "band", x: 0, y: -0.16, scale: 0.27, count: 2 },
+  ],
+  "manual-workshop": [
+    { part: "mast", x: -0.23, y: 0.14, scale: 0.18, material: "dark" },
+    { part: "mast", x: 0.23, y: 0.14, scale: 0.18, material: "dark" },
+    { part: "chamber", x: 0, y: -0.03, scale: 0.36, material: "brass" },
+    { part: "band", x: 0, y: -0.12, scale: 0.28, count: 2 },
+  ],
   /**
    * A drill rig, and the one silhouette whose whole point is that it is working. Everything that
    * moved on the old extractor moved where nothing could see it: the shaft was inside the body, and
