@@ -90,8 +90,10 @@ the fuel-starved furnace correctly reported "out of fuel" without requiring a ge
 
 ## Still required in phase 1
 
-Credible essential bills, batched transport kits, direct foundation commissions, expanded
-progression definitions and a timed standard opening comparison remain next. Do not cut repeat
+Batched transport kits shipped in v0.27.0; see [that record](TRANSPORT-KIT-RECORD.md) for the
+measured 24- and 100-segment comparison the baselines above were left for. Credible essential
+bills for the remaining stations, direct foundation commissions, expanded progression definitions
+and a timed standard opening comparison remain next. Do not cut repeat
 income before replacement projects and guidance exist. Primitive work rates and setup costs are
 initial tuning, not a claim that new-player pacing has been validated. Physical laptop evidence,
 human opening comparisons and later construction acceptance gates remain outstanding.

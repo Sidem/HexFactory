@@ -45,6 +45,10 @@ pub(super) fn migrate<'a>(json: &'a str, target_version: u16) -> Result<Cow<'a, 
         primitive_workshops_17_to_18(&mut value);
         version = 18;
     }
+    if version == 18 && target_version >= 19 {
+        transport_kits_18_to_19(&mut value);
+        version = 19;
+    }
 
     if version == target_version {
         return Ok(Cow::Owned(serde_json::to_string(&value).map_err(
@@ -54,6 +58,24 @@ pub(super) fn migrate<'a>(json: &'a str, target_version: u16) -> Result<Cow<'a, 
     Err(format!(
         "no migration path from save version {version} to {target_version}"
     ))
+}
+
+/// Transport kits: one new item, one new batch recipe, and a belt family bought with kits instead
+/// of raw ore. No saved field is added, removed, or reinterpreted, so state and checksum survive
+/// untouched and this step only advances the envelope's definition number.
+///
+/// The one thing that does change for an existing factory is what its already-placed belts hand
+/// back. `erase_refund` quotes the current bill, so a legacy belt now returns the kit that would
+/// rebuild it rather than the ore that bought it. That is deliberate and conserving: dismantling
+/// and replacing a line is still free, the refund buys nothing but transport, and no recipe turns
+/// a kit back into ore, so the boundary cannot be farmed for raw material.
+fn transport_kits_18_to_19(value: &mut Value) {
+    if let Some(object) = value.as_object_mut() {
+        object.insert("save_version".into(), Value::from(19));
+        if object.get("definition_version") == Some(&Value::from(16)) {
+            object.insert("definition_version".into(), Value::from(17));
+        }
+    }
 }
 
 /// Two additive, initially unbuilt stations. Existing recipes, bills, entity state and checksum
@@ -175,6 +197,30 @@ mod tests {
         assert_eq!(value["state"]["player"]["hand"], Value::Null);
         assert_eq!(value["state"]["entities"][0]["inventory"]["5"], 12);
         assert_eq!(value["state"]["entities"][0]["cargo"]["item_id"], 4);
+    }
+
+    #[test]
+    fn version_eighteen_advances_the_definition_catalog_without_touching_stock_or_belts() {
+        let json = r#"{"save_version":18,"definition_version":16,"technology_version":8,"state":{"player":{"inventory":{"1":9}},"entities":[{"definition_id":2,"orientation":0}]}}"#;
+        let migrated = migrate(json, 19).expect("migrated save");
+        let value: Value = serde_json::from_str(&migrated).expect("migrated json");
+        assert_eq!(value["save_version"], 19);
+        assert_eq!(value["definition_version"], 17);
+        // The step is a price revision, not a state rewrite: the ore in the pack stays ore, and a
+        // placed belt keeps its own identity rather than being restocked with kits.
+        assert_eq!(value["state"]["player"]["inventory"]["1"], 9);
+        assert_eq!(value["state"]["entities"][0]["definition_id"], 2);
+        assert_eq!(value["technology_version"], 8);
+    }
+
+    #[test]
+    fn a_version_fifteen_file_reaches_nineteen_through_every_definition_step() {
+        let json = r#"{"save_version":15,"definition_version":14,"technology_version":7,"state":{"player":{}}}"#;
+        let migrated = migrate(json, 19).expect("migrated save");
+        let value: Value = serde_json::from_str(&migrated).expect("migrated json");
+        assert_eq!(value["save_version"], 19);
+        assert_eq!(value["definition_version"], 17);
+        assert_eq!(value["technology_version"], 8);
     }
 
     #[test]

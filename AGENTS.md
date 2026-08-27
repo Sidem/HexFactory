@@ -4,13 +4,13 @@ HexFactory is a browser factory-automation game. Player experience is the tiebre
 native ownership, sparse cost, and measured claims exist to keep a large living factory responsive
 and trustworthy.
 
-Current release: **v0.26.0 Primitive Workshops**. **Immediate next work: progression and construction**
+Current release: **v0.27.0 Transport Kits**. **Immediate next work: progression and construction**
 in `docs/PROGRESSION-PLAN.md` and `docs/CONSTRUCTION-MATERIALS-PLAN.md`, ordered by
 `docs/HEXFACTORY-PLAN.md#what-to-do-next`. Complete this workstream before Living Lattice,
 Regional Discovery or other roadmap features unless the user changes priority. Release numbers
-after v0.26.0 are unassigned. Phase 1 is still active: essential bills, belt kits, commissions,
-progression definitions and timed opening validation. Envelopes: save 18, definitions 16,
-technologies 8, scenarios 5, world 8, wire 12.
+after v0.27.0 are unassigned. Phase 1 is still active: essential bills for the remaining stations,
+commissions, progression definitions and timed opening validation. Envelopes: save 19,
+definitions 17, technologies 8, scenarios 5, world 8, wire 12.
 
 ## Localize before reading
 

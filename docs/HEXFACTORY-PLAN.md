@@ -114,9 +114,17 @@ every future skill merely because the plans mention them.
 manual workshop now provide a repeatable local route to plates, timber, gears, frames and the
 first component contract. Existing bills and insight rewards are unchanged. See
 [the opening record](OPENING-FOUNDATION-RECORD.md) for arithmetic, tests and limits.
-Phase 1 remains active: next are credible essential bills and batched transport kits, foundation
-commissions, expandable progression definitions, and the timed opening comparison. Do not treat
-this additive release as completion of either plan or move on to paths, oil, or floors yet.
+
+**Phase 1 delivery: v0.27.0 Transport Kits.** The construction plan's batching hypothesis —
+`1 iron plate + 1 timber -> 4 starter transport kits`, one kit per ordinary belt and two for a
+corner heading — is now shipped and measured. Belt, splitter, merger and underpass are billed in
+kits; the underpass also pays structural metal and stone. See
+[the transport kit record](TRANSPORT-KIT-RECORD.md) for the measured 24- and 100-segment
+comparison, the refund-boundary argument, and what is still unpriced.
+Phase 1 remains active: next are credible essential bills for the remaining stations (extractor,
+composer, generator, pole), foundation commissions, expandable progression definitions, and the
+timed human opening comparison. Do not treat these additive releases as completion of either plan
+or move on to paths, oil, or floors yet.
 
 **Only afterward:** Living Lattice, then Regional Discovery, then the remaining longer horizon.
 Their former v0.26/v0.27 reservations are withdrawn; assign new version numbers when release
@@ -481,6 +489,16 @@ both test suites say so.
 One line per release, newest first. The reasoning behind a shipped rule lives in the git history of
 this file and in the code that implements it; what follows is the index.
 
+- **v0.27.0** Transport Kits — Belting is manufactured, not gathered. One iron plate and one
+  timber assemble into four transport kits at the manual workshop or the composer; a belt costs one
+  kit, a corner heading two, a splitter or merger two plus a gear, and an underpass two plus
+  structural metal and stone. Measured against the previous prices, a hundred-segment line falls
+  from 100 ore to 52 ore and 18 wood — 108 gathers and 162.0 s of hand work down to 103 and
+  129.2 s — while a twenty-four segment line rises from 32 gathers to 46 because the first run now
+  pays for the workshop and furnace behind it. Save 19 migrates existing factories unchanged to
+  definitions 17; a legacy belt refunds the kit that rebuilds it, which conserves rather than mints,
+  since no recipe returns a kit to ore. Technologies 8, scenarios 5, world 8 and wire 12 remain.
+  The extractor, composer, generator and pole bills are deliberately untouched and still unpriced.
 - **v0.26.0** Primitive Workshops — A stone-and-clay furnace smelts plates with ordinary fuel
   and no grid. A wood-and-stone workshop makes a restricted set of existing recipes with native
   attended work, one batch per press. Walking/gathering pauses it; jobs survive save/load, and

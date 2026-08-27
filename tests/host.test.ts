@@ -101,7 +101,7 @@ const snapshot: FactorySnapshot = {
     move_x: 0,
     move_y: 0,
     creative: false,
-    inventory: { "1": 3 },
+    inventory: { "1": 3, "24": 3 },
     action_cooldown: 0,
     build_range: 8870,
     carry_slots: 6,
@@ -869,8 +869,8 @@ describe("availability and expanded snapshot adapter", () => {
     expect(buildingAvailability(belt, snapshot, definitions.items)).toEqual({
       locked: false,
       affordable: true,
-      costLabel: "1 Iron ore",
-      cost: [{ item_id: 1, required: 1, held: 3, shortfall: 0 }],
+      costLabel: "1 Transport kit",
+      cost: [{ item_id: 24, required: 1, held: 3, shortfall: 0 }],
     });
     expect(
       buildingAvailability(extractor, snapshot, definitions.items),

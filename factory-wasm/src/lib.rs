@@ -85,7 +85,16 @@ const SAVE_PREFIX: &str = "HXF1\n";
 /// catalog 8. Its researched set contains neither new id, which makes both earned bonuses zero and
 /// preserves the old player's exact state and checksum.
 /// Version 18 adds primitive definitions without changing existing jobs, stock, bills, or checksum.
-const SAVE_VERSION: u16 = 18;
+///
+/// Bumped to 19 for transport kits. Definition revision 17 adds the kit item and its batch recipe
+/// and moves the belt family off raw ore, which is a **price** change rather than a state change:
+/// no saved field appears, moves, or is reinterpreted, and the checksum of a loaded factory is
+/// exactly what it was. The envelope still has to move, because `from_save` refuses any file whose
+/// `definition_version` is not the running one, and a definition-16 file describes belts bought at
+/// a price this build no longer quotes. What a legacy belt refunds is therefore one kit rather than
+/// one ore â€” exactly what rebuilding it now costs, which conserves the line rather than paying a
+/// premium on it. Kits have no recipe back to ore, so the boundary cannot mint raw material.
+const SAVE_VERSION: u16 = 19;
 /// Bumped to 6 for World Parameters. `WorldParams` is now part of a run's identity — it is in the
 /// save envelope and in the checksum — so a version-5 envelope carries no answer to the question
 /// "which world is this" and is rejected rather than assumed to be the default.
@@ -13108,6 +13117,7 @@ mod tests {
         core.player.inventory.insert(3, 8);
         core.player.inventory.insert(6, 20);
         core.player.inventory.insert(5, 20);
+        core.player.inventory.insert(24, 8);
         core.player.build_range = 1 << 20;
         set_player_hex(&mut core, 0, 0);
         core.place(3, 0, 1, 0, None).unwrap();
@@ -14944,6 +14954,7 @@ mod tests {
         core.player.inventory.insert(1, 10);
         core.player.inventory.insert(6, 10);
         core.player.inventory.insert(16, 10);
+        core.player.inventory.insert(24, 10);
         let shallow = (-24..=24)
             .flat_map(|q| (-24..=24).map(move |r| (q, r)))
             .find(|&(q, r)| core.terrain_at(q, r) == Terrain::ShallowWater)
@@ -15264,10 +15275,13 @@ mod tests {
             .unwrap();
         let mut old = Core::new(&legacy, &technologies, scenario, None, None).unwrap();
         old.tick_many(123);
-        let json =
-            old.save_string()
-                .unwrap()
-                .replacen("\"save_version\":18", "\"save_version\":17", 1);
+        // Written by the current runtime, then relabelled as the envelope it is standing in for, so
+        // the file walks every released definition step (15 -> 16 -> 17) on the way back in.
+        let json = old.save_string().unwrap().replacen(
+            &format!("\"save_version\":{SAVE_VERSION}"),
+            "\"save_version\":17",
+            1,
+        );
         let (definitions, _, _) = catalogs();
         let mut restored = Core::from_save(&definitions, &technologies, &scenarios, &json).unwrap();
         assert_eq!(old.checksum(), restored.checksum());
@@ -15951,6 +15965,7 @@ mod tests {
         let mut core = game("new-game");
         core.player.inventory.insert(1, 100);
         core.player.inventory.insert(3, 100);
+        core.player.inventory.insert(24, 100);
         assert!(core.place(2, 0, 2, 0, None).unwrap_err().contains("locked"));
         core.researched.extend([1, 2, 3, 4]);
         assert!(core
@@ -15965,14 +15980,14 @@ mod tests {
         assert!(core
             .place(2, 0, 2, 0, None)
             .unwrap_err()
-            .contains("Iron ore"));
+            .contains("Transport kit"));
         core.player.inventory.insert(1, 8);
         core.player.inventory.insert(8, 7);
         // Extractor wants iron ore and stone. Naming the missing item is the message;
         // "construction cost is not available" did not say which.
         assert!(core.place(3, 0, 1, 0, None).unwrap_err().contains("Stone"));
         core.player.inventory.clear();
-        core.player.inventory.insert(1, 3);
+        core.player.inventory.insert(24, 3);
         core.place(2, 0, 2, 0, None).unwrap();
         assert!(core
             .place(2, 0, 2, 0, None)
@@ -15983,7 +15998,7 @@ mod tests {
             .unwrap_err()
             .contains("deposit"));
         set_player_hex(&mut core, 100, 100);
-        core.player.inventory.insert(1, 2);
+        core.player.inventory.insert(24, 2);
         let checksum_before_preview = core.checksum();
         assert!(core.placement_legality(101, 100, 2, 0, None, true).is_ok());
         assert_eq!(core.checksum(), checksum_before_preview);
@@ -16078,12 +16093,12 @@ mod tests {
 
         let mut dragged = game("new-game");
         dragged.researched.extend([1, 2, 3, 4]);
-        dragged.player.inventory.insert(1, 100);
+        dragged.player.inventory.insert(24, 100);
         dragged.place_line((2, 0), (4, 1), 2, 0, None).unwrap();
 
         let mut individual = game("new-game");
         individual.researched.extend([1, 2, 3, 4]);
-        individual.player.inventory.insert(1, 100);
+        individual.player.inventory.insert(24, 100);
         for ((q, r), orientation) in equivalent {
             individual.place(q, r, 2, orientation, None).unwrap();
         }
@@ -16109,7 +16124,7 @@ mod tests {
         let mut core = game("new-game");
         core.researched.extend([1, 2, 3, 4]);
         // Enough for two of the four cells the drag covers.
-        core.player.inventory.insert(1, 2);
+        core.player.inventory.insert(24, 2);
         core.place_line((2, 0), (4, 1), 2, 0, None).unwrap();
         assert_eq!(
             core.entities
@@ -16118,9 +16133,12 @@ mod tests {
                 .count(),
             2
         );
-        assert_eq!(core.player.inventory.get(&1).copied().unwrap_or(0), 0);
+        assert_eq!(core.player.inventory.get(&24).copied().unwrap_or(0), 0);
         // Running out of materials part-way is reported, and what was affordable still stands.
-        assert!(core.events.iter().any(|event| event.contains("Iron ore")));
+        assert!(core
+            .events
+            .iter()
+            .any(|event| event.contains("Transport kit")));
 
         // A drag that can place nothing at all fails as the single placement would have.
         let mut empty = game("new-game");
@@ -16128,7 +16146,7 @@ mod tests {
         assert!(empty
             .place_line((2, 0), (4, 1), 2, 0, None)
             .unwrap_err()
-            .contains("Iron ore"));
+            .contains("Transport kit"));
         assert!(empty
             .entities
             .iter()
@@ -16140,7 +16158,7 @@ mod tests {
         let mut core = game("new-game");
         core.researched.extend([1, 2, 3, 4]);
         // Materials for two of the four cells, so the preview has to show the run stopping.
-        core.player.inventory.insert(1, 2);
+        core.player.inventory.insert(24, 2);
 
         let preview = core.line_preview((2, 0), (4, 1), 2, 0, None);
         assert_eq!(preview.len(), 4);
@@ -16180,6 +16198,7 @@ mod tests {
         let mut core = game("new-game");
         core.researched.extend([1, 2, 3, 4]);
         core.player.inventory.insert(1, 100);
+        core.player.inventory.insert(24, 100);
         core.place(3, 0, 4, 0, None).unwrap();
 
         let preview = core.line_preview((2, 0), (4, 0), 2, 0, None);
@@ -16216,16 +16235,16 @@ mod tests {
     fn one_drag_removes_the_run_it_covers() {
         let mut core = game("new-game");
         core.researched.extend([1, 2, 3, 4]);
-        core.player.inventory.insert(1, 100);
+        core.player.inventory.insert(24, 100);
         core.place_line((2, 0), (4, 1), 2, 0, None).unwrap();
-        let spent = *core.player.inventory.get(&1).unwrap();
+        let spent = *core.player.inventory.get(&24).unwrap();
         core.erase_line((2, 0), (4, 1)).unwrap();
         assert!(core
             .entities
             .iter()
             .all(|entity| entity.placed.scenario_owned));
         // Removal refunds through the ordinary erase path, so a built-then-removed run is free.
-        assert_eq!(core.player.inventory.get(&1), Some(&(spent + 4)));
+        assert_eq!(core.player.inventory.get(&24), Some(&(spent + 4)));
         assert_eq!(core.events.last().unwrap(), "Recovered 4 buildings");
         // A drag across empty ground reports the same refusal a single erase would.
         assert!(core
@@ -16238,7 +16257,7 @@ mod tests {
     fn undo_takes_back_the_last_construction_through_the_erase_path() {
         let mut core = game("new-game");
         core.researched.extend([1, 2, 3, 4]);
-        core.player.inventory.insert(1, 100);
+        core.player.inventory.insert(24, 100);
         let before = core.checksum();
 
         core.place(2, 0, 2, 0, None).unwrap();
@@ -16461,8 +16480,12 @@ mod tests {
         let save = old
             .save_string()
             .unwrap()
-            .replacen("\"save_version\":18", "\"save_version\":16", 1)
-            .replacen("\"definition_version\":16", "\"definition_version\":15", 1)
+            .replacen(
+                &format!("\"save_version\":{SAVE_VERSION}"),
+                "\"save_version\":16",
+                1,
+            )
+            .replacen("\"definition_version\":17", "\"definition_version\":15", 1)
             .replacen("\"technology_version\":8", "\"technology_version\":7", 1);
         assert!(save.contains(&format!("\"checksum\":{old_checksum}")));
 
@@ -16492,7 +16515,7 @@ mod tests {
     fn erase_refunds_cost_and_contents_spills_cargo_and_protects_scenario_objects() {
         let mut core = game("new-game");
         core.researched.insert(1);
-        core.player.inventory.insert(1, 2);
+        core.player.inventory.insert(24, 2);
         core.place(2, 0, 2, 0, None).unwrap();
         let index = core
             .entities
@@ -16504,7 +16527,7 @@ mod tests {
             quantity: 1,
         });
         core.erase(2, 0).unwrap();
-        assert_eq!(core.player.inventory.get(&1), Some(&2));
+        assert_eq!(core.player.inventory.get(&24), Some(&2));
         assert_eq!(core.player.inventory.get(&3), None);
         assert_eq!(
             core.ground_items,
@@ -16518,6 +16541,98 @@ mod tests {
             }]
         );
         assert!(core.erase(0, 0).unwrap_err().contains("protected"));
+    }
+
+    /// Transport is bought a batch at a time, and the price boundary that introduced kits conserves.
+    ///
+    /// A line used to be paid for one raw ore per segment, so laying belt never touched the factory
+    /// it existed to serve. The kit puts a plate and a length of timber behind every segment and
+    /// hands four back at once, which is what makes a long run affordable without making a short one
+    /// free. Every transport building is billed the same way, so no member of the family is a cheaper
+    /// spelling of another.
+    ///
+    /// The other half is compatibility. `erase_refund` quotes the *current* bill, so a belt bought
+    /// under definition 16 hands back a kit rather than the ore that paid for it. That is exactly
+    /// what rebuilding it costs — dismantling and relaying a legacy line is still free — and no
+    /// recipe turns a kit back into ore, so the boundary cannot be farmed for raw material.
+    #[test]
+    fn transport_is_bought_with_kits_and_the_price_boundary_conserves() {
+        let (definitions, technologies, scenarios) = catalogs();
+        let core = game("new-game");
+
+        // One batch: a plate and a length of timber for four kits, by hand or by machine.
+        let recipe = core.recipe(15).expect("the kit recipe").clone();
+        assert_eq!(recipe.output.item_id, 24);
+        assert_eq!(recipe.output.quantity, 4);
+        assert!(core
+            .building_definition(28)
+            .unwrap()
+            .supports_recipe(&recipe));
+        assert!(core
+            .building_definition(3)
+            .unwrap()
+            .supports_recipe(&recipe));
+
+        // Belt, splitter, merger and underpass are all billed in kits, and a vertex heading still
+        // costs strictly more than the edge one it would otherwise dominate.
+        for definition_id in [2, 24, 25, 26] {
+            let building = core.building_definition(definition_id).unwrap();
+            let kits = |orientation: u8| {
+                building
+                    .cost_at(orientation)
+                    .iter()
+                    .find(|cost| cost.item_id == 24)
+                    .map(|cost| cost.quantity)
+                    .unwrap_or(0)
+            };
+            assert!(kits(0) > 0, "{} is billed in kits", building.key);
+            assert!(
+                kits(NORTH) > kits(0),
+                "{} pays extra for the two-row reach",
+                building.key
+            );
+        }
+
+        // A factory built when a belt cost one ore, read back under the revised catalog.
+        let (mut legacy, _, _) = catalogs();
+        let belt = legacy
+            .buildings
+            .iter_mut()
+            .find(|building| building.id == 2)
+            .unwrap();
+        belt.construction_cost = vec![Ingredient {
+            item_id: 1,
+            quantity: 1,
+        }];
+        belt.corner_construction_cost = Some(vec![Ingredient {
+            item_id: 1,
+            quantity: 2,
+        }]);
+        let scenario = scenarios
+            .scenarios
+            .iter()
+            .find(|scenario| scenario.key == "new-game")
+            .unwrap();
+        let mut old = Core::new(&legacy, &technologies, scenario, None, None).unwrap();
+        old.researched.insert(1);
+        old.player.inventory.insert(1, 1);
+        set_player_hex(&mut old, 1, 3);
+        old.place(0, 3, 2, 0, None).unwrap();
+        assert_eq!(old.player.inventory.get(&1).copied().unwrap_or(0), 0);
+
+        let save = old.save_string().unwrap();
+        let mut restored = Core::from_save(&definitions, &technologies, &scenarios, &save)
+            .expect("legacy factory");
+        restored.erase(0, 3).unwrap();
+        assert_eq!(
+            restored.player.inventory.get(&1).copied().unwrap_or(0),
+            0,
+            "the boundary mints no raw material"
+        );
+        assert_eq!(restored.player.inventory.get(&24), Some(&1));
+        // And that refund is exactly a rebuild, so a legacy line can still be moved for nothing.
+        restored.place(0, 3, 2, 0, None).unwrap();
+        assert_eq!(restored.player.inventory.get(&24).copied().unwrap_or(0), 0);
     }
 
     #[test]
@@ -16547,7 +16662,7 @@ mod tests {
 
         let mut ground = game("new-game");
         ground.researched.extend([1, 2, 3, 4]);
-        ground.player.inventory.insert(1, 20);
+        ground.player.inventory.insert(24, 20);
         // The landing cliff sits on (1, -1); the neighbouring lowland hex stays buildable.
         assert_eq!(ground.terrain_at(1, -1), Terrain::Cliff);
         ground.place(0, -1, 2, 0, None).unwrap();
@@ -16772,6 +16887,7 @@ mod tests {
         core.player.inventory.insert(1, 60);
         core.player.inventory.insert(3, 20);
         core.player.inventory.insert(6, 20);
+        core.player.inventory.insert(24, 20);
         set_player_hex(&mut core, 0, 0);
         core.place(3, 0, 13, 0, None).unwrap();
         core.place(5, 0, 2, 0, None).unwrap();
@@ -16830,6 +16946,7 @@ mod tests {
         core.player.inventory.insert(1, 60);
         core.player.inventory.insert(3, 20);
         core.player.inventory.insert(6, 20);
+        core.player.inventory.insert(24, 20);
         set_player_hex(&mut core, 0, 0);
         core.place(3, 0, 13, 0, None).unwrap();
         core.place(5, 0, 2, 0, None).unwrap();
@@ -17040,7 +17157,7 @@ mod tests {
         assert_eq!(core.insight, 17);
         core.research(2).unwrap();
         assert_eq!(core.insight, 12);
-        core.player.inventory.insert(1, 1);
+        core.player.inventory.insert(24, 1);
         core.place(2, 0, 2, 0, None).unwrap();
         assert!(core.research(2).is_err());
     }
@@ -17459,6 +17576,7 @@ mod tests {
         core.player.inventory.insert(3, 8);
         core.player.inventory.insert(5, 16);
         core.player.inventory.insert(6, 8);
+        core.player.inventory.insert(24, 8);
         set_player_hex(&mut core, 3, 1);
         core.place(3, 0, 1, 3, None).unwrap();
         core.place(2, 0, 2, 3, None).unwrap();
@@ -19135,6 +19253,7 @@ mod tests {
         factory.core.player.inventory.insert(1, 60);
         factory.core.player.inventory.insert(3, 10);
         factory.core.player.inventory.insert(6, 8);
+        factory.core.player.inventory.insert(24, 8);
         check(&mut factory, "restocking the player");
 
         // Construction: inserted entities, recompiled transport, and per-chunk entity counts.
@@ -19338,6 +19457,7 @@ mod tests {
         let mut core = game("new-game");
         core.researched.extend([1, 4, 11]);
         core.player.inventory.insert(1, 40);
+        core.player.inventory.insert(24, 40);
 
         // A belt at (0, 3) facing north reaches (1, 1) — the same world column, two rows up.
         set_player_hex(&mut core, 1, 2);
@@ -19371,7 +19491,7 @@ mod tests {
     fn rotation_walks_every_heading_once_in_angular_order() {
         let mut core = game("new-game");
         core.researched.extend([1, 11]);
-        core.player.inventory.insert(1, 40);
+        core.player.inventory.insert(24, 40);
         set_player_hex(&mut core, 1, 3);
         core.place(0, 3, 2, 0, None).unwrap();
 
@@ -19423,7 +19543,7 @@ mod tests {
     fn rotation_offers_only_headings_the_player_has_paid_for() {
         let mut core = game("new-game");
         core.researched.insert(1);
-        core.player.inventory.insert(1, 8);
+        core.player.inventory.insert(24, 8);
         set_player_hex(&mut core, 1, 3);
         core.place(0, 3, 2, 0, None).unwrap();
 
@@ -19432,8 +19552,8 @@ mod tests {
                 .placed
                 .orientation
         };
-        let ore = |core: &Core| core.player.inventory.get(&1).copied().unwrap_or(0);
-        let paid = ore(&core);
+        let kits = |core: &Core| core.player.inventory.get(&24).copied().unwrap_or(0);
+        let paid = kits(&core);
 
         // Unresearched, `R` walks the six edges and steps straight over the vertex headings between
         // them, so the reach is not something a key the player already has can reach.
@@ -19443,7 +19563,7 @@ mod tests {
         }
         core.rotate(0, 3, false).unwrap();
         assert_eq!(heading(&core), 0, "six presses close the edge ring");
-        assert_eq!(ore(&core), paid, "and none of them cost anything");
+        assert_eq!(kits(&core), paid, "and none of them cost anything");
 
         core.researched.insert(11);
         core.rotate(0, 3, false).unwrap();
@@ -19453,21 +19573,21 @@ mod tests {
             "researched, the vertex heading is the very next one"
         );
         assert_eq!(
-            ore(&core),
+            kits(&core),
             paid - 1,
             "and turning onto it is charged the difference"
         );
         core.rotate(0, 3, true).unwrap();
         assert_eq!(heading(&core), 0);
         assert_eq!(
-            ore(&core),
+            kits(&core),
             paid,
             "turning back off it returns that difference"
         );
 
         // The difference is a real price, so a pack that cannot cover it is refused — and the belt
         // is left facing where it was rather than turned half way onto a heading nobody paid for.
-        core.player.inventory.remove(&1);
+        core.player.inventory.remove(&24);
         assert!(core.rotate(0, 3, false).unwrap_err().contains("need"));
         assert_eq!(heading(&core), 0);
     }
@@ -19479,7 +19599,7 @@ mod tests {
     fn the_two_row_reach_is_priced_and_gated_on_the_axis_that_allows_it() {
         let mut core = game("new-game");
         core.researched.extend([1]);
-        core.player.inventory.insert(1, 40);
+        core.player.inventory.insert(24, 40);
         set_player_hex(&mut core, 1, 3);
 
         // The belt's own unlock is done, so what refuses a vertex heading is the corner gate alone.
@@ -19767,7 +19887,7 @@ mod tests {
         core.researched.extend([1, 4, 12]);
         // Everything the ladder can possibly charge, so the test measures conservation and not
         // whether the player happened to be able to afford a step.
-        for item_id in [1, 3, 6, 11, 19] {
+        for item_id in [1, 3, 6, 11, 19, 24] {
             core.player.inventory.insert(item_id, 60);
         }
         core.player.carry_slots = 99;
@@ -19851,7 +19971,7 @@ mod tests {
     fn extraction_reach_comes_from_the_definition_and_the_hand_keeps_its_own() {
         let mut core = game("new-game");
         core.researched.extend([1, 2, 12]);
-        for item_id in [1, 3, 6, 11, 19] {
+        for item_id in [1, 3, 6, 11, 19, 24] {
             core.player.inventory.insert(item_id, 60);
         }
         set_player_hex(&mut core, 3, 1);

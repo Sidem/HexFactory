@@ -1,5 +1,5 @@
 {
-  "version": 16,
+  "version": 17,
   "items": [
     {
       "id": 1,
@@ -226,6 +226,15 @@
       "icon": "plate",
       "description": "Iron smelted again with coal. The strongest thing this world makes.",
       "stack_size": 10
+    },
+    {
+      "id": 24,
+      "key": "transport-kit",
+      "name": "Transport kit",
+      "color": "#7fa7c4",
+      "icon": "kit",
+      "description": "A bundle of belting, rollers and fittings. One kit lays one belt; a corner heading takes two. Made a batch at a time from a plate and a length of timber.",
+      "stack_size": 20
     }
   ],
   "recipes": [
@@ -505,6 +514,28 @@
         "quantity": 1
       },
       "duration": 14
+    },
+    {
+      "id": 15,
+      "key": "transport-kit",
+      "name": "Assemble transport kits",
+      "description": "Cut one iron plate and one timber into four belt kits. The batch is what makes a line affordable.",
+      "category": "assembly",
+      "inputs": [
+        {
+          "item_id": 11,
+          "quantity": 1
+        },
+        {
+          "item_id": 16,
+          "quantity": 1
+        }
+      ],
+      "output": {
+        "item_id": 24,
+        "quantity": 4
+      },
+      "duration": 8
     }
   ],
   "buildings": [
@@ -547,18 +578,18 @@
       "key": "belt",
       "name": "Belt",
       "kind": "belt",
-      "description": "Moves one cargo stack along its heading. Six hex edges from the start; Corner Transport adds the six vertex headings between them, which span two rows for twice the price.",
+      "description": "Moves one cargo stack along its heading. Built from one transport kit; Corner Transport adds the six vertex headings between them, which span two rows for twice the price.",
       "icon": "BLT",
       "orientation_axis": "any",
       "construction_cost": [
         {
-          "item_id": 1,
+          "item_id": 24,
           "quantity": 1
         }
       ],
       "corner_construction_cost": [
         {
-          "item_id": 1,
+          "item_id": 24,
           "quantity": 2
         }
       ],
@@ -1199,7 +1230,7 @@
       "splits": true,
       "construction_cost": [
         {
-          "item_id": 1,
+          "item_id": 24,
           "quantity": 2
         },
         {
@@ -1209,7 +1240,7 @@
       ],
       "corner_construction_cost": [
         {
-          "item_id": 1,
+          "item_id": 24,
           "quantity": 3
         },
         {
@@ -1240,7 +1271,7 @@
       "merges": true,
       "construction_cost": [
         {
-          "item_id": 1,
+          "item_id": 24,
           "quantity": 2
         },
         {
@@ -1250,7 +1281,7 @@
       ],
       "corner_construction_cost": [
         {
-          "item_id": 1,
+          "item_id": 24,
           "quantity": 3
         },
         {
@@ -1281,12 +1312,12 @@
       "underpass_span": 4,
       "construction_cost": [
         {
-          "item_id": 1,
+          "item_id": 24,
           "quantity": 2
         },
         {
-          "item_id": 19,
-          "quantity": 1
+          "item_id": 11,
+          "quantity": 2
         },
         {
           "item_id": 6,
@@ -1295,12 +1326,12 @@
       ],
       "corner_construction_cost": [
         {
-          "item_id": 1,
+          "item_id": 24,
           "quantity": 3
         },
         {
-          "item_id": 19,
-          "quantity": 1
+          "item_id": 11,
+          "quantity": 2
         },
         {
           "item_id": 6,
@@ -1355,11 +1386,11 @@
       "key": "manual-workshop",
       "name": "Manual Workshop",
       "kind": "composer",
-      "description": "Stand beside this bench, load ingredients, and choose Work one batch. Make timber, components, gears, and frames at four times industrial craft time. Walking or gathering pauses work; dismantling recovers reserved ingredients.",
+      "description": "Stand beside this bench, load ingredients, and choose Work one batch. Make timber, transport kits, components, gears, and frames at four times industrial craft time. Walking or gathering pauses work; dismantling recovers reserved ingredients.",
       "icon": "WRK",
       "capacity": 24,
       "recipe_category": "manual-workshop",
-      "recipe_ids": [1, 8, 11, 12],
+      "recipe_ids": [1, 8, 11, 12, 15],
       "manual_work": true,
       "duration_multiplier": 4,
       "construction_cost": [

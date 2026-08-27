@@ -19,6 +19,7 @@ export const ITEM_ICON_KEYS = [
   "gear",
   "frame",
   "circuit",
+  "kit",
 ] as const;
 export type ItemIconKey = (typeof ITEM_ICON_KEYS)[number];
 
@@ -35,6 +36,7 @@ const ICONS: Record<ItemIconKey, string> = {
   gear: `<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M10.6 2.4h2.8l.5 2.5 1.7.7 2.1-1.4 2 2-1.4 2.1.7 1.7 2.5.5v2.8l-2.5.5-.7 1.7 1.4 2.1-2 2-2.1-1.4-1.7.7-.5 2.5h-2.8l-.5-2.5-1.7-.7-2.1 1.4-2-2 1.4-2.1-.7-1.7-2.5-.5v-2.8l2.5-.5.7-1.7L4.3 6.2l2-2 2.1 1.4 1.7-.7.5-2.5ZM12 8.6a3.4 3.4 0 1 0 0 6.8 3.4 3.4 0 0 0 0-6.8Z"/></svg>`,
   frame: `<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M3.4 4.2h17.2v15.6H3.4V4.2Zm2 2v11.6h13.2V6.2H5.4Z"/><path fill="currentColor" d="M6.6 7.4h1.6v9.2H6.6V7.4Zm9.2 0h1.6v9.2h-1.6V7.4Zm-8 3.8h8v1.6h-8v-1.6Z"/></svg>`,
   circuit: `<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M5.4 5.4h13.2v13.2H5.4V5.4Zm2 2v9.2h9.2V7.4H7.4Z"/><path fill="currentColor" d="M9.4 9.4h5.2v1.6h-3.6v3.6H9.4V9.4Zm3.6 3.6h1.6v1.6H13v-1.6Z"/><path fill="currentColor" d="M2.6 8.2h2.8v1.4H2.6V8.2Zm0 5.2h2.8v1.4H2.6v-1.4Zm16 -5.2h2.8v1.4h-2.8V8.2Zm0 5.2h2.8v1.4h-2.8v-1.4Z"/></svg>`,
+  kit: `<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M2.4 8.4h19.2v7.2H2.4V8.4Zm1.8 1.8v3.6h15.6v-3.6H4.2Z"/><circle cx="7" cy="12" r="1.5" fill="currentColor"/><circle cx="12" cy="12" r="1.5" fill="currentColor"/><circle cx="17" cy="12" r="1.5" fill="currentColor"/></svg>`,
 };
 
 export function isItemIconKey(value: string): value is ItemIconKey {
@@ -174,6 +176,14 @@ export function drawItemIcon(
       ctx.lineTo(glyph * 0.16, -glyph * 0.16);
       ctx.lineTo(glyph * 0.16, glyph * 0.16);
       ctx.stroke();
+      break;
+    case "kit":
+      ctx.strokeRect(-glyph * 0.46, -glyph * 0.18, glyph * 0.92, glyph * 0.36);
+      for (const cx of [-0.26, 0, 0.26] as const) {
+        ctx.beginPath();
+        ctx.arc(glyph * cx, 0, glyph * 0.08, 0, Math.PI * 2);
+        ctx.fill();
+      }
       break;
     default:
       polygon(

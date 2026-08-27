@@ -178,10 +178,14 @@ Transport kits would be an ordinary new item consumed by that existing placement
 inventory of serialized buildings. A drag should still be one native endpoints command, pay per
 placed segment, and report the exact point where stock or legality stops it.
 
-This example is **not yet measured or approved for release**. Compare 24- and 100-segment lines,
-including stations, research, energy, fuel, batches left over, and manual handling. If setup takes
-too long, shorten the primitive path or increase sensible batch yield. Do not hide an essential
-dependency in a one-time starter chest or make first-tier belts deliberately unpleasant to use.
+**Shipped and measured in v0.27.0.** The hypothesis went out unchanged. The 24- and 100-segment
+comparison — stations, research, energy, fuel, machine time and manual handling — is recorded in
+[the transport kit record](TRANSPORT-KIT-RECORD.md): a hundred segments fall from 108 gathers and
+162.0 s of hand work to 103 and 129.2 s, while twenty-four rise from 32 gathers to 46 because the
+first line now pays for the workshop and furnace behind it. The batch yield was not increased and
+the primitive path was not shortened; the setup is two stations that need no research. Whether the
+short-line crossover _feels_ right is still a human playtest question. The rest of this section
+stands as the reasoning behind the shipped bill.
 
 ### Several production routes require honest costing
 

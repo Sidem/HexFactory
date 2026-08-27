@@ -1,6 +1,6 @@
 {
   "reference": {
-    "definition_version": 16,
+    "definition_version": 17,
     "technology_version": 8,
     "ticks_per_second": 10,
     "player_ticks_per_second": 30,
@@ -318,6 +318,29 @@
       ],
       "power_draw": 8,
       "grid_energy_per_cycle": 112,
+      "grid_energy_per_minute_milli": 4800000,
+      "fuel_energy_per_cycle": 0,
+      "fuel_energy_per_minute_milli": 0
+    },
+    {
+      "building": "composer",
+      "recipe": "transport-kit",
+      "ticks_per_cycle": 8,
+      "output_item": "transport-kit",
+      "output_per_cycle": 4,
+      "per_minute_milli": 300000,
+      "inputs_per_minute": [
+        {
+          "item": "iron-plate",
+          "quantity_milli": 75000
+        },
+        {
+          "item": "timber",
+          "quantity_milli": 75000
+        }
+      ],
+      "power_draw": 8,
+      "grid_energy_per_cycle": 64,
       "grid_energy_per_minute_milli": 4800000,
       "fuel_energy_per_cycle": 0,
       "fuel_energy_per_minute_milli": 0
@@ -718,6 +741,30 @@
         {
           "item": "iron-plate",
           "quantity_milli": 15000
+        }
+      ],
+      "power_draw": 0,
+      "grid_energy_per_cycle": 0,
+      "grid_energy_per_minute_milli": 0,
+      "fuel_energy_per_cycle": 0,
+      "fuel_energy_per_minute_milli": 0
+    },
+    {
+      "building": "manual-workshop",
+      "manual_work": true,
+      "recipe": "transport-kit",
+      "ticks_per_cycle": 32,
+      "output_item": "transport-kit",
+      "output_per_cycle": 4,
+      "per_minute_milli": 75000,
+      "inputs_per_minute": [
+        {
+          "item": "iron-plate",
+          "quantity_milli": 18750
+        },
+        {
+          "item": "timber",
+          "quantity_milli": 18750
         }
       ],
       "power_draw": 0,
@@ -1317,6 +1364,24 @@
       "fuel_energy_milli": 320000,
       "machine_ticks_milli": 40000,
       "effort_milli": 8000
+    },
+    {
+      "item": "transport-kit",
+      "depth": 2,
+      "raw": [
+        {
+          "item": "ore",
+          "quantity_milli": 500
+        },
+        {
+          "item": "wood",
+          "quantity_milli": 125
+        }
+      ],
+      "raw_units_milli": 625,
+      "fuel_energy_milli": 20000,
+      "machine_ticks_milli": 5250,
+      "effort_milli": 750
     }
   ],
   "buildings": [
@@ -1370,29 +1435,37 @@
       "unlock_technology": "field-logistics",
       "direct": [
         {
-          "item": "ore",
+          "item": "transport-kit",
           "quantity": 1
         }
       ],
-      "depth": 0,
+      "depth": 2,
       "raw": [
         {
           "item": "ore",
-          "quantity_milli": 1000
+          "quantity_milli": 500
+        },
+        {
+          "item": "wood",
+          "quantity_milli": 125
         }
       ],
-      "raw_units_milli": 1000,
-      "fuel_energy_milli": 0,
-      "effort_milli": 1000,
+      "raw_units_milli": 625,
+      "fuel_energy_milli": 20000,
+      "effort_milli": 750,
       "batch": [
         {
           "item": "ore",
+          "quantity": 2
+        },
+        {
+          "item": "wood",
           "quantity": 1
         }
       ],
-      "batch_units": 1,
-      "batch_fuel_energy": 0,
-      "machine_ticks": 0
+      "batch_units": 3,
+      "batch_fuel_energy": 80,
+      "machine_ticks": 24
     },
     {
       "building": "composer",
@@ -2175,7 +2248,7 @@
       "unlock_technology": "belt-junctions",
       "direct": [
         {
-          "item": "ore",
+          "item": "transport-kit",
           "quantity": 2
         },
         {
@@ -2187,21 +2260,29 @@
       "raw": [
         {
           "item": "ore",
-          "quantity_milli": 6000
+          "quantity_milli": 5000
+        },
+        {
+          "item": "wood",
+          "quantity_milli": 250
         }
       ],
-      "raw_units_milli": 6000,
-      "fuel_energy_milli": 160000,
-      "effort_milli": 7000,
+      "raw_units_milli": 5250,
+      "fuel_energy_milli": 200000,
+      "effort_milli": 6500,
       "batch": [
         {
           "item": "ore",
           "quantity": 6
+        },
+        {
+          "item": "wood",
+          "quantity": 1
         }
       ],
-      "batch_units": 6,
-      "batch_fuel_energy": 160,
-      "machine_ticks": 28
+      "batch_units": 7,
+      "batch_fuel_energy": 240,
+      "machine_ticks": 52
     },
     {
       "building": "merger",
@@ -2210,7 +2291,7 @@
       "unlock_technology": "belt-junctions",
       "direct": [
         {
-          "item": "ore",
+          "item": "transport-kit",
           "quantity": 2
         },
         {
@@ -2222,21 +2303,29 @@
       "raw": [
         {
           "item": "ore",
-          "quantity_milli": 6000
+          "quantity_milli": 5000
+        },
+        {
+          "item": "wood",
+          "quantity_milli": 250
         }
       ],
-      "raw_units_milli": 6000,
-      "fuel_energy_milli": 160000,
-      "effort_milli": 7000,
+      "raw_units_milli": 5250,
+      "fuel_energy_milli": 200000,
+      "effort_milli": 6500,
       "batch": [
         {
           "item": "ore",
           "quantity": 6
+        },
+        {
+          "item": "wood",
+          "quantity": 1
         }
       ],
-      "batch_units": 6,
-      "batch_fuel_energy": 160,
-      "machine_ticks": 28
+      "batch_units": 7,
+      "batch_fuel_energy": 240,
+      "machine_ticks": 52
     },
     {
       "building": "underpass",
@@ -2245,12 +2334,12 @@
       "unlock_technology": "grade-separation",
       "direct": [
         {
-          "item": "ore",
+          "item": "transport-kit",
           "quantity": 2
         },
         {
-          "item": "gear",
-          "quantity": 1
+          "item": "iron-plate",
+          "quantity": 2
         },
         {
           "item": "stone",
@@ -2261,16 +2350,20 @@
       "raw": [
         {
           "item": "ore",
-          "quantity_milli": 6000
+          "quantity_milli": 5000
         },
         {
           "item": "stone",
           "quantity_milli": 2000
+        },
+        {
+          "item": "wood",
+          "quantity_milli": 250
         }
       ],
-      "raw_units_milli": 8000,
-      "fuel_energy_milli": 160000,
-      "effort_milli": 9000,
+      "raw_units_milli": 7250,
+      "fuel_energy_milli": 200000,
+      "effort_milli": 8500,
       "batch": [
         {
           "item": "ore",
@@ -2279,11 +2372,15 @@
         {
           "item": "stone",
           "quantity": 2
+        },
+        {
+          "item": "wood",
+          "quantity": 1
         }
       ],
-      "batch_units": 8,
-      "batch_fuel_energy": 160,
-      "machine_ticks": 28
+      "batch_units": 9,
+      "batch_fuel_energy": 240,
+      "machine_ticks": 44
     },
     {
       "building": "primitive-furnace",
@@ -2441,8 +2538,8 @@
       "building": "merger",
       "follows": "belt",
       "relation": "kind",
-      "effort_milli": 7000,
-      "follows_effort_milli": 1000,
+      "effort_milli": 6500,
+      "follows_effort_milli": 750,
       "holds": true
     },
     {
@@ -2489,8 +2586,8 @@
       "building": "splitter",
       "follows": "belt",
       "relation": "kind",
-      "effort_milli": 7000,
-      "follows_effort_milli": 1000,
+      "effort_milli": 6500,
+      "follows_effort_milli": 750,
       "holds": true
     },
     {
@@ -2505,24 +2602,24 @@
       "building": "underpass",
       "follows": "belt",
       "relation": "kind",
-      "effort_milli": 9000,
-      "follows_effort_milli": 1000,
+      "effort_milli": 8500,
+      "follows_effort_milli": 750,
       "holds": true
     },
     {
       "building": "underpass",
       "follows": "merger",
       "relation": "kind",
-      "effort_milli": 9000,
-      "follows_effort_milli": 7000,
+      "effort_milli": 8500,
+      "follows_effort_milli": 6500,
       "holds": true
     },
     {
       "building": "underpass",
       "follows": "splitter",
       "relation": "kind",
-      "effort_milli": 9000,
-      "follows_effort_milli": 7000,
+      "effort_milli": 8500,
+      "follows_effort_milli": 6500,
       "holds": true
     },
     {
@@ -2541,7 +2638,7 @@
       "guaranteed_hexes": 53,
       "nearest_generated": 11,
       "reachable": true,
-      "required_by": 26
+      "required_by": 27
     },
     {
       "material": "crystal",
@@ -2597,7 +2694,7 @@
       "guaranteed_hexes": 47,
       "nearest_generated": 8,
       "reachable": true,
-      "required_by": 5
+      "required_by": 10
     },
     {
       "material": "water",
@@ -3039,21 +3136,33 @@
       "insight": 3,
       "insight_items": 8,
       "insight_request": "coal-seam",
-      "buildings": ["belt"],
+      "buildings": ["belt", "manual-workshop", "primitive-furnace"],
       "gathers": [
         {
           "item": "ore",
-          "quantity": 24
+          "quantity": 14
+        },
+        {
+          "item": "stone",
+          "quantity": 8
+        },
+        {
+          "item": "clay",
+          "quantity": 4
+        },
+        {
+          "item": "wood",
+          "quantity": 8
         }
       ],
-      "fuel_energy": 0,
-      "fuel_items": 0,
-      "gather_total": 32,
-      "machine_ticks": 0,
-      "player_work_ticks": 0,
-      "hand_seconds_milli": 48000,
-      "machine_seconds_milli": 0,
-      "player_work_seconds_milli": 0
+      "fuel_energy": 560,
+      "fuel_items": 4,
+      "gather_total": 46,
+      "machine_ticks": 140,
+      "player_work_ticks": 320,
+      "hand_seconds_milli": 53667,
+      "machine_seconds_milli": 14000,
+      "player_work_seconds_milli": 32000
     },
     {
       "name": "100 starter belts",
@@ -3061,21 +3170,33 @@
       "insight": 3,
       "insight_items": 8,
       "insight_request": "coal-seam",
-      "buildings": ["belt"],
+      "buildings": ["belt", "manual-workshop", "primitive-furnace"],
       "gathers": [
         {
           "item": "ore",
-          "quantity": 100
+          "quantity": 52
+        },
+        {
+          "item": "stone",
+          "quantity": 8
+        },
+        {
+          "item": "clay",
+          "quantity": 4
+        },
+        {
+          "item": "wood",
+          "quantity": 18
         }
       ],
-      "fuel_energy": 0,
-      "fuel_items": 0,
-      "gather_total": 108,
-      "machine_ticks": 0,
-      "player_work_ticks": 0,
-      "hand_seconds_milli": 162000,
-      "machine_seconds_milli": 0,
-      "player_work_seconds_milli": 0
+      "fuel_energy": 2080,
+      "fuel_items": 13,
+      "gather_total": 103,
+      "machine_ticks": 520,
+      "player_work_ticks": 1168,
+      "hand_seconds_milli": 129167,
+      "machine_seconds_milli": 52000,
+      "player_work_seconds_milli": 116800
     }
   ],
   "contracts": [
