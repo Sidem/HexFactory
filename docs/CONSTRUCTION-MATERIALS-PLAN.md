@@ -166,6 +166,15 @@ ingredients for common construction; put depth into their production rather than
 The existing bridge's stone-and-timber bill is already readable. Keep good recipes. Copper plates,
 wire, gears, and frames need tuning, not replacement just because the catalogue is being reviewed.
 
+**Rows shipped in v0.28.0:** small container, extractor, basic assembler/composer, basic generator
+and basic pole, each as this table proposed them. The generator's "simple conductor" and the pole's
+became a new iron wire recipe (`1 iron plate -> 2 iron wire`), runnable at the manual workshop, so
+neither the first grid nor the first assembler requires copper or signal crystal. The measured
+consequence — including a first power that costs 36 gathers where it cost 17 — is in
+[the essential bills record](ESSENTIAL-BILLS-RECORD.md). The industrial furnace/kiln/crusher row and
+everything below it are still unshipped, so the second tier of stations has the credibility problem
+this pass fixed for the first.
+
 ### Make the belt inexpensive by yield
 
 **Starting hypothesis for testing:** `1 iron plate + 1 timber -> 4 starter transport kits`;

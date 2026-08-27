@@ -1,5 +1,5 @@
 {
-  "version": 17,
+  "version": 18,
   "items": [
     {
       "id": 1,
@@ -234,6 +234,15 @@
       "color": "#7fa7c4",
       "icon": "kit",
       "description": "A bundle of belting, rollers and fittings. One kit lays one belt; a corner heading takes two. Made a batch at a time from a plate and a length of timber.",
+      "stack_size": 20
+    },
+    {
+      "id": 25,
+      "key": "iron-wire",
+      "name": "Iron wire",
+      "color": "#9fb0ba",
+      "icon": "wire",
+      "description": "Drawn iron. A poorer conductor than copper, which is why first-generation power equipment is bulky — but it comes from the ore under the landing site instead of an expedition to the copper band.",
       "stack_size": 20
     }
   ],
@@ -536,6 +545,24 @@
         "quantity": 4
       },
       "duration": 8
+    },
+    {
+      "id": 16,
+      "key": "iron-wire",
+      "name": "Draw iron wire",
+      "description": "Draw one iron plate into two lengths of wire. The conductor a first generator and its poles are wound with, before copper is worth the walk.",
+      "category": "assembly",
+      "inputs": [
+        {
+          "item_id": 11,
+          "quantity": 1
+        }
+      ],
+      "output": {
+        "item_id": 25,
+        "quantity": 2
+      },
+      "duration": 6
     }
   ],
   "buildings": [
@@ -544,7 +571,7 @@
       "key": "extractor",
       "name": "Extractor",
       "kind": "extractor",
-      "description": "Harvests every field cell within one hex and emits one item at a time. Slower than your own hands on the same material — but it never stops, and you can walk away.",
+      "description": "Harvests every field cell within one hex and emits one item at a time. Slower than your own hands on the same material — but it never stops, and you can walk away. Built from plate, a gear and timber, all of which a primitive furnace and workshop already make.",
       "icon": "EXT",
       "cadence": 5,
       "capacity": 12,
@@ -554,11 +581,15 @@
       "upgrades_to": 19,
       "construction_cost": [
         {
-          "item_id": 1,
-          "quantity": 4
+          "item_id": 11,
+          "quantity": 2
         },
         {
-          "item_id": 6,
+          "item_id": 19,
+          "quantity": 1
+        },
+        {
+          "item_id": 16,
           "quantity": 2
         }
       ],
@@ -610,19 +641,23 @@
       "key": "composer",
       "name": "Composer",
       "kind": "composer",
-      "description": "Assembles parts from finished materials. Needs no fuel.",
+      "description": "Assembles parts from finished materials. Needs no fuel. It is the workshop's bench built properly, and it is billed that way: plate, a gear and a frame, with no signal crystal to fetch first.",
       "icon": "COM",
       "capacity": 12,
       "power_draw": 8,
       "recipe_category": "assembly",
       "construction_cost": [
         {
-          "item_id": 1,
-          "quantity": 5
+          "item_id": 11,
+          "quantity": 2
         },
         {
-          "item_id": 3,
-          "quantity": 3
+          "item_id": 19,
+          "quantity": 1
+        },
+        {
+          "item_id": 20,
+          "quantity": 1
         }
       ],
       "unlock_technology_id": 3,
@@ -645,13 +680,13 @@
       "key": "container",
       "name": "Container",
       "kind": "container",
-      "description": "Buffers exact item quantities and releases the lowest item ID first.",
+      "description": "Buffers exact item quantities and releases the lowest item ID first. A timber crate; the deep container is the metal one.",
       "icon": "BOX",
       "capacity": 12,
       "upgrades_to": 20,
       "construction_cost": [
         {
-          "item_id": 1,
+          "item_id": 16,
           "quantity": 3
         }
       ],
@@ -872,7 +907,7 @@
       "key": "pole",
       "name": "Pole",
       "kind": "pole",
-      "description": "Connects machines and generators into one power network.",
+      "description": "Connects machines and generators into one power network. A timber mast strung with iron wire; the relay pole is where copper starts to pay.",
       "icon": "POL",
       "tier": 0,
       "supply_radius": 3,
@@ -880,7 +915,11 @@
       "upgrades_to": 21,
       "construction_cost": [
         {
-          "item_id": 1,
+          "item_id": 16,
+          "quantity": 1
+        },
+        {
+          "item_id": 25,
           "quantity": 1
         }
       ],
@@ -900,19 +939,23 @@
       "key": "burner-generator",
       "name": "Burner generator",
       "kind": "generator",
-      "description": "Burns any fuel item into electricity. Holds 12 fuel — feed it by belt or by hand.",
+      "description": "Burns any fuel item into electricity. Holds 12 fuel — feed it by belt or by hand. Wound with iron wire, which is why it is bulky and why first power needs no copper.",
       "icon": "BRN",
       "capacity": 12,
       "power_output": 20,
       "power_source": "burner",
       "construction_cost": [
         {
-          "item_id": 1,
-          "quantity": 4
+          "item_id": 11,
+          "quantity": 1
         },
         {
-          "item_id": 6,
-          "quantity": 4
+          "item_id": 20,
+          "quantity": 1
+        },
+        {
+          "item_id": 25,
+          "quantity": 2
         }
       ],
       "unlock_technology_id": 8,
@@ -1386,11 +1429,11 @@
       "key": "manual-workshop",
       "name": "Manual Workshop",
       "kind": "composer",
-      "description": "Stand beside this bench, load ingredients, and choose Work one batch. Make timber, transport kits, components, gears, and frames at four times industrial craft time. Walking or gathering pauses work; dismantling recovers reserved ingredients.",
+      "description": "Stand beside this bench, load ingredients, and choose Work one batch. Make timber, transport kits, components, gears, frames, and drawn iron wire at four times industrial craft time — every part the first extractor, composer, generator and pole are billed in. Walking or gathering pauses work; dismantling recovers reserved ingredients.",
       "icon": "WRK",
       "capacity": 24,
       "recipe_category": "manual-workshop",
-      "recipe_ids": [1, 8, 11, 12, 15],
+      "recipe_ids": [1, 8, 11, 12, 15, 16],
       "manual_work": true,
       "duration_multiplier": 4,
       "construction_cost": [

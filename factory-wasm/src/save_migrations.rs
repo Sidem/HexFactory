@@ -49,6 +49,10 @@ pub(super) fn migrate<'a>(json: &'a str, target_version: u16) -> Result<Cow<'a, 
         transport_kits_18_to_19(&mut value);
         version = 19;
     }
+    if version == 19 && target_version >= 20 {
+        essential_bills_19_to_20(&mut value);
+        version = 20;
+    }
 
     if version == target_version {
         return Ok(Cow::Owned(serde_json::to_string(&value).map_err(
@@ -58,6 +62,26 @@ pub(super) fn migrate<'a>(json: &'a str, target_version: u16) -> Result<Cow<'a, 
     Err(format!(
         "no migration path from save version {version} to {target_version}"
     ))
+}
+
+/// Essential bills: one new item, one new drawing recipe, and the first extractor, composer,
+/// container, generator and pole billed in manufactured parts instead of raw ore. Like the kit
+/// step before it this is a price revision, not a state change: no saved field is added, removed
+/// or reinterpreted, so stock, jobs, research, insight, entity identity and checksum survive.
+///
+/// What it does change is what those already-placed buildings hand back, and here the boundary
+/// moves the *other* way from the kit one. `erase_refund` quotes the current bill, so an extractor
+/// bought for four ore now returns two plates, a gear and two timber — more raw value than it
+/// cost. That is a one-time revaluation of buildings that already exist, not a loop: the refund is
+/// still exactly what rebuilding costs, so no repeated dismantle can profit, and no recipe turns a
+/// plate, gear, timber or wire back into ore, so the windfall cannot be run through the tree twice.
+fn essential_bills_19_to_20(value: &mut Value) {
+    if let Some(object) = value.as_object_mut() {
+        object.insert("save_version".into(), Value::from(20));
+        if object.get("definition_version") == Some(&Value::from(17)) {
+            object.insert("definition_version".into(), Value::from(18));
+        }
+    }
 }
 
 /// Transport kits: one new item, one new batch recipe, and a belt family bought with kits instead
@@ -214,12 +238,27 @@ mod tests {
     }
 
     #[test]
-    fn a_version_fifteen_file_reaches_nineteen_through_every_definition_step() {
+    fn a_version_fifteen_file_reaches_twenty_through_every_definition_step() {
         let json = r#"{"save_version":15,"definition_version":14,"technology_version":7,"state":{"player":{}}}"#;
-        let migrated = migrate(json, 19).expect("migrated save");
+        let migrated = migrate(json, 20).expect("migrated save");
         let value: Value = serde_json::from_str(&migrated).expect("migrated json");
-        assert_eq!(value["save_version"], 19);
-        assert_eq!(value["definition_version"], 17);
+        assert_eq!(value["save_version"], 20);
+        assert_eq!(value["definition_version"], 18);
+        assert_eq!(value["technology_version"], 8);
+    }
+
+    #[test]
+    fn version_nineteen_reprices_the_stations_without_touching_stock_or_machines() {
+        let json = r#"{"save_version":19,"definition_version":17,"technology_version":8,"state":{"player":{"inventory":{"1":9}},"entities":[{"definition_id":1,"orientation":0,"inventory":{"1":4}}]}}"#;
+        let migrated = migrate(json, 20).expect("migrated save");
+        let value: Value = serde_json::from_str(&migrated).expect("migrated json");
+        assert_eq!(value["save_version"], 20);
+        assert_eq!(value["definition_version"], 18);
+        // A price revision, not a state rewrite: the ore in the pack stays ore, and the placed
+        // extractor keeps its identity and everything it was holding.
+        assert_eq!(value["state"]["player"]["inventory"]["1"], 9);
+        assert_eq!(value["state"]["entities"][0]["definition_id"], 1);
+        assert_eq!(value["state"]["entities"][0]["inventory"]["1"], 4);
         assert_eq!(value["technology_version"], 8);
     }
 

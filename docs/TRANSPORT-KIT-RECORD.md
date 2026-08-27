@@ -99,8 +99,9 @@ lint, type checking, agent-map validation, dependency audit and the production b
 
 ## Still required in phase 1
 
-Credible essential bills for the extractor, composer, generator and pole, direct foundation
-commissions, expanded progression definitions and a timed standard opening comparison remain next.
+The essential bills shipped in v0.28.0; see [that record](ESSENTIAL-BILLS-RECORD.md). Direct
+foundation commissions, expanded progression definitions and a timed standard opening comparison
+remain next.
 The scenario catalogue is deliberately unchanged at version 5: `factory-demo` still opens with 20
 iron plate, 30 stone and a wood deposit within reach, so its player can reach kits without
 invalidating existing demo saves. The measured crossover above is arithmetic, not a playtest;

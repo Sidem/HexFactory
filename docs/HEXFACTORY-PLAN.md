@@ -121,10 +121,20 @@ corner heading — is now shipped and measured. Belt, splitter, merger and under
 kits; the underpass also pays structural metal and stone. See
 [the transport kit record](TRANSPORT-KIT-RECORD.md) for the measured 24- and 100-segment
 comparison, the refund-boundary argument, and what is still unpriced.
-Phase 1 remains active: next are credible essential bills for the remaining stations (extractor,
-composer, generator, pole), foundation commissions, expandable progression definitions, and the
-timed human opening comparison. Do not treat these additive releases as completion of either plan
-or move on to paths, oil, or floors yet.
+
+**Phase 1 delivery: v0.28.0 Essential Bills.** The extractor, composer, container, pole and burner
+generator are billed in manufactured parts rather than raw ore, and a new iron wire recipe puts the
+first grid within reach without a copper expedition. The signal crystal leaves ordinary assembly:
+the first circuit needs none where it needed three. The opening gets longer in exchange — first
+power rises from 17 gathers to 36, because a pole now has a furnace and a workshop standing behind
+it. See [the essential bills record](ESSENTIAL-BILLS-RECORD.md) for the full comparison, the curve
+argument, and the refund revaluation.
+
+Phase 1 remains active: next are foundation commissions, expandable progression definitions, and
+the timed human opening comparison — the last of which this delivery makes overdue, since the
+opening's cost moved and only a person can say whether it moved the right way. The industrial bills
+below the smelter are still raw material. Do not treat these additive releases as completion of
+either plan or move on to paths, oil, or floors yet.
 
 **Only afterward:** Living Lattice, then Regional Discovery, then the remaining longer horizon.
 Their former v0.26/v0.27 reservations are withdrawn; assign new version numbers when release
@@ -489,6 +499,19 @@ both test suites say so.
 One line per release, newest first. The reasoning behind a shipped rule lives in the git history of
 this file and in the code that implements it; what follows is the index.
 
+- **v0.28.0** Essential Bills — The five stations the opening touches are billed in manufactured
+  parts. An extractor costs 2 iron plate, a gear and 2 timber; a composer 2 plate, a gear and a
+  frame; a container 3 timber; a pole a timber and an iron wire; a burner generator a plate, a frame
+  and 2 wire. Iron wire is new — `1 iron plate -> 2 iron wire` in 6 ticks at the composer or the
+  manual workshop — and is what keeps the first grid off copper. Signal crystal leaves ordinary
+  assembly, so the first circuit needs none where it needed three, and crystal falls to one
+  dependent. The cost is the opening: first power rises from 17 gathers to 36 and gains 136 ticks of
+  attended work, first smelter 40 to 47, first circuit 76 to 88. The curve holds — burner at 8.500
+  effort under the wind turbine's 10.000 — and the primitive furnace and workshop remain the
+  research-free floor that makes the new bills reachable. Save 20 migrates existing factories
+  unchanged to definitions 18; a legacy station refunds the new bill, a one-time revaluation that is
+  a fixed point rather than a loop. Technologies 8, scenarios 5, world 8 and wire 12 remain. The
+  smelter, kiln, cutter, crusher and pump bills are deliberately untouched and still unpriced.
 - **v0.27.0** Transport Kits — Belting is manufactured, not gathered. One iron plate and one
   timber assemble into four transport kits at the manual workshop or the composer; a belt costs one
   kit, a corner heading two, a splitter or merger two plus a gear, and an underpass two plus

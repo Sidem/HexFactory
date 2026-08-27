@@ -121,7 +121,7 @@ export const OPENING_CHECKPOINTS: readonly CheckpointDefinition[] = [
     id: "composer-live",
     optional: true,
     label: "Composer built and powered",
-    note: "Costs 5 iron and 3 crystal, and 8 more insight to unlock.",
+    note: "Costs 2 iron plate, a gear and a frame, and 8 more insight to unlock. Crystal is no longer on the way here.",
     reached: (context) =>
       context.buildings.some(
         (building) => building.key === "composer" && building.powered,

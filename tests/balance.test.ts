@@ -416,7 +416,12 @@ describe("the economy's stated curve", () => {
       expect(row.opening.player_work_seconds_milli).toBe(
         (playerTicks * 1000) / fixture.reference.ticks_per_second,
       );
-      expect(row.opening.fuel_energy).toBe(expansion.batchEnergy);
+      // The opening's fuel is the fuel under everything it takes to stand the stage up, stations
+      // included — not the fuel under the bill alone. The two were the same number while every
+      // station was billed in ore and stone, which burn nothing; a station billed in iron plate
+      // brings a smelter's coal with it, so the comparison has to be made against the same list of
+      // ingredients `openingWork` is given.
+      expect(row.opening.fuel_energy).toBe(expand(ingredients).batchEnergy);
     }
 
     // And the project the hub actually builds is a project: more than one landscape, and dearer

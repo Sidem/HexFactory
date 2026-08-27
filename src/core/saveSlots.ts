@@ -16,7 +16,7 @@
  * v18 adds two primitive station definitions; the v17 state and checksum pass through unchanged.
  */
 
-export const SAVE_VERSION = 19;
+export const SAVE_VERSION = 20;
 export const SAVE_CATALOG_KEY = "hexfactory:saves:v1";
 export const LEGACY_SAVE_PREFIX = "hexfactory:hxf1:";
 export const HXF1_PREFIX = "HXF1\n";

@@ -94,7 +94,7 @@ const SAVE_PREFIX: &str = "HXF1\n";
 /// a price this build no longer quotes. What a legacy belt refunds is therefore one kit rather than
 /// one ore â€” exactly what rebuilding it now costs, which conserves the line rather than paying a
 /// premium on it. Kits have no recipe back to ore, so the boundary cannot mint raw material.
-const SAVE_VERSION: u16 = 19;
+const SAVE_VERSION: u16 = 20;
 /// Bumped to 6 for World Parameters. `WorldParams` is now part of a run's identity — it is in the
 /// save envelope and in the checksum — so a version-5 envelope carries no answer to the question
 /// "which world is this" and is rejected rather than assumed to be the default.
@@ -12902,9 +12902,7 @@ mod tests {
         let mut dark = game("new-game");
         dark.power_unmetered = false;
         dark.researched.extend([1, 2, 8]);
-        dark.player.inventory.insert(1, 20);
-        dark.player.inventory.insert(3, 4);
-        dark.player.inventory.insert(6, 8);
+        stock_for(&mut dark, 1, 1);
         dark.player.inventory.insert(5, 8);
         set_player_hex(&mut dark, 1, 0);
         dark.place(3, 0, 1, 0, None).unwrap();
@@ -12929,9 +12927,9 @@ mod tests {
         let mut lit = game("new-game");
         lit.power_unmetered = false;
         lit.researched.extend([1, 2, 8]);
-        lit.player.inventory.insert(1, 20);
-        lit.player.inventory.insert(3, 4);
-        lit.player.inventory.insert(6, 8);
+        stock_for(&mut lit, 1, 1);
+        stock_for(&mut lit, 12, 1);
+        stock_for(&mut lit, 13, 1);
         lit.player.inventory.insert(5, 8);
         set_player_hex(&mut lit, 1, 0);
         lit.place(3, 0, 1, 0, None).unwrap();
@@ -12979,9 +12977,9 @@ mod tests {
         let mut working = game("new-game");
         working.power_unmetered = false;
         working.researched.extend([1, 2, 8]);
-        working.player.inventory.insert(1, 20);
-        working.player.inventory.insert(3, 4);
-        working.player.inventory.insert(6, 8);
+        stock_for(&mut working, 1, 1);
+        stock_for(&mut working, 12, 1);
+        stock_for(&mut working, 13, 1);
         working.player.inventory.insert(5, 8);
         set_player_hex(&mut working, 1, 0);
         working.place(3, 0, 1, 0, None).unwrap();
@@ -13008,9 +13006,8 @@ mod tests {
         let mut idle = game("new-game");
         idle.power_unmetered = false;
         idle.researched.extend([1, 2, 8]);
-        idle.player.inventory.insert(1, 20);
-        idle.player.inventory.insert(3, 4);
-        idle.player.inventory.insert(6, 8);
+        stock_for(&mut idle, 12, 1);
+        stock_for(&mut idle, 13, 1);
         idle.player.inventory.insert(5, 8);
         set_player_hex(&mut idle, 1, 0);
         let pole = try_place_near(&mut idle, (3, 0), 12);
@@ -13075,11 +13072,8 @@ mod tests {
             let mut core = game("new-game");
             core.power_unmetered = false;
             core.researched.extend([1, 2, 8, 5, 13]);
-            core.player.inventory.insert(1, 40);
-            core.player.inventory.insert(3, 8);
-            core.player.inventory.insert(6, 20);
-            core.player.inventory.insert(11, 8);
-            core.player.inventory.insert(18, 8);
+            stock_for(&mut core, 1, 1);
+            stock_for(&mut core, definition_id, 1);
             core.player.build_range = 1 << 20;
             set_player_hex(&mut core, 0, 0);
             core.place(3, 0, 1, 0, None).unwrap();
@@ -13113,9 +13107,8 @@ mod tests {
         let mut core = game("new-game");
         core.power_unmetered = false;
         core.researched.extend([1, 2, 8]);
-        core.player.inventory.insert(1, 40);
-        core.player.inventory.insert(3, 8);
-        core.player.inventory.insert(6, 20);
+        stock_for(&mut core, 1, 1);
+        stock_for(&mut core, 13, 1);
         core.player.inventory.insert(5, 20);
         core.player.inventory.insert(24, 8);
         core.player.build_range = 1 << 20;
@@ -13174,9 +13167,9 @@ mod tests {
         let mut core = game("new-game");
         core.power_unmetered = false;
         core.researched.extend([1, 2, 8]);
-        core.player.inventory.insert(1, 60);
-        core.player.inventory.insert(3, 12);
-        core.player.inventory.insert(6, 20);
+        stock_for(&mut core, 1, 2);
+        stock_for(&mut core, 12, 1);
+        stock_for(&mut core, 13, 1);
         core.player.inventory.insert(5, 40);
         core.player.build_range = 1 << 20;
         set_player_hex(&mut core, 0, 0);
@@ -13233,9 +13226,9 @@ mod tests {
         let mut core = game("new-game");
         core.power_unmetered = false;
         core.researched.extend([1, 2, 8]);
-        core.player.inventory.insert(1, 60);
-        core.player.inventory.insert(3, 12);
-        core.player.inventory.insert(6, 20);
+        stock_for(&mut core, 1, 1);
+        stock_for(&mut core, 12, 1);
+        stock_for(&mut core, 13, 1);
         core.player.inventory.insert(5, 40);
         core.player.build_range = 1 << 20;
         set_player_hex(&mut core, 0, 0);
@@ -13371,6 +13364,25 @@ mod tests {
             .unwrap_or_else(|| panic!("building {key} exists"))
             .clone()
     }
+    /// Stock the player with `times` copies of what `definition_id` is billed, on top of whatever
+    /// they already hold.
+    ///
+    /// A test that only needs a station *standing* says what it is building rather than what that
+    /// is made of, so a repricing pass moves this one function instead of every test that builds
+    /// something. A test that is about a price — that a bill is deducted, refused, or refunded —
+    /// still names the bill, because there the bill is the subject.
+    fn stock_for(core: &mut Core, definition_id: DefinitionId, times: u32) {
+        let bill = core
+            .building_definition(definition_id)
+            .unwrap_or_else(|| panic!("building definition {definition_id} exists"))
+            .construction_cost
+            .clone();
+        for ingredient in bill {
+            *core.player.inventory.entry(ingredient.item_id).or_insert(0) +=
+                ingredient.quantity * times;
+        }
+    }
+
     fn extractor_index(core: &Core) -> usize {
         core.entities
             .iter()
@@ -14008,8 +14020,7 @@ mod tests {
     fn an_extractor_harvests_every_field_cell_inside_its_radius() {
         let mut core = game("new-game");
         core.researched.insert(2);
-        core.player.inventory.insert(1, 8);
-        core.player.inventory.insert(6, 2);
+        stock_for(&mut core, 1, 1);
         set_player_hex(&mut core, 3, 1);
         // Two ore cells one step apart, written into the overlay because the clearing generates
         // none: this is a test about which cell inside a reach is drawn from first, and standing
@@ -15292,6 +15303,177 @@ mod tests {
         assert_eq!(old.checksum(), restored.checksum());
     }
 
+    /// The five stations the essential-bill pass repriced are billed in manufactured parts, and
+    /// erase hands back exactly that bill.
+    ///
+    /// Both halves matter. The first is the design: not one of them is a box of raw ore any more,
+    /// and every part named is something a primitive furnace and a manual workshop can make with
+    /// no research and no power, so the bootstrap stays open. The second is the safety property
+    /// that lets the first be changed at all — a refund that equals the rebuild cost can be taken
+    /// as often as you like and never pays.
+    #[test]
+    fn the_repriced_stations_are_billed_in_parts_and_refund_exactly_what_they_cost() {
+        let (definitions, _, _) = catalogs();
+        let bill = |key: &str| -> Vec<(ItemId, u32)> {
+            definitions
+                .buildings
+                .iter()
+                .find(|building| building.key == key)
+                .unwrap_or_else(|| panic!("building {key} exists"))
+                .construction_cost
+                .iter()
+                .map(|ingredient| (ingredient.item_id, ingredient.quantity))
+                .collect()
+        };
+        // Plate, gear, frame, timber and drawn iron wire — and no signal crystal in front of the
+        // composer, which was the one early building gated behind a thirty-two-hex walk.
+        assert_eq!(bill("extractor"), [(11, 2), (19, 1), (16, 2)]);
+        assert_eq!(bill("composer"), [(11, 2), (19, 1), (20, 1)]);
+        assert_eq!(bill("container"), [(16, 3)]);
+        assert_eq!(bill("pole"), [(16, 1), (25, 1)]);
+        assert_eq!(bill("burner-generator"), [(11, 1), (20, 1), (25, 2)]);
+
+        let mut core = game("new-game");
+        core.researched.extend([1, 2, 3, 4, 8]);
+        core.player.carry_slots = 99;
+        core.player.build_range = 1 << 20;
+        set_player_hex(&mut core, 3, 1);
+        let round_trip = |core: &mut Core, definition_id: DefinitionId, q: i32, r: i32, recipe| {
+            core.player.inventory.clear();
+            stock_for(core, definition_id, 1);
+            let paid = core.player.inventory.clone();
+            core.place(q, r, definition_id, 0, recipe).unwrap();
+            assert!(
+                core.player.inventory.is_empty(),
+                "an exact bill for definition {definition_id} is spent exactly"
+            );
+            core.erase(q, r).unwrap();
+            assert_eq!(
+                core.player.inventory, paid,
+                "erasing definition {definition_id} returns its bill, and only its bill"
+            );
+        };
+        round_trip(&mut core, 1, 3, 0, None);
+        round_trip(&mut core, 4, 0, 3, None);
+        round_trip(&mut core, 3, -2, 0, Some(1));
+        // The pole and the burner go wherever the clearing has room; their bills are the subject
+        // here, not their geometry.
+        for definition_id in [12, 13] {
+            core.player.inventory.clear();
+            stock_for(&mut core, definition_id, 1);
+            let paid = core.player.inventory.clone();
+            let (q, r) = try_place_near(&mut core, (3, 0), definition_id);
+            assert!(core.player.inventory.is_empty());
+            core.erase(q, r).unwrap();
+            assert_eq!(core.player.inventory, paid);
+        }
+    }
+
+    /// A station bought at the old ore prices comes back under the new catalogue and refunds the
+    /// new bill — a one-time revaluation, and provably not a loop.
+    ///
+    /// `erase_refund` quotes the current bill rather than what was paid, so this boundary moves the
+    /// other way from the transport-kit one: an extractor bought for four ore and two stone now
+    /// hands back two plates, a gear and two timber, which is worth more raw than it cost. That is
+    /// a windfall for saves that predate v0.28 and it is bounded by how many stations they had
+    /// standing. What it is not is farmable, and this pins the reason: the refund is exactly the
+    /// rebuild cost, so the second dismantle of the same station returns the player to where the
+    /// first one left them.
+    #[test]
+    fn a_station_bought_at_ore_prices_refunds_the_new_bill_without_opening_a_loop() {
+        let (mut legacy, technologies, scenarios) = catalogs();
+        legacy.version = 17;
+        legacy
+            .buildings
+            .iter_mut()
+            .find(|building| building.id == 1)
+            .unwrap()
+            .construction_cost = vec![
+            Ingredient {
+                item_id: 1,
+                quantity: 4,
+            },
+            Ingredient {
+                item_id: 6,
+                quantity: 2,
+            },
+        ];
+        let scenario = scenarios
+            .scenarios
+            .iter()
+            .find(|scenario| scenario.key == "new-game")
+            .unwrap();
+        let mut old = Core::new(&legacy, &technologies, scenario, None, None).unwrap();
+        for &(q, r, item_id, quantity) in &TEST_FIELD {
+            old.write_overlay(q, r, item_id, quantity, quantity);
+        }
+        old.researched.insert(2);
+        old.player.inventory.insert(1, 4);
+        old.player.inventory.insert(6, 2);
+        set_player_hex(&mut old, 3, 1);
+        old.place(3, 0, 1, 0, None).unwrap();
+        assert!(old.player.inventory.is_empty(), "paid in ore and stone");
+
+        // Written by the current runtime and relabelled as the envelope it stands in for, so the
+        // file walks the 19 -> 20 step on the way back in.
+        let json = old.save_string().unwrap().replacen(
+            &format!("\"save_version\":{SAVE_VERSION}"),
+            "\"save_version\":19",
+            1,
+        );
+        let (definitions, _, _) = catalogs();
+        let mut restored = Core::from_save(&definitions, &technologies, &scenarios, &json).unwrap();
+        assert_eq!(restored.entities.len(), old.entities.len());
+
+        restored.erase(3, 0).unwrap();
+        let refund = restored.player.inventory.clone();
+        assert_eq!(
+            refund,
+            BTreeMap::from([(11, 2), (19, 1), (16, 2)]),
+            "the dismantled extractor is quoted at what rebuilding it costs today"
+        );
+        // And the loop closes on itself: rebuilding spends the refund down to nothing, and taking
+        // it apart again returns the same hand. There is no second windfall.
+        restored.place(3, 0, 1, 0, None).unwrap();
+        assert!(restored.player.inventory.is_empty());
+        restored.erase(3, 0).unwrap();
+        assert_eq!(restored.player.inventory, refund);
+    }
+
+    /// Iron wire is what the first generator and the first pole are wound with, so it has to be
+    /// makeable before either of them exists — which means by hand at the manual workshop, with no
+    /// research and no power, as well as at the composer the workshop stands in for.
+    #[test]
+    fn iron_wire_is_drawn_by_hand_before_there_is_a_composer_to_draw_it_at() {
+        let mut core = primitive_test_core();
+        core.player.inventory.insert(11, 1);
+        core.place(0, 4, 28, 0, Some(16)).unwrap();
+        let index = core.entity_at(0, 4).unwrap();
+        core.store(0, 4, 11, 1).unwrap();
+        core.set_enabled(0, 4, true).unwrap();
+        // Four times industrial craft time, like every other job the workshop takes.
+        core.tick_many(24);
+        assert_eq!(
+            core.entities[index].output_inventory.get(&25),
+            Some(&2),
+            "one plate draws into two lengths of wire"
+        );
+
+        // The same recipe at the bench it was written for, at its own speed.
+        let mut powered = game("new-game");
+        powered.researched.extend([1, 2, 3]);
+        stock_for(&mut powered, 3, 1);
+        *powered.player.inventory.entry(11).or_insert(0) += 1;
+        powered.place(-2, 0, 3, 0, Some(16)).unwrap();
+        let composer = powered.entity_at(-2, 0).unwrap();
+        powered.store(-2, 0, 11, 1).unwrap();
+        powered.tick_many(6);
+        assert_eq!(
+            powered.entities[composer].output_inventory.get(&25),
+            Some(&2)
+        );
+    }
+
     #[test]
     fn continuous_movement_intent_and_collision_are_native() {
         let mut core = game("new-game");
@@ -15981,11 +16163,11 @@ mod tests {
             .place(2, 0, 2, 0, None)
             .unwrap_err()
             .contains("Transport kit"));
-        core.player.inventory.insert(1, 8);
-        core.player.inventory.insert(8, 7);
-        // Extractor wants iron ore and stone. Naming the missing item is the message;
-        // "construction cost is not available" did not say which.
-        assert!(core.place(3, 0, 1, 0, None).unwrap_err().contains("Stone"));
+        core.player.inventory.insert(11, 8);
+        core.player.inventory.insert(19, 7);
+        // Extractor wants plate, a gear and timber; this hand is holding the first two. Naming the
+        // missing item is the message; "construction cost is not available" did not say which.
+        assert!(core.place(3, 0, 1, 0, None).unwrap_err().contains("Timber"));
         core.player.inventory.clear();
         core.player.inventory.insert(24, 3);
         core.place(2, 0, 2, 0, None).unwrap();
@@ -16197,7 +16379,7 @@ mod tests {
     fn a_belt_drag_routes_around_an_occupied_hex() {
         let mut core = game("new-game");
         core.researched.extend([1, 2, 3, 4]);
-        core.player.inventory.insert(1, 100);
+        stock_for(&mut core, 4, 1);
         core.player.inventory.insert(24, 100);
         core.place(3, 0, 4, 0, None).unwrap();
 
@@ -16642,8 +16824,7 @@ mod tests {
         // the building. Cliffs occupy their own hex and do not make the neighbour unbuildable.
         let mut core = game("new-game");
         core.researched.extend([1, 2, 3, 4]);
-        core.player.inventory.insert(1, 20);
-        core.player.inventory.insert(6, 4);
+        stock_for(&mut core, 1, 1);
 
         let (hex_x, hex_y) = axial_world(3, 0);
         set_player_hex(&mut core, 3, 1);
@@ -16720,7 +16901,7 @@ mod tests {
     fn an_erase_that_cannot_be_carried_is_refused_rather_than_losing_items() {
         let mut core = game("new-game");
         core.researched.extend([1, 2, 3, 4]);
-        core.player.inventory.insert(1, 4);
+        stock_for(&mut core, 4, 1);
         set_player_hex(&mut core, 1, 0);
         core.place(2, 0, 4, 0, None).unwrap();
         let index = core.entity_at(2, 0).unwrap();
@@ -16745,7 +16926,7 @@ mod tests {
         // With room, the same erase returns the cost and every stored item.
         core.player.inventory.clear();
         core.erase(2, 0).unwrap();
-        assert_eq!(core.player.inventory.get(&1), Some(&3));
+        assert_eq!(core.player.inventory.get(&16), Some(&3));
         assert_eq!(core.player.inventory.get(&3), Some(&9));
     }
 
@@ -16753,7 +16934,7 @@ mod tests {
     fn withdrawing_moves_what_fits_and_leaves_the_rest_in_the_container() {
         let mut core = game("new-game");
         core.researched.extend([1, 2, 3, 4]);
-        core.player.inventory.insert(1, 3);
+        stock_for(&mut core, 4, 1);
         set_player_hex(&mut core, 1, 0);
         core.place(2, 0, 4, 0, None).unwrap();
         let index = core.entity_at(2, 0).unwrap();
@@ -16884,9 +17065,7 @@ mod tests {
         let mut core = game("new-game");
         core.researched.extend([1, 2, 3, 8]);
         core.player.build_range = 1 << 20;
-        core.player.inventory.insert(1, 60);
-        core.player.inventory.insert(3, 20);
-        core.player.inventory.insert(6, 20);
+        stock_for(&mut core, 13, 1);
         core.player.inventory.insert(24, 20);
         set_player_hex(&mut core, 0, 0);
         core.place(3, 0, 13, 0, None).unwrap();
@@ -16943,9 +17122,7 @@ mod tests {
         // scaffold for building the scene, and the scene has to be put back before it is saved.
         let scenario_reach = core.player.build_range;
         core.player.build_range = 1 << 20;
-        core.player.inventory.insert(1, 60);
-        core.player.inventory.insert(3, 20);
-        core.player.inventory.insert(6, 20);
+        stock_for(&mut core, 13, 1);
         core.player.inventory.insert(24, 20);
         set_player_hex(&mut core, 0, 0);
         core.place(3, 0, 13, 0, None).unwrap();
@@ -17035,8 +17212,7 @@ mod tests {
     fn multi_cell_footprints_drive_occupancy_snapshots_and_edit_targeting() {
         let mut core = game("new-game");
         core.researched.extend([1, 2, 3]);
-        core.player.inventory.insert(1, 20);
-        core.player.inventory.insert(3, 10);
+        stock_for(&mut core, 3, 1);
         core.place(-2, 0, 3, 0, Some(1)).unwrap();
         let composer = core
             .snapshot()
@@ -17063,8 +17239,7 @@ mod tests {
     fn building_edits_reach_from_every_footprint_cell() {
         let mut core = game("new-game");
         core.researched.extend([1, 2, 3]);
-        core.player.inventory.insert(1, 20);
-        core.player.inventory.insert(3, 10);
+        stock_for(&mut core, 3, 1);
         core.place(-2, 0, 3, 0, Some(1)).unwrap();
         // One hex of world-unit reach: beside the far cell, out of range of the anchor alone.
         core.player.build_range = HEX_X as u32;
@@ -17079,8 +17254,7 @@ mod tests {
     fn extractor_stops_exactly_when_its_deposit_empties() {
         let mut core = game("new-game");
         core.researched.insert(2);
-        core.player.inventory.insert(1, 4);
-        core.player.inventory.insert(6, 2);
+        stock_for(&mut core, 1, 1);
         set_player_hex(&mut core, 3, 1);
         core.write_overlay(3, 0, 1, 2, 48);
         core.place(3, 0, 1, 0, None).unwrap();
@@ -17111,8 +17285,7 @@ mod tests {
     fn resolved_deposit_references_match_a_full_tile_scan_and_survive_generation() {
         let mut core = game("new-game");
         core.researched.insert(2);
-        core.player.inventory.insert(1, 8);
-        core.player.inventory.insert(6, 2);
+        stock_for(&mut core, 1, 1);
         set_player_hex(&mut core, 3, 1);
         core.place(3, 0, 1, 0, None).unwrap();
         let index = core
@@ -17572,10 +17745,11 @@ mod tests {
         core.research(8).unwrap();
         core.research(2).unwrap();
         core.research(3).unwrap();
-        core.player.inventory.insert(1, 30);
-        core.player.inventory.insert(3, 8);
+        stock_for(&mut core, 1, 1);
+        stock_for(&mut core, 3, 1);
+        stock_for(&mut core, 12, 2);
+        stock_for(&mut core, 13, 1);
         core.player.inventory.insert(5, 16);
-        core.player.inventory.insert(6, 8);
         core.player.inventory.insert(24, 8);
         set_player_hex(&mut core, 3, 1);
         core.place(3, 0, 1, 3, None).unwrap();
@@ -19137,8 +19311,7 @@ mod tests {
     fn buildings_delta_sends_only_the_entities_that_changed() {
         let mut core = game("new-game");
         core.researched.insert(2);
-        core.player.inventory.insert(1, 12);
-        core.player.inventory.insert(6, 4);
+        stock_for(&mut core, 1, 1);
         set_player_hex(&mut core, 3, 1);
         core.place(3, 0, 1, 0, None).unwrap();
         add_test_belt(&mut core, 4, 1, 0);
@@ -19250,9 +19423,8 @@ mod tests {
         // Player state is compared against the baseline rather than marked, so restocking directly
         // is exactly what the host would see from any native path that changes inventory.
         // Kept inside the carrying rule, so the erase further down still has somewhere to refund to.
-        factory.core.player.inventory.insert(1, 60);
-        factory.core.player.inventory.insert(3, 10);
-        factory.core.player.inventory.insert(6, 8);
+        stock_for(&mut factory.core, 1, 1);
+        stock_for(&mut factory.core, 3, 1);
         factory.core.player.inventory.insert(24, 8);
         check(&mut factory, "restocking the player");
 
@@ -19356,8 +19528,7 @@ mod tests {
     fn world_generation_invalidates_resolved_deposits_and_the_snapshots_built_from_them() {
         let mut core = game("new-game");
         core.researched.insert(2);
-        core.player.inventory.insert(1, 8);
-        core.player.inventory.insert(6, 2);
+        stock_for(&mut core, 1, 1);
         set_player_hex(&mut core, 3, 1);
         core.place(3, 0, 1, 0, None).unwrap();
         let index = core.entity_at(3, 0).unwrap();
@@ -19384,8 +19555,7 @@ mod tests {
     fn extractor_status_matches_a_full_deposit_scan() {
         let mut core = game("new-game");
         core.researched.extend([1, 2]);
-        core.player.inventory.insert(1, 40);
-        core.player.inventory.insert(6, 8);
+        stock_for(&mut core, 1, 1);
         set_player_hex(&mut core, 3, 1);
         core.place(3, 0, 1, 0, None).unwrap();
         let index = core.entity_at(3, 0).unwrap();
@@ -19456,7 +19626,7 @@ mod tests {
     fn a_corner_belt_routes_two_rows_and_leaves_the_hexes_it_spans_free() {
         let mut core = game("new-game");
         core.researched.extend([1, 4, 11]);
-        core.player.inventory.insert(1, 40);
+        stock_for(&mut core, 4, 1);
         core.player.inventory.insert(24, 40);
 
         // A belt at (0, 3) facing north reaches (1, 1) — the same world column, two rows up.
@@ -19887,7 +20057,7 @@ mod tests {
         core.researched.extend([1, 4, 12]);
         // Everything the ladder can possibly charge, so the test measures conservation and not
         // whether the player happened to be able to afford a step.
-        for item_id in [1, 3, 6, 11, 19, 24] {
+        for item_id in [1, 3, 6, 11, 16, 19, 24, 25] {
             core.player.inventory.insert(item_id, 60);
         }
         core.player.carry_slots = 99;
@@ -19947,7 +20117,7 @@ mod tests {
         // The same holds for the reach ladder, which charges a different item set.
         let mut ore = game("new-game");
         ore.researched.extend([1, 2, 12]);
-        for item_id in [1, 3, 6, 11, 19] {
+        for item_id in [1, 3, 6, 11, 16, 19] {
             ore.player.inventory.insert(item_id, 60);
         }
         ore.player.carry_slots = 99;
@@ -19971,9 +20141,8 @@ mod tests {
     fn extraction_reach_comes_from_the_definition_and_the_hand_keeps_its_own() {
         let mut core = game("new-game");
         core.researched.extend([1, 2, 12]);
-        for item_id in [1, 3, 6, 11, 19, 24] {
-            core.player.inventory.insert(item_id, 60);
-        }
+        stock_for(&mut core, 1, 1);
+        stock_for(&mut core, 19, 1);
         set_player_hex(&mut core, 3, 1);
         core.place(3, 0, 1, 0, None).unwrap();
 
@@ -20111,6 +20280,7 @@ mod tests {
         let mut core = game("new-game");
         core.researched.extend([1, 4]);
         core.player.inventory.insert(1, 30);
+        stock_for(&mut core, 4, 1);
         set_player_hex(&mut core, 1, 3);
         core.place(0, 3, 4, 0, None).unwrap();
         let capacity = core.building_definition(4).unwrap().capacity.unwrap();
@@ -20119,9 +20289,10 @@ mod tests {
         core.store(0, 3, 1, 999).unwrap();
         let index = core.entity_at(0, 3).unwrap();
         assert_eq!(core.entities[index].inventory.get(&1), Some(&capacity));
-        // Conservation: what left the pack is exactly what arrived, cost of the box included.
+        // Conservation: what left the pack is exactly what arrived. The box is billed in timber
+        // rather than ore now, so the thirty the pack started with are all still accounted for.
         assert_eq!(
-            core.player.inventory.get(&1).copied().unwrap_or(0) + capacity + 3,
+            core.player.inventory.get(&1).copied().unwrap_or(0) + capacity,
             30
         );
         assert!(core.events.iter().any(|event| event.contains("Stored")));

@@ -1399,6 +1399,11 @@ fn openings(economy: &Economy, best_fuel_id: ItemId, best_fuel_value: u32) -> Ve
     let targets: Vec<(&str, Vec<&str>, Vec<(&str, u32)>)> = vec![
         ("first smelter", vec!["smelter"], Vec::new()),
         ("first power", vec!["burner-generator", "pole"], Vec::new()),
+        // The two stations the essential-bill pass repriced. Each is quoted as what standing one
+        // up actually costs — the primitive stations that make its parts, and the generator it
+        // cannot run without — rather than as the line in the catalogue.
+        ("first extractor", vec!["extractor"], Vec::new()),
+        ("first composer", vec!["composer"], Vec::new()),
         ("first circuit", Vec::new(), vec![("circuit", 1)]),
         (
             "first primitive plate",

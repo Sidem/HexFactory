@@ -368,7 +368,7 @@ function definitionOf(
   return definitions.buildings.find((building) => building.id === id);
 }
 
-/** The cheapest buildable machine that supports this recipe, by construction cost item count. */
+/** The cheapest buildable machine that supports this recipe, by expanded construction cost. */
 function cheapestFor(
   recipe: RecipeDefinition,
   definitions: Definitions,
@@ -381,7 +381,7 @@ function cheapestFor(
     .sort(
       (a, b) =>
         Number(installed.has(b.id)) - Number(installed.has(a.id)) ||
-        cost(a) - cost(b),
+        cost(a, definitions) - cost(b, definitions),
     )[0];
 }
 
@@ -390,7 +390,7 @@ function cheapestExtractor(
 ): BuildingDefinition | undefined {
   return definitions.buildings
     .filter((building) => building.buildable && building.kind === "extractor")
-    .sort((a, b) => cost(a) - cost(b))[0];
+    .sort((a, b) => cost(a, definitions) - cost(b, definitions))[0];
 }
 
 function cheapestGenerator(
@@ -400,12 +400,45 @@ function cheapestGenerator(
     .filter(
       (building) => building.buildable && (building.power_output ?? 0) > 0,
     )
-    .sort((a, b) => cost(a) - cost(b))[0];
+    .sort((a, b) => cost(a, definitions) - cost(b, definitions))[0];
 }
 
-function cost(building: BuildingDefinition): number {
+/**
+ * What a building costs in raw material, expanded through the whole recipe tree.
+ *
+ * Counting the lines of the bill gave the same ordering as this while every station was a pile of
+ * ore, and stopped giving it the moment stations were billed in parts: a composer is four items
+ * and eleven units of raw material, a manual workshop is six items and six units. Sorting by item
+ * count sent a player with nothing built to the dearer of the two because its bill was shorter.
+ *
+ * This is `balance.rs`'s `raw_units` computed independently and to less precision — enough to
+ * order two bills, not to price one.
+ */
+function cost(building: BuildingDefinition, definitions: Definitions): number {
   return building.construction_cost.reduce(
-    (total, line) => total + line.quantity,
+    (total, line) =>
+      total + line.quantity * rawCost(line.item_id, definitions, new Set()),
     0,
   );
+}
+
+function rawCost(
+  itemId: number,
+  definitions: Definitions,
+  seen: ReadonlySet<number>,
+): number {
+  // A recipe that reaches its own output is priced as raw rather than recursed into. The catalogue
+  // is validated acyclic natively; this is what makes a broken one return a number anyway.
+  if (seen.has(itemId)) return 1;
+  const recipe = definitions.recipes.find(
+    (value) => value.output.item_id === itemId,
+  );
+  if (!recipe) return 1;
+  const next = new Set(seen).add(itemId);
+  const inputs = recipe.inputs.reduce(
+    (total, input) =>
+      total + input.quantity * rawCost(input.item_id, definitions, next),
+    0,
+  );
+  return inputs / Math.max(recipe.output.quantity, 1);
 }

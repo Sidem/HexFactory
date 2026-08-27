@@ -228,6 +228,7 @@ describe("data-defined content", () => {
       "gear",
       "frame",
       "transport-kit",
+      "iron-wire",
     ]);
     for (const patch of [
       { recipe_ids: [] },
