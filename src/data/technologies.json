@@ -1,5 +1,5 @@
 {
-  "version": 8,
+  "version": 9,
   "technologies": [
     {
       "id": 1,
@@ -8,7 +8,9 @@
       "description": "Unlock directional transport belts.",
       "prerequisites": [],
       "cost": 3,
-      "unlocks": [2]
+      "unlocks": [2],
+      "branch": "logistics",
+      "stage": "foundations"
     },
     {
       "id": 2,
@@ -17,7 +19,9 @@
       "description": "Unlock extractors that harvest a field within one hex.",
       "prerequisites": [1],
       "cost": 5,
-      "unlocks": [1]
+      "unlocks": [1],
+      "branch": "manufacturing",
+      "stage": "workshops"
     },
     {
       "id": 3,
@@ -26,7 +30,9 @@
       "description": "Unlock component composers and the landing objective path.",
       "prerequisites": [2],
       "cost": 8,
-      "unlocks": [3]
+      "unlocks": [3],
+      "branch": "manufacturing",
+      "stage": "workshops"
     },
     {
       "id": 4,
@@ -35,7 +41,9 @@
       "description": "Optional branch that unlocks exact-quantity containers.",
       "prerequisites": [1],
       "cost": 4,
-      "unlocks": [4]
+      "unlocks": [4],
+      "branch": "logistics",
+      "stage": "foundations"
     },
     {
       "id": 5,
@@ -44,7 +52,9 @@
       "description": "Unlock the smelter and the kiln, and with them plate, glass, brick, and charcoal.",
       "prerequisites": [2],
       "cost": 6,
-      "unlocks": [7, 8]
+      "unlocks": [7, 8],
+      "branch": "metallurgy",
+      "stage": "workshops"
     },
     {
       "id": 6,
@@ -53,7 +63,9 @@
       "description": "Unlock the cutter and the crusher, which turn wood and stone into timber and gravel.",
       "prerequisites": [5],
       "cost": 10,
-      "unlocks": [9, 10]
+      "unlocks": [9, 10],
+      "branch": "woodwork",
+      "stage": "workshops"
     },
     {
       "id": 7,
@@ -62,7 +74,9 @@
       "description": "Unlock the pump, so a basin becomes a reason to build beside it.",
       "prerequisites": [5],
       "cost": 12,
-      "unlocks": [11]
+      "unlocks": [11],
+      "branch": "plumbing",
+      "stage": "workshops"
     },
     {
       "id": 8,
@@ -71,7 +85,9 @@
       "description": "Unlock poles and the burner generator, so a region can afford to run.",
       "prerequisites": [1],
       "cost": 4,
-      "unlocks": [12, 13]
+      "unlocks": [12, 13],
+      "branch": "electricity",
+      "stage": "workshops"
     },
     {
       "id": 9,
@@ -80,7 +96,9 @@
       "description": "Unlock wind on the ridges and hydro at the basin edge.",
       "prerequisites": [8],
       "cost": 8,
-      "unlocks": [14, 15]
+      "unlocks": [14, 15],
+      "branch": "electricity",
+      "stage": "industrial-systems"
     },
     {
       "id": 10,
@@ -89,7 +107,9 @@
       "description": "Unlock the boiler and turbine pair. Water rides belts; this is not a fluid network.",
       "prerequisites": [7, 8],
       "cost": 10,
-      "unlocks": [16, 17]
+      "unlocks": [16, 17],
+      "branch": "electricity",
+      "stage": "industrial-systems"
     },
     {
       "id": 11,
@@ -98,7 +118,9 @@
       "description": "Teach the belt the six vertex headings between the ordinary hex edges. A corner belt spans two rows for twice the price, so the reach is a choice rather than a replacement.",
       "prerequisites": [1],
       "cost": 6,
-      "unlocks": []
+      "unlocks": [],
+      "branch": "logistics",
+      "stage": "workshops"
     },
     {
       "id": 12,
@@ -107,7 +129,9 @@
       "description": "Unlock the deep extractor and the deep container, and the upgrade that grows one into the other in place.",
       "prerequisites": [5],
       "cost": 12,
-      "unlocks": [19, 20]
+      "unlocks": [19, 20],
+      "branch": "manufacturing",
+      "stage": "industrial-systems"
     },
     {
       "id": 13,
@@ -116,7 +140,9 @@
       "description": "Unlock the relay pole, and the upgrade that grows a pole into one in place. A wider disc means fewer poles between the plant and the work.",
       "prerequisites": [8, 5],
       "cost": 9,
-      "unlocks": [21]
+      "unlocks": [21],
+      "branch": "electricity",
+      "stage": "industrial-systems"
     },
     {
       "id": 14,
@@ -125,7 +151,9 @@
       "description": "Unlock the trunk pole, which spans twelve hexes to the next. A line of them reaches a site too far to give its own generator.",
       "prerequisites": [13, 12],
       "cost": 16,
-      "unlocks": [22]
+      "unlocks": [22],
+      "branch": "electricity",
+      "stage": "industrial-systems"
     },
     {
       "id": 15,
@@ -134,7 +162,9 @@
       "description": "Unlock stone-and-timber bridge decks for carrying transport across shallow water.",
       "prerequisites": [1],
       "cost": 4,
-      "unlocks": [23]
+      "unlocks": [23],
+      "branch": "infrastructure",
+      "stage": "foundations"
     },
     {
       "id": 16,
@@ -143,7 +173,9 @@
       "description": "Unlock the splitter and the merger. One divides a lane between every output that will take it; the other takes from its feeders in turn, so no line that shares a junction starves another.",
       "prerequisites": [1],
       "cost": 7,
-      "unlocks": [24, 25]
+      "unlocks": [24, 25],
+      "branch": "logistics",
+      "stage": "workshops"
     },
     {
       "id": 17,
@@ -152,7 +184,9 @@
       "description": "Unlock the underpass. A pair of them carries a lane beneath up to four hexes of anything already built, so two belt lines can finally cross.",
       "prerequisites": [16, 11],
       "cost": 12,
-      "unlocks": [26]
+      "unlocks": [26],
+      "branch": "logistics",
+      "stage": "industrial-systems"
     },
     {
       "id": 18,
@@ -162,7 +196,9 @@
       "prerequisites": [4],
       "cost": 8,
       "unlocks": [],
-      "carry_slots_bonus": 4
+      "carry_slots_bonus": 4,
+      "branch": "field-capabilities",
+      "stage": "workshops"
     },
     {
       "id": 19,
@@ -172,7 +208,79 @@
       "prerequisites": [2],
       "cost": 9,
       "unlocks": [],
-      "build_range_bonus": 3
+      "build_range_bonus": 3,
+      "branch": "field-capabilities",
+      "stage": "workshops"
+    }
+  ],
+  "branches": [
+    {
+      "key": "woodwork",
+      "name": "Woodwork",
+      "description": "Timber and powered cutting.",
+      "order": 0
+    },
+    {
+      "key": "metallurgy",
+      "name": "Metallurgy",
+      "description": "Metal processing; the legacy Material Processing bundle also includes firing.",
+      "order": 1
+    },
+    {
+      "key": "manufacturing",
+      "name": "Manufacturing",
+      "description": "Extraction, assembly and industrial machine improvements.",
+      "order": 2
+    },
+    {
+      "key": "logistics",
+      "name": "Logistics",
+      "description": "Transport, storage, junctions and crossings.",
+      "order": 3
+    },
+    {
+      "key": "infrastructure",
+      "name": "Infrastructure",
+      "description": "Construction methods and supported crossings.",
+      "order": 4
+    },
+    {
+      "key": "plumbing",
+      "name": "Plumbing",
+      "description": "Water collection; current water travels as belt cargo, not in pipes.",
+      "order": 5
+    },
+    {
+      "key": "electricity",
+      "name": "Electricity",
+      "description": "Generation and electrical transmission.",
+      "order": 6
+    },
+    {
+      "key": "field-capabilities",
+      "name": "Field capabilities",
+      "description": "Existing insight purchases for the player. These will move to a separate skill budget in a later release.",
+      "order": 7
+    }
+  ],
+  "stages": [
+    {
+      "key": "foundations",
+      "name": "Foundations",
+      "description": "Recover and make essentials from local resources.",
+      "order": 0
+    },
+    {
+      "key": "workshops",
+      "name": "Workshops",
+      "description": "Useful material processing and first automation.",
+      "order": 1
+    },
+    {
+      "key": "industrial-systems",
+      "name": "Industrial systems",
+      "description": "Combine processes and distribution into sustained production.",
+      "order": 2
     }
   ]
 }

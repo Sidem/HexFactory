@@ -94,7 +94,8 @@ const SAVE_PREFIX: &str = "HXF1\n";
 /// a price this build no longer quotes. What a legacy belt refunds is therefore one kit rather than
 /// one ore â€” exactly what rebuilding it now costs, which conserves the line rather than paying a
 /// premium on it. Kits have no recipe back to ore, so the boundary cannot mint raw material.
-const SAVE_VERSION: u16 = 20;
+/// Version 21 adds progression registries (technology 9); saved state and checksum are unchanged.
+const SAVE_VERSION: u16 = 21;
 /// Bumped to 6 for World Parameters. `WorldParams` is now part of a run's identity — it is in the
 /// save envelope and in the checksum — so a version-5 envelope carries no answer to the question
 /// "which world is this" and is rejected rather than assumed to be the default.
@@ -782,7 +783,18 @@ enum PlacementRule {
 #[derive(Clone, Deserialize)]
 struct TechnologiesInput {
     version: u16,
+    branches: Vec<ProgressionGroup>,
+    stages: Vec<ProgressionGroup>,
     technologies: Vec<TechnologyDefinition>,
+}
+
+/// Authored presentation metadata. Never a purchase gate or saved simulation state.
+#[derive(Clone, Deserialize)]
+struct ProgressionGroup {
+    key: String,
+    name: String,
+    description: String,
+    order: u32,
 }
 
 #[derive(Clone, Deserialize)]
@@ -791,6 +803,8 @@ struct TechnologyDefinition {
     key: String,
     name: String,
     description: String,
+    branch: String,
+    stage: String,
     prerequisites: Vec<TechnologyId>,
     cost: u32,
     unlocks: Vec<DefinitionId>,
@@ -1076,6 +1090,7 @@ struct Snapshot {
     requests: Vec<RequestSnapshot>,
     player: PlayerSnapshot,
     researched: Vec<TechnologyId>,
+    research_availability: Vec<ResearchAvailability>,
     chunks: Vec<ChunkSnapshot>,
     terrain: Vec<TileSnapshot>,
     resources: Vec<ResourceSnapshot>,
@@ -1083,6 +1098,15 @@ struct Snapshot {
     #[serde(default)]
     ground_items: Vec<GroundItem>,
     events: Vec<String>,
+}
+
+/// The same native answer used by the atomic purchase command. Derived, never saved or hashed.
+#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
+struct ResearchAvailability {
+    technology_id: TechnologyId,
+    complete: bool,
+    missing_prerequisites: Vec<TechnologyId>,
+    insight_shortfall: u64,
 }
 
 /// The player as the host sees it: the saved state plus the carried stacks resolved against the
@@ -1420,6 +1444,8 @@ struct SnapshotDelta {
     #[serde(skip_serializing_if = "Option::is_none")]
     researched: Option<Vec<TechnologyId>>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    research_availability: Option<Vec<ResearchAvailability>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     chunks: Option<Vec<ChunkSnapshot>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     terrain: Option<Vec<TileSnapshot>>,
@@ -1452,6 +1478,7 @@ impl SnapshotDelta {
             requests: Some(current.requests.clone()),
             player: Some(current.player.clone()),
             researched: Some(current.researched.clone()),
+            research_availability: Some(current.research_availability.clone()),
             chunks: Some(current.chunks.clone()),
             terrain: Some(current.terrain.clone()),
             resources: Some(ResourcesDelta {
@@ -1490,6 +1517,10 @@ impl SnapshotDelta {
             requests: changed(&previous.requests, &current.requests),
             player: changed(&previous.player, &current.player),
             researched: changed(&previous.researched, &current.researched),
+            research_availability: changed(
+                &previous.research_availability,
+                &current.research_availability,
+            ),
             chunks: changed(&previous.chunks, &current.chunks),
             terrain: changed(&previous.terrain, &current.terrain),
             resources: resources_delta(&previous.resources, &current.resources),
@@ -5358,22 +5389,41 @@ impl Core {
         Ok(())
     }
 
+    fn research_availability(&self, technology: &TechnologyDefinition) -> ResearchAvailability {
+        ResearchAvailability {
+            technology_id: technology.id,
+            complete: self.researched.contains(&technology.id),
+            missing_prerequisites: technology
+                .prerequisites
+                .iter()
+                .copied()
+                .filter(|id| !self.researched.contains(id))
+                .collect(),
+            insight_shortfall: u64::from(technology.cost).saturating_sub(self.insight),
+        }
+    }
+
+    fn research_availability_snapshot(&self) -> Vec<ResearchAvailability> {
+        self.technologies
+            .technologies
+            .iter()
+            .map(|technology| self.research_availability(technology))
+            .collect()
+    }
+
     fn research(&mut self, technology_id: TechnologyId) -> Result<(), String> {
         let technology = self
             .technology(technology_id)
             .cloned()
             .ok_or_else(|| format!("unknown technology {technology_id}"))?;
-        if self.researched.contains(&technology_id) {
+        let availability = self.research_availability(&technology);
+        if availability.complete {
             return Err("technology already researched".into());
         }
-        if technology
-            .prerequisites
-            .iter()
-            .any(|required| !self.researched.contains(required))
-        {
+        if !availability.missing_prerequisites.is_empty() {
             return Err("technology prerequisites are not complete".into());
         }
-        if self.insight < u64::from(technology.cost) {
+        if availability.insight_shortfall > 0 {
             return Err(format!("requires {} insight", technology.cost));
         }
         self.insight -= u64::from(technology.cost);
@@ -7303,6 +7353,7 @@ impl Core {
             requests: self.request_snapshots(),
             player: self.player_snapshot(),
             researched: self.researched.iter().copied().collect(),
+            research_availability: self.research_availability_snapshot(),
             chunks,
             terrain,
             resources,
@@ -7693,6 +7744,7 @@ struct SnapshotBaseline {
     requests: Vec<RequestSnapshot>,
     player: PlayerSnapshot,
     researched: Vec<TechnologyId>,
+    research_availability: Vec<ResearchAvailability>,
     chunks: Vec<ChunkSnapshot>,
     buildings: BTreeMap<u32, EntitySnapshot>,
     ground_items: Vec<GroundItem>,
@@ -7714,6 +7766,7 @@ impl SnapshotBaseline {
             requests: snapshot.requests.clone(),
             player: snapshot.player.clone(),
             researched: snapshot.researched.clone(),
+            research_availability: snapshot.research_availability.clone(),
             chunks: snapshot.chunks.clone(),
             buildings: snapshot
                 .buildings
@@ -7828,9 +7881,25 @@ impl Factory {
             None
         };
 
+        let research_availability = if baseline.insight != core.insight
+            || !baseline
+                .researched
+                .iter()
+                .copied()
+                .eq(core.researched.iter().copied())
+        {
+            take_changed(
+                &mut baseline.research_availability,
+                core.research_availability_snapshot(),
+            )
+        } else {
+            None
+        };
+
         SnapshotDelta {
             base_revision,
             revision,
+            research_availability,
             tick: core.tick,
             checksum: core.checksum(),
             scenario: take_changed(&mut baseline.scenario, core.scenario.key.clone()),
@@ -8918,6 +8987,48 @@ fn validate_technologies(
     if technologies.version == 0 {
         return Err("technology version must be positive".into());
     }
+    for (label, groups) in [
+        ("branch", &technologies.branches),
+        ("stage", &technologies.stages),
+    ] {
+        if groups.is_empty() || groups.len() > 64 {
+            return Err(format!(
+                "technology {label} registry requires 1 to 64 entries"
+            ));
+        }
+        let mut keys = BTreeSet::new();
+        for group in groups {
+            // `order` is a u32 on both sides. Equal orders are valid; key is the stable tie-breaker.
+            let _order = group.order;
+            if !group
+                .key
+                .as_bytes()
+                .first()
+                .is_some_and(u8::is_ascii_lowercase)
+                || !group
+                    .key
+                    .bytes()
+                    .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
+                || group.name.trim().is_empty()
+                || group.description.trim().is_empty()
+                || !keys.insert(&group.key)
+            {
+                return Err(format!(
+                    "technology {label} registry has an invalid or duplicate entry"
+                ));
+            }
+        }
+    }
+    if technologies.technologies.len() > 1024 {
+        return Err("technology catalog exceeds 1024 entries".into());
+    }
+    let branches: BTreeSet<_> = technologies
+        .branches
+        .iter()
+        .map(|group| &group.key)
+        .collect();
+    let stages: BTreeSet<_> = technologies.stages.iter().map(|group| &group.key).collect();
+    let mut keys = BTreeSet::new();
     unique_positive_ids(
         technologies
             .technologies
@@ -8936,6 +9047,16 @@ fn validate_technologies(
             || technology.name.trim().is_empty()
             || technology.description.trim().is_empty()
             || technology.cost == 0
+            || !keys.insert(&technology.key)
+            || !branches.contains(&technology.branch)
+            || !stages.contains(&technology.stage)
+            || technology
+                .prerequisites
+                .iter()
+                .collect::<BTreeSet<_>>()
+                .len()
+                != technology.prerequisites.len()
+            || technology.unlocks.iter().collect::<BTreeSet<_>>().len() != technology.unlocks.len()
         {
             return Err(format!("technology {} is incomplete", technology.id));
         }
@@ -17336,6 +17457,106 @@ mod tests {
     }
 
     #[test]
+    fn published_research_availability_is_the_atomic_purchase_answer() {
+        for insight in [0, 2, 3, 100] {
+            for prerequisite in [false, true] {
+                for technology in &catalogs().1.technologies {
+                    let mut core = game("new-game");
+                    core.insight = insight;
+                    if prerequisite {
+                        core.researched.extend([1, 2, 4, 5, 8]);
+                    }
+                    let row = core.research_availability(technology);
+                    assert_eq!(row.technology_id, technology.id);
+                    assert_eq!(
+                        row.insight_shortfall,
+                        u64::from(technology.cost).saturating_sub(insight)
+                    );
+                    let expected = !row.complete
+                        && row.missing_prerequisites.is_empty()
+                        && row.insight_shortfall == 0;
+                    let before = core.checksum();
+                    assert_eq!(core.research(technology.id).is_ok(), expected);
+                    if expected {
+                        assert_eq!(core.insight, insight - u64::from(technology.cost));
+                        assert!(core.research_availability(technology).complete);
+                        let paid = core.checksum();
+                        assert!(core.research(technology.id).is_err());
+                        assert_eq!(core.checksum(), paid);
+                    } else {
+                        assert_eq!(core.checksum(), before);
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn research_availability_deltas_follow_income_purchases_and_creative_without_quiet_resends() {
+        let mut factory = test_factory("new-game");
+        let _ = factory.snapshot_json();
+        let quiet = factory.snapshot_delta_json();
+        assert!(!quiet.contains("research_availability"));
+        let mut previous = factory.core.snapshot();
+        factory.core.insight = 3;
+        assert_delta_matches_full_diff(
+            &mut factory,
+            &mut previous,
+            "first research becomes affordable",
+        );
+        factory.core.research(1).unwrap();
+        assert_delta_matches_full_diff(
+            &mut factory,
+            &mut previous,
+            "purchase consumes insight and opens prerequisites",
+        );
+        factory.core.set_creative(true);
+        assert_delta_matches_full_diff(&mut factory, &mut previous, "creative grants research");
+        factory.core.set_creative(false);
+        assert_delta_matches_full_diff(
+            &mut factory,
+            &mut previous,
+            "leaving creative keeps knowledge",
+        );
+        assert!(!factory
+            .snapshot_delta_json()
+            .contains("research_availability"));
+    }
+
+    #[test]
+    fn research_foundations_preserve_legacy_factories_and_ignore_presentation_in_purchases() {
+        let mut old = primitive_test_core();
+        old.technologies.version = 8;
+        old.insight = 31;
+        old.research(1).unwrap();
+        old.place(0, 4, 28, 0, Some(8)).unwrap();
+        old.store(0, 4, 9, 3).unwrap();
+        old.set_enabled(0, 4, true).unwrap();
+        old.tick_many(5);
+        let save = old.save_string().unwrap().replace(
+            &format!("\"save_version\":{SAVE_VERSION}"),
+            "\"save_version\":20",
+        );
+        assert!(!save.contains("research_availability"));
+        let (definitions, mut technologies, scenarios) = catalogs();
+        technologies.branches.reverse();
+        technologies.stages.reverse();
+        technologies.technologies[1].stage = "industrial-systems".into();
+        validate_technologies(&definitions, &technologies).unwrap();
+        let mut restored = Core::from_save(&definitions, &technologies, &scenarios, &save).unwrap();
+        assert_eq!(old.checksum(), restored.checksum());
+        assert_eq!(
+            old.research_availability_snapshot(),
+            restored.research_availability_snapshot()
+        );
+        for core in [&mut old, &mut restored] {
+            core.research(2).unwrap();
+            core.tick_many(40);
+        }
+        assert_eq!(old.checksum(), restored.checksum());
+    }
+
+    #[test]
     fn research_permanently_expands_cargo_space_and_build_range() {
         let mut core = game("new-game");
         core.insight = 100;
@@ -18324,6 +18545,7 @@ mod tests {
             requests: None,
             player: None,
             researched: None,
+            research_availability: None,
             chunks: None,
             terrain: None,
             resources: None,
@@ -18463,6 +18685,20 @@ mod tests {
                 ],
             }),
             researched: Some(vec![1, 2, 3, 4]),
+            research_availability: Some(vec![
+                ResearchAvailability {
+                    technology_id: 1,
+                    complete: true,
+                    insight_shortfall: 0,
+                    missing_prerequisites: vec![],
+                },
+                ResearchAvailability {
+                    technology_id: 300,
+                    complete: false,
+                    insight_shortfall: 70_000,
+                    missing_prerequisites: vec![5, 256],
+                },
+            ]),
             chunks: Some(vec![
                 ChunkSnapshot {
                     chunk_q: 0,
@@ -19617,6 +19853,29 @@ mod tests {
         assert!(core.entities.iter().all(|entity| entity.placed.q != 2));
         assert!(core.events[0].contains("locked"));
         assert!(validate_scenarios(&definitions, &catalogs().1, &scenarios).is_ok());
+    }
+
+    #[test]
+    fn progression_registries_reject_missing_duplicate_and_unknown_references() {
+        let (definitions, technologies, _) = catalogs();
+        for change in 0..9 {
+            let mut invalid = technologies.clone();
+            match change {
+                0 => invalid.branches.clear(),
+                1 => invalid.stages.push(invalid.stages[0].clone()),
+                2 => invalid.branches[0].key = "Bad key".into(),
+                3 => invalid.stages[0].name = " ".into(),
+                4 => invalid.technologies[0].branch = "missing".into(),
+                5 => invalid.technologies[0].stage = "missing".into(),
+                6 => invalid.technologies[1].key = invalid.technologies[0].key.clone(),
+                7 => invalid.technologies[1].prerequisites = vec![1, 1],
+                _ => invalid.branches = vec![invalid.branches[0].clone(); 65],
+            }
+            assert!(
+                validate_technologies(&definitions, &invalid).is_err(),
+                "case {change}"
+            );
+        }
     }
 
     /// A belt at a vertex heading routes two rows, and the hexes it spans stay free. This is the

@@ -371,7 +371,41 @@ export function validateTechnologies(
   const data = value as Partial<Technologies>;
   if (!positiveInteger(data.version) || !Array.isArray(data.technologies))
     throw new TypeError("technologies require a version and array");
+  for (const [label, groups] of [
+    ["branch", data.branches],
+    ["stage", data.stages],
+  ] as const) {
+    if (!Array.isArray(groups) || groups.length === 0 || groups.length > 64)
+      throw new TypeError(
+        `technology ${label} registry requires 1 to 64 entries`,
+      );
+    const keys = new Set<string>();
+    for (const group of groups) {
+      if (
+        !group ||
+        typeof group.key !== "string" ||
+        !/^[a-z][a-z0-9-]*$/.test(group.key) ||
+        typeof group.name !== "string" ||
+        !group.name.trim() ||
+        typeof group.description !== "string" ||
+        !group.description.trim() ||
+        !Number.isInteger(group.order) ||
+        group.order < 0 ||
+        group.order > 0xffffffff ||
+        keys.has(group.key)
+      )
+        throw new TypeError(
+          `technology ${label} registry has an invalid or duplicate entry`,
+        );
+      keys.add(group.key);
+    }
+  }
+  if (data.technologies.length > 1024)
+    throw new TypeError("technology catalog exceeds 1024 entries");
+  const branches = new Set(data.branches!.map(({ key }) => key));
+  const stages = new Set(data.stages!.map(({ key }) => key));
   uniqueIds(data.technologies, "technology");
+  const keys = new Set<string>();
   const ids = new Set(data.technologies.map(({ id }) => id));
   const buildingIds = new Set(definitions.buildings.map(({ id }) => id));
   for (const technology of data.technologies) {
@@ -379,6 +413,14 @@ export function validateTechnologies(
       !technology.key ||
       !technology.name ||
       !technology.description ||
+      keys.has(technology.key) ||
+      !branches.has(technology.branch) ||
+      !stages.has(technology.stage) ||
+      !Array.isArray(technology.prerequisites) ||
+      !Array.isArray(technology.unlocks) ||
+      new Set(technology.prerequisites).size !==
+        technology.prerequisites.length ||
+      new Set(technology.unlocks).size !== technology.unlocks.length ||
       !positiveInteger(technology.cost) ||
       (technology.carry_slots_bonus !== undefined &&
         (!positiveInteger(technology.carry_slots_bonus) ||
@@ -390,6 +432,7 @@ export function validateTechnologies(
       technology.unlocks.some((id) => !buildingIds.has(id))
     )
       throw new TypeError(`technology ${technology.id} is invalid`);
+    keys.add(technology.key);
   }
   const completed = new Set<number>();
   while (completed.size < data.technologies.length) {

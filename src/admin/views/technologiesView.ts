@@ -44,6 +44,8 @@ export function renderTechnologiesView(
       key: `tech-${nextId}`,
       name: `New Technology ${nextId}`,
       description: "Description of what this breakthrough unlocks.",
+      branch: store.technologies.branches[0]!.key,
+      stage: store.technologies.stages[0]!.key,
       prerequisites: [],
       cost: 5,
       unlocks: [],
@@ -302,6 +304,30 @@ function renderTechnologyModal(
   `;
 
   const form = modal.querySelector<HTMLFormElement>("#tech-form")!;
+  const classification = document.createElement("div");
+  classification.className = "form-row form-row-2";
+  for (const [name, groups] of [
+    ["branch", store.technologies.branches],
+    ["stage", store.technologies.stages],
+  ] as const) {
+    const label = document.createElement("label");
+    const title = document.createElement("span");
+    title.textContent =
+      name === "branch" ? "Branch" : "Stage (presentation only)";
+    const select = document.createElement("select");
+    select.name = name;
+    select.required = true;
+    for (const group of groups) {
+      const option = document.createElement("option");
+      option.value = group.key;
+      option.textContent = group.name;
+      option.selected = currentTech[name] === group.key;
+      select.appendChild(option);
+    }
+    label.append(title, select);
+    classification.appendChild(label);
+  }
+  form.prepend(classification);
   const nameInput =
     modal.querySelector<HTMLInputElement>("input[name='name']")!;
   const keyInput = modal.querySelector<HTMLInputElement>("input[name='key']")!;
@@ -347,6 +373,8 @@ function renderTechnologyModal(
       key,
       name,
       description,
+      branch: String(formData.get("branch")),
+      stage: String(formData.get("stage")),
       prerequisites,
       cost,
       unlocks,

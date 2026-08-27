@@ -1,4 +1,5 @@
 import { supportsRecipe } from "./definitions";
+import { technologyAvailability } from "./availability";
 import type {
   BuildingDefinition,
   Definitions,
@@ -97,11 +98,13 @@ export function nextAction(
     .map((id) => technologies.technologies.find((value) => value.id === id))
     .filter((value): value is TechnologyDefinition => value !== undefined)
     .filter((value) => !researched.has(value.id));
-  const ready = missing.find((technology) =>
-    technology.prerequisites.every((id) => researched.has(id)),
+  const ready = missing.find(
+    (technology) =>
+      technologyAvailability(technology, snapshot).prerequisitesMet,
   );
   if (ready) {
-    if (snapshot.insight >= ready.cost)
+    const availability = technologyAvailability(ready, snapshot);
+    if (availability.affordable)
       return {
         key: `research:${ready.key}`,
         title: `Research ${ready.name}`,
@@ -110,7 +113,7 @@ export function nextAction(
     // Funding is not an instruction a player can carry out, and neither is "gather something" now
     // that the hub only pays for what it posted. The step names one row of the board: which item,
     // how much of it is still wanted, and what filling it pays.
-    const short = ready.cost - snapshot.insight;
+    const short = availability.insightShortfall;
     const closest = [...snapshot.requests].sort(
       (a, b) => stillToFind(a, snapshot) - stillToFind(b, snapshot),
     )[0];

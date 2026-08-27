@@ -4,13 +4,14 @@ HexFactory is a browser factory-automation game. Player experience is the tiebre
 native ownership, sparse cost, and measured claims exist to keep a large living factory responsive
 and trustworthy.
 
-Current release: **v0.28.0 Essential Bills**. **Immediate next work: progression and construction**
+Current release: **v0.29.0 Research Foundations**. **Immediate next work: progression and construction**
 in `docs/PROGRESSION-PLAN.md` and `docs/CONSTRUCTION-MATERIALS-PLAN.md`, ordered by
 `docs/HEXFACTORY-PLAN.md#what-to-do-next`. Complete this workstream before Living Lattice,
 Regional Discovery or other roadmap features unless the user changes priority. Release numbers
-after v0.28.0 are unassigned. Phase 1 is still active: foundation commissions, progression
-definitions, timed opening validation, and industrial bills below the smelter. Envelopes: save 20,
-definitions 18, technologies 8, scenarios 5, world 8, wire 12.
+after v0.29.0 are unassigned. Phase 1 is still active: foundation commissions, typed progression
+requirements/effects, timed opening validation, and industrial bills below the smelter. Branch/stage
+registries and native research availability are shipped. Envelopes: save 21, definitions 18,
+technologies 9, scenarios 5, world 8, wire 13.
 
 ## Localize before reading
 

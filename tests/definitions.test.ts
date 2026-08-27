@@ -13,6 +13,42 @@ import { isItemIconKey } from "../src/rendering/icons";
 describe("data-defined content", () => {
   const typedDefinitions = definitions as Definitions;
 
+  it("validates progression registries and references without making stage order a gate", () => {
+    const badBranch = structuredClone(technologies);
+    badBranch.technologies[0]!.branch = "missing";
+    expect(() => validateTechnologies(badBranch, typedDefinitions)).toThrow(
+      /invalid/,
+    );
+    const badStage = structuredClone(technologies);
+    badStage.technologies[0]!.stage = "missing";
+    expect(() => validateTechnologies(badStage, typedDefinitions)).toThrow(
+      /invalid/,
+    );
+    for (const label of ["branches", "stages"] as const) {
+      const duplicate = structuredClone(technologies);
+      duplicate[label].push(duplicate[label][0]!);
+      expect(() => validateTechnologies(duplicate, typedDefinitions)).toThrow(
+        /duplicate/,
+      );
+      const invalid = structuredClone(technologies);
+      invalid[label][0]!.order = -1;
+      expect(() => validateTechnologies(invalid, typedDefinitions)).toThrow(
+        /invalid/,
+      );
+    }
+    const duplicateKey = structuredClone(technologies);
+    duplicateKey.technologies[1]!.key = duplicateKey.technologies[0]!.key;
+    expect(() => validateTechnologies(duplicateKey, typedDefinitions)).toThrow(
+      /invalid/,
+    );
+    const reordered = structuredClone(technologies);
+    reordered.stages.reverse();
+    reordered.technologies[0]!.stage = "industrial-systems";
+    expect(() =>
+      validateTechnologies(reordered, typedDefinitions),
+    ).not.toThrow();
+  });
+
   it("accepts dynamic items, recipes, construction metadata, and the technology DAG", () => {
     expect(() => validateDefinitions(definitions)).not.toThrow();
     expect(() =>

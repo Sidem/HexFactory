@@ -53,6 +53,10 @@ pub(super) fn migrate<'a>(json: &'a str, target_version: u16) -> Result<Cow<'a, 
         essential_bills_19_to_20(&mut value);
         version = 20;
     }
+    if version == 20 && target_version >= 21 {
+        research_foundations_20_to_21(&mut value);
+        version = 21;
+    }
 
     if version == target_version {
         return Ok(Cow::Owned(serde_json::to_string(&value).map_err(
@@ -62,6 +66,17 @@ pub(super) fn migrate<'a>(json: &'a str, target_version: u16) -> Result<Cow<'a, 
     Err(format!(
         "no migration path from save version {version} to {target_version}"
     ))
+}
+
+/// Branches and stages annotate the same technologies. Availability is derived from existing
+/// insight and research, so no saved field or checksum changes and nothing is granted on load.
+fn research_foundations_20_to_21(value: &mut Value) {
+    if let Some(object) = value.as_object_mut() {
+        object.insert("save_version".into(), Value::from(21));
+        if object.get("technology_version") == Some(&Value::from(8)) {
+            object.insert("technology_version".into(), Value::from(9));
+        }
+    }
 }
 
 /// Essential bills: one new item, one new drawing recipe, and the first extractor, composer,

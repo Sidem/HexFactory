@@ -139,6 +139,14 @@ function snapshotAt(state: {
       walk_path: [],
     },
     researched: state.researched,
+    research_availability: technologies.technologies.map((technology) => ({
+      technology_id: technology.id,
+      complete: state.researched.includes(technology.id),
+      missing_prerequisites: technology.prerequisites.filter(
+        (id) => !state.researched.includes(id),
+      ),
+      insight_shortfall: Math.max(0, technology.cost - state.insight),
+    })),
     chunks: [],
     terrain: [],
     resources: [],

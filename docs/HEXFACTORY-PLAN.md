@@ -130,7 +130,13 @@ power rises from 17 gathers to 36, because a pole now has a furnace and a worksh
 it. See [the essential bills record](ESSENTIAL-BILLS-RECORD.md) for the full comparison, the curve
 argument, and the refund revaluation.
 
-Phase 1 remains active: next are foundation commissions, expandable progression definitions, and
+**Phase 1 delivery: v0.29.0 Research Foundations.** Validated branch/stage registries classify the
+existing 19 technologies without changing their prices, prerequisites or effects. Research cards
+are ordered by stage and discipline, and both cards and guidance consume the native purchase
+availability answer. Save 21 preserves existing state and checksum; the save picker now recognizes
+every released migration from save 14 onward. See [the research foundations record](RESEARCH-FOUNDATIONS-RECORD.md).
+
+Phase 1 remains active: next are foundation commissions, typed progression requirements/effects, and
 the timed human opening comparison — the last of which this delivery makes overdue, since the
 opening's cost moved and only a person can say whether it moved the right way. The industrial bills
 below the smelter are still raw material. Do not treat these additive releases as completion of
@@ -499,6 +505,13 @@ both test suites say so.
 One line per release, newest first. The reasoning behind a shipped rule lives in the git history of
 this file and in the code that implements it; what follows is the index.
 
+- **v0.29.0** Research Foundations — Branch/stage registries classify all 19 technologies; the
+  keyed list shows discipline, stage, costs, blockers and corner-heading benefits. Native publishes
+  the same availability used by atomic purchases, and guidance consumes it. Prices, prerequisites,
+  effects and request income are unchanged. Save 21 advances technology 8 to 9 without changing
+  state or checksum; the picker recognizes the released save 14–21 chain. Definitions 18, scenarios
+  5 and world 8 remain; wire 13 carries the derived availability group only when its answer changes.
+  Commissions, typed requirements/effects, finite insight projects and separate skills remain ahead.
 - **v0.28.0** Essential Bills — The five stations the opening touches are billed in manufactured
   parts. An extractor costs 2 iron plate, a gear and 2 timber; a composer 2 plate, a gear and a
   frame; a container 3 timber; a pole a timber and an iron wire; a burner generator a plate, a frame

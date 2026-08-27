@@ -16,7 +16,7 @@
  * v18 adds two primitive station definitions; the v17 state and checksum pass through unchanged.
  */
 
-export const SAVE_VERSION = 20;
+export const SAVE_VERSION = 21;
 export const SAVE_CATALOG_KEY = "hexfactory:saves:v1";
 export const LEGACY_SAVE_PREFIX = "hexfactory:hxf1:";
 export const HXF1_PREFIX = "HXF1\n";
@@ -165,26 +165,31 @@ export function compatibility(
   build: CurrentBuild,
 ): SlotCompatibility {
   const mismatches: VersionMismatch[] = [];
-  // Native has explicit adjacent migrations from the two definition-14 releases through
-  // compartment storage, then from technology catalog 7 to the current capability-research
-  // envelope. The catalog mirrors only that released chain so it does not disable Load before
-  // native can migrate it or admit an unknown historical shape.
-  const migratesToPlayerCapabilities =
-    ((build.versions.save === 17 && build.versions.definitions === 15) ||
-      (build.versions.save === 18 && build.versions.definitions === 16)) &&
-    build.versions.technology === 8 &&
-    envelope.technologyVersion === 7 &&
-    ((envelope.saveVersion === 14 && envelope.definitionVersion === 14) ||
-      (envelope.saveVersion === 15 && envelope.definitionVersion === 14) ||
-      (envelope.saveVersion === 16 && envelope.definitionVersion === 15));
-  const migrates =
-    migratesToPlayerCapabilities ||
-    (build.versions.save === 18 &&
-      build.versions.definitions === 16 &&
-      build.versions.technology === 8 &&
-      envelope.saveVersion === 17 &&
-      envelope.definitionVersion === 15 &&
-      envelope.technologyVersion === 8);
+  // Exact released envelope tuples only. Walk adjacent migrations just as native does;
+  // never disable Load for a supported legacy save or admit a guessed historical shape.
+  const released = [
+    [14, 14, 7],
+    [15, 14, 7],
+    [16, 15, 7],
+    [17, 15, 8],
+    [18, 16, 8],
+    [19, 17, 8],
+    [20, 18, 8],
+    [21, 18, 9],
+  ];
+  const from = released.findIndex(
+    ([save, definitions, technology]) =>
+      save === envelope.saveVersion &&
+      definitions === envelope.definitionVersion &&
+      technology === envelope.technologyVersion,
+  );
+  const to = released.findIndex(
+    ([save, definitions, technology]) =>
+      save === build.versions.save &&
+      definitions === build.versions.definitions &&
+      technology === build.versions.technology,
+  );
+  const migrates = from >= 0 && to > from;
   const expect = (
     field: string,
     expected: string | number,

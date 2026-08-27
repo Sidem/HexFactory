@@ -355,6 +355,14 @@ than guessed inside `from_save`.
 
 ## Worker and snapshot boundary
 
+Research foundations (v0.29.0) adds validated branch/stage registries to technology catalog 9.
+These labels and display orders impose no purchase gates. The native `research_availability`
+answer names completed research, missing prerequisite IDs and insight shortfall; atomic purchases
+and snapshot publication use the same function. The panel and guidance consume that answer.
+Wire 13 appends this group. Its derived baseline is rebuilt only after insight or researched IDs
+change, then compared before emission. It is never saved or checksummed. Save 21 advances technology
+catalog 8 to 9 without changing state; legacy workshop work and research resume identically.
+
 v0.5 moves the Wasm `Factory` off the browser main thread into one dedicated module worker. Worker
 messages are serialized through a single operation queue. Each advance applies at most one bounded
 native command batch, advances a bounded native tick count, and then requests one snapshot delta;

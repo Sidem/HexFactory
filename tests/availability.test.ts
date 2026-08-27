@@ -4,8 +4,11 @@ import {
   buildingAvailability,
   costLines,
   heldQuantity,
+  technologyAvailability,
 } from "../src/core/availability";
 import definitions from "../src/data/definitions.json";
+import technologies from "../src/data/technologies.json";
+import { orderTechnologies, technologyContext } from "../src/ui/research";
 import type { BuildingDefinition, FactorySnapshot } from "../src/core/types";
 
 /**
@@ -24,6 +27,58 @@ const building = (key: string): BuildingDefinition =>
   definitions.buildings.find(
     (candidate) => candidate.key === key,
   ) as BuildingDefinition;
+
+describe("research presentation", () => {
+  it("uses the native answer even when catalog arithmetic would allow a purchase", () => {
+    const technology = technologies.technologies[0]!;
+    const snapshot = carrying({});
+    snapshot.insight = 100;
+    snapshot.research_availability = [
+      {
+        technology_id: technology.id,
+        complete: false,
+        missing_prerequisites: [2],
+        insight_shortfall: 7,
+      },
+    ];
+    expect(technologyAvailability(technology, snapshot)).toEqual({
+      known: true,
+      complete: false,
+      prerequisitesMet: false,
+      affordable: false,
+      missingPrerequisites: [2],
+      insightShortfall: 7,
+    });
+    snapshot.research_availability = [];
+    const absent = technologyAvailability(technology, snapshot);
+    expect(absent.known).toBe(false);
+    expect(absent.prerequisitesMet).toBe(false);
+    expect(absent.affordable).toBe(false);
+  });
+
+  it("orders by authored branches and stages without changing nodes or their purchase rules", () => {
+    const before = structuredClone(technologies);
+    const ordered = orderTechnologies(technologies.technologies, technologies);
+    expect(ordered.map(({ id }) => id).sort((a, b) => a - b)).toEqual(
+      before.technologies.map(({ id }) => id),
+    );
+    expect(technologies).toEqual(before);
+    expect(
+      orderTechnologies([...technologies.technologies].reverse(), technologies),
+    ).toEqual(ordered);
+    const logistics = ordered.filter(({ branch }) => branch === "logistics");
+    expect(logistics.map(({ key }) => key)).toEqual([
+      "field-logistics",
+      "storage-planning",
+      "corner-transport",
+      "belt-junctions",
+      "grade-separation",
+    ]);
+    expect(technologyContext(logistics[0]!, technologies)).toBe(
+      "Logistics · Foundations",
+    );
+  });
+});
 
 describe("cost lines", () => {
   it("reports what is held against every line, and by how much it falls short", () => {

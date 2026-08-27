@@ -19,6 +19,7 @@ import { supportsRecipe } from "./core/definitions";
 import { FactoryHost } from "./core/FactoryHost";
 import { FrameClock, SIMULATION_TICKS_PER_SECOND } from "./core/frameClock";
 import { nextAction } from "./core/guidance";
+import { orderTechnologies, technologyContext } from "./ui/research";
 import { BoundedInputQueue, MOVEMENT_KEYS, movementIntent } from "./core/input";
 import {
   AUTOSAVE_SLOT_NAME,
@@ -1499,7 +1500,10 @@ function visibleTechnologies(): TechnologyDefinition[] {
 
 function renderTechnologies(): void {
   const list = required<HTMLDivElement>("technology-list");
-  const technologies = visibleTechnologies();
+  const technologies = orderTechnologies(
+    visibleTechnologies(),
+    host.technologies,
+  );
   const hidden = host.technologies.technologies.length - technologies.length;
   const scope = required<HTMLButtonElement>("research-scope");
   scope.textContent = showAllTechnologies
@@ -1515,20 +1519,18 @@ function renderTechnologies(): void {
       const button = document.createElement("button");
       button.type = "button";
       button.innerHTML =
-        '<strong></strong><span class="technology-detail"></span><span class="technology-unlocks"></span><small></small>';
+        '<strong></strong><span class="technology-context"></span><span class="technology-detail"></span><span class="technology-unlocks"></span><small></small>';
       return button;
     },
   );
   technologies.forEach((technology, index) => {
     const button = buttons[index] as HTMLButtonElement;
     const state = technologyAvailability(technology, snapshot);
-    const missing = technology.prerequisites
-      .filter((id) => !snapshot.researched.includes(id))
-      .map(
-        (id) =>
-          host.technologies.technologies.find((value) => value.id === id)
-            ?.name ?? `#${id}`,
-      );
+    const missing = state.missingPrerequisites.map(
+      (id) =>
+        host.technologies.technologies.find((value) => value.id === id)?.name ??
+        `#${id}`,
+    );
     const benefits = technology.unlocks.map(
       (id) =>
         host.definitions.buildings.find((value) => value.id === id)?.name ??
@@ -1538,14 +1540,19 @@ function renderTechnologies(): void {
       benefits.push(`+${technology.carry_slots_bonus} cargo slots`);
     if (technology.build_range_bonus)
       benefits.push(`+${technology.build_range_bonus} hex build range`);
+    for (const building of host.definitions.buildings)
+      if (building.corner_technology_id === technology.id)
+        benefits.push(`${building.name}: six corner headings`);
     const benefitText = benefits.join(", ");
-    const status = state.complete
-      ? "Researched"
-      : missing.length
-        ? `Needs ${missing.join(" and ")}`
-        : state.affordable
-          ? `Research for ${technology.cost} insight`
-          : `${technology.cost} insight · you have ${snapshot.insight}`;
+    const status = !state.known
+      ? "Research status unavailable"
+      : state.complete
+        ? "Researched"
+        : missing.length
+          ? `Needs ${missing.join(" and ")}`
+          : state.affordable
+            ? `Research for ${technology.cost} insight`
+            : `${technology.cost} insight · you have ${snapshot.insight}`;
     button.dataset.technologyId = String(technology.id);
     button.disabled =
       state.complete || !state.prerequisitesMet || !state.affordable;
@@ -1555,12 +1562,19 @@ function renderTechnologies(): void {
         ? "available"
         : "";
     part(button, "strong").textContent = technology.name;
+    part(button, ".technology-context").textContent = technologyContext(
+      technology,
+      host.technologies,
+    );
     part(button, ".technology-detail").textContent = technology.description;
     part(button, ".technology-unlocks").textContent = benefitText
       ? `Provides ${benefitText}`
       : "";
     part(button, "small").textContent = status;
-    button.setAttribute("aria-label", `${technology.name}. ${status}.`);
+    button.setAttribute(
+      "aria-label",
+      `${technology.name}. ${technologyContext(technology, host.technologies)}. ${status}.`,
+    );
     button.title = benefitText
       ? `${technology.description} Provides ${benefitText}.`
       : technology.description;

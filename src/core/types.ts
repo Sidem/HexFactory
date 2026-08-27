@@ -171,11 +171,21 @@ export interface RequestDefinition {
   repeat_insight?: number;
 }
 
+/** Authored presentation only; neither order nor stage imposes a gameplay gate. */
+export interface ProgressionGroup {
+  key: string;
+  name: string;
+  description: string;
+  order: number;
+}
+
 export interface TechnologyDefinition {
   id: number;
   key: string;
   name: string;
   description: string;
+  branch: string;
+  stage: string;
   prerequisites: number[];
   cost: number;
   unlocks: number[];
@@ -187,7 +197,17 @@ export interface TechnologyDefinition {
 
 export interface Technologies {
   version: number;
+  branches: ProgressionGroup[];
+  stages: ProgressionGroup[];
   technologies: TechnologyDefinition[];
+}
+
+/** Native purchase predicates, published together and reused by every research view. */
+export interface ResearchAvailability {
+  technology_id: number;
+  complete: boolean;
+  missing_prerequisites: number[];
+  insight_shortfall: number;
 }
 
 export interface ScenarioDefinition {
@@ -559,6 +579,7 @@ export interface FactorySnapshot {
   requests: RequestSnapshot[];
   player: PlayerSnapshot;
   researched: number[];
+  research_availability: ResearchAvailability[];
   chunks: ChunkSnapshot[];
   terrain: TerrainSnapshot[];
   resources: ResourceSnapshot[];

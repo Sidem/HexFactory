@@ -120,6 +120,35 @@ describe("compatibility", () => {
   });
 
   it("offers the exact released migration chain to native", () => {
+    const latest = {
+      ...build,
+      versions: { ...build.versions, save: 21, definitions: 18, technology: 9 },
+    };
+    for (const [saveVersion, definitionVersion, technologyVersion] of [
+      [14, 14, 7],
+      [15, 14, 7],
+      [16, 15, 7],
+      [17, 15, 8],
+      [18, 16, 8],
+      [19, 17, 8],
+      [20, 18, 8],
+      [21, 18, 9],
+    ]) {
+      const parsed = parseHxf1(
+        envelope({
+          save_version: saveVersion,
+          definition_version: definitionVersion,
+          technology_version: technologyVersion,
+        }),
+      )!;
+      expect(compatibility(parsed, latest).compatible).toBe(true);
+      expect(
+        compatibility({ ...parsed, definitionVersion: 99 }, latest).compatible,
+      ).toBe(false);
+      expect(
+        compatibility({ ...parsed, technologyVersion: 99 }, latest).compatible,
+      ).toBe(false);
+    }
     const current = {
       ...build,
       versions: {

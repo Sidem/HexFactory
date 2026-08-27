@@ -106,12 +106,25 @@ export function buildingAvailability(
 export function technologyAvailability(
   technology: TechnologyDefinition,
   snapshot: FactorySnapshot,
-): { complete: boolean; prerequisitesMet: boolean; affordable: boolean } {
+): {
+  known: boolean;
+  complete: boolean;
+  prerequisitesMet: boolean;
+  affordable: boolean;
+  missingPrerequisites: number[];
+  insightShortfall: number;
+} {
+  const native = snapshot.research_availability.find(
+    (row) => row.technology_id === technology.id,
+  );
+  // Missing status fails closed. Never substitute host purchase rules for a native answer.
   return {
-    complete: snapshot.researched.includes(technology.id),
-    prerequisitesMet: technology.prerequisites.every((id) =>
-      snapshot.researched.includes(id),
-    ),
-    affordable: snapshot.insight >= technology.cost,
+    known: native !== undefined,
+    complete: native?.complete ?? false,
+    prerequisitesMet:
+      native !== undefined && native.missing_prerequisites.length === 0,
+    affordable: native !== undefined && native.insight_shortfall === 0,
+    missingPrerequisites: native?.missing_prerequisites ?? [],
+    insightShortfall: native?.insight_shortfall ?? 0,
   };
 }

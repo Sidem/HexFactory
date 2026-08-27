@@ -930,6 +930,10 @@ canvas {
   background: var(--gold);
   box-shadow: 0 0 10px var(--gold);
 }
+.technology-list button:disabled {
+  /* Blocked research still carries the explanation the player needs to read. */
+  opacity: 1;
+}
 .technology-list button.complete {
   border-color: #4d806c;
   background: #19362c;
@@ -949,6 +953,10 @@ canvas {
 }
 .technology-list button .technology-unlocks {
   color: #9fd8c4;
+}
+.technology-list button .technology-context {
+  color: #c4d9e3;
+  font-weight: 600;
 }
 .technology-list button small {
   color: #d7e5df;

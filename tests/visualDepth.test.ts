@@ -1151,6 +1151,7 @@ function minimalSnapshot(): FactorySnapshot {
       walk_path: [],
     },
     researched: [],
+    research_availability: [],
     chunks: [
       {
         chunk_q: 0,

@@ -1,7 +1,7 @@
 {
   "reference": {
     "definition_version": 18,
-    "technology_version": 8,
+    "technology_version": 9,
     "ticks_per_second": 10,
     "player_ticks_per_second": 30,
     "gather_cooldown_steps": 15,

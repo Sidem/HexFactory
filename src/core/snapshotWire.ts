@@ -10,6 +10,7 @@ import type {
   GroundItemSnapshot,
   Ingredient,
   RequestSnapshot,
+  ResearchAvailability,
   ResourceSnapshot,
   ResourcesPatch,
   Terrain,
@@ -36,7 +37,7 @@ import type {
  */
 
 const MAGIC = 0x48584644; // "HXFD"
-const VERSION = 12;
+const VERSION = 13;
 
 /** Wire code is the index. Pinned against Rust by `fixtures/snapshot-delta-wire.json`. */
 const KINDS: BuildingKind[] = [
@@ -97,6 +98,7 @@ const GROUP = {
   requests: 1 << 9,
   player: 1 << 10,
   researched: 1 << 11,
+  researchAvailability: 1 << 18,
   chunks: 1 << 12,
   terrain: 1 << 13,
   resources: 1 << 14,
@@ -320,6 +322,31 @@ export function decodeSnapshotDelta(buffer: ArrayBuffer): FactorySnapshotDelta {
       };
     }
     delta.ground_items = groundItems;
+  }
+
+  if (has(GROUP.researchAvailability)) {
+    const count = reader.uvarint();
+    if (count > 1024)
+      throw new Error("Research availability exceeds catalog bound");
+    const availability: ResearchAvailability[] = [];
+    for (let index = 0; index < count; index += 1) {
+      const technology_id = reader.uvarint();
+      const complete = reader.bool();
+      const insight_shortfall = reader.uvarint();
+      const missingCount = reader.uvarint();
+      if (missingCount > 1024)
+        throw new Error("Research prerequisites exceed catalog bound");
+      const missing_prerequisites: number[] = [];
+      for (let missing = 0; missing < missingCount; missing += 1)
+        missing_prerequisites.push(reader.uvarint());
+      availability.push({
+        technology_id,
+        complete,
+        insight_shortfall,
+        missing_prerequisites,
+      });
+    }
+    delta.research_availability = availability;
   }
 
   // A buffer with bytes left over means the two sides disagree about the layout, which would

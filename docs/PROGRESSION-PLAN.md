@@ -1,6 +1,6 @@
 # Research, insight, and player skills
 
-Planning brief, 2026-08-27. **Approved next workstream; not implemented or balanced.** This is the progression
+Planning brief, 2026-08-27. **Approved next workstream; foundations partly shipped, redesign not balanced.** This is the progression
 companion to the [construction and materials plan](CONSTRUCTION-MATERIALS-PLAN.md). It establishes
 an expandable technology graph, a separate player skill tree, and an insight economy based on new
 practical achievements rather than unlimited deliveries of the same goods. Release numbers remain
@@ -8,11 +8,13 @@ unassigned. The [roadmap's combined sequence](HEXFACTORY-PLAN.md#what-to-do-next
 plans immediate priority before Living Lattice, Regional Discovery or any other roadmap feature.
 Their old v0.26/v0.27 reservations are withdrawn. Tuning proposals and validation gates remain in force.
 
-**Delivery status:** v0.26.0 [Primitive Workshops](OPENING-FOUNDATION-RECORD.md) supplies the first
-baseline manufacturing and recovery foundation. This progression redesign is still unimplemented:
-existing technology prices, prerequisites and request rewards remain unchanged. Continue phase 1
-with essential bills, commissions, expandable definitions and timed opening validation; do not
-mistake baseline crafting access for the new finite insight economy or a completed research map.
+**Delivery status:** v0.26.0 [Primitive Workshops](OPENING-FOUNDATION-RECORD.md) supplies baseline
+manufacturing and recovery; v0.27/v0.28 price transport and essential stations in parts.
+v0.29.0 [Research Foundations](RESEARCH-FOUNDATIONS-RECORD.md) supplies branch/stage registries and
+native research availability shared by purchase, list and guidance. Technology prices, prerequisites,
+effects and request rewards remain unchanged. Continue phase 1 with commissions, typed requirements
+and effects, remaining industrial bills and timed opening validation. This is not the finite insight
+economy, separate skill system or completed research map.
 
 ## Design commitments
 

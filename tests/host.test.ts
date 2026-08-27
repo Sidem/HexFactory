@@ -113,6 +113,20 @@ const snapshot: FactorySnapshot = {
     walk_path: [],
   },
   researched: [1],
+  research_availability: [
+    {
+      technology_id: 1,
+      complete: true,
+      missing_prerequisites: [],
+      insight_shortfall: 0,
+    },
+    {
+      technology_id: 3,
+      complete: false,
+      missing_prerequisites: [2],
+      insight_shortfall: 0,
+    },
+  ],
   chunks: [
     { chunk_q: 0, chunk_r: 0, entity_count: 1, x: 0, y: 0, span: 16384 },
   ],
@@ -881,9 +895,12 @@ describe("availability and expanded snapshot adapter", () => {
     expect(
       technologyAvailability(technologies.technologies[0]!, snapshot),
     ).toEqual({
+      known: true,
       complete: true,
       prerequisitesMet: true,
       affordable: true,
+      missingPrerequisites: [],
+      insightShortfall: 0,
     });
     expect(
       technologyAvailability(technologies.technologies[2]!, snapshot)

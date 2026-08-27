@@ -81,7 +81,8 @@ pub(crate) const WIRE_MAGIC: [u8; 4] = *b"HXFD";
 /// read the first compartment length as progress and mis-frame every entity after it.
 ///
 /// Version 12 adds ground items for dropped player cargo with 1-minute despawn timers.
-pub(crate) const WIRE_VERSION: u8 = 12;
+/// Version 13 appends the native research availability group.
+pub(crate) const WIRE_VERSION: u8 = 13;
 
 /// Which optional groups the buffer carries, in the order they are written.
 mod group {
@@ -103,6 +104,7 @@ mod group {
     pub(super) const BUILDINGS: u32 = 1 << 15;
     pub(super) const EVENTS: u32 = 1 << 16;
     pub(super) const GROUND_ITEMS: u32 = 1 << 17;
+    pub(super) const RESEARCH_AVAILABILITY: u32 = 1 << 18;
 }
 
 /// Per-entity presence bits, so an absent option costs a bit rather than a field name and a `null`.
@@ -276,6 +278,10 @@ pub(crate) fn encode_delta(delta: &SnapshotDelta) -> Vec<u8> {
     set(group::REQUESTS, delta.requests.is_some());
     set(group::PLAYER, delta.player.is_some());
     set(group::RESEARCHED, delta.researched.is_some());
+    set(
+        group::RESEARCH_AVAILABILITY,
+        delta.research_availability.is_some(),
+    );
     set(group::CHUNKS, delta.chunks.is_some());
     set(group::TERRAIN, delta.terrain.is_some());
     set(group::RESOURCES, delta.resources.is_some());
@@ -377,6 +383,18 @@ pub(crate) fn encode_delta(delta: &SnapshotDelta) -> Vec<u8> {
     }
     if let Some(ground_items) = &delta.ground_items {
         write_ground_items(&mut writer, ground_items);
+    }
+    if let Some(availability) = &delta.research_availability {
+        writer.uvarint(availability.len() as u64);
+        for row in availability {
+            writer.uvarint(u64::from(row.technology_id));
+            writer.bool(row.complete);
+            writer.uvarint(row.insight_shortfall);
+            writer.uvarint(row.missing_prerequisites.len() as u64);
+            for &id in &row.missing_prerequisites {
+                writer.uvarint(u64::from(id));
+            }
+        }
     }
     writer.bytes
 }
@@ -881,6 +899,25 @@ pub(crate) mod decode {
                 .collect()
         });
 
+        let research_availability = has(group::RESEARCH_AVAILABILITY).then(|| {
+            (0..reader.count())
+                .map(|_| {
+                    let technology_id = reader.uvarint() as TechnologyId;
+                    let complete = reader.bool();
+                    let insight_shortfall = reader.uvarint();
+                    let missing_prerequisites = (0..reader.count())
+                        .map(|_| reader.uvarint() as TechnologyId)
+                        .collect();
+                    ResearchAvailability {
+                        technology_id,
+                        complete,
+                        insight_shortfall,
+                        missing_prerequisites,
+                    }
+                })
+                .collect()
+        });
+
         assert_eq!(
             reader.offset,
             bytes.len(),
@@ -903,6 +940,7 @@ pub(crate) mod decode {
             requests,
             player,
             researched,
+            research_availability,
             chunks,
             terrain,
             resources,
