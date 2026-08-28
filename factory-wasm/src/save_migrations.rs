@@ -73,6 +73,10 @@ pub(super) fn migrate<'a>(json: &'a str, target_version: u16) -> Result<Cow<'a, 
         mechanical_components_24_to_25(&mut value);
         version = 25;
     }
+    if version == 25 && target_version >= 26 {
+        power_and_tier_bills_25_to_26(&mut value);
+        version = 26;
+    }
 
     if version == target_version {
         return Ok(Cow::Owned(serde_json::to_string(&value).map_err(
@@ -82,6 +86,23 @@ pub(super) fn migrate<'a>(json: &'a str, target_version: u16) -> Result<Cow<'a, 
     Err(format!(
         "no migration path from save version {version} to {target_version}"
     ))
+}
+
+/// Power and tier bills change only catalog prices, as at every price boundary since the transport
+/// kits. Deep extractor and deep container stop asking for raw ore and the hydro generator stops
+/// sharing the boiler's bill; no recipe, yield, work rate or research price moves with them.
+///
+/// State, placed entities, machine contents, insight and the checksum are untouched. A station
+/// placed under the old bill refunds the new one when erased, which is exactly what rebuilding it
+/// now costs, so the boundary conserves a line rather than paying a premium on it. None of the
+/// parts these bills name has a recipe back to raw ore, so the revaluation cannot mint material.
+fn power_and_tier_bills_25_to_26(value: &mut Value) {
+    if let Some(object) = value.as_object_mut() {
+        object.insert("save_version".into(), Value::from(26));
+        if object.get("definition_version") == Some(&Value::from(20)) {
+            object.insert("definition_version".into(), Value::from(21));
+        }
+    }
 }
 
 /// Keep stock, reserved jobs, contributions and the original checksum untouched. The component
@@ -354,6 +375,35 @@ mod tests {
         assert_eq!(value["save_version"], 20);
         assert_eq!(value["definition_version"], 18);
         assert_eq!(value["technology_version"], 8);
+    }
+
+    #[test]
+    fn version_twenty_five_reprices_power_and_tier_bills_without_touching_state() {
+        let json = r#"{"save_version":25,"definition_version":20,"technology_version":11,"scenario_version":7,"state":{"insight":9,"player":{"inventory":{"1":7}},"entities":[{"definition_id":19,"orientation":0,"inventory":{"1":5}}]}}"#;
+        let migrated = migrate(json, 26).expect("migrated save");
+        let value: Value = serde_json::from_str(&migrated).expect("migrated json");
+        assert_eq!(value["save_version"], 26);
+        assert_eq!(value["definition_version"], 21);
+        // A price revision, not a state rewrite: the ore in the pack stays ore, and the placed deep
+        // extractor keeps its identity and everything it was holding.
+        assert_eq!(value["state"]["player"]["inventory"]["1"], 7);
+        assert_eq!(value["state"]["entities"][0]["definition_id"], 19);
+        assert_eq!(value["state"]["entities"][0]["inventory"]["1"], 5);
+        assert_eq!(value["state"]["insight"], 9);
+        // Neither research nor the scenario moves at this boundary.
+        assert_eq!(value["technology_version"], 11);
+        assert_eq!(value["scenario_version"], 7);
+    }
+
+    #[test]
+    fn version_twenty_five_leaves_an_unexpected_definition_version_alone() {
+        let json = r#"{"save_version":25,"definition_version":18,"state":{}}"#;
+        let migrated = migrate(json, 26).expect("migrated save");
+        let value: Value = serde_json::from_str(&migrated).expect("migrated json");
+        assert_eq!(value["save_version"], 26);
+        // Only the definition version this step was written against advances. Anything else is a
+        // shape this migration never saw, and guessing at it is what the module refuses to do.
+        assert_eq!(value["definition_version"], 18);
     }
 
     #[test]

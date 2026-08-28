@@ -95,7 +95,10 @@ const SAVE_PREFIX: &str = "HXF1\n";
 /// one ore â€” exactly what rebuilding it now costs, which conserves the line rather than paying a
 /// premium on it. Kits have no recipe back to ore, so the boundary cannot mint raw material.
 /// Version 21 adds progression registries (technology 9); saved state and checksum are unchanged.
-const SAVE_VERSION: u16 = 25;
+/// Version 26 reprices the two tier bills that still asked for raw ore and the hydro generator that
+/// shared the boiler's bill; like every price boundary before it, state and checksum are untouched
+/// and a placed station refunds what rebuilding it now costs.
+const SAVE_VERSION: u16 = 26;
 /// Bumped to 6 for World Parameters. `WorldParams` is now part of a run's identity — it is in the
 /// save envelope and in the checksum — so a version-5 envelope carries no answer to the question
 /// "which world is this" and is rejected rather than assumed to be the default.
@@ -15818,6 +15821,31 @@ mod tests {
         assert_eq!(bill("cutter"), [(6, 4), (11, 2), (19, 1)]);
         assert_eq!(bill("crusher"), [(6, 6), (11, 2), (19, 1)]);
         assert_eq!(bill("pump"), [(11, 2), (19, 1), (14, 3)]);
+        // The two tier bills that still read as a box of raw ore, and the generator that shared the
+        // boiler's bill. A deep extractor is the first station to ask for both a gear and a frame;
+        // a deep container is the shallow one's timber and plate again, not ore; and a river wheel
+        // is rotor, gearing and bracing, with nothing fired and nothing laid in brick.
+        assert_eq!(
+            bill("extractor-ii"),
+            [(11, 2), (19, 2), (20, 1), (3, 1), (6, 2)]
+        );
+        assert_eq!(bill("container-ii"), [(11, 3), (16, 5), (6, 2)]);
+        assert_eq!(bill("hydro-generator"), [(11, 4), (19, 1), (20, 1)]);
+        // No raw ore is left in any bill in the catalogue: every station is bought with something
+        // that was made.
+        for building in &definitions.buildings {
+            assert!(
+                !building
+                    .construction_cost
+                    .iter()
+                    .any(|ingredient| ingredient.item_id == 1),
+                "{} still bills raw ore",
+                building.key
+            );
+        }
+        // The hydro generator and the boiler are both unlocked in the power tier and no longer
+        // quote the same parts, so picking one is a decision rather than a coin flip.
+        assert_ne!(bill("hydro-generator"), bill("boiler"));
 
         let mut core = game("new-game");
         core.researched.extend([1, 2, 3, 4, 8]);
@@ -15850,6 +15878,20 @@ mod tests {
         }
         for definition_id in [11, 12, 13] {
             core.researched.extend([5, 6, 7]);
+            core.player.inventory.clear();
+            stock_for(&mut core, definition_id, 1);
+            let paid = core.player.inventory.clone();
+            let (q, r) = try_place_near(&mut core, (3, 0), definition_id);
+            assert!(core.player.inventory.is_empty());
+            core.erase(q, r).unwrap();
+            assert_eq!(core.player.inventory, paid);
+        }
+        // The repriced ones pay and refund like every other station. The river wheel goes wherever
+        // there is room — dry ground makes it produce nothing, which is not what is under test —
+        // and the deep extractor goes on the ore field the shallow one came off.
+        core.researched.extend([9, 11, 12]);
+        round_trip(&mut core, 19, 3, 0, None);
+        for definition_id in [15, 20] {
             core.player.inventory.clear();
             stock_for(&mut core, definition_id, 1);
             let paid = core.player.inventory.clone();
@@ -20042,6 +20084,115 @@ mod tests {
         );
     }
 
+    /// Research is funded at the price the board actually pays, which is not the first-fill price.
+    ///
+    /// Every raw row pays 10 insight once and 2 for ever after. Counting `insight / 10` was the
+    /// harness quoting a rate the hub withdraws after one delivery, and it made every opening that
+    /// buys more than one technology look about a third of its real length. The arithmetic under a
+    /// funding line is now one fill at the first price and the remainder at the repeat price, and
+    /// this recomputes it from the catalogue rather than trusting the field.
+    #[test]
+    fn research_funding_is_counted_at_the_repeat_price_the_board_pays() {
+        let report = balance::compute();
+        let (definitions, _, _) = catalogs();
+        let mut decayed = 0;
+        let openings = report
+            .openings
+            .iter()
+            .chain(report.contracts.iter().map(|stage| &stage.opening));
+        for opening in openings {
+            if opening.insight == 0 {
+                assert_eq!(
+                    opening.insight_items, 0,
+                    "{} pays for nothing",
+                    opening.name
+                );
+                continue;
+            }
+            let request = definitions
+                .requests
+                .iter()
+                .find(|request| request.key == opening.insight_request)
+                .expect("a funding line names a standing request");
+            let repeat = request.repeat_insight.unwrap_or(request.insight);
+            let fills = if request.insight >= opening.insight {
+                1
+            } else {
+                1 + (opening.insight - request.insight).div_ceil(repeat)
+            };
+            assert_eq!(
+                opening.insight_items,
+                fills * request.quantity,
+                "{} funds {} insight off {}",
+                opening.name,
+                opening.insight,
+                request.key
+            );
+            // The correction only bites where more than one fill is needed; the naive count is
+            // the same arithmetic with no decay at all.
+            let naive = opening.insight.div_ceil(request.insight) * request.quantity;
+            if opening.insight_items > naive {
+                decayed += 1;
+            }
+        }
+        assert!(
+            decayed > 0,
+            "no opening pays the repeat price, so the decay is not being measured"
+        );
+    }
+
+    /// A technology the hub grants for finishing a commission is not free, and an opening that needs
+    /// one has to deliver the commission first.
+    ///
+    /// Four technologies cannot be bought at any price: the contract stage hands them over. Pricing
+    /// them at their `insight` cost of zero told the harness the early stations were unlocked from a
+    /// standing start, which skipped the delivery every real opening makes before it places one.
+    /// The resolver now folds the owed stage's bill into the opening it blocks — and a stage does
+    /// not commission itself, or nothing would ever resolve.
+    #[test]
+    fn an_opening_behind_a_granted_technology_pays_for_the_commission_first() {
+        let report = balance::compute();
+        let (_, technologies, _) = catalogs();
+        let granted: BTreeSet<&str> = technologies
+            .technologies
+            .iter()
+            .filter_map(|technology| match &technology.grant {
+                TechnologyGrant::ContractStage { key, .. } => Some(key.as_str()),
+                TechnologyGrant::Purchase => None,
+            })
+            .collect();
+        assert!(
+            !granted.is_empty(),
+            "the founding commission grants technologies, or this measures nothing"
+        );
+        for stage in &report.contracts {
+            assert!(
+                !stage.opening.commissions.contains(&stage.stage),
+                "{} commissions itself",
+                stage.stage
+            );
+        }
+        let openings = report
+            .openings
+            .iter()
+            .chain(report.contracts.iter().map(|stage| &stage.opening));
+        let mut owed = 0;
+        for opening in openings {
+            for key in &opening.commissions {
+                assert!(
+                    granted.contains(key.as_str()),
+                    "{} waits on {key}, which grants nothing",
+                    opening.name
+                );
+                owed += 1;
+            }
+        }
+        assert!(
+            owed > 0,
+            "no opening waits on a commission, so the grant is still being priced at zero"
+        );
+    }
+
     #[test]
     fn snapshot_delta_omits_unchanged_world_groups_and_pins_revisions() {
         let mut core = game("new-game");
@@ -20933,7 +21084,7 @@ mod tests {
         // The same holds for the reach ladder, which charges a different item set.
         let mut ore = game("new-game");
         ore.researched.extend([1, 2, 12]);
-        for item_id in [1, 3, 6, 11, 16, 19] {
+        for item_id in [1, 3, 6, 11, 16, 19, 20] {
             ore.player.inventory.insert(item_id, 60);
         }
         ore.player.carry_slots = 99;

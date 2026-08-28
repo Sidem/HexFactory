@@ -177,8 +177,10 @@ consequence â€” including a first power that costs 36 gathers where it cost 17 â
 [the essential bills record](ESSENTIAL-BILLS-RECORD.md). The industrial furnace/kiln/crusher row, plus cutter and pump, shipped in v0.32.0;
 see [the industrial bills record](INDUSTRIAL-BILLS-RECORD.md) for quantities, construction order,
 legacy refunds and the corrected before/after comparison. Component/contract reform shipped in
-v0.33.0; see [the mechanical component record](MECHANICAL-COMPONENTS-RECORD.md). Concrete and later
-construction materials remain in phase 3.
+v0.33.0; see [the mechanical component record](MECHANICAL-COMPONENTS-RECORD.md). The hydro
+generator, deep extractor and deep container shipped in v0.34.0, which also removed the last raw
+ore from any bill; see [the power and tier bills record](POWER-TIER-BILLS-RECORD.md). Concrete and
+later construction materials remain in phase 3.
 
 ### Make the belt inexpensive by yield
 

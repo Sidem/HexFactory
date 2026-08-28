@@ -328,6 +328,14 @@ counts. Each is behavior-tested without Wasm or WebGL; `main.ts` wires them to t
 
 ## Save contract
 
+Power and Tier Bills (v0.34.0) advances save 25 to 26 and definitions 20 to 21. Nothing but the two
+envelope numbers moves: no state field, recipe, yield, work rate or research price changes with the
+three repriced bills, so the step is the same shape as every price boundary since the transport
+kits. A station placed under the old bill refunds the new one when erased — a one-time revaluation
+that is not a loop, because the refund equals the rebuild cost. A file whose `definition_version`
+is not the expected 20 is left alone rather than relabelled. See
+[the release record](POWER-TIER-BILLS-RECORD.md).
+
 Mechanical Components (v0.33.0) advances save 24 to 25, definitions 19 to 20 and scenarios 6 to 7.
 The envelope migration preserves state and checksum. Reserved legacy component jobs retain the
 same output and duration, so they finish once or refund the exact ore they reserved; future jobs

@@ -60,6 +60,32 @@ function openingWork(
   return total;
 }
 
+/**
+ * The bills of the contract stages an opening has to deliver before it can start.
+ *
+ * Four technologies are granted by finishing a stage and cannot be bought at any price, so an
+ * opening that needs one owes the hub that stage's delivery on top of its own. A sentinel bill is
+ * skipped for the same reason Rust skips it: it exists to never be met.
+ */
+function commissionedRequirements(stages: string[]): Ingredient[] {
+  return stages.flatMap((key) => {
+    const stage = (
+      scenarios as unknown as {
+        scenarios: {
+          contract: { stages: { key: string; requirements: Ingredient[] }[] };
+        }[];
+      }
+    ).scenarios
+      .flatMap((scenario) => scenario.contract.stages)
+      .find((stage) => stage.key === key);
+    expect(stage, `${key} is a shipped contract stage`).toBeDefined();
+    const requirements = stage!.requirements;
+    return requirements.some((need) => need.quantity > 10_000)
+      ? []
+      : requirements;
+  });
+}
+
 /** Recompute construction work with only the suppliers that already exist at each step. */
 function stagedOpeningWork(
   order: string[],
@@ -218,9 +244,13 @@ describe("the economy's stated curve", () => {
       )!;
       expect(row).toBeDefined();
       expect([...row.construction_order].sort()).toEqual(row.buildings);
+      // Every industrial opening owes the founding commission, because material processing is
+      // granted by finishing it rather than sold for insight.
+      const owed = commissionedRequirements(row.commissions);
+      expect(row.commissions).toContain("components");
       const [machineTicks, playerTicks] = stagedOpeningWork(
         row.construction_order,
-        [],
+        owed,
       );
       expect([row.machine_ticks, row.player_work_ticks]).toEqual([
         machineTicks,
@@ -229,10 +259,13 @@ describe("the economy's stated curve", () => {
       expect(row.construction_order.indexOf("primitive-furnace")).toBeLessThan(
         row.construction_order.indexOf(key),
       );
-      const ingredients = row.construction_order.flatMap(
-        (name) =>
-          catalogue.buildings.find((b) => b.key === name)!.construction_cost,
-      );
+      const ingredients = [
+        ...row.construction_order.flatMap(
+          (name) =>
+            catalogue.buildings.find((b) => b.key === name)!.construction_cost,
+        ),
+        ...owed,
+      ];
       const expansion = expand(ingredients);
       expect(row.fuel_energy).toBe(expansion.batchEnergy);
       expect(row.gathers).toEqual(
@@ -254,6 +287,40 @@ describe("the economy's stated curve", () => {
     expect(pump.construction_order.indexOf("kiln")).toBeLessThan(
       pump.construction_order.indexOf("pump"),
     );
+  });
+
+  it("funds research at the price the board keeps paying, not the first-fill price", () => {
+    // A raw row pays ten insight once and two for ever after. Counting every fill at ten prices
+    // research against a reward the hub withdraws after one delivery, which made an opening that
+    // buys more than one technology look about a third of its real length.
+    let decayed = 0;
+    const rows = [
+      ...fixture.openings,
+      ...fixture.contracts.map((contract) => contract.opening),
+    ];
+    for (const row of rows) {
+      if (row.insight === 0) {
+        expect(row.insight_items, row.name).toBe(0);
+        continue;
+      }
+      const request = catalogue.requests.find(
+        (request) => request.key === row.insight_request,
+      );
+      expect(request, `${row.name} names a standing request`).toBeDefined();
+      if (!request) continue;
+      const repeat = request.repeat_insight ?? request.insight;
+      const fills =
+        request.insight >= row.insight
+          ? 1
+          : 1 + Math.ceil((row.insight - request.insight) / repeat);
+      expect(row.insight_items, row.name).toBe(fills * request.quantity);
+      if (
+        row.insight_items >
+        Math.ceil(row.insight / request.insight) * request.quantity
+      )
+        decayed += 1;
+    }
+    expect(decayed, "no row pays the repeat price").toBeGreaterThan(0);
   });
 
   it("describes the catalogue it was generated from", () => {
@@ -475,15 +542,19 @@ describe("the economy's stated curve", () => {
       );
       const expansion = expand(stage.requirements);
       expect(row.raw_materials).toBe(expansion.raw.size);
+      // A stage never commissions itself, or nothing would resolve; it can owe an earlier one.
+      expect(row.opening.commissions).not.toContain(stage.key);
+      const owed = commissionedRequirements(row.opening.commissions);
       const ingredients = [
         ...stage.requirements,
+        ...owed,
         ...catalogue.buildings
           .filter((building) => row.opening.buildings.includes(building.key))
           .flatMap((building) => building.construction_cost),
       ];
       const [machineTicks, playerTicks] = stagedOpeningWork(
         row.opening.construction_order,
-        stage.requirements,
+        [...stage.requirements, ...owed],
       );
       expect(row.opening.machine_ticks).toBe(machineTicks);
       expect(row.opening.player_work_ticks).toBe(playerTicks);

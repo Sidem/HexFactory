@@ -20,8 +20,11 @@ Those four are no longer insight purchases; later prices and request rewards are
 phase 1 with the remaining economy audit. v0.32.0
 [Industrial Bills](INDUSTRIAL-BILLS-RECORD.md) prices the five industrial stations and corrects
 construction-order accounting. v0.33.0 [Mechanical Components](MECHANICAL-COMPONENTS-RECORD.md)
-reforms the component, founding bill and matching request reward; complete commission/research
-startup costing is still outstanding. Timed opening validation is withdrawn. This is not the finite insight
+reforms the component, founding bill and matching request reward. v0.34.0
+[Power and Tier Bills](POWER-TIER-BILLS-RECORD.md) closes the audit: the last three wrong bills,
+gear and frame yields reviewed and unchanged, and startup accounting that funds research at the
+board's repeat reward and charges the commission behind a granted technology. Phase 1 is complete;
+phase 2 is next. Timed opening validation is withdrawn. This is not the finite insight
 economy or separate skill system. Larger future discipline lanes, evidence projects, tracking and skills remain planned.
 
 ## Design commitments

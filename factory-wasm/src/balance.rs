@@ -385,6 +385,10 @@ pub struct Opening {
     /// Which request that is. A funding cost with no request named would be a number quoted against
     /// a rate nobody posted.
     pub insight_request: String,
+    /// Contract stages this opening has to deliver before it can start, because a technology it
+    /// needs is granted by finishing one rather than sold for insight. Empty when every technology
+    /// on the path is purchasable.
+    pub commissions: Vec<String>,
     pub buildings: Vec<String>,
     /// Dependency order: each station's bill is made only by earlier, powered stations.
     pub construction_order: Vec<String>,
@@ -1446,6 +1450,7 @@ fn openings(economy: &Economy, best_fuel_id: ItemId, best_fuel_value: u32) -> Ve
                 name,
                 &building_keys,
                 wanted,
+                None,
             )
         })
         .collect();
@@ -1466,6 +1471,7 @@ fn openings(economy: &Economy, best_fuel_id: ItemId, best_fuel_value: u32) -> Ve
                 &format!("{count} starter belts"),
                 &["belt"],
                 wanted,
+                None,
             ));
         }
     }
@@ -1564,6 +1570,7 @@ fn contracts(economy: &Economy, best_fuel_id: ItemId, best_fuel_value: u32) -> V
                     &format!("{}: {}", scenario.key, stage.key),
                     &[],
                     stage.requirements.clone(),
+                    Some(stage.key.as_str()),
                 ),
             });
         }
@@ -1575,16 +1582,104 @@ fn contracts(economy: &Economy, best_fuel_id: ItemId, best_fuel_value: u32) -> V
 /// observation both sit far above it.
 const CONTRACT_BILL_LIMIT: u32 = 10_000;
 
+/// Fills of one standing request needed to fund `insight`, replaying the board's decay instead of
+/// quoting the whole ladder at the posted reward.
+///
+/// The raw rows drop from ten insight to two the moment they are filled once. Charging every fill
+/// the first-fill price is what made research look cheap: it priced an unlimited supply of a reward
+/// the hub pays exactly once.
+///
+/// `None` when the row cannot reach the total at all. A decayed reward of zero funds nothing after
+/// its first fill, and dividing by it would invent a finite answer for an impossible one.
+fn request_fills(insight: u32, first: u32, repeat: u32) -> Option<u32> {
+    if insight == 0 {
+        return Some(0);
+    }
+    if first >= insight {
+        return Some(1);
+    }
+    if repeat == 0 {
+        return None;
+    }
+    Some(1 + (insight - first).div_ceil(repeat))
+}
+
+/// The contract stages a set of buildings owes before it can be built, because the technology that
+/// unlocks one of them is granted by finishing a stage rather than sold for insight.
+///
+/// `own_stage` is the stage currently being priced, if any. A stage does not commission itself:
+/// its bill is already the thing being costed, and folding it in again would charge it twice.
+fn owed_commissions(
+    economy: &Economy,
+    needed: &BTreeSet<DefinitionId>,
+    own_stage: Option<&str>,
+) -> BTreeSet<String> {
+    let mut stages = BTreeSet::new();
+    for &id in needed {
+        let Some(technology) = economy.building(id).and_then(|b| b.unlock_technology_id) else {
+            continue;
+        };
+        let mut path = economy.ancestors(technology);
+        path.insert(technology);
+        for id in path {
+            if let Some(TechnologyGrant::ContractStage { key, .. }) =
+                economy.technology(id).map(|t| &t.grant)
+            {
+                if own_stage != Some(key.as_str()) {
+                    stages.insert(key.clone());
+                }
+            }
+        }
+    }
+    stages
+}
+
+/// The bill a named contract stage asks for. Sentinel stages are skipped for the same reason
+/// `contracts` skips them: the demo's standing observation is a workload, not a commission.
+fn stage_requirements(economy: &Economy, stage_key: &str) -> Vec<Ingredient> {
+    economy
+        .scenarios
+        .scenarios
+        .iter()
+        .flat_map(|scenario| scenario.contract.stages.iter())
+        .find(|stage| {
+            stage.key == stage_key
+                && !stage
+                    .requirements
+                    .iter()
+                    .any(|need| need.quantity > CONTRACT_BILL_LIMIT)
+        })
+        .map(|stage| stage.requirements.clone())
+        .unwrap_or_default()
+}
+
 fn opening(
     economy: &Economy,
     best_fuel_id: ItemId,
     best_fuel_value: u32,
     name: &str,
     building_keys: &[&str],
-    wanted: Vec<Ingredient>,
+    requested: Vec<Ingredient>,
+    own_stage: Option<&str>,
 ) -> Opening {
-    let order = opening_build_order(economy, best_fuel_value, building_keys, &wanted);
-    let needed: BTreeSet<_> = order.iter().copied().collect();
+    // A commissioned technology is earned by delivering a stage bill, so an opening that needs one
+    // owes that delivery before its own first gather. Folding the bill in can pull in another
+    // station, which can owe another stage, so this runs to a fixed point rather than assuming a
+    // single pass settles it. The stage set only grows and is finite, so it terminates.
+    let mut commissions: BTreeSet<String> = BTreeSet::new();
+    let (order, needed, wanted) = loop {
+        let mut wanted = requested.clone();
+        for key in &commissions {
+            wanted.extend(stage_requirements(economy, key));
+        }
+        let order = opening_build_order(economy, best_fuel_value, building_keys, &wanted);
+        let needed: BTreeSet<_> = order.iter().copied().collect();
+        let owed = owed_commissions(economy, &needed, own_stage);
+        if owed.is_subset(&commissions) {
+            break (order, needed, wanted);
+        }
+        commissions.extend(owed);
+    };
 
     let mut ingredients = wanted.clone();
     for &id in &needed {
@@ -1614,14 +1709,19 @@ fn opening(
             technologies.extend(economy.ancestors(technology));
         }
     }
+    // Only a purchasable technology is paid for in insight. A commissioned one is already charged
+    // as the stage bill folded into `wanted` above, and adding its price here would bill the player
+    // twice for the same unlock.
     let insight: u32 = technologies
         .iter()
         .filter_map(|&id| economy.technology(id))
+        .filter(|technology| technology.purchasable())
         .map(|technology| technology.cost)
         .sum();
     // Insight stopped being a property of an item: it is paid for filling a request the hub posted.
     // So the cheapest way to fund the research is the standing request that reaches the total in the
-    // fewest delivered items, counted over the rows the landing clearing can actually supply.
+    // fewest delivered items, counted over the rows the landing clearing can actually supply and
+    // replayed through the decay the board states.
     let opening: BTreeSet<ItemId> = BOOTSTRAP_GUARANTEES
         .iter()
         .map(|&(item_id, _, _)| item_id)
@@ -1631,11 +1731,10 @@ fn opening(
         .requests
         .iter()
         .filter(|request| opening.contains(&request.item_id))
-        .map(|request| {
-            (
-                insight.div_ceil(request.insight.max(1)) * request.quantity,
-                request.key.clone(),
-            )
+        .filter_map(|request| {
+            let repeat = request.repeat_insight.unwrap_or(request.insight);
+            request_fills(insight, request.insight, repeat)
+                .map(|fills| (fills * request.quantity, request.key.clone()))
         })
         .min()
         .unwrap_or_default();
@@ -1673,6 +1772,7 @@ fn opening(
         insight,
         insight_items,
         insight_request,
+        commissions: commissions.into_iter().collect(),
         buildings: names,
         construction_order: order
             .iter()
@@ -2053,6 +2153,12 @@ pub fn format_report(report: &BalanceReport) -> String {
             milli(opening.machine_seconds_milli),
             milli(opening.player_work_seconds_milli)
         ));
+        if !opening.commissions.is_empty() {
+            out.push_str(&format!(
+                "      commissions delivered first: {}\n",
+                opening.commissions.join(", ")
+            ));
+        }
     }
 
     out.push_str("\ncontract stages, what the landing hub is asking for\n");
@@ -2079,6 +2185,12 @@ pub fn format_report(report: &BalanceReport) -> String {
             milli(stage.opening.machine_seconds_milli),
             milli(stage.opening.player_work_seconds_milli)
         ));
+        if !stage.opening.commissions.is_empty() {
+            out.push_str(&format!(
+                "      commissions delivered first: {}\n",
+                stage.opening.commissions.join(", ")
+            ));
+        }
     }
     out
 }

@@ -16,9 +16,11 @@
  * v18 adds two primitive station definitions; the v17 state and checksum pass through unchanged.
  * v24 reprices industrial stations; existing state and active jobs pass through unchanged.
  * v23 grants the four starter automation technologies when Prove the line is already complete.
+ * v26 reprices the deep extractor, deep container and hydro generator; existing state, active jobs
+ * and the checksum pass through unchanged, and the scenario and technology catalogs stay put.
  */
 
-export const SAVE_VERSION = 25;
+export const SAVE_VERSION = 26;
 export const SAVE_CATALOG_KEY = "hexfactory:saves:v1";
 export const LEGACY_SAVE_PREFIX = "hexfactory:hxf1:";
 export const HXF1_PREFIX = "HXF1\n";
@@ -182,6 +184,7 @@ export function compatibility(
     [23, 18, 11],
     [24, 19, 11],
     [25, 20, 11],
+    [26, 21, 11],
   ];
   const from = released.findIndex(
     ([save, definitions, technology]) =>

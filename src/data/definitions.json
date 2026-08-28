@@ -1,5 +1,5 @@
 {
-  "version": 20,
+  "version": 21,
   "items": [
     {
       "id": 1,
@@ -1025,7 +1025,7 @@
       "key": "hydro-generator",
       "name": "Hydro generator",
       "kind": "generator",
-      "description": "High output at a basin edge. Scarce, because the shore is scarce.",
+      "description": "High output at a basin edge. Scarce, because the shore is scarce. A rotor and its gearing, braced on a frame — the river turns it, so nothing here is fired and nothing is laid in brick.",
       "icon": "HYD",
       "capacity": 0,
       "power_output": 24,
@@ -1033,11 +1033,15 @@
       "construction_cost": [
         {
           "item_id": 11,
-          "quantity": 6
+          "quantity": 4
         },
         {
-          "item_id": 14,
-          "quantity": 4
+          "item_id": 19,
+          "quantity": 1
+        },
+        {
+          "item_id": 20,
+          "quantity": 1
         }
       ],
       "unlock_technology_id": 9,
@@ -1126,8 +1130,16 @@
       "power_draw": 7,
       "construction_cost": [
         {
-          "item_id": 1,
-          "quantity": 4
+          "item_id": 11,
+          "quantity": 2
+        },
+        {
+          "item_id": 19,
+          "quantity": 2
+        },
+        {
+          "item_id": 20,
+          "quantity": 1
         },
         {
           "item_id": 3,
@@ -1135,10 +1147,6 @@
         },
         {
           "item_id": 6,
-          "quantity": 6
-        },
-        {
-          "item_id": 19,
           "quantity": 2
         }
       ],
@@ -1158,21 +1166,21 @@
       "key": "container-ii",
       "name": "Deep container",
       "kind": "container",
-      "description": "Twice the buffer in the same hex, for a line that outruns what one container can hold.",
+      "description": "Twice the buffer in the same hex, for a line that outruns what one container can hold. Plated and braced over a stone footing, built from the same timber the first container is.",
       "icon": "BX2",
       "tier": 1,
       "capacity": 24,
       "construction_cost": [
         {
-          "item_id": 1,
+          "item_id": 11,
           "quantity": 3
         },
         {
-          "item_id": 6,
-          "quantity": 4
+          "item_id": 16,
+          "quantity": 5
         },
         {
-          "item_id": 11,
+          "item_id": 6,
           "quantity": 2
         }
       ],

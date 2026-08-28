@@ -49,7 +49,7 @@ This is permanent and is not a scope item.
 
 ## Where the project stands
 
-The engine arc, the generator arc, and the shipped milestones through **v0.33.0 Mechanical Components** are
+The engine arc, the generator arc, and the shipped milestones through **v0.34.0 Power and Tier Bills** are
 present in this tree. A run today looks like this: land beside a hub in a world chosen by preset
 or by raw parameters, walk out under fog across rivers and coastline — on the keys, or by
 **clicking a selected hex a second time** and watching the route native found — find **fields** of
@@ -70,8 +70,8 @@ catalog shows which one moved rather than hiding the row:
 
 | Envelope              | Version |
 | --------------------- | ------: |
-| `HXF1` save           |      25 |
-| Definitions           |      20 |
+| `HXF1` save           |      26 |
+| Definitions           |      21 |
 | Technologies          |      11 |
 | Scenarios             |       7 |
 | World generator       |       8 |
@@ -173,11 +173,18 @@ fuel now required. Component request income is repriced against its expanded inp
 definitions 20 / scenarios 7 honor partial commissions and paid legacy jobs. See
 [the component record](MECHANICAL-COMPONENTS-RECORD.md).
 
-Phase 1 remains active: audit the remaining power/tier bills, gear/frame yields and complete
-commission/research startup accounting next. The timed human opening comparison
-that used to sit alongside them was **withdrawn on 2026-08-27 by user decision**; the opening's cost
-now stands on `fixtures/balance.json` and the before/after arithmetic recorded in each release
-record, with no person's clock owed against it. Do not treat these additive releases as completion
+**Phase 1 delivery: v0.34.0 Power and Tier Bills.** The hydro generator stops sharing the boiler's
+bill, and the deep extractor and deep container stop asking for raw ore — no buildable definition
+bills ore any more. Gear and frame yields were audited and are unchanged, with the board arithmetic
+recorded. Startup accounting now funds research at the board's repeat price and charges the
+commission an opening's granted technology depends on. Save 26 / definitions 21 reprice only.
+See [the power and tier bills record](POWER-TIER-BILLS-RECORD.md).
+
+Phase 1 is complete. The timed human opening comparison that used to sit alongside it was
+**withdrawn on 2026-08-27 by user decision**; the opening's cost now stands on
+`fixtures/balance.json` and the before/after arithmetic recorded in each release
+record, with no person's clock owed against it. Phase 2 — the research map, insight projects and
+separate player skills — is next. Do not treat these additive releases as completion
 of either plan or move on to ground works, oil, or floors yet.
 
 **Only afterward:** Living Lattice, then Regional Discovery, then the remaining longer horizon.
@@ -540,6 +547,7 @@ both test suites say so.
 One line per release, newest first. The reasoning behind a shipped rule lives in the git history of
 this file and in the code that implements it; what follows is the index.
 
+- **v0.34.0** Power and Tier Bills — Hydro generator, deep extractor and deep container repriced in manufactured parts; no buildable definition bills raw ore, and the hydro generator no longer shares the boiler's bill. Gear and frame yields audited and unchanged. Startup accounting funds research at the board's repeat reward and charges the commission behind a granted technology. Save 26 / definitions 21 reprice only; existing stations refund the current bill. [Verification record](POWER-TIER-BILLS-RECORD.md).
 - **v0.33.0** Mechanical Components — Plate-and-gear component, one-component founding commission, matched request repricing, legacy job/contribution migration, and a working timber demo. Save 25 / definitions 20 / scenarios 7. [Verification record](MECHANICAL-COMPONENTS-RECORD.md).
 - **v0.32.0** Industrial Bills — Reprices five industrial stations in plates, gears and mineral structure, with no brick bootstrap for the kiln. Startup reports use a valid construction order; guidance names missing construction suppliers. Save 24 / definitions 19 preserve active jobs, stock and checksums. [Verification record](INDUSTRIAL-BILLS-RECORD.md).
 - **v0.31.0** Foundation Commissions — Completing the first founding stage grants belts, storage, extractors and on-site power. Those four technologies are grant-only, with typed effects replacing ad-hoc unlock and bonus fields. Save 23 advances technology 10 to 11 and scenario 5 to 6; a factory already past Prove the line receives the grants. Insight prices of later nodes are unchanged. [Verification record](FOUNDATION-COMMISSIONS-RECORD.md).
