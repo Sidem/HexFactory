@@ -505,7 +505,7 @@ describe("Visual Depth terrain and quality contracts", () => {
       new Color(hex).getHSL(hsl);
       return hsl;
     };
-    const coal = hslOf(fieldVisualColor("#1a1e26"));
+    const coal = hslOf(fieldVisualColor("#000000"));
     const stone = hslOf(fieldVisualColor("#8b9098"));
     const sand = hslOf(fieldVisualColor("#e6d197"));
     expect(coal.l).toBeLessThan(0.28);

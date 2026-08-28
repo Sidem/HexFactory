@@ -46,7 +46,7 @@
       "id": 5,
       "key": "coal",
       "name": "Coal",
-      "color": "#1a1e26",
+      "color": "#000000",
       "icon": "lump",
       "description": "Dense highland fuel, and the carbon steel is made with.",
       "stack_size": 20,

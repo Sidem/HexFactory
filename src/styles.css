@@ -1024,13 +1024,14 @@ canvas {
   width: 52px;
   height: 58px;
 }
-.inspect-hex,
 .inspect-band-swatch {
   display: block;
   background: var(--band-fill, #2a4a3c);
   border: 1px solid var(--band-stroke, #4d7a62);
 }
 .inspect-hex {
+  display: block;
+  background: var(--band-fill, #2a4a3c);
   position: absolute;
   inset: 4px 6px;
   clip-path: polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%);

@@ -10,7 +10,7 @@ import { showToast } from "../toast";
 const PRESET_COLORS = [
   "#e2a85f", // Iron ore
   "#c9743f", // Copper ore
-  "#1a1e26", // Coal
+  "#000000", // Coal
   "#8b9098", // Stone
   "#e6d197", // Sand
   "#b0714c", // Clay
