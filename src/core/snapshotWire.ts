@@ -38,7 +38,7 @@ import type {
  */
 
 const MAGIC = 0x48584644; // "HXFD"
-const VERSION = 14;
+const VERSION = 15;
 
 /** Wire code is the index. Pinned against Rust by `fixtures/snapshot-delta-wire.json`. */
 const KINDS: BuildingKind[] = [
@@ -108,6 +108,7 @@ const GROUP = {
   player: 1 << 10,
   researched: 1 << 11,
   researchAvailability: 1 << 18,
+  skills: 1 << 19,
   chunks: 1 << 12,
   terrain: 1 << 13,
   resources: 1 << 14,
@@ -357,6 +358,37 @@ export function decodeSnapshotDelta(buffer: ArrayBuffer): FactorySnapshotDelta {
       });
     }
     delta.research_availability = availability;
+  }
+
+  if (has(GROUP.skills)) {
+    const points = reader.uvarint();
+    const sandbox = reader.bool();
+    const ids = (): number[] => {
+      const count = reader.uvarint();
+      if (count > 64) throw new Error("Skills exceed catalog bound");
+      return Array.from({ length: count }, () => reader.uvarint());
+    };
+    const purchased = ids();
+    const granted = ids();
+    const completed = ids();
+    const count = reader.uvarint();
+    if (count > 64) throw new Error("Skills exceed catalog bound");
+    const availability = Array.from({ length: count }, () => ({
+      skill_id: reader.uvarint(),
+      complete: reader.bool(),
+      points_shortfall: reader.uvarint(),
+      current_value: reader.uvarint(),
+      resulting_value: reader.uvarint(),
+      missing_prerequisites: ids(),
+    }));
+    delta.skills = {
+      points,
+      sandbox,
+      purchased,
+      granted,
+      completed,
+      availability,
+    };
   }
 
   // A buffer with bytes left over means the two sides disagree about the layout, which would

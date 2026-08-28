@@ -206,11 +206,54 @@ export interface TechnologyDefinition {
   grant?: TechnologyGrant;
 }
 
+export type SkillEffect = {
+  kind: "carry_slots" | "build_range";
+  amount: number;
+};
+export interface SkillDefinition {
+  id: number;
+  key: string;
+  name: string;
+  description: string;
+  branch: "carrying" | "construction";
+  prerequisites: number[];
+  cost: number;
+  effect: SkillEffect;
+  legacy_technology_id?: number;
+}
+export interface SkillMilestone {
+  id: number;
+  key: string;
+  name: string;
+  description: string;
+  points: number;
+  event:
+    | { kind: "workshop_craft" | "powered_craft" }
+    | { kind: "contract_stage"; key: string };
+}
+export interface SkillsSnapshot {
+  points: number;
+  purchased: number[];
+  granted: number[];
+  completed: number[];
+  sandbox: boolean;
+  availability: {
+    skill_id: number;
+    complete: boolean;
+    points_shortfall: number;
+    current_value: number;
+    resulting_value: number;
+    missing_prerequisites: number[];
+  }[];
+}
+
 export interface Technologies {
   version: number;
   branches: ProgressionGroup[];
   stages: ProgressionGroup[];
   technologies: TechnologyDefinition[];
+  skills: SkillDefinition[];
+  skill_milestones: SkillMilestone[];
 }
 
 /** Native purchase predicates, published together and reused by every research view. */
@@ -601,6 +644,7 @@ export interface FactorySnapshot {
   player: PlayerSnapshot;
   researched: number[];
   research_availability: ResearchAvailability[];
+  skills: SkillsSnapshot;
   chunks: ChunkSnapshot[];
   terrain: TerrainSnapshot[];
   resources: ResourceSnapshot[];
@@ -779,6 +823,7 @@ export type NativeInputCommand =
   | { type: "set_enabled"; q: number; r: number; enabled: boolean }
   | { type: "undo" }
   | { type: "research"; technology_id: number }
+  | { type: "purchase_skill"; skill_id: number }
   /**
    * Pass on one posted project. The row goes behind everything the player has not seen yet and
    * another takes its slot, so a material they cannot find never holds the board hostage. What has

@@ -1151,6 +1151,14 @@ function minimalSnapshot(): FactorySnapshot {
       walk_path: [],
     },
     researched: [],
+    skills: {
+      points: 0,
+      purchased: [],
+      granted: [],
+      completed: [],
+      sandbox: false,
+      availability: [],
+    },
     research_availability: [],
     chunks: [
       {

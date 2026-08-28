@@ -478,6 +478,9 @@ pub struct BalanceReport {
 #[derive(Clone, Debug, Serialize)]
 pub struct ResearchBudget {
     pub projects: usize,
+    pub skill_milestones: usize,
+    pub skill_points: u32,
+    pub skill_cost: u32,
     /// Every project's reward, summed. This is the run's entire insight income.
     pub project_insight: u64,
     /// The part of it that comes from projects asking only for materials with no recipe — the
@@ -1628,6 +1631,14 @@ fn budget(economy: &Economy) -> ResearchBudget {
         .collect();
     ResearchBudget {
         projects: economy.definitions.requests.len(),
+        skill_milestones: economy.technologies.skill_milestones.len(),
+        skill_points: economy
+            .technologies
+            .skill_milestones
+            .iter()
+            .map(|m| m.points)
+            .sum(),
+        skill_cost: economy.technologies.skills.iter().map(|s| s.cost).sum(),
         project_insight,
         raw_project_insight,
         research_cost,

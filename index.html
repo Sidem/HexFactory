@@ -101,6 +101,22 @@
             >
           </button>
           <button
+            id="skills-chip"
+            class="resource-chip hud-chip panel-toggle"
+            type="button"
+            data-panel-target="skills-panel"
+            aria-controls="skills-panel"
+            aria-expanded="false"
+            title="Player skills (K)"
+            aria-label="Skills: 0 Skill Points (K)"
+          >
+            <span class="hud-chip-icon" aria-hidden="true">✦</span
+            ><span class="hud-chip-copy"
+              ><small>Skills · K</small
+              ><strong id="skill-points-value">0</strong></span
+            >
+          </button>
+          <button
             id="carry-chip"
             class="resource-chip hud-chip panel-toggle"
             type="button"
@@ -242,6 +258,88 @@
           </aside>
 
           <dialog
+            id="skills-panel"
+            class="glass-panel skills-panel"
+            aria-labelledby="skills-title"
+            aria-describedby="skills-help"
+          >
+            <header class="research-header">
+              <div>
+                <span class="section-kicker"
+                  >Development / Personal capabilities</span
+                >
+                <h2 id="skills-title">Skills</h2>
+              </div>
+              <div class="research-account">
+                <strong
+                  ><span id="skills-points">0</span>
+                  <small id="skills-points-unit">Skill Points</small></strong
+                ><span>Earned through milestones</span>
+              </div>
+              <button
+                class="panel-close"
+                type="button"
+                aria-label="Close skills panel"
+                title="Close Skills (Esc or K)"
+              >
+                ×
+              </button>
+            </header>
+            <nav class="development-switch" aria-label="Development views">
+              <button
+                class="panel-toggle"
+                type="button"
+                data-panel-target="research-panel"
+                aria-controls="research-panel"
+                aria-expanded="false"
+              >
+                Research</button
+              ><span aria-current="page">Skills</span>
+            </nav>
+            <div class="skills-body">
+              <div class="skills-intro">
+                <div>
+                  <h3>A little more room to work.</h3>
+                  <p id="skills-help">
+                    Improve what you can carry and where you can build. Choose
+                    your first upgrade; both can be learned permanently.
+                  </p>
+                  <button id="skills-show-milestones" type="button">
+                    How to earn points ↓
+                  </button>
+                </div>
+                <p class="skills-currency-note">
+                  Skill Points improve you.<br />Insight unlocks factory
+                  technology.
+                </p>
+              </div>
+              <div id="skill-branches"></div>
+              <div class="skills-journey-heading">
+                <h3 id="skills-journey-title" tabindex="-1">
+                  Your journey earns the points
+                </h3>
+                <span>Each milestone pays once</span>
+              </div>
+              <ol id="skill-milestones"></ol>
+              <p
+                id="skills-summary"
+                role="status"
+                aria-live="polite"
+                aria-atomic="true"
+              ></p>
+              <button
+                class="panel-toggle skills-hub-link"
+                type="button"
+                data-panel-target="quest-panel"
+                aria-controls="quest-panel"
+                aria-expanded="false"
+              >
+                View the founding commission →
+              </button>
+            </div>
+          </dialog>
+
+          <dialog
             id="research-panel"
             class="glass-panel research-panel"
             aria-labelledby="research-title"
@@ -271,6 +369,18 @@
               </button>
             </header>
             <div class="research-toolbar">
+              <nav class="development-switch" aria-label="Development views">
+                <span aria-current="page">Research</span
+                ><button
+                  class="panel-toggle"
+                  type="button"
+                  data-panel-target="skills-panel"
+                  aria-controls="skills-panel"
+                  aria-expanded="false"
+                >
+                  Skills
+                </button>
+              </nav>
               <label class="research-search"
                 ><span class="sr-only">Search research</span
                 ><input
@@ -487,7 +597,9 @@
             >
             <p class="creative-note">
               Turning it on researches the whole tree for good. Turning it back
-              off restores prices and refunds — the knowledge stays.
+              off restores prices and refunds — the knowledge stays. Skills are
+              also unlocked; milestone rewards stay off permanently for this
+              save.
             </p>
             <div class="creative-slots">
               <label

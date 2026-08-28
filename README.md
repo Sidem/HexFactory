@@ -32,8 +32,13 @@ icon-only nodes and prerequisite connections. Completing the first hub commissio
 storage, extractors and on-site power — those four are not insight purchases. Hover or focus an icon
 for its name, costs and effects. Select a node to inspect unlocks, blockers and exact costs; use the
 separate Research button to spend insight on later work. Search, discipline filters, keyboard
-navigation, zoom and a compact list view help explore all 19 technologies. Hover previews never
+navigation, zoom and a compact list view help explore all 17 technologies. Hover previews never
 replace the readable detail panel.
+
+**Skills (K)** separately improves carrying capacity and construction reach. Choose either
+one-point upgrade first. Completing a manual-workshop batch, the first founding commission,
+and a powered craft each earns one Skill Point once; repeated work never farms more. Existing
+pack/reach research migrates without losing bonuses or spending insight.
 
 ## Controls
 

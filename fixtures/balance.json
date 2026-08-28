@@ -1,7 +1,7 @@
 {
   "reference": {
     "definition_version": 22,
-    "technology_version": 11,
+    "technology_version": 12,
     "ticks_per_second": 10,
     "player_ticks_per_second": 30,
     "gather_cooldown_steps": 15,
@@ -4220,16 +4220,19 @@
   ],
   "budget": {
     "projects": 22,
+    "skill_milestones": 3,
+    "skill_points": 3,
+    "skill_cost": 2,
     "project_insight": 572,
     "raw_project_insight": 73,
-    "research_cost": 137,
+    "research_cost": 120,
     "granted_technologies": [
       "field-logistics",
       "automated-extraction",
       "storage-planning",
       "on-site-power"
     ],
-    "surplus": 435,
-    "surplus_ratio_milli": 4175
+    "surplus": 452,
+    "surplus_ratio_milli": 4767
   }
 }

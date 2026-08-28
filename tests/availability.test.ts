@@ -53,7 +53,9 @@ const building = (key: string): BuildingDefinition =>
 describe("research presentation", () => {
   it("provides a distinct accessible emblem for every authored technology", () => {
     expect([...RESEARCH_ICON_KEYS].sort()).toEqual(
-      technologies.technologies.map((tech) => tech.key).sort(),
+      [...technologies.technologies, ...technologies.skills]
+        .map((entry) => entry.key)
+        .sort(),
     );
     const icons = technologies.technologies.map((tech) =>
       researchIconSvg(tech.key),
@@ -87,7 +89,7 @@ describe("research presentation", () => {
       technologies: [...technologies.technologies].reverse(),
     };
     expect(layoutResearch(reversed)).toEqual(layout);
-    expect(layout.nodes).toHaveLength(19);
+    expect(layout.nodes).toHaveLength(technologies.technologies.length);
     expect(layout.edges).toHaveLength(
       technologies.technologies.reduce(
         (count, node) => count + node.prerequisites.length,
@@ -146,7 +148,7 @@ describe("research presentation", () => {
     expect(researchNeighbor(layout.nodes, 1, "ArrowLeft")).toBeDefined();
   });
 
-  it("searches unlocks and player effects as well as research names", () => {
+  it("searches unlocks as well as research names", () => {
     const corner = technologies.technologies.find(
       (technology) => technology.id === 11,
     )!;
@@ -158,8 +160,8 @@ describe("research presentation", () => {
     ).toBe(true);
     expect(
       researchMatches(
-        technologies.technologies[17]!,
-        "cargo slots",
+        technologies.technologies.find((t) => t.key === "storage-planning")!,
+        "container",
         technologies,
         definitions,
       ),

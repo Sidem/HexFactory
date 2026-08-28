@@ -168,6 +168,14 @@ export function encodeCommand(command: NativeInputCommand): EncodedCommand {
       return { opcode: 16, args: [command.slot] };
     // A pull names a project and nothing else. Which slot it displaces is native's, for the same
     // reason the draw order is: the host does not know what the player has committed where.
+    case "purchase_skill":
+      if (
+        !Number.isInteger(command.skill_id) ||
+        command.skill_id <= 0 ||
+        command.skill_id > 65535
+      )
+        throw new RangeError("Invalid skill id");
+      return { opcode: 29, args: [command.skill_id] };
     case "post_request":
       return { opcode: 28, args: [command.request_id] };
     // The state, not a flip: encoding a toggle would make the opcode stream order-dependent, and

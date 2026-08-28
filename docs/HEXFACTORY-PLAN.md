@@ -49,7 +49,7 @@ This is permanent and is not a scope item.
 
 ## Where the project stands
 
-The engine arc, the generator arc, and the shipped milestones through **v0.35.0 Practical Projects** are
+The engine arc, the generator arc, and the shipped milestones through **v0.36.0 Player Skills** are
 present in this tree. A run today looks like this: land beside a hub in a world chosen by preset
 or by raw parameters, walk out under fog across rivers and coastline — on the keys, or by
 **clicking a selected hex a second time** and watching the route native found — find **fields** of
@@ -193,9 +193,17 @@ boundary. See [the practical projects record](PRACTICAL-PROJECTS-RECORD.md).
 Phase 1 is complete. The timed human opening comparison that used to sit alongside it was
 **withdrawn on 2026-08-27 by user decision**; the opening's cost now stands on
 `fixtures/balance.json` and the before/after arithmetic recorded in each release
-record, with no person's clock owed against it. Phase 2 continues: the research map and insight
-projects are shipped, separate player skills are next. Do not treat these additive releases as
-completion of either plan or move on to ground works, oil, or floors yet.
+record, with no person's clock owed against it.
+
+**Phase 2 delivery: v0.36.0 Player Skills.** Expanded Pack and Surveyed Construction now use a
+separate Skills view, native Skill Points and milestone rewards. Three one-time milestones fund
+two one-point upgrades; base comfort is unchanged. Old bonuses migrate once without refunds or
+points. Save 28 / technologies 12 / wire 15 preserve native ownership. See
+[the player skills record](PLAYER-SKILLS-RECORD.md).
+
+Phase 2's research map, finite projects and initial player skills are complete. **Phase 3 is next:
+construction materials, ground works, enclosures, native integer elevation and bounded cut/fill.**
+This does not complete either full plan; oil and supported floors still follow in order.
 
 **Only afterward:** Living Lattice, then Regional Discovery, then the remaining longer horizon.
 Their former v0.26/v0.27 reservations are withdrawn; assign new version numbers when release
@@ -564,6 +572,7 @@ both test suites say so.
 One line per release, newest first. The reasoning behind a shipped rule lives in the git history of
 this file and in the code that implements it; what follows is the index.
 
+- **v0.36.0** Player Skills — Separate personal points, carrying/reach purchases and three finite native milestones; accessible Skills modal; one-time legacy bonus migration and persistent Creative provenance. Save 28 / technologies 12 / wire 15. [Verification record](PLAYER-SKILLS-RECORD.md).
 - **v0.35.0** Practical Projects — Hub demand is finite: each of 22 projects pays once and retires, `repeat_insight` is deleted, and the whole catalogue is browsable and postable by name so a finite board cannot hide the route forward. Progress moved from the board slot onto the project, so passing a part-filled project keeps what was delivered. A native invariant pins the budget at 572 insight against 137 of research, 4.175× surplus, 73 of it hand-reachable. Save 27 / definitions 22 / wire 14. [Verification record](PRACTICAL-PROJECTS-RECORD.md).
 - **v0.34.0** Power and Tier Bills — Hydro generator, deep extractor and deep container repriced in manufactured parts; no buildable definition bills raw ore, and the hydro generator no longer shares the boiler's bill. Gear and frame yields audited and unchanged. Startup accounting funds research at the board's repeat reward and charges the commission behind a granted technology. Save 26 / definitions 21 reprice only; existing stations refund the current bill. [Verification record](POWER-TIER-BILLS-RECORD.md).
 - **v0.33.0** Mechanical Components — Plate-and-gear component, one-component founding commission, matched request repricing, legacy job/contribution migration, and a working timber demo. Save 25 / definitions 20 / scenarios 7. [Verification record](MECHANICAL-COMPONENTS-RECORD.md).

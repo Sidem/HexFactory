@@ -124,9 +124,9 @@ describe("compatibility", () => {
       ...build,
       versions: {
         ...build.versions,
-        save: 25,
-        definitions: 20,
-        technology: 11,
+        save: 28,
+        definitions: 22,
+        technology: 12,
       },
     };
     // Real released scenarios changed at save 23 as well as technologies. Synthetic equal
@@ -151,6 +151,8 @@ describe("compatibility", () => {
       [23, 18, 11],
       [24, 19, 11],
       [25, 20, 11],
+      [26, 21, 11],
+      [27, 22, 11],
     ] as const) {
       const parsed = parseHxf1(
         envelope({

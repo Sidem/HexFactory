@@ -1,3 +1,4 @@
+import { validateSkills } from "./skills";
 import type {
   BuildingDefinition,
   Definitions,
@@ -369,6 +370,7 @@ export function validateTechnologies(
   if (!value || typeof value !== "object")
     throw new TypeError("technologies must be an object");
   const data = value as Partial<Technologies>;
+  validateSkills(data);
   if (!positiveInteger(data.version) || !Array.isArray(data.technologies))
     throw new TypeError("technologies require a version and array");
   for (const [label, groups] of [
@@ -503,8 +505,6 @@ function validEffects(
   buildingIds: Set<number>,
 ): boolean {
   const buildings = new Set<number>();
-  let carry = false;
-  let range = false;
   for (const effect of effects) {
     if (effect.kind === "unlock_building") {
       if (
@@ -515,18 +515,7 @@ function validEffects(
       buildings.add(effect.building_id);
       continue;
     }
-    if (effect.kind === "carry_slots") {
-      if (carry || !positiveInteger(effect.amount) || effect.amount > 240)
-        return false;
-      carry = true;
-      continue;
-    }
-    if (effect.kind === "build_range") {
-      if (range || !positiveInteger(effect.amount) || effect.amount > 96)
-        return false;
-      range = true;
-      continue;
-    }
+
     return false;
   }
   return true;

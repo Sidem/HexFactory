@@ -328,6 +328,13 @@ counts. Each is behavior-tested without Wasm or WebGL; `main.ts` wires them to t
 
 ## Save contract
 
+Player Skills (v0.36.0) advances save 27 to 28 and technologies 11 to 12. The original
+checksum is verified before old personal research IDs become granted skills. No insight refund
+or conversion points are issued. Native skills own points, purchased/granted ranks, completed
+milestones and persistent sandbox provenance; derived availability is not saved or hashed.
+Wire 15 carries a bounded skills snapshot group, rebuilt only when those facts or player capacities
+change. See [the release record](PLAYER-SKILLS-RECORD.md).
+
 Power and Tier Bills (v0.34.0) advances save 25 to 26 and definitions 20 to 21. Nothing but the two
 envelope numbers moves: no state field, recipe, yield, work rate or research price changes with the
 three repriced bills, so the step is the same shape as every price boundary since the transport

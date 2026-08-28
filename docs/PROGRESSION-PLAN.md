@@ -28,7 +28,9 @@ v0.35.0 [Practical Projects](PRACTICAL-PROJECTS-RECORD.md) makes demand finite: 
 insight once and retires, `repeat_insight` is deleted, the whole catalogue is browsable and postable
 by name, and a native invariant pins 572 insight against 137 of research. Timed opening validation
 is withdrawn. This is the finite insight economy; it is not the evidence model or the separate skill
-system. Larger future discipline lanes, evidence projects, tracking and skills remain planned.
+system. v0.36.0 [Player Skills](PLAYER-SKILLS-RECORD.md) separates carrying and reach into
+one-point personal upgrades, funded by three one-time native milestones. Larger future discipline
+lanes, evidence projects, tracking and later skill branches remain planned.
 
 ## Design commitments
 
@@ -252,6 +254,11 @@ raw payouts are not the new safety mechanism.
 
 ## Player skills: a separate tree and budget
 
+**Initial slice shipped in v0.36.0.** Carrying and reach cost one point each; workshop completion,
+the founding commission and powered processing each award one point once. See
+[the release record](PLAYER-SKILLS-RECORD.md) for migration, creative provenance and verification.
+Later branches and ranks below remain proposals.
+
 Provide a sibling **Skills** view, distinct **Skill Points**, separate definitions and a native
 purchase command. Technology unlocks factory recipes, machines and infrastructure; skills modify
 the player. Neither currency converts into the other. This is more than a second tab containing
@@ -409,7 +416,7 @@ catalogues, saves and wire deliberately. Icon/layout edits alone never invalidat
 | 2. Definitions       | Registries, typed requirements/effects, shared availability and project IDs   | Validate graph/economic cycles; preserve saves and existing behaviour before changing rewards                                                                                                                                  |
 | 3. Research map      | Lanes, details, navigation, full/near views, accessible list and placeholders | Players can locate an unlock and explain its blockers; stable focus/layout; no generated icons required                                                                                                                        |
 | 4. Insight projects  | Finite rewards, evidence, direct foundation grants and guidance               | **Shipped v0.35.0**, less evidence counters. Repeated income cannot buy anything: projects pay once. 572 insight funds 137 of research at 4.175×, so no spend order strands essentials and all shipped research stays earnable |
-| 5. Player skills     | Carrying/reach migration, distinct points and milestones                      | Bonuses preserved once; currencies isolated; early useful choices without nerfing base comfort                                                                                                                                 |
+| 5. Player skills     | Carrying/reach migration, distinct points and milestones                      | **Shipped v0.36.0.** Bonuses preserved once; isolated currencies; 3 points fund 2 upgrades; base comfort unchanged                                                                                                             |
 | 6. Expansion and art | Construction branches, later families and reviewed icon sets                  | New nodes use data and existing supported effects/layout; income budget reviewed with content                                                                                                                                  |
 
 Map and skill presentation may be prototyped together, but separate native currencies/purchases

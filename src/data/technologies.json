@@ -1,5 +1,5 @@
 {
-  "version": 11,
+  "version": 12,
   "technologies": [
     {
       "id": 1,
@@ -228,28 +228,6 @@
       "effects": [{ "kind": "unlock_building", "building_id": 26 }],
       "branch": "logistics",
       "stage": "industrial-systems"
-    },
-    {
-      "id": 18,
-      "key": "expanded-pack",
-      "name": "Expanded Pack",
-      "description": "Reinforce the field pack with four additional cargo slots.",
-      "prerequisites": [4],
-      "cost": 8,
-      "effects": [{ "kind": "carry_slots", "amount": 4 }],
-      "branch": "field-capabilities",
-      "stage": "workshops"
-    },
-    {
-      "id": 19,
-      "key": "surveyed-construction",
-      "name": "Surveyed Construction",
-      "description": "Extend the player's construction reach by three hexes.",
-      "prerequisites": [2],
-      "cost": 9,
-      "effects": [{ "kind": "build_range", "amount": 3 }],
-      "branch": "field-capabilities",
-      "stage": "workshops"
     }
   ],
   "branches": [
@@ -294,12 +272,6 @@
       "name": "Electricity",
       "description": "Generation and electrical transmission.",
       "order": 6
-    },
-    {
-      "key": "field-capabilities",
-      "name": "Field capabilities",
-      "description": "Existing insight purchases for the player. These will move to a separate skill budget in a later release.",
-      "order": 7
     }
   ],
   "stages": [
@@ -320,6 +292,69 @@
       "name": "Industrial systems",
       "description": "Combine processes and distribution into sustained production.",
       "order": 2
+    }
+  ],
+  "skills": [
+    {
+      "id": 1,
+      "key": "expanded-pack",
+      "name": "Expanded Pack",
+      "description": "Four more cargo slots for supplies, spare parts and the trip home.",
+      "branch": "carrying",
+      "prerequisites": [],
+      "cost": 1,
+      "effect": {
+        "kind": "carry_slots",
+        "amount": 4
+      },
+      "legacy_technology_id": 18
+    },
+    {
+      "id": 2,
+      "key": "surveyed-construction",
+      "name": "Surveyed Construction",
+      "description": "Build three hexes farther from where you stand. Terrain and placement rules still apply.",
+      "branch": "construction",
+      "prerequisites": [],
+      "cost": 1,
+      "effect": {
+        "kind": "build_range",
+        "amount": 3
+      },
+      "legacy_technology_id": 19
+    }
+  ],
+  "skill_milestones": [
+    {
+      "id": 1,
+      "key": "first-workshop",
+      "name": "Made by hand",
+      "description": "Finish one batch at a manual workshop. Choose a recipe, supply its inputs and stay beside it while working.",
+      "points": 1,
+      "event": {
+        "kind": "workshop_craft"
+      }
+    },
+    {
+      "id": 2,
+      "key": "founding-line",
+      "name": "Prove the line",
+      "description": "Deliver the component for the founding commission at your landing hub.",
+      "points": 1,
+      "event": {
+        "kind": "contract_stage",
+        "key": "components"
+      }
+    },
+    {
+      "id": 3,
+      "key": "powered-craft",
+      "name": "Power at work",
+      "description": "Finish one batch in an electrically powered processing machine. Connect power and supply a recipe.",
+      "points": 1,
+      "event": {
+        "kind": "powered_craft"
+      }
     }
   ]
 }

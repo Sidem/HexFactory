@@ -8,6 +8,8 @@ use wasm_bindgen::prelude::*;
 
 mod runtime;
 mod save_migrations;
+mod skills;
+use skills::*;
 /// The binary encoding the snapshot delta crosses the worker boundary in.
 mod wire;
 
@@ -105,7 +107,9 @@ const SAVE_PREFIX: &str = "HXF1\n";
 /// a version-26 envelope carries that progress inside its posted slots instead. Reading one without
 /// the migration below would forfeit whatever the player had already handed over against a row that
 /// is no longer re-earnable, which is precisely the loss finite demand makes permanent.
-const SAVE_VERSION: u16 = 27;
+/// Version 28 separates personal skills. The old checksum is verified before legacy research
+/// bonuses become granted ranks; skill points and persistent sandbox provenance are native state.
+const SAVE_VERSION: u16 = 28;
 /// Bumped to 6 for World Parameters. `WorldParams` is now part of a run's identity — it is in the
 /// save envelope and in the checksum — so a version-5 envelope carries no answer to the question
 /// "which world is this" and is rejected rather than assumed to be the default.
@@ -799,6 +803,8 @@ struct TechnologiesInput {
     branches: Vec<ProgressionGroup>,
     stages: Vec<ProgressionGroup>,
     technologies: Vec<TechnologyDefinition>,
+    skills: Vec<SkillDefinition>,
+    skill_milestones: Vec<SkillMilestone>,
 }
 
 /// Authored presentation metadata. Never a purchase gate or saved simulation state.
@@ -1157,6 +1163,7 @@ struct Snapshot {
     player: PlayerSnapshot,
     researched: Vec<TechnologyId>,
     research_availability: Vec<ResearchAvailability>,
+    skills: SkillsSnapshot,
     chunks: Vec<ChunkSnapshot>,
     terrain: Vec<TileSnapshot>,
     resources: Vec<ResourceSnapshot>,
@@ -1536,6 +1543,8 @@ struct SnapshotDelta {
     #[serde(skip_serializing_if = "Option::is_none")]
     research_availability: Option<Vec<ResearchAvailability>>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    skills: Option<SkillsSnapshot>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     chunks: Option<Vec<ChunkSnapshot>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     terrain: Option<Vec<TileSnapshot>>,
@@ -1569,6 +1578,7 @@ impl SnapshotDelta {
             player: Some(current.player.clone()),
             researched: Some(current.researched.clone()),
             research_availability: Some(current.research_availability.clone()),
+            skills: Some(current.skills.clone()),
             chunks: Some(current.chunks.clone()),
             terrain: Some(current.terrain.clone()),
             resources: Some(ResourcesDelta {
@@ -1611,6 +1621,7 @@ impl SnapshotDelta {
                 &previous.research_availability,
                 &current.research_availability,
             ),
+            skills: changed(&previous.skills, &current.skills),
             chunks: changed(&previous.chunks, &current.chunks),
             terrain: changed(&previous.terrain, &current.terrain),
             resources: resources_delta(&previous.resources, &current.resources),
@@ -1866,6 +1877,9 @@ enum InputCommand {
         recipe_id: RecipeId,
     },
     Undo,
+    PurchaseSkill {
+        skill_id: u16,
+    },
     Research {
         technology_id: TechnologyId,
     },
@@ -2007,6 +2021,7 @@ struct Core {
     /// point of testing in it.
     creative: bool,
     researched: BTreeSet<TechnologyId>,
+    skills: SkillsState,
     next_entity_id: u32,
     tick: u64,
     delivered: u64,
@@ -2140,6 +2155,7 @@ impl Core {
             walk_last_position: (0, 0),
             creative: false,
             researched: scenario.initial_researched.iter().copied().collect(),
+            skills: SkillsState::default(),
             next_entity_id: 1,
             tick: 0,
             delivered: 0,
@@ -2327,6 +2343,7 @@ impl Core {
         }
         self.creative = enabled;
         if enabled {
+            self.grant_creative_skills();
             let known = self.researched.len();
             for technology in &self.technologies.technologies {
                 self.researched.insert(technology.id);
@@ -2778,7 +2795,9 @@ impl Core {
     }
 
     fn earned_carry_slots(&self) -> u32 {
-        let (carry_slots, _) = research_bonuses(&self.technologies, &self.researched);
+        let (legacy, _) = research_bonuses(&self.technologies, &self.researched);
+        let (skills, _) = self.skills.bonuses(&self.technologies);
+        let carry_slots = legacy.saturating_add(skills);
         self.scenario
             .carry_slots
             .saturating_add(carry_slots)
@@ -2786,14 +2805,16 @@ impl Core {
     }
 
     fn earned_build_range(&self) -> u32 {
-        let (_, build_range) = research_bonuses(&self.technologies, &self.researched);
+        let (_, legacy) = research_bonuses(&self.technologies, &self.researched);
+        let (_, skills) = self.skills.bonuses(&self.technologies);
+        let build_range = legacy.saturating_add(skills);
         self.scenario
             .build_range
             .saturating_add(build_range)
             .saturating_mul(HEX_X as u32)
     }
 
-    /// Apply capability research through the same native player fields placement and carrying use.
+    /// Apply earned skills through the same native player fields placement and carrying use.
     /// Pack size is a floor because creative mode may have widened it further; build range has no
     /// separate editor and is therefore exactly the researched value.
     fn apply_research_effects(&mut self) {
@@ -4015,6 +4036,12 @@ impl Core {
                 if manual {
                     self.entities[index].disabled = true;
                     self.events.push(format!("Finished {}", recipe.name));
+                    self.observe_skill_event(SkillEvent::WorkshopCraft);
+                } else if self
+                    .building_definition(self.entities[index].placed.definition_id)
+                    .is_some_and(|d| d.power_draw.unwrap_or(0) > 0)
+                {
+                    self.observe_skill_event(SkillEvent::PoweredCraft);
                 }
             }
             return;
@@ -4925,6 +4952,10 @@ impl Core {
     /// surplus already covers must complete in the same delivery rather than wait for one more
     /// item to arrive and re-ask the question.
     fn advance_contract(&mut self) {
+        self.advance_contract_with_rewards(true);
+    }
+
+    fn advance_contract_with_rewards(&mut self, award_skill_points: bool) {
         while let Some(stage) = self.scenario.contract.stages.get(self.contract_stage) {
             let met = stage.requirements.iter().all(|need| {
                 self.contract_contributed
@@ -4947,6 +4978,9 @@ impl Core {
             self.events
                 .push(format!("{name} complete — the landing hub grows"));
             self.grant_contract_stage(&key);
+            if award_skill_points {
+                self.observe_skill_event(SkillEvent::ContractStage { key });
+            }
             if self.contract_stage >= self.scenario.contract.stages.len() {
                 self.victory = true;
                 self.events
@@ -7147,6 +7181,7 @@ impl Core {
                 InputCommand::SetRecipe { q, r, recipe_id } => self.set_recipe(q, r, recipe_id),
                 InputCommand::SetEnabled { q, r, enabled } => self.set_enabled(q, r, enabled),
                 InputCommand::Undo => self.undo(),
+                InputCommand::PurchaseSkill { skill_id } => self.purchase_skill(skill_id),
                 InputCommand::Research { technology_id } => self.research(technology_id),
                 InputCommand::SkipRequest { slot } => self.skip_request(slot),
                 InputCommand::PostRequest { request_id } => self.post_request(request_id),
@@ -7597,6 +7632,7 @@ impl Core {
             player: self.player_snapshot(),
             researched: self.researched.iter().copied().collect(),
             research_availability: self.research_availability_snapshot(),
+            skills: self.skills_snapshot(),
             chunks,
             terrain,
             resources,
@@ -7755,6 +7791,7 @@ impl Core {
                 hash_u64(&mut hash, item.despawn_tick);
             }
         }
+        self.skills.hash(&mut hash);
         hash
     }
 
@@ -7772,6 +7809,7 @@ impl Core {
             player: self.player.clone(),
             pending_gather: self.pending_gather,
             researched: self.researched.clone(),
+            skills: self.skills.clone(),
             next_entity_id: self.next_entity_id,
             tick: self.tick,
             delivered: self.delivered,
@@ -7840,7 +7878,13 @@ impl Core {
             Some(envelope.state.seed),
             Some(envelope.state.world_params.clone()),
         )?;
-        validate_saved_state(definitions, technologies, scenario, &envelope.state)?;
+        validate_saved_state(
+            definitions,
+            technologies,
+            scenario,
+            &envelope.state,
+            legacy_component_bill,
+        )?;
         core.seed = envelope.state.seed;
         core.world_params = envelope.state.world_params;
         // The lattice and the bootstrap table are derived from exactly these two, so they are
@@ -7872,6 +7916,7 @@ impl Core {
         core.player = envelope.state.player;
         core.pending_gather = envelope.state.pending_gather;
         core.researched = envelope.state.researched;
+        core.skills = envelope.state.skills;
         // Restored directly rather than through set_creative: the saved researched set is the
         // checksum truth. A migrated creative save is upgraded only after that original truth has
         // been verified below.
@@ -7910,13 +7955,17 @@ impl Core {
         // verifying their saved checksum, through the ordinary consumption/grant path. Completed
         // commissions are never replayed and any surplus stays credited at the hub.
         if legacy_component_bill && core.scenario.key == "new-game" {
-            core.advance_contract();
+            core.advance_contract_with_rewards(false);
+        }
+        if legacy_component_bill {
+            core.migrate_player_skills();
         }
         // Creative means the whole current tree, including technologies added after the save was
         // written. Verify the saved state first, then extend it through the ordinary capability
         // path; this preserves tamper detection without leaving an older creative world partially
         // locked. A current save already containing the whole tree is unchanged.
         if core.creative {
+            core.grant_creative_skills();
             for technology in &core.technologies.technologies {
                 core.researched.insert(technology.id);
             }
@@ -7957,6 +8006,8 @@ struct SavedState {
     #[serde(default)]
     pending_gather: Option<Coordinate>,
     researched: BTreeSet<TechnologyId>,
+    #[serde(default)]
+    skills: SkillsState,
     next_entity_id: u32,
     tick: u64,
     delivered: u64,
@@ -8006,6 +8057,7 @@ struct SnapshotBaseline {
     player: PlayerSnapshot,
     researched: Vec<TechnologyId>,
     research_availability: Vec<ResearchAvailability>,
+    skills: SkillsSnapshot,
     chunks: Vec<ChunkSnapshot>,
     buildings: BTreeMap<u32, EntitySnapshot>,
     ground_items: Vec<GroundItem>,
@@ -8028,6 +8080,7 @@ impl SnapshotBaseline {
             player: snapshot.player.clone(),
             researched: snapshot.researched.clone(),
             research_availability: snapshot.research_availability.clone(),
+            skills: snapshot.skills.clone(),
             chunks: snapshot.chunks.clone(),
             buildings: snapshot
                 .buildings
@@ -8161,6 +8214,14 @@ impl Factory {
             base_revision,
             revision,
             research_availability,
+            skills: if baseline.skills.state != core.skills
+                || baseline.player.state.carry_slots != core.player.carry_slots
+                || baseline.player.state.build_range != core.player.build_range
+            {
+                take_changed(&mut baseline.skills, core.skills_snapshot())
+            } else {
+                None
+            },
             tick: core.tick,
             checksum: core.checksum(),
             scenario: take_changed(&mut baseline.scenario, core.scenario.key.clone()),
@@ -8817,6 +8878,18 @@ fn validate_all(
 ) -> Result<(), String> {
     validate_definitions(definitions)?;
     validate_technologies(definitions, technologies)?;
+    validate_skills(technologies)?;
+    for milestone in &technologies.skill_milestones {
+        if let SkillEvent::ContractStage { key } = &milestone.event {
+            if !scenarios
+                .scenarios
+                .iter()
+                .any(|s| s.contract.stages.iter().any(|stage| &stage.key == key))
+            {
+                return Err("skill milestone references an unknown commission".into());
+            }
+        }
+    }
     validate_research_budget(definitions, technologies)?;
     validate_scenarios(definitions, technologies, scenarios)
 }
@@ -9424,24 +9497,12 @@ fn valid_technology_effects(
             return false;
         }
     }
-    let mut carry = false;
-    let mut range = false;
-    for effect in &technology.effects {
-        match effect {
-            TechnologyEffect::UnlockBuilding { .. } => {}
-            TechnologyEffect::CarrySlots { amount } => {
-                if carry || *amount == 0 || *amount > MAX_CARRY_SLOTS {
-                    return false;
-                }
-                carry = true;
-            }
-            TechnologyEffect::BuildRange { amount } => {
-                if range || *amount == 0 || *amount > MAX_WALK_DISTANCE as u32 {
-                    return false;
-                }
-                range = true;
-            }
-        }
+    if technology
+        .effects
+        .iter()
+        .any(|effect| !matches!(effect, TechnologyEffect::UnlockBuilding { .. }))
+    {
+        return false;
     }
     true
 }
@@ -9582,7 +9643,9 @@ fn validate_saved_state(
     technologies: &TechnologiesInput,
     scenario: &ScenarioDefinition,
     state: &SavedState,
+    legacy_skills: bool,
 ) -> Result<(), String> {
+    validate_skill_state(technologies, &state.skills)?;
     let item_ids: BTreeSet<_> = definitions.items.iter().map(|value| value.id).collect();
     let technology_ids: BTreeSet<_> = technologies
         .technologies
@@ -9652,7 +9715,9 @@ fn validate_saved_state(
             return Err("save contains invalid entity state".into());
         }
     }
-    let (carry_slots_bonus, build_range_bonus) = research_bonuses(technologies, &state.researched);
+    let (carry, reach) = research_bonuses(technologies, &state.researched);
+    let (skill_carry, skill_reach) = state.skills.bonuses(technologies);
+    let (carry_slots_bonus, build_range_bonus) = (carry + skill_carry, reach + skill_reach);
     let earned_carry_slots = scenario
         .carry_slots
         .saturating_add(carry_slots_bonus)
@@ -9689,7 +9754,7 @@ fn validate_saved_state(
         || state
             .researched
             .iter()
-            .any(|id| !technology_ids.contains(id))
+            .any(|id| !technology_ids.contains(id) && !(legacy_skills && technologies.skills.iter().any(|skill| skill.legacy_technology_id == Some(*id))))
     {
         return Err("save contains invalid player or research state".into());
     }
@@ -9754,11 +9819,21 @@ fn research_bonuses(
     technologies: &TechnologiesInput,
     researched: &BTreeSet<TechnologyId>,
 ) -> (u32, u32) {
+    let mut legacy = SkillsState::default();
+    for skill in &technologies.skills {
+        if skill
+            .legacy_technology_id
+            .is_some_and(|id| researched.contains(&id))
+        {
+            legacy.granted.insert(skill.id);
+        }
+    }
+    let initial = legacy.bonuses(technologies);
     technologies
         .technologies
         .iter()
         .filter(|technology| researched.contains(&technology.id))
-        .fold((0u32, 0u32), |(carry_slots, build_range), technology| {
+        .fold(initial, |(carry_slots, build_range), technology| {
             (
                 carry_slots.saturating_add(technology.carry_slots_bonus()),
                 build_range.saturating_add(technology.build_range_bonus()),
@@ -12154,7 +12229,9 @@ pub mod capacity {
 
     /// A warmed core for a tier, advanced far enough that cargo is already flowing.
     pub(crate) fn warm_core(spec: &TierSpec) -> Core {
-        let (definitions, technologies) = catalogs();
+        let (definitions, mut technologies) = catalogs();
+        technologies.skills.clear();
+        technologies.skill_milestones.clear();
         let scenario = tier_scenario(spec);
         validate_all(
             &definitions,
@@ -12178,7 +12255,9 @@ pub mod capacity {
     /// The browser harness measures its round trip through exactly this object, so the boundary
     /// cost is measured against the same steady state the in-wasm phases are.
     pub(crate) fn warm_factory(spec: &TierSpec) -> Factory {
-        let (definitions, technologies) = catalogs();
+        let (definitions, mut technologies) = catalogs();
+        technologies.skills.clear();
+        technologies.skill_milestones.clear();
         let scenario = tier_scenario(spec);
         Factory {
             definitions,
@@ -15620,6 +15699,220 @@ mod tests {
     }
 
     #[test]
+    fn skills_are_finite_atomic_and_isolated_from_research() {
+        let mut core = game("new-game");
+        let start = core.checksum();
+        assert!(core.purchase_skill(1).is_err());
+        assert!(core.purchase_skill(999).is_err());
+        assert_eq!(core.checksum(), start);
+        core.observe_skill_event(SkillEvent::WorkshopCraft);
+        core.observe_skill_event(SkillEvent::WorkshopCraft);
+        assert_eq!(core.skills.points, 1);
+        let insight = core.insight;
+        let carry = core.player.carry_slots;
+        let reach = core.player.build_range;
+        core.purchase_skill(1).unwrap();
+        assert_eq!(core.player.carry_slots, carry + 4);
+        assert_eq!(core.player.build_range, reach);
+        assert_eq!(core.insight, insight);
+        let bought = core.checksum();
+        assert!(core.purchase_skill(1).is_err());
+        assert!(core.purchase_skill(2).is_err());
+        assert_eq!(core.checksum(), bought);
+        core.observe_skill_event(SkillEvent::ContractStage {
+            key: "components".into(),
+        });
+        core.purchase_skill(2).unwrap();
+        assert_eq!(core.player.build_range, reach + 3 * HEX_X as u32);
+        assert_eq!(core.skills.points, 0);
+        core.observe_skill_event(SkillEvent::PoweredCraft);
+        core.observe_skill_event(SkillEvent::PoweredCraft);
+        assert_eq!(core.skills.points, 1);
+        let (definitions, technologies, scenarios) = catalogs();
+        let mut restored = Core::from_save(
+            &definitions,
+            &technologies,
+            &scenarios,
+            &core.save_string().unwrap(),
+        )
+        .unwrap();
+        assert_eq!(restored.checksum(), core.checksum());
+        restored.observe_skill_event(SkillEvent::WorkshopCraft);
+        assert_eq!(restored.checksum(), core.checksum());
+    }
+
+    #[test]
+    fn skills_creative_grants_cannot_mint_milestones_after_returning() {
+        let mut core = game("new-game");
+        core.observe_skill_event(SkillEvent::WorkshopCraft);
+        core.purchase_skill(1).unwrap();
+        core.set_creative(true);
+        assert_eq!(core.skills.purchased, BTreeSet::from([1]));
+        assert_eq!(core.skills.granted, BTreeSet::from([2]));
+        core.set_creative(false);
+        core.observe_skill_event(SkillEvent::PoweredCraft);
+        core.observe_skill_event(SkillEvent::ContractStage {
+            key: "components".into(),
+        });
+        assert_eq!(core.skills.points, 0);
+        assert_eq!(core.skills.completed, BTreeSet::from([1]));
+        let (definitions, technologies, scenarios) = catalogs();
+        let mut restored = Core::from_save(
+            &definitions,
+            &technologies,
+            &scenarios,
+            &core.save_string().unwrap(),
+        )
+        .unwrap();
+        restored.observe_skill_event(SkillEvent::PoweredCraft);
+        assert_eq!(restored.checksum(), core.checksum());
+    }
+
+    #[test]
+    fn skills_migrate_old_bonuses_once_without_refunds_or_points() {
+        let (definitions, technologies, scenarios) = catalogs();
+        for ids in [vec![], vec![18], vec![19], vec![18, 19]] {
+            let mut old = game("new-game");
+            old.researched.extend(ids.iter().copied());
+            old.apply_research_effects();
+            old.insight = 43;
+            let mut value: serde_json::Value = serde_json::from_str(
+                old.save_string()
+                    .unwrap()
+                    .strip_prefix(SAVE_PREFIX)
+                    .unwrap(),
+            )
+            .unwrap();
+            value["save_version"] = 27.into();
+            value["technology_version"] = 11.into();
+            value["state"].as_object_mut().unwrap().remove("skills");
+            let save = format!("{SAVE_PREFIX}{value}");
+            if ids.len() == 2 && std::env::var_os("UPDATE_SKILL_BROWSER_FIXTURES").is_some() {
+                std::fs::create_dir_all("target/skills-browser").unwrap();
+                std::fs::write("target/skills-browser/legacy.hxf1", &save).unwrap();
+            }
+            let mut migrated =
+                Core::from_save(&definitions, &technologies, &scenarios, &save).unwrap();
+            assert_eq!(migrated.player.carry_slots, old.player.carry_slots);
+            assert_eq!(migrated.player.build_range, old.player.build_range);
+            assert_eq!(migrated.insight, 43);
+            assert_eq!(migrated.skills.points, 0);
+            assert_eq!(migrated.skills.granted.len(), ids.len());
+            assert!(!migrated.researched.contains(&18));
+            assert!(!migrated.researched.contains(&19));
+            migrated.observe_skill_event(SkillEvent::WorkshopCraft);
+            migrated.observe_skill_event(SkillEvent::PoweredCraft);
+            for id in [1, 2] {
+                if !migrated.skills.owns(id) {
+                    migrated.purchase_skill(id).unwrap();
+                }
+            }
+            let again = Core::from_save(
+                &definitions,
+                &technologies,
+                &scenarios,
+                &migrated.save_string().unwrap(),
+            )
+            .unwrap();
+            assert_eq!(again.checksum(), migrated.checksum());
+            value["checksum"] = old.checksum().wrapping_add(1).into();
+            assert!(Core::from_save(
+                &definitions,
+                &technologies,
+                &scenarios,
+                &format!("{SAVE_PREFIX}{value}")
+            )
+            .err()
+            .unwrap()
+            .contains("checksum"));
+        }
+    }
+
+    #[test]
+    fn skills_do_not_pay_for_historical_commission_adjustments_on_load() {
+        let (definitions, technologies, scenarios) = catalogs();
+        let mut old = game("new-game");
+        let component = old.scenario.contract.stages[0].requirements[0].item_id;
+        old.contract_contributed.insert(component, 1);
+        let mut value: serde_json::Value = serde_json::from_str(
+            old.save_string()
+                .unwrap()
+                .strip_prefix(SAVE_PREFIX)
+                .unwrap(),
+        )
+        .unwrap();
+        value["save_version"] = 27.into();
+        value["technology_version"] = 11.into();
+        value["state"].as_object_mut().unwrap().remove("skills");
+        let mut restored = Core::from_save(
+            &definitions,
+            &technologies,
+            &scenarios,
+            &format!("{SAVE_PREFIX}{value}"),
+        )
+        .unwrap();
+        assert_eq!(restored.contract_stage, 1);
+        assert_eq!(restored.skills.points, 0);
+        assert!(restored.skills.completed.contains(&2));
+        restored.observe_skill_event(SkillEvent::WorkshopCraft);
+        restored.observe_skill_event(SkillEvent::PoweredCraft);
+        restored.purchase_skill(1).unwrap();
+        restored.purchase_skill(2).unwrap();
+        assert_eq!(restored.skills.points, 0);
+    }
+
+    #[test]
+    fn skills_observe_real_power_and_commission_work_and_preserve_widened_packs() {
+        let mut demo = bare_game("factory-demo");
+        demo.power_unmetered = false;
+        demo.tick_many(400);
+        assert!(demo.skills.completed.contains(&3));
+        let points = demo.skills.points;
+        demo.tick_many(400);
+        assert_eq!(demo.skills.points, points);
+        let mut core = game("new-game");
+        let component = core.scenario.contract.stages[0].requirements[0].item_id;
+        core.player.inventory.insert(component, 1);
+        core.deposit_item(Some(component)).unwrap();
+        assert_eq!(core.skills.points, 1);
+        assert!(core.skills.completed.contains(&2));
+        core.advance_contract();
+        assert_eq!(core.skills.points, 1);
+        // A widened legacy pack is a floor, not four extra slots above the creative ceiling.
+        core.player.carry_slots = MAX_CARRY_SLOTS;
+        let availability = core.skill_availability(&core.technologies.skills[0]);
+        assert_eq!(availability.current_value, MAX_CARRY_SLOTS);
+        assert_eq!(availability.resulting_value, MAX_CARRY_SLOTS);
+        core.purchase_skill(1).unwrap();
+        assert_eq!(core.player.carry_slots, availability.resulting_value);
+    }
+
+    #[test]
+    fn skills_deltas_follow_native_state_and_catalogues_reject_cycles_and_short_budgets() {
+        let mut factory = test_factory("new-game");
+        let mut previous = factory.core.snapshot();
+        factory.build_delta();
+        factory.core.observe_skill_event(SkillEvent::WorkshopCraft);
+        assert_delta_matches_full_diff(&mut factory, &mut previous, "workshop milestone");
+        factory.core.purchase_skill(2).unwrap();
+        assert_delta_matches_full_diff(&mut factory, &mut previous, "skill purchase");
+        factory.core.tick_many(5);
+        assert_delta_matches_full_diff(&mut factory, &mut previous, "idle skills");
+        let (_, technologies, _) = catalogs();
+        validate_skills(&technologies).unwrap();
+        let mut invalid = technologies.clone();
+        invalid.skills[0].prerequisites = vec![2];
+        invalid.skills[1].prerequisites = vec![1];
+        assert!(validate_skills(&invalid).is_err());
+        let mut invalid = technologies.clone();
+        invalid.skill_milestones.clear();
+        assert!(validate_skills(&invalid).is_err());
+        let mut invalid = technologies.clone();
+        invalid.skills[0].effect = SkillEffect::CarrySlots { amount: 999 };
+        assert!(validate_skills(&invalid).is_err());
+    }
+
+    #[test]
     fn primitive_recipe_capabilities_are_validated_natively() {
         let (definitions, _, _) = catalogs();
         for ids in [vec![], vec![8, 8], vec![9999], vec![2]] {
@@ -15693,6 +15986,16 @@ mod tests {
             core.store(1, 3, 11, 2).unwrap();
             core.set_enabled(1, 3, true).unwrap();
             core.tick_many(32);
+            assert_eq!(core.skills.points, 1);
+            assert!(core.skills.completed.contains(&1));
+            if std::env::var_os("UPDATE_SKILL_BROWSER_FIXTURES").is_some() {
+                std::fs::create_dir_all("target/skills-browser").unwrap();
+                std::fs::write(
+                    "target/skills-browser/earned.hxf1",
+                    core.save_string().unwrap(),
+                )
+                .unwrap();
+            }
             core.withdraw(1, 3, 19, 1).unwrap();
             core.set_recipe(1, 3, 1).unwrap();
             core.store(1, 3, 11, 1).unwrap();
@@ -17519,8 +17822,7 @@ mod tests {
         let (definitions, technologies, scenarios) = catalogs();
         let mut old = game("new-game");
         old.set_creative(true);
-        old.researched.remove(&18);
-        old.researched.remove(&19);
+        old.skills = SkillsState::default();
         old.player.carry_slots = old.scenario.carry_slots;
         old.player.build_range = old.scenario.build_range.saturating_mul(HEX_X as u32);
         let old_checksum = old.checksum();
@@ -17538,8 +17840,8 @@ mod tests {
 
         let restored = Core::from_save(&definitions, &technologies, &scenarios, &save).unwrap();
         assert!(restored.creative);
-        assert!(restored.researched.contains(&18));
-        assert!(restored.researched.contains(&19));
+        assert!(restored.skills.granted.contains(&1));
+        assert!(restored.skills.granted.contains(&2));
         assert_eq!(restored.player.carry_slots, old.scenario.carry_slots + 4);
         assert_eq!(
             restored.player.build_range,
@@ -18381,16 +18683,18 @@ mod tests {
     }
 
     #[test]
-    fn research_permanently_expands_cargo_space_and_build_range() {
+    fn skills_permanently_expand_cargo_space_and_build_range() {
         let mut core = game("new-game");
         core.insight = 100;
         let starting_slots = core.player.carry_slots;
         let starting_range = core.player.build_range;
 
         grant_foundations(&mut core);
-        core.research(18).unwrap();
+        core.observe_skill_event(SkillEvent::WorkshopCraft);
+        core.purchase_skill(1).unwrap();
         assert_eq!(core.player.carry_slots, starting_slots + 4);
-        core.research(19).unwrap();
+        core.observe_skill_event(SkillEvent::PoweredCraft);
+        core.purchase_skill(2).unwrap();
         assert_eq!(core.player.build_range, starting_range + 3 * HEX_X as u32);
 
         let save = core.save_string().unwrap();
@@ -19490,6 +19794,7 @@ mod tests {
             player: None,
             researched: None,
             research_availability: None,
+            skills: None,
             chunks: None,
             terrain: None,
             resources: None,
@@ -19647,6 +19952,23 @@ mod tests {
                     missing_prerequisites: vec![5, 256],
                 },
             ]),
+            skills: Some(SkillsSnapshot {
+                state: SkillsState {
+                    points: 2,
+                    purchased: BTreeSet::from([1]),
+                    granted: BTreeSet::from([300]),
+                    completed: BTreeSet::from([2, 400]),
+                    sandbox: true,
+                },
+                availability: vec![SkillAvailability {
+                    skill_id: 301,
+                    complete: false,
+                    points_shortfall: 128,
+                    current_value: 6,
+                    resulting_value: 10,
+                    missing_prerequisites: vec![300],
+                }],
+            }),
             chunks: Some(vec![
                 ChunkSnapshot {
                     chunk_q: 0,

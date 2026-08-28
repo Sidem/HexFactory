@@ -140,6 +140,14 @@ function snapshotAt(state: {
       walk_path: [],
     },
     researched: state.researched,
+    skills: {
+      points: 0,
+      purchased: [],
+      granted: [],
+      completed: [],
+      sandbox: false,
+      availability: [],
+    },
     research_availability: technologies.technologies.map((technology) => ({
       technology_id: technology.id,
       complete: state.researched.includes(technology.id),

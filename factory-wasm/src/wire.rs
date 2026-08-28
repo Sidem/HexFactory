@@ -87,7 +87,8 @@ pub(crate) const WIRE_MAGIC: [u8; 4] = *b"HXFD";
 /// rather than the three posted slots, and every row gains a state byte behind its price. A
 /// version-13 decoder would read that byte as the start of the next row's key length and mis-frame
 /// the rest of the group — and would in any case draw a locked project as a posted one.
-pub(crate) const WIRE_VERSION: u8 = 14;
+/// Version 15 appends bounded personal skill state and native purchase availability.
+pub(crate) const WIRE_VERSION: u8 = 15;
 
 /// Which optional groups the buffer carries, in the order they are written.
 mod group {
@@ -110,6 +111,7 @@ mod group {
     pub(super) const EVENTS: u32 = 1 << 16;
     pub(super) const GROUND_ITEMS: u32 = 1 << 17;
     pub(super) const RESEARCH_AVAILABILITY: u32 = 1 << 18;
+    pub(super) const SKILLS: u32 = 1 << 19;
 }
 
 /// Per-entity presence bits, so an absent option costs a bit rather than a field name and a `null`.
@@ -311,6 +313,7 @@ pub(crate) fn encode_delta(delta: &SnapshotDelta) -> Vec<u8> {
         group::RESEARCH_AVAILABILITY,
         delta.research_availability.is_some(),
     );
+    set(group::SKILLS, delta.skills.is_some());
     set(group::CHUNKS, delta.chunks.is_some());
     set(group::TERRAIN, delta.terrain.is_some());
     set(group::RESOURCES, delta.resources.is_some());
@@ -423,6 +426,32 @@ pub(crate) fn encode_delta(delta: &SnapshotDelta) -> Vec<u8> {
             writer.uvarint(row.missing_prerequisites.len() as u64);
             for &id in &row.missing_prerequisites {
                 writer.uvarint(u64::from(id));
+            }
+        }
+    }
+    if let Some(skills) = &delta.skills {
+        writer.uvarint(u64::from(skills.state.points));
+        writer.bool(skills.state.sandbox);
+        for ids in [
+            &skills.state.purchased,
+            &skills.state.granted,
+            &skills.state.completed,
+        ] {
+            writer.uvarint(ids.len() as u64);
+            for id in ids {
+                writer.uvarint(u64::from(*id));
+            }
+        }
+        writer.uvarint(skills.availability.len() as u64);
+        for row in &skills.availability {
+            writer.uvarint(u64::from(row.skill_id));
+            writer.bool(row.complete);
+            writer.uvarint(u64::from(row.points_shortfall));
+            writer.uvarint(u64::from(row.current_value));
+            writer.uvarint(u64::from(row.resulting_value));
+            writer.uvarint(row.missing_prerequisites.len() as u64);
+            for id in &row.missing_prerequisites {
+                writer.uvarint(u64::from(*id));
             }
         }
     }
@@ -949,6 +978,50 @@ pub(crate) mod decode {
                 .collect()
         });
 
+        let skills = has(group::SKILLS).then(|| {
+            let points = reader.uvarint() as u32;
+            let sandbox = reader.bool();
+            let purchased = (0..reader.count())
+                .map(|_| reader.uvarint() as u16)
+                .collect();
+            let granted = (0..reader.count())
+                .map(|_| reader.uvarint() as u16)
+                .collect();
+            let completed = (0..reader.count())
+                .map(|_| reader.uvarint() as u16)
+                .collect();
+            let availability = (0..reader.count())
+                .map(|_| {
+                    let skill_id = reader.uvarint() as u16;
+                    let complete = reader.bool();
+                    let points_shortfall = reader.uvarint() as u32;
+                    let current_value = reader.uvarint() as u32;
+                    let resulting_value = reader.uvarint() as u32;
+                    let missing_prerequisites = (0..reader.count())
+                        .map(|_| reader.uvarint() as u16)
+                        .collect();
+                    SkillAvailability {
+                        skill_id,
+                        complete,
+                        points_shortfall,
+                        current_value,
+                        resulting_value,
+                        missing_prerequisites,
+                    }
+                })
+                .collect();
+            SkillsSnapshot {
+                state: SkillsState {
+                    points,
+                    sandbox,
+                    purchased,
+                    granted,
+                    completed,
+                },
+                availability,
+            }
+        });
+
         assert_eq!(
             reader.offset,
             bytes.len(),
@@ -972,6 +1045,7 @@ pub(crate) mod decode {
             player,
             researched,
             research_availability,
+            skills,
             chunks,
             terrain,
             resources,

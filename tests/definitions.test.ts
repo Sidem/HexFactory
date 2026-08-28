@@ -95,20 +95,16 @@ describe("data-defined content", () => {
       "shallow-crossings",
       "belt-junctions",
       "grade-separation",
-      "expanded-pack",
-      "surveyed-construction",
     ]);
     expect(
-      technologies.technologies.find(({ key }) => key === "expanded-pack"),
+      technologies.skills.find(({ key }) => key === "expanded-pack"),
     ).toMatchObject({
-      effects: [{ kind: "carry_slots", amount: 4 }],
+      effect: { kind: "carry_slots", amount: 4 },
     });
     expect(
-      technologies.technologies.find(
-        ({ key }) => key === "surveyed-construction",
-      ),
+      technologies.skills.find(({ key }) => key === "surveyed-construction"),
     ).toMatchObject({
-      effects: [{ kind: "build_range", amount: 3 }],
+      effect: { kind: "build_range", amount: 3 },
     });
     expect(
       technologies.technologies.find(({ key }) => key === "field-logistics"),
@@ -313,6 +309,42 @@ describe("data-defined content", () => {
       );
       expect(() => validateDefinitions(invalid)).toThrow(/invalid/);
     }
+  });
+
+  it("validates separate skill costs, bounded effects and acyclic prerequisites", () => {
+    const mutate = (edit: (data: Technologies) => void) => {
+      const invalid = structuredClone(technologies);
+      edit(invalid);
+      expect(() => validateTechnologies(invalid, typedDefinitions)).toThrow();
+    };
+    mutate((data) => {
+      data.skills[0]!.id = data.skills[1]!.id;
+    });
+    mutate((data) => {
+      data.skills[0]!.prerequisites = [999];
+    });
+    mutate((data) => {
+      data.skills[0]!.prerequisites = [2];
+      data.skills[1]!.prerequisites = [1];
+    });
+    mutate((data) => {
+      data.skills[0]!.effect.amount = 0;
+    });
+    mutate((data) => {
+      data.skills[0]!.effect.amount = 33;
+    });
+    mutate((data) => {
+      data.skills[0]!.cost = 4;
+    });
+    mutate((data) => {
+      data.skill_milestones[0]!.points = 0;
+    });
+    mutate((data) => {
+      data.skill_milestones[1]!.event = data.skill_milestones[0]!.event;
+    });
+    mutate((data) => {
+      data.technologies[0]!.effects = [{ kind: "carry_slots", amount: 4 }];
+    });
   });
 
   it("rejects duplicate IDs, invalid costs, unknown unlocks, and cycles", () => {

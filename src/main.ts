@@ -18,6 +18,7 @@ import { supportsRecipe } from "./core/definitions";
 import { FactoryHost } from "./core/FactoryHost";
 import { FrameClock, SIMULATION_TICKS_PER_SECOND } from "./core/frameClock";
 import { nextAction } from "./core/guidance";
+import { SkillsView } from "./ui/skills";
 import { ResearchTree } from "./ui/researchTree";
 import { BoundedInputQueue, MOVEMENT_KEYS, movementIntent } from "./core/input";
 import {
@@ -174,6 +175,7 @@ const STATUS_TONE: Record<string, "live" | "wait" | "stop" | "hub"> = {
 const PANEL_KEYS: Record<string, string> = {
   KeyI: "inventory-panel",
   KeyO: "research-panel",
+  KeyK: "skills-panel",
   KeyP: "quest-panel",
   KeyB: "build-panel",
   KeyC: "creative-panel",
@@ -292,15 +294,20 @@ const minimap = new MinimapRenderer(
   host.definitions,
 );
 const researchDialog = required<HTMLDialogElement>("research-panel");
+const skillsDialog = required<HTMLDialogElement>("skills-panel");
+const skillsView = new SkillsView(skillsDialog, host.technologies, (id) =>
+  enqueue({ type: "purchase_skill", skill_id: id }),
+);
 const panels = new PanelController(document, localStorage, (id, open) => {
-  if (id !== "research-panel" || !open) return;
+  if ((id !== "research-panel" && id !== "skills-panel") || !open) return;
   gatherHeld = false;
   harvestPointer = null;
   runningHeld = false;
   stopAiming();
   pressedMovement.clear();
   enqueue(currentMovementIntent());
-  researchTree.onOpen();
+  if (id === "research-panel") researchTree.onOpen();
+  else skillsView.update(snapshot);
 });
 const researchTree = new ResearchTree(
   researchDialog,
@@ -656,6 +663,18 @@ function update(next: FactorySnapshot): void {
   required<HTMLElement>("scenario-value").textContent = snapshot.scenario_name;
   required<HTMLElement>("tick-value").textContent =
     snapshot.tick.toLocaleString();
+  skillsView.update(snapshot);
+  required<HTMLElement>("skill-points-value").textContent = String(
+    snapshot.skills.points,
+  );
+  required<HTMLElement>("skills-chip").setAttribute(
+    "aria-label",
+    `Skills: ${snapshot.skills.points} Skill Point${snapshot.skills.points === 1 ? "" : "s"} (K)`,
+  );
+  required<HTMLElement>("skills-chip").classList.toggle(
+    "has-points",
+    snapshot.skills.points > 0,
+  );
   required<HTMLElement>("insight-value").textContent =
     snapshot.insight.toLocaleString();
   required<HTMLElement>("position-value").textContent =
@@ -1896,7 +1915,12 @@ function renderInspector(): void {
     facingTick.hidden = false;
     facingTick.className = `inspect-facing-tick dir-${building.orientation}`;
   } else if (resource && fieldItem) {
-    paintHexFace(hex, fieldItem.color, "#f4f7f5", false);
+    paintHexFace(
+      hex,
+      band?.fill ?? fieldItem.color,
+      band?.stroke ?? "#f4f7f5",
+      !(band?.passable ?? true),
+    );
     setItemGlyph(mark, fieldItem.icon, fieldItem.color);
     facingTick.hidden = true;
   } else if (band) {
@@ -3600,9 +3624,10 @@ function deleteBuildingUnderCursorOrSelected(): void {
 }
 
 window.addEventListener("keydown", (event) => {
-  if (researchDialog.open) {
+  if (researchDialog.open || skillsDialog.open) {
     if (
-      event.code === "KeyO" &&
+      ((researchDialog.open && event.code === "KeyO") ||
+        (skillsDialog.open && event.code === "KeyK")) &&
       !isTypingTarget(event.target) &&
       !event.repeat &&
       !event.ctrlKey &&
@@ -3688,7 +3713,7 @@ window.addEventListener("keydown", (event) => {
 });
 
 window.addEventListener("keyup", (event) => {
-  if (researchDialog.open) return;
+  if (researchDialog.open || skillsDialog.open) return;
   if (
     event.code === "Space" &&
     !isTypingTarget(event.target) &&

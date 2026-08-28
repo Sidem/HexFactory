@@ -675,7 +675,7 @@ describe("the economy's stated curve", () => {
   it("prices every hand-gathered project below every processed one", () => {
     // Per gather, which is the rate a player can actually improve. Raw rows still pay better per
     // *minute* — a gather is quick and a furnace is not — and that is fine now demand is finite:
-    // the whole hand-gathered catalogue is 73 insight against 137 of research, so hand-gathering
+    // the whole hand-gathered catalogue is 73 insight against 120 of research, so hand-gathering
     // cannot substitute for processing however fast it runs. It buys time, not the tree.
     const handable = new Set(
       fixture.reference.hand_gathers.map(({ item }) => item),
@@ -702,4 +702,12 @@ describe("the economy's stated curve", () => {
     );
     expect(rawInsight).toBeLessThan(fixture.budget.research_cost);
   });
+});
+
+it("budgets personal skill points separately from factory insight", () => {
+  expect(fixture.budget.skill_points).toBe(3);
+  expect(fixture.budget.skill_cost).toBe(2);
+  expect(fixture.budget.skill_milestones).toBe(3);
+  expect(fixture.budget.research_cost).toBe(120);
+  expect(fixture.budget.project_insight).toBe(572);
 });

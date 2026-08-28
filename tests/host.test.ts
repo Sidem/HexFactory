@@ -1,3 +1,4 @@
+import { skillView } from "../src/ui/skills";
 import { readFileSync } from "node:fs";
 
 import {
@@ -117,6 +118,14 @@ const snapshot: FactorySnapshot = {
     walk_path: [],
   },
   researched: [1],
+  skills: {
+    points: 0,
+    purchased: [],
+    granted: [],
+    completed: [],
+    sandbox: false,
+    availability: [],
+  },
   research_availability: [
     {
       technology_id: 1,
@@ -753,7 +762,7 @@ describe("bounded host input", () => {
     expect(research).toContain("syncChildren(");
     expect(research).toContain("technologyAvailability(tech, this.snapshot)");
     expect(main).toContain("researchTree.update(snapshot)");
-    expect(main).toContain("if (researchDialog.open)");
+    expect(main).toContain("if (researchDialog.open || skillsDialog.open)");
     // The hotbar's buttons are built once, so it needs no reconciler — but rewriting their inner
     // nodes on every snapshot loses a click the same way, so it patches text instead.
     const hotbar = main.slice(
@@ -1643,3 +1652,55 @@ function fakeTransport(): {
   };
   return { transport, requests };
 }
+
+describe("personal skills", () => {
+  it("encodes a bounded native purchase", () => {
+    expect(encodeCommand({ type: "purchase_skill", skill_id: 2 })).toEqual({
+      opcode: 29,
+      args: [2],
+    });
+    for (const skill_id of [0, -1, 65536, 1.5])
+      expect(() =>
+        encodeCommand({ type: "purchase_skill", skill_id }),
+      ).toThrow();
+  });
+});
+
+it("skill UI uses native availability, keeps currencies separate and explains grants", () => {
+  const skill = technologies.skills[0]!;
+  const state = structuredClone(snapshot);
+  state.insight = 9999;
+  state.skills.availability = [
+    {
+      skill_id: skill.id,
+      complete: false,
+      points_shortfall: 1,
+      current_value: 6,
+      resulting_value: 10,
+      missing_prerequisites: [],
+    },
+  ];
+  expect(skillView(skill, state)).toMatchObject({
+    canPurchase: false,
+    status: "Earn 1 more Skill Point",
+  });
+  state.skills.availability[0]!.points_shortfall = 0;
+  expect(skillView(skill, state).canPurchase).toBe(true);
+  state.skills.availability[0]!.missing_prerequisites = [2];
+  expect(skillView(skill, state).canPurchase).toBe(false);
+  state.skills.availability[0]!.complete = true;
+  state.skills.granted = [skill.id];
+  expect(skillView(skill, state)).toMatchObject({
+    canPurchase: false,
+    status: "Already unlocked",
+  });
+  const applied = applySnapshotDelta(snapshot, 0, {
+    base_revision: 0,
+    revision: 1,
+    tick: 1,
+    checksum: 1,
+    skills: state.skills,
+  });
+  expect(applied.snapshot.skills).toBe(state.skills);
+  expect(applied.snapshot.insight).toBe(snapshot.insight);
+});

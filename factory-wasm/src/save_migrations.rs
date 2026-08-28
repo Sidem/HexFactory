@@ -82,6 +82,11 @@ pub(super) fn migrate<'a>(json: &'a str, target_version: u16) -> Result<Cow<'a, 
         version = 27;
     }
 
+    if version == 27 && target_version >= 28 {
+        player_skills_27_to_28(&mut value);
+        version = 28;
+    }
+
     if version == target_version {
         return Ok(Cow::Owned(serde_json::to_string(&value).map_err(
             |error| format!("migrated save could not be written: {error}"),
@@ -90,6 +95,16 @@ pub(super) fn migrate<'a>(json: &'a str, target_version: u16) -> Result<Cow<'a, 
     Err(format!(
         "no migration path from save version {version} to {target_version}"
     ))
+}
+
+// State remains untouched until its original checksum has been verified in Core::from_save.
+fn player_skills_27_to_28(value: &mut Value) {
+    if let Some(object) = value.as_object_mut() {
+        object.insert("save_version".into(), Value::from(28));
+        if object.get("technology_version") == Some(&Value::from(11)) {
+            object.insert("technology_version".into(), Value::from(12));
+        }
+    }
 }
 
 /// Practical projects make the hub's demand finite, and that moves one saved field.
