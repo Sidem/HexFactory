@@ -379,12 +379,13 @@ pub struct Opening {
     pub name: String,
     pub technologies: Vec<String>,
     pub insight: u32,
-    /// Items delivered to the hub to pay for that research, through the cheapest standing request
-    /// the landing clearing can supply.
+    /// Items delivered to the hub to pay for that research, over the cheapest set of projects the
+    /// landing clearing can supply. Each project pays once, so this is a sum over distinct projects
+    /// rather than a repeat count against one of them.
     pub insight_items: u32,
-    /// Which request that is. A funding cost with no request named would be a number quoted against
-    /// a rate nobody posted.
-    pub insight_request: String,
+    /// Which projects those are, cheapest first. A funding cost with no project named would be a
+    /// number quoted against work nobody posted.
+    pub insight_projects: Vec<String>,
     /// Contract stages this opening has to deliver before it can start, because a technology it
     /// needs is granted by finishing one rather than sold for insight. Empty when every technology
     /// on the path is purchasable.
@@ -441,8 +442,6 @@ pub struct RequestCost {
     pub item: String,
     pub quantity: u32,
     pub insight: u32,
-    /// What a later fill pays. Equal to `insight` when the row does not decay.
-    pub repeat_insight: u32,
     /// The raw materials the bill bottoms out in.
     pub gathers: Vec<Amount>,
     /// Units of the densest fuel the crafting energy is paid with, counted into the gather total.
@@ -451,11 +450,9 @@ pub struct RequestCost {
     /// Insight per thousand gathers. A raw request sits at about a thousand — one insight for one
     /// gather, which is the rate the old per-item currency paid for everything.
     pub insight_per_gather_milli: u64,
-    pub repeat_insight_per_gather_milli: u64,
-    /// First-fill insight per minute of hand time (and machine time, for a processed row), using
-    /// each material's own `hand_gather_steps`.
+    /// Insight per minute of hand time (and machine time, for a processed row), using each
+    /// material's own `hand_gather_steps`. There is one rate now: the project pays once.
     pub insight_per_minute_milli: u64,
-    pub repeat_insight_per_minute_milli: u64,
     pub machine_ticks: u64,
     pub machine_seconds_milli: u64,
 }
@@ -474,6 +471,26 @@ pub struct BalanceReport {
     pub openings: Vec<Opening>,
     pub contracts: Vec<ContractCost>,
     pub requests: Vec<RequestCost>,
+    pub budget: ResearchBudget,
+}
+
+/// What the finite project catalogue pays, against what the technology tree costs.
+#[derive(Clone, Debug, Serialize)]
+pub struct ResearchBudget {
+    pub projects: usize,
+    /// Every project's reward, summed. This is the run's entire insight income.
+    pub project_insight: u64,
+    /// The part of it that comes from projects asking only for materials with no recipe — the
+    /// income a player can earn without building anything. It must not reach the whole tree.
+    pub raw_project_insight: u64,
+    /// What the purchasable technologies cost together. Commissioned ones are excluded: they are
+    /// paid for with a stage bill, not with insight.
+    pub research_cost: u64,
+    pub granted_technologies: Vec<String>,
+    pub surplus: u64,
+    /// Income over cost, per thousand. A thousand is a catalogue that funds the tree exactly and
+    /// leaves the player no choice about the order.
+    pub surplus_ratio_milli: u64,
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -756,6 +773,7 @@ fn report(economy: &Economy) -> BalanceReport {
         openings: openings(economy, best_fuel_id, best_fuel_value),
         contracts: contracts(economy, best_fuel_id, best_fuel_value),
         requests: requests(economy, best_fuel_id, best_fuel_value),
+        budget: budget(economy),
     }
 }
 
@@ -1491,7 +1509,6 @@ fn requests(economy: &Economy, best_fuel_id: ItemId, best_fuel_value: u32) -> Ve
             }]);
             let fuel_items = divide_up(expansion.batch_energy, u64::from(best_fuel_value.max(1)));
             let gather_total = expansion.batch_raw.values().sum::<u64>() + fuel_items;
-            let repeat = request.repeat_insight.unwrap_or(request.insight);
             let hand_ticks =
                 hand_ticks_for(economy, &expansion.batch_raw, fuel_items, best_fuel_id);
             RequestCost {
@@ -1499,7 +1516,6 @@ fn requests(economy: &Economy, best_fuel_id: ItemId, best_fuel_value: u32) -> Ve
                 item: economy.item_key(request.item_id),
                 quantity: request.quantity,
                 insight: request.insight,
-                repeat_insight: repeat,
                 gathers: amounts(economy, &expansion.batch_raw),
                 fuel_items,
                 gather_total,
@@ -1508,18 +1524,8 @@ fn requests(economy: &Economy, best_fuel_id: ItemId, best_fuel_value: u32) -> Ve
                     i128::from(gather_total.max(1)),
                 )
                 .milli(),
-                repeat_insight_per_gather_milli: Ratio::new(
-                    i128::from(repeat),
-                    i128::from(gather_total.max(1)),
-                )
-                .milli(),
                 insight_per_minute_milli: insight_per_minute_milli(
                     request.insight,
-                    hand_ticks,
-                    expansion.batch_ticks,
-                ),
-                repeat_insight_per_minute_milli: insight_per_minute_milli(
-                    repeat,
                     hand_ticks,
                     expansion.batch_ticks,
                 ),
@@ -1584,24 +1590,55 @@ const CONTRACT_BILL_LIMIT: u32 = 10_000;
 
 /// Fills of one standing request needed to fund `insight`, replaying the board's decay instead of
 /// quoting the whole ladder at the posted reward.
+/// The whole insight economy as one row: what the finite catalogue pays against what the tree
+/// costs.
 ///
-/// The raw rows drop from ten insight to two the moment they are filled once. Charging every fill
-/// the first-fill price is what made research look cheap: it priced an unlimited supply of a reward
-/// the hub pays exactly once.
-///
-/// `None` when the row cannot reach the total at all. A decayed reward of zero funds nothing after
-/// its first fill, and dividing by it would invent a finite answer for an impossible one.
-fn request_fills(insight: u32, first: u32, repeat: u32) -> Option<u32> {
-    if insight == 0 {
-        return Some(0);
+/// This section could not exist while the board reposted paid rows. Income was unbounded, so
+/// "can the player afford the tree" had no numeric answer — only "yes, eventually". Finite demand
+/// makes the catalogue a budget, and a budget is a thing that can be short. The surplus is the
+/// margin the plan asks for so the purchase order stays the player's choice rather than the only
+/// order that works.
+fn budget(economy: &Economy) -> ResearchBudget {
+    let project_insight: u64 = economy
+        .definitions
+        .requests
+        .iter()
+        .map(|request| u64::from(request.insight))
+        .sum();
+    let raw_project_insight: u64 = economy
+        .definitions
+        .requests
+        .iter()
+        .filter(|request| economy.recipe_for(request.item_id).is_none())
+        .map(|request| u64::from(request.insight))
+        .sum();
+    let research_cost: u64 = economy
+        .technologies
+        .technologies
+        .iter()
+        .filter(|technology| technology.purchasable())
+        .map(|technology| u64::from(technology.cost))
+        .sum();
+    let granted: Vec<String> = economy
+        .technologies
+        .technologies
+        .iter()
+        .filter(|technology| !technology.purchasable())
+        .map(|technology| technology.key.clone())
+        .collect();
+    ResearchBudget {
+        projects: economy.definitions.requests.len(),
+        project_insight,
+        raw_project_insight,
+        research_cost,
+        granted_technologies: granted,
+        surplus: project_insight.saturating_sub(research_cost),
+        surplus_ratio_milli: Ratio::new(
+            i128::from(project_insight),
+            i128::from(research_cost.max(1)),
+        )
+        .milli(),
     }
-    if first >= insight {
-        return Some(1);
-    }
-    if repeat == 0 {
-        return None;
-    }
-    Some(1 + (insight - first).div_ceil(repeat))
 }
 
 /// The contract stages a set of buildings owes before it can be built, because the technology that
@@ -1718,40 +1755,53 @@ fn opening(
         .filter(|technology| technology.purchasable())
         .map(|technology| technology.cost)
         .sum();
-    // Insight stopped being a property of an item: it is paid for filling a request the hub posted.
-    // So the cheapest way to fund the research is the standing request that reaches the total in the
-    // fewest delivered items, counted over the rows the landing clearing can actually supply and
-    // replayed through the decay the board states.
+    // Insight stopped being a property of an item: it is paid for completing a project the hub
+    // posted. Each project pays once, so funding research is no longer "how many times do I repeat
+    // the cheapest row" — it is "which projects do I take, and what do they cost together".
+    //
+    // The plan is the cheapest such set: the landing clearing's own rows, ordered by items per
+    // insight, taken until the total is covered. Taking the last one whole rather than pro rata is
+    // deliberate — a project pays nothing until its bill is met, so a part-delivered project funds
+    // no research at all, and quoting a fraction of it would understate the opening.
     let opening: BTreeSet<ItemId> = BOOTSTRAP_GUARANTEES
         .iter()
         .map(|&(item_id, _, _)| item_id)
         .collect();
-    let (insight_items, insight_request) = economy
+    let mut affordable: Vec<&RequestDefinition> = economy
         .definitions
         .requests
         .iter()
         .filter(|request| opening.contains(&request.item_id))
-        .filter_map(|request| {
-            let repeat = request.repeat_insight.unwrap_or(request.insight);
-            request_fills(insight, request.insight, repeat)
-                .map(|fills| (fills * request.quantity, request.key.clone()))
-        })
-        .min()
-        .unwrap_or_default();
+        .collect();
+    affordable.sort_by_key(|request| {
+        (
+            Ratio::new(
+                i128::from(request.quantity),
+                i128::from(request.insight.max(1)),
+            ),
+            request.key.clone(),
+        )
+    });
+    let mut insight_items = 0u32;
+    let mut insight_projects: Vec<String> = Vec::new();
+    let mut insight_gathers: BTreeMap<ItemId, u64> = BTreeMap::new();
+    let mut raised = 0u32;
+    for request in affordable {
+        if raised >= insight {
+            break;
+        }
+        raised += request.insight;
+        insight_items += request.quantity;
+        insight_projects.push(request.key.clone());
+        *insight_gathers.entry(request.item_id).or_default() += u64::from(request.quantity);
+    }
 
     let fuel_items = divide_up(expansion.batch_energy, u64::from(best_fuel_value.max(1)));
     let gather_total: u64 =
         expansion.batch_raw.values().sum::<u64>() + fuel_items + u64::from(insight_items);
     let mut opening_raw = expansion.batch_raw.clone();
-    if insight_items > 0 {
-        if let Some(request) = economy
-            .definitions
-            .requests
-            .iter()
-            .find(|request| request.key == insight_request)
-        {
-            *opening_raw.entry(request.item_id).or_default() += u64::from(insight_items);
-        }
+    for (&item_id, &quantity) in &insight_gathers {
+        *opening_raw.entry(item_id).or_default() += quantity;
     }
     let hand_ticks = hand_ticks_for(economy, &opening_raw, fuel_items, best_fuel_id);
 
@@ -1771,7 +1821,7 @@ fn opening(
             .collect(),
         insight,
         insight_items,
-        insight_request,
+        insight_projects,
         commissions: commissions.into_iter().collect(),
         buildings: names,
         construction_order: order

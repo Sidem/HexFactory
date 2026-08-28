@@ -127,9 +127,12 @@ export function nextAction(
     // that the hub only pays for what it posted. The step names one row of the board: which item,
     // how much of it is still wanted, and what filling it pays.
     const short = availability.insightShortfall;
-    const closest = [...snapshot.requests].sort(
-      (a, b) => stillToFind(a, snapshot) - stillToFind(b, snapshot),
-    )[0];
+    // Posted rows only. The snapshot carries the whole catalogue so the projects panel can browse
+    // it, and a step naming a project that is finished — or one the player cannot make yet — is an
+    // instruction they cannot carry out.
+    const closest = snapshot.requests
+      .filter((request) => request.state === "posted")
+      .sort((a, b) => stillToFind(a, snapshot) - stillToFind(b, snapshot))[0];
     if (closest) {
       const item = definitions.items.find(
         (value) => value.id === closest.item_id,

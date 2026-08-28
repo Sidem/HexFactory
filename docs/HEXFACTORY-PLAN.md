@@ -49,7 +49,7 @@ This is permanent and is not a scope item.
 
 ## Where the project stands
 
-The engine arc, the generator arc, and the shipped milestones through **v0.34.0 Power and Tier Bills** are
+The engine arc, the generator arc, and the shipped milestones through **v0.35.0 Practical Projects** are
 present in this tree. A run today looks like this: land beside a hub in a world chosen by preset
 or by raw parameters, walk out under fog across rivers and coastline — on the keys, or by
 **clicking a selected hex a second time** and watching the route native found — find **fields** of
@@ -180,12 +180,22 @@ recorded. Startup accounting now funds research at the board's repeat price and 
 commission an opening's granted technology depends on. Save 26 / definitions 21 reprice only.
 See [the power and tier bills record](POWER-TIER-BILLS-RECORD.md).
 
+**Phase 2 delivery: v0.35.0 Practical Projects.** Hub demand is finite. Every project pays its
+insight once and then retires; `repeat_insight` is deleted, so no amount of repeated ordinary
+delivery buys unlimited research. The whole 22-project catalogue is published in the snapshot and
+browsable in the projects panel, and any makeable project can be posted by name onto a board slot,
+so a finite board can never hide the only route forward. Progress moved off the board slot onto the
+project, which means passing a part-filled project no longer forfeits what was delivered. A native
+invariant proves the budget: 572 insight against 137 of research, a 4.175× surplus, with only 73 of
+it reachable by hand alone. Save 27 / definitions 22 / wire 14 lift delivered progress across the
+boundary. See [the practical projects record](PRACTICAL-PROJECTS-RECORD.md).
+
 Phase 1 is complete. The timed human opening comparison that used to sit alongside it was
 **withdrawn on 2026-08-27 by user decision**; the opening's cost now stands on
 `fixtures/balance.json` and the before/after arithmetic recorded in each release
-record, with no person's clock owed against it. Phase 2 — the research map, insight projects and
-separate player skills — is next. Do not treat these additive releases as completion
-of either plan or move on to ground works, oil, or floors yet.
+record, with no person's clock owed against it. Phase 2 continues: the research map and insight
+projects are shipped, separate player skills are next. Do not treat these additive releases as
+completion of either plan or move on to ground works, oil, or floors yet.
 
 **Only afterward:** Living Lattice, then Regional Discovery, then the remaining longer horizon.
 Their former v0.26/v0.27 reservations are withdrawn; assign new version numbers when release
@@ -207,11 +217,11 @@ priority does not claim native elevation, new recipes or the new research econom
   450, which is now the number that decides whether forestry is viable at all. The
   balance report's `mean_same_material` for wood is 5–11 units at the base reach and 11–26 at the
   deep one, which says forestry is a question of area, but says nothing about the cadence.)
-- **Does the board lead to meaningful new research rather than repeat-income farming?** Native
-  `next_request` already reserves a deepest-reachable slot, as checked on 2026-08-27. The remaining
-  problem is the earning model and the reward-to-cost ratio; the
-  [progression brief](PROGRESSION-PLAN.md#current-diagnosis-what-the-catalogue-actually-does) records
-  the current catalogue and the proposed project model. A depth reservation alone does not cap income.
+- **Does the board lead to meaningful new research rather than repeat-income farming?** Settled in
+  v0.35.0 by making demand finite: 22 projects pay once each, for 572 insight against 137 of
+  research, and `repeat_insight` no longer exists, so there is no farm to run. What would reopen it:
+  playtest evidence that the 4.175× surplus is loose enough that purchase order stops being a real
+  choice. Repricing that budget needs measured play, which is why v0.35.0 did not attempt it.
 - **Rails or free-floating panels** was settled by shipping the rail. What would reopen it: wanting
   positions the player chooses, at which point the rail becomes the docked default rather than the
   destination, and the saved-coordinate, overlap, off-screen-recovery, and touch-gesture questions
@@ -337,6 +347,13 @@ the fixture's extraction section together, and say in the shipped record that th
 deliberately broken rather than lost.
 
 ### A raw row pays once at full price
+
+**Superseded by v0.35.0 Practical Projects.** The decayed repeat below shipped and then came out
+again: a 2-insight floor still leaves the bottom rung infinite, and infinite is the property the
+progression brief actually objected to. Demand is now finite instead — a project pays once and
+retires — which reaches the same goal without needing a floor to be tuned. The soft-lock this
+section worried about is answered by the browsable catalogue and by the measured 4.175× surplus
+rather than by a residual payout. The rest is kept as the reasoning that got there.
 
 Add `repeat_insight` to `RequestDefinition`. The first fill pays `insight`; every later fill pays
 `repeat_insight`. Raw rows get **2**. Processed rows keep their full value.
@@ -547,6 +564,7 @@ both test suites say so.
 One line per release, newest first. The reasoning behind a shipped rule lives in the git history of
 this file and in the code that implements it; what follows is the index.
 
+- **v0.35.0** Practical Projects — Hub demand is finite: each of 22 projects pays once and retires, `repeat_insight` is deleted, and the whole catalogue is browsable and postable by name so a finite board cannot hide the route forward. Progress moved from the board slot onto the project, so passing a part-filled project keeps what was delivered. A native invariant pins the budget at 572 insight against 137 of research, 4.175× surplus, 73 of it hand-reachable. Save 27 / definitions 22 / wire 14. [Verification record](PRACTICAL-PROJECTS-RECORD.md).
 - **v0.34.0** Power and Tier Bills — Hydro generator, deep extractor and deep container repriced in manufactured parts; no buildable definition bills raw ore, and the hydro generator no longer shares the boiler's bill. Gear and frame yields audited and unchanged. Startup accounting funds research at the board's repeat reward and charges the commission behind a granted technology. Save 26 / definitions 21 reprice only; existing stations refund the current bill. [Verification record](POWER-TIER-BILLS-RECORD.md).
 - **v0.33.0** Mechanical Components — Plate-and-gear component, one-component founding commission, matched request repricing, legacy job/contribution migration, and a working timber demo. Save 25 / definitions 20 / scenarios 7. [Verification record](MECHANICAL-COMPONENTS-RECORD.md).
 - **v0.32.0** Industrial Bills — Reprices five industrial stations in plates, gears and mineral structure, with no brick bootstrap for the kiln. Startup reports use a valid construction order; guidance names missing construction suppliers. Save 24 / definitions 19 preserve active jobs, stock and checksums. [Verification record](INDUSTRIAL-BILLS-RECORD.md).

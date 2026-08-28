@@ -1,5 +1,5 @@
 {
-  "version": 21,
+  "version": 22,
   "items": [
     {
       "id": 1,
@@ -1493,8 +1493,7 @@
       "brief": "The survey wants a proper sample of the highland seam before the hub commits a foundry to it.",
       "item_id": 1,
       "quantity": 10,
-      "insight": 10,
-      "repeat_insight": 2
+      "insight": 10
     },
     {
       "id": 2,
@@ -1503,8 +1502,7 @@
       "brief": "Cut stone for the landing pad's apron. The cliff faces are the nearest source, and the nearest is what the hub is paying for.",
       "item_id": 6,
       "quantity": 10,
-      "insight": 10,
-      "repeat_insight": 2
+      "insight": 10
     },
     {
       "id": 3,
@@ -1513,8 +1511,7 @@
       "brief": "Lowland wood, unworked. The hub burns it while there is nothing better to burn, and the flora grows back.",
       "item_id": 9,
       "quantity": 10,
-      "insight": 10,
-      "repeat_insight": 2
+      "insight": 10
     },
     {
       "id": 4,
@@ -1523,8 +1520,7 @@
       "brief": "Wet shore earth, for a kiln nobody has built yet. Bring enough to prove the bed is worth siting on.",
       "item_id": 8,
       "quantity": 10,
-      "insight": 10,
-      "repeat_insight": 2
+      "insight": 10
     },
     {
       "id": 5,
@@ -1533,8 +1529,7 @@
       "brief": "Shore grit, for the glass that comes before circuits and the concrete that comes after them.",
       "item_id": 7,
       "quantity": 10,
-      "insight": 10,
-      "repeat_insight": 2
+      "insight": 10
     },
     {
       "id": 6,
@@ -1543,8 +1538,7 @@
       "brief": "Highland coal. Every furnace and every burner in this world eventually asks for it, so the hub wants its own pile.",
       "item_id": 5,
       "quantity": 8,
-      "insight": 8,
-      "repeat_insight": 2
+      "insight": 8
     },
     {
       "id": 7,
@@ -1553,8 +1547,7 @@
       "brief": "The hills carry copper as well as iron, and nothing here conducts a signal without it.",
       "item_id": 4,
       "quantity": 10,
-      "insight": 10,
-      "repeat_insight": 2
+      "insight": 10
     },
     {
       "id": 8,
@@ -1563,8 +1556,7 @@
       "brief": "Signal crystal is finite and no recipe makes more. The hub wants a reserve while the fields still hold some.",
       "item_id": 3,
       "quantity": 4,
-      "insight": 5,
-      "repeat_insight": 2
+      "insight": 5
     },
     {
       "id": 9,

@@ -18,9 +18,11 @@
  * v23 grants the four starter automation technologies when Prove the line is already complete.
  * v26 reprices the deep extractor, deep container and hydro generator; existing state, active jobs
  * and the checksum pass through unchanged, and the scenario and technology catalogs stay put.
+ * v27 makes hub demand finite — each project pays once — and moves delivered progress off the board
+ * slot onto the project, so the checksum moves and definition catalog 21 advances to 22.
  */
 
-export const SAVE_VERSION = 26;
+export const SAVE_VERSION = 27;
 export const SAVE_CATALOG_KEY = "hexfactory:saves:v1";
 export const LEGACY_SAVE_PREFIX = "hexfactory:hxf1:";
 export const HXF1_PREFIX = "HXF1\n";

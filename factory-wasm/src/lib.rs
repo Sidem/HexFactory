@@ -98,7 +98,14 @@ const SAVE_PREFIX: &str = "HXF1\n";
 /// Version 26 reprices the two tier bills that still asked for raw ore and the hydro generator that
 /// shared the boiler's bill; like every price boundary before it, state and checksum are untouched
 /// and a placed station refunds what rebuilding it now costs.
-const SAVE_VERSION: u16 = 26;
+///
+/// Bumped to 27 for Practical Projects. The hub's demand is finite: a request pays once and retires,
+/// so `repeat_insight` leaves the catalogue and a row's progress belongs to the *row* rather than to
+/// the board slot it happens to occupy. `request_delivered` is therefore saved and checksummed, and
+/// a version-26 envelope carries that progress inside its posted slots instead. Reading one without
+/// the migration below would forfeit whatever the player had already handed over against a row that
+/// is no longer re-earnable, which is precisely the loss finite demand makes permanent.
+const SAVE_VERSION: u16 = 27;
 /// Bumped to 6 for World Parameters. `WorldParams` is now part of a run's identity — it is in the
 /// save envelope and in the checksum — so a version-5 envelope carries no answer to the question
 /// "which world is this" and is rejected rather than assumed to be the default.
@@ -320,6 +327,13 @@ struct DefinitionsInput {
 /// geography claims and left the player with no way to find out what anything was worth except by
 /// handing it over. A request states the price *before* the delivery, and it is the only thing in
 /// the game that pays insight at all.
+///
+/// It also pays **once**. A row used to repost after it was filled, at a decayed price for the raw
+/// surveys and at full price for every processed row, which made insight an unbounded income: the
+/// answer to "can I afford the deepest branch" was always yes, given enough repetitions of the one
+/// delivery the player had already automated. A project is now a finite piece of practical work —
+/// a stated bill, a stated price, completed exactly once — so the catalogue is a budget rather than
+/// a tap. What bounds research is what the hub still has left to learn.
 #[derive(Clone, Deserialize)]
 struct RequestDefinition {
     id: RequestId,
@@ -330,13 +344,9 @@ struct RequestDefinition {
     brief: String,
     item_id: ItemId,
     quantity: u32,
-    /// What the first fill pays. Priced against the raw gathers underneath the item — see the
-    /// `requests` section of `fixtures/balance.json`, which reports exactly that ratio.
+    /// What completing this project pays, once. Priced against the raw gathers underneath the item —
+    /// see the `requests` section of `fixtures/balance.json`, which reports exactly that ratio.
     insight: u32,
-    /// What every later fill pays. Absent means later fills keep `insight`. Raw rows set this so
-    /// the first survey funds the early tree and grinding the same row does not.
-    #[serde(default)]
-    repeat_insight: Option<u32>,
 }
 
 #[derive(Clone, Deserialize)]
@@ -1217,16 +1227,39 @@ struct ContractSnapshot {
     complete: bool,
 }
 
-/// One posted request as the hub is holding it: which row, and how much of it has arrived.
+/// One posted request as the hub is holding it: which row occupies this slot.
+///
+/// How much has arrived against that row is *not* here. Progress belongs to the project, in
+/// `Core::request_delivered`, so passing on a project and calling it back later does not throw away
+/// the goods already handed over. Under finite demand that forfeit would be permanent, and a board
+/// that quietly destroys deliveries is not a board a player can experiment with.
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
 struct RequestState {
     request_id: RequestId,
-    delivered: u32,
 }
 
-/// One line of the request board as the host sees it. Everything needed to draw the row travels
+/// Where a project stands for the player who is looking at the catalogue.
+#[derive(Clone, Copy, Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+enum ProjectState {
+    /// The player cannot yet make what it asks for.
+    Locked,
+    /// Makeable, and not currently occupying a board slot.
+    Available,
+    /// On the board now.
+    Posted,
+    /// Finished. It has paid, and it will never be posted again.
+    Complete,
+}
+
+/// One line of the project catalogue as the host sees it. Everything needed to draw the row travels
 /// with it — the price above all, because a price the player has to discover by delivering is the
 /// defect this whole system exists to remove.
+///
+/// The catalogue is published whole, not just the three posted slots, for the same reason: with a
+/// finite budget the player has to be able to see what is left to earn and what it will pay before
+/// choosing what to build. A board that only ever shows three rotating rows would hide the shape of
+/// the remaining economy behind a draw order.
 #[derive(Clone, Debug, Serialize, PartialEq, Eq)]
 struct RequestSnapshot {
     key: String,
@@ -1236,6 +1269,7 @@ struct RequestSnapshot {
     delivered: u32,
     required: u32,
     insight: u32,
+    state: ProjectState,
 }
 
 #[derive(Clone, Copy, Debug, Serialize, PartialEq, Eq)]
@@ -1849,6 +1883,11 @@ enum InputCommand {
     SkipRequest {
         slot: usize,
     },
+    /// Ask the hub for one named project, taking a board slot for it. The catalogue is finite, so
+    /// which project is posted has to be the player's choice rather than the draw order's.
+    PostRequest {
+        request_id: RequestId,
+    },
     /// Turn creative mode on, or back off. Carried rather than toggled, for the same reason
     /// `SetEnabled` is: a press that arrives twice lands on the same answer.
     ///
@@ -1990,9 +2029,14 @@ struct Core {
     /// orders come round again once there is nothing new left to post.
     request_rounds: BTreeMap<RequestId, u32>,
     /// How many times each request has been *paid*. Skip increments `request_rounds` so the row
-    /// goes behind unseen content; it must not burn the first-fill bonus, so fills are counted
-    /// apart. Saved and checksummed: what a later fill pays depends on it.
+    /// goes behind unseen content; it must not retire the project, so fills are counted apart.
+    /// Saved and checksummed: a project with a fill against it is finished for this run and is
+    /// never posted again.
     request_fills: BTreeMap<RequestId, u32>,
+    /// How much has been handed over against each project so far, whether or not it is posted now.
+    /// Saved and checksummed: under finite demand this is a run's unfinished work, and losing it on
+    /// a pass would destroy goods the player cannot re-earn the reward for.
+    request_delivered: BTreeMap<RequestId, u32>,
     produced: BTreeMap<ItemId, u64>,
     /// What the current (or last) swing was worth when it started. Snapshot-only: the host draws
     /// the work still outstanding against this, and a save mid-gather republishes the remaining
@@ -2107,6 +2151,7 @@ impl Core {
             requests: Vec::new(),
             request_rounds: BTreeMap::new(),
             request_fills: BTreeMap::new(),
+            request_delivered: BTreeMap::new(),
             produced: BTreeMap::new(),
             last_action_cooldown_total: 0,
             events: vec![format!("{} ready", scenario.name)],
@@ -4467,11 +4512,13 @@ impl Core {
     /// This is the only path in the game that adds insight. Before it, every hub delivery paid
     /// `insight_value × quantity` whether the hub had a use for the item or not, which meant the
     /// price of a material was a number the player could only learn by giving it away. Now the
-    /// price is posted first and paid on completion.
+    /// price is posted first and paid on completion — once, and only once.
     ///
     /// A filled slot is replaced in place rather than compacted out, so the row the player was
     /// reading does not jump to another slot the moment it completes. The replacement is not filled
-    /// from the same delivery: it starts empty, and the next delivery is what moves it.
+    /// from the same delivery: it starts empty, and the next delivery is what moves it. The
+    /// completed project does not come back into the draw, and when nothing is left that the player
+    /// can reach the slot closes rather than reposting paid work.
     fn credit_requests(&mut self, item_id: ItemId, quantity: u32) {
         let mut remaining = quantity;
         let mut slot = 0;
@@ -4487,41 +4534,63 @@ impl Core {
                 slot += 1;
                 continue;
             }
-            let take = definition
-                .quantity
-                .saturating_sub(self.requests[slot].delivered)
-                .min(remaining);
-            remaining -= take;
-            self.requests[slot].delivered += take;
-            if self.requests[slot].delivered < definition.quantity {
+            // A project pays once. Posting is already gated on this, so reaching it here means a
+            // save was edited or a slot survived a migration it should not have — and the failure
+            // mode is minting insight without bound, which is the one thing finite demand exists to
+            // prevent. Cheaper to refuse it at the till than to trust every path in.
+            if self.project_complete(definition.id) {
                 slot += 1;
                 continue;
             }
-            let pay = self.request_payout(&definition);
-            self.insight += u64::from(pay);
+            let held = self.project_delivered(definition.id);
+            let take = definition.quantity.saturating_sub(held).min(remaining);
+            remaining -= take;
+            let now = held + take;
+            self.request_delivered.insert(definition.id, now);
+            if now < definition.quantity {
+                slot += 1;
+                continue;
+            }
+            self.insight += u64::from(definition.insight);
             *self.request_rounds.entry(definition.id).or_default() += 1;
             *self.request_fills.entry(definition.id).or_default() += 1;
+            // The bill is consumed by completion. Keeping the count would leave a retired project
+            // reading as permanently full, and the catalogue draws its progress from this map.
+            self.request_delivered.remove(&definition.id);
             self.events.push(format!(
                 "{} complete — the hub pays {} insight",
-                definition.name, pay
+                definition.name, definition.insight
             ));
             let posted = self.posted_requests(Some(slot));
             match self.next_request(&posted) {
                 Some(id) => {
-                    self.requests[slot] = RequestState {
-                        request_id: id,
-                        delivered: 0,
-                    };
+                    self.requests[slot] = RequestState { request_id: id };
                     slot += 1;
                 }
                 // Nothing left the player can reach. The slot closes rather than reposting the row
                 // that was just paid for, and `refill_requests` opens it again when research does.
                 None => {
                     self.requests.remove(slot);
+                    if self.requests.is_empty() {
+                        self.events.push(
+                            "The hub has nothing further to ask for — its demand is satisfied"
+                                .into(),
+                        );
+                    }
                 }
             }
         }
         self.refill_requests();
+    }
+
+    /// How much has been handed over against one project, posted or not.
+    fn project_delivered(&self, id: RequestId) -> u32 {
+        self.request_delivered.get(&id).copied().unwrap_or_default()
+    }
+
+    /// Whether this project has been completed and paid. A skipped project has not.
+    fn project_complete(&self, id: RequestId) -> bool {
+        self.request_fills.get(&id).copied().unwrap_or_default() > 0
     }
 
     /// The request ids currently on the board, optionally ignoring one slot.
@@ -4534,10 +4603,19 @@ impl Core {
             .collect()
     }
 
+    /// Whether this project can be drawn into a slot: unfinished, and something the player could
+    /// actually supply.
+    fn request_eligible(&self, request: &RequestDefinition) -> bool {
+        !self.project_complete(request.id) && self.item_reachable(request.item_id, 0)
+    }
+
     /// The row that should be posted next: the least-used one the player can actually supply,
     /// unless the board currently holds no row at the deepest reachable depth — then that depth
     /// is reserved, so a three-slot board still leads once processing unlocks rather than cycling
     /// eight raw surveys first.
+    ///
+    /// A finished project is never a candidate. The catalogue is finite, so the draw order is
+    /// walking a budget down rather than cycling forever, and it ends.
     ///
     /// There is no randomness here, and that is deliberate. A board that is a pure function of
     /// state is a board a save restores exactly, a checksum agrees about, and a test can walk —
@@ -4550,7 +4628,7 @@ impl Core {
             .requests
             .iter()
             .filter(|request| !posted.contains(&request.id))
-            .filter(|request| self.item_reachable(request.item_id, 0))
+            .filter(|request| self.request_eligible(request))
             .collect();
         if eligible.is_empty() {
             return None;
@@ -4559,7 +4637,7 @@ impl Core {
             .definitions
             .requests
             .iter()
-            .filter(|request| self.item_reachable(request.item_id, 0))
+            .filter(|request| self.request_eligible(request))
             .map(|request| self.item_depth(request.item_id))
             .max()
             .unwrap_or(0);
@@ -4620,21 +4698,6 @@ impl Core {
         }
     }
 
-    /// What filling this row pays *now*: the first completion is `insight`, every later one is
-    /// `repeat_insight` (or `insight` again, when the row does not decay). Skip does not count.
-    fn request_payout(&self, definition: &RequestDefinition) -> u32 {
-        let fills = self
-            .request_fills
-            .get(&definition.id)
-            .copied()
-            .unwrap_or_default();
-        if fills == 0 {
-            definition.insight
-        } else {
-            definition.repeat_insight.unwrap_or(definition.insight)
-        }
-    }
-
     /// Post requests into every empty slot.
     fn refill_requests(&mut self) {
         let capacity = REQUEST_SLOTS.min(self.definitions.requests.len());
@@ -4643,10 +4706,7 @@ impl Core {
             let Some(id) = self.next_request(&posted) else {
                 return;
             };
-            self.requests.push(RequestState {
-                request_id: id,
-                delivered: 0,
-            });
+            self.requests.push(RequestState { request_id: id });
         }
     }
 
@@ -4738,8 +4798,12 @@ impl Core {
                     .map(|definition| (definition, state))
             })
             .filter(|(definition, _)| definition.item_id == item)
-            .map(|(definition, state)| {
-                u64::from(definition.quantity.saturating_sub(state.delivered))
+            .map(|(definition, _)| {
+                u64::from(
+                    definition
+                        .quantity
+                        .saturating_sub(self.project_delivered(definition.id)),
+                )
             })
             .sum();
         let billed: u64 = self
@@ -4766,8 +4830,13 @@ impl Core {
     /// Without this the board is a trap rather than an offer: three materials the player has not
     /// found yet would hold every slot, and the only source of insight in the game with them.
     /// Passing costs the row one place in the draw order — it comes round again behind everything
-    /// not yet seen — and it forfeits whatever has already been delivered against it, which is why
-    /// it is a decision rather than a free reroll.
+    /// not yet seen.
+    ///
+    /// It no longer forfeits what has been delivered against the row. That forfeit was affordable
+    /// when a row could be filled again for the same price; under finite demand it would destroy
+    /// goods whose reward can never be re-earned, turning an offer to look at something else into a
+    /// trap of its own. Progress lives in `request_delivered` and waits for the project to come
+    /// back.
     fn skip_request(&mut self, slot: usize) -> Result<(), String> {
         let state = *self
             .requests
@@ -4786,11 +4855,67 @@ impl Core {
             *self.request_rounds.entry(state.request_id).or_default() -= 1;
             return Err("the hub has nothing else to ask for".into());
         };
-        self.requests[slot] = RequestState {
-            request_id: id,
-            delivered: 0,
-        };
+        self.requests[slot] = RequestState { request_id: id };
         self.events.push(format!("Passed on {name}"));
+        Ok(())
+    }
+
+    /// Put one named project on the board, in place of whichever posted row the player is least
+    /// committed to.
+    ///
+    /// This is what makes a finite catalogue browsable rather than a lottery. The draw order is a
+    /// good default and a bad constraint: once each project pays only once, "the row I need is not
+    /// posted" is no longer a wait, it is a route the player cannot take. Choosing costs the
+    /// displaced row nothing — its progress persists like any other — and the chosen project keeps
+    /// whatever it had already been given.
+    ///
+    /// The displaced slot is the posted row with the least delivered against it, ties broken by
+    /// slot, so asking for a project never silently unposts the one being worked on.
+    fn post_request(&mut self, request_id: RequestId) -> Result<(), String> {
+        let definition = self
+            .request_definition(request_id)
+            .ok_or_else(|| format!("no project {request_id}"))?
+            .clone();
+        if self.project_complete(definition.id) {
+            return Err(format!("{} is already complete", definition.name));
+        }
+        if !self.item_reachable(definition.item_id, 0) {
+            return Err(format!(
+                "{} asks for something you cannot make yet",
+                definition.name
+            ));
+        }
+        if let Some(slot) = self
+            .requests
+            .iter()
+            .position(|state| state.request_id == definition.id)
+        {
+            // Already posted. Saying so is a better answer than moving it to another slot.
+            let _ = slot;
+            return Err(format!("{} is already on the board", definition.name));
+        }
+        let target = self
+            .requests
+            .iter()
+            .enumerate()
+            .min_by_key(|(slot, state)| (self.project_delivered(state.request_id), *slot))
+            .map(|(slot, _)| slot);
+        match target {
+            Some(slot) => {
+                let displaced = self.requests[slot].request_id;
+                // The displaced row leaves the board the same way a pass leaves it: one place back
+                // in the draw order, its progress intact.
+                *self.request_rounds.entry(displaced).or_default() += 1;
+                self.requests[slot] = RequestState {
+                    request_id: definition.id,
+                };
+            }
+            None => self.requests.push(RequestState {
+                request_id: definition.id,
+            }),
+        }
+        self.events
+            .push(format!("{} posted to the board", definition.name));
         Ok(())
     }
 
@@ -7024,6 +7149,7 @@ impl Core {
                 InputCommand::Undo => self.undo(),
                 InputCommand::Research { technology_id } => self.research(technology_id),
                 InputCommand::SkipRequest { slot } => self.skip_request(slot),
+                InputCommand::PostRequest { request_id } => self.post_request(request_id),
                 InputCommand::SetCreative { enabled } => {
                     self.set_creative(enabled);
                     Ok(())
@@ -7404,23 +7530,47 @@ impl Core {
         }
     }
 
-    /// The board, in slot order, with the price on every row.
+    /// The whole project catalogue, posted rows first in slot order, then the rest in catalogue
+    /// order — with the price and the state on every row.
+    ///
+    /// Posted rows lead so the board can draw the first `REQUEST_SLOTS` entries without a filter
+    /// and without the row a player is reading jumping when something further down completes.
     fn request_snapshots(&self) -> Vec<RequestSnapshot> {
-        self.requests
+        let posted: Vec<RequestId> = self.requests.iter().map(|state| state.request_id).collect();
+        let row = |definition: &RequestDefinition, state: ProjectState| RequestSnapshot {
+            key: definition.key.clone(),
+            name: definition.name.clone(),
+            brief: definition.brief.clone(),
+            item_id: definition.item_id,
+            delivered: self
+                .project_delivered(definition.id)
+                .min(definition.quantity),
+            required: definition.quantity,
+            insight: definition.insight,
+            state,
+        };
+        let mut rows: Vec<RequestSnapshot> = posted
             .iter()
-            .filter_map(|state| {
-                let definition = self.request_definition(state.request_id)?;
-                Some(RequestSnapshot {
-                    key: definition.key.clone(),
-                    name: definition.name.clone(),
-                    brief: definition.brief.clone(),
-                    item_id: definition.item_id,
-                    delivered: state.delivered.min(definition.quantity),
-                    required: definition.quantity,
-                    insight: self.request_payout(definition),
-                })
-            })
-            .collect()
+            .filter_map(|&id| self.request_definition(id))
+            .map(|definition| row(definition, ProjectState::Posted))
+            .collect();
+        rows.extend(
+            self.definitions
+                .requests
+                .iter()
+                .filter(|definition| !posted.contains(&definition.id))
+                .map(|definition| {
+                    let state = if self.project_complete(definition.id) {
+                        ProjectState::Complete
+                    } else if self.item_reachable(definition.item_id, 0) {
+                        ProjectState::Available
+                    } else {
+                        ProjectState::Locked
+                    };
+                    row(definition, state)
+                }),
+        );
+        rows
     }
 
     /// The complete snapshot. It is the host's first frame and the oracle the incremental delta
@@ -7578,7 +7728,11 @@ impl Core {
         hash_u32(&mut hash, u32::MAX - 3);
         for state in &self.requests {
             hash_u32(&mut hash, u32::from(state.request_id));
-            hash_u32(&mut hash, state.delivered);
+        }
+        hash_u32(&mut hash, u32::MAX - 25);
+        for (&request, &delivered) in &self.request_delivered {
+            hash_u32(&mut hash, u32::from(request));
+            hash_u32(&mut hash, delivered);
         }
         hash_u32(&mut hash, u32::MAX - 4);
         for (&request, &rounds) in &self.request_rounds {
@@ -7629,6 +7783,7 @@ impl Core {
             requests: self.requests.clone(),
             request_rounds: self.request_rounds.clone(),
             request_fills: self.request_fills.clone(),
+            request_delivered: self.request_delivered.clone(),
             produced: self.produced.clone(),
             creative: self.creative,
             ground_items: self.ground_items.clone(),
@@ -7735,6 +7890,7 @@ impl Core {
         core.requests = envelope.state.requests;
         core.request_rounds = envelope.state.request_rounds;
         core.request_fills = envelope.state.request_fills;
+        core.request_delivered = envelope.state.request_delivered;
         core.last_action_cooldown_total = core.player.action_cooldown;
         core.produced = envelope.state.produced;
         core.ground_items = envelope.state.ground_items;
@@ -7813,6 +7969,11 @@ struct SavedState {
     request_rounds: BTreeMap<RequestId, u32>,
     #[serde(default)]
     request_fills: BTreeMap<RequestId, u32>,
+    /// Progress against each project, moved out of the posted slots at save 27 so a pass no longer
+    /// destroys it. Defaulted rather than required: the migration writes it, and a file that
+    /// somehow lacks it describes a run with nothing part-delivered.
+    #[serde(default)]
+    request_delivered: BTreeMap<RequestId, u32>,
     produced: BTreeMap<ItemId, u64>,
     /// Whether the run was creative. Checksummed like the rest of this struct, so it cannot be
     /// edited out of a file to turn a creative run back into a priced one.
@@ -8656,7 +8817,48 @@ fn validate_all(
 ) -> Result<(), String> {
     validate_definitions(definitions)?;
     validate_technologies(definitions, technologies)?;
+    validate_research_budget(definitions, technologies)?;
     validate_scenarios(definitions, technologies, scenarios)
+}
+
+/// The finite catalogue has to be able to pay for everything the tree sells.
+///
+/// While the board reposted paid rows this question could not be asked: income was unbounded, so
+/// the answer was trivially yes and the catalogue's size meant nothing. Finite demand turns the
+/// catalogue into a budget, and a budget that does not cover the shipped research would strand a
+/// run with technologies it can see, needs, and can never buy — a defect no test of an individual
+/// price would catch, because every price in it would be defensible on its own.
+///
+/// The margin is required rather than merely reported. The plan asks for "an explicit surplus for
+/// route choice": a catalogue that funds the tree to the last insight would technically pass while
+/// forcing one exact purchase order, which is not a choice.
+fn validate_research_budget(
+    definitions: &DefinitionsInput,
+    technologies: &TechnologiesInput,
+) -> Result<(), String> {
+    let income: u64 = definitions
+        .requests
+        .iter()
+        .map(|request| u64::from(request.insight))
+        .sum();
+    let research: u64 = technologies
+        .technologies
+        .iter()
+        .map(|technology| u64::from(technology.cost))
+        .sum();
+    if income < research {
+        return Err(format!(
+            "the project catalogue pays {income} insight but research costs {research}: \
+             finite demand would strand the tree"
+        ));
+    }
+    if income * 4 < research * 5 {
+        return Err(format!(
+            "the project catalogue pays {income} insight against {research} of research: \
+             too little surplus to leave the purchase order to the player"
+        ));
+    }
+    Ok(())
 }
 
 fn validate_definitions(definitions: &DefinitionsInput) -> Result<(), String> {
@@ -8685,7 +8887,6 @@ fn validate_definitions(definitions: &DefinitionsInput) -> Result<(), String> {
             || request.brief.trim().is_empty()
             || request.quantity == 0
             || request.insight == 0
-            || request.repeat_insight == Some(0)
             || !item_ids.contains(&request.item_id)
         {
             return Err(format!("request {} is incomplete", request.id));
@@ -9497,12 +9698,29 @@ fn validate_saved_state(
     // survive the checksum and then be drawn as a request nobody can read.
     let mut posted = BTreeSet::new();
     for slot in &state.requests {
+        if !definitions
+            .requests
+            .iter()
+            .any(|request| request.id == slot.request_id)
+        {
+            return Err("save references an unknown hub request".into());
+        }
+        if !posted.insert(slot.request_id) {
+            return Err("save contains invalid hub request state".into());
+        }
+    }
+    // Progress now belongs to the project rather than the slot, so it is checked here: a count
+    // above the bill, or one standing against a project already paid for, would survive the
+    // checksum and then read as a project permanently one delivery from completion.
+    for (id, &delivered) in &state.request_delivered {
         let definition = definitions
             .requests
             .iter()
-            .find(|request| request.id == slot.request_id)
+            .find(|request| request.id == *id)
             .ok_or("save references an unknown hub request")?;
-        if slot.delivered > definition.quantity || !posted.insert(slot.request_id) {
+        if delivered > definition.quantity
+            || state.request_fills.get(id).copied().unwrap_or_default() > 0
+        {
             return Err("save contains invalid hub request state".into());
         }
     }
@@ -13702,6 +13920,26 @@ mod tests {
         }
         core.dirty = SnapshotDirty::default();
         core
+    }
+
+    /// The rows actually posted, in slot order. The snapshot carries the whole catalogue now, so
+    /// "the board" is a filter over it rather than the list itself.
+    fn posted_board(core: &Core) -> Vec<String> {
+        core.request_snapshots()
+            .iter()
+            .filter(|request| request.state == ProjectState::Posted)
+            .map(|request| request.key.clone())
+            .collect()
+    }
+
+    /// A project's id from the key the catalogue calls it by.
+    fn project_id(core: &Core, key: &str) -> RequestId {
+        core.definitions
+            .requests
+            .iter()
+            .find(|request| request.key == key)
+            .map(|request| request.id)
+            .expect("a project in the catalogue")
     }
 
     /// The four starter automation technologies the hub grants after Prove the line.
@@ -18659,6 +18897,7 @@ mod tests {
         let board = |core: &Core| -> Vec<String> {
             core.request_snapshots()
                 .iter()
+                .filter(|request| request.state == ProjectState::Posted)
                 .map(|request| request.key.clone())
                 .collect()
         };
@@ -18677,6 +18916,15 @@ mod tests {
         assert_eq!(board(&core), ["clay-survey", "cliff-stone", "cordwood"]);
         assert_eq!(core.request_rounds.get(&1), Some(&1));
         assert_eq!(core.request_fills.get(&1), Some(&1));
+        // And the row it paid for is retired, not merely off the board: the catalogue still
+        // carries it so the player can see the work is done.
+        let paid = core
+            .request_snapshots()
+            .into_iter()
+            .find(|request| request.key == "ore-assay")
+            .expect("a filled project stays in the catalogue");
+        assert_eq!(paid.state, ProjectState::Complete);
+        assert_eq!(paid.delivered, 0, "a retired project holds no progress");
     }
 
     /// Passing a row costs it a place in the queue, not its first-fill bonus. Skip used to share
@@ -18689,10 +18937,7 @@ mod tests {
         core.skip_request(0).unwrap();
         assert_eq!(core.request_rounds.get(&1), Some(&1));
         assert!(core.request_fills.get(&1).is_none());
-        core.requests[0] = RequestState {
-            request_id: 1,
-            delivered: 0,
-        };
+        core.requests[0] = RequestState { request_id: 1 };
         let before = core.insight;
         core.player.inventory.insert(1, 10);
         core.deposit_inventory().unwrap();
@@ -18704,23 +18949,123 @@ mod tests {
         assert_eq!(core.request_fills.get(&1), Some(&1));
     }
 
-    /// A later fill of a raw row pays `repeat_insight`, not the opening survey.
+    /// A filled project is finished, and finished is for good. Delivering its item again is
+    /// ordinary freight into the hub, not a second payment.
+    ///
+    /// This is the shape the catalogue used to have inverted. A raw row paid ten once and two for
+    /// ever after, so the board was a tap: slow, dull, and unbounded, which meant no amount of
+    /// research could ever actually be priced. Demand is a bill now.
     #[test]
-    fn a_repeated_raw_request_pays_the_decayed_rate() {
+    fn a_filled_project_never_pays_again() {
         let mut core = game("new-game");
         set_player_hex(&mut core, 1, 0);
         core.player.inventory.insert(1, 10);
         core.deposit_inventory().unwrap();
         assert_eq!(core.insight, 10);
-        // Force ore-assay back onto the board and fill it again.
-        core.requests[0] = RequestState {
-            request_id: 1,
-            delivered: 0,
-        };
+        assert_eq!(core.request_fills.get(&1), Some(&1));
+        // Force ore-assay back into a slot by hand — nothing in the game can do this — and the
+        // hub still refuses to buy what it has already commissioned.
+        core.requests[0] = RequestState { request_id: 1 };
         core.player.inventory.insert(1, 10);
         core.deposit_inventory().unwrap();
-        assert_eq!(core.insight, 12);
-        assert_eq!(core.request_fills.get(&1), Some(&2));
+        assert_eq!(core.insight, 10, "a second delivery buys nothing");
+        assert_eq!(core.request_fills.get(&1), Some(&1));
+    }
+
+    /// Passing a part-filled project keeps what was handed over. Progress belongs to the project,
+    /// not to the slot it happened to be posted in.
+    ///
+    /// Under repeatable demand a skip that dropped the count cost a few minutes. Under a finite
+    /// catalogue it would destroy goods whose reward can never be earned again, so the count moved
+    /// off the board and onto the project itself.
+    #[test]
+    fn passing_a_part_filled_project_keeps_its_progress() {
+        let mut core = game("new-game");
+        set_player_hex(&mut core, 1, 0);
+        core.player.inventory.insert(1, 6);
+        core.deposit_inventory().unwrap();
+        assert_eq!(core.insight, 0);
+        assert_eq!(core.project_delivered(1), 6);
+        core.skip_request(0).unwrap();
+        assert_eq!(core.project_delivered(1), 6, "the skip kept the ore");
+        // Post it again and the remaining four finish it at the full price.
+        core.post_request(project_id(&core, "ore-assay")).unwrap();
+        core.player.inventory.insert(1, 4);
+        core.deposit_inventory().unwrap();
+        assert_eq!(core.insight, 10);
+        assert_eq!(core.project_delivered(1), 0);
+    }
+
+    /// Posting is the player's choice, and the catalogue is the whole board. A finite bill has to
+    /// be browsable or a row that funds nothing else could hide behind two that do.
+    #[test]
+    fn posting_a_project_displaces_the_least_committed_slot() {
+        let mut core = game("new-game");
+        set_player_hex(&mut core, 1, 0);
+        // Commit ore to the first slot, so an untouched slot is the cheapest thing to displace.
+        let committed = project_id(&core, "ore-assay");
+        let wanted = project_id(&core, "clay-survey");
+        core.player.inventory.insert(1, 4);
+        core.deposit_inventory().unwrap();
+        assert_eq!(core.project_delivered(committed), 4);
+        core.post_request(wanted).unwrap();
+        let posted: Vec<_> = core.requests.iter().map(|slot| slot.request_id).collect();
+        assert!(posted.contains(&wanted), "clay-survey took a slot");
+        assert!(
+            posted.contains(&committed),
+            "the part-filled row was displaced ahead of an untouched one, got {posted:?}"
+        );
+        assert_eq!(
+            core.post_request(wanted),
+            Err("Clay survey is already on the board".to_owned())
+        );
+        assert!(core.post_request(9999).is_err());
+    }
+
+    /// Part-delivered goods survive a save. They are the one thing in the request system a player
+    /// cannot re-earn, so losing them across a reload would be losing the work outright.
+    #[test]
+    fn a_save_carries_progress_against_an_unposted_project() {
+        let mut core = game("new-game");
+        set_player_hex(&mut core, 1, 0);
+        let ore = project_id(&core, "ore-assay");
+        core.player.inventory.insert(1, 6);
+        core.deposit_inventory().unwrap();
+        core.skip_request(0).unwrap();
+        assert!(!posted_board(&core).contains(&"ore-assay".to_owned()));
+        let (definitions, technologies, scenarios) = catalogs();
+        let resumed = Core::from_save(
+            &definitions,
+            &technologies,
+            &scenarios,
+            &core.save_string().unwrap(),
+        )
+        .unwrap();
+        assert_eq!(resumed.project_delivered(ore), 6);
+        assert_eq!(core.checksum(), resumed.checksum());
+        // And the checksum notices: progress is saved state, so a file that lost it is a different
+        // game rather than the same game rounded.
+        let with = core.checksum();
+        core.request_delivered.remove(&ore);
+        assert_ne!(with, core.checksum());
+    }
+
+    /// The board closes when the hub has nothing left to ask for. A finite catalogue that quietly
+    /// reposted its last row for ever would be the tap again, wearing a bill's clothes.
+    #[test]
+    fn the_board_empties_once_the_catalogue_is_exhausted() {
+        let mut core = game("new-game");
+        set_player_hex(&mut core, 1, 0);
+        for request in &core.definitions.requests {
+            core.request_fills.insert(request.id, 1);
+        }
+        core.requests.clear();
+        core.refill_requests();
+        assert!(core.requests.is_empty(), "nothing is left to post");
+        assert!(core
+            .request_snapshots()
+            .iter()
+            .all(|request| request.state == ProjectState::Complete));
     }
 
     /// The hub takes what it asked for and leaves the rest in the pack — by hand and by belt, at one
@@ -18832,11 +19177,7 @@ mod tests {
         grant_foundations(&mut core);
         core.research(5).unwrap();
         assert!(core.item_reachable(11, 0));
-        let before: Vec<String> = core
-            .request_snapshots()
-            .iter()
-            .map(|request| request.key.clone())
-            .collect();
+        let before: Vec<String> = posted_board(&core);
         assert!(
             before.iter().all(|key| {
                 let item = core
@@ -18852,11 +19193,7 @@ mod tests {
         );
         core.player.inventory.insert(1, 10);
         core.deposit_inventory().unwrap();
-        let after: Vec<String> = core
-            .request_snapshots()
-            .iter()
-            .map(|request| request.key.clone())
-            .collect();
+        let after: Vec<String> = posted_board(&core);
         let depths: Vec<u32> = after
             .iter()
             .map(|key| {
@@ -18874,7 +19211,11 @@ mod tests {
             depths.iter().any(|&depth| depth > 0),
             "the freed slot should post the deepest reachable row, got {after:?} at {depths:?}"
         );
-        for request in core.request_snapshots() {
+        for request in core
+            .request_snapshots()
+            .iter()
+            .filter(|request| request.state == ProjectState::Posted)
+        {
             assert!(
                 core.item_reachable(request.item_id, 0),
                 "reserved slot posted item {}, which cannot be produced",
@@ -19222,7 +19563,9 @@ mod tests {
             }),
             // A board with one row part-filled and one untouched, so a decoder that loses the
             // count, swaps `delivered` and `required`, or reads the price before the numbers cannot
-            // pass. The brief carries the multi-byte case the events list carries too.
+            // pass. The brief carries the multi-byte case the events list carries too. Two
+            // different states, either side of the numbers, so a decoder that drops the state byte
+            // or reads it at the wrong offset fails here rather than in the panel.
             requests: Some(vec![
                 RequestSnapshot {
                     key: "plate-stock".to_owned(),
@@ -19232,6 +19575,7 @@ mod tests {
                     delivered: 3,
                     required: 8,
                     insight: 22,
+                    state: ProjectState::Posted,
                 },
                 RequestSnapshot {
                     key: "cliff-stone".to_owned(),
@@ -19241,6 +19585,7 @@ mod tests {
                     delivered: 0,
                     required: 10,
                     insight: 10,
+                    state: ProjectState::Complete,
                 },
             ]),
             player: Some(PlayerSnapshot {
@@ -19818,65 +20163,45 @@ mod tests {
         }
     }
 
-    /// The first cycle of every raw row is what funds the early tree. Repeating those rows is
-    /// a floor, not a path: worse per gather *and* per minute than every processed row, measured
-    /// against the new hand rates. Machine-only raw (crystal) is not a hand grind and is not in
-    /// this comparison.
+    /// The finite catalogue pays for the whole purchasable tree, with room to spare.
+    ///
+    /// This is the safeguard that makes finite demand shippable at all. Once a project retires
+    /// there is no tap to fall back on, so if the catalogue ever priced below the tree a player
+    /// could deliver every commission the hub will ever make and still be locked out of research
+    /// with nothing left to sell. The surplus is deliberate: it has to be possible to spend on the
+    /// wrong branch first and still finish, or the "choice" of what to research is a quiz.
     #[test]
-    fn a_repeated_raw_row_pays_worse_than_every_processed_row() {
+    fn the_finite_catalogue_funds_the_whole_research_tree() {
         let report = balance::compute();
-        let handable: BTreeSet<_> = report
-            .reference
-            .hand_gathers
-            .iter()
-            .map(|gather| gather.item.as_str())
-            .collect();
-        let raw: Vec<_> = report
-            .requests
-            .iter()
-            .filter(|request| {
-                request.machine_ticks == 0 && handable.contains(request.item.as_str())
-            })
-            .collect();
-        let processed: Vec<_> = report
-            .requests
-            .iter()
-            .filter(|request| request.machine_ticks > 0)
-            .collect();
+        let budget = &report.budget;
         assert!(
-            raw.len() >= 7,
-            "the eight opening materials, less water and crystal"
+            budget.project_insight >= budget.research_cost,
+            "{} projects pay {} against {} of research",
+            budget.projects,
+            budget.project_insight,
+            budget.research_cost
         );
-        let best_repeat_gather = raw
-            .iter()
-            .map(|request| request.repeat_insight_per_gather_milli)
-            .max()
-            .expect("a raw request");
-        let best_repeat_minute = raw
-            .iter()
-            .map(|request| request.repeat_insight_per_minute_milli)
-            .max()
-            .expect("a raw request");
-        for request in processed {
-            assert!(
-                request.insight_per_gather_milli > best_repeat_gather,
-                "{} pays {} /gather against a repeated raw row at {}",
-                request.request,
-                request.insight_per_gather_milli,
-                best_repeat_gather
-            );
-            assert!(
-                request.insight_per_minute_milli > best_repeat_minute,
-                "{} pays {} /min against a repeated raw row at {}",
-                request.request,
-                request.insight_per_minute_milli,
-                best_repeat_minute
-            );
-        }
+        assert!(
+            budget.surplus_ratio_milli >= 1250,
+            "the catalogue pays {} for {} of research — {}x, and a wrong purchase order strands \
+             the player",
+            budget.project_insight,
+            budget.research_cost,
+            budget.surplus_ratio_milli as f64 / 1000.0
+        );
+        // The grants are not bought, and counting them as cost would flatter the ratio above.
+        assert!(
+            !budget.granted_technologies.is_empty(),
+            "the contract stages still hand technologies over"
+        );
     }
 
-    /// One cycle of every raw request, first fill, is less than the technology tree. Repeats exist
-    /// so a player without fuel is not stranded; they are not a way to finish research.
+    /// Every raw project the hub will ever post, added up, is less than the technology tree.
+    ///
+    /// Raw rows are the bootstrap and nothing more. Because each pays exactly once, this sum *is*
+    /// the entire lifetime income of hand-gathering, so the assertion is now a hard floor rather
+    /// than a rate comparison: a player who never builds a machine cannot finish the tree, and the
+    /// processed rows are the only way across.
     #[test]
     fn the_technology_tree_cannot_be_funded_by_one_cycle_of_raw_requests() {
         let report = balance::compute();
@@ -20084,18 +20409,17 @@ mod tests {
         );
     }
 
-    /// Research is funded at the price the board actually pays, which is not the first-fill price.
+    /// Research is funded out of distinct projects, each counted once at its posted price.
     ///
-    /// Every raw row pays 10 insight once and 2 for ever after. Counting `insight / 10` was the
-    /// harness quoting a rate the hub withdraws after one delivery, and it made every opening that
-    /// buys more than one technology look about a third of its real length. The arithmetic under a
-    /// funding line is now one fill at the first price and the remainder at the repeat price, and
-    /// this recomputes it from the catalogue rather than trusting the field.
+    /// A funding line used to name one request and grind it, so the harness quoted a length that
+    /// no longer exists: the hub buys a given bill exactly once. An opening's cost is now a
+    /// shopping list — whole projects, cheapest per item first, until the insight is raised — and
+    /// this recomputes that list from the catalogue rather than trusting the field.
     #[test]
-    fn research_funding_is_counted_at_the_repeat_price_the_board_pays() {
+    fn research_funding_is_counted_as_whole_distinct_projects() {
         let report = balance::compute();
         let (definitions, _, _) = catalogs();
-        let mut decayed = 0;
+        let mut multi = 0;
         let openings = report
             .openings
             .iter()
@@ -20107,37 +20431,57 @@ mod tests {
                     "{} pays for nothing",
                     opening.name
                 );
+                assert!(opening.insight_projects.is_empty());
                 continue;
             }
-            let request = definitions
-                .requests
+            let named: Vec<_> = opening
+                .insight_projects
                 .iter()
-                .find(|request| request.key == opening.insight_request)
-                .expect("a funding line names a standing request");
-            let repeat = request.repeat_insight.unwrap_or(request.insight);
-            let fills = if request.insight >= opening.insight {
-                1
-            } else {
-                1 + (opening.insight - request.insight).div_ceil(repeat)
-            };
+                .map(|key| {
+                    definitions
+                        .requests
+                        .iter()
+                        .find(|request| &request.key == key)
+                        .expect("a funding line names a standing project")
+                })
+                .collect();
+            let unique: BTreeSet<_> = opening.insight_projects.iter().collect();
+            assert_eq!(
+                unique.len(),
+                opening.insight_projects.len(),
+                "{} funds itself by delivering the same project twice",
+                opening.name
+            );
+            let raised: u32 = named.iter().map(|request| request.insight).sum();
+            assert!(
+                raised >= opening.insight,
+                "{} raises {} against a bill of {}",
+                opening.name,
+                raised,
+                opening.insight
+            );
+            // Whole projects, so the list must not carry a row it did not need to reach the bill.
+            let without = raised - named.last().expect("a funded line names one").insight;
+            assert!(
+                without < opening.insight,
+                "{} lists a project it does not need",
+                opening.name
+            );
             assert_eq!(
                 opening.insight_items,
-                fills * request.quantity,
-                "{} funds {} insight off {}",
+                named.iter().map(|request| request.quantity).sum::<u32>(),
+                "{} funds {} insight off {:?}",
                 opening.name,
                 opening.insight,
-                request.key
+                opening.insight_projects
             );
-            // The correction only bites where more than one fill is needed; the naive count is
-            // the same arithmetic with no decay at all.
-            let naive = opening.insight.div_ceil(request.insight) * request.quantity;
-            if opening.insight_items > naive {
-                decayed += 1;
+            if named.len() > 1 {
+                multi += 1;
             }
         }
         assert!(
-            decayed > 0,
-            "no opening pays the repeat price, so the decay is not being measured"
+            multi > 0,
+            "no opening needs a second project, so the finite count is not being measured"
         );
     }
 
@@ -21316,7 +21660,11 @@ mod tests {
         // after — see `just_received`. The workload's shape and entity count did not move; a line's
         // cargo now spends a tick on each belt it crosses instead of the whole line in one, so this
         // window's delivered total is the one below.
-        assert_eq!(first.checksum(), 2_222_187_037);
+        //
+        // 2_222_187_037 → 3_614_679_184 when project progress moved off the board slot and onto the
+        // project, so `checksum` hashes `request_delivered` instead of a per-slot count. The
+        // workload's shape, entity count, and delivered total did not move.
+        assert_eq!(first.checksum(), 3_614_679_184);
         assert_eq!(first.entities.len(), spec.entities() as usize);
         // Every line must be running end to end, or the tiers would measure an idle blueprint.
         // Four per line rather than fourteen: the line is now extraction-bound, because a

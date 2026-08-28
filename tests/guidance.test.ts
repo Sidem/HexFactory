@@ -68,6 +68,7 @@ function boardFor(filled: string[]): RequestSnapshot[] {
       delivered: 0,
       required: request.quantity,
       insight: request.insight,
+      state: "posted" as const,
     }));
 }
 

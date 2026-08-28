@@ -94,6 +94,7 @@ const snapshot: FactorySnapshot = {
       delivered: 2,
       required: 10,
       insight: 10,
+      state: "posted",
     },
   ],
   player: {
@@ -431,6 +432,17 @@ describe("bounded host input", () => {
     expect(() =>
       encodeCommand({ type: "aim", x: MAX_AIM_COORDINATE + 1, y: 0 }),
     ).toThrow(RangeError);
+    // Posting names a project by id and nothing else. Which board slot it displaces is native's
+    // call, for the same reason the draw order is: the host does not know what the player has
+    // committed where, and demand being finite makes that the expensive thing to get wrong.
+    expect(encodeCommand({ type: "post_request", request_id: 4 })).toEqual({
+      opcode: 28,
+      args: [4],
+    });
+    expect(encodeCommand({ type: "skip_request", slot: 1 })).toEqual({
+      opcode: 16,
+      args: [1],
+    });
 
     const main = readFileSync(
       new URL("../src/main.ts", import.meta.url),

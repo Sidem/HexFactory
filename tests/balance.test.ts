@@ -289,11 +289,11 @@ describe("the economy's stated curve", () => {
     );
   });
 
-  it("funds research at the price the board keeps paying, not the first-fill price", () => {
-    // A raw row pays ten insight once and two for ever after. Counting every fill at ten prices
-    // research against a reward the hub withdraws after one delivery, which made an opening that
-    // buys more than one technology look about a third of its real length.
-    let decayed = 0;
+  it("funds research out of whole distinct projects", () => {
+    // The hub buys a given bill exactly once, so an opening's insight is raised by delivering
+    // several different projects rather than by grinding one. Counting fills of a single row would
+    // quote a length no player can walk.
+    let multi = 0;
     const rows = [
       ...fixture.openings,
       ...fixture.contracts.map((contract) => contract.opening),
@@ -301,26 +301,51 @@ describe("the economy's stated curve", () => {
     for (const row of rows) {
       if (row.insight === 0) {
         expect(row.insight_items, row.name).toBe(0);
+        expect(row.insight_projects, row.name).toEqual([]);
         continue;
       }
-      const request = catalogue.requests.find(
-        (request) => request.key === row.insight_request,
+      const named = row.insight_projects.map((key) =>
+        catalogue.requests.find((request) => request.key === key),
       );
-      expect(request, `${row.name} names a standing request`).toBeDefined();
-      if (!request) continue;
-      const repeat = request.repeat_insight ?? request.insight;
-      const fills =
-        request.insight >= row.insight
-          ? 1
-          : 1 + Math.ceil((row.insight - request.insight) / repeat);
-      expect(row.insight_items, row.name).toBe(fills * request.quantity);
-      if (
-        row.insight_items >
-        Math.ceil(row.insight / request.insight) * request.quantity
-      )
-        decayed += 1;
+      expect(
+        named.every((request) => request !== undefined),
+        `${row.name} names standing projects`,
+      ).toBe(true);
+      const projects = named.filter((request) => request !== undefined);
+      expect(new Set(row.insight_projects).size, row.name).toBe(
+        row.insight_projects.length,
+      );
+      const raised = projects.reduce(
+        (sum, request) => sum + request.insight,
+        0,
+      );
+      expect(raised, row.name).toBeGreaterThanOrEqual(row.insight);
+      // Whole projects: dropping the last one has to fall short, or the list carries a row the
+      // opening never needed.
+      const last = projects[projects.length - 1];
+      expect(raised - (last?.insight ?? 0), row.name).toBeLessThan(row.insight);
+      expect(row.insight_items, row.name).toBe(
+        projects.reduce((sum, request) => sum + request.quantity, 0),
+      );
+      if (projects.length > 1) multi += 1;
     }
-    expect(decayed, "no row pays the repeat price").toBeGreaterThan(0);
+    expect(multi, "no opening needs a second project").toBeGreaterThan(0);
+  });
+
+  it("funds the whole purchasable tree out of a finite catalogue", () => {
+    // The safeguard behind finite demand: once a project retires there is nothing to fall back on,
+    // so the catalogue has to cover the tree with enough slack that spending on the wrong branch
+    // first is a detour rather than a dead end.
+    const budget = fixture.budget;
+    expect(budget.project_insight).toBeGreaterThanOrEqual(budget.research_cost);
+    expect(budget.surplus_ratio_milli).toBeGreaterThanOrEqual(1250);
+    expect(budget.projects).toBe(catalogue.requests.length);
+    expect(budget.project_insight).toBe(
+      catalogue.requests.reduce((sum, request) => sum + request.insight, 0),
+    );
+    // Raw rows are the bootstrap, and because each pays once this is their entire lifetime income.
+    expect(budget.raw_project_insight).toBeLessThan(budget.research_cost);
+    expect(budget.granted_technologies.length).toBeGreaterThan(0);
   });
 
   it("describes the catalogue it was generated from", () => {
@@ -647,7 +672,11 @@ describe("the economy's stated curve", () => {
     );
   });
 
-  it("prices a later fill of a raw row below every processed row", () => {
+  it("prices every hand-gathered project below every processed one", () => {
+    // Per gather, which is the rate a player can actually improve. Raw rows still pay better per
+    // *minute* — a gather is quick and a furnace is not — and that is fine now demand is finite:
+    // the whole hand-gathered catalogue is 73 insight against 137 of research, so hand-gathering
+    // cannot substitute for processing however fast it runs. It buys time, not the tree.
     const handable = new Set(
       fixture.reference.hand_gathers.map(({ item }) => item),
     );
@@ -657,21 +686,20 @@ describe("the economy's stated curve", () => {
     const processed = fixture.requests.filter(
       (request) => request.machine_ticks > 0,
     );
-    const bestRepeatGather = Math.max(
-      ...raw.map((request) => request.repeat_insight_per_gather_milli),
-    );
-    const bestRepeatMinute = Math.max(
-      ...raw.map((request) => request.repeat_insight_per_minute_milli),
+    expect(raw.length).toBeGreaterThanOrEqual(7);
+    const bestRawGather = Math.max(
+      ...raw.map((request) => request.insight_per_gather_milli),
     );
     for (const request of processed) {
       expect(
         request.insight_per_gather_milli,
         `${request.request} per gather`,
-      ).toBeGreaterThan(bestRepeatGather);
-      expect(
-        request.insight_per_minute_milli,
-        `${request.request} per minute`,
-      ).toBeGreaterThan(bestRepeatMinute);
+      ).toBeGreaterThan(bestRawGather);
     }
+    const rawInsight = raw.reduce(
+      (total, request) => total + request.insight,
+      0,
+    );
+    expect(rawInsight).toBeLessThan(fixture.budget.research_cost);
   });
 });

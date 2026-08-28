@@ -166,6 +166,10 @@ export function encodeCommand(command: NativeInputCommand): EncodedCommand {
     // native's — the host never re-derives the draw order.
     case "skip_request":
       return { opcode: 16, args: [command.slot] };
+    // A pull names a project and nothing else. Which slot it displaces is native's, for the same
+    // reason the draw order is: the host does not know what the player has committed where.
+    case "post_request":
+      return { opcode: 28, args: [command.request_id] };
     // The state, not a flip: encoding a toggle would make the opcode stream order-dependent, and
     // two presses of the same button would cancel instead of settling.
     case "set_enabled":

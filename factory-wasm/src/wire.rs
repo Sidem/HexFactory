@@ -82,7 +82,12 @@ pub(crate) const WIRE_MAGIC: [u8; 4] = *b"HXFD";
 ///
 /// Version 12 adds ground items for dropped player cargo with 1-minute despawn timers.
 /// Version 13 appends the native research availability group.
-pub(crate) const WIRE_VERSION: u8 = 13;
+///
+/// Version 14 is Practical Projects. The request group now carries the whole finite catalogue
+/// rather than the three posted slots, and every row gains a state byte behind its price. A
+/// version-13 decoder would read that byte as the start of the next row's key length and mis-frame
+/// the rest of the group — and would in any case draw a locked project as a posted one.
+pub(crate) const WIRE_VERSION: u8 = 14;
 
 /// Which optional groups the buffer carries, in the order they are written.
 mod group {
@@ -165,6 +170,30 @@ fn terrain_code(terrain: Terrain) -> u8 {
         Terrain::Hills => 4,
         Terrain::Highland => 5,
         Terrain::Cliff => 6,
+    }
+}
+
+fn project_state_code(state: ProjectState) -> u8 {
+    match state {
+        ProjectState::Locked => 0,
+        ProjectState::Available => 1,
+        ProjectState::Posted => 2,
+        ProjectState::Complete => 3,
+    }
+}
+
+/// The inverse. An unknown code is `Locked` rather than a panic: the worst a wrong guess does here
+/// is grey out a row the player could have asked for, where a panic would take the frame down.
+///
+/// Only the round-trip tests decode — the real reader is TypeScript — so this is test-only, and
+/// `snapshotWire.ts` carries the mapping that ships.
+#[cfg(test)]
+fn project_state(code: u8) -> ProjectState {
+    match code {
+        1 => ProjectState::Available,
+        2 => ProjectState::Posted,
+        3 => ProjectState::Complete,
+        _ => ProjectState::Locked,
     }
 }
 
@@ -344,6 +373,7 @@ pub(crate) fn encode_delta(delta: &SnapshotDelta) -> Vec<u8> {
             writer.uvarint(u64::from(request.delivered));
             writer.uvarint(u64::from(request.required));
             writer.uvarint(u64::from(request.insight));
+            writer.u8(project_state_code(request.state));
         }
     }
     if let Some(player) = &delta.player {
@@ -808,6 +838,7 @@ pub(crate) mod decode {
                     delivered: reader.uvarint() as u32,
                     required: reader.uvarint() as u32,
                     insight: reader.uvarint() as u32,
+                    state: project_state(reader.u8()),
                 })
                 .collect()
         });

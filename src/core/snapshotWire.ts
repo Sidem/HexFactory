@@ -9,6 +9,7 @@ import type {
   FactorySnapshotDelta,
   GroundItemSnapshot,
   Ingredient,
+  ProjectState,
   RequestSnapshot,
   ResearchAvailability,
   ResourceSnapshot,
@@ -37,7 +38,7 @@ import type {
  */
 
 const MAGIC = 0x48584644; // "HXFD"
-const VERSION = 13;
+const VERSION = 14;
 
 /** Wire code is the index. Pinned against Rust by `fixtures/snapshot-delta-wire.json`. */
 const KINDS: BuildingKind[] = [
@@ -62,6 +63,14 @@ const TERRAIN: Terrain[] = [
   "hills",
   "highland",
   "cliff",
+];
+
+/** Index is the code `project_state_code` writes; an unknown code reads as `locked`. */
+const PROJECT_STATE: ProjectState[] = [
+  "locked",
+  "available",
+  "posted",
+  "complete",
 ];
 
 const STATUSES: string[] = [
@@ -284,6 +293,7 @@ export function decodeSnapshotDelta(buffer: ArrayBuffer): FactorySnapshotDelta {
         delivered: reader.uvarint(),
         required: reader.uvarint(),
         insight: reader.uvarint(),
+        state: PROJECT_STATE[reader.u8()] ?? "locked",
       };
     delta.requests = requests;
   }

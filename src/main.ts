@@ -73,6 +73,7 @@ import type {
   ItemDefinition,
   NativeInputCommand,
   PlacementPreview,
+  ProjectState,
   RecipeDefinition,
   StockKind,
   WorldParams,
@@ -2069,7 +2070,11 @@ function renderInspectorHub(building: EntitySnapshot | undefined): void {
   contractList.hidden = contract.complete || contractRows.length === 0;
 
   const list = required<HTMLElement>("inspect-hub-requests");
-  const requests = snapshot.requests;
+  // The snapshot carries the whole catalogue so the projects panel can browse it; the hub's own
+  // panel is still just the board, which is the part you can deliver into right now.
+  const requests = snapshot.requests.filter(
+    (request) => request.state === "posted",
+  );
   const rows = syncChildren(
     list,
     requests.map((request) => request.key),
@@ -2087,34 +2092,31 @@ function renderInspectorHub(building: EntitySnapshot | undefined): void {
       snapshot.player.inventory[String(request.item_id)] ??
       snapshot.player.inventory[request.item_id] ??
       0;
-    const haveEnough = carried >= request.required;
+    // What is owed is the bill less what has already been handed over — progress belongs to the
+    // project now, so a row reposted after a skip asks only for the remainder.
+    const owed = Math.max(0, request.required - request.delivered);
+    const haveEnough = carried >= owed;
 
     paintChip(part<HTMLElement>(row, ".inspect-hub-item"), request.item_id, {
-      progress: { have: carried, need: request.required },
+      progress: {
+        have: Math.min(request.required, request.delivered + carried),
+        need: request.required,
+      },
       meter: true,
-      shortfall: Math.max(0, request.required - carried),
+      shortfall: Math.max(0, owed - carried),
     });
 
-    const definition = host.definitions.requests.find(
-      (value) => value.key === request.key,
-    );
-    const later = definition?.repeat_insight;
-    part(row, ".inspect-hub-price").textContent =
-      later !== undefined && later !== request.insight
-        ? `+${request.insight} ◆ then +${later}`
-        : `+${request.insight} ◆`;
+    part(row, ".inspect-hub-price").textContent = `+${request.insight} ◆`;
     part(row, ".inspect-hub-brief").textContent = request.brief;
 
     const button = part<HTMLButtonElement>(row, ".inspect-hub-deliver");
     button.dataset.itemId = String(request.item_id);
     button.disabled = !haveEnough;
     button.classList.toggle("ready", haveEnough);
-    button.textContent = haveEnough
-      ? "Complete"
-      : `Need ${request.required - carried}`;
+    button.textContent = haveEnough ? "Complete" : `Need ${owed - carried}`;
     button.title = haveEnough
-      ? `Deliver ${request.required} ${request.name} to earn insight`
-      : `You need ${request.required - carried} more ${request.name} in your pack`;
+      ? `Deliver ${owed} ${request.name} to earn insight — this project pays once`
+      : `You need ${owed - carried} more ${request.name} in your pack`;
   });
 }
 
@@ -2411,9 +2413,12 @@ function renderContract(): void {
  */
 function renderRequests(): void {
   const board = required<HTMLElement>("request-board");
+  const posted = snapshot.requests.filter(
+    (request) => request.state === "posted",
+  );
   const rows = syncChildren(
     board,
-    snapshot.requests.map((request) => request.key),
+    posted.map((request) => request.key),
     () => {
       const row = document.createElement("li");
       row.className = "request-line";
@@ -2421,31 +2426,92 @@ function renderRequests(): void {
       return row;
     },
   );
-  snapshot.requests.forEach((request, index) => {
+  posted.forEach((request, index) => {
     const row = rows[index];
     if (!row) return;
     const carried =
       snapshot.player.inventory[String(request.item_id)] ??
       snapshot.player.inventory[request.item_id] ??
       0;
-    // Same chip as the bill and the pack: reflects how many units the player carries against
-    // what the request asks for, so it is obvious when you have enough to complete it.
+    const owed = Math.max(0, request.required - request.delivered);
+    // Same chip as the bill and the pack: what has been handed over plus what is in the pack,
+    // against the bill — so a project part-filled before a skip does not read as untouched.
     paintChip(part<HTMLElement>(row, ".request-item"), request.item_id, {
-      progress: { have: carried, need: request.required },
+      progress: {
+        have: Math.min(request.required, request.delivered + carried),
+        need: request.required,
+      },
       meter: true,
-      shortfall: Math.max(0, request.required - carried),
+      shortfall: Math.max(0, owed - carried),
     });
-    const definition = host.definitions.requests.find(
-      (value) => value.key === request.key,
-    );
-    const later = definition?.repeat_insight;
-    part(row, ".request-price").textContent =
-      later !== undefined && later !== request.insight
-        ? `+${request.insight} ◆ then +${later}`
-        : `+${request.insight} ◆`;
+    part(row, ".request-price").textContent = `+${request.insight} ◆`;
     part(row, ".request-brief").textContent = request.brief;
   });
   required<HTMLElement>("requests-detail").hidden = rows.length === 0;
+  renderProjectCatalogue();
+}
+
+/** How a project's state reads on a catalogue row, and whether it can be posted from there. */
+const PROJECT_LABEL: Record<ProjectState, string> = {
+  posted: "On the board",
+  available: "Ready to post",
+  complete: "Done",
+  locked: "Not yet makeable",
+};
+
+/**
+ * The whole bill of work.
+ *
+ * Finite demand only works if it is legible. Three slots out of twenty-two is a peephole, and a
+ * player who cannot see the rest has no way to tell whether the insight they are about to spend is
+ * replaceable — so the catalogue lists every project, what it pays, and where it stands, and lets
+ * the player pull one onto the board rather than waiting for it to come round.
+ */
+function renderProjectCatalogue(): void {
+  const list = required<HTMLElement>("project-catalogue-list");
+  const projects = snapshot.requests;
+  const rows = syncChildren(
+    list,
+    projects.map((project) => project.key),
+    () => {
+      const row = document.createElement("li");
+      row.className = "request-line project-line";
+      row.innerHTML = `<span class="request-item chip-host"></span><span class="request-price"></span><span class="project-state"></span><button type="button" class="project-post">Post</button><small class="request-brief"></small>`;
+      return row;
+    },
+  );
+  let done = 0;
+  let remaining = 0;
+  projects.forEach((project, index) => {
+    const row = rows[index];
+    if (!row) return;
+    if (project.state === "complete") done += 1;
+    else remaining += project.insight;
+    row.dataset.state = project.state;
+    paintChip(part<HTMLElement>(row, ".request-item"), project.item_id, {
+      progress: { have: project.delivered, need: project.required },
+      meter: project.delivered > 0,
+    });
+    part(row, ".request-price").textContent = `+${project.insight} ◆`;
+    part(row, ".project-state").textContent = PROJECT_LABEL[project.state];
+    part(row, ".request-brief").textContent = project.brief;
+    const post = part<HTMLButtonElement>(row, ".project-post");
+    // The snapshot names projects by key and the command takes an id, so the definitions are the
+    // join. A row whose key is not in the catalogue cannot be posted rather than posting nothing.
+    const definition = host.definitions.requests.find(
+      (value) => value.key === project.key,
+    );
+    post.dataset.projectId =
+      definition === undefined ? "" : String(definition.id);
+    post.disabled = project.state !== "available" || definition === undefined;
+    post.hidden = project.state === "complete";
+    post.title =
+      project.state === "locked"
+        ? `You cannot produce ${project.name} yet`
+        : `Post ${project.name} to the board`;
+  });
+  required<HTMLElement>("project-catalogue-count").textContent =
+    `${done}/${projects.length} · ${remaining} ◆ left`;
 }
 
 /**
@@ -2664,6 +2730,19 @@ required<HTMLElement>("inspect-hub").addEventListener("click", (event) => {
     enqueue({ type: "deposit" });
   }
 });
+// Delegated for the same reason: catalogue rows are patched in place as projects complete.
+required<HTMLElement>("project-catalogue-list").addEventListener(
+  "click",
+  (event) => {
+    const post = (event.target as HTMLElement).closest<HTMLButtonElement>(
+      ".project-post",
+    );
+    if (!post || post.disabled) return;
+    const requestId = Number(post.dataset.projectId);
+    if (Number.isInteger(requestId) && requestId > 0)
+      enqueue({ type: "post_request", request_id: requestId });
+  },
+);
 required<HTMLButtonElement>("recenter").addEventListener("click", () =>
   renderer.recenter(),
 );

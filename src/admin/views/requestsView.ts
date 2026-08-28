@@ -43,7 +43,6 @@ export function renderRequestsView(
       item_id: firstItemId,
       quantity: 10,
       insight: 10,
-      repeat_insight: 2,
     };
     store.setEditingTarget({ type: "request", data: newRequest, isNew: true });
   };
@@ -82,9 +81,6 @@ export function renderRequestsView(
     const svg = itemIconSvg(item?.icon ?? "ore", color);
 
     const ratio = (req.insight / Math.max(1, req.quantity)).toFixed(2);
-    const repeatRatio = req.repeat_insight
-      ? (req.repeat_insight / Math.max(1, req.quantity)).toFixed(2)
-      : ratio;
 
     card.innerHTML = `
       <div class="card-header">
@@ -105,12 +101,8 @@ export function renderRequestsView(
 
       <div class="request-rewards-box">
         <div class="reward-row">
-          <span>First Delivery Reward:</span>
+          <span>Paid once, on completion:</span>
           <strong class="insight-payout">◆ ${req.insight} Insight <small>(${ratio} / item)</small></strong>
-        </div>
-        <div class="reward-row">
-          <span>Subsequent Deliveries:</span>
-          <strong>◆ ${req.repeat_insight ?? req.insight} Insight <small>(${repeatRatio} / item)</small></strong>
         </div>
       </div>
 
@@ -223,14 +215,12 @@ function renderRequestModal(
 
         <div class="form-row form-row-2">
           <label>
-            <span>First-time Insight Reward *</span>
+            <span>Insight Reward *</span>
             <input type="number" name="insight" value="${currentReq.insight}" min="1" required />
-            <small class="field-hint">Initial research currency reward</small>
-          </label>
-          <label>
-            <span>Repeat Insight Reward</span>
-            <input type="number" name="repeat_insight" value="${currentReq.repeat_insight ?? ""}" min="1" placeholder="Leave empty for same as first" />
-            <small class="field-hint">Payout for subsequent repeat completions</small>
+            <small class="field-hint"
+              >Paid once, on completion. The catalogue total is the whole research budget of a
+              save.</small
+            >
           </label>
         </div>
 
@@ -268,7 +258,6 @@ function renderRequestModal(
     const item_id = Number(formData.get("item_id"));
     const quantity = Number(formData.get("quantity"));
     const insight = Number(formData.get("insight"));
-    const repeatRaw = formData.get("repeat_insight");
 
     const updated: RequestDefinition = {
       id,
@@ -279,10 +268,6 @@ function renderRequestModal(
       quantity,
       insight,
     };
-
-    if (repeatRaw && Number(repeatRaw) > 0) {
-      updated.repeat_insight = Number(repeatRaw);
-    }
 
     store.saveRequest(updated);
     showToast(`Saved request "${updated.name}"`, "success");

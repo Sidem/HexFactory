@@ -4,17 +4,19 @@ HexFactory is a browser factory-automation game. Player experience is the tiebre
 native ownership, sparse cost, and measured claims exist to keep a large living factory responsive
 and trustworthy.
 
-Current release: **v0.34.0 Power and Tier Bills**. **Immediate next work: progression and construction**
+Current release: **v0.35.0 Practical Projects**. **Immediate next work: progression and construction**
 in `docs/PROGRESSION-PLAN.md` and `docs/CONSTRUCTION-MATERIALS-PLAN.md`, ordered by
 `docs/HEXFACTORY-PLAN.md#what-to-do-next`. Complete this workstream before Living Lattice,
 Regional Discovery or other roadmap features unless the user changes priority. Release numbers
-after v0.34.0 are unassigned. Phase 1 is complete: every buildable bill is audited and no definition
+after v0.35.0 are unassigned. Phase 1 is complete: every buildable bill is audited and no definition
 bills raw ore, gear/frame yields are reviewed and unchanged, and commission/research startup
-accounting is done. Phase 2 — the research map, insight projects and separate player skills — is next.
+accounting is done. Phase 2 is in progress: the research map and insight projects are shipped, separate
+player skills are next. Hub demand is finite — every project pays once, the catalogue is browsable and
+postable by name, and the budget is a committed measurement.
 Component/contract reform, the five industrial station bills and construction-order accounting are shipped.
 Foundation commissions, typed effects, branch/stage registries, native research availability and
-the central research atlas are shipped. Timed opening validation was withdrawn. Envelopes: save 26, definitions 21,
-technologies 11, scenarios 7, world 8, wire 13.
+the central research atlas are shipped. Timed opening validation was withdrawn. Envelopes: save 27, definitions 22,
+technologies 11, scenarios 7, world 8, wire 14.
 
 ## Localize before reading
 

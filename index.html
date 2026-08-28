@@ -561,6 +561,23 @@
                 a belt at it.
               </p>
               <ul id="request-board" class="request-board"></ul>
+              <!--
+                The whole bill of work, not just the three rows on the board. Demand is finite —
+                each project pays once — so the catalogue has to be readable end to end, or a
+                player could spend the last of it without ever knowing what was left.
+              -->
+              <details id="project-catalogue" class="project-catalogue">
+                <summary>
+                  All projects <span id="project-catalogue-count"></span>
+                </summary>
+                <p id="project-catalogue-note" class="project-catalogue-note">
+                  Each project pays once. Post one to swap it onto the board.
+                </p>
+                <ul
+                  id="project-catalogue-list"
+                  class="request-board project-catalogue-list"
+                ></ul>
+              </details>
             </div>
 
             <button

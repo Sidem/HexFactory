@@ -77,6 +77,10 @@ pub(super) fn migrate<'a>(json: &'a str, target_version: u16) -> Result<Cow<'a, 
         power_and_tier_bills_25_to_26(&mut value);
         version = 26;
     }
+    if version == 26 && target_version >= 27 {
+        practical_projects_26_to_27(&mut value);
+        version = 27;
+    }
 
     if version == target_version {
         return Ok(Cow::Owned(serde_json::to_string(&value).map_err(
@@ -86,6 +90,65 @@ pub(super) fn migrate<'a>(json: &'a str, target_version: u16) -> Result<Cow<'a, 
     Err(format!(
         "no migration path from save version {version} to {target_version}"
     ))
+}
+
+/// Practical projects make the hub's demand finite, and that moves one saved field.
+///
+/// Progress used to live inside a posted slot. It now belongs to the project, because a project
+/// pays once: passing on a row whose reward can never be re-earned must not also destroy what was
+/// already handed over. So each slot's `delivered` is lifted into `request_delivered`, keyed by the
+/// project it was always progress against, and the slots keep only which row they hold.
+///
+/// A row the old file had already been paid for cannot carry progress forward — completion consumes
+/// the bill — so any count standing against a filled project is dropped rather than restored. Zero
+/// counts are dropped too: an absent key and a key holding nothing are the same run, and only one
+/// of them can be the checksummed spelling of it.
+///
+/// Insight, research, stock and the board's contents are untouched. What the player has learned and
+/// what the hub is asking for are exactly what they were; only the repeat income behind the board
+/// is gone, and no saved field records that.
+fn practical_projects_26_to_27(value: &mut Value) {
+    let Some(object) = value.as_object_mut() else {
+        return;
+    };
+    object.insert("save_version".into(), Value::from(27));
+    if object.get("definition_version") == Some(&Value::from(21)) {
+        object.insert("definition_version".into(), Value::from(22));
+    }
+    let Some(state) = object.get_mut("state").and_then(Value::as_object_mut) else {
+        return;
+    };
+    let paid: Vec<String> = state
+        .get("request_fills")
+        .and_then(Value::as_object)
+        .map(|fills| {
+            fills
+                .iter()
+                .filter(|(_, count)| count.as_u64().unwrap_or(0) > 0)
+                .map(|(id, _)| id.clone())
+                .collect()
+        })
+        .unwrap_or_default();
+    let mut delivered = serde_json::Map::new();
+    if let Some(requests) = state.get_mut("requests").and_then(Value::as_array_mut) {
+        for slot in requests.iter_mut() {
+            let Some(slot) = slot.as_object_mut() else {
+                continue;
+            };
+            let count = slot
+                .remove("delivered")
+                .and_then(|value| value.as_u64())
+                .unwrap_or(0);
+            let Some(id) = slot.get("request_id").and_then(Value::as_u64) else {
+                continue;
+            };
+            let key = id.to_string();
+            if count > 0 && !paid.contains(&key) {
+                delivered.insert(key, Value::from(count));
+            }
+        }
+    }
+    state.insert("request_delivered".into(), Value::Object(delivered));
 }
 
 /// Power and tier bills change only catalog prices, as at every price boundary since the transport
@@ -391,6 +454,32 @@ mod tests {
         assert_eq!(value["state"]["entities"][0]["inventory"]["1"], 5);
         assert_eq!(value["state"]["insight"], 9);
         // Neither research nor the scenario moves at this boundary.
+        assert_eq!(value["technology_version"], 11);
+        assert_eq!(value["scenario_version"], 7);
+    }
+
+    /// Progress made against a project survives the move off the board slot — except where the
+    /// project has already been paid for, which under the old rules was an ordinary state and under
+    /// the new ones would be a project owing a second reward.
+    #[test]
+    fn version_twenty_six_lifts_delivered_progress_onto_the_project() {
+        let json = r#"{"save_version":26,"definition_version":21,"technology_version":11,"scenario_version":7,"state":{"insight":40,"request_fills":{"1":1},"requests":[{"request_id":1,"delivered":4},{"request_id":5,"delivered":7},{"request_id":9,"delivered":0}]}}"#;
+        let migrated = migrate(json, 27).expect("migrated save");
+        let value: Value = serde_json::from_str(&migrated).expect("migrated json");
+        assert_eq!(value["save_version"], 27);
+        assert_eq!(value["definition_version"], 22);
+        // The part-filled row keeps its seven; the player handed those over and the hub will not
+        // ask for them twice.
+        assert_eq!(value["state"]["request_delivered"]["5"], 7);
+        // Project 1 was already filled and paid, so its four are a leftover of a row that was
+        // reposted under repeatable demand. Carrying them would credit a retired project.
+        assert!(value["state"]["request_delivered"].get("1").is_none());
+        // An untouched row writes no entry rather than a zero, so the map stays the set of debts.
+        assert!(value["state"]["request_delivered"].get("9").is_none());
+        // The slots keep their identity and lose only the count they no longer own.
+        assert_eq!(value["state"]["requests"][1]["request_id"], 5);
+        assert!(value["state"]["requests"][1].get("delivered").is_none());
+        assert_eq!(value["state"]["insight"], 40);
         assert_eq!(value["technology_version"], 11);
         assert_eq!(value["scenario_version"], 7);
     }

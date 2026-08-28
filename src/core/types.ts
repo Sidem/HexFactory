@@ -153,8 +153,12 @@ export interface Definitions {
 }
 
 /**
- * One standing order the landing hub can post. The only thing in the game that pays insight, and it
- * says what it pays before anything is handed over.
+ * One project the landing hub can post. The only thing in the game that pays insight, and it says
+ * what it pays before anything is handed over.
+ *
+ * It also pays once. The catalogue is a bill of finite work, so the sum of every `insight` here is
+ * the total research budget of a save — which is why `validate_research_budget` can assert the tree
+ * is affordable at all.
  */
 export interface RequestDefinition {
   id: number;
@@ -164,11 +168,6 @@ export interface RequestDefinition {
   item_id: number;
   quantity: number;
   insight: number;
-  /**
-   * What a later fill pays. Absent means later fills keep `insight`. Raw rows set this so the
-   * first survey funds the early tree and grinding the same row does not.
-   */
-  repeat_insight?: number;
 }
 
 /** Authored presentation only; neither order nor stage imposes a gameplay gate. */
@@ -550,6 +549,15 @@ export interface ContractSnapshot {
  * the price above all, because a price a player can only discover by delivering is the defect the
  * board exists to remove.
  */
+/**
+ * Where a project stands. The snapshot publishes the whole catalogue, not just the board, so the
+ * player can see what is left to do and choose what to post next.
+ *
+ * `locked` is "you cannot make this yet" rather than "this is hidden": the row is shown greyed so
+ * a finite catalogue reads as a bill of work with an end, which is the point of it being finite.
+ */
+export type ProjectState = "locked" | "available" | "posted" | "complete";
+
 export interface RequestSnapshot {
   key: string;
   name: string;
@@ -559,6 +567,7 @@ export interface RequestSnapshot {
   delivered: number;
   required: number;
   insight: number;
+  state: ProjectState;
 }
 
 export interface ContractRequirement {
@@ -771,11 +780,18 @@ export type NativeInputCommand =
   | { type: "undo" }
   | { type: "research"; technology_id: number }
   /**
-   * Pass on one posted request. The row goes behind everything the player has not seen yet and
-   * another takes its slot, so a material they cannot find never holds the board hostage. Whatever
-   * was already delivered against it is forfeited, which is native's rule and not the host's.
+   * Pass on one posted project. The row goes behind everything the player has not seen yet and
+   * another takes its slot, so a material they cannot find never holds the board hostage. What has
+   * already been handed over is kept: progress belongs to the project, not to the slot, and under
+   * finite demand a forfeit would destroy goods whose reward cannot be earned twice.
    */
   | { type: "skip_request"; slot: number }
+  /**
+   * Pull one project out of the catalogue and onto the board, displacing whichever posted row has
+   * the least committed to it. Names the project rather than a slot: the player picked a project,
+   * and which slot it lands in is native's business.
+   */
+  | { type: "post_request"; request_id: number }
   /**
    * Turn creative mode on, or back off. Carried rather than toggled, like set_enabled, so a
    * doubled press lands on the same answer. Turning it on researches the whole tree — permanently:

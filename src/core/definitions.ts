@@ -96,9 +96,7 @@ export function validateDefinitions(
       !request.brief ||
       !itemIds.has(request.item_id) ||
       !positiveInteger(request.quantity) ||
-      !positiveInteger(request.insight) ||
-      (request.repeat_insight !== undefined &&
-        !positiveInteger(request.repeat_insight))
+      !positiveInteger(request.insight)
     )
       throw new TypeError(`request ${request.id} is incomplete`);
   }

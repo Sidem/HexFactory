@@ -23,9 +23,12 @@ construction-order accounting. v0.33.0 [Mechanical Components](MECHANICAL-COMPON
 reforms the component, founding bill and matching request reward. v0.34.0
 [Power and Tier Bills](POWER-TIER-BILLS-RECORD.md) closes the audit: the last three wrong bills,
 gear and frame yields reviewed and unchanged, and startup accounting that funds research at the
-board's repeat reward and charges the commission behind a granted technology. Phase 1 is complete;
-phase 2 is next. Timed opening validation is withdrawn. This is not the finite insight
-economy or separate skill system. Larger future discipline lanes, evidence projects, tracking and skills remain planned.
+board's repeat reward and charges the commission behind a granted technology. Phase 1 is complete.
+v0.35.0 [Practical Projects](PRACTICAL-PROJECTS-RECORD.md) makes demand finite: a project pays its
+insight once and retires, `repeat_insight` is deleted, the whole catalogue is browsable and postable
+by name, and a native invariant pins 572 insight against 137 of research. Timed opening validation
+is withdrawn. This is the finite insight economy; it is not the evidence model or the separate skill
+system. Larger future discipline lanes, evidence projects, tracking and skills remain planned.
 
 ## Design commitments
 
@@ -62,6 +65,13 @@ on 2026-08-27 without changing its inputs.
 Keep keyed controls, reachable-state guidance and deterministic native spending. Reconsider the
 unlimited repeat income and the reward-to-price ratio. Raising all prices alone delays the same
 farming strategy without changing it.
+
+**Answered by v0.35.0 Practical Projects.** The two repeat rows above no longer exist:
+`repeat_insight` is deleted and a project pays once. The table's 137 and 73 still hold and are now
+enforced as a native invariant against the catalogue's 572 — see
+[the record](PRACTICAL-PROJECTS-RECORD.md). The reward-to-price ratio was left where it is on
+purpose: 4.175× is generous but bounded, and moving it needs measured play this milestone does not
+have. The rest of this diagnosis is kept as of 2026-08-27.
 
 ## Technology map: disciplines and stages
 
@@ -393,14 +403,14 @@ catalogues, saves and wire deliberately. Icon/layout edits alone never invalidat
 
 ## Delivery sequence and acceptance
 
-| Slice                | Deliverable                                                                   | Acceptance                                                                                                                                      |
-| -------------------- | ----------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1. Audit and design  | Map current nodes to branches/stages; reconcile bootstrap, prices and income  | Every dependency has a reason; recovery works; record current reward ratios and farming rates with their limits                                 |
-| 2. Definitions       | Registries, typed requirements/effects, shared availability and project IDs   | Validate graph/economic cycles; preserve saves and existing behaviour before changing rewards                                                   |
-| 3. Research map      | Lanes, details, navigation, full/near views, accessible list and placeholders | Players can locate an unlock and explain its blockers; stable focus/layout; no generated icons required                                         |
-| 4. Insight projects  | Finite rewards, evidence, direct foundation grants and guidance               | Repeated raw/one-product income cannot buy advanced branches; no optional spend order strands essentials; all shipped research remains earnable |
-| 5. Player skills     | Carrying/reach migration, distinct points and milestones                      | Bonuses preserved once; currencies isolated; early useful choices without nerfing base comfort                                                  |
-| 6. Expansion and art | Construction branches, later families and reviewed icon sets                  | New nodes use data and existing supported effects/layout; income budget reviewed with content                                                   |
+| Slice                | Deliverable                                                                   | Acceptance                                                                                                                                                                                                                     |
+| -------------------- | ----------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 1. Audit and design  | Map current nodes to branches/stages; reconcile bootstrap, prices and income  | Every dependency has a reason; recovery works; record current reward ratios and farming rates with their limits                                                                                                                |
+| 2. Definitions       | Registries, typed requirements/effects, shared availability and project IDs   | Validate graph/economic cycles; preserve saves and existing behaviour before changing rewards                                                                                                                                  |
+| 3. Research map      | Lanes, details, navigation, full/near views, accessible list and placeholders | Players can locate an unlock and explain its blockers; stable focus/layout; no generated icons required                                                                                                                        |
+| 4. Insight projects  | Finite rewards, evidence, direct foundation grants and guidance               | **Shipped v0.35.0**, less evidence counters. Repeated income cannot buy anything: projects pay once. 572 insight funds 137 of research at 4.175×, so no spend order strands essentials and all shipped research stays earnable |
+| 5. Player skills     | Carrying/reach migration, distinct points and milestones                      | Bonuses preserved once; currencies isolated; early useful choices without nerfing base comfort                                                                                                                                 |
+| 6. Expansion and art | Construction branches, later families and reviewed icon sets                  | New nodes use data and existing supported effects/layout; income budget reviewed with content                                                                                                                                  |
 
 Map and skill presentation may be prototyped together, but separate native currencies/purchases
 must exist before calling them separate systems. Do not ship reward cuts before replacement

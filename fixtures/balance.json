@@ -1,6 +1,6 @@
 {
   "reference": {
-    "definition_version": 21,
+    "definition_version": 22,
     "technology_version": 11,
     "ticks_per_second": 10,
     "player_ticks_per_second": 30,
@@ -3097,8 +3097,8 @@
         "on-site-power"
       ],
       "insight": 6,
-      "insight_items": 8,
-      "insight_request": "coal-seam",
+      "insight_items": 10,
+      "insight_projects": ["clay-survey"],
       "commissions": ["components"],
       "buildings": [
         "burner-generator",
@@ -3132,10 +3132,10 @@
       ],
       "fuel_energy": 640,
       "fuel_items": 4,
-      "gather_total": 51,
+      "gather_total": 53,
       "machine_ticks": 130,
       "player_work_ticks": 152,
-      "hand_seconds_milli": 61167,
+      "hand_seconds_milli": 55833,
       "machine_seconds_milli": 13000,
       "player_work_seconds_milli": 15200
     },
@@ -3147,8 +3147,8 @@
         "on-site-power"
       ],
       "insight": 6,
-      "insight_items": 8,
-      "insight_request": "coal-seam",
+      "insight_items": 10,
+      "insight_projects": ["clay-survey"],
       "commissions": ["components"],
       "buildings": [
         "burner-generator",
@@ -3182,10 +3182,10 @@
       ],
       "fuel_energy": 560,
       "fuel_items": 4,
-      "gather_total": 51,
+      "gather_total": 53,
       "machine_ticks": 140,
       "player_work_ticks": 152,
-      "hand_seconds_milli": 59500,
+      "hand_seconds_milli": 54167,
       "machine_seconds_milli": 14000,
       "player_work_seconds_milli": 15200
     },
@@ -3198,8 +3198,8 @@
         "on-site-power"
       ],
       "insight": 16,
-      "insight_items": 40,
-      "insight_request": "clay-survey",
+      "insight_items": 20,
+      "insight_projects": ["clay-survey", "cliff-stone"],
       "commissions": ["components"],
       "buildings": [
         "burner-generator",
@@ -3233,10 +3233,10 @@
       ],
       "fuel_energy": 800,
       "fuel_items": 5,
-      "gather_total": 86,
+      "gather_total": 66,
       "machine_ticks": 200,
       "player_work_ticks": 184,
-      "hand_seconds_milli": 81333,
+      "hand_seconds_milli": 71333,
       "machine_seconds_milli": 20000,
       "player_work_seconds_milli": 18400
     },
@@ -3249,8 +3249,8 @@
         "on-site-power"
       ],
       "insight": 16,
-      "insight_items": 40,
-      "insight_request": "clay-survey",
+      "insight_items": 20,
+      "insight_projects": ["clay-survey", "cliff-stone"],
       "commissions": ["components"],
       "buildings": [
         "burner-generator",
@@ -3284,10 +3284,10 @@
       ],
       "fuel_energy": 800,
       "fuel_items": 5,
-      "gather_total": 88,
+      "gather_total": 68,
       "machine_ticks": 200,
       "player_work_ticks": 184,
-      "hand_seconds_milli": 83333,
+      "hand_seconds_milli": 73333,
       "machine_seconds_milli": 20000,
       "player_work_seconds_milli": 18400
     },
@@ -3300,8 +3300,8 @@
         "on-site-power"
       ],
       "insight": 18,
-      "insight_items": 48,
-      "insight_request": "coal-seam",
+      "insight_items": 20,
+      "insight_projects": ["clay-survey", "cliff-stone"],
       "commissions": ["components"],
       "buildings": [
         "burner-generator",
@@ -3337,10 +3337,10 @@
       ],
       "fuel_energy": 960,
       "fuel_items": 6,
-      "gather_total": 103,
+      "gather_total": 75,
       "machine_ticks": 232,
       "player_work_ticks": 184,
-      "hand_seconds_milli": 135833,
+      "hand_seconds_milli": 80500,
       "machine_seconds_milli": 23200,
       "player_work_seconds_milli": 18400
     },
@@ -3349,7 +3349,7 @@
       "technologies": ["on-site-power"],
       "insight": 0,
       "insight_items": 0,
-      "insight_request": "clay-survey",
+      "insight_projects": [],
       "commissions": ["components"],
       "buildings": [
         "burner-generator",
@@ -3395,7 +3395,7 @@
       "technologies": ["automated-extraction", "on-site-power"],
       "insight": 0,
       "insight_items": 0,
-      "insight_request": "clay-survey",
+      "insight_projects": [],
       "commissions": ["components"],
       "buildings": [
         "burner-generator",
@@ -3440,8 +3440,8 @@
       "name": "first composer",
       "technologies": ["automated-extraction", "composition", "on-site-power"],
       "insight": 8,
-      "insight_items": 8,
-      "insight_request": "coal-seam",
+      "insight_items": 10,
+      "insight_projects": ["clay-survey"],
       "commissions": ["components"],
       "buildings": [
         "burner-generator",
@@ -3475,10 +3475,10 @@
       ],
       "fuel_energy": 880,
       "fuel_items": 6,
-      "gather_total": 54,
+      "gather_total": 56,
       "machine_ticks": 236,
       "player_work_ticks": 184,
-      "hand_seconds_milli": 67667,
+      "hand_seconds_milli": 62333,
       "machine_seconds_milli": 23600,
       "player_work_seconds_milli": 18400
     },
@@ -3491,8 +3491,8 @@
         "on-site-power"
       ],
       "insight": 14,
-      "insight_items": 30,
-      "insight_request": "clay-survey",
+      "insight_items": 20,
+      "insight_projects": ["clay-survey", "cliff-stone"],
       "commissions": ["components"],
       "buildings": [
         "burner-generator",
@@ -3536,10 +3536,10 @@
       ],
       "fuel_energy": 1300,
       "fuel_items": 9,
-      "gather_total": 95,
+      "gather_total": 85,
       "machine_ticks": 254,
       "player_work_ticks": 184,
-      "hand_seconds_milli": 99500,
+      "hand_seconds_milli": 96167,
       "machine_seconds_milli": 25400,
       "player_work_seconds_milli": 18400
     },
@@ -3548,7 +3548,7 @@
       "technologies": [],
       "insight": 0,
       "insight_items": 0,
-      "insight_request": "clay-survey",
+      "insight_projects": [],
       "commissions": [],
       "buildings": ["primitive-furnace"],
       "construction_order": ["primitive-furnace"],
@@ -3580,7 +3580,7 @@
       "technologies": [],
       "insight": 0,
       "insight_items": 0,
-      "insight_request": "clay-survey",
+      "insight_projects": [],
       "commissions": [],
       "buildings": ["manual-workshop", "primitive-furnace"],
       "construction_order": ["manual-workshop", "primitive-furnace"],
@@ -3616,7 +3616,7 @@
       "technologies": ["field-logistics"],
       "insight": 0,
       "insight_items": 0,
-      "insight_request": "clay-survey",
+      "insight_projects": [],
       "commissions": ["components"],
       "buildings": ["belt", "manual-workshop", "primitive-furnace"],
       "construction_order": ["primitive-furnace", "manual-workshop", "belt"],
@@ -3652,7 +3652,7 @@
       "technologies": ["field-logistics"],
       "insight": 0,
       "insight_items": 0,
-      "insight_request": "clay-survey",
+      "insight_projects": [],
       "commissions": ["components"],
       "buildings": ["belt", "manual-workshop", "primitive-furnace"],
       "construction_order": ["primitive-furnace", "manual-workshop", "belt"],
@@ -3701,7 +3701,7 @@
         "technologies": [],
         "insight": 0,
         "insight_items": 0,
-        "insight_request": "clay-survey",
+        "insight_projects": [],
         "commissions": [],
         "buildings": ["manual-workshop", "primitive-furnace"],
         "construction_order": ["primitive-furnace", "manual-workshop"],
@@ -3756,8 +3756,8 @@
           "on-site-power"
         ],
         "insight": 6,
-        "insight_items": 8,
-        "insight_request": "coal-seam",
+        "insight_items": 10,
+        "insight_projects": ["clay-survey"],
         "commissions": ["components"],
         "buildings": [
           "burner-generator",
@@ -3791,10 +3791,10 @@
         ],
         "fuel_energy": 2400,
         "fuel_items": 15,
-        "gather_total": 108,
+        "gather_total": 110,
         "machine_ticks": 544,
         "player_work_ticks": 152,
-        "hand_seconds_milli": 133333,
+        "hand_seconds_milli": 128000,
         "machine_seconds_milli": 54400,
         "player_work_seconds_milli": 15200
       }
@@ -3806,7 +3806,6 @@
       "item": "ore",
       "quantity": 10,
       "insight": 10,
-      "repeat_insight": 2,
       "gathers": [
         {
           "item": "ore",
@@ -3816,9 +3815,7 @@
       "fuel_items": 0,
       "gather_total": 10,
       "insight_per_gather_milli": 1000,
-      "repeat_insight_per_gather_milli": 200,
       "insight_per_minute_milli": 40000,
-      "repeat_insight_per_minute_milli": 8000,
       "machine_ticks": 0,
       "machine_seconds_milli": 0
     },
@@ -3827,7 +3824,6 @@
       "item": "stone",
       "quantity": 10,
       "insight": 10,
-      "repeat_insight": 2,
       "gathers": [
         {
           "item": "stone",
@@ -3837,9 +3833,7 @@
       "fuel_items": 0,
       "gather_total": 10,
       "insight_per_gather_milli": 1000,
-      "repeat_insight_per_gather_milli": 200,
       "insight_per_minute_milli": 60000,
-      "repeat_insight_per_minute_milli": 12000,
       "machine_ticks": 0,
       "machine_seconds_milli": 0
     },
@@ -3848,7 +3842,6 @@
       "item": "wood",
       "quantity": 10,
       "insight": 10,
-      "repeat_insight": 2,
       "gathers": [
         {
           "item": "wood",
@@ -3858,9 +3851,7 @@
       "fuel_items": 0,
       "gather_total": 10,
       "insight_per_gather_milli": 1000,
-      "repeat_insight_per_gather_milli": 200,
       "insight_per_minute_milli": 120000,
-      "repeat_insight_per_minute_milli": 24000,
       "machine_ticks": 0,
       "machine_seconds_milli": 0
     },
@@ -3869,7 +3860,6 @@
       "item": "clay",
       "quantity": 10,
       "insight": 10,
-      "repeat_insight": 2,
       "gathers": [
         {
           "item": "clay",
@@ -3879,9 +3869,7 @@
       "fuel_items": 0,
       "gather_total": 10,
       "insight_per_gather_milli": 1000,
-      "repeat_insight_per_gather_milli": 200,
       "insight_per_minute_milli": 90000,
-      "repeat_insight_per_minute_milli": 18000,
       "machine_ticks": 0,
       "machine_seconds_milli": 0
     },
@@ -3890,7 +3878,6 @@
       "item": "sand",
       "quantity": 10,
       "insight": 10,
-      "repeat_insight": 2,
       "gathers": [
         {
           "item": "sand",
@@ -3900,9 +3887,7 @@
       "fuel_items": 0,
       "gather_total": 10,
       "insight_per_gather_milli": 1000,
-      "repeat_insight_per_gather_milli": 200,
       "insight_per_minute_milli": 90000,
-      "repeat_insight_per_minute_milli": 18000,
       "machine_ticks": 0,
       "machine_seconds_milli": 0
     },
@@ -3911,7 +3896,6 @@
       "item": "coal",
       "quantity": 8,
       "insight": 8,
-      "repeat_insight": 2,
       "gathers": [
         {
           "item": "coal",
@@ -3921,9 +3905,7 @@
       "fuel_items": 0,
       "gather_total": 8,
       "insight_per_gather_milli": 1000,
-      "repeat_insight_per_gather_milli": 250,
       "insight_per_minute_milli": 40000,
-      "repeat_insight_per_minute_milli": 10000,
       "machine_ticks": 0,
       "machine_seconds_milli": 0
     },
@@ -3932,7 +3914,6 @@
       "item": "copper-ore",
       "quantity": 10,
       "insight": 10,
-      "repeat_insight": 2,
       "gathers": [
         {
           "item": "copper-ore",
@@ -3942,9 +3923,7 @@
       "fuel_items": 0,
       "gather_total": 10,
       "insight_per_gather_milli": 1000,
-      "repeat_insight_per_gather_milli": 200,
       "insight_per_minute_milli": 40000,
-      "repeat_insight_per_minute_milli": 8000,
       "machine_ticks": 0,
       "machine_seconds_milli": 0
     },
@@ -3953,7 +3932,6 @@
       "item": "crystal",
       "quantity": 4,
       "insight": 5,
-      "repeat_insight": 2,
       "gathers": [
         {
           "item": "crystal",
@@ -3963,9 +3941,7 @@
       "fuel_items": 0,
       "gather_total": 4,
       "insight_per_gather_milli": 1250,
-      "repeat_insight_per_gather_milli": 500,
       "insight_per_minute_milli": 150000,
-      "repeat_insight_per_minute_milli": 60000,
       "machine_ticks": 0,
       "machine_seconds_milli": 0
     },
@@ -3974,7 +3950,6 @@
       "item": "iron-plate",
       "quantity": 8,
       "insight": 26,
-      "repeat_insight": 26,
       "gathers": [
         {
           "item": "ore",
@@ -3984,9 +3959,7 @@
       "fuel_items": 4,
       "gather_total": 20,
       "insight_per_gather_milli": 1300,
-      "repeat_insight_per_gather_milli": 1300,
       "insight_per_minute_milli": 41053,
-      "repeat_insight_per_minute_milli": 41053,
       "machine_ticks": 80,
       "machine_seconds_milli": 8000
     },
@@ -3995,7 +3968,6 @@
       "item": "copper-plate",
       "quantity": 8,
       "insight": 26,
-      "repeat_insight": 26,
       "gathers": [
         {
           "item": "copper-ore",
@@ -4005,9 +3977,7 @@
       "fuel_items": 4,
       "gather_total": 20,
       "insight_per_gather_milli": 1300,
-      "repeat_insight_per_gather_milli": 1300,
       "insight_per_minute_milli": 41053,
-      "repeat_insight_per_minute_milli": 41053,
       "machine_ticks": 80,
       "machine_seconds_milli": 8000
     },
@@ -4016,7 +3986,6 @@
       "item": "brick",
       "quantity": 15,
       "insight": 17,
-      "repeat_insight": 17,
       "gathers": [
         {
           "item": "clay",
@@ -4026,9 +3995,7 @@
       "fuel_items": 3,
       "gather_total": 13,
       "insight_per_gather_milli": 1308,
-      "repeat_insight_per_gather_milli": 1308,
       "insight_per_minute_milli": 59417,
-      "repeat_insight_per_minute_milli": 59417,
       "machine_ticks": 60,
       "machine_seconds_milli": 6000
     },
@@ -4037,7 +4004,6 @@
       "item": "glass",
       "quantity": 6,
       "insight": 21,
-      "repeat_insight": 21,
       "gathers": [
         {
           "item": "sand",
@@ -4047,9 +4013,7 @@
       "fuel_items": 4,
       "gather_total": 16,
       "insight_per_gather_milli": 1313,
-      "repeat_insight_per_gather_milli": 1313,
       "insight_per_minute_milli": 59434,
-      "repeat_insight_per_minute_milli": 59434,
       "machine_ticks": 72,
       "machine_seconds_milli": 7200
     },
@@ -4058,7 +4022,6 @@
       "item": "charcoal",
       "quantity": 4,
       "insight": 32,
-      "repeat_insight": 32,
       "gathers": [
         {
           "item": "wood",
@@ -4068,9 +4031,7 @@
       "fuel_items": 0,
       "gather_total": 24,
       "insight_per_gather_milli": 1333,
-      "repeat_insight_per_gather_milli": 1333,
       "insight_per_minute_milli": 120000,
-      "repeat_insight_per_minute_milli": 120000,
       "machine_ticks": 40,
       "machine_seconds_milli": 4000
     },
@@ -4079,7 +4040,6 @@
       "item": "timber",
       "quantity": 12,
       "insight": 8,
-      "repeat_insight": 8,
       "gathers": [
         {
           "item": "wood",
@@ -4089,9 +4049,7 @@
       "fuel_items": 0,
       "gather_total": 6,
       "insight_per_gather_milli": 1333,
-      "repeat_insight_per_gather_milli": 1333,
       "insight_per_minute_milli": 72727,
-      "repeat_insight_per_minute_milli": 72727,
       "machine_ticks": 36,
       "machine_seconds_milli": 3600
     },
@@ -4100,7 +4058,6 @@
       "item": "gravel",
       "quantity": 12,
       "insight": 8,
-      "repeat_insight": 8,
       "gathers": [
         {
           "item": "stone",
@@ -4110,9 +4067,7 @@
       "fuel_items": 0,
       "gather_total": 6,
       "insight_per_gather_milli": 1333,
-      "repeat_insight_per_gather_milli": 1333,
       "insight_per_minute_milli": 50000,
-      "repeat_insight_per_minute_milli": 50000,
       "machine_ticks": 36,
       "machine_seconds_milli": 3600
     },
@@ -4121,7 +4076,6 @@
       "item": "component",
       "quantity": 8,
       "insight": 98,
-      "repeat_insight": 98,
       "gathers": [
         {
           "item": "ore",
@@ -4131,9 +4085,7 @@
       "fuel_items": 12,
       "gather_total": 60,
       "insight_per_gather_milli": 1633,
-      "repeat_insight_per_gather_milli": 1633,
       "insight_per_minute_milli": 46372,
-      "repeat_insight_per_minute_milli": 46372,
       "machine_ticks": 368,
       "machine_seconds_milli": 36800
     },
@@ -4142,7 +4094,6 @@
       "item": "copper-wire",
       "quantity": 12,
       "insight": 23,
-      "repeat_insight": 23,
       "gathers": [
         {
           "item": "copper-ore",
@@ -4152,9 +4103,7 @@
       "fuel_items": 3,
       "gather_total": 15,
       "insight_per_gather_milli": 1533,
-      "repeat_insight_per_gather_milli": 1533,
       "insight_per_minute_milli": 42991,
-      "repeat_insight_per_minute_milli": 42991,
       "machine_ticks": 96,
       "machine_seconds_milli": 9600
     },
@@ -4163,7 +4112,6 @@
       "item": "gear",
       "quantity": 6,
       "insight": 47,
-      "repeat_insight": 47,
       "gathers": [
         {
           "item": "ore",
@@ -4173,9 +4121,7 @@
       "fuel_items": 6,
       "gather_total": 30,
       "insight_per_gather_milli": 1567,
-      "repeat_insight_per_gather_milli": 1567,
       "insight_per_minute_milli": 45631,
-      "repeat_insight_per_minute_milli": 45631,
       "machine_ticks": 168,
       "machine_seconds_milli": 16800
     },
@@ -4184,7 +4130,6 @@
       "item": "frame",
       "quantity": 5,
       "insight": 32,
-      "repeat_insight": 32,
       "gathers": [
         {
           "item": "ore",
@@ -4198,9 +4143,7 @@
       "fuel_items": 3,
       "gather_total": 18,
       "insight_per_gather_milli": 1778,
-      "repeat_insight_per_gather_milli": 1778,
       "insight_per_minute_milli": 54857,
-      "repeat_insight_per_minute_milli": 54857,
       "machine_ticks": 130,
       "machine_seconds_milli": 13000
     },
@@ -4209,7 +4152,6 @@
       "item": "concrete",
       "quantity": 10,
       "insight": 28,
-      "repeat_insight": 28,
       "gathers": [
         {
           "item": "stone",
@@ -4227,9 +4169,7 @@
       "fuel_items": 0,
       "gather_total": 15,
       "insight_per_gather_milli": 1867,
-      "repeat_insight_per_gather_milli": 1867,
       "insight_per_minute_milli": 84706,
-      "repeat_insight_per_minute_milli": 84706,
       "machine_ticks": 90,
       "machine_seconds_milli": 9000
     },
@@ -4238,7 +4178,6 @@
       "item": "circuit",
       "quantity": 5,
       "insight": 61,
-      "repeat_insight": 61,
       "gathers": [
         {
           "item": "copper-ore",
@@ -4252,9 +4191,7 @@
       "fuel_items": 8,
       "gather_total": 34,
       "insight_per_gather_milli": 1794,
-      "repeat_insight_per_gather_milli": 1794,
       "insight_per_minute_milli": 53457,
-      "repeat_insight_per_minute_milli": 53457,
       "machine_ticks": 258,
       "machine_seconds_milli": 25800
     },
@@ -4263,7 +4200,6 @@
       "item": "steel",
       "quantity": 5,
       "insight": 72,
-      "repeat_insight": 72,
       "gathers": [
         {
           "item": "ore",
@@ -4277,11 +4213,23 @@
       "fuel_items": 10,
       "gather_total": 40,
       "insight_per_gather_milli": 1800,
-      "repeat_insight_per_gather_milli": 1800,
       "insight_per_minute_milli": 54000,
-      "repeat_insight_per_minute_milli": 54000,
       "machine_ticks": 200,
       "machine_seconds_milli": 20000
     }
-  ]
+  ],
+  "budget": {
+    "projects": 22,
+    "project_insight": 572,
+    "raw_project_insight": 73,
+    "research_cost": 137,
+    "granted_technologies": [
+      "field-logistics",
+      "automated-extraction",
+      "storage-planning",
+      "on-site-power"
+    ],
+    "surplus": 435,
+    "surplus_ratio_milli": 4175
+  }
 }

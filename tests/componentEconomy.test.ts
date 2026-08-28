@@ -42,6 +42,5 @@ describe("mechanical component and founding bill", () => {
     expect(request.gather_total).toBe(60);
     expect(request.insight).toBe(98);
     expect(request.insight_per_gather_milli).toBeGreaterThanOrEqual(1625);
-    expect(request.repeat_insight).toBe(request.insight);
   });
 });
