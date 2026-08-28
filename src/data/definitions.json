@@ -1,5 +1,5 @@
 {
-  "version": 22,
+  "version": 23,
   "items": [
     {
       "id": 1,
@@ -242,7 +242,7 @@
       "name": "Iron wire",
       "color": "#9fb0ba",
       "icon": "wire",
-      "description": "Drawn iron. A poorer conductor than copper, which is why first-generation power equipment is bulky — but it comes from the ore under the landing site instead of an expedition to the copper band.",
+      "description": "Drawn iron. A poorer conductor than copper, which is why first-generation power equipment is bulky \u2014 but it comes from the ore under the landing site instead of an expedition to the copper band.",
       "stack_size": 20
     }
   ],
@@ -372,7 +372,7 @@
       "id": 7,
       "key": "charcoal",
       "name": "Char wood",
-      "description": "Pyrolyse six wood into charcoal. The kiln burns most of the charge to cook the rest, so charcoal is denser than the wood it came from — never richer.",
+      "description": "Pyrolyse six wood into charcoal. The kiln burns most of the charge to cook the rest, so charcoal is denser than the wood it came from \u2014 never richer.",
       "category": "firing",
       "inputs": [
         {
@@ -575,7 +575,7 @@
       "key": "extractor",
       "name": "Extractor",
       "kind": "extractor",
-      "description": "Harvests every field cell within one hex and emits one item at a time. Slower than your own hands on the same material — but it never stops, and you can walk away. Built from plate, a gear and timber, all of which a primitive furnace and workshop already make.",
+      "description": "Harvests every field cell within one hex and emits one item at a time. Slower than your own hands on the same material \u2014 but it never stops, and you can walk away. Built from plate, a gear and timber, all of which a primitive furnace and workshop already make.",
       "icon": "EXT",
       "cadence": 5,
       "capacity": 12,
@@ -959,7 +959,7 @@
       "key": "burner-generator",
       "name": "Burner generator",
       "kind": "generator",
-      "description": "Burns any fuel item into electricity. Holds 12 fuel — feed it by belt or by hand. Wound with iron wire, which is why it is bulky and why first power needs no copper.",
+      "description": "Burns any fuel item into electricity. Holds 12 fuel \u2014 feed it by belt or by hand. Wound with iron wire, which is why it is bulky and why first power needs no copper.",
       "icon": "BRN",
       "capacity": 12,
       "power_output": 20,
@@ -994,7 +994,7 @@
       "key": "wind-turbine",
       "name": "Wind turbine",
       "kind": "generator",
-      "description": "Fuel-free power on hills and highland — the same ground the ore sits on.",
+      "description": "Fuel-free power on hills and highland \u2014 the same ground the ore sits on.",
       "icon": "WND",
       "capacity": 0,
       "power_output": 12,
@@ -1025,7 +1025,7 @@
       "key": "hydro-generator",
       "name": "Hydro generator",
       "kind": "generator",
-      "description": "High output at a basin edge. Scarce, because the shore is scarce. A rotor and its gearing, braced on a frame — the river turns it, so nothing here is fired and nothing is laid in brick.",
+      "description": "High output at a basin edge. Scarce, because the shore is scarce. A rotor and its gearing, braced on a frame \u2014 the river turns it, so nothing here is fired and nothing is laid in brick.",
       "icon": "HYD",
       "capacity": 0,
       "power_output": 24,
@@ -1457,7 +1457,7 @@
       "key": "manual-workshop",
       "name": "Manual Workshop",
       "kind": "composer",
-      "description": "Stand beside this bench, load ingredients, and choose Work one batch. Make timber, transport kits, components, gears, frames, and drawn iron wire at four times industrial craft time — every part the first extractor, composer, generator and pole are billed in. Walking or gathering pauses work; dismantling recovers reserved ingredients.",
+      "description": "Stand beside this bench, load ingredients, and choose Work one batch. Make timber, transport kits, components, gears, frames, and drawn iron wire at four times industrial craft time \u2014 every part the first extractor, composer, generator and pole are billed in. Walking or gathering pauses work; dismantling recovers reserved ingredients.",
       "icon": "WRK",
       "capacity": 24,
       "recipe_category": "manual-workshop",
@@ -1683,6 +1683,38 @@
       "item_id": 23,
       "quantity": 5,
       "insight": 72
+    }
+  ],
+  "boundaries": [
+    {
+      "id": 1,
+      "key": "timber-fence",
+      "name": "Timber fence",
+      "description": "Two rails mark a boundary and block walking and transport across its edge. Leaves both hexes free. Make timber at the manual workshop.",
+      "gate": false,
+      "construction_cost": [
+        {
+          "item_id": 16,
+          "quantity": 2
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "key": "timber-gate",
+      "name": "Timber gate",
+      "description": "A manual, unpowered crossing. Built open; close it when the edge is clear. Timber and iron wire are both made at the manual workshop.",
+      "gate": true,
+      "construction_cost": [
+        {
+          "item_id": 16,
+          "quantity": 2
+        },
+        {
+          "item_id": 25,
+          "quantity": 1
+        }
+      ]
     }
   ]
 }

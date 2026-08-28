@@ -328,6 +328,13 @@ counts. Each is behavior-tested without Wasm or WebGL; `main.ts` wires them to t
 
 ## Save contract
 
+Timber Boundaries (v0.37.0) advances save 28 to 29 and definitions 22 to 23. Canonical edge
+records store definition, gate state and actual paid ingredients. Absent boundaries preserve the
+old checksum. The save picker permits the same adjacent migration chain as native.
+Wire 16 sends the boundary group only after edits or a full replacement. Native crossing checks
+cover walking and compiled transport; the host only previews and renders. See
+[the boundary contract and verification record](TIMBER-BOUNDARIES-RECORD.md).
+
 Player Skills (v0.36.0) advances save 27 to 28 and technologies 11 to 12. The original
 checksum is verified before old personal research IDs become granted skills. No insight refund
 or conversion points are issued. Native skills own points, purchased/granted ranks, completed

@@ -13,6 +13,7 @@ import {
 import { rotateAxial, type AxialCoordinate } from "@hexlife/embed/hex";
 
 import type {
+  BoundaryPreview,
   BuildingDefinition,
   Definitions,
   FactorySnapshot,
@@ -32,6 +33,7 @@ import { createWorldMaterials, type WorldMaterials } from "./materials";
 import { SpatialOverlays, type SpatialOverlayState } from "./overlays";
 import { QUALITY_SETTINGS } from "./quality";
 import { buildTerrainMeshes, type TerrainBuild } from "./terrainMeshes";
+import { BoundaryMeshes } from "./boundaryMeshes";
 import { WorldInstanceLayer } from "./worldInstances";
 
 /** Three.js low-poly diorama over the unchanged native axial plane. */
@@ -42,6 +44,7 @@ export class ThreeFactoryRenderer implements FactoryRenderer {
   private readonly materials: WorldMaterials;
   private readonly worldInstances: WorldInstanceLayer;
   private readonly overlays: SpatialOverlays;
+  private readonly boundaries: BoundaryMeshes;
   private readonly keyLight = new DirectionalLight("#ffe4b0", 2.6);
   private readonly fillLight = new HemisphereLight("#c9eef0", "#273b32", 1.6);
   private readonly ambient = new AmbientLight("#9bb7af", 0.46);
@@ -106,6 +109,8 @@ export class ThreeFactoryRenderer implements FactoryRenderer {
     this.materials = createWorldMaterials();
     this.worldInstances = new WorldInstanceLayer(definitions, this.materials);
     this.overlays = new SpatialOverlays(this.materials);
+    this.boundaries = new BoundaryMeshes(definitions.boundaries);
+    this.scene.add(this.boundaries.group);
     this.scene.add(
       this.fillLight,
       this.ambient,
@@ -161,13 +166,23 @@ export class ThreeFactoryRenderer implements FactoryRenderer {
       snapshot,
       this.terrain?.cellByKey ?? this.emptyTerrain,
     );
+    const boundariesChanged = this.boundaries.update(
+      snapshot.boundaries,
+      this.terrain?.cellByKey ?? this.emptyTerrain,
+    );
     this.overlaysDirty = true;
-    if (structureChanged) this.renderer.shadowMap.needsUpdate = true;
+    if (structureChanged || boundariesChanged)
+      this.renderer.shadowMap.needsUpdate = true;
     if (!this.compiled) {
       this.renderer.compile(this.scene, this.camera.camera);
       this.compiled = true;
     }
     this.prepUs = smooth(this.prepUs, (performance.now() - started) * 1000);
+    this.markDirty();
+  }
+
+  setBoundaryPreview(preview: BoundaryPreview | null): void {
+    this.boundaries.setPreview(preview);
     this.markDirty();
   }
 
@@ -392,6 +407,7 @@ export class ThreeFactoryRenderer implements FactoryRenderer {
     this.disposeTerrain();
     this.worldInstances.dispose();
     this.overlays.dispose();
+    this.boundaries.dispose();
     for (const material of this.materials.materials) material.dispose();
     this.renderer.dispose();
   }

@@ -6,8 +6,10 @@ use std::cmp::Reverse;
 use std::collections::{BTreeMap, BTreeSet, BinaryHeap};
 use wasm_bindgen::prelude::*;
 
+mod boundaries;
 mod runtime;
 mod save_migrations;
+use boundaries::*;
 mod skills;
 use skills::*;
 /// The binary encoding the snapshot delta crosses the worker boundary in.
@@ -109,7 +111,7 @@ const SAVE_PREFIX: &str = "HXF1\n";
 /// is no longer re-earnable, which is precisely the loss finite demand makes permanent.
 /// Version 28 separates personal skills. The old checksum is verified before legacy research
 /// bonuses become granted ranks; skill points and persistent sandbox provenance are native state.
-const SAVE_VERSION: u16 = 28;
+const SAVE_VERSION: u16 = 29;
 /// Bumped to 6 for World Parameters. `WorldParams` is now part of a run's identity — it is in the
 /// save envelope and in the checksum — so a version-5 envelope carries no answer to the question
 /// "which world is this" and is rejected rather than assumed to be the default.
@@ -314,6 +316,8 @@ fn default_footprint() -> Vec<Coordinate> {
 
 #[derive(Clone, Deserialize)]
 struct DefinitionsInput {
+    #[serde(default)]
+    boundaries: Vec<BoundaryDefinition>,
     version: u16,
     items: Vec<ItemDefinition>,
     recipes: Vec<RecipeDefinition>,
@@ -1148,6 +1152,7 @@ struct Entity {
 
 #[derive(Clone, Debug, Serialize, PartialEq, Eq)]
 struct Snapshot {
+    boundaries: Vec<Boundary>,
     scenario: String,
     scenario_name: String,
     world_version: u16,
@@ -1485,6 +1490,7 @@ fn is_zero(value: &u32) -> bool {
 /// `drain_marks`.
 #[derive(Clone, Debug, Default)]
 struct SnapshotDirty {
+    boundaries: bool,
     /// Stable entity ids whose snapshot may differ, including newly placed ones.
     entities: Vec<u32>,
     /// Stable entity ids the host must drop.
@@ -1512,6 +1518,8 @@ fn drain_marks<T: Ord>(marks: &mut Vec<T>) -> Vec<T> {
 
 #[derive(Debug, Serialize, PartialEq, Eq)]
 struct SnapshotDelta {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    boundaries: Option<Vec<Boundary>>,
     base_revision: u64,
     revision: u64,
     tick: u64,
@@ -1591,6 +1599,7 @@ impl SnapshotDelta {
                 removed: Vec::new(),
             }),
             ground_items: Some(current.ground_items.clone()),
+            boundaries: Some(current.boundaries.clone()),
             events: Some(current.events.clone()),
         }
     }
@@ -1627,6 +1636,7 @@ impl SnapshotDelta {
             resources: resources_delta(&previous.resources, &current.resources),
             buildings: buildings_delta(&previous.buildings, &current.buildings),
             ground_items: changed(&previous.ground_items, &current.ground_items),
+            boundaries: changed(&previous.boundaries, &current.boundaries),
             events: changed(&previous.events, &current.events),
         }
     }
@@ -1755,6 +1765,11 @@ enum StockKind {
 #[derive(Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 enum InputCommand {
+    BoundaryEdit {
+        #[serde(flatten)]
+        edit: BoundaryEdit,
+    },
+    UndoBoundary,
     MoveIntent {
         x: i16,
         y: i16,
@@ -1944,6 +1959,9 @@ enum InputCommand {
 }
 
 struct Core {
+    boundaries: BTreeMap<Edge, Boundary>,
+    boundary_hash_cache: RefCell<Option<u32>>,
+    boundary_undo: Vec<BoundaryUndo>,
     definitions: DefinitionsInput,
     technologies: TechnologiesInput,
     scenario: ScenarioDefinition,
@@ -2108,6 +2126,9 @@ impl Core {
             seed,
             world_params,
             fields,
+            boundaries: BTreeMap::new(),
+            boundary_hash_cache: RefCell::new(None),
+            boundary_undo: Vec::new(),
             generated_chunks: BTreeSet::new(),
             tiles: BTreeMap::new(),
             deposit_links: BTreeMap::new(),
@@ -2977,9 +2998,14 @@ impl Core {
         underpass_span: Option<u32>,
         occupied: &BTreeMap<(i32, i32), usize>,
     ) -> Option<usize> {
-        underpass_span
+        let target = underpass_span
             .and_then(|span| self.trace_underpass(index, orientation, span, occupied))
-            .or_else(|| self.trace_ray(index, orientation, occupied))
+            .or_else(|| self.trace_ray(index, orientation, occupied));
+        target.filter(|&target| {
+            let from = &self.entities[index].placed;
+            let to = &self.entities[target].placed;
+            !self.boundary_blocks_segment(axial_world(from.q, from.r), axial_world(to.q, to.r))
+        })
     }
 
     /// The ordinary transport ray, unchanged since the graph existed.
@@ -5165,6 +5191,7 @@ impl Core {
                 let next = (q.saturating_add(dq), r.saturating_add(dr));
                 if axial_distance(from, next) > MAX_WALK_DISTANCE
                     || !self.walkable_hex(next.0, next.1)
+                    || self.boundary_blocks_segment(axial_world(q, r), axial_world(next.0, next.1))
                 {
                     continue;
                 }
@@ -5349,6 +5376,8 @@ impl Core {
         let (q, r) = world_to_axial(x, y);
         let feature_collision = self.terrain_at(q, r).blocks_movement();
         feature_collision
+            || self.boundary_blocks_player(x, y)
+            || self.boundary_blocks_segment((self.player.x, self.player.y), (x, y))
             || self.entities.iter().any(|entity| {
                 self.building_definition(entity.placed.definition_id)
                     .map(|definition| definition.blocks_movement)
@@ -5737,6 +5766,9 @@ impl Core {
             .any(|cell| self.within_world_range(cell.q, cell.r, self.player.build_range))
         {
             return Err("placement is outside build range".into());
+        }
+        if self.boundary_crosses_footprint(&footprint) {
+            return Err("A boundary crosses this building footprint; remove it first".into());
         }
         for cell in &footprint {
             let supported_transport = definition.kind == BuildingKind::Belt
@@ -7043,6 +7075,9 @@ impl Core {
             return Err("no other heading is researched for this building".into());
         }
         let next_footprint = self.footprint_for(self.entities[index].placed, next_orientation);
+        if self.boundary_crosses_footprint(&next_footprint) {
+            return Err("A boundary crosses the rotated footprint; remove it first".into());
+        }
         let rotating_kind = self.entities[index].kind;
         if next_footprint.iter().any(|cell| {
             self.entities.iter().enumerate().any(|(other, entity)| {
@@ -7117,6 +7152,8 @@ impl Core {
         }
         for command in commands {
             let result = match command {
+                InputCommand::BoundaryEdit { edit } => self.edit_boundaries(&edit),
+                InputCommand::UndoBoundary => self.undo_boundary(),
                 InputCommand::MoveIntent { x, y } => self.set_move_intent(x, y),
                 InputCommand::Aim { x, y } => self.set_aim(x, y),
                 InputCommand::Gather => self.gather(),
@@ -7637,6 +7674,7 @@ impl Core {
             terrain,
             resources,
             buildings,
+            boundaries: self.boundary_snapshot(),
             ground_items: self.ground_items.clone(),
             events: self.events.clone(),
         }
@@ -7791,6 +7829,10 @@ impl Core {
                 hash_u64(&mut hash, item.despawn_tick);
             }
         }
+        if !self.boundaries.is_empty() {
+            hash_u32(&mut hash, u32::MAX - 29);
+            hash_u32(&mut hash, self.boundary_state_hash());
+        }
         self.skills.hash(&mut hash);
         hash
     }
@@ -7824,6 +7866,7 @@ impl Core {
             request_delivered: self.request_delivered.clone(),
             produced: self.produced.clone(),
             creative: self.creative,
+            boundaries: self.boundary_snapshot(),
             ground_items: self.ground_items.clone(),
             next_ground_item_id: self.next_ground_item_id,
         };
@@ -7938,6 +7981,12 @@ impl Core {
         core.request_delivered = envelope.state.request_delivered;
         core.last_action_cooldown_total = core.player.action_cooldown;
         core.produced = envelope.state.produced;
+        core.boundaries = envelope
+            .state
+            .boundaries
+            .into_iter()
+            .map(|b| (b.edge, b))
+            .collect();
         core.ground_items = envelope.state.ground_items;
         core.next_ground_item_id = envelope.state.next_ground_item_id.max(
             core.ground_items
@@ -7991,6 +8040,8 @@ struct SaveEnvelope {
 
 #[derive(Serialize, Deserialize)]
 struct SavedState {
+    #[serde(default)]
+    boundaries: Vec<Boundary>,
     seed: u32,
     /// Beside the seed, because a world is both. The overlay a save carries is only meaningful
     /// against the generation it was cut from.
@@ -8044,6 +8095,7 @@ struct SavedState {
 /// either, and it marks them, so the marks alone are exact.
 #[derive(Clone, Debug)]
 struct SnapshotBaseline {
+    boundaries: Vec<Boundary>,
     scenario: String,
     scenario_name: String,
     world_version: u16,
@@ -8087,6 +8139,7 @@ impl SnapshotBaseline {
                 .iter()
                 .map(|entity| (entity.id, entity.clone()))
                 .collect(),
+            boundaries: snapshot.boundaries.clone(),
             ground_items: snapshot.ground_items.clone(),
             events: snapshot.events.clone(),
         }
@@ -8252,6 +8305,10 @@ impl Factory {
             resources,
             buildings,
             ground_items,
+            boundaries: dirty
+                .boundaries
+                .then(|| take_changed(&mut baseline.boundaries, core.boundary_snapshot()))
+                .flatten(),
             events: take_changed(&mut baseline.events, core.events.clone()),
         }
     }
@@ -8780,6 +8837,13 @@ impl Factory {
         serde_json::to_string(&cells).expect("preview is serializable")
     }
 
+    pub fn boundary_preview_json(&self, edit_json: &str) -> Result<String, JsValue> {
+        let edit: BoundaryEdit =
+            serde_json::from_str(edit_json).map_err(|e| js_error(e.to_string()))?;
+        serde_json::to_string(&self.core.boundary_preview(&edit))
+            .map_err(|e| js_error(e.to_string()))
+    }
+
     pub fn snapshot_json(&mut self) -> String {
         let snapshot = self.core.snapshot();
         self.snapshot_revision = 0;
@@ -8935,6 +8999,7 @@ fn validate_research_budget(
 }
 
 fn validate_definitions(definitions: &DefinitionsInput) -> Result<(), String> {
+    validate_boundaries(definitions)?;
     if definitions.version == 0 {
         return Err("definition version must be positive".into());
     }
@@ -9645,6 +9710,7 @@ fn validate_saved_state(
     state: &SavedState,
     legacy_skills: bool,
 ) -> Result<(), String> {
+    validate_saved_boundaries(definitions, &state.boundaries)?;
     validate_skill_state(technologies, &state.skills)?;
     let item_ids: BTreeSet<_> = definitions.items.iter().map(|value| value.id).collect();
     let technology_ids: BTreeSet<_> = technologies
@@ -19777,6 +19843,7 @@ mod tests {
         // A closure rather than a value: every case below fills a different handful of groups in
         // and leaves the rest absent, and `..` moves what it spreads from.
         let empty = || SnapshotDelta {
+            boundaries: None,
             base_revision: 0,
             revision: 1,
             tick: 0,
@@ -20167,6 +20234,7 @@ mod tests {
         // load — here with nothing in it, so the replace flag is what is being read rather than
         // the entries after it.
         let replace = SnapshotDelta {
+            boundaries: Some(Vec::new()),
             base_revision: 0,
             revision: 1,
             tick: 0,
@@ -20184,7 +20252,24 @@ mod tests {
             ..empty()
         };
 
+        let boundaries = SnapshotDelta {
+            boundaries: Some(vec![Boundary {
+                edge: Edge {
+                    q: -4,
+                    r: 7,
+                    direction: 2,
+                },
+                definition_id: 2,
+                open: true,
+                paid: vec![Ingredient {
+                    item_id: 15,
+                    quantity: 2,
+                }],
+            }]),
+            ..empty()
+        };
         vec![
+            ("boundaries with paid recovery", boundaries),
             ("a quiet frame", quiet),
             ("every scalar group", scalars),
             ("both patches with entries", patches),
@@ -22246,5 +22331,447 @@ mod tests {
         let save = core.save_string().unwrap();
         let restored = Core::from_save(&definitions, &technologies, &scenarios, &save).unwrap();
         assert_eq!(restored.ground_items, before_ground);
+    }
+    fn boundary_edit(q: i32, r: i32) -> BoundaryEdit {
+        BoundaryEdit {
+            q,
+            r,
+            to_q: q,
+            to_r: r,
+            direction: 0,
+            area: false,
+            definition_id: 1,
+            action: BoundaryAction::Build,
+        }
+    }
+
+    #[test]
+    fn boundaries_preview_commit_refund_and_undo_conserve_paid_materials() {
+        let mut core = empty_world("new-game");
+        core.compile_graph();
+        core.player.x = -3 * HEX_X;
+        core.player.y = 0;
+        let timber = core
+            .definitions
+            .items
+            .iter()
+            .find(|i| i.key == "timber")
+            .unwrap()
+            .id;
+        let wire = core
+            .definitions
+            .items
+            .iter()
+            .find(|i| i.key == "iron-wire")
+            .unwrap()
+            .id;
+        core.player.inventory = BTreeMap::from([(timber, 20), (wire, 2)]);
+        let initial = core.player.inventory.clone();
+        let edit = boundary_edit(0, 0);
+        let checksum = core.checksum();
+        let preview = core.boundary_preview(&edit);
+        assert_eq!(preview.error, None);
+        assert_eq!(
+            preview.cost,
+            vec![Ingredient {
+                item_id: timber,
+                quantity: 2
+            }]
+        );
+        assert_eq!(core.checksum(), checksum);
+        core.edit_boundaries(&edit).unwrap();
+        assert_eq!(core.boundaries.len(), 1);
+        assert_eq!(core.player.inventory[&timber], 18);
+        assert_eq!(core.boundary_preview(&edit).changes, 0);
+        let checksum = core.checksum();
+        assert!(core.edit_boundaries(&edit).is_err());
+        assert_eq!(checksum, core.checksum());
+        let gate = BoundaryEdit {
+            definition_id: 2,
+            ..edit.clone()
+        };
+        assert_eq!(
+            core.boundary_preview(&gate).cost,
+            vec![Ingredient {
+                item_id: wire,
+                quantity: 1
+            }]
+        );
+        core.edit_boundaries(&gate).unwrap();
+        assert!(core.boundaries.values().next().unwrap().open);
+        core.undo_boundary().unwrap();
+        assert!(!core.boundaries.values().next().unwrap().open);
+        core.undo_boundary().unwrap();
+        assert!(core.boundaries.is_empty());
+        assert_eq!(core.player.inventory, initial);
+        core.set_creative(true);
+        core.edit_boundaries(&edit).unwrap();
+        core.set_creative(false);
+        let before_remove = core.player.inventory.clone();
+        core.edit_boundaries(&BoundaryEdit {
+            action: BoundaryAction::Remove,
+            ..edit
+        })
+        .unwrap();
+        assert_eq!(core.player.inventory, before_remove);
+    }
+
+    #[test]
+    fn boundaries_are_canonical_bounded_atomic_and_reject_unsafe_sites() {
+        let mut core = empty_world("new-game");
+        core.scenario.generated_environment = false;
+        core.compile_graph();
+        core.player.x = -3 * HEX_X;
+        core.player.y = 0;
+        core.set_creative(true);
+        let edit = boundary_edit(0, 0);
+        core.edit_boundaries(&edit).unwrap();
+        let reverse = BoundaryEdit {
+            q: 1,
+            direction: 3,
+            ..edit.clone()
+        };
+        assert_eq!(core.boundary_preview(&reverse).changes, 0);
+        assert_eq!(core.boundaries.len(), 1);
+        core.undo_boundary().unwrap();
+        let area = BoundaryEdit {
+            area: true,
+            to_q: 1,
+            ..edit.clone()
+        };
+        let preview = core.boundary_preview(&area);
+        assert_eq!(preview.error, None);
+        assert_eq!(preview.edges.len(), 10);
+        core.edit_boundaries(&area).unwrap();
+        assert_eq!(core.boundaries.len(), 10);
+        core.undo_boundary().unwrap();
+        let checksum = core.checksum();
+        for invalid in [
+            BoundaryEdit {
+                to_q: 100_000,
+                ..area.clone()
+            },
+            BoundaryEdit {
+                q: i32::MIN,
+                ..edit.clone()
+            },
+            BoundaryEdit {
+                direction: 6,
+                ..edit.clone()
+            },
+            BoundaryEdit {
+                q: 99,
+                r: 99,
+                ..edit.clone()
+            },
+        ] {
+            assert!(core.boundary_preview(&invalid).error.is_some());
+            assert!(core.edit_boundaries(&invalid).is_err());
+            assert_eq!(core.checksum(), checksum);
+        }
+        core.set_creative(false);
+        core.player.inventory.clear();
+        let before = core.checksum();
+        assert!(core.edit_boundaries(&area).is_err());
+        assert_eq!(core.checksum(), before);
+        // Canonicalizing the west/north sides must not create a record that save loading rejects.
+        assert!(core
+            .boundary_preview(&BoundaryEdit {
+                q: -100_000,
+                direction: 3,
+                ..edit.clone()
+            })
+            .error
+            .unwrap()
+            .contains("coordinate range"));
+        core.set_creative(true);
+        core.player.x = HEX_X / 2;
+        assert!(core
+            .boundary_preview(&edit)
+            .error
+            .unwrap()
+            .contains("Step away"));
+    }
+
+    #[test]
+    fn boundaries_block_manual_and_click_walks_and_gates_replan_routes() {
+        let mut core = empty_world("new-game");
+        core.compile_graph();
+        core.player.x = 0;
+        core.player.y = 0;
+        core.set_creative(true);
+        let edit = boundary_edit(0, 0);
+        core.walk_to(2, 0).unwrap();
+        core.edit_boundaries(&edit).unwrap();
+        assert_ne!(core.walk_path.first().map(|c| (c.q, c.r)), Some((1, 0)));
+        core.set_move_intent(1000, 0).unwrap();
+        core.advance_player_steps(30);
+        assert!(core.player.x < HEX_X / 2);
+        core.player.x = 0;
+        core.player.y = 0;
+        core.edit_boundaries(&BoundaryEdit {
+            definition_id: 2,
+            ..edit.clone()
+        })
+        .unwrap();
+        core.walk_to(2, 0).unwrap();
+        assert_eq!(core.walk_path.first().map(|c| (c.q, c.r)), Some((1, 0)));
+        core.advance_player_steps(80);
+        assert_eq!(world_to_axial(core.player.x, core.player.y), (2, 0));
+        core.edit_boundaries(&BoundaryEdit {
+            action: BoundaryAction::Close,
+            ..edit.clone()
+        })
+        .unwrap();
+        assert!(core.boundary_blocks_segment(axial_world(0, 0), axial_world(1, 0)));
+        core.edit_boundaries(&BoundaryEdit {
+            action: BoundaryAction::Open,
+            ..edit
+        })
+        .unwrap();
+        assert!(!core.boundary_blocks_segment(axial_world(0, 0), axial_world(1, 0)));
+    }
+
+    #[test]
+    fn boundaries_protect_transport_and_recompile_future_connections_without_losing_cargo() {
+        let mut core = empty_world("new-game");
+        core.compile_graph();
+        core.player.x = -3 * HEX_X;
+        core.player.y = 0;
+        core.set_creative(true);
+        let edit = boundary_edit(0, 0);
+        core.edit_boundaries(&edit).unwrap();
+        let a = add_test_entity(&mut core, 0, 0, 2, 0);
+        let b = add_test_entity(&mut core, 1, 0, 2, 0);
+        core.compile_graph();
+        assert!(link_ids(&core, a).is_empty());
+        let cargo = Cargo {
+            item_id: 1,
+            quantity: 1,
+        };
+        let a_index = index_of(&core, a);
+        core.entities[a_index].cargo = Some(cargo);
+        core.edit_boundaries(&BoundaryEdit {
+            action: BoundaryAction::Remove,
+            ..edit.clone()
+        })
+        .unwrap();
+        assert_eq!(link_ids(&core, a), vec![b]);
+        let graph = core.graph.clone();
+        core.compile_graph();
+        assert_eq!(graph, core.graph);
+        assert_eq!(core.entities[index_of(&core, a)].cargo, Some(cargo));
+        let checksum = core.checksum();
+        assert!(core
+            .edit_boundaries(&edit)
+            .unwrap_err()
+            .contains("transport"));
+        assert_eq!(checksum, core.checksum());
+        assert!(core.undo_boundary().unwrap_err().contains("transport"));
+    }
+
+    #[test]
+    fn boundaries_save_migrate_validate_and_dirty_deltas_match_the_full_oracle() {
+        let mut core = game("new-game");
+        let old = core
+            .save_string()
+            .unwrap()
+            .replace("\"save_version\":29", "\"save_version\":28")
+            .replace("\"definition_version\":23", "\"definition_version\":22");
+        let (definitions, technologies, scenarios) = catalogs();
+        let migrated = Core::from_save(&definitions, &technologies, &scenarios, &old).unwrap();
+        assert_eq!(migrated.checksum(), core.checksum());
+        core.player.x = -3 * HEX_X;
+        core.player.y = 0;
+        core.set_creative(true);
+        let edit = boundary_edit(-2, -2);
+        core.edit_boundaries(&edit).unwrap();
+        let save = core.save_string().unwrap();
+        let restored = Core::from_save(&definitions, &technologies, &scenarios, &save).unwrap();
+        assert_eq!(restored.boundaries, core.boundaries);
+        assert_eq!(restored.checksum(), core.checksum());
+        assert!(restored.boundary_undo.is_empty());
+        let previous = core.snapshot();
+        let baseline = SnapshotBaseline::from_snapshot(&previous);
+        core.dirty = SnapshotDirty::default();
+        core.edit_boundaries(&BoundaryEdit {
+            action: BoundaryAction::Remove,
+            ..edit
+        })
+        .unwrap();
+        let current = core.snapshot();
+        let mut factory = Factory {
+            definitions,
+            technologies,
+            scenarios,
+            core,
+            snapshot_revision: 0,
+            baseline: Some(baseline),
+        };
+        let delta = factory.build_delta();
+        assert_eq!(delta, SnapshotDelta::between(0, 1, &previous, &current));
+        assert_eq!(delta.boundaries, Some(Vec::new()));
+        assert!(factory.build_delta().boundaries.is_none());
+    }
+
+    #[test]
+    fn boundaries_cover_all_six_sides_vertices_and_keep_the_source_digest_exact() {
+        let mut core = empty_world("new-game");
+        core.scenario.generated_environment = false;
+        core.compile_graph();
+        core.player.x = 0;
+        core.player.y = 0;
+        core.set_creative(true);
+        for direction in 0..6 {
+            let edit = BoundaryEdit {
+                direction,
+                ..boundary_edit(0, 0)
+            };
+            core.edit_boundaries(&edit).unwrap();
+            let (q, r) = DIRECTIONS[direction as usize];
+            let other = axial_world(q, r);
+            assert!(core.boundary_blocks_segment((0, 0), other));
+            assert!(core.boundary_blocks_segment(other, (0, 0)));
+            assert!(core.boundary_blocks_player(other.0 / 2, other.1 / 2));
+            let reverse = BoundaryEdit {
+                q,
+                r,
+                direction: (direction + 3) % 6,
+                ..edit
+            };
+            assert_eq!(core.boundary_preview(&reverse).changes, 0);
+            assert_eq!(core.boundary_state_hash(), core.uncached_boundary_hash());
+            assert_eq!(core.boundary_state_hash(), core.uncached_boundary_hash());
+        }
+        for (q, r) in TRANSPORT_DIRECTIONS {
+            assert!(core.boundary_blocks_segment((0, 0), axial_world(q, r)));
+        }
+        assert!(core.walk_route((0, 0), (2, 0)).is_none());
+        core.edit_boundaries(&BoundaryEdit {
+            definition_id: 2,
+            ..boundary_edit(0, 0)
+        })
+        .unwrap();
+        assert!(core.walk_route((0, 0), (2, 0)).is_some());
+        assert_eq!(core.boundary_state_hash(), core.uncached_boundary_hash());
+        let hash = core.checksum();
+        *core.boundary_hash_cache.borrow_mut() = None;
+        assert_eq!(core.checksum(), hash);
+        core.undo_boundary().unwrap();
+        assert_eq!(core.boundary_state_hash(), core.uncached_boundary_hash());
+        let mut invalid = core.boundary_snapshot();
+        invalid.push(invalid[0].clone());
+        assert!(validate_saved_boundaries(&core.definitions, &invalid).is_err());
+        invalid = core.boundary_snapshot();
+        invalid[0].paid = vec![Ingredient {
+            item_id: 1,
+            quantity: 1000,
+        }];
+        assert!(validate_saved_boundaries(&core.definitions, &invalid).is_err());
+        invalid = core.boundary_snapshot();
+        invalid[0].open = true;
+        assert!(validate_saved_boundaries(&core.definitions, &invalid).is_err());
+        let yard = BoundaryEdit {
+            q: -2,
+            r: -2,
+            to_q: 0,
+            to_r: 0,
+            area: true,
+            ..boundary_edit(0, 0)
+        };
+        assert_eq!(core.boundary_preview(&yard).edges.len(), 22);
+    }
+
+    #[test]
+    fn boundaries_refuse_full_pack_refunds_and_unfunded_undo_without_changing_state() {
+        let mut core = empty_world("new-game");
+        core.compile_graph();
+        core.player.x = -3 * HEX_X;
+        core.player.y = 0;
+        let timber = core
+            .definitions
+            .items
+            .iter()
+            .find(|i| i.key == "timber")
+            .unwrap()
+            .id;
+        core.player.inventory = BTreeMap::from([(timber, 2)]);
+        let edit = boundary_edit(0, 0);
+        core.edit_boundaries(&edit).unwrap();
+        core.player.inventory = BTreeMap::from([(
+            IRON_ORE,
+            core.stack_size(IRON_ORE) * core.player.carry_slots,
+        )]);
+        let remove = BoundaryEdit {
+            action: BoundaryAction::Remove,
+            ..edit
+        };
+        let checksum = core.checksum();
+        assert!(core.edit_boundaries(&remove).unwrap_err().contains("room"));
+        assert_eq!(core.checksum(), checksum);
+        core.player.inventory.clear();
+        core.edit_boundaries(&remove).unwrap();
+        assert_eq!(core.player.inventory[&timber], 2);
+        core.player.inventory.clear();
+        let checksum = core.checksum();
+        assert!(core.undo_boundary().unwrap_err().contains("materials"));
+        assert_eq!(core.checksum(), checksum);
+        core.player.inventory.insert(timber, 2);
+        core.undo_boundary().unwrap();
+        assert_eq!(core.boundaries.len(), 1);
+        assert!(core.player.inventory.is_empty());
+    }
+
+    #[test]
+    fn boundaries_protect_multicell_placement_rotation_and_live_gate_crossings() {
+        let mut core = empty_world("new-game");
+        core.scenario.generated_environment = false;
+        core.compile_graph();
+        core.player.x = -3 * HEX_X;
+        core.player.y = 0;
+        core.set_creative(true);
+        let edit = BoundaryEdit {
+            direction: 1,
+            definition_id: 2,
+            ..boundary_edit(0, 0)
+        };
+        core.edit_boundaries(&edit).unwrap();
+        let container = core
+            .definitions
+            .buildings
+            .iter_mut()
+            .find(|d| d.id == 4)
+            .unwrap();
+        container.footprint = vec![Coordinate { q: 0, r: 0 }, Coordinate { q: 1, r: 0 }];
+        assert!(core.placement_legality(0, 0, 4, 1, None, true).is_err());
+        add_test_entity(&mut core, 0, 0, 4, 0);
+        core.compile_graph();
+        assert!(core.rotate(0, 0, false).unwrap_err().contains("boundary"));
+        core.edit_boundaries(&BoundaryEdit {
+            action: BoundaryAction::Remove,
+            ..edit
+        })
+        .unwrap();
+        core.rotate(0, 0, false).unwrap();
+        let checksum = core.checksum();
+        assert!(core.undo_boundary().unwrap_err().contains("building"));
+        assert_eq!(core.checksum(), checksum);
+        core.rotate(0, 0, true).unwrap();
+        core.undo_boundary().unwrap();
+        core.entities.clear();
+        core.compile_graph();
+        let a = add_test_entity(&mut core, 0, 0, 2, 1);
+        let b = add_test_entity(&mut core, 0, 1, 2, 1);
+        core.compile_graph();
+        assert_eq!(link_ids(&core, a), vec![b]);
+        let checksum = core.checksum();
+        assert!(core
+            .edit_boundaries(&BoundaryEdit {
+                action: BoundaryAction::Close,
+                ..edit
+            })
+            .unwrap_err()
+            .contains("transport"));
+        assert_eq!(core.checksum(), checksum);
     }
 }

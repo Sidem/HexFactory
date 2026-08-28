@@ -34,6 +34,32 @@ const STOCK_CODE = {
 
 export function encodeCommand(command: NativeInputCommand): EncodedCommand {
   switch (command.type) {
+    case "boundary_edit":
+      if (
+        ![command.q, command.r, command.to_q, command.to_r].every(
+          (n) => Number.isInteger(n) && Math.abs(n) <= 100000,
+        ) ||
+        !Number.isInteger(command.direction) ||
+        command.direction < 0 ||
+        command.direction > 5
+      )
+        throw new RangeError("Invalid boundary target");
+      return {
+        opcode: 30,
+        args: [
+          command.q,
+          command.r,
+          command.to_q,
+          command.to_r,
+          command.direction,
+          command.area ? 1 : 0,
+          command.definition_id,
+          { build: 0, remove: 1, open: 2, close: 3 }[command.action],
+        ],
+      };
+    case "undo_boundary":
+      return { opcode: 31, args: [] };
+
     case "move_intent":
       if (
         !Number.isInteger(command.x) ||

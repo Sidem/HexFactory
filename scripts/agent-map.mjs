@@ -7,6 +7,11 @@ const roots = ["factory-wasm/src", "src", "tests"];
 
 const routes = [
   [
+    "Fences, gates and edge construction",
+    "factory-wasm/src/boundaries.rs; src/ui/boundaries.ts; src/rendering/three/boundaryMeshes.ts",
+    "BoundaryEdit, boundary_transaction, BoundaryTool, BoundaryMeshes",
+  ],
+  [
     "Native tick, determinism",
     "factory-wasm/src/lib.rs",
     "advance_ticks, checksum, Core",

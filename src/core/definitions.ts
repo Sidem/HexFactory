@@ -73,6 +73,31 @@ export function validateDefinitions(
   uniqueIds(data.buildings, "building");
   uniqueIds(data.requests, "request");
   const itemIds = new Set(data.items.map((item) => item.id));
+  if (!Array.isArray(data.boundaries))
+    throw new TypeError("definitions require boundaries");
+  uniqueIds(data.boundaries, "boundary");
+  const boundaryKeys = new Set<string>();
+  for (const boundary of data.boundaries) {
+    if (
+      !boundary.key ||
+      boundaryKeys.has(boundary.key) ||
+      !boundary.name ||
+      !boundary.description ||
+      typeof boundary.gate !== "boolean" ||
+      !Array.isArray(boundary.construction_cost) ||
+      boundary.construction_cost.length === 0 ||
+      boundary.construction_cost.some(
+        (i) =>
+          !itemIds.has(i.item_id) ||
+          !positiveInteger(i.quantity) ||
+          i.quantity > 1000,
+      ) ||
+      new Set(boundary.construction_cost.map((i) => i.item_id)).size !==
+        boundary.construction_cost.length
+    )
+      throw new TypeError("Invalid boundary definition or construction bill");
+    boundaryKeys.add(boundary.key);
+  }
   for (const item of data.items) {
     if (
       !item.key ||

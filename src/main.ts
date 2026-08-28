@@ -1,3 +1,4 @@
+import { BoundaryTool } from "./ui/boundaries";
 import {
   axialToPixel,
   pixelToAxial,
@@ -256,6 +257,16 @@ const renderer: FactoryRenderer = new ThreeFactoryRenderer(
   canvas,
   host.definitions,
   initialGraphics,
+);
+const boundaryTool = new BoundaryTool(
+  required<HTMLElement>("boundary-panel"),
+  host,
+  renderer,
+  enqueue,
+  () => {
+    selectTool("inspect");
+    closePanels();
+  },
 );
 if (
   import.meta.env.DEV &&
@@ -657,6 +668,7 @@ function update(next: FactorySnapshot): void {
   refreshLandingHub();
   renderer.setHome(landingHub);
   renderer.setSnapshot(snapshot);
+  boundaryTool.update(snapshot);
   syncHoverWithCamera();
   minimap.setSnapshot(snapshot, landingHub);
   renderHomeReadout();
@@ -2625,6 +2637,7 @@ function syncSessionInputs(next: FactorySnapshot): void {
 }
 
 function selectTool(next: Tool): void {
+  boundaryTool.close(false);
   tool = next;
   renderer.setBuildMode(next !== "inspect");
   renderRecipePicker();
@@ -2663,6 +2676,7 @@ function syncHoverWithCamera(): void {
   const coordinate = renderer.pick(aimPointer.x, aimPointer.y);
   if (hover?.q === coordinate.q && hover.r === coordinate.r) return;
   hover = coordinate;
+  boundaryTool.hover(coordinate);
   refreshHoverPreview();
 }
 
@@ -3646,10 +3660,20 @@ window.addEventListener("keydown", (event) => {
   // Undo is the one binding that keeps its modifier, because every other application uses it.
   if ((event.ctrlKey || event.metaKey) && event.code === "KeyZ") {
     event.preventDefault();
-    enqueue({ type: "undo" });
+    enqueue({ type: boundaryTool.active ? "undo_boundary" : "undo" });
     return;
   }
   if (event.ctrlKey || event.metaKey || event.altKey) return;
+  if (
+    boundaryTool.active &&
+    ["Escape", "KeyR", "Delete", "Backspace"].includes(event.code)
+  ) {
+    event.preventDefault();
+    if (event.code === "Escape") boundaryTool.escape();
+    else if (event.code === "KeyR") boundaryTool.rotate(event.shiftKey);
+    else boundaryTool.selectRemoval();
+    return;
+  }
   if (event.code === "Backspace" || event.code === "Delete") {
     event.preventDefault();
     if (!event.repeat) deleteBuildingUnderCursorOrSelected();
@@ -3787,9 +3811,15 @@ canvas.addEventListener("pointermove", (event) => {
     return;
   }
   hover = coordinate;
+  boundaryTool.hover(coordinate);
   refreshHoverPreview();
 });
 canvas.addEventListener("pointerdown", (event) => {
+  if (boundaryTool.active && event.button === 2) {
+    event.preventDefault();
+    boundaryTool.clear();
+    return;
+  }
   // The map is the outside surface for every workspace. Any deliberate world gesture clears the
   // overlay first; right-click harvesting and middle-button panning follow the same expectation as
   // an ordinary click rather than leaving a panel covering the action.
@@ -3916,6 +3946,13 @@ canvas.addEventListener("click", (event) => {
     return;
   }
   const coordinate = renderer.pick(event.clientX, event.clientY);
+  if (boundaryTool.active) {
+    boundaryTool.pick(
+      coordinate,
+      renderer.pickWorld(event.clientX, event.clientY),
+    );
+    return;
+  }
   if (snapshot?.player.hand) {
     const placed =
       event.ctrlKey || event.metaKey ? 1 : snapshot.player.hand.quantity;
@@ -4200,6 +4237,7 @@ function sendAim(): void {
  * chosen workspace; the right rail hides it while its own menu or timer is open.
  */
 function togglePanel(id: string): void {
+  boundaryTool.close(false);
   panels.toggle(id);
   // The session rail carries the second copy of the world form. Its preview cannot raster while the
   // panel is closed, so opening one is the other moment a picture becomes drawable.

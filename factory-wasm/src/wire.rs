@@ -88,7 +88,7 @@ pub(crate) const WIRE_MAGIC: [u8; 4] = *b"HXFD";
 /// version-13 decoder would read that byte as the start of the next row's key length and mis-frame
 /// the rest of the group — and would in any case draw a locked project as a posted one.
 /// Version 15 appends bounded personal skill state and native purchase availability.
-pub(crate) const WIRE_VERSION: u8 = 15;
+pub(crate) const WIRE_VERSION: u8 = 16;
 
 /// Which optional groups the buffer carries, in the order they are written.
 mod group {
@@ -112,6 +112,7 @@ mod group {
     pub(super) const GROUND_ITEMS: u32 = 1 << 17;
     pub(super) const RESEARCH_AVAILABILITY: u32 = 1 << 18;
     pub(super) const SKILLS: u32 = 1 << 19;
+    pub(super) const BOUNDARIES: u32 = 1 << 20;
 }
 
 /// Per-entity presence bits, so an absent option costs a bit rather than a field name and a `null`.
@@ -314,6 +315,7 @@ pub(crate) fn encode_delta(delta: &SnapshotDelta) -> Vec<u8> {
         delta.research_availability.is_some(),
     );
     set(group::SKILLS, delta.skills.is_some());
+    set(group::BOUNDARIES, delta.boundaries.is_some());
     set(group::CHUNKS, delta.chunks.is_some());
     set(group::TERRAIN, delta.terrain.is_some());
     set(group::RESOURCES, delta.resources.is_some());
@@ -453,6 +455,17 @@ pub(crate) fn encode_delta(delta: &SnapshotDelta) -> Vec<u8> {
             for id in &row.missing_prerequisites {
                 writer.uvarint(u64::from(*id));
             }
+        }
+    }
+    if let Some(boundaries) = &delta.boundaries {
+        writer.uvarint(boundaries.len() as u64);
+        for boundary in boundaries {
+            writer.svarint(i64::from(boundary.edge.q));
+            writer.svarint(i64::from(boundary.edge.r));
+            writer.u8(boundary.edge.direction);
+            writer.uvarint(u64::from(boundary.definition_id));
+            writer.bool(boundary.open);
+            writer.ingredients(&boundary.paid);
         }
     }
     writer.bytes
@@ -1022,12 +1035,27 @@ pub(crate) mod decode {
             }
         });
 
+        let boundaries = has(group::BOUNDARIES).then(|| {
+            (0..reader.count())
+                .map(|_| crate::Boundary {
+                    edge: crate::Edge {
+                        q: reader.svarint() as i32,
+                        r: reader.svarint() as i32,
+                        direction: reader.u8(),
+                    },
+                    definition_id: reader.uvarint() as u16,
+                    open: reader.bool(),
+                    paid: reader.ingredients(),
+                })
+                .collect()
+        });
         assert_eq!(
             reader.offset,
             bytes.len(),
             "decoder consumed the whole buffer"
         );
         SnapshotDelta {
+            boundaries,
             base_revision,
             revision,
             tick,

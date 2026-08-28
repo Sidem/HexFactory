@@ -5,6 +5,8 @@ import { validateDefinitions, validateTechnologies } from "./definitions";
 import { applySnapshotDelta } from "./snapshotDelta";
 import { decodeSnapshotDelta } from "./snapshotWire";
 import type {
+  BoundaryEdit,
+  BoundaryPreview,
   Definitions,
   FactorySnapshot,
   FactorySnapshotDelta,
@@ -23,6 +25,7 @@ export type FactoryWorkerMethod =
   | "advance"
   | "reset"
   | "newGame"
+  | "boundaryPreview"
   | "placementPreview"
   | "linePreview"
   | "save"
@@ -304,6 +307,11 @@ export class FactoryHost {
 
   snapshot(): FactorySnapshot {
     return this.currentSnapshot;
+  }
+
+  /** Read-only native pricing and validation, shared with the eventual construction command. */
+  boundaryPreview(edit: BoundaryEdit): Promise<BoundaryPreview> {
+    return this.transport.request<BoundaryPreview>("boundaryPreview", edit);
   }
 
   /**

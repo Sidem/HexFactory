@@ -65,6 +65,7 @@ import {
 } from "../src/rendering/landmarks";
 
 const snapshot: FactorySnapshot = {
+  boundaries: [],
   scenario: "new-game",
   scenario_name: "New game",
   world_version: 3,
@@ -1703,4 +1704,40 @@ it("skill UI uses native availability, keeps currencies separate and explains gr
   });
   expect(applied.snapshot.skills).toBe(state.skills);
   expect(applied.snapshot.insight).toBe(snapshot.insight);
+});
+
+it("carries bounded edge transactions without host expansion", () => {
+  expect(
+    encodeCommand({
+      type: "boundary_edit",
+      q: -2,
+      r: 1,
+      to_q: 2,
+      to_r: 3,
+      direction: 5,
+      area: true,
+      definition_id: 1,
+      action: "build",
+    }),
+  ).toEqual({
+    opcode: 30,
+    args: [-2, 1, 2, 3, 5, 1, 1, 0],
+  });
+  expect(encodeCommand({ type: "undo_boundary" })).toEqual({
+    opcode: 31,
+    args: [],
+  });
+  expect(() =>
+    encodeCommand({
+      type: "boundary_edit",
+      q: 0.5,
+      r: 0,
+      to_q: 0,
+      to_r: 0,
+      direction: 0,
+      area: false,
+      definition_id: 1,
+      action: "build",
+    }),
+  ).toThrow(/boundary/);
 });

@@ -1,6 +1,7 @@
 import type { AxialCoordinate } from "@hexlife/embed/hex";
 
 import type {
+  BoundaryPreview,
   BuildingDefinition,
   ChunkSnapshot,
   EntitySnapshot,
@@ -73,6 +74,7 @@ export interface FactoryRenderer {
   /** True while the view is still easing toward a requested orbit, so the scene moves on its own. */
   readonly cameraSettling: boolean;
   setSnapshot(snapshot: FactorySnapshot): void;
+  setBoundaryPreview(preview: BoundaryPreview | null): void;
   setHome(point: WorldPoint | null): void;
   setReducedMotion(value: boolean): void;
   setHover(

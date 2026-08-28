@@ -12,6 +12,12 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
   </head>
   <body class="title-open">
+    <section
+      id="boundary-panel"
+      class="boundary-panel"
+      aria-labelledby="boundary-heading"
+      hidden
+    ></section>
     <!--
       The mark, defined once. A hexagon holding three linked cells: the tile the world is made of,
       and the network the game is about. Both places that wear it point at this, so the logo cannot
@@ -1342,6 +1348,16 @@
               aria-label="Rotate placed building"
             >
               <span aria-hidden="true">↻</span><small>Edit</small>
+            </button>
+            <button
+              id="open-boundaries"
+              type="button"
+              aria-controls="boundary-panel"
+              aria-expanded="false"
+              title="Timber fences and manual gates"
+              aria-label="Open fences and gates"
+            >
+              <span aria-hidden="true">⚑</span><small>Fences</small>
             </button>
             <span class="shelf-divider" aria-hidden="true"></span>
             <div

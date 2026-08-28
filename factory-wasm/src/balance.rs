@@ -458,7 +458,21 @@ pub struct RequestCost {
 }
 
 #[derive(Clone, Debug, Serialize)]
+pub struct BoundaryCost {
+    pub project: String,
+    pub edges: u32,
+    pub direct: Vec<Amount>,
+    pub raw: Vec<MilliAmount>,
+    pub batch: Vec<Amount>,
+    pub batch_fuel_energy: u64,
+    pub process_ticks: u64,
+    pub attended_ticks: u64,
+}
+
+/// Boundary materials with the existing primitive stations already built. Not a travel-time claim.
+#[derive(Clone, Debug, Serialize)]
 pub struct BalanceReport {
+    pub boundaries: Vec<BoundaryCost>,
     pub reference: Reference,
     pub machines: Vec<MachineRate>,
     pub power: Vec<PowerPlant>,
@@ -764,6 +778,7 @@ fn report(economy: &Economy) -> BalanceReport {
     let (best_fuel_id, best_fuel_value) = economy.best_fuel();
 
     BalanceReport {
+        boundaries: boundaries(economy),
         reference: reference(economy, best_fuel_id, best_fuel_value),
         machines: machines(economy),
         power: power(economy, best_fuel_value),
@@ -1185,6 +1200,71 @@ fn buildings(economy: &Economy, best_fuel_value: u32) -> Vec<BuildingCost> {
                 batch_units: expansion.batch_raw.values().sum(),
                 batch_fuel_energy: expansion.batch_energy,
                 machine_ticks: expansion.batch_ticks,
+            }
+        })
+        .collect()
+}
+
+fn boundaries(economy: &Economy) -> Vec<BoundaryCost> {
+    let primitive: BTreeSet<_> = economy
+        .definitions
+        .buildings
+        .iter()
+        .filter(|b| matches!(b.key.as_str(), "manual-workshop" | "primitive-furnace"))
+        .map(|b| b.id)
+        .collect();
+    let mut projects: Vec<(String, u32, Vec<Ingredient>)> = economy
+        .definitions
+        .boundaries
+        .iter()
+        .map(|b| (b.key.clone(), 1, b.construction_cost.clone()))
+        .collect();
+    let fence = economy
+        .definitions
+        .boundaries
+        .iter()
+        .find(|b| b.key == "timber-fence");
+    let gate = economy
+        .definitions
+        .boundaries
+        .iter()
+        .find(|b| b.key == "timber-gate");
+    if let (Some(fence), Some(gate)) = (fence, gate) {
+        let mut bill = BTreeMap::new();
+        for i in &fence.construction_cost {
+            *bill.entry(i.item_id).or_insert(0) += i.quantity * 21;
+        }
+        for i in &gate.construction_cost {
+            *bill.entry(i.item_id).or_insert(0) += i.quantity;
+        }
+        projects.push((
+            "nine-hex-yard-with-gate".into(),
+            22,
+            bill.into_iter()
+                .map(|(item_id, quantity)| Ingredient { item_id, quantity })
+                .collect(),
+        ));
+    }
+    projects
+        .into_iter()
+        .map(|(project, edges, bill)| {
+            let expansion = economy.cost_of(&bill);
+            let (process_ticks, attended_ticks) = opening_work(economy, &primitive, &bill);
+            BoundaryCost {
+                project,
+                edges,
+                direct: bill
+                    .iter()
+                    .map(|i| Amount {
+                        item: economy.item_key(i.item_id),
+                        quantity: u64::from(i.quantity),
+                    })
+                    .collect(),
+                raw: milli_amounts(economy, &expansion.raw),
+                batch: amounts(economy, &expansion.batch_raw),
+                batch_fuel_energy: expansion.batch_energy,
+                process_ticks,
+                attended_ticks,
             }
         })
         .collect()

@@ -7,6 +7,7 @@ import {
 } from "@hexlife/embed/hex";
 
 import type {
+  BoundaryPreview,
   BuildingDefinition,
   ChunkSnapshot,
   Definitions,
@@ -184,6 +185,7 @@ export class CanvasFactoryRenderer implements FactoryRenderer {
     return this.systemReducedMotion || this.forcedReducedMotion;
   }
   private snapshot: FactorySnapshot | null = null;
+  private boundaryPreview: BoundaryPreview | null = null;
   /**
    * Where the landing hub stands, so the view can always say which way home is. Resolved by the
    * host from the snapshot rather than scanned for here every frame — the hub does not move.
@@ -252,6 +254,11 @@ export class CanvasFactoryRenderer implements FactoryRenderer {
     }
     this.snapshot = snapshot;
     this.camera.follow(snapshot.player);
+    this.markDirty();
+  }
+
+  setBoundaryPreview(preview: BoundaryPreview | null): void {
+    this.boundaryPreview = preview;
     this.markDirty();
   }
 
@@ -479,6 +486,35 @@ export class CanvasFactoryRenderer implements FactoryRenderer {
     for (const building of this.snapshot.buildings)
       this.drawBuilding(building, width, height, size);
     this.drawGroundItems(width, height, size);
+    for (const edge of [
+      ...this.snapshot.boundaries,
+      ...(this.boundaryPreview?.edges ?? []),
+    ]) {
+      const center = this.camera.project(edge, width, height);
+      if (!visible(center, size, width, height)) continue;
+      const angle = (edge.direction * Math.PI) / 3;
+      ctx.strokeStyle =
+        "open" in edge
+          ? edge.open
+            ? "#72e2b4"
+            : "#c89b60"
+          : this.boundaryPreview?.error
+            ? "#ff8279"
+            : "#72e2b4";
+      ctx.lineWidth = 3;
+      ctx.setLineDash("open" in edge && edge.open ? [3, 4] : []);
+      ctx.beginPath();
+      ctx.moveTo(
+        center.x + Math.cos(angle - Math.PI / 6) * size,
+        center.y + Math.sin(angle - Math.PI / 6) * size,
+      );
+      ctx.lineTo(
+        center.x + Math.cos(angle + Math.PI / 6) * size,
+        center.y + Math.sin(angle + Math.PI / 6) * size,
+      );
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
     this.drawFog(width, height);
     this.drawEnvironment(width, height, size);
     this.drawPlayer(width, height, size);

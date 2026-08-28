@@ -145,6 +145,7 @@ export interface BuildingDefinition {
 }
 
 export interface Definitions {
+  boundaries: BoundaryDefinition[];
   version: number;
   items: ItemDefinition[];
   recipes: RecipeDefinition[];
@@ -628,6 +629,7 @@ export interface GroundItemSnapshot extends AxialCoordinate {
 }
 
 export interface FactorySnapshot {
+  boundaries: Boundary[];
   scenario: string;
   scenario_name: string;
   world_version: number;
@@ -704,6 +706,8 @@ export interface LinePreviewCell {
 }
 
 export type NativeInputCommand =
+  | ({ type: "boundary_edit" } & BoundaryEdit)
+  | { type: "undo_boundary" }
   | { type: "move_intent"; x: number; y: number }
   /**
    * Point the player at a world position — the point under the cursor. The host sends the target
@@ -860,6 +864,7 @@ export type NativeInputCommand =
   | { type: "set_carry_slots"; slots: number };
 
 export interface NativeFactory {
+  boundary_preview_json(edit: string): string;
   tick(count: number): void;
   reset(): void;
   /**
@@ -932,4 +937,37 @@ export interface NativeFactory {
   checksum(): number;
   tick_count(): bigint;
   free(): void;
+}
+
+export interface BoundaryDefinition {
+  id: number;
+  key: string;
+  name: string;
+  description: string;
+  gate: boolean;
+  construction_cost: Ingredient[];
+}
+export interface BoundaryEdge {
+  q: number;
+  r: number;
+  direction: number;
+}
+export interface Boundary extends BoundaryEdge {
+  definition_id: number;
+  open: boolean;
+  paid: Ingredient[];
+}
+export interface BoundaryEdit extends BoundaryEdge {
+  to_q: number;
+  to_r: number;
+  area: boolean;
+  definition_id: number;
+  action: "build" | "remove" | "open" | "close";
+}
+export interface BoundaryPreview {
+  edges: BoundaryEdge[];
+  changes: number;
+  cost: Ingredient[];
+  refund: Ingredient[];
+  error: string | null;
 }

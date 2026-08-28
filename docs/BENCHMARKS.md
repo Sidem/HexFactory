@@ -7,6 +7,10 @@ any table that was trimmed out of this document.
 **Current records.** Native: **v0.25.1 runtime index**. Browser frame: **Visual Depth v0.25 profile ladders**.
 Generation: **v0.21**. Payload: **Binary Delta v0.12.2**.
 
+v0.37 boundary correctness and small-browser interaction checks are recorded in
+[TIMBER-BOUNDARIES-RECORD.md](TIMBER-BOUNDARIES-RECORD.md). No large-perimeter capacity measurement
+has been added; the historical factory ladders do not establish boundary capacity.
+
 **Two caveats travel with those records.**
 
 - **The v0.24 browser record is a comparison baseline, not current renderer evidence.** Current

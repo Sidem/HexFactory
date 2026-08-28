@@ -1,3 +1,5 @@
+import { BoundaryMeshes } from "../src/rendering/three/boundaryMeshes";
+import definitions from "../src/data/definitions.json";
 import { describe, expect, it } from "vitest";
 import { axialToPixel } from "@hexlife/embed/hex";
 import {
@@ -332,7 +334,14 @@ describe("Visual Depth generated geometry", () => {
     );
     const materials = createWorldMaterials();
     const layer = new WorldInstanceLayer(
-      { version: 1, items: [], recipes: [], requests: [], buildings: [] },
+      {
+        boundaries: [],
+        version: 1,
+        items: [],
+        recipes: [],
+        requests: [],
+        buildings: [],
+      },
       materials,
     );
     expect(layer.group.getObjectByName("player")?.scale.x).toBe(
@@ -459,7 +468,14 @@ describe("Visual Depth terrain and quality contracts", () => {
       power_source: "burner" as const,
     };
     const layer = new WorldInstanceLayer(
-      { version: 1, items: [], recipes: [], requests: [], buildings: [burner] },
+      {
+        boundaries: [],
+        version: 1,
+        items: [],
+        recipes: [],
+        requests: [],
+        buildings: [burner],
+      },
       materials,
     );
     const snapshot = minimalSnapshot();
@@ -521,6 +537,7 @@ describe("Visual Depth terrain and quality contracts", () => {
     const materials = createWorldMaterials();
     const layer = new WorldInstanceLayer(
       {
+        boundaries: [],
         version: 1,
         items: [],
         recipes: [],
@@ -612,6 +629,7 @@ describe("Visual Depth terrain and quality contracts", () => {
     const materials = createWorldMaterials();
     const layer = new WorldInstanceLayer(
       {
+        boundaries: [],
         version: 1,
         items: [],
         recipes: [],
@@ -663,6 +681,7 @@ describe("Visual Depth terrain and quality contracts", () => {
     const materials = createWorldMaterials();
     const layer = new WorldInstanceLayer(
       {
+        boundaries: [],
         version: 1,
         items: [
           {
@@ -740,6 +759,7 @@ describe("Visual Depth terrain and quality contracts", () => {
     const materials = createWorldMaterials();
     const layer = new WorldInstanceLayer(
       {
+        boundaries: [],
         version: 1,
         items: [],
         recipes: [],
@@ -809,6 +829,7 @@ describe("Visual Depth terrain and quality contracts", () => {
     const materials = createWorldMaterials();
     const layer = new WorldInstanceLayer(
       {
+        boundaries: [],
         version: 1,
         items: [],
         recipes: [],
@@ -1109,6 +1130,7 @@ function compileTerrain(terrain: Terrain) {
 
 function minimalSnapshot(): FactorySnapshot {
   return {
+    boundaries: [],
     scenario: "test",
     scenario_name: "Test",
     world_version: 8,
@@ -1228,3 +1250,46 @@ function entity(
     footprint: [{ q, r }],
   };
 }
+
+it("draws sandbox gates by definition, reuses quiet meshes, and releases replaced geometry", () => {
+  const layer = new BoundaryMeshes(definitions.boundaries);
+  const terrain = new Map();
+  const boundary = {
+    q: -2,
+    r: 1,
+    direction: 0,
+    definition_id: 2,
+    open: false,
+    paid: [],
+  };
+  const state = [boundary];
+  expect(layer.update(state, terrain)).toBe(true);
+  const closed = layer.group.children[0] as InstancedMesh;
+  expect(closed.count).toBe(5);
+  expect(layer.update(state, terrain)).toBe(false);
+  expect(layer.group.children[0]).toBe(closed);
+  let disposed = false;
+  closed.addEventListener("dispose", () => {
+    disposed = true;
+  });
+  layer.update([{ ...boundary, open: true }], terrain);
+  expect(disposed).toBe(true);
+  const open = layer.group.children[0] as InstancedMesh;
+  const closedMatrix = new Matrix4();
+  const openMatrix = new Matrix4();
+  closed.getMatrixAt(2, closedMatrix);
+  open.getMatrixAt(2, openMatrix);
+  expect(openMatrix.equals(closedMatrix)).toBe(false);
+  layer.setPreview({
+    edges: [boundary],
+    changes: 1,
+    cost: [],
+    refund: [],
+    error: null,
+  });
+  expect(layer.group.children).toHaveLength(2);
+  layer.setPreview(null);
+  expect(layer.group.children).toHaveLength(1);
+  layer.dispose();
+  expect(layer.group.children).toHaveLength(0);
+});

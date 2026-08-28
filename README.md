@@ -40,6 +40,11 @@ one-point upgrade first. Completing a manual-workshop batch, the first founding 
 and a powered craft each earns one Skill Point once; repeated work never farms more. Existing
 pack/reach research migrates without losing bonuses or spending insight.
 
+**Fences** opens the timber boundary tool. Select a hex edge or two enclosure corners, review
+the native bill, then Apply. Gates start open and work without power. Removal recovers the
+materials actually paid; Undo reverses the last boundary edit. Paving and native levelling
+remain the next ground-work milestone.
+
 ## Controls
 
 - The default hotbar starts with the manual workshop and primitive furnace. Existing pinned bars

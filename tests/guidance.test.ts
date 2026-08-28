@@ -91,6 +91,7 @@ function snapshotAt(state: {
     quantity,
   }));
   return {
+    boundaries: [],
     scenario: "new-game",
     scenario_name: "New game",
     world_version: 6,

@@ -1,3 +1,6 @@
+import { nearestBoundaryDirection } from "../src/ui/boundaries";
+import { axialToPixel } from "@hexlife/embed/hex";
+import { WORLD_SCALE } from "../src/rendering/landmarks";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -54,4 +57,18 @@ describe("rotationMatchesNativeAngularOrder", () => {
         rotateAnyOrientation(rotateAnyOrientation(orientation, 1), -1),
       ).toBe(orientation);
   });
+});
+
+it("picks each shared boundary side on the logical axial plane", () => {
+  const cell = { q: -7, r: 4 };
+  const center = axialToPixel(cell, WORLD_SCALE);
+  for (let direction = 0; direction < 6; direction += 1) {
+    const angle = (direction * Math.PI) / 3;
+    expect(
+      nearestBoundaryDirection(cell, {
+        x: center.x + Math.cos(angle) * 100,
+        y: center.y + Math.sin(angle) * 100,
+      }),
+    ).toBe(direction);
+  }
 });

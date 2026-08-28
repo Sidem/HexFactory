@@ -164,6 +164,8 @@ async function handle(request: WorkerRequest): Promise<unknown> {
               optionalNumber(payload.recipeId),
             ),
       ) as LinePreviewCell[];
+    case "boundaryPreview":
+      return JSON.parse(factory.boundary_preview_json(JSON.stringify(payload)));
     case "save":
       return factory.save_string();
     case "load":

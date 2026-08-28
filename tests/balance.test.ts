@@ -711,3 +711,41 @@ it("budgets personal skill points separately from factory insight", () => {
   expect(fixture.budget.research_cost).toBe(120);
   expect(fixture.budget.project_insight).toBe(572);
 });
+
+describe("primitive boundary construction", () => {
+  it("prices boundaries and a nine-hex yard using reachable manual production", () => {
+    for (const project of fixture.boundaries) {
+      const direct = project.direct.map((i) => ({
+        item_id: catalogue.items.find((d) => d.key === i.item)!.id,
+        quantity: i.quantity,
+      }));
+      expect(
+        openingWork(direct, ["manual-workshop", "primitive-furnace"]),
+      ).toEqual([project.process_ticks, project.attended_ticks]);
+      expect(
+        project.direct.every((i) => !["ore", "copper-ore"].includes(i.item)),
+      ).toBe(true);
+    }
+    const fence = catalogue.boundaries.find((b) => b.key === "timber-fence")!;
+    const gate = catalogue.boundaries.find((b) => b.key === "timber-gate")!;
+    const yard = fixture.boundaries.find(
+      (b) => b.project === "nine-hex-yard-with-gate",
+    )!;
+    const bill = new Map<number, number>();
+    for (const [boundary, count] of [
+      [fence, 21],
+      [gate, 1],
+    ] as const)
+      for (const item of boundary.construction_cost)
+        bill.set(
+          item.item_id,
+          (bill.get(item.item_id) ?? 0) + item.quantity * count,
+        );
+    expect(yard.direct).toEqual(
+      [...bill].map(([id, quantity]) => ({
+        item: catalogue.items.find((i) => i.id === id)!.key,
+        quantity,
+      })),
+    );
+  });
+});

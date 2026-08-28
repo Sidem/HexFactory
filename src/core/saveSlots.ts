@@ -22,8 +22,8 @@
  * slot onto the project, so the checksum moves and definition catalog 21 advances to 22.
  */
 
-// v28 moves legacy pack/reach research to personal skills after checksum verification.
-export const SAVE_VERSION = 28;
+// v29 adds empty timber boundaries after verifying the preceding save's checksum.
+export const SAVE_VERSION = 29;
 export const SAVE_CATALOG_KEY = "hexfactory:saves:v1";
 export const LEGACY_SAVE_PREFIX = "hexfactory:hxf1:";
 export const HXF1_PREFIX = "HXF1\n";
@@ -190,6 +190,7 @@ export function compatibility(
     [26, 21, 11],
     [27, 22, 11],
     [28, 22, 12],
+    [29, 23, 12],
   ];
   const from = released.findIndex(
     ([save, definitions, technology]) =>

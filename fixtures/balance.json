@@ -1,6 +1,107 @@
 {
+  "boundaries": [
+    {
+      "project": "timber-fence",
+      "edges": 1,
+      "direct": [
+        {
+          "item": "timber",
+          "quantity": 2
+        }
+      ],
+      "raw": [
+        {
+          "item": "wood",
+          "quantity_milli": 1000
+        }
+      ],
+      "batch": [
+        {
+          "item": "wood",
+          "quantity": 1
+        }
+      ],
+      "batch_fuel_energy": 0,
+      "process_ticks": 0,
+      "attended_ticks": 24
+    },
+    {
+      "project": "timber-gate",
+      "edges": 1,
+      "direct": [
+        {
+          "item": "timber",
+          "quantity": 2
+        },
+        {
+          "item": "iron-wire",
+          "quantity": 1
+        }
+      ],
+      "raw": [
+        {
+          "item": "ore",
+          "quantity_milli": 1000
+        },
+        {
+          "item": "wood",
+          "quantity_milli": 1000
+        }
+      ],
+      "batch": [
+        {
+          "item": "ore",
+          "quantity": 2
+        },
+        {
+          "item": "wood",
+          "quantity": 1
+        }
+      ],
+      "batch_fuel_energy": 80,
+      "process_ticks": 20,
+      "attended_ticks": 48
+    },
+    {
+      "project": "nine-hex-yard-with-gate",
+      "edges": 22,
+      "direct": [
+        {
+          "item": "timber",
+          "quantity": 44
+        },
+        {
+          "item": "iron-wire",
+          "quantity": 1
+        }
+      ],
+      "raw": [
+        {
+          "item": "ore",
+          "quantity_milli": 1000
+        },
+        {
+          "item": "wood",
+          "quantity_milli": 22000
+        }
+      ],
+      "batch": [
+        {
+          "item": "ore",
+          "quantity": 2
+        },
+        {
+          "item": "wood",
+          "quantity": 22
+        }
+      ],
+      "batch_fuel_energy": 80,
+      "process_ticks": 20,
+      "attended_ticks": 552
+    }
+  ],
   "reference": {
-    "definition_version": 22,
+    "definition_version": 23,
     "technology_version": 12,
     "ticks_per_second": 10,
     "player_ticks_per_second": 30,

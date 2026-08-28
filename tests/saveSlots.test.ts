@@ -124,8 +124,8 @@ describe("compatibility", () => {
       ...build,
       versions: {
         ...build.versions,
-        save: 28,
-        definitions: 22,
+        save: 29,
+        definitions: 23,
         technology: 12,
       },
     };
@@ -153,6 +153,7 @@ describe("compatibility", () => {
       [25, 20, 11],
       [26, 21, 11],
       [27, 22, 11],
+      [28, 22, 12],
     ] as const) {
       const parsed = parseHxf1(
         envelope({
