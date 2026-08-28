@@ -386,6 +386,8 @@ pub struct Opening {
     /// a rate nobody posted.
     pub insight_request: String,
     pub buildings: Vec<String>,
+    /// Dependency order: each station's bill is made only by earlier, powered stations.
+    pub construction_order: Vec<String>,
     pub gathers: Vec<Amount>,
     pub fuel_energy: u64,
     /// Units of the densest fuel that energy is paid with, counted into the gather total.
@@ -1398,6 +1400,10 @@ fn extraction(economy: &Economy) -> Vec<SiteYield> {
 fn openings(economy: &Economy, best_fuel_id: ItemId, best_fuel_value: u32) -> Vec<Opening> {
     let targets: Vec<(&str, Vec<&str>, Vec<(&str, u32)>)> = vec![
         ("first smelter", vec!["smelter"], Vec::new()),
+        ("first kiln", vec!["kiln"], Vec::new()),
+        ("first cutter", vec!["cutter"], Vec::new()),
+        ("first crusher", vec!["crusher"], Vec::new()),
+        ("first pump", vec!["pump"], Vec::new()),
         ("first power", vec!["burner-generator", "pole"], Vec::new()),
         // The two stations the essential-bill pass repriced. Each is quoted as what standing one
         // up actually costs — the primitive stations that make its parts, and the generator it
@@ -1577,86 +1583,8 @@ fn opening(
     building_keys: &[&str],
     wanted: Vec<Ingredient>,
 ) -> Opening {
-    let mut needed: BTreeSet<DefinitionId> = building_keys
-        .iter()
-        .filter_map(|key| economy.building_by_key(key))
-        .map(|building| building.id)
-        .collect();
-
-    // A machine is needed for every recipe category the tree touches, and that machine's own cost
-    // may touch another. Iterate to a fixed point rather than guessing the depth.
-    loop {
-        let mut ingredients = wanted.clone();
-        for &id in &needed {
-            if let Some(building) = economy.building(id) {
-                ingredients.extend(building.construction_cost.iter().copied());
-            }
-        }
-        let recipes = recipes_used(economy, &ingredients);
-        let mut grew = false;
-        for recipe_id in recipes {
-            let recipe = economy
-                .definitions
-                .recipes
-                .iter()
-                .find(|recipe| recipe.id == recipe_id)
-                .unwrap();
-            let already = needed.iter().any(|&id| {
-                economy
-                    .building(id)
-                    .is_some_and(|building| building.supports_recipe(recipe))
-            });
-            if already {
-                continue;
-            }
-            let machine = economy
-                .definitions
-                .buildings
-                .iter()
-                .filter(|building| building.buildable && building.supports_recipe(recipe))
-                .min_by_key(|building| {
-                    economy
-                        .cost_of(&building.construction_cost)
-                        .effort(best_fuel_value)
-                });
-            if let Some(machine) = machine {
-                needed.insert(machine.id);
-                grew = true;
-            }
-        }
-        // A machine that draws power and has nothing generating it is a factory that cannot run,
-        // and an opening that did not price the generator would be quoting a plan the rules refuse.
-        // This is the same defect the scripted guidance had. One generator is the minimum, not one
-        // generator and a pole: a generator's own `power_reach` already covers what stands beside
-        // it, and the pole is what a *distance* costs rather than what power costs.
-        let draws = needed
-            .iter()
-            .filter_map(|&id| economy.building(id))
-            .any(|building| building.power_draw.unwrap_or(0) > 0);
-        let supplies = needed
-            .iter()
-            .filter_map(|&id| economy.building(id))
-            .any(|building| building.power_output.unwrap_or(0) > 0);
-        if draws && !supplies {
-            let generator = economy
-                .definitions
-                .buildings
-                .iter()
-                .filter(|building| building.buildable && building.power_output.unwrap_or(0) > 0)
-                .min_by_key(|building| {
-                    economy
-                        .cost_of(&building.construction_cost)
-                        .effort(best_fuel_value)
-                });
-            if let Some(generator) = generator {
-                needed.insert(generator.id);
-                grew = true;
-            }
-        }
-        if !grew {
-            break;
-        }
-    }
+    let order = opening_build_order(economy, best_fuel_value, building_keys, &wanted);
+    let needed: BTreeSet<_> = order.iter().copied().collect();
 
     let mut ingredients = wanted.clone();
     for &id in &needed {
@@ -1665,7 +1593,17 @@ fn opening(
         }
     }
     let expansion = economy.cost_of(&ingredients);
-    let (machine_ticks, player_work_ticks) = opening_work(economy, &needed, &ingredients);
+    let mut available = BTreeSet::new();
+    let mut work = (0, 0);
+    for &id in &order {
+        let bill = &economy.building(id).unwrap().construction_cost;
+        let ticks = opening_work(economy, &available, bill);
+        work.0 += ticks.0;
+        work.1 += ticks.1;
+        available.insert(id);
+    }
+    let ticks = opening_work(economy, &available, &wanted);
+    let (machine_ticks, player_work_ticks) = (work.0 + ticks.0, work.1 + ticks.1);
 
     // Research is paid in insight, and insight is paid in items delivered to the hub. The best
     // rate the landing clearing offers is the fewest items that research can cost.
@@ -1736,6 +1674,10 @@ fn opening(
         insight_items,
         insight_request,
         buildings: names,
+        construction_order: order
+            .iter()
+            .map(|&id| economy.building(id).unwrap().key.clone())
+            .collect(),
         gathers: amounts(economy, &expansion.batch_raw),
         fuel_energy: expansion.batch_energy,
         fuel_items,
@@ -1757,26 +1699,106 @@ fn opening(
     }
 }
 
-/// Every recipe the tree under these ingredients runs through. A primitive capability does not
-/// cover the other recipes in its category.
-fn recipes_used(economy: &Economy, ingredients: &[Ingredient]) -> BTreeSet<RecipeId> {
-    let mut categories = BTreeSet::new();
-    let mut stack: Vec<ItemId> = ingredients
-        .iter()
-        .map(|ingredient| ingredient.item_id)
-        .collect();
-    let mut seen: BTreeSet<ItemId> = BTreeSet::new();
-    while let Some(item) = stack.pop() {
-        if !seen.insert(item) {
-            continue;
-        }
-        let Some(recipe) = economy.recipe_for(item) else {
-            continue;
-        };
-        categories.insert(recipe.id);
-        stack.extend(recipe.inputs.iter().map(|input| input.item_id));
+/// Resolve construction before production. A target cannot make its own bill, and a powered
+/// station cannot supply the parts of the first generator. This is one deterministic route,
+/// not a global cheapest-factory optimizer; already-built suppliers are reused.
+fn opening_build_order(
+    economy: &Economy,
+    best_fuel_value: u32,
+    targets: &[&str],
+    wanted: &[Ingredient],
+) -> Vec<DefinitionId> {
+    struct Plan<'a> {
+        economy: &'a Economy,
+        fuel: u32,
+        order: Vec<DefinitionId>,
+        visiting: BTreeSet<DefinitionId>,
     }
-    categories
+    impl Plan<'_> {
+        fn supply(&mut self, ingredients: &[Ingredient]) {
+            for input in ingredients {
+                let Some(recipe) = self.economy.recipe_for(input.item_id) else {
+                    continue;
+                };
+                self.supply(&recipe.inputs);
+                if self
+                    .order
+                    .iter()
+                    .any(|&id| self.economy.building(id).unwrap().supports_recipe(recipe))
+                {
+                    continue;
+                }
+                let provider = self
+                    .economy
+                    .definitions
+                    .buildings
+                    .iter()
+                    .filter(|b| {
+                        b.buildable && b.supports_recipe(recipe) && !self.visiting.contains(&b.id)
+                    })
+                    .min_by_key(|b| {
+                        (
+                            self.economy.cost_of(&b.construction_cost).effort(self.fuel),
+                            b.id,
+                        )
+                    })
+                    .expect("opening has a non-circular recipe supplier");
+                self.build(provider.id);
+            }
+        }
+
+        fn build(&mut self, id: DefinitionId) {
+            if self.order.contains(&id) {
+                return;
+            }
+            assert!(self.visiting.insert(id), "circular opening construction");
+            let building = self.economy.building(id).unwrap();
+            self.supply(&building.construction_cost);
+            if building.power_draw.unwrap_or(0) > 0
+                && !self
+                    .order
+                    .iter()
+                    .any(|&id| self.economy.building(id).unwrap().power_output.unwrap_or(0) > 0)
+            {
+                let generator = self
+                    .economy
+                    .definitions
+                    .buildings
+                    .iter()
+                    .filter(|b| {
+                        b.buildable
+                            && b.power_output.unwrap_or(0) > 0
+                            && !self.visiting.contains(&b.id)
+                    })
+                    .min_by_key(|b| {
+                        (
+                            self.economy.cost_of(&b.construction_cost).effort(self.fuel),
+                            b.id,
+                        )
+                    })
+                    .expect("opening has a non-circular power supplier");
+                self.build(generator.id);
+            }
+            self.visiting.remove(&id);
+            self.order.push(id);
+        }
+    }
+    let mut plan = Plan {
+        economy,
+        fuel: best_fuel_value,
+        order: Vec::new(),
+        visiting: BTreeSet::new(),
+    };
+    for key in targets {
+        plan.build(
+            economy
+                .building_by_key(key)
+                .expect("opening target exists")
+                .id,
+        );
+    }
+    plan.supply(wanted);
+    plan.order
 }
 
 fn opening_work(

@@ -159,6 +159,9 @@ export function nextAction(
   );
   if (draws && !generates) {
     const generator = cheapestGenerator(definitions);
+    const prerequisite =
+      generator && constructionGuide(generator, snapshot, definitions);
+    if (prerequisite) return prerequisite;
     if (generator && researched.has(generator.unlock_technology_id ?? -1))
       return {
         key: "power",
@@ -176,6 +179,12 @@ export function nextAction(
         researched.has(machine.unlock_technology_id)),
   );
   if (missingMachine) {
+    const prerequisite = constructionGuide(
+      missingMachine,
+      snapshot,
+      definitions,
+    );
+    if (prerequisite) return prerequisite;
     // A machine whose recipes burn is a machine that stands idle without fuel, and "out of fuel"
     // is a status rather than a missing input, so nothing in the recipe row would ever say so.
     const burns = definitions.recipes.some(
@@ -340,6 +349,57 @@ function expand(
   };
 }
 
+/** Construction producers must exist before the machine whose bill they supply. */
+function constructionGuide(
+  target: BuildingDefinition,
+  snapshot: FactorySnapshot,
+  definitions: Definitions,
+): Guidance | undefined {
+  const installed = new Set(
+    snapshot.buildings.map((building) => building.definition_id),
+  );
+  const visiting = new Set<number>([target.id]);
+  const find = (
+    item: number,
+    quantity: number,
+  ): BuildingDefinition | undefined => {
+    if ((snapshot.player.inventory[String(item)] ?? 0) >= quantity)
+      return undefined;
+    const recipe = definitions.recipes.find(
+      (value) => value.output.item_id === item,
+    );
+    if (!recipe) return undefined;
+    const provider = cheapestFor(recipe, definitions, installed, visiting);
+    if (!provider || installed.has(provider.id) || visiting.has(provider.id))
+      return undefined;
+    const batches = Math.ceil(quantity / recipe.output.quantity);
+    for (const input of recipe.inputs) {
+      const earlier = find(input.item_id, input.quantity * batches);
+      if (earlier) return earlier;
+    }
+    visiting.add(provider.id);
+    for (const input of provider.construction_cost) {
+      const earlier = find(input.item_id, input.quantity);
+      if (earlier) return earlier;
+    }
+    visiting.delete(provider.id);
+    return provider.unlock_technology_id === undefined ||
+      snapshot.researched.includes(provider.unlock_technology_id)
+      ? provider
+      : undefined;
+  };
+  for (const input of target.construction_cost) {
+    const producer = find(input.item_id, input.quantity);
+    if (producer)
+      return {
+        key: `build:${producer.key}`,
+        title: `Build a ${producer.name.toLowerCase()}`,
+        detail: `${producer.description} Make the construction parts for the ${target.name.toLowerCase()} here first.`,
+      };
+  }
+  return undefined;
+}
+
 /**
  * Every technology in the set, preceded by everything it depends on, in an order where a
  * prerequisite always comes before what needs it.
@@ -376,10 +436,14 @@ function cheapestFor(
   recipe: RecipeDefinition,
   definitions: Definitions,
   installed: ReadonlySet<number>,
+  excluded?: ReadonlySet<number>,
 ): BuildingDefinition | undefined {
   return definitions.buildings
     .filter(
-      (building) => building.buildable && supportsRecipe(building, recipe),
+      (building) =>
+        building.buildable &&
+        supportsRecipe(building, recipe) &&
+        !excluded?.has(building.id),
     )
     .sort(
       (a, b) =>
@@ -414,8 +478,9 @@ function cheapestGenerator(
  * and eleven units of raw material, a manual workshop is six items and six units. Sorting by item
  * count sent a player with nothing built to the dearer of the two because its bill was shorter.
  *
- * This is `balance.rs`'s `raw_units` computed independently and to less precision — enough to
- * order two bills, not to price one.
+ * Include recipe fuel at the densest fuel's value, as in the native effort comparison. Without
+ * fuel the industrial smelter ties the primitive furnace and can be suggested before first power.
+ * This is a presentation ordering, not a startup-cost or elapsed-time estimate.
  */
 function cost(building: BuildingDefinition, definitions: Definitions): number {
   return building.construction_cost.reduce(
@@ -443,5 +508,12 @@ function rawCost(
       total + input.quantity * rawCost(input.item_id, definitions, next),
     0,
   );
-  return inputs / Math.max(recipe.output.quantity, 1);
+  const fuelValue = Math.max(
+    1,
+    ...definitions.items.map((item) => item.fuel_value ?? 0),
+  );
+  return (
+    (inputs + (recipe.fuel ?? 0) / fuelValue) /
+    Math.max(recipe.output.quantity, 1)
+  );
 }

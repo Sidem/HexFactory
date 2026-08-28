@@ -14,10 +14,11 @@
  * v17 advances technology catalog 7 to 8 for the two new, initially unresearched player-capability
  * rows; the old player values and checksum remain unchanged.
  * v18 adds two primitive station definitions; the v17 state and checksum pass through unchanged.
+ * v24 reprices industrial stations; existing state and active jobs pass through unchanged.
  * v23 grants the four starter automation technologies when Prove the line is already complete.
  */
 
-export const SAVE_VERSION = 23;
+export const SAVE_VERSION = 24;
 export const SAVE_CATALOG_KEY = "hexfactory:saves:v1";
 export const LEGACY_SAVE_PREFIX = "hexfactory:hxf1:";
 export const HXF1_PREFIX = "HXF1\n";
@@ -179,6 +180,7 @@ export function compatibility(
     [21, 18, 9],
     [22, 18, 10],
     [23, 18, 11],
+    [24, 19, 11],
   ];
   const from = released.findIndex(
     ([save, definitions, technology]) =>
@@ -226,10 +228,18 @@ export function compatibility(
       found: envelope.scenarioKey,
     });
   } else {
+    // The 22 -> 23 foundation-commission step also migrates scenario catalog 5 to 6.
+    // Keep that exact adjacent change available through later supported save versions.
+    const migratesScenario =
+      migrates &&
+      envelope.saveVersion <= 22 &&
+      build.versions.save >= 23 &&
+      envelope.scenarioVersion === 5 &&
+      scenario.version === 6;
     expect(
       `scenario ${scenario.key}`,
       scenario.version,
-      envelope.scenarioVersion,
+      migratesScenario ? 6 : envelope.scenarioVersion,
     );
   }
   return { compatible: mismatches.length === 0, mismatches };

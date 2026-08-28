@@ -95,7 +95,7 @@ const SAVE_PREFIX: &str = "HXF1\n";
 /// one ore â€” exactly what rebuilding it now costs, which conserves the line rather than paying a
 /// premium on it. Kits have no recipe back to ore, so the boundary cannot mint raw material.
 /// Version 21 adds progression registries (technology 9); saved state and checksum are unchanged.
-const SAVE_VERSION: u16 = 23;
+const SAVE_VERSION: u16 = 24;
 /// Bumped to 6 for World Parameters. `WorldParams` is now part of a run's identity — it is in the
 /// save envelope and in the checksum — so a version-5 envelope carries no answer to the question
 /// "which world is this" and is rejected rather than assumed to be the default.
@@ -15102,6 +15102,7 @@ mod tests {
         core.player.inventory.insert(1, 40);
         core.player.inventory.insert(6, 40);
         set_player_hex(&mut core, 0, 3);
+        stock_for(&mut core, 7, 1);
         core.place(0, 4, 7, 0, Some(2)).unwrap();
         let smelter = core.entity_at(0, 4).unwrap();
 
@@ -15126,6 +15127,7 @@ mod tests {
         // Steel, whose inputs name coal. Exactly the two it needs must not be burned.
         core.player.inventory.insert(1, 40);
         core.player.inventory.insert(6, 40);
+        stock_for(&mut core, 7, 1);
         core.place(0, 5, 7, 0, Some(5)).unwrap();
         let steel = core.entity_at(0, 5).unwrap();
         core.entities[steel].inventory.insert(11, 2);
@@ -15191,6 +15193,7 @@ mod tests {
         core.player.inventory.insert(14, 20);
         set_player_hex(&mut core, 2, 0);
         assert!(core.terrain_at(2, 1).is_water());
+        stock_for(&mut core, 11, 1);
         core.place(3, 1, 11, 0, None).unwrap();
         let index = core.entity_at(3, 1).unwrap();
         core.tick_many(6);
@@ -15294,6 +15297,7 @@ mod tests {
             .place(0, 4, 8, 0, Some(2))
             .unwrap_err()
             .contains("cannot run a smelting recipe"));
+        stock_for(&mut core, 8, 1);
         core.place(0, 4, 8, 0, Some(6)).unwrap();
         let index = core.entity_at(0, 4).unwrap();
 
@@ -15329,6 +15333,7 @@ mod tests {
         assert!(!core.item_reachable(23, 0));
         core.player.inventory.extend([(1, 40), (6, 40), (8, 20)]);
         set_player_hex(&mut core, 0, 3);
+        stock_for(&mut core, 8, 1);
         core.place(0, 4, 8, 0, Some(2)).unwrap();
         assert!(core.item_reachable(11, 0));
         core.set_recipe(0, 4, 8).unwrap();
@@ -15548,12 +15553,12 @@ mod tests {
         assert_eq!(old.checksum(), restored.checksum());
     }
 
-    /// The five stations the essential-bill pass repriced are billed in manufactured parts, and
-    /// erase hands back exactly that bill.
+    /// Essential and industrial stations are billed in manufactured parts, and erase hands back
+    /// exactly that bill. The pump adds kiln-fired brick; the kiln itself never requires brick.
     ///
     /// Both halves matter. The first is the design: not one of them is a box of raw ore any more,
-    /// and every part named is something a primitive furnace and a manual workshop can make with
-    /// no research and no power, so the bootstrap stays open. The second is the safety property
+    /// and the primitive furnace/workshop start the parts chain before industrial power, so the
+    /// bootstrap stays open. The second is the safety property
     /// that lets the first be changed at all — a refund that equals the rebuild cost can be taken
     /// as often as you like and never pays.
     #[test]
@@ -15577,6 +15582,11 @@ mod tests {
         assert_eq!(bill("container"), [(16, 3)]);
         assert_eq!(bill("pole"), [(16, 1), (25, 1)]);
         assert_eq!(bill("burner-generator"), [(11, 1), (20, 1), (25, 2)]);
+        assert_eq!(bill("smelter"), [(6, 6), (11, 2)]);
+        assert_eq!(bill("kiln"), [(6, 6), (8, 2), (11, 1)]);
+        assert_eq!(bill("cutter"), [(6, 4), (11, 2), (19, 1)]);
+        assert_eq!(bill("crusher"), [(6, 6), (11, 2), (19, 1)]);
+        assert_eq!(bill("pump"), [(11, 2), (19, 1), (14, 3)]);
 
         let mut core = game("new-game");
         core.researched.extend([1, 2, 3, 4, 8]);
@@ -15603,7 +15613,12 @@ mod tests {
         round_trip(&mut core, 3, -2, 0, Some(1));
         // The pole and the burner go wherever the clearing has room; their bills are the subject
         // here, not their geometry.
-        for definition_id in [12, 13] {
+        for (definition_id, recipe) in [(7, Some(2)), (8, Some(6)), (9, Some(8)), (10, Some(9))] {
+            core.researched.extend([5, 6]);
+            round_trip(&mut core, definition_id, 0, 4, recipe);
+        }
+        for definition_id in [11, 12, 13] {
+            core.researched.extend([5, 6, 7]);
             core.player.inventory.clear();
             stock_for(&mut core, definition_id, 1);
             let paid = core.player.inventory.clone();
@@ -15683,6 +15698,100 @@ mod tests {
         assert!(restored.player.inventory.is_empty());
         restored.erase(3, 0).unwrap();
         assert_eq!(restored.player.inventory, refund);
+    }
+
+    #[test]
+    fn industrial_bills_preserve_legacy_jobs_and_resume_without_a_refund_loop() {
+        for (id, recipe, bill, input) in [
+            (7, Some(2), vec![(6, 8), (1, 4)], Some((1, 2))),
+            (8, Some(6), vec![(6, 6), (8, 4)], Some((8, 2))),
+            (9, Some(8), vec![(11, 3), (6, 6)], Some((9, 1))),
+            (10, Some(9), vec![(11, 4), (6, 6)], Some((6, 1))),
+            (11, None, vec![(11, 4), (14, 4)], None),
+        ] {
+            let (mut legacy, technologies, scenarios) = catalogs();
+            legacy.version = 18;
+            legacy
+                .buildings
+                .iter_mut()
+                .find(|b| b.id == id)
+                .unwrap()
+                .construction_cost = bill
+                .into_iter()
+                .map(|(item_id, quantity)| Ingredient { item_id, quantity })
+                .collect();
+            let scenario = scenarios
+                .scenarios
+                .iter()
+                .find(|s| s.key == "new-game")
+                .unwrap();
+            let mut old = Core::new(&legacy, &technologies, scenario, None, None).unwrap();
+            old.power_unmetered = true;
+            old.researched.extend([1, 2, 3, 4, 5, 6, 7, 8]);
+            old.insight = 17;
+            old.player.carry_slots = 99;
+            old.player.inventory.clear();
+            let (q, r) = if id == 11 { (3, 1) } else { (0, 4) };
+            set_player_hex(
+                &mut old,
+                if id == 11 { 2 } else { 0 },
+                if id == 11 { 0 } else { 3 },
+            );
+            stock_for(&mut old, id, 1);
+            old.place(q, r, id, 0, recipe).unwrap();
+            let index = old.entity_at(q, r).unwrap();
+            if let Some((item, quantity)) = input {
+                old.entities[index].input_inventory.insert(item, quantity);
+            }
+            if id == 7 || id == 8 {
+                old.entities[index].fuel_inventory.insert(5, 2);
+            }
+            old.tick_many(1);
+            let save = old.save_string().unwrap().replacen(
+                &format!("\"save_version\":{SAVE_VERSION}"),
+                "\"save_version\":23",
+                1,
+            );
+            let (definitions, _, _) = catalogs();
+            let mut restored =
+                Core::from_save(&definitions, &technologies, &scenarios, &save).unwrap();
+            assert_eq!(restored.checksum(), old.checksum(), "station {id}");
+            let before: serde_json::Value =
+                serde_json::from_str(old.save_string().unwrap().strip_prefix("HXF1\n").unwrap())
+                    .unwrap();
+            let after: serde_json::Value = serde_json::from_str(
+                restored
+                    .save_string()
+                    .unwrap()
+                    .strip_prefix("HXF1\n")
+                    .unwrap(),
+            )
+            .unwrap();
+            assert_eq!(after["state"], before["state"]);
+            assert_eq!(restored.player_snapshot(), old.player_snapshot());
+            assert_eq!(restored.insight, 17);
+            restored.power_unmetered = true;
+            old.tick_many(40);
+            restored.tick_many(40);
+            assert_eq!(restored.checksum(), old.checksum(), "resumed station {id}");
+            restored.erase(q, r).unwrap();
+            let refund = restored.player.inventory.clone();
+            for cost in &definitions
+                .buildings
+                .iter()
+                .find(|b| b.id == id)
+                .unwrap()
+                .construction_cost
+            {
+                assert!(refund.get(&cost.item_id).copied().unwrap_or(0) >= cost.quantity);
+            }
+            restored.place(q, r, id, 0, recipe).unwrap();
+            restored.erase(q, r).unwrap();
+            assert_eq!(
+                restored.player.inventory, refund,
+                "rebuild of station {id} cannot profit"
+            );
+        }
     }
 
     /// Iron wire is what the first generator and the first pole are wound with, so it has to be
@@ -17236,6 +17345,7 @@ mod tests {
         core.player.inventory.insert(6, 20);
         core.player.inventory.insert(8, 40);
         set_player_hex(&mut core, 0, 3);
+        stock_for(&mut core, 8, 1);
         core.place(0, 4, 8, 0, Some(6)).unwrap();
         let kiln = core.entity_at(0, 4).unwrap();
 
@@ -17266,6 +17376,7 @@ mod tests {
         core.player.inventory.insert(8, 20);
         core.player.inventory.insert(5, 11);
         set_player_hex(&mut core, 0, 3);
+        stock_for(&mut core, 8, 1);
         core.place(0, 4, 8, 0, Some(6)).unwrap();
 
         core.pickup_player_stack(5, 6).unwrap();
@@ -19218,9 +19329,8 @@ mod tests {
     ///
     /// Two rules, both claims about the data rather than about taste. A tier costs strictly more
     /// than the tier it upgrades from, and a machine costs no less than a machine of the same kind
-    /// whose technology it is unlocked behind. The negative case is the point: put the cutter's
-    /// stone back to the four it shipped with through v0.16 and the curve breaks, because a cutter
-    /// two technologies past a smelter cost less than the smelter.
+    /// whose technology it is unlocked behind. The negative case is the point: price a cutter in one stone and the curve breaks, because a cutter
+    /// two technologies past a smelter costs less than the smelter.
     #[test]
     fn every_step_of_the_curve_holds_and_a_broken_one_is_caught() {
         let report = balance::compute();
@@ -19244,12 +19354,10 @@ mod tests {
             .iter_mut()
             .find(|building| building.key == "cutter")
             .expect("the cutter is in the catalogue");
-        let stone = cutter
-            .construction_cost
-            .iter_mut()
-            .find(|ingredient| ingredient.item_id == STONE)
-            .expect("a cutter is built out of stone");
-        stone.quantity = 4;
+        cutter.construction_cost = vec![Ingredient {
+            item_id: STONE,
+            quantity: 1,
+        }];
         let broken = balance::compute_from(broken, technologies);
         assert!(
             broken.curve.iter().any(|step| !step.holds),

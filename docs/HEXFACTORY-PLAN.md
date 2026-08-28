@@ -49,7 +49,7 @@ This is permanent and is not a scope item.
 
 ## Where the project stands
 
-The engine arc, the generator arc, and the shipped milestones through **v0.31.0 Foundation Commissions** are
+The engine arc, the generator arc, and the shipped milestones through **v0.32.0 Industrial Bills** are
 present in this tree. A run today looks like this: land beside a hub in a world chosen by preset
 or by raw parameters, walk out under fog across rivers and coastline — on the keys, or by
 **clicking a selected hex a second time** and watching the route native found — find **fields** of
@@ -162,7 +162,13 @@ insight purchases. Technology effects are a typed native list. Save 23 / technol
 scenarios 6 migrate a finished opening commission forward without refunding insight. See
 [the commissions record](FOUNDATION-COMMISSIONS-RECORD.md).
 
-Phase 1 remains active: the industrial bills below the smelter are still raw material. The timed human opening comparison
+**Phase 1 delivery: v0.32.0 Industrial Bills.** Smelter, kiln, cutter, crusher and pump now use
+small manufactured-part bills. Startup accounting follows construction order instead of allowing
+a machine to make its own bill, and guidance names missing primitive suppliers first. Save 24 /
+definitions 19 preserve running jobs and state. See [the industrial bills record](INDUSTRIAL-BILLS-RECORD.md).
+
+Phase 1 remains active: audit the component recipe and founding bill next, then the remaining
+power/tier bills, gear/frame yields and complete commission/research startup accounting. The timed human opening comparison
 that used to sit alongside them was **withdrawn on 2026-08-27 by user decision**; the opening's cost
 now stands on `fixtures/balance.json` and the before/after arithmetic recorded in each release
 record, with no person's clock owed against it. Do not treat these additive releases as completion
@@ -528,6 +534,7 @@ both test suites say so.
 One line per release, newest first. The reasoning behind a shipped rule lives in the git history of
 this file and in the code that implements it; what follows is the index.
 
+- **v0.32.0** Industrial Bills — Reprices five industrial stations in plates, gears and mineral structure, with no brick bootstrap for the kiln. Startup reports use a valid construction order; guidance names missing construction suppliers. Save 24 / definitions 19 preserve active jobs, stock and checksums. [Verification record](INDUSTRIAL-BILLS-RECORD.md).
 - **v0.31.0** Foundation Commissions — Completing the first founding stage grants belts, storage, extractors and on-site power. Those four technologies are grant-only, with typed effects replacing ad-hoc unlock and bonus fields. Save 23 advances technology 10 to 11 and scenario 5 to 6; a factory already past Prove the line receives the grants. Insight prices of later nodes are unchanged. [Verification record](FOUNDATION-COMMISSIONS-RECORD.md).
 - **v0.30.0** Research Atlas — Large central technology tree with all 19 SVG emblems, prerequisite
   lines and selected ancestry, hover/focus details, deliberate purchases, search, discipline and

@@ -60,6 +60,35 @@ function openingWork(
   return total;
 }
 
+/** Recompute construction work with only the suppliers that already exist at each step. */
+function stagedOpeningWork(
+  order: string[],
+  wanted: Ingredient[],
+): [number, number] {
+  const built: string[] = [];
+  const total: [number, number] = [0, 0];
+  for (const key of order) {
+    const station = catalogue.buildings.find(
+      (building) => building.key === key,
+    )!;
+    expect(built).not.toContain(key);
+    const work = openingWork(station.construction_cost, built);
+    total[0] += work[0];
+    total[1] += work[1];
+    if ((station.power_draw ?? 0) > 0) {
+      expect(
+        catalogue.buildings.some(
+          (building) =>
+            built.includes(building.key) && (building.power_output ?? 0) > 0,
+        ),
+      ).toBe(true);
+    }
+    built.push(key);
+  }
+  const work = openingWork(wanted, built);
+  return [total[0] + work[0], total[1] + work[1]];
+}
+
 // Exact rationals, for the same reason Rust uses them: a kiln fires three bricks at once, so a
 // pump that wants four of them costs four thirds of a batch, and rounding that at every step of a
 // tree and then comparing two buildings compares rounding errors.
@@ -182,6 +211,51 @@ function effort(expansion: Expansion): Ratio {
 }
 
 describe("the economy's stated curve", () => {
+  it("builds industrial stations from earlier suppliers and prices their actual work", () => {
+    for (const key of ["smelter", "kiln", "cutter", "crusher", "pump"]) {
+      const row = fixture.openings.find(
+        (opening) => opening.name === `first ${key}`,
+      )!;
+      expect(row).toBeDefined();
+      expect([...row.construction_order].sort()).toEqual(row.buildings);
+      const [machineTicks, playerTicks] = stagedOpeningWork(
+        row.construction_order,
+        [],
+      );
+      expect([row.machine_ticks, row.player_work_ticks]).toEqual([
+        machineTicks,
+        playerTicks,
+      ]);
+      expect(row.construction_order.indexOf("primitive-furnace")).toBeLessThan(
+        row.construction_order.indexOf(key),
+      );
+      const ingredients = row.construction_order.flatMap(
+        (name) =>
+          catalogue.buildings.find((b) => b.key === name)!.construction_cost,
+      );
+      const expansion = expand(ingredients);
+      expect(row.fuel_energy).toBe(expansion.batchEnergy);
+      expect(row.gathers).toEqual(
+        [...expansion.batch]
+          .sort(([a], [b]) => a - b)
+          .map(([id, quantity]) => ({ item: keyOf(id), quantity })),
+      );
+    }
+    const smelter = fixture.openings.find(
+      (row) => row.name === "first smelter",
+    )!;
+    const invalid = smelter.construction_order.filter(
+      (key) => key !== "primitive-furnace",
+    );
+    expect(() => stagedOpeningWork(invalid, [])).toThrow(
+      /No machine for iron-plate/,
+    );
+    const pump = fixture.openings.find((row) => row.name === "first pump")!;
+    expect(pump.construction_order.indexOf("kiln")).toBeLessThan(
+      pump.construction_order.indexOf("pump"),
+    );
+  });
+
   it("describes the catalogue it was generated from", () => {
     expect(fixture.reference.definition_version).toBe(catalogue.version);
     expect(fixture.reference.best_fuel_item).toBe(bestFuel.key);
@@ -407,9 +481,9 @@ describe("the economy's stated curve", () => {
           .filter((building) => row.opening.buildings.includes(building.key))
           .flatMap((building) => building.construction_cost),
       ];
-      const [machineTicks, playerTicks] = openingWork(
-        ingredients,
-        row.opening.buildings,
+      const [machineTicks, playerTicks] = stagedOpeningWork(
+        row.opening.construction_order,
+        stage.requirements,
       );
       expect(row.opening.machine_ticks).toBe(machineTicks);
       expect(row.opening.player_work_ticks).toBe(playerTicks);

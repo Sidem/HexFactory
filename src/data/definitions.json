@@ -1,5 +1,5 @@
 {
-  "version": 18,
+  "version": 19,
   "items": [
     {
       "id": 1,
@@ -758,11 +758,11 @@
       "construction_cost": [
         {
           "item_id": 6,
-          "quantity": 8
+          "quantity": 6
         },
         {
-          "item_id": 1,
-          "quantity": 4
+          "item_id": 11,
+          "quantity": 2
         }
       ],
       "unlock_technology_id": 5,
@@ -793,7 +793,11 @@
         },
         {
           "item_id": 8,
-          "quantity": 4
+          "quantity": 2
+        },
+        {
+          "item_id": 11,
+          "quantity": 1
         }
       ],
       "unlock_technology_id": 5,
@@ -819,12 +823,16 @@
       "recipe_category": "cutting",
       "construction_cost": [
         {
-          "item_id": 11,
-          "quantity": 3
+          "item_id": 6,
+          "quantity": 4
         },
         {
-          "item_id": 6,
-          "quantity": 6
+          "item_id": 11,
+          "quantity": 2
+        },
+        {
+          "item_id": 19,
+          "quantity": 1
         }
       ],
       "unlock_technology_id": 6,
@@ -850,12 +858,16 @@
       "recipe_category": "crushing",
       "construction_cost": [
         {
-          "item_id": 11,
-          "quantity": 4
-        },
-        {
           "item_id": 6,
           "quantity": 6
+        },
+        {
+          "item_id": 11,
+          "quantity": 2
+        },
+        {
+          "item_id": 19,
+          "quantity": 1
         }
       ],
       "unlock_technology_id": 6,
@@ -884,11 +896,15 @@
       "construction_cost": [
         {
           "item_id": 11,
-          "quantity": 4
+          "quantity": 2
+        },
+        {
+          "item_id": 19,
+          "quantity": 1
         },
         {
           "item_id": 14,
-          "quantity": 4
+          "quantity": 3
         }
       ],
       "unlock_technology_id": 7,

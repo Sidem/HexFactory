@@ -124,10 +124,19 @@ describe("compatibility", () => {
       ...build,
       versions: {
         ...build.versions,
-        save: 23,
-        definitions: 18,
+        save: 24,
+        definitions: 19,
         technology: 11,
       },
+    };
+    // Real released scenarios changed at save 23 as well as technologies. Synthetic equal
+    // scenario versions used to hide a picker that disabled every older but migratable factory.
+    const releasedScenarios = {
+      ...latest,
+      scenarios: latest.scenarios.map((scenario) => ({
+        ...scenario,
+        version: 6,
+      })),
     };
     for (const [saveVersion, definitionVersion, technologyVersion] of [
       [14, 14, 7],
@@ -140,7 +149,8 @@ describe("compatibility", () => {
       [21, 18, 9],
       [22, 18, 10],
       [23, 18, 11],
-    ]) {
+      [24, 19, 11],
+    ] as const) {
       const parsed = parseHxf1(
         envelope({
           save_version: saveVersion,
@@ -155,6 +165,21 @@ describe("compatibility", () => {
       expect(
         compatibility({ ...parsed, technologyVersion: 99 }, latest).compatible,
       ).toBe(false);
+      expect(
+        compatibility(
+          { ...parsed, scenarioVersion: saveVersion < 23 ? 5 : 6 },
+          releasedScenarios,
+        ).compatible,
+      ).toBe(true);
+      expect(
+        compatibility({ ...parsed, scenarioVersion: 4 }, releasedScenarios)
+          .compatible,
+      ).toBe(false);
+      if (saveVersion >= 23)
+        expect(
+          compatibility({ ...parsed, scenarioVersion: 5 }, releasedScenarios)
+            .compatible,
+        ).toBe(false);
     }
     const current = {
       ...build,

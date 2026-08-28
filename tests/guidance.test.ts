@@ -403,6 +403,42 @@ describe("guidance derived from the rules rather than scripted against them", ()
     expect(action.key).toBe("supply");
   });
 
+  it("names primitive construction suppliers before the first generator or a replacement kiln", () => {
+    const state = {
+      stage: 1,
+      researched: [1, 2, 3, 4, 5, 8],
+      insight: 0,
+      inventory: {},
+      buildings: [{ definition_id: 28, kind: "composer" }],
+    };
+    expect(nextAction(snapshotAt(state), definitions, technologies).key).toBe(
+      "build:primitive-furnace",
+    );
+    state.buildings.push({ definition_id: 27, kind: "composer" });
+    expect(nextAction(snapshotAt(state), definitions, technologies).key).toBe(
+      "power",
+    );
+    state.buildings.push({ definition_id: 13, kind: "generator" });
+    expect(nextAction(snapshotAt(state), definitions, technologies).key).toBe(
+      "build:kiln",
+    );
+    // A legacy factory may have power but no furnace left. Its brick-only bill still needs plate.
+    state.buildings = state.buildings.filter(
+      (building) => building.definition_id !== 27,
+    );
+    const snapshot = snapshotAt(state);
+    snapshot.contract.requirements = [
+      { item_id: 14, delivered: 0, required: 3 },
+    ];
+    expect(nextAction(snapshot, definitions, technologies).key).toBe(
+      "build:primitive-furnace",
+    );
+    snapshot.player.inventory["11"] = 1;
+    expect(nextAction(snapshot, definitions, technologies).key).toBe(
+      "build:kiln",
+    );
+  });
+
   it("uses loaded workshop stock and prioritizes delivery over gathering more raw inputs", () => {
     const snapshot = snapshotAt({
       stage: 0,

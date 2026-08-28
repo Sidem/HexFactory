@@ -18,8 +18,9 @@ the progression design for this workstream; costs, unlocks and recipes must be d
 Delivery status: [Primitive Workshops](OPENING-FOUNDATION-RECORD.md) implements the recoverable
 furnace/workshop capability, stock and attended-job foundation, with initial rates and regression
 coverage. v0.27/v0.28 price transport and essential stations in parts; v0.31 grants first
-automation from the opening commission. Slice 1 is not complete: remaining industrial bills
-are still raw material. The diagnosis below records the pre-v0.26.0 starting point.
+automation from the opening commission. v0.32 prices the five industrial stations and
+corrects construction-order accounting. Slice 1 is not complete: the component/contract and
+remaining economy audit are next. The diagnosis below records the pre-v0.26.0 starting point.
 
 Turn a clearing into a place: compact a footpath, lay a gravel yard, pave a fast route between
 outposts, enclose a workshop, and eventually stack production floors with explicit belt lifts.
@@ -172,9 +173,10 @@ and basic pole, each as this table proposed them. The generator's "simple conduc
 became a new iron wire recipe (`1 iron plate -> 2 iron wire`), runnable at the manual workshop, so
 neither the first grid nor the first assembler requires copper or signal crystal. The measured
 consequence — including a first power that costs 36 gathers where it cost 17 — is in
-[the essential bills record](ESSENTIAL-BILLS-RECORD.md). The industrial furnace/kiln/crusher row and
-everything below it are still unshipped, so the second tier of stations has the credibility problem
-this pass fixed for the first.
+[the essential bills record](ESSENTIAL-BILLS-RECORD.md). The industrial furnace/kiln/crusher row, plus cutter and pump, shipped in v0.32.0;
+see [the industrial bills record](INDUSTRIAL-BILLS-RECORD.md) for quantities, construction order,
+legacy refunds and the corrected before/after comparison. Component/contract reform is next;
+concrete and later construction materials remain in phase 3.
 
 ### Make the belt inexpensive by yield
 

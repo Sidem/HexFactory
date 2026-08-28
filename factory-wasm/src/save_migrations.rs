@@ -65,6 +65,10 @@ pub(super) fn migrate<'a>(json: &'a str, target_version: u16) -> Result<Cow<'a, 
         foundation_commissions_22_to_23(&mut value);
         version = 23;
     }
+    if version == 23 && target_version >= 24 {
+        industrial_bills_23_to_24(&mut value);
+        version = 24;
+    }
 
     if version == target_version {
         return Ok(Cow::Owned(serde_json::to_string(&value).map_err(
@@ -74,6 +78,19 @@ pub(super) fn migrate<'a>(json: &'a str, target_version: u16) -> Result<Cow<'a, 
     Err(format!(
         "no migration path from save version {version} to {target_version}"
     ))
+}
+
+/// Industrial bills change only catalog prices. State, active jobs and checksums stay intact.
+/// Existing stations receive the current rebuild bill when erased, as at the essential-bills
+/// boundary. This is a one-time revaluation, bounded by placed stations: rebuilding spends the
+/// entire refund, and none of these parts can be converted back to raw ore.
+fn industrial_bills_23_to_24(value: &mut Value) {
+    if let Some(object) = value.as_object_mut() {
+        object.insert("save_version".into(), Value::from(24));
+        if object.get("definition_version") == Some(&Value::from(18)) {
+            object.insert("definition_version".into(), Value::from(19));
+        }
+    }
 }
 
 /// Foundation commissions: technology catalog 11 makes the four starter automation nodes
