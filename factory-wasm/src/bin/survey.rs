@@ -2,7 +2,7 @@
 //!
 //! `npm run survey` runs this. A threshold is not a proportion — value noise is not uniformly
 //! distributed — so every claim a preset makes about its own landscape comes from here rather than
-//! from reading its numbers. Results are recorded in `docs/HEXFACTORY-PLAN.md`; this binary never
+//! from reading its numbers. Results are recorded in `docs/BENCHMARKS.md`; this binary never
 //! ships to the browser.
 
 use std::fs;

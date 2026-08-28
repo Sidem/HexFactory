@@ -7,9 +7,8 @@ any table that was trimmed out of this document.
 **Current records.** Native: **v0.25.1 runtime index**. Browser frame: **Visual Depth v0.25 profile ladders**.
 Generation: **v0.21**. Payload: **Binary Delta v0.12.2**.
 
-v0.37 boundary correctness and small-browser interaction checks are recorded in
-[TIMBER-BOUNDARIES-RECORD.md](TIMBER-BOUNDARIES-RECORD.md). No large-perimeter capacity measurement
-has been added; the historical factory ladders do not establish boundary capacity.
+v0.37 shipped boundary correctness and small-browser interaction checks but no large-perimeter
+capacity measurement, and the historical factory ladders do not establish boundary capacity.
 
 **Two caveats travel with those records.**
 
@@ -181,6 +180,53 @@ player walks into unsurveyed ground, and never in the tick.
 survey that sweeps a disc in lattice order. A walking player crosses cells in a worse order than
 that, and the map only ever grows. If chunk generation ever shows up in a frame, that is the first
 place to look.
+
+## Generation — what the shipped presets actually contain
+
+A threshold is not a proportion, so a preset's claims about its own landscape come from
+`npm run survey` rather than from reading its parameters. This is the reference survey for the four
+shipped presets, and it is measurement rather than roadmap, which is why it lives here.
+
+At seed 1,213,486,160 after the world-scale pass. Each preset is sampled at its landform radius
+(continental / highlands / basin 768, archipelago 192), because a 96-hex disc is the opening, not a
+landform. Bands in parts per thousand; water as bodies / mean body / largest body, **rivers
+excluded** so that `largest body` still means ocean; rivers as hexes / runs / longest run.
+
+| preset      | water | shore | lowland | hills | highland | cliff |    water bodies |              rivers | purity |
+| ----------- | ----: | ----: | ------: | ----: | -------: | ----: | --------------: | ------------------: | -----: |
+| Continental |    30 |    61 |     302 |   354 |      238 |    12 |  504 / 19 / 446 |  45604 / 129 / 8801 |    991 |
+| Archipelago |   110 |   190 |     317 |   142 |      202 |    35 | 253 / 48 / 2247 |                   — |    981 |
+| Highlands   |    35 |     0 |     113 |   410 |      416 |    23 |     85 / 3 / 25 | 63110 / 144 / 17988 |    995 |
+| Basin       |    45 |   198 |     524 |   211 |       16 |     2 | 717 / 58 / 7360 |  40103 / 98 / 19096 |    998 |
+
+A hexagon is 1 m²; the walk is 3 m/s. Continental's 512-hex landform is a three-minute crossing,
+basin's 960-hex one is six, and a river of eight to ten hexes is a real river. The opening inside
+~80 hexes is still the cell-8 mix the bootstrap windows were tuned against, so the first minute does
+not wait on a coast.
+
+`basin` is the ocean preset: largest standing body 7,360 hexes and truncated, and the water nearest
+a sand patch averages **2,494**. `archipelago` holds a 2,247-hex body inside a 192-hex sample.
+`continental` on this seed is inland — no sand in 768 hexes, largest standing body 446 — which is a
+continent, not a missing ocean; the coast is the walk. `highlands` still has no ocean worth the name
+(largest body 25) and keeps `ocean_level` where those basins pass it, so the little sand it holds
+(five patches, nearest 336 hexes) sits on the largest water it actually has.
+
+**Purity is what decided the v0.21 site model.** Purity is the share of resource hexes whose
+radius-1 disc holds one material, which is what decides whether an extractor works a field or
+straddles two. Target 950; the shipped seed at radius 96, before and after v0.21:
+
+| preset        | purity before | purity after | worst before | worst after              |
+| ------------- | ------------: | -----------: | ------------ | ------------------------ |
+| `continental` |           532 |          971 | stone 0      | sand 895                 |
+| `archipelago` |           474 |          965 | wood 36      | sand 940                 |
+| `highlands`   |           662 |          990 | crystal 28   | clay 977                 |
+| `basin`       |           631 |          992 | crystal 71   | crystal 809 _(21 cells)_ |
+
+Stone had **no workable patch anywhere in 26,307 land hexes** on `continental` before this — its
+largest patch was 3 hexes against a base extractor's 7 — and neither did wood on `archipelago`.
+Every preset now clears 19 hexes for iron, coal, copper and stone and 61 for forests.
+`archipelago`'s landform scale moved from 4 to 5 and its blend from 45 to 52, because at the old
+numbers no band held a contiguous run wider than a deposit and every disc came out a crescent.
 
 ## Browser frame — v0.24 hybrid renderer baseline
 

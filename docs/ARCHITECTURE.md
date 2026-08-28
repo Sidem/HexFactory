@@ -328,56 +328,34 @@ counts. Each is behavior-tested without Wasm or WebGL; `main.ts` wires them to t
 
 ## Save contract
 
-Ground Works (v0.38.0) advances save 29 to 30 and definitions 23 to 24. A prepared hex stores its
-surface, a signed grade delta from the generated band, and the ingredients actually paid; a hex that
-differs from untouched ground in neither is not stored at all. The spoil ledger is a single scalar,
-and fill spends from it rather than conjuring material. A v29 file receives an empty overlay and a
-zero heap with its original checksum still verified. Wire 17 adds the sparse ground group and the
-spoil scalar, resent whole only after an edit or a full replacement. Natural elevation is chosen so
-no two walkable generated terrains differ by more than the walk step, which is why the release
-changes no generated world's passability. See
-[the ground contract and verification record](GROUND-WORKS-RECORD.md).
+Petroleum Roads (v0.40.0) advances save 31 to 32, definitions 25 to 26, technologies 13 to 14,
+and world 9 to 10. Wire 17 and scenarios 7 are unchanged. All existing site rules and stock remain
+saved facts; old worlds do not acquire oil. Load verifies the checksum using the original world
+stamp, before granting newer creative capabilities. Restoring a world does not run a newer release's
+new-game bootstrap eligibility gate, but still validates parameters, references and native state.
+The named-save picker mirrors these adjacent envelopes and shows load failures on the title screen.
 
-Timber Boundaries (v0.37.0) advances save 28 to 29 and definitions 22 to 23. Canonical edge
-records store definition, gate state and actual paid ingredients. Absent boundaries preserve the
-old checksum. The save picker permits the same adjacent migration chain as native.
-Wire 16 sends the boundary group only after edits or a full replacement. Native crossing checks
-cover walking and compiled transport; the host only previews and renders. See
-[the boundary contract and verification record](TIMBER-BOUNDARIES-RECORD.md).
+Recipes retain a primary output and may add up to seven co-products. Each output is a positive
+integer quantity, with unique identities and an explicit positive integer cost allocation summing
+to 100. The shared output compartment must hold the entire batch before native reserves any inputs;
+all products complete atomically through the existing inventory and dirty-delta paths. Every
+compatible station must fit the batch. Item-level ordered `production_routes` name all producers
+when alternatives exist; reachability selects a usable unlocked route and the balance fixture prices
+each named route and its whole batch. Definition cycles are refused rather than recursively priced.
 
-Player Skills (v0.36.0) advances save 27 to 28 and technologies 11 to 12. The original
-checksum is verified before old personal research IDs become granted skills. No insight refund
-or conversion points are issued. Native skills own points, purchased/granted ranks, completed
-milestones and persistent sandbox provenance; derived availability is not saved or hashed.
-Wire 15 carries a bounded skills snapshot group, rebuilt only when those facts or player capacities
-change. See [the release record](PLAYER-SKILLS-RECORD.md).
+An asphalt ground record preserves the gravel base's actual paid bill and adds the top layer's bill.
+Strip recovers both; creative construction cannot create a refund. No new floor layer or fluid state
+is implied by the road or by the belt-carried petroleum item units.
 
-Power and Tier Bills (v0.34.0) advances save 25 to 26 and definitions 20 to 21. Nothing but the two
-envelope numbers moves: no state field, recipe, yield, work rate or research price changes with the
-three repriced bills, so the step is the same shape as every price boundary since the transport
-kits. A station placed under the old bill refunds the new one when erased — a one-time revaluation
-that is not a loop, because the refund equals the rebuild cost. A file whose `definition_version`
-is not the expected 20 is left alone rather than relabelled. See
-[the release record](POWER-TIER-BILLS-RECORD.md).
-
-Mechanical Components (v0.33.0) advances save 24 to 25, definitions 19 to 20 and scenarios 6 to 7.
-The envelope migration preserves state and checksum. Reserved legacy component jobs retain the
-same output and duration, so they finish once or refund the exact ore they reserved; future jobs
-require plate and gear. After verifying the original checksum, the loader runs ordinary contract
-advancement for older new-game saves: existing contributions can close the smaller commission,
-with no duplicate grant or insight refund. Saved blueprints and stock are never replaced by the
-new timber demo template. See [the release record](MECHANICAL-COMPONENTS-RECORD.md).
-
-Primitive processing (v0.26.0) uses the existing composer kind and compartment inventories.
-An optional `recipe_ids` capability list replaces category matching; `duration_multiplier` scales
-the same recipe's native work duration. `manual_work` stations start disabled. Their existing
-saved `disabled` flag is a one-batch work permit, with at most one attended workshop active.
-Native checks stationary attendance within one hex and an idle gather action before working,
-pauses when those conditions fail, and disables the station at completion. Pausing retains the
-job; dismantling cancels and refunds reserved inputs through the normal erase path. No host timer
-or new wire state is involved. Save 18 advances definition catalog 15 to 16 without changing
-existing entity state, research, quantities, bills or checksum; the adjacent migration is tested
-against a running legacy factory. Scenario text changes do not change scenario version 5.
+Every release since has followed the same shape, and the shape is the contract rather than the list:
+a release advances only the envelopes it actually changes, verifies the original checksum **before**
+applying any migration, and never issues a refund, grant or conversion as a side effect of loading.
+New sparse state — a prepared hex, a boundary record, a skills group — is stored only where it
+differs from untouched ground, so an older file receives an empty overlay and keeps its original
+checksum. A repriced bill is a one-time revaluation and not a loop, because the refund equals the
+rebuild cost. A file whose envelope number is not the expected one is left alone rather than
+relabelled. Derived availability is never saved or hashed. The per-release detail behind each of
+those is in the git history of this file and in `save_migrations.rs`.
 
 Rust serializes `HXF1` plus JSON containing save/definition/technology/scenario versions, seed,
 generated chunks and resource quantities, player and inventory, research, blueprint/entity IDs,
@@ -394,14 +372,6 @@ refused. A future released migration is added and tested there one version step 
 than guessed inside `from_save`.
 
 ## Worker and snapshot boundary
-
-Research foundations (v0.29.0) adds validated branch/stage registries to technology catalog 9.
-These labels and display orders impose no purchase gates. The native `research_availability`
-answer names completed research, missing prerequisite IDs and insight shortfall; atomic purchases
-and snapshot publication use the same function. The panel and guidance consume that answer.
-Wire 13 appends this group. Its derived baseline is rebuilt only after insight or researched IDs
-change, then compared before emission. It is never saved or checksummed. Save 21 advances technology
-catalog 8 to 9 without changing state; legacy workshop work and research resume identically.
 
 v0.5 moves the Wasm `Factory` off the browser main thread into one dedicated module worker. Worker
 messages are serialized through a single operation queue. Each advance applies at most one bounded
@@ -510,3 +480,240 @@ deliberately not sent as terrain**, so a surveyed hex carrying no terrain entry 
 than an unknown tile — the inspector names every surveyed hex on that basis. None of this is host-invented geography: the
 host derives only pixels and copy from native chunk bounds, and travelling generates the chunks that
 lift the fog.
+
+## Shipped invariants
+
+The rules below are settled. They are recorded here because each one was reached by hitting the
+defect it prevents; a change that contradicts one needs an argument, not an oversight.
+
+- Direction 0 is east, then clockwise E/SE/SW/W/NW/NE. Rust and TypeScript are pinned by
+  `fixtures/hex-directions.json`.
+- A drag is one bounded command carrying two endpoints. The path between them, the per-cell
+  heading, the legality, and the cost are resolved natively by the drag router and the ordinary
+  `place` and `erase` paths — and the drag preview comes from that same resolver, so it cannot
+  promise a run the drag will not build. Belts use its bounded deterministic obstacle route, over
+  every heading the definition's axis allows _and the player has researched_ — so the two-row period
+  enters the router the moment it is paid for, and never before; other construction and erasure
+  retain `hex_line`. Never expand a drag into per-cell commands on the host, and never give the host
+  a line traversal of its own.
+- The player walks on its own native cadence, not inside the simulation tick, so a paused or slowed
+  factory never pins it in place. The host converts elapsed real time into a step count using the
+  rate native publishes and sends it beside the tick count. Frame-coupled movement stays refused:
+  the host may send a count, never a position or a delta. That clock owns everything the player
+  does themselves, actions as well as walking — work spent per simulation tick froze gathering
+  outright while paused and otherwise scaled the harvest rate with the speed setting. So the host
+  keeps the player's clock running while a swing is outstanding, not only while walking.
+- **A walk to a click is a standing order, and the order is state while the route is a cache.** A
+  second click on a selected hex is the player saying where they are going, so `walk_goal` lives in
+  `PlayerState`, is saved, and is checksummed: two runs that differ only in where the player is
+  headed are not the same run, and a walk that vanished on reload would be a held key rather than an
+  order. That is what took the save envelope to 15, with an explicit migration writing
+  `walk_goal: null` into a version-14 file rather than letting a defaulting deserializer invent a
+  state the file never described. The route is the opposite: a derived index under the same rule as
+  `RuntimeIndex`, rebuilt by `rebuild_runtime_index` — which every edit and every load already
+  funnels through — and never saved, hashed, or checksummed. Saving it would let a file describe a
+  corridor the world it loads into no longer has, and would make the drawn ribbon a promise the
+  simulation could not keep.
+- **The search answers with the fastest way, not the shortest one, and surveys nothing to find it.**
+  The A\* costs shallow water `PLAYER_SPEED / (PLAYER_SPEED / 5)` because that is the fraction of
+  speed a ford actually costs; an unweighted search sends the player wading at 1 m/s across water
+  they would have walked round. It reads terrain through the pure `terrain_at` and blocking through
+  `runtime.occupied`, and calls neither `ensure_tile` nor `generate_chunk`: considering a hex must
+  not survey it, because `generated_chunks` is a checksum input. It is bounded by
+  `MAX_WALK_DISTANCE`, `MAX_WALK_SEARCH_NODES`, and `MAX_WALK_PATH_CELLS`, and breaks ties on
+  `(f, g, q, r)` rather than on heap order, so one click answers the same way in every run. Steering
+  writes the intent directly, ahead of the step that consumes it; any `MoveIntent` — including the
+  zero one a key release sends — cancels, so the movement keys always take control back. Arrival
+  ends a walk silently, and a route that runs out anywhere but the goal ends it with an event.
+- **A route is drawn from native's own remaining path and never re-found by the host.** Both the
+  world ribbon and the minimap line read `player.walk_path`, the hexes the steering will actually
+  consume. A host-side search would be a second pathfinder, and it would eventually draw a way the
+  simulation would not take — across water it prices differently, or through a wall raised mid-walk.
+- **A harvest is work, and the work comes before the yield.** `action_cooldown` is the swing still
+  running, not a debt charged after an instant take: `gather_from` arms it and takes nothing, and
+  `finish_gather` moves the deposit and the pack together on the step that completes it. The old
+  order made the first gather of every session free — press, bank a unit, then wait — and drew a
+  ring for work already paid. The landing re-asks what the start asked, reach included, because a
+  swing takes real time; a player who walks out of reach cancels it and is paid nothing. `Core`'s
+  `pending_gather` is what the counter is working on, so the two are saved and checksummed together.
+- A gather asks the same question an extractor on that hex asks, and facing is not part of it. A
+  target weighted by facing counted down a neighbouring hex while the one underfoot stayed full — a
+  change with no visible cause. Where the mouse happens to rest is still not something a player
+  reads as aiming at a hex, so facing-weighted targeting stays refused.
+  **v0.14 makes the argument that rule asked for, and makes a different one.** A right-click is not
+  a weighting; it is the player naming a hex on screen, deliberately, so the number that moves is
+  the one they pointed at and the cause is visible. `gather_at` therefore takes an explicit target —
+  and only the target moves. Reach is unchanged and still `field_covered_at` at the player's own
+  radius, so a right-click can never take from a cell an extractor standing there could not. Both
+  gathers land in `gather_from`, so the work a material costs, the carrying rule, and the depletion
+  mark are one implementation.
+- Extraction reach is a definition field, not a constant: `field_covered_at` takes the radius its
+  caller reaches, `deposit_candidates` passes the extractor's own, and the hand always passes
+  `EXTRACT_RADIUS`. It is still one predicate — placement, the cached candidate list, and both
+  gathers share it — so a resolved reference cannot drift from the rule that allowed the building.
+  A tier that changes reach must drop that entity's `deposit_links`, which were resolved against the
+  old radius.
+- Orientation is an axis the definition owns. `DIRECTIONS` (six) is adjacency and power;
+  `TRANSPORT_DIRECTIONS` (twelve) is routing, and the six edge headings keep their indices.
+  `OrientationAxis::Corner` is the six vertex headings, closed under 60° rotation, and `Any` is both.
+  A definition that may face a corner still requires a single-cell footprint because no definition
+  needs otherwise; lift that rule only with a real definition that tests the wider path — and note
+  that "may face" includes `Any`, which reaches the same untested path the moment it is rotated.
+  Never widen `DIRECTIONS`: a boiler that reached two rows would be a silent rule change.
+- **The axis is a price, not only a permission.** A vertex heading covers `3 · size` of world
+  distance against `√3 · size` for an edge step, so a heading a definition takes for free is strictly
+  dominant. `Edge` and `Corner` answer that by being separate definitions with separate cost rows;
+  `Any` answers it inside one definition, with `corner_construction_cost` and `corner_technology_id`,
+  and validation refuses an `Any` definition that gates none of its headings. The belt is one
+  definition on both periods for that reason — a riser is not a different kind of thing, only a
+  longer step — and rotation walks all twelve headings in angular order, 30° per press, which is what
+  `rotation_walks_every_heading_once_in_angular_order` pins against world vectors rather than against
+  the index arithmetic that produces them.
+- A junction is a definition flag, never a `BuildingKind` and never a second tick path. `splits`
+  compiles every free forward heading into `Links` and offers from `route_cursor`; `merges` accepts
+  from behind and arbitrates by `merge_cursor`, the last feeder served, so a merger alternates where
+  a plain belt starves whichever lane loses the ascending-id race. Both cursors are saved and
+  checksummed state, because a rotation the save forgets is a factory that restores differently than
+  it ran. `transfer_cargo` therefore runs two passes — mergers first, then everything else in
+  ascending entity id.
+- An underpass is one arm in the graph trace, not a second lattice. `trace_output` is
+  `trace_underpass(...).or_else(trace_ray(...))`: an entrance rays past the entities in between to
+  the first partner within `MAX_UNDERPASS_SPAN`, and the exit is simply the underpass that found no
+  partner ahead. The crossed cells stay singly occupied, buildable, and connected to their own lane,
+  so the pair adds a crossing without adding a coordinate. Grade separation is presentation plus that
+  one arm; do not give the covered cells a second occupancy or a height of their own.
+- An upgrade edits the entity in place and never replaces it, which is what preserves contents,
+  orientation, and connections without special handling. `validate_upgrade_ladders` pins kind,
+  recipe category, footprint, and axis across every step, so the command does not have to re-ask
+  whether any of them still apply. The price is netted per item against the old construction cost
+  and both halves are checked before either is applied — the same all-or-nothing rule `erase` uses,
+  and the reason an upgrade / erase round trip cannot duplicate items.
+- Facing is native, checksummed state, so the host may send the world position it wants the player to
+  face and never a heading. `aim` carries the point under the cursor; native resolves the unit vector
+  in integer arithmetic. `move_intent` still sets facing, and an aim wins by arriving later in the
+  same batch, which is why a touch layout that sends no `aim` keeps facing the way it walks.
+- Which terrain bands are impassable is native's rule and is pinned in both languages by
+  `fixtures/terrain-passability.json`, against `Terrain::blocks_movement` and
+  `Terrain::blocks_construction` in Rust and against `src/core/terrain.ts` in TypeScript. The host
+  draws impassable ground as one category before it draws it as a material; that treatment reads the
+  pinned table and never a palette-side guess about which grey means cliff.
+- Snapshot deltas cross to the host in the binary wire format, encoded by `factory-wasm/src/wire.rs`
+  and decoded by `src/core/snapshotWire.ts`. The decoder's contract is that it produces exactly what
+  `JSON.parse(snapshot_delta_json())` produced — the same keys, the same omissions, `null` where
+  native sends `null` — so the encoding is transport and nothing above `FactoryHost` knows which one
+  delivered a frame. Every value still becomes a JavaScript number on arrival, so the 2^53 rule
+  below is unchanged by the format. `snapshot_delta_json` stays as the oracle the encoder is pinned
+  against; it is not a fallback path and the game must not ship on it.
+- The wire format is pinned in two places at once and both must move together. Rust round trips
+  every delta a running factory produces inside
+  `dirty_tracked_deltas_match_a_full_snapshot_diff`; `fixtures/snapshot-delta-wire.json` carries
+  encoded payloads beside the exact JSON they decode to, Rust asserts it writes those bytes, and
+  `tests/snapshotWire.test.ts` asserts TypeScript reads them back. Regenerate it with
+  `UPDATE_WIRE_FIXTURE=1 cargo test wire_fixture` and read the diff — a change there is a wire
+  break. `BuildingKind`, `Terrain`, and `EntityStatus` travel as their declaration index, so
+  reordering a variant is a mistranslation rather than a decode failure, which is what the fixture's
+  enum tables exist to catch.
+- Snapshot numbers reach the host as IEEE-754 doubles. Nothing wider than 2^53 may travel as a
+  number, and nothing whose identity matters may be re-derived into one: field cells are addressed
+  by their tile key, never by an id packed from the same two coordinates.
+- Fuel is a property of the item, never an entry in a recipe's `inputs`. A recipe that named its
+  fuel would need one variant per fuel and would hardcode the bootstrap path. Machine ingredient,
+  fuel, and output inventories are separate native maps. `stock_kind_for_item` puts recipe inputs
+  first — coal is ingredient in steel — and only then admits another burnable item as fuel.
+  `burnable_item` is still the one fuel predicate; the tick, hand transfer, transport acceptance,
+  and status that explains a stop must keep asking it.
+- A new machine is a `recipe_category` and a check, not a `BuildingKind` and a tick path. Smelter,
+  kiln, cutter, crusher, and composer are one kind. Add a kind only when a building's _source_ is
+  genuinely different, which is the whole reason `Pump` is one: it draws from terrain rather than a
+  deposit, and its basin never empties.
+- Terrain is the material map. Each raw resource is generated only in the band its geography names,
+  because a landscape the player cannot read is decoration. A resource reachable from no buildable
+  hex is a defect — stone sits against impassable cliffs and is quarried from the hex beside them.
+- **A deposit is a site, not a hex, and one patch is one material.** The `site_cell` lattice picks
+  one rule per site and a hex belongs to the nearest site that covers it, so purity is a property of
+  the model rather than a number that was tuned; `npm run survey` reports it and it may not fall
+  below 950 per mille on a shipped preset. Do not reintroduce a per-hex gate that decides _which_
+  material a hex holds — that is the defect the lattice exists to remove.
+- **The site lattice and the bootstrap table are derived state**, on exactly the terms
+  `deposit_links` is: never saved, never hashed, never checksummed, and rebuilt whenever the seed or
+  the parameters move. Generation stays a pure function of `(params, seed, q, r)`; a test asserts the
+  cached and uncached generators agree, and another asserts the cheap water test agrees with the band
+  decision it skips.
+- **The clearing generates nothing.** What a new world guarantees is placed by the bootstrap pass
+  outside it, as real patches at stated distances, and a world whose opening cannot be placed is
+  refused rather than shipped. Do not re-add a hardcoded list of cells inside the clearing; that was
+  the sample platter that made every material visible in the first minute.
+- Anything the host draws as a proportion must be given both numbers. The swing ring takes
+  `action_cooldown` and a published `action_cooldown_total`; inferring a maximum by watching a value
+  count down is the host re-deriving native truth.
+- Placement asks one overlap question of deposits and obstacles alike, at two tuned depths. Two
+  different tests for the same question is the defect v0.10 fixed. `deposit_candidates` and
+  `resource_at_world` share that predicate and must keep sharing it, or a resolved extractor
+  reference stops matching the placement rule.
+- Carrying capacity is a rule over the ordinary `item_id → quantity` inventory, never a stored slot
+  array: each item takes one slot per part-filled stack of its own `stack_size`, against a slot
+  count the scenario fixes. Every path that adds to the player asks first. An erase whose full
+  refund will not fit is refused rather than partially paid, so the policy stays exactly 100%.
+- A cursor-held stack is native inventory state, not DOM drag data. Left click lifts or places a
+  full stack, right click halves a lift or places one, Ctrl-click moves one, and Shift applies the
+  same quantity as a quick move between the pack and selected building. Every gesture sends a
+  bounded command; native owns reach, stock compatibility, remaining room, save, and checksum.
+- Extractors, pumps, and composers write into bounded output inventories. They request work only
+  while the next whole output fits, so a blocked edge fills a finite buffer and then stops without
+  consuming a deposit or recipe inputs it cannot preserve. Transport offers from that buffer, not
+  from a presentation-side queue.
+- Any host list carrying a control is patched in place, never rebuilt. A `replaceChildren` between
+  pointerdown and pointerup detaches the pressed control and the delegated click resolves to
+  nothing. This now covers the hotbar slots and the catalogue cards as well as the research list and
+  the inventory and machine-compartment grids. An item chip is
+  created once per holder and patched from then on, so a chip inside such a list satisfies the rule
+  by construction rather than by being remembered at each call site.
+- An item is drawn one way, by `src/rendering/itemChip.ts`, and never by a second shape. Every
+  variant is a modifier class on that one markup, every chip shows its glyph, and `3` and `3 / 10`
+  are the only two spellings of a quantity — one an amount, the other progress toward a known
+  target. HTML names a `.chip-host` for a chip to be built into; markup that spells a chip out by
+  hand is the drift this replaced, and `tests/host.test.ts` refuses it.
+- The active workspace panel is presentation state and lives in `localStorage` under
+  `hexfactory:panels:v1`, on the same terms as the hotbar arrangement: never saved with the game,
+  never hashed, never sent, and a stored id validated against the live document on load. One
+  workspace opens at a time at every width; opening another, clicking the world, `Escape`, a new
+  game, and a load clear the old one. Panels remain flow children of a rail and never position
+  themselves. The inspector may stay beside a left workspace on wide screens, but yields to the
+  menu and timer in its own rail.
+- The hotbar arrangement is presentation state and lives in `localStorage`: never saved with the
+  game, never hashed, never sent. It is a preference about a keyboard, not a fact about a factory.
+  Definitions are dynamic, so a stored slot is validated against the live catalogue on load and
+  dropped if its id no longer exists. Buildings live in the `B` catalogue, grouped by `kind`; the
+  bar holds only what the player pinned there.
+- The economy states its curve, and the curve is two rules over the data rather than a mood. A tier
+  costs strictly more than the tier it upgrades from; a machine costs no less than a machine of the
+  same `kind` whose technology it is unlocked behind. Cost is `effort` — tree-expanded raw units
+  plus fuel energy priced in the densest fuel item — and every raw unit counts once, because that is
+  the only weighting the data supplies. A cutter does not follow a kiln, so they are not compared.
+- Balance figures are derived and are computed once, natively. Items per minute restates
+  `advance_composer`, machines carried restates `power_progress`, and a site yield restates
+  `deposit_candidates`; recomputing any of them in the host would be a second implementation of a
+  native rule. `factory-wasm/src/balance.rs` is native-only measurement code like the survey and the
+  ladder, and never enters the wasm artifact. What TypeScript does recompute is the pure arithmetic
+  over `definitions.json`, in `tests/balance.test.ts`, so the fixture is pinned by two independent
+  expansions rather than by one implementation agreeing with itself.
+- Named saves live in a version-independent catalog (`hexfactory:saves:v1`). Each slot records the
+  envelope versions and the world it was started with (seed, scenario, preset or custom scales).
+  Incompatibilities stay visible on the row; they are never hidden by putting those numbers in the
+  storage key. Native still refuses a load the numbers cannot support. `SAVE_VERSION` is the one
+  literal, because native does not publish it. Leftover `hexfactory:hxf1:` keys are imported into
+  the catalog and left in place. A slot can also be written to a desktop `.hxf1` file (the native
+  envelope) or the whole catalog to `hexfactory-saves.json`; importing either shape mints new slot
+  ids and will not overwrite an existing name.
+- No scripted guide may outrun the rules it is explaining. The next step is derived — the contract's
+  outstanding bill, expanded through the recipe tree, plus the technologies those machines sit
+  behind and the power branch none of them names — so every step it can produce is achievable in the
+  state that produced it. A machine that draws power with nothing generating it is a factory that
+  cannot run, and both the guidance and the balance openings now price that.
+- Derived caches never become truth. Resolved extractor deposit references are rebuilt from tiles,
+  invalidated when chunk generation adds tiles, and are never saved, hashed, or checksummed.
+- A milestone that changes the world generator, the item roster, or the entity snapshot re-runs
+  `npm run bench` before it ships. v0.12's re-measurement found two regressions it had introduced —
+  86 KB of delta payload and a 3.9× slower snapshot — and one 3.0× saving v0.11 had shipped without
+  measuring. A checksum change invalidates checksum comparisons, not timing ones: say which of the
+  two a record is claiming.

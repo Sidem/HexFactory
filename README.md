@@ -45,6 +45,14 @@ yard; R cycles the work. Timber and wire fences need no research. Brick and conc
 need Fired Masonry, hill limestone and kiln-fired cement. Gates start open and work without
 power. Removal recovers the materials actually paid.
 
+**Petroleum Roads (v0.40.0)** adds powered oil wells, a refinery producing bitumen and useful
+refined fuel together, and an asphalt mixer. Ground works lays asphalt over gravel for 50% faster
+walking than untreated ground; stripping recovers the materials paid for both layers. Research and
+machine inspectors explain prerequisites and blocked output buffers. Petroleum is optional and
+never gates starter automation. Existing worlds keep their deposits: start a new world to find oil.
+Its accounting and verification are in the [release record](docs/PETROLEUM-ROADS-RECORD.md), which
+collapses into the roadmap ledger once the next milestone ships.
+
 ## Controls
 
 - The default hotbar starts with the manual workshop and primitive furnace. Existing pinned bars
@@ -133,15 +141,15 @@ rather than from reading its numbers.
 - The host consumes exactly `@hexlife/embed/hex@1.15.0` for public pointy-top axial geometry. It
   never imports HexLife source or package internals.
 
-See the [goal, state, and roadmap](docs/HEXFACTORY-PLAN.md),
-[construction and materials plan](docs/CONSTRUCTION-MATERIALS-PLAN.md),
-[research and player progression plan](docs/PROGRESSION-PLAN.md),
-[architecture](docs/ARCHITECTURE.md), [art direction](docs/ART.md),
-[measured capacity](docs/BENCHMARKS.md), and [agent invariants](AGENTS.md).
+See the [goal, state, and roadmap](docs/HEXFACTORY-PLAN.md), the
+[architecture and shipped invariants](docs/ARCHITECTURE.md), the
+[art direction](docs/ART.md), the [measured capacity](docs/BENCHMARKS.md), and the
+[agent entrypoint](AGENTS.md).
 
-**Next roadmap priority:** deliver the progression and construction plans, beginning with recipe
-and research foundations, before Living Lattice, Regional Discovery or other roadmap features.
-The [combined delivery sequence](docs/HEXFACTORY-PLAN.md#what-to-do-next) defines the order and gates.
+**Next roadmap priority:** handling and clarity — drag-and-drop stacks, cargo that opens with the
+machine, belts that refuse to connect where nothing can be delivered, a warning before demolishing a
+full building, and seamless paving — then straight walls and gates. The
+[phase table](docs/HEXFACTORY-PLAN.md#what-to-do-next) defines the order and gates.
 
 ## Measured capacity
 

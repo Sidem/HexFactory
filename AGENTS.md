@@ -4,33 +4,28 @@ HexFactory is a browser factory-automation game. Player experience is the tiebre
 native ownership, sparse cost, and measured claims exist to keep a large living factory responsive
 and trustworthy.
 
-Current release: **v0.39.0 Masonry Enclosures**. **Immediate next work: progression and construction**
-in `docs/PROGRESSION-PLAN.md` and `docs/CONSTRUCTION-MATERIALS-PLAN.md`, ordered by
-`docs/HEXFACTORY-PLAN.md#what-to-do-next`. Complete this workstream before Living Lattice,
-Regional Discovery or other roadmap features unless the user changes priority. Release numbers
-after v0.39.0 are unassigned. Phase 1 is complete: every buildable bill is audited and no definition
-bills raw ore, gear/frame yields are reviewed and unchanged, and commission/research startup
-accounting is done. Phase 2 is complete: the research map, finite insight projects and separate player skills are shipped.
-Phase 3 is in progress: timber edge fences and manual gates, the paired ground slice, and masonry
-enclosures are shipped — limestone, cement, corrected concrete, timber/wire/brick/concrete walls
-and an enclosure tray on the Ground works pattern. Oil, bitumen and asphalt are next, then
-supported floors and vertical transport. Hub demand is finite — every project pays once, the catalogue is browsable and
-postable by name, and the budget is a committed measurement.
-Component/contract reform, the five industrial station bills and construction-order accounting are shipped.
-Foundation commissions, typed effects, branch/stage registries, native research availability and
-the central research atlas are shipped. Timed opening validation was withdrawn. Envelopes: save 31, definitions 25,
-technologies 13, scenarios 7, world 9, wire 17.
+Current release: **v0.40.0 Petroleum Roads** — powered oil wells, joint-output refining, useful
+refined fuel, asphalt mixing and gravel-based roads, on the shipped economy, research atlas, player
+skills, ground works and masonry enclosures. Envelopes: save 32, definitions 26, technologies 14,
+scenarios 7, world 10, wire 17. Old worlds keep their saved site rules; new oil sites need a new
+world.
+
+Next work is the numbered phase table in `docs/HEXFACTORY-PLAN.md#what-to-do-next`: handling and
+clarity, then straight walls and gates, then supported floors and vertical transport. Release
+numbers after v0.40.0 are unassigned. Do not reorder those phases without the user.
 
 ## Localize before reading
 
 1. Use the task table at the top of `docs/AGENT-MAP.md`.
 2. Find named declarations with `rg -n`; read bounded ranges around matches.
-3. Load only the task-specific rule below. `docs/ENGINEERING-RULES.md` preserves the detailed
-   shipped decisions; do not read it end-to-end for an unrelated task.
+3. Load only the task-specific rule below. The Shipped invariants section of `docs/ARCHITECTURE.md`
+   holds the settled decisions; do not read it end-to-end for an unrelated task.
 4. Inspect the nearest test before editing. Run its narrow command after the first small patch.
 5. Refresh the map with `npm run agent:map` after moving or adding declarations.
+6. Expand context only when a compiler, test, or dependency edge names the next file.
 
-The evidence and limits of this context policy are in `docs/AGENT-CONTEXT.md`.
+Never replace source with lossy summaries. The generated map is a retrieval index; source and tests
+remain the authority.
 
 ## Always-load invariants
 
@@ -57,13 +52,13 @@ The evidence and limits of this context policy are in `docs/AGENT-CONTEXT.md`.
 
 ## Load on demand
 
-- Goal, milestone, gameplay loop: the relevant milestone in `docs/HEXFACTORY-PLAN.md`.
-- Tick, transport, power, player, ecology: `docs/ARCHITECTURE.md`, then matching headings in
-  `docs/ENGINEERING-RULES.md`.
+- Goal, milestone, gameplay loop: the relevant phase brief in `docs/HEXFACTORY-PLAN.md`.
+- Tick, transport, power, player, ecology: `docs/ARCHITECTURE.md`, then the matching bullet under
+  its Shipped invariants.
 - Belts, junctions, underpasses, upgrades: localize with
-  `rg -n "drag|axis|junction|underpass|upgrade" docs/ENGINEERING-RULES.md`.
+  `rg -n "drag|axis|junction|underpass|upgrade" docs/ARCHITECTURE.md`.
 - World generation, deposits, terrain: localize with
-  `rg -n "site lattice|bootstrap|terrain|deposit" docs/ARCHITECTURE.md docs/ENGINEERING-RULES.md`.
+  `rg -n "site lattice|bootstrap|terrain|deposit" docs/ARCHITECTURE.md`.
 - Costs, cadence, power, recipes: run `npm run balance`; read `fixtures/balance.json` and the
   matching balance rule.
 - Shapes, machine art, terrain materials: `docs/ART.md` Stage D and the relevant rendering route.
@@ -97,6 +92,29 @@ Fixture updates remain deliberate review points:
 - Wire: `UPDATE_WIRE_FIXTURE=1 cargo test wire_fixture`
 - Balance: `UPDATE_BALANCE_FIXTURE=1 cargo test balance_fixture`, then Prettier
 
-The full historical rule ledger is `docs/ENGINEERING-RULES.md`; architecture is
-`docs/ARCHITECTURE.md`, measured evidence is `docs/BENCHMARKS.md`, and shipped/next work is
-`docs/HEXFACTORY-PLAN.md`.
+## The document set
+
+Six files, each with one job. Architecture and settled rules are `docs/ARCHITECTURE.md`; shipped and
+next work is `docs/HEXFACTORY-PLAN.md`; measured evidence is `docs/BENCHMARKS.md`; art direction is
+`docs/ART.md`; the retrieval index is `docs/AGENT-MAP.md`; this file is the entrypoint. A shipped
+milestone collapses to one ledger line in the plan and its brief is deleted — the detail lives in
+git history and in the code. At most one release record may exist at a time, for the milestone
+currently in flight; it is deleted when the next one ships. Today that is
+`docs/PETROLEUM-ROADS-RECORD.md`. `README.md` is the only player-facing document.
+
+## Evidence behind the context policy
+
+The localize-then-read routine above follows published results rather than taste. Liu et al.,
+_Lost in the Middle_ (TACL 2024), found relevant information is used less reliably in the middle of
+long contexts: <https://doi.org/10.1162/tacl_a_00638>. Zhang et al., _RepoCoder_ (EMNLP 2023),
+reported more than 10% improvement over in-file completion from iterative retrieval:
+<https://doi.org/10.18653/v1/2023.emnlp-main.151>. Xia et al., _Agentless_ (FSE 2025), localizes
+files, then declaration skeletons, then exact edit regions: <https://arxiv.org/abs/2407.01489>.
+Yang et al., _SWE-agent_ (NeurIPS 2024), found an interface designed for code navigation materially
+improved repository task performance:
+<https://proceedings.neurips.cc/paper_files/paper/2024/hash/5a7c947568c1b1328ccc5230172e1e7c-Abstract-Conference.html>.
+Jiang et al., _LongLLMLingua_ (ACL 2024), shows query-aware compression cuts cost and latency;
+HexFactory takes the high-information-density principle through deterministic maps and retrieval but
+does not automatically delete source tokens: <https://doi.org/10.18653/v1/2024.acl-long.91>. These
+results come from different tasks and models. They support the direction — localize, rank, truncate,
+validate — not a token-saving percentage for this repository.
