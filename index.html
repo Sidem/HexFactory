@@ -18,6 +18,12 @@
       aria-labelledby="boundary-heading"
       hidden
     ></section>
+    <section
+      id="ground-panel"
+      class="ground-panel"
+      aria-labelledby="ground-heading"
+      hidden
+    ></section>
     <!--
       The mark, defined once. A hexagon holding three linked cells: the tile the world is made of,
       and the network the game is about. Both places that wear it point at this, so the logo cannot
@@ -1358,6 +1364,16 @@
               aria-label="Open fences and gates"
             >
               <span aria-hidden="true">⚑</span><small>Fences</small>
+            </button>
+            <button
+              id="open-ground"
+              type="button"
+              aria-controls="ground-panel"
+              aria-expanded="false"
+              title="Pave, cut and fill the ground (G)"
+              aria-label="Open ground works"
+            >
+              <span aria-hidden="true">▤</span><small>Ground · G</small>
             </button>
             <span class="shelf-divider" aria-hidden="true"></span>
             <div

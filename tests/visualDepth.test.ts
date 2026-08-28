@@ -336,6 +336,7 @@ describe("Visual Depth generated geometry", () => {
     const layer = new WorldInstanceLayer(
       {
         boundaries: [],
+        surfaces: [],
         version: 1,
         items: [],
         recipes: [],
@@ -470,6 +471,7 @@ describe("Visual Depth terrain and quality contracts", () => {
     const layer = new WorldInstanceLayer(
       {
         boundaries: [],
+        surfaces: [],
         version: 1,
         items: [],
         recipes: [],
@@ -538,6 +540,7 @@ describe("Visual Depth terrain and quality contracts", () => {
     const layer = new WorldInstanceLayer(
       {
         boundaries: [],
+        surfaces: [],
         version: 1,
         items: [],
         recipes: [],
@@ -630,6 +633,7 @@ describe("Visual Depth terrain and quality contracts", () => {
     const layer = new WorldInstanceLayer(
       {
         boundaries: [],
+        surfaces: [],
         version: 1,
         items: [],
         recipes: [],
@@ -682,6 +686,7 @@ describe("Visual Depth terrain and quality contracts", () => {
     const layer = new WorldInstanceLayer(
       {
         boundaries: [],
+        surfaces: [],
         version: 1,
         items: [
           {
@@ -708,11 +713,29 @@ describe("Visual Depth terrain and quality contracts", () => {
     const terrain = new Map([
       [
         "0,0",
-        { q: 0, r: 0, terrain: "lowland" as const, x: 0, z: 0, height: 0.1 },
+        {
+          q: 0,
+          r: 0,
+          terrain: "lowland" as const,
+          x: 0,
+          z: 0,
+          height: 0.1,
+          elevation: 0,
+          surface: 0,
+        },
       ],
       [
         "1,0",
-        { q: 1, r: 0, terrain: "highland" as const, x: 1, z: 0, height: 0.62 },
+        {
+          q: 1,
+          r: 0,
+          terrain: "highland" as const,
+          x: 1,
+          z: 0,
+          height: 0.62,
+          elevation: 0,
+          surface: 0,
+        },
       ],
     ]);
     layer.setSnapshot(snapshot, terrain, 0);
@@ -760,6 +783,7 @@ describe("Visual Depth terrain and quality contracts", () => {
     const layer = new WorldInstanceLayer(
       {
         boundaries: [],
+        surfaces: [],
         version: 1,
         items: [],
         recipes: [],
@@ -830,6 +854,7 @@ describe("Visual Depth terrain and quality contracts", () => {
     const layer = new WorldInstanceLayer(
       {
         boundaries: [],
+        surfaces: [],
         version: 1,
         items: [],
         recipes: [],
@@ -1131,6 +1156,8 @@ function compileTerrain(terrain: Terrain) {
 function minimalSnapshot(): FactorySnapshot {
   return {
     boundaries: [],
+    ground: [],
+    spoil: 0,
     scenario: "test",
     scenario_name: "Test",
     world_version: 8,

@@ -60,6 +60,33 @@ export function encodeCommand(command: NativeInputCommand): EncodedCommand {
     case "undo_boundary":
       return { opcode: 31, args: [] };
 
+    // Two corners, a shape, a surface and one verb. What the grade becomes, what it costs, what it
+    // buries and whether anything is left stranded are all native's — the host names a selection.
+    // `cover` is carried rather than defaulted because sealing a deposit is the one change here the
+    // player cannot walk back by looking at it, so it only ever travels as a deliberate yes.
+    case "ground_edit":
+      if (
+        ![command.q, command.r, command.to_q, command.to_r].every(
+          (n) => Number.isInteger(n) && Math.abs(n) <= 100000,
+        )
+      )
+        throw new RangeError("Invalid ground target");
+      return {
+        opcode: 32,
+        args: [
+          command.q,
+          command.r,
+          command.to_q,
+          command.to_r,
+          { cell: 0, path: 1, area: 2 }[command.shape],
+          command.definition_id,
+          { pave: 0, clear: 1, raise: 2, lower: 3, level: 4 }[command.action],
+          command.cover ? 1 : 0,
+        ],
+      };
+    case "undo_ground":
+      return { opcode: 33, args: [] };
+
     case "move_intent":
       if (
         !Number.isInteger(command.x) ||

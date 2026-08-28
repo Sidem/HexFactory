@@ -66,6 +66,8 @@ import {
 
 const snapshot: FactorySnapshot = {
   boundaries: [],
+  ground: [],
+  spoil: 0,
   scenario: "new-game",
   scenario_name: "New game",
   world_version: 3,
@@ -1740,4 +1742,57 @@ it("carries bounded edge transactions without host expansion", () => {
       action: "build",
     }),
   ).toThrow(/boundary/);
+});
+
+it("carries ground selections as two corners, a verb and a deliberate cover", () => {
+  // Native has no numeric opcode decoder: the switch in `encodeCommand` is the whole contract for
+  // what a ground edit looks like on the wire, so it is pinned here rather than inferred from Rust.
+  expect(
+    encodeCommand({
+      type: "ground_edit",
+      q: -2,
+      r: 1,
+      to_q: 2,
+      to_r: 3,
+      shape: "area",
+      definition_id: 4,
+      action: "level",
+      cover: true,
+    }),
+  ).toEqual({
+    opcode: 32,
+    args: [-2, 1, 2, 3, 2, 4, 4, 1],
+  });
+  // `cover` travels, never defaults: sealing a deposit is the one ground change a player cannot
+  // walk back by looking at it, so an unconfirmed edit must reach native as an explicit no.
+  expect(
+    encodeCommand({
+      type: "ground_edit",
+      q: 0,
+      r: 0,
+      to_q: 0,
+      to_r: 0,
+      shape: "cell",
+      definition_id: 1,
+      action: "pave",
+      cover: false,
+    }).args[7],
+  ).toBe(0);
+  expect(encodeCommand({ type: "undo_ground" })).toEqual({
+    opcode: 33,
+    args: [],
+  });
+  expect(() =>
+    encodeCommand({
+      type: "ground_edit",
+      q: 0,
+      r: 0,
+      to_q: 1e9,
+      to_r: 0,
+      shape: "path",
+      definition_id: 1,
+      action: "lower",
+      cover: false,
+    }),
+  ).toThrow(/ground/i);
 });

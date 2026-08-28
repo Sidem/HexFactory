@@ -1,4 +1,5 @@
 import { BoundaryTool } from "./ui/boundaries";
+import { GroundTool } from "./ui/ground";
 import {
   axialToPixel,
   pixelToAxial,
@@ -267,6 +268,18 @@ const boundaryTool = new BoundaryTool(
   () => {
     selectTool("inspect");
     closePanels();
+    groundTool.close(false);
+  },
+);
+const groundTool = new GroundTool(
+  required<HTMLElement>("ground-panel"),
+  host,
+  renderer,
+  enqueue,
+  () => {
+    selectTool("inspect");
+    closePanels();
+    boundaryTool.close(false);
   },
 );
 if (
@@ -670,6 +683,7 @@ function update(next: FactorySnapshot): void {
   renderer.setHome(landingHub);
   renderer.setSnapshot(snapshot);
   boundaryTool.update(snapshot);
+  groundTool.update(snapshot);
   syncHoverWithCamera();
   minimap.setSnapshot(snapshot, landingHub);
   renderHomeReadout();
@@ -2659,6 +2673,7 @@ function syncSessionInputs(next: FactorySnapshot): void {
 
 function selectTool(next: Tool): void {
   boundaryTool.close(false);
+  groundTool.close(false);
   tool = next;
   renderer.setBuildMode(next !== "inspect");
   renderRecipePicker();
@@ -2698,6 +2713,7 @@ function syncHoverWithCamera(): void {
   if (hover?.q === coordinate.q && hover.r === coordinate.r) return;
   hover = coordinate;
   boundaryTool.hover(coordinate);
+  groundTool.hover(coordinate);
   refreshHoverPreview();
 }
 
@@ -3681,7 +3697,13 @@ window.addEventListener("keydown", (event) => {
   // Undo is the one binding that keeps its modifier, because every other application uses it.
   if ((event.ctrlKey || event.metaKey) && event.code === "KeyZ") {
     event.preventDefault();
-    enqueue({ type: boundaryTool.active ? "undo_boundary" : "undo" });
+    enqueue({
+      type: boundaryTool.active
+        ? "undo_boundary"
+        : groundTool.active
+          ? "undo_ground"
+          : "undo",
+    });
     return;
   }
   if (event.ctrlKey || event.metaKey || event.altKey) return;
@@ -3693,6 +3715,16 @@ window.addEventListener("keydown", (event) => {
     if (event.code === "Escape") boundaryTool.escape();
     else if (event.code === "KeyR") boundaryTool.rotate(event.shiftKey);
     else boundaryTool.selectRemoval();
+    return;
+  }
+  if (
+    groundTool.active &&
+    ["Escape", "KeyR", "Delete", "Backspace"].includes(event.code)
+  ) {
+    event.preventDefault();
+    if (event.code === "Escape") groundTool.escape();
+    else if (event.code === "KeyR") groundTool.cycleAction(event.shiftKey);
+    else groundTool.selectStrip();
     return;
   }
   if (event.code === "Backspace" || event.code === "Delete") {
@@ -3738,7 +3770,10 @@ window.addEventListener("keydown", (event) => {
     enqueue({ type: "gather" });
   } else if (event.code === "KeyX") enqueue({ type: "deposit" });
   else if (event.code === "KeyR") rotateUnderCursorOrPending(event.shiftKey);
-  else if (event.code === "KeyQ") pickToolUnderCursor();
+  else if (event.code === "KeyG") {
+    if (groundTool.active) groundTool.close();
+    else groundTool.open();
+  } else if (event.code === "KeyQ") pickToolUnderCursor();
   else if (event.code === "KeyE") selectTool("erase");
   else if (/^Digit[1-9]$/.test(event.code)) {
     // A digit is a slot, not an index into the catalogue. Which building it builds is the
@@ -3833,12 +3868,18 @@ canvas.addEventListener("pointermove", (event) => {
   }
   hover = coordinate;
   boundaryTool.hover(coordinate);
+  groundTool.hover(coordinate);
   refreshHoverPreview();
 });
 canvas.addEventListener("pointerdown", (event) => {
   if (boundaryTool.active && event.button === 2) {
     event.preventDefault();
     boundaryTool.clear();
+    return;
+  }
+  if (groundTool.active && event.button === 2) {
+    event.preventDefault();
+    groundTool.clear();
     return;
   }
   // The map is the outside surface for every workspace. Any deliberate world gesture clears the
@@ -3972,6 +4013,10 @@ canvas.addEventListener("click", (event) => {
       coordinate,
       renderer.pickWorld(event.clientX, event.clientY),
     );
+    return;
+  }
+  if (groundTool.active) {
+    groundTool.pick(coordinate);
     return;
   }
   if (snapshot?.player.hand) {
@@ -4259,6 +4304,7 @@ function sendAim(): void {
  */
 function togglePanel(id: string): void {
   boundaryTool.close(false);
+  groundTool.close(false);
   panels.toggle(id);
   // The session rail carries the second copy of the world form. Its preview cannot raster while the
   // panel is closed, so opening one is the other moment a picture becomes drawable.

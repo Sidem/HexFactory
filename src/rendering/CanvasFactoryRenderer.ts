@@ -13,6 +13,7 @@ import type {
   Definitions,
   EntitySnapshot,
   FactorySnapshot,
+  GroundPreview,
   ItemDefinition,
   LinePreviewCell,
   PlacementPreview,
@@ -43,7 +44,9 @@ import {
 import { isStill, drawParts } from "./shapeGrammar";
 import type { ShapePart } from "./shapeGrammar";
 import { drawItemIcon } from "./icons";
+import { hexPath } from "./hexDraw";
 import { WORLD_SCALE, homeBearing } from "./landmarks";
+import { surfaceLook } from "./surfaceLook";
 import { WorldGl } from "./gl/WorldGl";
 
 export { BASE_HEX_SIZE, BUILDING_COLORS, MAX_DEVICE_PIXEL_RATIO };
@@ -186,6 +189,9 @@ export class CanvasFactoryRenderer implements FactoryRenderer {
   }
   private snapshot: FactorySnapshot | null = null;
   private boundaryPreview: BoundaryPreview | null = null;
+  private groundPreview: GroundPreview | null = null;
+  /** Surface key by definition id, so a laid surface can be coloured without the catalogue. */
+  private readonly surfaceKeys: ReadonlyMap<number, string>;
   /**
    * Where the landing hub stands, so the view can always say which way home is. Resolved by the
    * host from the snapshot rather than scanned for here every frame — the hub does not move.
@@ -228,6 +234,9 @@ export class CanvasFactoryRenderer implements FactoryRenderer {
     if (!context) throw new Error("Canvas 2D overlay is unavailable");
     this.context = context;
     this.itemsById = new Map(definitions.items.map((item) => [item.id, item]));
+    this.surfaceKeys = new Map(
+      definitions.surfaces.map((surface) => [surface.id, surface.key]),
+    );
     this.buildingsById = new Map(
       definitions.buildings.map((building) => [building.id, building]),
     );
@@ -259,6 +268,11 @@ export class CanvasFactoryRenderer implements FactoryRenderer {
 
   setBoundaryPreview(preview: BoundaryPreview | null): void {
     this.boundaryPreview = preview;
+    this.markDirty();
+  }
+
+  setGroundPreview(preview: GroundPreview | null): void {
+    this.groundPreview = preview;
     this.markDirty();
   }
 
@@ -482,6 +496,7 @@ export class CanvasFactoryRenderer implements FactoryRenderer {
       },
     );
     if (this.buildMode) this.drawBuildRange(width, height);
+    this.drawPreparedGround(width, height, size);
     this.drawForest(width, height, size);
     for (const building of this.snapshot.buildings)
       this.drawBuilding(building, width, height, size);
@@ -520,6 +535,59 @@ export class CanvasFactoryRenderer implements FactoryRenderer {
     this.drawPlayer(width, height, size);
     this.drawHomeMarker(width, height);
     if (this.dragPath.length) this.drawDragPath(width, height, size);
+  }
+
+  /**
+   * Prepared ground, and the selection about to change it.
+   *
+   * The flat view has no elevation to show with, so a grade is stated instead of modelled: the
+   * finished step is written on the hex. It is the same fact the diorama says with height, and a
+   * player working at the low profile still needs to read a cut from a fill at a glance.
+   */
+  private drawPreparedGround(
+    width: number,
+    height: number,
+    size: number,
+  ): void {
+    if (!this.snapshot) return;
+    const ctx = this.context;
+    for (const cell of this.snapshot.ground) {
+      const center = this.camera.project(cell, width, height);
+      if (!visible(center, size, width, height)) continue;
+      if (cell.surface !== 0) {
+        hexPath(ctx, center, size * 0.94);
+        ctx.fillStyle = surfaceLook(this.surfaceKeys.get(cell.surface)).color;
+        ctx.globalAlpha = 0.62;
+        ctx.fill();
+        ctx.globalAlpha = 1;
+      }
+      if (cell.elevation === 0 || size < 14) continue;
+      ctx.fillStyle = cell.elevation > 0 ? "#ffd479" : "#7fc9ff";
+      ctx.font = `600 ${Math.round(size * 0.42)}px system-ui, sans-serif`;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(
+        `${cell.elevation > 0 ? "+" : "−"}${Math.abs(cell.elevation)}`,
+        center.x,
+        center.y - size * 0.5,
+      );
+    }
+    for (const cell of this.groundPreview?.cells ?? []) {
+      const center = this.camera.project(cell, width, height);
+      if (!visible(center, size, width, height)) continue;
+      hexPath(ctx, center, size * 0.86);
+      ctx.strokeStyle = this.groundPreview?.error
+        ? "#ff7a70"
+        : cell.covers || cell.retained
+          ? "#f0b45a"
+          : cell.change > 0
+            ? "#ffd479"
+            : cell.change < 0
+              ? "#7fc9ff"
+              : "#79e7c0";
+      ctx.lineWidth = 2;
+      ctx.stroke();
+    }
   }
 
   /**

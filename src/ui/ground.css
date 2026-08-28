@@ -1,0 +1,321 @@
+/*
+ * The earthworks tray. It sits opposite the fence tray rather than on top of it, because paving a
+ * yard and fencing it are the two halves of the same afternoon and a player doing one wants to see
+ * the other's answer without dismissing a panel.
+ */
+.ground-panel {
+  position: fixed;
+  z-index: 9;
+  right: 18px;
+  bottom: 156px;
+  width: min(384px, calc(100vw - 36px));
+  max-height: calc(100dvh - 280px);
+  overflow: auto;
+  scroll-padding-top: 90px;
+  padding: 18px;
+  border: 1px solid #617268;
+  border-top: 3px solid #8fb6a3;
+  border-radius: 14px;
+  background: var(--panel-solid);
+  box-shadow: 0 18px 48px #0008;
+  pointer-events: auto;
+  text-align: left;
+}
+.ground-panel[hidden] {
+  display: none;
+}
+.ground-panel header {
+  position: sticky;
+  top: -18px;
+  z-index: 1;
+  background: var(--panel-solid);
+  padding: 10px 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+.ground-panel header small {
+  color: #9dc3ae;
+  font-size: 10px;
+  letter-spacing: 0.12em;
+}
+.ground-panel h2 {
+  margin: 4px 0 0;
+  font-size: 21px;
+}
+.ground-panel header button {
+  min-width: 40px;
+  min-height: 40px;
+}
+.ground-panel p {
+  font-size: 12px;
+  line-height: 1.5;
+  color: #bfd0c8;
+}
+
+/*
+ * Five verbs, always all five, always in the same place. A player learns where "Lower" is once and
+ * then stops reading the tray, which is the point of a segmented bar over a dropdown.
+ */
+.ground-actions {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  background: #0b1714;
+}
+.ground-actions button {
+  display: grid;
+  justify-items: center;
+  gap: 2px;
+  min-height: 52px;
+  padding: 6px 2px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+}
+.ground-actions button span {
+  font-size: 17px;
+  line-height: 1;
+}
+.ground-actions button:hover {
+  background: var(--panel-hover);
+  color: var(--ink);
+}
+.ground-actions button[aria-pressed="true"] {
+  border-color: #6d9f81;
+  background: #23483c;
+  color: var(--ink);
+}
+
+/* The palette is a shop shelf: name, what it buys, what it costs, in that order, on one card. */
+.ground-palette {
+  display: grid;
+  gap: 6px;
+  margin: 12px 0 4px;
+}
+.ground-palette[hidden] {
+  display: none;
+}
+.ground-palette button {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 4px 10px;
+  width: 100%;
+  min-height: 46px;
+  padding: 8px 11px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel-card);
+  color: var(--ink);
+  font-size: 12px;
+  text-align: left;
+}
+.ground-palette button:hover {
+  background: var(--panel-hover);
+}
+.ground-palette button[aria-pressed="true"] {
+  border-color: #6d9f81;
+  background: var(--panel-active);
+}
+.ground-palette .ground-pace {
+  color: var(--mint);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+.ground-palette .ground-price {
+  grid-column: 1 / -1;
+  color: var(--gold);
+  font-size: 11px;
+}
+.ground-palette .ground-price.short {
+  color: var(--danger);
+}
+
+.ground-fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-top: 12px;
+}
+.ground-fields label {
+  display: grid;
+  gap: 6px;
+  font-size: 11px;
+  color: #a8beb4;
+  min-width: 0;
+}
+.ground-fields select,
+.ground-fields input {
+  width: 100%;
+  min-width: 0;
+  min-height: 40px;
+  padding: 6px;
+  font-size: 12px;
+}
+.ground-target {
+  grid-template-columns: repeat(4, 1fr);
+  padding-top: 8px;
+  border-top: 1px solid #304c41;
+}
+.ground-precise summary {
+  cursor: pointer;
+  font-size: 12px;
+  color: #abc2b5;
+  padding: 8px 0;
+}
+
+/*
+ * The spoil heap, drawn rather than stated. Fill has to be dug from somewhere, and a player who
+ * cannot see the heap draining will read the refusal that follows as the game being arbitrary.
+ */
+.ground-spoil {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 10px;
+  margin: 12px 0 8px;
+  padding: 9px 11px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel-card);
+  font-size: 11px;
+  color: var(--muted);
+}
+.ground-spoil b {
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+.ground-gauge {
+  position: relative;
+  height: 7px;
+  border-radius: 4px;
+  background: #0b1714;
+  overflow: hidden;
+}
+.ground-gauge i {
+  position: absolute;
+  inset: 0 auto 0 0;
+  display: block;
+  border-radius: 4px;
+  background: linear-gradient(90deg, #8a7550, #d8b071);
+  transition: width 140ms ease-out;
+}
+.ground-gauge.empty i {
+  background: #4a4136;
+}
+.ground-move {
+  color: var(--mint);
+  font-variant-numeric: tabular-nums;
+}
+.ground-move.down {
+  color: var(--warning);
+}
+
+.ground-panel .ground-status {
+  color: var(--mint);
+  margin: 8px 0 7px;
+}
+.ground-panel .ground-status.blocked {
+  color: var(--danger);
+}
+.ground-panel .ground-bill {
+  color: var(--gold);
+  min-height: 18px;
+}
+
+/*
+ * Sealing a deposit is the only thing in here a player cannot walk back for free, so it is the only
+ * thing that stops and asks. The tick is deliberate work, never a default.
+ */
+.ground-cover {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: start;
+  gap: 9px;
+  margin: 10px 0;
+  padding: 10px 11px;
+  border: 1px solid var(--warning);
+  border-radius: 10px;
+  background: var(--warning-bg);
+  font-size: 11px;
+  line-height: 1.5;
+  color: #f4dcb2;
+  cursor: pointer;
+}
+.ground-cover[hidden] {
+  display: none;
+}
+.ground-cover input {
+  width: 20px;
+  height: 20px;
+  margin: 1px 0 0;
+  accent-color: var(--warning);
+}
+.ground-cover b {
+  display: block;
+  color: var(--warning);
+}
+
+.ground-retaining {
+  margin: 0 0 8px;
+  color: var(--warning);
+  font-size: 11px;
+}
+.ground-retaining[hidden] {
+  display: none;
+}
+
+.ground-panel-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin: 12px 0;
+}
+.ground-panel-actions button {
+  min-height: 40px;
+  font-size: 12px;
+}
+.ground-panel-actions [data-apply] {
+  background: #285c46;
+  border-color: #6d9f81;
+  flex: 1;
+}
+.ground-panel-actions [data-apply]:disabled {
+  background: #1b2c27;
+}
+.ground-help {
+  display: block;
+  font-size: 10px;
+  line-height: 1.5;
+  color: #9ab1a5;
+}
+@media (max-width: 700px) {
+  .ground-panel {
+    right: 10px;
+    bottom: 144px;
+    width: min(350px, calc(100vw - 20px));
+    max-height: 48dvh;
+    padding: 13px;
+  }
+  .ground-panel header {
+    margin-bottom: 10px;
+  }
+  .ground-actions button {
+    min-height: 48px;
+  }
+}
+@media (max-height: 580px) {
+  .ground-panel {
+    bottom: 90px;
+    max-height: calc(100dvh - 150px);
+  }
+}

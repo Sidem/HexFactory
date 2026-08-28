@@ -12,9 +12,9 @@ change. The next milestones live in `docs/HEXFACTORY-PLAN.md`, architecture deci
 
 ## Where things stand
 
-Shipped through **v0.34.0 Power and Tier Bills**. Current envelope versions,
-all five of which native refuses a load on: **save 26, definitions 21, technologies 11, scenarios 7,
-world generator 8**, and wire (snapshot delta) **13**. `SAVE_VERSION` is the one literal in the host,
+Shipped through **v0.38.0 Ground Works**. Current envelope versions,
+all five of which native refuses a load on: **save 30, definitions 24, technologies 12, scenarios 7,
+world generator 8**, and wire (snapshot delta) **17**. `SAVE_VERSION` is the one literal in the host,
 because native does not publish it; every other number the browser's save catalog shows is read from
 what native publishes.
 
@@ -23,9 +23,18 @@ what native publishes.
 `docs/CONSTRUCTION-MATERIALS-PLAN.md`. It precedes Living Lattice, Regional Discovery and other
 roadmap features. Visual Depth is shipped as a measured, presentation-only Three.js renderer, and
 the reference desktop is the support target: integrated-GPU laptop qualification was withdrawn on
-2026-08-27, so it is no longer required evidence for anything. Native integer height is
-consequently unblocked and has moved up into construction's ground-works slice — treat it as a
-save, wire, checksum and building-legality migration, not a rendering change.
+2026-08-27, so it is no longer required evidence for anything.
+
+Native integer height shipped in v0.38.0 as a save, wire, checksum and building-legality migration
+rather than a rendering change. The rules that follow from it: a hex's grade is a signed delta from
+the band the generator produced, bounded to `MAX_GRADE_STEPS`; a step of more than `MAX_WALK_STEP`
+can be neither walked nor built across, and `MAX_BUILD_STEP` is deliberately the same number so
+there is one rule about steep ground rather than two; fill is spent from the spoil ledger and never
+conjured; and no surface may walk faster than `MAX_SURFACE_MOVEMENT`, because the route search's
+heuristic stops being admissible if a step can cost less than that bound assumes. Generated terrain
+height stays presentation. Paving and grading are one transaction, one bill and one undo — do not
+split them into separate systems, because walking speed, route cost, movement legality and building
+legality all read the same map.
 
 Before changing a cost, a cadence, or a power figure, run `npm run balance` and read
 `fixtures/balance.json`. Before touching `src/rendering/buildingLook.ts` or the shape grammar, read

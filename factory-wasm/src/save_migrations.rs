@@ -97,6 +97,19 @@ pub(super) fn migrate<'a>(json: &'a str, target_version: u16) -> Result<Cow<'a, 
         version = 29;
     }
 
+    // Ground Works. A version-29 file has no prepared ground and no spoil, and `SavedState` defaults
+    // both to empty, so nothing has to be written into the state: an untouched world is exactly the
+    // world it already was. Only the stamps move.
+    if version == 29 && target_version >= 30 {
+        if let Some(object) = value.as_object_mut() {
+            object.insert("save_version".into(), Value::from(30));
+            if object.get("definition_version") == Some(&Value::from(23)) {
+                object.insert("definition_version".into(), Value::from(24));
+            }
+        }
+        version = 30;
+    }
+
     if version == target_version {
         return Ok(Cow::Owned(serde_json::to_string(&value).map_err(
             |error| format!("migrated save could not be written: {error}"),

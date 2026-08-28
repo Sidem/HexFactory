@@ -749,3 +749,47 @@ describe("primitive boundary construction", () => {
     );
   });
 });
+
+describe("prepared ground", () => {
+  it("prices a paved yard against the walking it actually saves", () => {
+    // Native's own constants, restated once so this side is an independent expansion rather than a
+    // second reading of the same source: a step costs 100, untreated ground walks at 100, and no
+    // surface may exceed 150 or the route search's heuristic stops being admissible.
+    const stepCost = 100;
+    const untreated = 100;
+    for (const surface of fixture.surfaces) {
+      const definition = catalogue.surfaces.find(
+        (s) => s.key === surface.surface,
+      )!;
+      expect(surface.movement).toBe(definition.movement);
+      expect(surface.movement).toBeGreaterThanOrEqual(untreated);
+      expect(surface.movement).toBeLessThanOrEqual(150);
+      // Integer arithmetic, floored, because the route search and the player's feet must divide the
+      // same way. A float here would let a paved route cost one thing to plan and another to walk.
+      expect(surface.step_cost).toBe(
+        Math.floor((stepCost * untreated) / surface.movement),
+      );
+      expect(surface.hexes_saved_per_hundred_milli).toBe(
+        100_000 - (surface.step_cost * 100_000) / stepCost,
+      );
+      // A surface is bought by the hex, so the yard's bill is the unit bill times its nine hexes.
+      expect(surface.direct).toEqual(
+        definition.construction_cost.map((item) => ({
+          item: catalogue.items.find((i) => i.id === item.item_id)!.key,
+          quantity: item.quantity * surface.hexes,
+        })),
+      );
+      expect(
+        surface.direct.every((i) => !["ore", "copper-ore"].includes(i.item)),
+      ).toBe(true);
+    }
+    // The cheapest surface is free and the fastest is not, so the ladder is a real choice rather
+    // than a single correct answer the player is expected to find.
+    expect(
+      fixture.surfaces.find((s) => s.surface === "compacted-earth")!.direct,
+    ).toEqual([]);
+    expect(
+      Math.max(...fixture.surfaces.map((s) => s.movement)),
+    ).toBeGreaterThan(untreated);
+  });
+});

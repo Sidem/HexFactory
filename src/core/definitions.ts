@@ -49,6 +49,13 @@ const CORNER_AXES = new Set(["corner", "any"]);
 const MAX_EXTRACT_RADIUS = 4;
 /** Matches `MAX_UNDERPASS_SPAN` in the core. The rule itself is native's. */
 export const MAX_UNDERPASS_SPAN = 4;
+/** Matches `UNTREATED_MOVEMENT` in the core: raw ground is the hundred everything else is a
+ * percentage of. */
+export const UNTREATED_MOVEMENT = 100;
+/** Matches `MAX_SURFACE_MOVEMENT` in the core. The rule itself is native's. */
+export const MAX_SURFACE_MOVEMENT = 150;
+/** Matches `MAX_GRADE_STEPS` in the core: how far a hex may be cut or filled from its own grade. */
+export const MAX_GRADE_STEPS = 3;
 
 export function validateDefinitions(
   value: unknown,
@@ -97,6 +104,34 @@ export function validateDefinitions(
     )
       throw new TypeError("Invalid boundary definition or construction bill");
     boundaryKeys.add(boundary.key);
+  }
+  if (!Array.isArray(data.surfaces))
+    throw new TypeError("definitions require surfaces");
+  uniqueIds(data.surfaces, "surface");
+  const surfaceKeys = new Set<string>();
+  for (const surface of data.surfaces) {
+    if (
+      !surface.key ||
+      surfaceKeys.has(surface.key) ||
+      !surface.name ||
+      !surface.description ||
+      // The same window native enforces: a surface slower than raw ground would be a trap dressed
+      // as a road, and one above the ceiling would outrun the route search's heuristic.
+      !positiveInteger(surface.movement) ||
+      surface.movement < UNTREATED_MOVEMENT ||
+      surface.movement > MAX_SURFACE_MOVEMENT ||
+      !Array.isArray(surface.construction_cost) ||
+      surface.construction_cost.some(
+        (i) =>
+          !itemIds.has(i.item_id) ||
+          !positiveInteger(i.quantity) ||
+          i.quantity > 1000,
+      ) ||
+      new Set(surface.construction_cost.map((i) => i.item_id)).size !==
+        surface.construction_cost.length
+    )
+      throw new TypeError("Invalid surface definition or construction bill");
+    surfaceKeys.add(surface.key);
   }
   for (const item of data.items) {
     if (

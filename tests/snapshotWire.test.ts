@@ -32,7 +32,30 @@ function bytesOf(hex: string): ArrayBuffer {
 describe("binary snapshot delta", () => {
   it("agrees with the Rust encoder on the format's identity", () => {
     expect(fixture.magic).toBe("HXFD");
-    expect(fixture.version).toBe(16);
+    expect(fixture.version).toBe(17);
+  });
+
+  it("reads prepared ground as a signed grade beside an unsigned surface", () => {
+    // Elevation is signed and a surface id is not, so the two use different varint readers. Reading
+    // a cut cell with the unsigned one does not fail — it returns a vast positive number — so the
+    // fixture carries a paved cell and a cut cell together and this pins both back.
+    const decoded = decodeSnapshotDelta(
+      bytesOf(
+        fixture.cases.find((test) => test.name === "prepared ground and spoil")!
+          .bytes,
+      ),
+    );
+    expect(decoded.ground).toEqual([
+      {
+        q: 2,
+        r: -3,
+        surface: 4,
+        elevation: 0,
+        paid: [{ item_id: 15, quantity: 1 }],
+      },
+      { q: -1, r: 0, surface: 0, elevation: -2, paid: [] },
+    ]);
+    expect(decoded.spoil).toBe(6);
   });
 
   it.each(fixture.cases)("decodes $name to exactly the JSON delta", (test) => {

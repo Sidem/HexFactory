@@ -469,10 +469,34 @@ pub struct BoundaryCost {
     pub attended_ticks: u64,
 }
 
+/// What one prepared hex buys and what it costs.
+///
+/// The saving is stated as the route search's own arithmetic rather than a claim about how it
+/// feels: `step_cost` is the exact integer a step onto this surface adds to a route, against
+/// `WALK_STEP_COST` for untreated ground. A surface that costs more per hex than it saves in
+/// walking is a decoration, and this row is where that shows up before it ships.
+#[derive(Clone, Debug, Serialize)]
+pub struct SurfaceCost {
+    pub surface: String,
+    /// Walking speed as a percentage of untreated ground.
+    pub movement: u32,
+    /// The route cost of one step onto this surface, against `WALK_STEP_COST` for raw ground.
+    pub step_cost: u32,
+    /// Hexes of walking saved per hundred hexes crossed, at this surface's step cost.
+    pub hexes_saved_per_hundred_milli: u64,
+    /// The yard this bill is priced for, to sit beside the boundary report's nine-hex yard.
+    pub hexes: u32,
+    pub direct: Vec<Amount>,
+    pub raw: Vec<MilliAmount>,
+    pub batch: Vec<Amount>,
+    pub batch_fuel_energy: u64,
+}
+
 /// Boundary materials with the existing primitive stations already built. Not a travel-time claim.
 #[derive(Clone, Debug, Serialize)]
 pub struct BalanceReport {
     pub boundaries: Vec<BoundaryCost>,
+    pub surfaces: Vec<SurfaceCost>,
     pub reference: Reference,
     pub machines: Vec<MachineRate>,
     pub power: Vec<PowerPlant>,
@@ -779,6 +803,7 @@ fn report(economy: &Economy) -> BalanceReport {
 
     BalanceReport {
         boundaries: boundaries(economy),
+        surfaces: surfaces(economy),
         reference: reference(economy, best_fuel_id, best_fuel_value),
         machines: machines(economy),
         power: power(economy, best_fuel_value),
@@ -1265,6 +1290,47 @@ fn boundaries(economy: &Economy) -> Vec<BoundaryCost> {
                 batch_fuel_energy: expansion.batch_energy,
                 process_ticks,
                 attended_ticks,
+            }
+        })
+        .collect()
+}
+
+/// What paving a nine-hex yard costs in each material, and what walking it buys back.
+fn surfaces(economy: &Economy) -> Vec<SurfaceCost> {
+    const YARD_HEXES: u32 = 9;
+    economy
+        .definitions
+        .surfaces
+        .iter()
+        .map(|surface| {
+            let bill: Vec<Ingredient> = surface
+                .construction_cost
+                .iter()
+                .map(|i| Ingredient {
+                    item_id: i.item_id,
+                    quantity: i.quantity * YARD_HEXES,
+                })
+                .collect();
+            let expansion = economy.cost_of(&bill);
+            let step_cost =
+                crate::WALK_STEP_COST * crate::UNTREATED_MOVEMENT / surface.movement.max(1);
+            SurfaceCost {
+                surface: surface.key.clone(),
+                movement: surface.movement,
+                step_cost,
+                hexes_saved_per_hundred_milli: 100_000
+                    - u64::from(step_cost) * 100_000 / u64::from(crate::WALK_STEP_COST),
+                hexes: YARD_HEXES,
+                direct: bill
+                    .iter()
+                    .map(|i| Amount {
+                        item: economy.item_key(i.item_id),
+                        quantity: u64::from(i.quantity),
+                    })
+                    .collect(),
+                raw: milli_amounts(economy, &expansion.raw),
+                batch: amounts(economy, &expansion.batch_raw),
+                batch_fuel_energy: expansion.batch_energy,
             }
         })
         .collect()

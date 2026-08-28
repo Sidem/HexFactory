@@ -7,9 +7,11 @@ use std::collections::{BTreeMap, BTreeSet, BinaryHeap};
 use wasm_bindgen::prelude::*;
 
 mod boundaries;
+mod ground;
 mod runtime;
 mod save_migrations;
 use boundaries::*;
+use ground::*;
 mod skills;
 use skills::*;
 /// The binary encoding the snapshot delta crosses the worker boundary in.
@@ -111,7 +113,11 @@ const SAVE_PREFIX: &str = "HXF1\n";
 /// is no longer re-earnable, which is precisely the loss finite demand makes permanent.
 /// Version 28 separates personal skills. The old checksum is verified before legacy research
 /// bonuses become granted ranks; skill points and persistent sandbox provenance are native state.
-const SAVE_VERSION: u16 = 29;
+/// Version 30 adds prepared ground: the sparse surface and grade overlay and the spoil ledger. A
+/// version-29 file simply has neither, so the migration is the version stamp and the definitions it
+/// travels with — an untouched world is exactly the world it already was, which is why the checksum
+/// contribution stays guarded on emptiness.
+const SAVE_VERSION: u16 = 30;
 /// Bumped to 6 for World Parameters. `WorldParams` is now part of a run's identity — it is in the
 /// save envelope and in the checksum — so a version-5 envelope carries no answer to the question
 /// "which world is this" and is rejected rather than assumed to be the default.
@@ -230,13 +236,60 @@ const MAX_WALK_SEARCH_NODES: usize = 12_000;
 /// 96; this allows a route to more than quintuple that going round things before it is treated as
 /// no route, and keeps the path a bounded thing to cross the wire.
 const MAX_WALK_PATH_CELLS: usize = 512;
-/// What crossing one hex of shallow water costs the route, against 1 for dry ground.
+/// What crossing one hex of untreated dry ground costs the route.
+///
+/// A hundred rather than one so that a prepared surface can make a hex genuinely cheaper in integer
+/// arithmetic. The route search prices travel *time*, and a road that is 25% faster has to be able
+/// to say so in whole numbers: at a base of 1 every surface would round to the same 1 and the search
+/// would never prefer the longer paved way round, which is the entire point of paving it.
+const WALK_STEP_COST: u32 = 100;
+/// What crossing one hex of shallow water costs the route, against [`WALK_STEP_COST`] for dry ground.
 ///
 /// `player_step` fords shallows at `PLAYER_SPEED / 5`, so this is not a preference the search
 /// invents — it is the fifth the walk actually takes, which makes the route the *fastest* way to
 /// the goal rather than the shortest. A river is a real obstacle to a route because it is a real
 /// obstacle to the player, and a bridge is worth building because the search will use it.
-const WALK_SHALLOW_COST: u32 = 5;
+const WALK_SHALLOW_COST: u32 = 5 * WALK_STEP_COST;
+/// Walking speed on untreated ground, in percent — the number every surface is measured against.
+const UNTREATED_MOVEMENT: u32 = 100;
+/// The fastest a surface may ever declare itself, in percent.
+///
+/// Asphalt's 150 is the ceiling the materials plan sets, and this is what keeps the route search's
+/// heuristic admissible: no step may cost less than [`WALK_STEP_COST`] scaled by this, so a bound
+/// checked once at load time is what lets A* trust its own estimate on every hex thereafter.
+const MAX_SURFACE_MOVEMENT: u32 = 150;
+/// The cheapest one hex can ever be, and therefore the per-hex weight of the route heuristic.
+const MIN_WALK_STEP_COST: u32 = WALK_STEP_COST * UNTREATED_MOVEMENT / MAX_SURFACE_MOVEMENT;
+/// What climbing one step of grade adds to a hex, against [`WALK_STEP_COST`] for the hex itself.
+///
+/// Only climbing: going down a step you could have climbed costs nothing extra, which is true of
+/// walking and keeps a route from preferring to stay level across ground it has already paid to
+/// descend. A step up costs about as much as another hex of ground, so a ramp is worth grading and
+/// a route will happily go round a mound rather than over it.
+const WALK_CLIMB_COST: u32 = WALK_STEP_COST;
+/// The most a hex may be cut or filled away from the band the generator gave it.
+///
+/// Three steps each way is a two-storey retaining wall, which is as much terraforming as this slice
+/// promises. It also keeps `elevation` an `i8` whose every legal value is checked on load.
+const MAX_GRADE_STEPS: i8 = 3;
+/// The tallest step between neighbours that can still be walked. A taller one is a retaining wall.
+///
+/// Two, because that is exactly the widest gap `natural_elevation` puts between any two terrains a
+/// player can walk on. The generated world is therefore as passable after this release as before it,
+/// and every wall in a run is one somebody dug.
+const MAX_WALK_STEP: i32 = 2;
+/// The tallest spread a single building's footprint may span.
+///
+/// Deliberately the same number as [`MAX_WALK_STEP`], so there is one rule about steep ground rather
+/// than two: if a player can walk between two hexes, a building can span them, and a face nobody can
+/// climb is a face nobody can build across. Making it *stricter* than walking would have made ground
+/// the generator already produced unbuildable, breaking bases that were legal a release ago; a level
+/// pad earns its keep the moment somebody terraces, where a full cut beside untouched ground is a
+/// three-step face and refuses.
+const MAX_BUILD_STEP: i32 = MAX_WALK_STEP;
+/// How many hexes one ground edit may cover. The same bound area boundary edits use, for the same
+/// reason: a preview is priced before it is drawn, and a stray drag must be refused, not costed.
+const MAX_GROUND_CELLS: u64 = 32;
 /// The gait an autonomous walk travels at, as a movement intent.
 ///
 /// Full intent — the run — rather than the 0.6 the unmodified movement keys ask for. A player
@@ -318,6 +371,8 @@ fn default_footprint() -> Vec<Coordinate> {
 struct DefinitionsInput {
     #[serde(default)]
     boundaries: Vec<BoundaryDefinition>,
+    #[serde(default)]
+    surfaces: Vec<SurfaceDefinition>,
     version: u16,
     items: Vec<ItemDefinition>,
     recipes: Vec<RecipeDefinition>,
@@ -1153,6 +1208,8 @@ struct Entity {
 #[derive(Clone, Debug, Serialize, PartialEq, Eq)]
 struct Snapshot {
     boundaries: Vec<Boundary>,
+    ground: Vec<GroundCell>,
+    spoil: u64,
     scenario: String,
     scenario_name: String,
     world_version: u16,
@@ -1491,6 +1548,8 @@ fn is_zero(value: &u32) -> bool {
 #[derive(Clone, Debug, Default)]
 struct SnapshotDirty {
     boundaries: bool,
+    /// Set when a surface or grade changed. Sparse and small, so the group is resent whole.
+    ground: bool,
     /// Stable entity ids whose snapshot may differ, including newly placed ones.
     entities: Vec<u32>,
     /// Stable entity ids the host must drop.
@@ -1520,6 +1579,10 @@ fn drain_marks<T: Ord>(marks: &mut Vec<T>) -> Vec<T> {
 struct SnapshotDelta {
     #[serde(skip_serializing_if = "Option::is_none")]
     boundaries: Option<Vec<Boundary>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    ground: Option<Vec<GroundCell>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    spoil: Option<u64>,
     base_revision: u64,
     revision: u64,
     tick: u64,
@@ -1600,6 +1663,8 @@ impl SnapshotDelta {
             }),
             ground_items: Some(current.ground_items.clone()),
             boundaries: Some(current.boundaries.clone()),
+            ground: Some(current.ground.clone()),
+            spoil: Some(current.spoil),
             events: Some(current.events.clone()),
         }
     }
@@ -1637,6 +1702,8 @@ impl SnapshotDelta {
             buildings: buildings_delta(&previous.buildings, &current.buildings),
             ground_items: changed(&previous.ground_items, &current.ground_items),
             boundaries: changed(&previous.boundaries, &current.boundaries),
+            ground: changed(&previous.ground, &current.ground),
+            spoil: changed_copy(previous.spoil, current.spoil),
             events: changed(&previous.events, &current.events),
         }
     }
@@ -1770,6 +1837,11 @@ enum InputCommand {
         edit: BoundaryEdit,
     },
     UndoBoundary,
+    GroundEdit {
+        #[serde(flatten)]
+        edit: GroundEdit,
+    },
+    UndoGround,
     MoveIntent {
         x: i16,
         y: i16,
@@ -1962,6 +2034,18 @@ struct Core {
     boundaries: BTreeMap<Edge, Boundary>,
     boundary_hash_cache: RefCell<Option<u32>>,
     boundary_undo: Vec<BoundaryUndo>,
+    /// Prepared ground: surface and graded elevation, sparse over the untreated world.
+    ground: BTreeMap<(i32, i32), GroundCell>,
+    /// Memoized digest of `ground` and `spoil`. Derived state under the same rule as
+    /// `boundary_hash_cache`: never saved, never hashed, and the uncached walk is its oracle.
+    ground_hash_cache: RefCell<Option<u32>>,
+    ground_undo: Vec<GroundUndo>,
+    /// Excavated material held for fill, in whole steps of one hex.
+    ///
+    /// Cut adds, fill spends, and nothing else touches it. Making raising ground *cost* something
+    /// that can only come from lowering ground is what stops levelling being an infinite source of
+    /// terrain, on the same rule that closed the insight loop in v0.35.0.
+    spoil: u64,
     definitions: DefinitionsInput,
     technologies: TechnologiesInput,
     scenario: ScenarioDefinition,
@@ -2129,6 +2213,10 @@ impl Core {
             boundaries: BTreeMap::new(),
             boundary_hash_cache: RefCell::new(None),
             boundary_undo: Vec::new(),
+            ground: BTreeMap::new(),
+            ground_hash_cache: RefCell::new(None),
+            ground_undo: Vec::new(),
+            spoil: 0,
             generated_chunks: BTreeSet::new(),
             tiles: BTreeMap::new(),
             deposit_links: BTreeMap::new(),
@@ -2611,6 +2699,11 @@ impl Core {
     }
 
     fn deposit_quantity(&self, key: (i32, i32)) -> u32 {
+        // The surface gate has to be here as well as in `field_at`, because a partly worked deposit
+        // is answered from the tile overlay before `field_at` is ever consulted.
+        if self.surface_at(key.0, key.1) != 0 {
+            return 0;
+        }
         if let Some(resource) = self.tiles.get(&key).and_then(|tile| tile.resource.as_ref()) {
             return resource.quantity;
         }
@@ -2664,7 +2757,10 @@ impl Core {
             .iter()
             .filter_map(|(&key, tile)| {
                 let resource = tile.resource.as_ref()?;
+                // A sealed cell leaves the set: paving suppresses regrowth exactly as it suppresses
+                // access, and stripping the surface rebuilds the set and lets it grow again.
                 (resource.quantity < resource.initial_quantity
+                    && self.surface_at(key.0, key.1) == 0
                     && self.regrowth_ticks(resource.item_id).is_some())
                 .then_some(key)
             })
@@ -2891,7 +2987,25 @@ impl Core {
         )
     }
 
+    /// What is naturally on this hex, if anything is reachable.
+    ///
+    /// A paved hex reports nothing. Covering is *suppression*, not harvesting: the tile overlay
+    /// keeps whatever quantity was left, the surface hides it from hands, extractors, the snapshot
+    /// and regrowth alike, and stripping the surface hands back exactly the deposit that was sealed.
     fn field_at(&self, q: i32, r: i32) -> Option<ResourceState> {
+        if self.surface_at(q, r) != 0 {
+            return None;
+        }
+        self.buried_field_at(q, r)
+    }
+
+    /// The deposit a hex holds regardless of what has been laid over it.
+    ///
+    /// A sealed deposit is invisible to every consumer, which is the point — but sealing and
+    /// unsealing both have to know a deposit is there to decide whether the published field and the
+    /// regrowth roster just changed, and lifting a surface has to put back exactly what went under
+    /// it. This is the one view that still sees through the paving.
+    fn buried_field_at(&self, q: i32, r: i32) -> Option<ResourceState> {
         if let Some(resource) = self
             .tiles
             .get(&(q, r))
@@ -5129,17 +5243,25 @@ impl Core {
             .unwrap_or(false)
     }
 
-    /// What entering this hex costs the route, in dry-ground steps.
+    /// What entering this hex from `from` costs the route, in hundredths of a dry-ground hex.
     ///
-    /// Terrain only, because `player_step` fords on terrain only: a bridge over shallows carries
-    /// belts, not boots, and charging the route one for a hex the walk crosses at a fifth speed
-    /// would produce a route that is short on the map and slow in the hand.
-    fn walk_step_cost(&self, q: i32, r: i32) -> u32 {
-        if self.terrain_at(q, r) == Terrain::ShallowWater {
+    /// Three things, and each of them is something `player_step` or `advance_player` actually does.
+    /// A ford is a fifth speed, so it is priced at five hexes; a prepared surface is faster, so it is
+    /// priced at less than one; a step up is real work, so it costs extra. Charging the route for
+    /// anything the walk does not pay, or failing to charge it for something the walk does, produces
+    /// a route that is short on the map and slow in the hand.
+    ///
+    /// The surface does not modify the ford. Shallows are a 1 m/s crawl in `player_step` regardless,
+    /// and pretending a decked river bank crosses faster would be the search inventing a preference.
+    fn walk_step_cost(&self, from: (i32, i32), q: i32, r: i32) -> u32 {
+        let base = if self.terrain_at(q, r) == Terrain::ShallowWater {
             WALK_SHALLOW_COST
         } else {
-            1
-        }
+            WALK_STEP_COST * UNTREATED_MOVEMENT / self.movement_factor_at(q, r)
+        };
+        let climb = (self.ground_elevation_at(q, r) - self.ground_elevation_at(from.0, from.1))
+            .max(0) as u32;
+        base + climb * WALK_CLIMB_COST
     }
 
     /// A* over hex centres, returning the cells still to be walked — nearest first, ending on the
@@ -5166,7 +5288,7 @@ impl Core {
         let mut came_from: BTreeMap<(i32, i32), (i32, i32)> = BTreeMap::new();
         best.insert(from, 0);
         open.push(Reverse((
-            axial_distance(from, goal) as u32,
+            axial_distance(from, goal) as u32 * MIN_WALK_STEP_COST,
             0,
             from.0,
             from.1,
@@ -5191,18 +5313,19 @@ impl Core {
                 let next = (q.saturating_add(dq), r.saturating_add(dr));
                 if axial_distance(from, next) > MAX_WALK_DISTANCE
                     || !self.walkable_hex(next.0, next.1)
+                    || self.grade_blocks(cell, next)
                     || self.boundary_blocks_segment(axial_world(q, r), axial_world(next.0, next.1))
                 {
                     continue;
                 }
-                let step = cost + self.walk_step_cost(next.0, next.1);
+                let step = cost + self.walk_step_cost(cell, next.0, next.1);
                 if best.get(&next).copied().is_some_and(|known| known <= step) {
                     continue;
                 }
                 best.insert(next, step);
                 came_from.insert(next, cell);
                 open.push(Reverse((
-                    step + axial_distance(next, goal) as u32,
+                    step + axial_distance(next, goal) as u32 * MIN_WALK_STEP_COST,
                     step,
                     next.0,
                     next.1,
@@ -5339,13 +5462,17 @@ impl Core {
         }
     }
 
-    /// One player-clock step, in world units. Land uses the host's intent against `PLAYER_SPEED`.
+    /// One player-clock step, in world units. Land uses the host's intent against `PLAYER_SPEED`,
+    /// scaled by the surface underfoot — the same integer percentage the route search prices, so
+    /// the road that looked faster on the map is the road that is faster in the hand.
     /// Shallows are a 1 m/s ford: walk and run collapse to the same crawl, so holding Shift in a
-    /// river does not buy a faster crossing.
+    /// river does not buy a faster crossing, and neither does decking its bank.
     fn player_step(&self) -> (i32, i32) {
         let mut intent_x = self.player.move_x;
         let mut intent_y = self.player.move_y;
-        let mut speed = PLAYER_SPEED;
+        let (q, r) = world_to_axial(self.player.x, self.player.y);
+        let mut speed =
+            PLAYER_SPEED * self.movement_factor_at(q, r) as i32 / UNTREATED_MOVEMENT as i32;
         if self.in_or_entering_shallows() {
             speed = PLAYER_SPEED / 5;
             let diagonal = intent_x != 0 && intent_y != 0;
@@ -5376,6 +5503,10 @@ impl Core {
         let (q, r) = world_to_axial(x, y);
         let feature_collision = self.terrain_at(q, r).blocks_movement();
         feature_collision
+            // A retaining face stops the body exactly where it stops the route. The step is measured
+            // between the hex being left and the hex being entered, so standing still on a terrace
+            // is always legal and only the crossing is refused.
+            || self.grade_blocks(world_to_axial(self.player.x, self.player.y), (q, r))
             || self.boundary_blocks_player(x, y)
             || self.boundary_blocks_segment((self.player.x, self.player.y), (x, y))
             || self.entities.iter().any(|entity| {
@@ -5798,6 +5929,24 @@ impl Core {
                 && self.bridge_at(cell.q, cell.r);
             if terrain.blocks_construction() && !shallow_support && !bridged_transport {
                 return Err("environment blocks construction".into());
+            }
+        }
+        // A footprint has to sit on ground level enough to stand a building on. Measuring the whole
+        // footprint's spread rather than each neighbouring pair is what makes a level pad worth
+        // grading: a multi-hex machine on a hillside asks the player to prepare a site first, and
+        // the site they prepare is exactly the one the preview showed them.
+        if let (Some(low), Some(high)) = (
+            footprint
+                .iter()
+                .map(|cell| self.ground_elevation_at(cell.q, cell.r))
+                .min(),
+            footprint
+                .iter()
+                .map(|cell| self.ground_elevation_at(cell.q, cell.r))
+                .max(),
+        ) {
+            if high - low > MAX_BUILD_STEP {
+                return Err("This ground is too uneven; level a pad for this footprint".into());
             }
         }
         if definition.placement_rule == PlacementRule::Resource
@@ -7154,6 +7303,8 @@ impl Core {
             let result = match command {
                 InputCommand::BoundaryEdit { edit } => self.edit_boundaries(&edit),
                 InputCommand::UndoBoundary => self.undo_boundary(),
+                InputCommand::GroundEdit { edit } => self.edit_ground(&edit),
+                InputCommand::UndoGround => self.undo_ground(),
                 InputCommand::MoveIntent { x, y } => self.set_move_intent(x, y),
                 InputCommand::Aim { x, y } => self.set_aim(x, y),
                 InputCommand::Gather => self.gather(),
@@ -7675,6 +7826,8 @@ impl Core {
             resources,
             buildings,
             boundaries: self.boundary_snapshot(),
+            ground: self.ground_snapshot(),
+            spoil: self.spoil,
             ground_items: self.ground_items.clone(),
             events: self.events.clone(),
         }
@@ -7833,6 +7986,12 @@ impl Core {
             hash_u32(&mut hash, u32::MAX - 29);
             hash_u32(&mut hash, self.boundary_state_hash());
         }
+        // Guarded on emptiness for the same reason: a run that has never touched the ground hashes
+        // exactly what it hashed a release ago, so v0.37 files keep their checksums.
+        if !self.ground.is_empty() || self.spoil != 0 {
+            hash_u32(&mut hash, u32::MAX - 30);
+            hash_u32(&mut hash, self.ground_state_hash());
+        }
         self.skills.hash(&mut hash);
         hash
     }
@@ -7867,6 +8026,8 @@ impl Core {
             produced: self.produced.clone(),
             creative: self.creative,
             boundaries: self.boundary_snapshot(),
+            ground: self.ground_snapshot(),
+            spoil: self.spoil,
             ground_items: self.ground_items.clone(),
             next_ground_item_id: self.next_ground_item_id,
         };
@@ -7987,6 +8148,13 @@ impl Core {
             .into_iter()
             .map(|b| (b.edge, b))
             .collect();
+        core.ground = envelope
+            .state
+            .ground
+            .into_iter()
+            .map(|cell| ((cell.q, cell.r), cell))
+            .collect();
+        core.spoil = envelope.state.spoil;
         core.ground_items = envelope.state.ground_items;
         core.next_ground_item_id = envelope.state.next_ground_item_id.max(
             core.ground_items
@@ -8042,6 +8210,10 @@ struct SaveEnvelope {
 struct SavedState {
     #[serde(default)]
     boundaries: Vec<Boundary>,
+    #[serde(default)]
+    ground: Vec<GroundCell>,
+    #[serde(default)]
+    spoil: u64,
     seed: u32,
     /// Beside the seed, because a world is both. The overlay a save carries is only meaningful
     /// against the generation it was cut from.
@@ -8096,6 +8268,8 @@ struct SavedState {
 #[derive(Clone, Debug)]
 struct SnapshotBaseline {
     boundaries: Vec<Boundary>,
+    ground: Vec<GroundCell>,
+    spoil: u64,
     scenario: String,
     scenario_name: String,
     world_version: u16,
@@ -8140,6 +8314,8 @@ impl SnapshotBaseline {
                 .map(|entity| (entity.id, entity.clone()))
                 .collect(),
             boundaries: snapshot.boundaries.clone(),
+            ground: snapshot.ground.clone(),
+            spoil: snapshot.spoil,
             ground_items: snapshot.ground_items.clone(),
             events: snapshot.events.clone(),
         }
@@ -8309,6 +8485,16 @@ impl Factory {
                 .boundaries
                 .then(|| take_changed(&mut baseline.boundaries, core.boundary_snapshot()))
                 .flatten(),
+            ground: dirty
+                .ground
+                .then(|| take_changed(&mut baseline.ground, core.ground_snapshot()))
+                .flatten(),
+            // Spoil is a single number and the tray shows it on every preview, so it is compared
+            // rather than marked: the comparison is cheaper than the mark would be.
+            spoil: (baseline.spoil != core.spoil).then(|| {
+                baseline.spoil = core.spoil;
+                core.spoil
+            }),
             events: take_changed(&mut baseline.events, core.events.clone()),
         }
     }
@@ -8844,6 +9030,12 @@ impl Factory {
             .map_err(|e| js_error(e.to_string()))
     }
 
+    pub fn ground_preview_json(&self, edit_json: &str) -> Result<String, JsValue> {
+        let edit: GroundEdit =
+            serde_json::from_str(edit_json).map_err(|e| js_error(e.to_string()))?;
+        serde_json::to_string(&self.core.ground_preview(&edit)).map_err(|e| js_error(e.to_string()))
+    }
+
     pub fn snapshot_json(&mut self) -> String {
         let snapshot = self.core.snapshot();
         self.snapshot_revision = 0;
@@ -9000,6 +9192,7 @@ fn validate_research_budget(
 
 fn validate_definitions(definitions: &DefinitionsInput) -> Result<(), String> {
     validate_boundaries(definitions)?;
+    validate_surfaces(definitions)?;
     if definitions.version == 0 {
         return Err("definition version must be positive".into());
     }
@@ -9711,6 +9904,7 @@ fn validate_saved_state(
     legacy_skills: bool,
 ) -> Result<(), String> {
     validate_saved_boundaries(definitions, &state.boundaries)?;
+    validate_saved_ground(definitions, &state.ground)?;
     validate_skill_state(technologies, &state.skills)?;
     let item_ids: BTreeSet<_> = definitions.items.iter().map(|value| value.id).collect();
     let technology_ids: BTreeSet<_> = technologies
@@ -16981,7 +17175,7 @@ mod tests {
         // route once water is on the map, and the shortest one wades.
         assert_eq!(
             WALK_SHALLOW_COST,
-            (PLAYER_SPEED / (PLAYER_SPEED / 5)) as u32,
+            WALK_STEP_COST * (PLAYER_SPEED / (PLAYER_SPEED / 5)) as u32,
             "the ford's price to the route is the fraction of speed the ford actually costs"
         );
 
@@ -19844,6 +20038,8 @@ mod tests {
         // and leaves the rest absent, and `..` moves what it spreads from.
         let empty = || SnapshotDelta {
             boundaries: None,
+            ground: None,
+            spoil: None,
             base_revision: 0,
             revision: 1,
             tick: 0,
@@ -20268,8 +20464,36 @@ mod tests {
             }]),
             ..empty()
         };
+        // Prepared ground carries a signed elevation beside an unsigned surface id, and the two are
+        // encoded differently. A cut cell and a paved cell in the same case is what pins that: swap
+        // the two readers and the cut hex comes back as a huge surface id rather than as an error.
+        let ground = SnapshotDelta {
+            ground: Some(vec![
+                GroundCell {
+                    q: 2,
+                    r: -3,
+                    surface: 4,
+                    elevation: 0,
+                    paid: vec![Ingredient {
+                        item_id: 15,
+                        quantity: 1,
+                    }],
+                },
+                GroundCell {
+                    q: -1,
+                    r: 0,
+                    surface: 0,
+                    elevation: -2,
+                    paid: Vec::new(),
+                },
+            ]),
+            spoil: Some(6),
+            ..empty()
+        };
+
         vec![
             ("boundaries with paid recovery", boundaries),
+            ("prepared ground and spoil", ground),
             ("a quiet frame", quiet),
             ("every scalar group", scalars),
             ("both patches with entries", patches),
@@ -22773,5 +22997,482 @@ mod tests {
             .unwrap_err()
             .contains("transport"));
         assert_eq!(core.checksum(), checksum);
+    }
+
+    /// A flat, empty, deposit-free world to grade in. Generated terrain is switched off so that a
+    /// test about prepared ground is not also a test about where the noise put a hill.
+    fn ground_world() -> Core {
+        let mut core = bare_game("new-game");
+        core.scenario.generated_environment = false;
+        core.entities.clear();
+        core.graph.clear();
+        core.next_entity_id = 1;
+        // Off to one side: nobody can grade the hex they are standing on, and these tests are about
+        // the ground rather than about where the player happens to be.
+        set_player_hex(&mut core, 0, -5);
+        core.compile_graph();
+        core.dirty = SnapshotDirty::default();
+        reach(&mut core);
+        core
+    }
+
+    /// Reach far enough that no ground test is accidentally a test about build range. It is set
+    /// after any creative toggle, because granting research recomputes the earned range.
+    fn reach(core: &mut Core) {
+        core.player.build_range = 1 << 20;
+    }
+
+    fn ground_edit(q: i32, r: i32, action: GroundAction) -> GroundEdit {
+        GroundEdit {
+            q,
+            r,
+            to_q: q,
+            to_r: r,
+            shape: GroundShape::Cell,
+            definition_id: 2,
+            action,
+            cover: false,
+        }
+    }
+
+    fn item_id(core: &Core, key: &str) -> ItemId {
+        core.definitions
+            .items
+            .iter()
+            .find(|i| i.key == key)
+            .unwrap()
+            .id
+    }
+
+    /// The whole surface contract in one pass: a preview costs nothing and moves nothing, a commit
+    /// spends exactly the declared bill, stripping the surface hands the same bill back, undo is
+    /// priced by the same arithmetic in reverse, and repainting what is already there is refused
+    /// rather than charged.
+    #[test]
+    fn surfaces_preview_commit_refund_and_undo_conserve_paid_materials() {
+        let mut core = ground_world();
+        let gravel = item_id(&core, "gravel");
+        core.player.inventory = BTreeMap::from([(gravel, 6)]);
+        let initial = core.player.inventory.clone();
+        let checksum = core.checksum();
+
+        let edit = GroundEdit {
+            to_q: 2,
+            shape: GroundShape::Path,
+            ..ground_edit(0, 0, GroundAction::Pave)
+        };
+        let preview = core.ground_preview(&edit);
+        assert_eq!(preview.error, None);
+        assert_eq!(preview.changes, 3);
+        assert_eq!(
+            preview.cost,
+            vec![Ingredient {
+                item_id: gravel,
+                quantity: 3
+            }]
+        );
+        assert_eq!(preview.cut, 0);
+        assert_eq!(preview.fill, 0);
+        assert_eq!(preview.covers, 0);
+        assert_eq!(core.checksum(), checksum, "a preview changes nothing");
+        assert_eq!(core.player.inventory, initial);
+
+        core.edit_ground(&edit).unwrap();
+        assert_eq!(core.ground.len(), 3);
+        assert_eq!(core.player.inventory, BTreeMap::from([(gravel, 3)]));
+        assert_eq!(core.surface_at(1, 0), 2);
+        assert_eq!(core.movement_factor_at(1, 0), 120);
+        assert_ne!(core.checksum(), checksum);
+
+        // Repainting the same surface is a no-op, and a no-op costs nothing.
+        let idle = core.ground_preview(&edit);
+        assert_eq!(idle.changes, 0);
+        assert!(idle.cost.is_empty());
+        assert!(core.edit_ground(&edit).unwrap_err().contains("nothing"));
+        assert_eq!(core.player.inventory, BTreeMap::from([(gravel, 3)]));
+
+        let clear = GroundEdit {
+            action: GroundAction::Clear,
+            ..edit.clone()
+        };
+        assert_eq!(
+            core.ground_preview(&clear).refund,
+            vec![Ingredient {
+                item_id: gravel,
+                quantity: 3
+            }]
+        );
+        core.edit_ground(&clear).unwrap();
+        assert!(
+            core.ground.is_empty(),
+            "untreated ground leaves the overlay"
+        );
+        assert_eq!(core.player.inventory, initial);
+        assert_eq!(core.checksum(), checksum, "the world came back exactly");
+
+        // Undo re-lays what the clear took up, and buys it again at the same price.
+        core.undo_ground().unwrap();
+        assert_eq!(core.ground.len(), 3);
+        assert_eq!(core.player.inventory, BTreeMap::from([(gravel, 3)]));
+        core.undo_ground().unwrap();
+        assert!(core.ground.is_empty());
+        assert_eq!(core.player.inventory, initial);
+        assert_eq!(core.checksum(), checksum);
+    }
+
+    /// Fill is dug, never conjured. This is the exploit check: raising ground with an empty ledger
+    /// is refused, the ledger conserves exactly one step per step in both directions, undo restores
+    /// the count the edit found rather than minting one, and neither the grade bound nor the ledger
+    /// can be walked past by repeating the edit.
+    #[test]
+    fn grading_conserves_spoil_and_refuses_fill_that_was_never_dug() {
+        let mut core = ground_world();
+        let checksum = core.checksum();
+        assert_eq!(core.spoil, 0);
+
+        let raise = ground_edit(0, 0, GroundAction::Raise);
+        let refusal = core.ground_preview(&raise).error;
+        assert!(
+            refusal.as_deref().is_some_and(|m| m.contains("spoil")),
+            "{refusal:?}"
+        );
+        assert!(core.edit_ground(&raise).is_err());
+        assert_eq!(core.checksum(), checksum);
+
+        let lower = ground_edit(3, 0, GroundAction::Lower);
+        for expected in 1..=MAX_GRADE_STEPS {
+            core.edit_ground(&lower).unwrap();
+            assert_eq!(core.spoil, u64::from(expected as u8));
+        }
+        assert_eq!(core.ground_elevation_at(3, 0), -i32::from(MAX_GRADE_STEPS));
+        assert!(core
+            .edit_ground(&lower)
+            .unwrap_err()
+            .contains("full 3 steps"));
+        assert_eq!(core.spoil, 3);
+
+        // One step of fill spends exactly one step of spoil.
+        core.edit_ground(&raise).unwrap();
+        assert_eq!(core.spoil, 2);
+        assert_eq!(core.ground_elevation_at(0, 0), 1);
+        core.undo_ground().unwrap();
+        assert_eq!(core.spoil, 3, "undoing fill returns the spoil it spent");
+        assert_eq!(core.ground_elevation_at(0, 0), 0);
+
+        // Levelling evens onto the first cell of the selection and balances against the ledger.
+        let level = GroundEdit {
+            to_q: 3,
+            shape: GroundShape::Path,
+            action: GroundAction::Level,
+            ..ground_edit(0, 0, GroundAction::Level)
+        };
+        let preview = core.ground_preview(&level);
+        assert_eq!(preview.error, None);
+        assert_eq!(preview.fill, 3, "the pit is filled back to the first cell");
+        assert_eq!(preview.cut, 0);
+        assert_eq!(preview.spoil, 0);
+        core.edit_ground(&level).unwrap();
+        assert_eq!(core.spoil, 0);
+        assert!(core.ground.is_empty(), "level ground leaves the overlay");
+        assert_eq!(core.checksum(), checksum, "the ledger balances to zero");
+    }
+
+    /// The route search prices travel time, so a longer prepared way beats a shorter raw one, and a
+    /// step nobody can climb stops the route and the body alike.
+    #[test]
+    fn a_route_prefers_a_longer_paved_way_and_a_retaining_wall_stops_it() {
+        let mut core = ground_world();
+        core.set_creative(true);
+        reach(&mut core);
+        set_player_hex(&mut core, 0, 0);
+
+        // Untreated, the shortest way is the straight one.
+        core.walk_to(5, 0).unwrap();
+        assert_eq!(core.walk_path.len(), 5);
+        assert!(core.walk_path.iter().all(|cell| cell.r == 0));
+
+        // Concrete is a third faster, so five paved hexes and one raw one beat five raw ones.
+        core.edit_ground(&GroundEdit {
+            to_q: 4,
+            to_r: 1,
+            shape: GroundShape::Path,
+            definition_id: 5,
+            ..ground_edit(0, 1, GroundAction::Pave)
+        })
+        .unwrap();
+        assert_eq!(core.movement_factor_at(2, 1), 130);
+        assert_eq!(
+            core.walk_step_cost((1, 1), 2, 1),
+            WALK_STEP_COST * 100 / 130
+        );
+        core.walk_to(5, 0).unwrap();
+        assert_eq!(core.walk_path.len(), 6, "the paved way is one hex longer");
+        assert!(core.walk_path.iter().any(|cell| (cell.q, cell.r) == (3, 1)));
+
+        // The player walks it at the speed the route was priced at.
+        set_player_hex(&mut core, 2, 1);
+        core.player.walk_goal = None;
+        core.walk_path.clear();
+        core.set_move_intent(1000, 0).unwrap();
+        let start = core.player.x;
+        core.advance_player_steps(1);
+        assert_eq!(core.player.x - start, PLAYER_SPEED * 130 / 100);
+
+        // A wall taller than anyone can climb is a wall to the route and to the body.
+        set_player_hex(&mut core, 0, 0);
+        core.set_move_intent(0, 0).unwrap();
+        for _ in 0..MAX_GRADE_STEPS {
+            core.edit_ground(&ground_edit(-2, 0, GroundAction::Lower))
+                .unwrap();
+            core.edit_ground(&ground_edit(-1, 0, GroundAction::Raise))
+                .unwrap();
+        }
+        assert_eq!(core.ground_elevation_at(-1, 0), 3);
+        assert!(core.grade_blocks((0, 0), (-1, 0)));
+        assert!(core.grade_blocks((-1, 0), (-2, 0)), "a wall is symmetric");
+        assert!(core.walk_to(-1, 0).is_err());
+        let (blocked_x, blocked_y) = axial_world(-1, 0);
+        assert!(core.player_blocked(blocked_x, blocked_y));
+        // Two steps is still a slope, not a wall.
+        core.edit_ground(&ground_edit(-1, 0, GroundAction::Lower))
+            .unwrap();
+        assert!(!core.grade_blocks((0, 0), (-1, 0)));
+        core.walk_to(-1, 0).unwrap();
+    }
+
+    /// Covering a deposit is deliberate, reversible and lossless. It is confirmed before it happens,
+    /// it suppresses hands, extractors, the published snapshot and regrowth without harvesting a
+    /// single unit, and stripping the surface hands back exactly what was sealed.
+    #[test]
+    fn paving_seals_a_deposit_only_on_confirmation_and_clearing_restores_it() {
+        let mut core = ground_world();
+        core.write_overlay(2, 0, WOOD, 9, 14);
+        core.rebuild_flora_regrowth();
+        assert!(core.flora_regrowth.contains(&(2, 0)));
+        core.player.inventory = BTreeMap::from([(item_id(&core, "gravel"), 4)]);
+
+        let pave = ground_edit(2, 0, GroundAction::Pave);
+        let warned = core.ground_preview(&pave);
+        assert_eq!(warned.covers, 1);
+        assert!(warned.error.unwrap().contains("Confirm covering"));
+        assert!(core.edit_ground(&pave).is_err());
+
+        let confirmed = GroundEdit {
+            cover: true,
+            ..pave
+        };
+        assert_eq!(core.ground_preview(&confirmed).error, None);
+        core.edit_ground(&confirmed).unwrap();
+        assert_eq!(core.field_at(2, 0), None, "a sealed deposit is unreachable");
+        assert_eq!(core.deposit_quantity((2, 0)), 0);
+        assert!(!core
+            .resource_snapshots()
+            .iter()
+            .any(|row| (row.q, row.r) == (2, 0)));
+        assert!(
+            !core.flora_regrowth.contains(&(2, 0)),
+            "sealing suppresses regrowth without harvesting"
+        );
+        // Nothing was taken: the overlay still holds every unit that was left.
+        assert_eq!(core.tiles[&(2, 0)].resource.as_ref().unwrap().quantity, 9);
+        core.advance_ticks(600);
+        assert_eq!(core.tiles[&(2, 0)].resource.as_ref().unwrap().quantity, 9);
+
+        core.edit_ground(&GroundEdit {
+            action: GroundAction::Clear,
+            ..confirmed
+        })
+        .unwrap();
+        assert_eq!(core.deposit_quantity((2, 0)), 9, "the remainder comes back");
+        assert!(core.flora_regrowth.contains(&(2, 0)));
+
+        // Grading never moves a deposit, and an extractor at work is not paved over from under.
+        assert!(core
+            .ground_preview(&ground_edit(2, 0, GroundAction::Lower))
+            .error
+            .unwrap()
+            .contains("deposit"));
+        core.set_creative(true);
+        reach(&mut core);
+        core.write_overlay(3, 0, WOOD, 5, 5);
+        assert_eq!(core.place(3, 0, 1, 0, None), Ok(()));
+        core.compile_graph();
+        assert!(core.field_covered_at((3, 0), (2, 0), core.extract_radius_of(1)));
+        assert!(core
+            .ground_preview(&confirmed)
+            .error
+            .unwrap()
+            .contains("extractor"));
+    }
+
+    /// A footprint has to sit on ground level enough to hold it, and the rule is the walking rule so
+    /// that no ground the generator produced stops being buildable.
+    #[test]
+    fn a_footprint_needs_ground_no_steeper_than_a_walk_can_climb() {
+        let mut core = ground_world();
+        core.set_creative(true);
+        reach(&mut core);
+        let container = core
+            .definitions
+            .buildings
+            .iter_mut()
+            .find(|d| d.id == 4)
+            .unwrap();
+        container.footprint = vec![Coordinate { q: 0, r: 0 }, Coordinate { q: 1, r: 0 }];
+        assert_eq!(core.placement_legality(0, 0, 4, 0, None, true), Ok(()));
+
+        for _ in 0..MAX_GRADE_STEPS {
+            core.edit_ground(&ground_edit(4, 0, GroundAction::Lower))
+                .unwrap();
+        }
+        for _ in 0..MAX_GRADE_STEPS {
+            core.edit_ground(&ground_edit(1, 0, GroundAction::Raise))
+                .unwrap();
+        }
+        // Two steps is a slope a footprint can straddle, exactly as a walk can climb it. Three is
+        // the step that needs a pad cut for it.
+        assert_eq!(core.ground_elevation_at(1, 0), 3);
+        assert!(core
+            .placement_legality(0, 0, 4, 0, None, true)
+            .unwrap_err()
+            .contains("level a pad"));
+
+        // Levelling the pair onto the first cell's grade is exactly what makes the site legal.
+        core.edit_ground(&GroundEdit {
+            to_q: 1,
+            shape: GroundShape::Path,
+            action: GroundAction::Level,
+            ..ground_edit(0, 0, GroundAction::Level)
+        })
+        .unwrap();
+        assert_eq!(core.ground_elevation_at(1, 0), 0);
+        assert_eq!(core.placement_legality(0, 0, 4, 0, None, true), Ok(()));
+    }
+
+    /// Prepared ground survives a save, migrates forward from a file that never had any, refuses a
+    /// state the definitions cannot explain, and its dirty-tracked delta matches the full oracle.
+    #[test]
+    fn ground_saves_migrates_validates_and_dirty_deltas_match_the_full_oracle() {
+        let mut core = ground_world();
+        core.set_creative(true);
+        reach(&mut core);
+        core.edit_ground(&GroundEdit {
+            to_q: 2,
+            shape: GroundShape::Path,
+            ..ground_edit(0, 0, GroundAction::Pave)
+        })
+        .unwrap();
+        core.edit_ground(&ground_edit(0, 2, GroundAction::Lower))
+            .unwrap();
+        assert_eq!(core.spoil, 1);
+
+        // Reach is a scenario property the loader checks against the catalogue rather than a
+        // simulation result, so the borrowed test reach goes back before anything is written.
+        core.player.build_range = core.earned_build_range();
+        let save = core.save_string().unwrap();
+        let (definitions, technologies, scenarios) = catalogs();
+        let restored = Core::from_save(&definitions, &technologies, &scenarios, &save).unwrap();
+        assert_eq!(restored.ground, core.ground);
+        assert_eq!(restored.spoil, core.spoil);
+        assert_eq!(restored.checksum(), core.checksum());
+
+        // A file written before this release has no prepared ground and is exactly the world it was.
+        let mut untouched = ground_world();
+        untouched.player.build_range = untouched.earned_build_range();
+        let plain = untouched.save_string().unwrap();
+        let old = plain
+            .replace("\"save_version\":30", "\"save_version\":29")
+            .replace("\"definition_version\":24", "\"definition_version\":23");
+        let migrated = Core::from_save(&definitions, &technologies, &scenarios, &old).unwrap();
+        assert!(migrated.ground.is_empty());
+        assert_eq!(migrated.spoil, 0);
+        assert_eq!(migrated.checksum(), ground_world().checksum());
+
+        let mut invalid = core.ground_snapshot();
+        invalid[0].elevation = MAX_GRADE_STEPS + 1;
+        assert!(validate_saved_ground(&definitions, &invalid).is_err());
+        let mut invalid = core.ground_snapshot();
+        invalid[0].surface = 99;
+        assert!(validate_saved_ground(&definitions, &invalid).is_err());
+        let mut invalid = core.ground_snapshot();
+        invalid.push(invalid[0].clone());
+        assert!(validate_saved_ground(&definitions, &invalid).is_err());
+        let mut invalid = core.ground_snapshot();
+        invalid[0].paid = vec![Ingredient {
+            item_id: 1,
+            quantity: 1,
+        }];
+        invalid[0].surface = 0;
+        assert!(
+            validate_saved_ground(&definitions, &invalid).is_err(),
+            "untreated ground cannot carry a paid bill"
+        );
+
+        // The digest is pure, and the cache is only ever an echo of it.
+        assert_eq!(core.ground_state_hash(), core.uncached_ground_hash());
+
+        // The dirty-tracked delta is what a full diff of two snapshots would have said, and nothing
+        // is resent once the host has it.
+        let mut factory = test_factory("new-game");
+        factory.core = ground_world();
+        factory.core.set_creative(true);
+        reach(&mut factory.core);
+        let mut previous = factory.core.snapshot();
+        factory.build_delta();
+        factory
+            .core
+            .edit_ground(&ground_edit(0, 0, GroundAction::Lower))
+            .unwrap();
+        assert_delta_matches_full_diff(&mut factory, &mut previous, "a cut");
+        factory
+            .core
+            .edit_ground(&ground_edit(0, 1, GroundAction::Pave))
+            .unwrap();
+        assert_delta_matches_full_diff(&mut factory, &mut previous, "a paved cell");
+        factory.core.undo_ground().unwrap();
+        assert_delta_matches_full_diff(&mut factory, &mut previous, "an undo");
+        let quiet = factory.build_delta();
+        assert!(quiet.ground.is_none());
+        assert!(quiet.spoil.is_none());
+    }
+
+    /// The generated world is exactly as passable after this release as before it. Every pair of
+    /// walkable bands is within one climbable step, which is the whole reason `natural_elevation`
+    /// has the values it does, and it is asserted here rather than trusted.
+    #[test]
+    fn no_generated_terrain_is_walled_off_by_its_own_natural_elevation() {
+        let bands = [
+            Terrain::DeepWater,
+            Terrain::ShallowWater,
+            Terrain::Shore,
+            Terrain::Lowland,
+            Terrain::Hills,
+            Terrain::Highland,
+            Terrain::Cliff,
+        ];
+        for &a in &bands {
+            for &b in &bands {
+                if a.blocks_movement() || b.blocks_movement() {
+                    continue;
+                }
+                assert!(
+                    (natural_elevation(a) - natural_elevation(b)).abs() <= MAX_WALK_STEP,
+                    "{a:?} and {b:?} would be walled off from each other"
+                );
+            }
+        }
+        // A run that has never touched the ground contributes nothing to the checksum, which is what
+        // keeps a file written a release ago checksumming to the value it did then.
+        let core = ground_world();
+        assert!(core.ground.is_empty());
+        assert_eq!(core.spoil, 0);
+        assert_eq!(core.movement_factor_at(0, 0), UNTREATED_MOVEMENT);
+        // The heuristic floor is the cheapest step the fastest legal surface can produce, so the
+        // route search never overestimates and never returns a route that is not the cheapest.
+        assert_eq!(
+            MIN_WALK_STEP_COST,
+            WALK_STEP_COST * UNTREATED_MOVEMENT / MAX_SURFACE_MOVEMENT
+        );
+        assert!(MIN_WALK_STEP_COST <= WALK_STEP_COST * UNTREATED_MOVEMENT / MAX_SURFACE_MOVEMENT);
     }
 }

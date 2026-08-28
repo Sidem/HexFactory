@@ -49,7 +49,7 @@ This is permanent and is not a scope item.
 
 ## Where the project stands
 
-The engine arc, the generator arc, and the shipped milestones through **v0.37.0 Timber Boundaries** are
+The engine arc, the generator arc, and the shipped milestones through **v0.38.0 Ground Works** are
 present in this tree. A run today looks like this: land beside a hub in a world chosen by preset
 or by raw parameters, walk out under fog across rivers and coastline — on the keys, or by
 **clicking a selected hex a second time** and watching the route native found — find **fields** of
@@ -208,10 +208,17 @@ transport crossing protection, and explicit gate states ship in a persistent con
 Save 29 / definitions 23 / wire 16 preserve older factories. See
 [the timber boundaries record](TIMBER-BOUNDARIES-RECORD.md).
 
-**Continue Phase 3 with paired paving and native integer elevation/cut-fill, then masonry and
-the remaining enclosure materials.** Fences do not complete the ground-work slice or move
-paving ahead of its levelling contract.
-This does not complete either full plan; oil and supported floors still follow in order.
+**Phase 3 delivery: v0.38.0 Ground Works.** Five paved surfaces and native integer elevation ship as
+one slice, because walking speed, route cost, movement legality and building legality all read the
+same map. Grade is a signed delta from the generated band, bounded to three steps; fill is dug from a
+spoil ledger rather than conjured; a step of more than two grades cannot be walked or built across;
+paving over a deposit seals it and needs an explicit confirmation. Save 30 / definitions 24 / wire 17
+preserve older factories, and the generated world keeps exactly the passability it had. See
+[the ground works record](GROUND-WORKS-RECORD.md).
+
+**Continue Phase 3 with masonry, supported floors and the remaining enclosure materials, then
+vertical transport.** The ground slice does not complete either full plan; oil and supported floors
+still follow in order.
 
 **Only afterward:** Living Lattice, then Regional Discovery, then the remaining longer horizon.
 Their former v0.26/v0.27 reservations are withdrawn; assign new version numbers when release
@@ -220,8 +227,9 @@ with this workstream unless the user changes priority. Necessary fixes, measurem
 prerequisites are part of delivering this work, not reasons to skip it. An unmet gate must be
 resolved or brought back to the user rather than silently switching to a deferred feature.
 
-Today, visual terrain height remains presentation-only and gameplay is two-dimensional. The new
-priority does not claim native elevation, new recipes or the new research economy already exist.
+Generated terrain height remains presentation-only; as of v0.38.0 the integer grade a player cuts or
+fills is native, checksummed state that walking, routing and building legality all read. Gameplay is
+otherwise two-dimensional: there are no floors above or below a hex, and no vertical transport.
 
 ### Open decisions, each with what would settle it
 
@@ -580,6 +588,7 @@ both test suites say so.
 One line per release, newest first. The reasoning behind a shipped rule lives in the git history of
 this file and in the code that implements it; what follows is the index.
 
+- **v0.38.0** Ground Works — Five paved surfaces and native integer elevation in one bounded transaction: signed grade deltas capped at three steps, a spoil ledger that makes fill something you dug, walking and building refused across a step of more than two grades, deliberate confirmation before a surface seals a deposit, paid recovery on stripping, and per-transaction undo. Save 30 / definitions 24 / wire 17; no new item, recipe or research. [Verification record](GROUND-WORKS-RECORD.md).
 - **v0.37.0** Timber Boundaries — Timber edge fences and unpowered gates; bounded enclosure selection, native previews and atomic accounting, paid recovery and undo, walking/transport crossing protection, and instanced geometry. Save 29 / definitions 23 / wire 16. [Verification record](TIMBER-BOUNDARIES-RECORD.md).
 - **v0.36.0** Player Skills — Separate personal points, carrying/reach purchases and three finite native milestones; accessible Skills modal; one-time legacy bonus migration and persistent Creative provenance. Save 28 / technologies 12 / wire 15. [Verification record](PLAYER-SKILLS-RECORD.md).
 - **v0.35.0** Practical Projects — Hub demand is finite: each of 22 projects pays once and retires, `repeat_insight` is deleted, and the whole catalogue is browsable and postable by name so a finite board cannot hide the route forward. Progress moved from the board slot onto the project, so passing a part-filled project keeps what was delivered. A native invariant pins the budget at 572 insight against 137 of research, 4.175× surplus, 73 of it hand-reachable. Save 27 / definitions 22 / wire 14. [Verification record](PRACTICAL-PROJECTS-RECORD.md).

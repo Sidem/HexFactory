@@ -13,12 +13,21 @@ import {
 import { axialToPixel, pixelToAxial } from "@hexlife/embed/hex";
 
 import { TRANSPORT_DIRECTIONS } from "../../core/directions";
-import type { ChunkSnapshot, FactorySnapshot, Terrain } from "../../core/types";
+import type {
+  ChunkSnapshot,
+  FactorySnapshot,
+  GroundCell,
+  SurfaceDefinition,
+  Terrain,
+} from "../../core/types";
 import { WORLD_SCALE } from "../landmarks";
+import { GRADE_STEP_HEIGHT, surfaceLook } from "../surfaceLook";
 import type { WorldMaterials } from "./materials";
 import { TERRAIN_STYLE, visualHeight } from "./terrainStyle";
 
 const WORLD_FLOOR = -0.34;
+/** How thick a laid surface reads. Thin enough to be a skin, thick enough to catch the key light. */
+const SURFACE_CAP_DEPTH = 0.05;
 const ADJACENCY_DIRECTIONS = TRANSPORT_DIRECTIONS.slice(0, 6);
 /** Exact circumradius for the public pointy-top axial projection. A smaller or rotated prism leaves
  * triangular holes where three cells meet; height may vary, but the logical plane is closed. */
@@ -30,7 +39,12 @@ export interface TerrainCell {
   readonly terrain: Terrain;
   readonly x: number;
   readonly z: number;
+  /** Scene height of the walked surface, natural landform plus whatever grading has moved it. */
   readonly height: number;
+  /** Native's grade in steps, signed. Zero on untouched ground. */
+  readonly elevation: number;
+  /** The surface definition id laid here, or 0 for untreated ground. */
+  readonly surface: number;
 }
 
 export interface TerrainBuild {
@@ -47,11 +61,15 @@ export interface TerrainBuild {
 export function buildTerrainMeshes(
   snapshot: FactorySnapshot,
   materials: WorldMaterials,
+  surfaces: readonly SurfaceDefinition[] = [],
 ): TerrainBuild {
   const terrainByKey = new Map(
     snapshot.terrain.map((cell) => [cellKey(cell.q, cell.r), cell.terrain]),
   );
-  const cells = surveyedCells(snapshot.chunks, terrainByKey);
+  const groundByKey = new Map(
+    snapshot.ground.map((cell) => [cellKey(cell.q, cell.r), cell]),
+  );
+  const cells = surveyedCells(snapshot.chunks, terrainByKey, groundByKey);
   const group = new Group();
   group.name = "surveyed-terrain";
   const column = new CylinderGeometry(HEX_RADIUS, HEX_RADIUS, 1, 6, 1, false);
@@ -87,12 +105,59 @@ export function buildTerrainMeshes(
   }
   const frontier = frontierLines(cells, materials);
   group.add(frontier.mesh);
+  const caps = surfaceCaps(cells, surfaces, materials);
+  if (caps) group.add(caps);
   return {
     group,
     cells,
     cellByKey: new Map(cells.map((cell) => [cellKey(cell.q, cell.r), cell])),
-    geometries: [column, frontier.geometry],
+    geometries: [column, frontier.geometry, ...(caps ? [caps.geometry] : [])],
   };
+}
+
+/**
+ * Every prepared hex in one instanced slab: paving is a skin on the landform rather than a
+ * replacement for it, so the band underneath still shows at the rim and a paved shore still reads
+ * as shore. One draw call however much of the map is finished.
+ */
+function surfaceCaps(
+  cells: readonly TerrainCell[],
+  surfaces: readonly SurfaceDefinition[],
+  materials: WorldMaterials,
+): InstancedMesh | null {
+  const paved = cells.filter((cell) => cell.surface !== 0);
+  if (!paved.length) return null;
+  const keyById = new Map(surfaces.map((surface) => [surface.id, surface.key]));
+  const geometry = new CylinderGeometry(
+    HEX_RADIUS * 0.96,
+    HEX_RADIUS * 0.96,
+    1,
+    6,
+    1,
+    false,
+  );
+  const mesh = new InstancedMesh(geometry, materials.surface, paved.length);
+  mesh.name = "prepared-ground";
+  mesh.receiveShadow = true;
+  const matrix = new Matrix4();
+  const quaternion = new Quaternion();
+  const scale = new Vector3(1, SURFACE_CAP_DEPTH, 1);
+  const position = new Vector3();
+  const tint = new Color();
+  for (const [index, cell] of paved.entries()) {
+    // The cap's top sits a hair above the column's so the two never fight for the same pixel.
+    position.set(cell.x, cell.height + 0.004 - SURFACE_CAP_DEPTH / 2, cell.z);
+    matrix.compose(position, quaternion, scale);
+    mesh.setMatrixAt(index, matrix);
+    const look = surfaceLook(keyById.get(cell.surface));
+    tint
+      .set(look.color)
+      .multiplyScalar(0.9 + stableVariation(cell.q, cell.r) * 0.2);
+    mesh.setColorAt(index, tint);
+  }
+  mesh.instanceMatrix.needsUpdate = true;
+  if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+  return mesh;
 }
 
 export function terrainAt(
@@ -118,6 +183,7 @@ export function stableVariation(q: number, r: number): number {
 function surveyedCells(
   chunks: readonly ChunkSnapshot[],
   terrainByKey: ReadonlyMap<string, Terrain>,
+  groundByKey: ReadonlyMap<string, GroundCell>,
 ): TerrainCell[] {
   const seen = new Set<string>();
   const cells: TerrainCell[] = [];
@@ -149,13 +215,20 @@ function surveyedCells(
           continue;
         seen.add(key);
         const terrain = terrainByKey.get(key) ?? "lowland";
+        const ground = groundByKey.get(key);
         cells.push({
           q,
           r,
           terrain,
           x: world.x / WORLD_SCALE,
           z: world.y / WORLD_SCALE,
-          height: visualHeight(terrain),
+          // Grading moves the walked surface, so everything that stands on the terrain — buildings,
+          // fences, overlays, the ghost of a pending edit — follows from this one number.
+          height:
+            visualHeight(terrain) +
+            (ground?.elevation ?? 0) * GRADE_STEP_HEIGHT,
+          elevation: ground?.elevation ?? 0,
+          surface: ground?.surface ?? 0,
         });
       }
     }

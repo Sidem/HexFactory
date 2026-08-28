@@ -100,8 +100,141 @@
       "attended_ticks": 552
     }
   ],
+  "surfaces": [
+    {
+      "surface": "compacted-earth",
+      "movement": 110,
+      "step_cost": 90,
+      "hexes_saved_per_hundred_milli": 10000,
+      "hexes": 9,
+      "direct": [],
+      "raw": [],
+      "batch": [],
+      "batch_fuel_energy": 0
+    },
+    {
+      "surface": "gravel-yard",
+      "movement": 120,
+      "step_cost": 83,
+      "hexes_saved_per_hundred_milli": 17000,
+      "hexes": 9,
+      "direct": [
+        {
+          "item": "gravel",
+          "quantity": 9
+        }
+      ],
+      "raw": [
+        {
+          "item": "stone",
+          "quantity_milli": 4500
+        }
+      ],
+      "batch": [
+        {
+          "item": "stone",
+          "quantity": 5
+        }
+      ],
+      "batch_fuel_energy": 0
+    },
+    {
+      "surface": "timber-decking",
+      "movement": 125,
+      "step_cost": 80,
+      "hexes_saved_per_hundred_milli": 20000,
+      "hexes": 9,
+      "direct": [
+        {
+          "item": "timber",
+          "quantity": 9
+        }
+      ],
+      "raw": [
+        {
+          "item": "wood",
+          "quantity_milli": 4500
+        }
+      ],
+      "batch": [
+        {
+          "item": "wood",
+          "quantity": 5
+        }
+      ],
+      "batch_fuel_energy": 0
+    },
+    {
+      "surface": "brick-pavers",
+      "movement": 125,
+      "step_cost": 80,
+      "hexes_saved_per_hundred_milli": 20000,
+      "hexes": 9,
+      "direct": [
+        {
+          "item": "brick",
+          "quantity": 9
+        }
+      ],
+      "raw": [
+        {
+          "item": "clay",
+          "quantity_milli": 6000
+        }
+      ],
+      "batch": [
+        {
+          "item": "clay",
+          "quantity": 6
+        }
+      ],
+      "batch_fuel_energy": 240
+    },
+    {
+      "surface": "concrete-slab",
+      "movement": 130,
+      "step_cost": 76,
+      "hexes_saved_per_hundred_milli": 24000,
+      "hexes": 9,
+      "direct": [
+        {
+          "item": "concrete",
+          "quantity": 9
+        }
+      ],
+      "raw": [
+        {
+          "item": "stone",
+          "quantity_milli": 4500
+        },
+        {
+          "item": "sand",
+          "quantity_milli": 4500
+        },
+        {
+          "item": "water",
+          "quantity_milli": 4500
+        }
+      ],
+      "batch": [
+        {
+          "item": "stone",
+          "quantity": 5
+        },
+        {
+          "item": "sand",
+          "quantity": 5
+        },
+        {
+          "item": "water",
+          "quantity": 5
+        }
+      ],
+      "batch_fuel_energy": 0
+    }
+  ],
   "reference": {
-    "definition_version": 23,
+    "definition_version": 24,
     "technology_version": 12,
     "ticks_per_second": 10,
     "player_ticks_per_second": 30,

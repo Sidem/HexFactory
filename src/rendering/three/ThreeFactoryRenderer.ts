@@ -17,6 +17,7 @@ import type {
   BuildingDefinition,
   Definitions,
   FactorySnapshot,
+  GroundPreview,
   LinePreviewCell,
   PlacementPreview,
   WorldPoint,
@@ -34,6 +35,7 @@ import { SpatialOverlays, type SpatialOverlayState } from "./overlays";
 import { QUALITY_SETTINGS } from "./quality";
 import { buildTerrainMeshes, type TerrainBuild } from "./terrainMeshes";
 import { BoundaryMeshes } from "./boundaryMeshes";
+import { GroundMeshes } from "./groundMeshes";
 import { WorldInstanceLayer } from "./worldInstances";
 
 /** Three.js low-poly diorama over the unchanged native axial plane. */
@@ -45,6 +47,8 @@ export class ThreeFactoryRenderer implements FactoryRenderer {
   private readonly worldInstances: WorldInstanceLayer;
   private readonly overlays: SpatialOverlays;
   private readonly boundaries: BoundaryMeshes;
+  private readonly ground = new GroundMeshes();
+  private readonly surfaces: Definitions["surfaces"];
   private readonly keyLight = new DirectionalLight("#ffe4b0", 2.6);
   private readonly fillLight = new HemisphereLight("#c9eef0", "#273b32", 1.6);
   private readonly ambient = new AmbientLight("#9bb7af", 0.46);
@@ -66,6 +70,7 @@ export class ThreeFactoryRenderer implements FactoryRenderer {
   private terrain: TerrainBuild | null = null;
   private lastChunks: FactorySnapshot["chunks"] | null = null;
   private lastTerrain: FactorySnapshot["terrain"] | null = null;
+  private lastGround: FactorySnapshot["ground"] | null = null;
   private layout = { width: 1, height: 1, left: 0, top: 0 };
   private layoutDirty = true;
   private needsDraw = true;
@@ -110,7 +115,9 @@ export class ThreeFactoryRenderer implements FactoryRenderer {
     this.worldInstances = new WorldInstanceLayer(definitions, this.materials);
     this.overlays = new SpatialOverlays(this.materials);
     this.boundaries = new BoundaryMeshes(definitions.boundaries);
+    this.surfaces = definitions.surfaces;
     this.scene.add(this.boundaries.group);
+    this.scene.add(this.ground.group);
     this.scene.add(
       this.fillLight,
       this.ambient,
@@ -156,10 +163,14 @@ export class ThreeFactoryRenderer implements FactoryRenderer {
     this.camera.follow(snapshot.player);
     if (
       snapshot.chunks !== this.lastChunks ||
-      snapshot.terrain !== this.lastTerrain
+      snapshot.terrain !== this.lastTerrain ||
+      // Grading moves the walked surface, so a ground change rebuilds the landform for the same
+      // reason a survey does: everything standing on it takes its height from here.
+      snapshot.ground !== this.lastGround
     ) {
       this.lastChunks = snapshot.chunks;
       this.lastTerrain = snapshot.terrain;
+      this.lastGround = snapshot.ground;
       this.rebuildTerrain(snapshot);
     }
     const structureChanged = this.worldInstances.setSnapshot(
@@ -183,6 +194,11 @@ export class ThreeFactoryRenderer implements FactoryRenderer {
 
   setBoundaryPreview(preview: BoundaryPreview | null): void {
     this.boundaries.setPreview(preview);
+    this.markDirty();
+  }
+
+  setGroundPreview(preview: GroundPreview | null): void {
+    this.ground.setPreview(preview);
     this.markDirty();
   }
 
@@ -408,15 +424,17 @@ export class ThreeFactoryRenderer implements FactoryRenderer {
     this.worldInstances.dispose();
     this.overlays.dispose();
     this.boundaries.dispose();
+    this.ground.dispose();
     for (const material of this.materials.materials) material.dispose();
     this.renderer.dispose();
   }
 
   private rebuildTerrain(snapshot: FactorySnapshot): void {
     this.disposeTerrain();
-    this.terrain = buildTerrainMeshes(snapshot, this.materials);
+    this.terrain = buildTerrainMeshes(snapshot, this.materials, this.surfaces);
     this.scene.add(this.terrain.group);
     this.overlays.setTerrain(this.terrain.cells);
+    this.ground.setTerrain(this.terrain.cellByKey);
   }
 
   private disposeTerrain(): void {

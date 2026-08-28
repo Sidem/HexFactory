@@ -328,6 +328,16 @@ counts. Each is behavior-tested without Wasm or WebGL; `main.ts` wires them to t
 
 ## Save contract
 
+Ground Works (v0.38.0) advances save 29 to 30 and definitions 23 to 24. A prepared hex stores its
+surface, a signed grade delta from the generated band, and the ingredients actually paid; a hex that
+differs from untouched ground in neither is not stored at all. The spoil ledger is a single scalar,
+and fill spends from it rather than conjuring material. A v29 file receives an empty overlay and a
+zero heap with its original checksum still verified. Wire 17 adds the sparse ground group and the
+spoil scalar, resent whole only after an edit or a full replacement. Natural elevation is chosen so
+no two walkable generated terrains differ by more than the walk step, which is why the release
+changes no generated world's passability. See
+[the ground contract and verification record](GROUND-WORKS-RECORD.md).
+
 Timber Boundaries (v0.37.0) advances save 28 to 29 and definitions 22 to 23. Canonical edge
 records store definition, gate state and actual paid ingredients. Absent boundaries preserve the
 old checksum. The save picker permits the same adjacent migration chain as native.

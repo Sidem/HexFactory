@@ -92,6 +92,8 @@ function snapshotAt(state: {
   }));
   return {
     boundaries: [],
+    ground: [],
+    spoil: 0,
     scenario: "new-game",
     scenario_name: "New game",
     world_version: 6,

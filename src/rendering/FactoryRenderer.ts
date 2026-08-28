@@ -6,6 +6,7 @@ import type {
   ChunkSnapshot,
   EntitySnapshot,
   FactorySnapshot,
+  GroundPreview,
   LinePreviewCell,
   PlacementPreview,
   WorldPoint,
@@ -75,6 +76,7 @@ export interface FactoryRenderer {
   readonly cameraSettling: boolean;
   setSnapshot(snapshot: FactorySnapshot): void;
   setBoundaryPreview(preview: BoundaryPreview | null): void;
+  setGroundPreview(preview: GroundPreview | null): void;
   setHome(point: WorldPoint | null): void;
   setReducedMotion(value: boolean): void;
   setHover(

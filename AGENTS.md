@@ -4,19 +4,19 @@ HexFactory is a browser factory-automation game. Player experience is the tiebre
 native ownership, sparse cost, and measured claims exist to keep a large living factory responsive
 and trustworthy.
 
-Current release: **v0.37.0 Timber Boundaries**. **Immediate next work: progression and construction**
+Current release: **v0.38.0 Ground Works**. **Immediate next work: progression and construction**
 in `docs/PROGRESSION-PLAN.md` and `docs/CONSTRUCTION-MATERIALS-PLAN.md`, ordered by
 `docs/HEXFACTORY-PLAN.md#what-to-do-next`. Complete this workstream before Living Lattice,
 Regional Discovery or other roadmap features unless the user changes priority. Release numbers
-after v0.37.0 are unassigned. Phase 1 is complete: every buildable bill is audited and no definition
+after v0.38.0 are unassigned. Phase 1 is complete: every buildable bill is audited and no definition
 bills raw ore, gear/frame yields are reviewed and unchanged, and commission/research startup
 accounting is done. Phase 2 is complete: the research map, finite insight projects and separate player skills are shipped.
-Phase 3 has begun: timber edge fences and manual gates are shipped. Construction materials and ground works, including paired paving, native elevation and bounded cut/fill, are next. Hub demand is finite — every project pays once, the catalogue is browsable and
+Phase 3 is in progress: timber edge fences and manual gates are shipped, and so is the paired ground slice — five paved surfaces, native integer elevation, bounded cut/fill and a spoil ledger. Masonry, supported floors, vertical transport and the remaining enclosure materials are next. Hub demand is finite — every project pays once, the catalogue is browsable and
 postable by name, and the budget is a committed measurement.
 Component/contract reform, the five industrial station bills and construction-order accounting are shipped.
 Foundation commissions, typed effects, branch/stage registries, native research availability and
-the central research atlas are shipped. Timed opening validation was withdrawn. Envelopes: save 29, definitions 23,
-technologies 12, scenarios 7, world 8, wire 16.
+the central research atlas are shipped. Timed opening validation was withdrawn. Envelopes: save 30, definitions 24,
+technologies 12, scenarios 7, world 8, wire 17.
 
 ## Localize before reading
 
@@ -45,8 +45,9 @@ The evidence and limits of this context policy are in `docs/AGENT-CONTEXT.md`.
   `src/core/snapshotWire.ts`. Identity-bearing numbers must stay within JavaScript's exact range.
 - Derived indexes and caches are never saved, hashed, or checksummed. Rebuild them after the source
   state changes and pin them against the uncached/full implementation.
-- Presentation never becomes simulation truth. Picking uses the logical axial plane; terrain height
-  remains visual. Lists containing controls are keyed and patched in place.
+- Presentation never becomes simulation truth. Picking uses the logical axial plane. Generated
+  terrain height is still visual; only the integer grade a player paid for is simulation, and it is
+  native's. Lists containing controls are keyed and patched in place.
 - No performance or scale claim without a committed measurement from the relevant harness.
 - Preserve user changes in a dirty tree. Never source-import HexLife or edit its checkout unless a
   separate task explicitly authorizes a generic package release.

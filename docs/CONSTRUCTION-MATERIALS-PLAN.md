@@ -4,7 +4,7 @@ Planning brief, 2026-08-27. **Approved workstream; the primitive foundation ship
 with the remaining mechanics and tuning still proposed.** Together with progression, this plan takes immediate priority over Living
 Lattice, Regional Discovery and other roadmap features. The
 [roadmap's combined sequence](HEXFACTORY-PLAN.md#what-to-do-next) is authoritative; release numbers
-after v0.37.0 are unassigned and the old v0.26/v0.27 reservations for those deferred milestones are withdrawn.
+after v0.38.0 are unassigned and the old v0.26/v0.27 reservations for those deferred milestones are withdrawn.
 Begin with the shared recipe/bootstrap audit. Pull required recipe infrastructure forward from
 Living Lattice; native elevation and floors still require their own evidence and compatibility gates.
 
@@ -23,8 +23,12 @@ corrects construction-order accounting. v0.33 reforms the component and founding
 v0.34 completes slice 1's power/tier bills, yield audit and commission/research startup accounting.
 v0.35/v0.36 complete finite projects and initial player skills. v0.37
 [Timber Boundaries](TIMBER-BOUNDARIES-RECORD.md) starts Phase 3 with canonical edge fences and
-manual gates, atomic bounded enclosure tools, native crossings and paid recovery. Paving and
-native grades/cut-fill remain paired and are next; the ground-work slice is not yet complete. The diagnosis below records the pre-v0.26.0 starting point.
+manual gates, atomic bounded enclosure tools, native crossings and paid recovery. v0.38
+[Ground Works](GROUND-WORKS-RECORD.md) completes the paired ground slice: five paved surfaces,
+native integer grade bounded to three steps, a spoil ledger behind every fill, and walking and
+building legality read from the same map. Masonry, supported floors and the remaining enclosure
+materials are next; vertical transport still requires its own evidence and compatibility gates.
+The diagnosis below records the pre-v0.26.0 starting point.
 
 Turn a clearing into a place: compact a footpath, lay a gravel yard, pave a fast route between
 outposts, enclose a workshop, and eventually stack production floors with explicit belt lifts.

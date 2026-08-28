@@ -38,7 +38,7 @@ import type {
  */
 
 const MAGIC = 0x48584644; // "HXFD"
-const VERSION = 16;
+const VERSION = 17;
 
 /** Wire code is the index. Pinned against Rust by `fixtures/snapshot-delta-wire.json`. */
 const KINDS: BuildingKind[] = [
@@ -110,6 +110,8 @@ const GROUP = {
   researchAvailability: 1 << 18,
   skills: 1 << 19,
   boundaries: 1 << 20,
+  ground: 1 << 21,
+  spoil: 1 << 22,
   chunks: 1 << 12,
   terrain: 1 << 13,
   resources: 1 << 14,
@@ -403,6 +405,18 @@ export function decodeSnapshotDelta(buffer: ArrayBuffer): FactorySnapshotDelta {
       paid: reader.ingredients(),
     }));
   }
+
+  if (has(GROUP.ground)) {
+    const count = reader.uvarint();
+    delta.ground = Array.from({ length: count }, () => ({
+      q: reader.svarint(),
+      r: reader.svarint(),
+      surface: reader.uvarint(),
+      elevation: reader.svarint(),
+      paid: reader.ingredients(),
+    }));
+  }
+  if (has(GROUP.spoil)) delta.spoil = reader.uvarint();
   // A buffer with bytes left over means the two sides disagree about the layout, which would
   // otherwise surface as a subtly wrong frame somewhere downstream.
   if (!reader.atEnd())

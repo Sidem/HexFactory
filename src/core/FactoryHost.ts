@@ -18,6 +18,8 @@ import type {
   WorldParams,
   WorldPreset,
   WorldPreview,
+  GroundEdit,
+  GroundPreview,
 } from "./types";
 
 export type FactoryWorkerMethod =
@@ -26,6 +28,7 @@ export type FactoryWorkerMethod =
   | "reset"
   | "newGame"
   | "boundaryPreview"
+  | "groundPreview"
   | "placementPreview"
   | "linePreview"
   | "save"
@@ -312,6 +315,11 @@ export class FactoryHost {
   /** Read-only native pricing and validation, shared with the eventual construction command. */
   boundaryPreview(edit: BoundaryEdit): Promise<BoundaryPreview> {
     return this.transport.request<BoundaryPreview>("boundaryPreview", edit);
+  }
+
+  /** The same for prepared ground: the transaction that prices the preview is the one that commits. */
+  groundPreview(edit: GroundEdit): Promise<GroundPreview> {
+    return this.transport.request<GroundPreview>("groundPreview", edit);
   }
 
   /**

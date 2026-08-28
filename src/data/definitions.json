@@ -1,5 +1,5 @@
 {
-  "version": 23,
+  "version": 24,
   "items": [
     {
       "id": 1,
@@ -1712,6 +1712,68 @@
         },
         {
           "item_id": 25,
+          "quantity": 1
+        }
+      ]
+    }
+  ],
+  "surfaces": [
+    {
+      "id": 1,
+      "key": "compacted-earth",
+      "name": "Compacted earth",
+      "description": "Tamped dirt, no materials needed. A tenth faster than raw ground and the cheapest way to learn where your paths actually run.",
+      "movement": 110,
+      "construction_cost": []
+    },
+    {
+      "id": 2,
+      "key": "gravel-yard",
+      "name": "Gravel yard",
+      "description": "Crushed stone spread and rolled flat. A fifth faster than raw ground. Crush stone into gravel at the manual workshop.",
+      "movement": 120,
+      "construction_cost": [
+        {
+          "item_id": 17,
+          "quantity": 1
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "key": "timber-decking",
+      "name": "Timber decking",
+      "description": "Planks laid over the ground. A quarter faster than raw ground, and made from wood you already cut.",
+      "movement": 125,
+      "construction_cost": [
+        {
+          "item_id": 16,
+          "quantity": 1
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "key": "brick-pavers",
+      "name": "Brick pavers",
+      "description": "Fired brick set in a bed of sand. A quarter faster than raw ground, and it does not rot underfoot.",
+      "movement": 125,
+      "construction_cost": [
+        {
+          "item_id": 14,
+          "quantity": 1
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "key": "concrete-slab",
+      "name": "Concrete slab",
+      "description": "Poured and cured. The fastest ground on offer at a third above raw, and the most expensive to lay.",
+      "movement": 130,
+      "construction_cost": [
+        {
+          "item_id": 21,
           "quantity": 1
         }
       ]

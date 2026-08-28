@@ -146,6 +146,7 @@ export interface BuildingDefinition {
 
 export interface Definitions {
   boundaries: BoundaryDefinition[];
+  surfaces: SurfaceDefinition[];
   version: number;
   items: ItemDefinition[];
   recipes: RecipeDefinition[];
@@ -630,6 +631,9 @@ export interface GroundItemSnapshot extends AxialCoordinate {
 
 export interface FactorySnapshot {
   boundaries: Boundary[];
+  ground: GroundCell[];
+  /** Steps of earth dug and not yet placed. The only thing fill can be paid from. */
+  spoil: number;
   scenario: string;
   scenario_name: string;
   world_version: number;
@@ -708,6 +712,8 @@ export interface LinePreviewCell {
 export type NativeInputCommand =
   | ({ type: "boundary_edit" } & BoundaryEdit)
   | { type: "undo_boundary" }
+  | ({ type: "ground_edit" } & GroundEdit)
+  | { type: "undo_ground" }
   | { type: "move_intent"; x: number; y: number }
   /**
    * Point the player at a world position — the point under the cursor. The host sends the target
@@ -865,6 +871,7 @@ export type NativeInputCommand =
 
 export interface NativeFactory {
   boundary_preview_json(edit: string): string;
+  ground_preview_json(edit: string): string;
   tick(count: number): void;
   reset(): void;
   /**
@@ -969,5 +976,75 @@ export interface BoundaryPreview {
   changes: number;
   cost: Ingredient[];
   refund: Ingredient[];
+  error: string | null;
+}
+
+/** One surface a hex can be finished with. `movement` is a percentage of untreated ground. */
+export interface SurfaceDefinition {
+  id: number;
+  key: string;
+  name: string;
+  description: string;
+  movement: number;
+  construction_cost: Ingredient[];
+}
+
+/**
+ * One prepared hex. A cell exists only while it differs from untouched ground, so an absent cell
+ * and a cell with surface 0 and elevation 0 mean the same thing and native never publishes the
+ * latter.
+ */
+export interface GroundCell {
+  q: number;
+  r: number;
+  /** 0 for untreated ground, otherwise a {@link SurfaceDefinition} id. */
+  surface: number;
+  /** Steps above or below the hex's natural grade, bounded by native's `MAX_GRADE_STEPS`. */
+  elevation: number;
+  paid: Ingredient[];
+}
+
+export type GroundAction = "pave" | "clear" | "raise" | "lower" | "level";
+export type GroundShape = "cell" | "path" | "area";
+
+export interface GroundEdit {
+  q: number;
+  r: number;
+  to_q: number;
+  to_r: number;
+  shape: GroundShape;
+  definition_id: number;
+  action: GroundAction;
+  /**
+   * Acknowledge that this edit seals a deposit. Native refuses an edit that would cover one until
+   * the host says the player has seen the warning, so covering can never be an accident.
+   */
+  cover: boolean;
+}
+
+/** One cell of a ground preview, resolved by the same native transaction that will commit it. */
+export interface GroundPreviewCell {
+  q: number;
+  r: number;
+  surface: number;
+  elevation: number;
+  /** Steps this edit moves the cell, signed. Zero for a cell the edit only paves. */
+  change: number;
+  covers: boolean;
+  /** True where the finished grade leaves a step no walk can climb. */
+  retained: boolean;
+}
+
+export interface GroundPreview {
+  cells: GroundPreviewCell[];
+  changes: number;
+  cost: Ingredient[];
+  refund: Ingredient[];
+  cut: number;
+  fill: number;
+  /** The spoil ledger after this edit. Fill is dug, never conjured. */
+  spoil: number;
+  covers: number;
+  retaining: number;
   error: string | null;
 }

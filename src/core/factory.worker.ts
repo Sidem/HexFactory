@@ -166,6 +166,8 @@ async function handle(request: WorkerRequest): Promise<unknown> {
       ) as LinePreviewCell[];
     case "boundaryPreview":
       return JSON.parse(factory.boundary_preview_json(JSON.stringify(payload)));
+    case "groundPreview":
+      return JSON.parse(factory.ground_preview_json(JSON.stringify(payload)));
     case "save":
       return factory.save_string();
     case "load":

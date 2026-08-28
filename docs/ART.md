@@ -161,7 +161,9 @@ an amount and the other progress toward a known target.
 near-orthographic camera tilts and orbits in six 60-degree steps; terrain, buildings, cargo, fields,
 trees, depletion, overlays, and the player have shape while native gameplay remains on the existing
 axial plane. Visual terrain height is a total seven-band presentation lookup and never save,
-checksum, wire, movement, or construction state.
+checksum, wire, movement, or construction state. From v0.38.0 a hex is drawn at that band plus the
+integer grade the player paid for; the paid grade is native state and the band is not, and the
+renderer adds them rather than deriving either.
 
 A 3D mesh hand-authored per definition would be the atlas again. `machineMeshes.ts` maps all eight
 `ShapePart` kinds to a bounded reusable geometry vocabulary. `partsFor` applies the existing
