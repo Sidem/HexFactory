@@ -1,4 +1,5 @@
 import type { ItemDefinition } from "../../core/types";
+import { recipeYield } from "../../core/recipes";
 import {
   ITEM_ICON_KEYS,
   type ItemIconKey,
@@ -113,9 +114,7 @@ export function renderItemsView(
       return (item.fuel_value ?? 0) > 0;
     }
     if (filter === "crafted") {
-      return store.definitions.recipes.some(
-        (r) => r.output.item_id === item.id,
-      );
+      return store.definitions.recipes.some((r) => recipeYield(r, item.id) > 0);
     }
     return true;
   });
@@ -139,7 +138,7 @@ export function renderItemsView(
       r.inputs.some((i) => i.item_id === item.id),
     );
     const recipesProducing = store.definitions.recipes.filter(
-      (r) => r.output.item_id === item.id,
+      (r) => recipeYield(r, item.id) > 0,
     );
     const buildingsCosting = store.definitions.buildings.filter((b) =>
       b.construction_cost.some((c) => c.item_id === item.id),

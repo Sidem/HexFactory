@@ -487,14 +487,126 @@ pub struct SurfaceCost {
     /// The yard this bill is priced for, to sit beside the boundary report's nine-hex yard.
     pub hexes: u32,
     pub direct: Vec<Amount>,
+    pub base: Vec<Amount>,
     pub raw: Vec<MilliAmount>,
     pub batch: Vec<Amount>,
     pub batch_fuel_energy: u64,
 }
 
+#[derive(Clone, Debug, Serialize)]
+pub struct RecipeRoute {
+    pub recipe: String,
+    pub default_for: Vec<String>,
+    pub inputs: Vec<Amount>,
+    pub outputs: Vec<Amount>,
+    pub cost_allocation_percent: Vec<u32>,
+    pub raw: Vec<MilliAmount>,
+    pub whole_batch_raw: Vec<Amount>,
+    pub whole_batch_fuel_energy: u64,
+    pub source_machines: Vec<String>,
+    pub machines: Vec<RouteMachine>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct RouteMachine {
+    pub building: String,
+    pub research: Vec<String>,
+    pub duration: u32,
+    pub grid_energy: u32,
+    pub fuel_energy: u32,
+    pub outputs_per_minute: Vec<MilliAmount>,
+}
+
+/// Named whole batches, with a separate allocation of their one cost to each useful output.
+fn recipe_routes(economy: &Economy) -> Vec<RecipeRoute> {
+    let amounts = |ingredients: &[Ingredient]| {
+        ingredients
+            .iter()
+            .map(|ingredient| Amount {
+                item: economy.item_key(ingredient.item_id),
+                quantity: u64::from(ingredient.quantity),
+            })
+            .collect()
+    };
+    economy
+        .definitions
+        .recipes
+        .iter()
+        .map(|recipe| {
+            let expansion = economy.cost_of(&recipe.inputs);
+            let outputs: Vec<_> = recipe.outputs().copied().collect();
+            RecipeRoute {
+                recipe: recipe.key.clone(),
+                default_for: outputs
+                    .iter()
+                    .filter(|output| {
+                        economy
+                            .recipe_for(output.item_id)
+                            .is_some_and(|preferred| preferred.id == recipe.id)
+                    })
+                    .map(|output| economy.item_key(output.item_id))
+                    .collect(),
+                inputs: amounts(&recipe.inputs),
+                outputs: amounts(&outputs),
+                cost_allocation_percent: outputs
+                    .iter()
+                    .map(|output| recipe.share_of(output.item_id))
+                    .collect(),
+                raw: milli_amounts(economy, &expansion.raw),
+                whole_batch_raw: self::amounts(economy, &expansion.batch_raw),
+                whole_batch_fuel_energy: expansion.batch_energy + u64::from(recipe.fuel),
+                source_machines: expansion
+                    .raw
+                    .keys()
+                    .filter_map(|item| {
+                        economy
+                            .item(*item)
+                            .and_then(|item| item.extraction_building_id)
+                    })
+                    .filter_map(|id| economy.building(id))
+                    .map(|building| building.key.clone())
+                    .collect(),
+                machines: economy
+                    .definitions
+                    .buildings
+                    .iter()
+                    .filter(|building| building.supports_recipe(recipe))
+                    .map(|building| {
+                        let duration = building.recipe_duration(recipe);
+                        let mut research = building
+                            .unlock_technology_id
+                            .map(|id| economy.ancestors(id))
+                            .unwrap_or_default();
+                        research.extend(building.unlock_technology_id);
+                        RouteMachine {
+                            building: building.key.clone(),
+                            research: research
+                                .into_iter()
+                                .filter_map(|id| economy.technology(id))
+                                .map(|technology| technology.key.clone())
+                                .collect(),
+                            duration,
+                            grid_energy: duration * building.power_draw.unwrap_or(0),
+                            fuel_energy: recipe.fuel,
+                            outputs_per_minute: outputs
+                                .iter()
+                                .map(|output| MilliAmount {
+                                    item: economy.item_key(output.item_id),
+                                    quantity_milli: per_minute(output.quantity, duration).milli(),
+                                })
+                                .collect(),
+                        }
+                    })
+                    .collect(),
+            }
+        })
+        .collect()
+}
+
 /// Boundary materials with the existing primitive stations already built. Not a travel-time claim.
 #[derive(Clone, Debug, Serialize)]
 pub struct BalanceReport {
+    pub recipe_routes: Vec<RecipeRoute>,
     pub boundaries: Vec<BoundaryCost>,
     pub surfaces: Vec<SurfaceCost>,
     pub reference: Reference,
@@ -563,22 +675,10 @@ impl Economy {
             .unwrap_or_else(|| format!("item-{id}"))
     }
 
-    /// The recipe that makes this item, or `None` for something the world hands over directly.
-    /// Two recipes producing one item would make "the cost of a plate" ambiguous, so that is a
-    /// panic rather than a first match: this module would be quietly reporting one of two answers.
+    /// The explicitly preferred route. Alternate routes are reported separately, never silently
+    /// chosen by catalogue order or a cheapest theoretical price.
     fn recipe_for(&self, id: ItemId) -> Option<&RecipeDefinition> {
-        let mut found = self
-            .definitions
-            .recipes
-            .iter()
-            .filter(|recipe| recipe.output.item_id == id);
-        let first = found.next();
-        assert!(
-            found.next().is_none(),
-            "two recipes produce {} — a tree-expanded cost would be ambiguous",
-            self.item_key(id)
-        );
-        first
+        self.definitions.production_routes(id).into_iter().next()
     }
 
     fn building(&self, id: DefinitionId) -> Option<&BuildingDefinition> {
@@ -653,7 +753,10 @@ impl Economy {
             *entry = entry.add(quantity);
             return;
         };
-        let crafts = quantity.over(recipe.output.quantity.max(1));
+        let crafts = quantity
+            .over(recipe.yield_of(item).max(1))
+            .mul(Ratio::whole(recipe.share_of(item)))
+            .over(100);
         *energy = energy.add(crafts.mul(Ratio::whole(recipe.fuel)));
         *ticks = ticks.add(crafts.mul(Ratio::whole(recipe.duration)));
         path.push(item);
@@ -678,12 +781,20 @@ impl Economy {
         raw: &mut BTreeMap<ItemId, u64>,
         energy: &mut u64,
         ticks: &mut u64,
+        surplus: &mut BTreeMap<ItemId, u64>,
     ) {
+        let held = surplus.entry(item).or_default();
+        let taken = quantity.min(*held);
+        *held -= taken;
+        let quantity = quantity - taken;
+        if quantity == 0 {
+            return;
+        }
         let Some(recipe) = self.recipe_for(item) else {
             *raw.entry(item).or_insert(0) += quantity;
             return;
         };
-        let crafts = divide_up(quantity, u64::from(recipe.output.quantity.max(1)));
+        let crafts = divide_up(quantity, u64::from(recipe.yield_of(item).max(1)));
         *energy += crafts * u64::from(recipe.fuel);
         *ticks += crafts * u64::from(recipe.duration);
         for input in &recipe.inputs {
@@ -693,8 +804,18 @@ impl Economy {
                 raw,
                 energy,
                 ticks,
+                surplus,
             );
         }
+        // Preserve the released single-output whole-craft convention. Joint output batches share
+        // one ledger so asking for both products never buys the same refinery work twice.
+        if recipe.co_products.is_empty() {
+            return;
+        }
+        for output in recipe.outputs() {
+            *surplus.entry(output.item_id).or_default() += crafts * u64::from(output.quantity);
+        }
+        *surplus.entry(item).or_default() -= quantity;
     }
 
     fn depth_of(&self, item: ItemId) -> u32 {
@@ -718,6 +839,7 @@ impl Economy {
         let mut batch_raw = BTreeMap::new();
         let mut batch_energy = 0u64;
         let mut batch_ticks = 0u64;
+        let mut surplus = BTreeMap::new();
         let mut depth = 0;
         for ingredient in ingredients {
             self.expand(
@@ -734,6 +856,7 @@ impl Economy {
                 &mut batch_raw,
                 &mut batch_energy,
                 &mut batch_ticks,
+                &mut surplus,
             );
             depth = depth.max(self.depth_of(ingredient.item_id));
         }
@@ -802,6 +925,7 @@ fn report(economy: &Economy) -> BalanceReport {
     let (best_fuel_id, best_fuel_value) = economy.best_fuel();
 
     BalanceReport {
+        recipe_routes: recipe_routes(economy),
         boundaries: boundaries(economy),
         surfaces: surfaces(economy),
         reference: reference(economy, best_fuel_id, best_fuel_value),
@@ -938,6 +1062,13 @@ fn machines(economy: &Economy) -> Vec<MachineRate> {
             BuildingKind::Extractor => {
                 let speed = building.extract_speed.unwrap_or(100).max(1);
                 for item in &economy.definitions.items {
+                    if building.output_item_id.is_some_and(|id| id != item.id)
+                        || item
+                            .extraction_building_id
+                            .is_some_and(|id| id != building.id)
+                    {
+                        continue;
+                    }
                     let Some(steps) = item.extract_steps else {
                         continue;
                     };
@@ -1120,7 +1251,7 @@ fn fuel(economy: &Economy) -> Vec<FuelConversion> {
         .filter_map(|item| {
             let fuel_value = item.fuel_value?;
             let recipe = economy.recipe_for(item.id);
-            let output_energy = fuel_value * recipe.map_or(1, |recipe| recipe.output.quantity);
+            let output_energy = fuel_value * recipe.map_or(1, |recipe| recipe.yield_of(item.id));
             let input_energy = recipe.map_or(0, |recipe| {
                 recipe.fuel
                     + recipe
@@ -1369,10 +1500,37 @@ fn surfaces(economy: &Economy) -> Vec<SurfaceCost> {
                     quantity: i.quantity * YARD_HEXES,
                 })
                 .collect();
-            let expansion = economy.cost_of(&bill);
+            let base_bill: Vec<_> = surface
+                .base_surface_id
+                .and_then(|id| {
+                    economy
+                        .definitions
+                        .surfaces
+                        .iter()
+                        .find(|base| base.id == id)
+                })
+                .map(|base| {
+                    base.construction_cost
+                        .iter()
+                        .map(|ingredient| Ingredient {
+                            item_id: ingredient.item_id,
+                            quantity: ingredient.quantity * YARD_HEXES,
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+            let all: Vec<_> = bill.iter().chain(&base_bill).copied().collect();
+            let expansion = economy.cost_of(&all);
             let step_cost =
                 crate::WALK_STEP_COST * crate::UNTREATED_MOVEMENT / surface.movement.max(1);
             SurfaceCost {
+                base: base_bill
+                    .iter()
+                    .map(|ingredient| Amount {
+                        item: economy.item_key(ingredient.item_id),
+                        quantity: u64::from(ingredient.quantity),
+                    })
+                    .collect(),
                 surface: surface.key.clone(),
                 movement: surface.movement,
                 step_cost,
@@ -2180,7 +2338,7 @@ fn opening_work(
         let Some(recipe) = economy.recipe_for(item) else {
             return (0, 0);
         };
-        let crafts = divide_up(quantity, u64::from(recipe.output.quantity));
+        let crafts = divide_up(quantity, u64::from(recipe.yield_of(item)));
         let machine = machines
             .iter()
             .filter_map(|id| economy.building(*id))

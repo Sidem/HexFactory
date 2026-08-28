@@ -17,6 +17,7 @@ export const SURFACE_LOOK: Record<string, SurfaceLook> = {
   "timber-decking": { color: "#a87a45", roughness: 0.82 },
   "brick-pavers": { color: "#a45a45", roughness: 0.8 },
   "concrete-slab": { color: "#9ba1a1", roughness: 0.72 },
+  "asphalt-road": { color: "#414d56", roughness: 0.91 },
 };
 
 export const UNKNOWN_SURFACE: SurfaceLook = {

@@ -1,5 +1,5 @@
 {
-  "version": 13,
+  "version": 14,
   "technologies": [
     {
       "id": 1,
@@ -243,6 +243,34 @@
       ],
       "branch": "masonry",
       "stage": "industrial-systems"
+    },
+    {
+      "id": 21,
+      "key": "petroleum-processing",
+      "name": "Petroleum Processing",
+      "description": "Find a lowland oil deposit, power a well and refine crude into bitumen plus fuel. Both outputs must have somewhere to go. Oil travels as belt cargo; pipes are not required.",
+      "prerequisites": [5, 8],
+      "cost": 16,
+      "effects": [
+        { "kind": "unlock_building", "building_id": 29 },
+        { "kind": "unlock_building", "building_id": 30 }
+      ],
+      "branch": "chemistry",
+      "stage": "industrial-systems"
+    },
+    {
+      "id": 22,
+      "key": "asphalt-roads",
+      "name": "Asphalt Roads",
+      "description": "Mix gravel with bitumen and pave fast roads over a gravel base. Asphalt gives 50% faster walking than untreated ground. Walls, ordinary yards and starter machines remain oil-free.",
+      "prerequisites": [21, 6],
+      "cost": 12,
+      "effects": [
+        { "kind": "unlock_building", "building_id": 31 },
+        { "kind": "unlock_surface", "surface_id": 6 }
+      ],
+      "branch": "infrastructure",
+      "stage": "industrial-systems"
     }
   ],
   "branches": [
@@ -293,6 +321,12 @@
       "name": "Electricity",
       "description": "Generation and electrical transmission.",
       "order": 7
+    },
+    {
+      "key": "chemistry",
+      "name": "Chemistry",
+      "description": "Petroleum refining and useful co-products.",
+      "order": 8
     }
   ],
   "stages": [

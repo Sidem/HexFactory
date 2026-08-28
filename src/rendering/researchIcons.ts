@@ -1,5 +1,8 @@
 /** Original SVG research emblems. Presentation keys never enter saves or native definitions. */
 const GLYPHS: Record<string, string> = {
+  "petroleum-processing":
+    '<path d="M5 28V10a4 4 0 0 1 8 0v18M5 14h8M5 21h8M9 6V2m10 26V17a4 4 0 0 1 8 0v11M13 24h6M3 28h26"/><path d="M23 3c-4 5-4 8 0 8s4-3 0-8Z"/>',
+  "asphalt-roads": '<path d="M4 29 10 3h12l6 26M16 5v4m0 4v4m0 4v5M3 29h26"/>',
   "field-logistics":
     '<rect x="3" y="8" width="26" height="16" rx="7"/><circle cx="10" cy="16" r="3"/><circle cx="22" cy="16" r="3"/><path d="M11 4h10m-3-3 3 3-3 3"/>',
   "automated-extraction":
@@ -62,6 +65,7 @@ export function researchBranchColor(branch: string): string {
         infrastructure: "#b2beca",
         plumbing: "#7cdacb",
         electricity: "#efd27c",
+        chemistry: "#c5a5e8",
         "field-capabilities": "#c6adeb",
       } as Record<string, string>
     )[branch] ?? "#a9c4c0"

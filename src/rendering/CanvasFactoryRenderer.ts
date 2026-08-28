@@ -834,7 +834,7 @@ export class CanvasFactoryRenderer implements FactoryRenderer {
       building.kind === "hub" ? (this.snapshot?.contract.stage ?? 0) : 0;
     const key = silhouetteOf(
       building.kind,
-      definition?.recipe_category,
+      definition?.recipe_category ?? definition?.source_category,
       definition?.power_source,
     );
     const moving = partsFor(key, definition?.tier ?? 0, growth).filter(

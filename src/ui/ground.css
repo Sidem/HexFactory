@@ -139,6 +139,22 @@
 .ground-palette .ground-price.short {
   color: var(--danger);
 }
+.ground-material-hint {
+  grid-column: 1 / -1;
+  font-size: 11px;
+  line-height: 1.5;
+  color: #b4c8be;
+}
+.ground-material-hint:empty {
+  display: none;
+}
+.ground-palette button.locked {
+  border-style: dashed;
+}
+.production-note {
+  margin: 12px 0;
+  line-height: 1.6;
+}
 
 .ground-fields {
   display: grid;

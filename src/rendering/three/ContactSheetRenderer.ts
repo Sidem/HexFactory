@@ -158,7 +158,7 @@ export class ContactSheetRenderer {
     this.model.add(foot);
     const key = silhouetteOf(
       definition.kind,
-      definition.recipe_category,
+      definition.recipe_category ?? definition.source_category,
       definition.power_source,
     );
     for (const part of partsFor(

@@ -595,7 +595,7 @@ export class WorldGl {
       const definition = this.buildingsById.get(building.definition_id);
       const key = silhouetteOf(
         building.kind,
-        definition?.recipe_category,
+        definition?.recipe_category ?? definition?.source_category,
         definition?.power_source,
       );
       const uv = this.stampIndex.get(

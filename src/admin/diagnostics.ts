@@ -12,6 +12,7 @@ import type {
   TechnologyDefinition,
 } from "../core/types";
 import { isItemIconKey } from "../rendering/icons";
+import { recipeOutputs } from "../core/recipes";
 import type { ValidationIssue } from "./types";
 
 export function runDiagnostics(
@@ -143,17 +144,19 @@ export function runDiagnostics(
       }
     }
 
-    // Validate output
-    if (!itemMap.has(recipe.output.item_id)) {
-      issues.push({
-        id: `recipe-${recipe.id}-bad-output-${recipe.output.item_id}`,
-        severity: "error",
-        category: "Referential Integrity",
-        entity: "recipe",
-        entityId: recipe.id,
-        message: `Recipe "${recipe.name}" references non-existent output item #${recipe.output.item_id}`,
-        field: "output",
-      });
+    // Validate every joint output, not just the primary catalogue label.
+    for (const output of recipeOutputs(recipe)) {
+      if (!itemMap.has(output.item_id)) {
+        issues.push({
+          id: `recipe-${recipe.id}-bad-output-${output.item_id}`,
+          severity: "error",
+          category: "Referential Integrity",
+          entity: "recipe",
+          entityId: recipe.id,
+          message: `Recipe "${recipe.name}" references non-existent output item #${output.item_id}`,
+          field: "output",
+        });
+      }
     }
   }
 
@@ -320,10 +323,14 @@ export function runDiagnostics(
   // Supply chain sanity: items that have no production source and no gather ability
   const producedItemIds = new Set<number>();
   for (const recipe of definitions.recipes) {
-    producedItemIds.add(recipe.output.item_id);
+    for (const output of recipeOutputs(recipe))
+      producedItemIds.add(output.item_id);
   }
   for (const building of definitions.buildings) {
-    if (building.kind === "pump" && building.output_item_id) {
+    if (
+      (building.kind === "pump" || building.kind === "extractor") &&
+      building.output_item_id
+    ) {
       producedItemIds.add(building.output_item_id);
     }
   }

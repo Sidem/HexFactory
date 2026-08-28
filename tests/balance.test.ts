@@ -4,6 +4,12 @@ import fixture from "../fixtures/balance.json";
 import definitions from "../src/data/definitions.json";
 import scenarios from "../src/data/scenarios.json";
 import type { Definitions, Ingredient } from "../src/core/types";
+import {
+  recipeOutputs,
+  recipeYield,
+  recipeShare,
+  productionRecipe,
+} from "../src/core/recipes";
 
 /**
  * The cross-language half of the balance gate.
@@ -31,11 +37,9 @@ function openingWork(
 ): [number, number] {
   const total: [number, number] = [0, 0];
   const walk = (itemId: number, quantity: number): void => {
-    const recipe = catalogue.recipes.find(
-      (recipe) => recipe.output.item_id === itemId,
-    );
+    const recipe = productionRecipe(catalogue, itemId);
     if (!recipe) return;
-    const crafts = Math.ceil(quantity / recipe.output.quantity);
+    const crafts = Math.ceil(quantity / recipeYield(recipe, itemId));
     const machine = catalogue.buildings
       .filter(
         (building) =>
@@ -154,7 +158,10 @@ function milli(value: Ratio): number {
 
 const itemById = new Map(catalogue.items.map((item) => [item.id, item]));
 const recipeFor = new Map(
-  catalogue.recipes.map((recipe) => [recipe.output.item_id, recipe]),
+  catalogue.items.map((item) => [
+    item.id,
+    productionRecipe(catalogue, item.id),
+  ]),
 );
 const keyOf = (id: number) => itemById.get(id)?.key ?? `item-${id}`;
 
@@ -197,24 +204,46 @@ function expand(ingredients: Ingredient[]): Expansion {
       result.raw.set(itemId, add(result.raw.get(itemId) ?? ratio(0), quantity));
       return;
     }
-    const crafts = over(quantity, Math.max(recipe.output.quantity, 1));
+    const crafts = over(
+      times(
+        over(quantity, Math.max(recipeYield(recipe, itemId), 1)),
+        recipeShare(recipe, itemId),
+      ),
+      100,
+    );
     result.energy = add(result.energy, times(crafts, recipe.fuel ?? 0));
     result.ticks = add(result.ticks, times(crafts, recipe.duration));
     for (const input of recipe.inputs)
       exact(input.item_id, times(crafts, input.quantity));
   };
 
+  const surplus = new Map<number, number>();
   const whole = (itemId: number, quantity: number) => {
+    const held = surplus.get(itemId) ?? 0;
+    const taken = Math.min(held, quantity);
+    surplus.set(itemId, held - taken);
+    quantity -= taken;
+    if (!quantity) return;
     const recipe = recipeFor.get(itemId);
     if (!recipe) {
       result.batch.set(itemId, (result.batch.get(itemId) ?? 0) + quantity);
       return;
     }
-    const crafts = Math.ceil(quantity / Math.max(recipe.output.quantity, 1));
+    const crafts = Math.ceil(
+      quantity / Math.max(recipeYield(recipe, itemId), 1),
+    );
     result.batchEnergy += crafts * (recipe.fuel ?? 0);
     result.batchTicks += crafts * recipe.duration;
     for (const input of recipe.inputs)
       whole(input.item_id, crafts * input.quantity);
+    if (recipe.co_products?.length) {
+      for (const output of recipeOutputs(recipe))
+        surplus.set(
+          output.item_id,
+          (surplus.get(output.item_id) ?? 0) + crafts * output.quantity,
+        );
+      surplus.set(itemId, (surplus.get(itemId) ?? 0) - quantity);
+    }
   };
 
   for (const ingredient of ingredients) {
@@ -488,7 +517,7 @@ describe("the economy's stated curve", () => {
         );
       expect(entry.input_energy).toBe(input);
       expect(entry.output_energy).toBe(
-        entry.fuel_value * recipe.output.quantity,
+        entry.fuel_value * recipeYield(recipe, item!.id),
       );
       // Charcoal made energy from nothing through v0.23: two wood at two energy for one charcoal
       // at eight, from a kiln that burns no fuel, on an input that regrows. A real kiln burns part
@@ -708,8 +737,8 @@ it("budgets personal skill points separately from factory insight", () => {
   expect(fixture.budget.skill_points).toBe(3);
   expect(fixture.budget.skill_cost).toBe(2);
   expect(fixture.budget.skill_milestones).toBe(3);
-  expect(fixture.budget.research_cost).toBe(128);
-  expect(fixture.budget.project_insight).toBe(626);
+  expect(fixture.budget.research_cost).toBe(156);
+  expect(fixture.budget.project_insight).toBe(706);
 });
 
 describe("primitive boundary construction", () => {
@@ -766,6 +795,29 @@ describe("primitive boundary construction", () => {
 });
 
 describe("prepared ground", () => {
+  it("charges a joint refinery batch once and gives every product an explicit share", () => {
+    const route = fixture.recipe_routes.find(
+      (route) => route.recipe === "oil-refining",
+    )!;
+    expect(route.cost_allocation_percent).toEqual([50, 50]);
+    expect(route.outputs).toEqual([
+      { item: "bitumen", quantity: 2 },
+      { item: "refined-fuel", quantity: 2 },
+    ]);
+    expect(route.whole_batch_raw).toEqual([{ item: "crude-oil", quantity: 4 }]);
+    expect(route.source_machines).toEqual(["oil-well"]);
+    const combined = expand([
+      { item_id: 29, quantity: 2 },
+      { item_id: 30, quantity: 2 },
+    ]);
+    expect(combined.batch.get(28)).toBe(4);
+    expect(milli(combined.raw.get(28)!)).toBe(4000);
+    expect(route.machines[0]!.outputs_per_minute).toEqual([
+      { item: "bitumen", quantity_milli: 40000 },
+      { item: "refined-fuel", quantity_milli: 40000 },
+    ]);
+    expect(route.machines[0]!.grid_energy).toBe(240);
+  });
   it("prices a paved yard against the walking it actually saves", () => {
     // Native's own constants, restated once so this side is an independent expansion rather than a
     // second reading of the same source: a step costs 100, untreated ground walks at 100, and no
@@ -791,6 +843,15 @@ describe("prepared ground", () => {
       expect(surface.direct).toEqual(
         definition.construction_cost.map((item) => ({
           item: catalogue.items.find((i) => i.id === item.item_id)!.key,
+          quantity: item.quantity * surface.hexes,
+        })),
+      );
+      const base = catalogue.surfaces.find(
+        (base) => base.id === definition.base_surface_id,
+      );
+      expect(surface.base).toEqual(
+        (base?.construction_cost ?? []).map((item) => ({
+          item: keyOf(item.item_id),
           quantity: item.quantity * surface.hexes,
         })),
       );

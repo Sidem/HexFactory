@@ -27,7 +27,7 @@
 // exactly the world it already was, so only the stamps move: definition catalog 23 advances to 24.
 // v31 opens masonry: definition catalog 25, technology catalog 13, world generator 9. Old worlds
 // keep the site_rules they were generated with, so existing deposits do not move.
-export const SAVE_VERSION = 31;
+export const SAVE_VERSION = 32;
 export const SAVE_CATALOG_KEY = "hexfactory:saves:v1";
 export const LEGACY_SAVE_PREFIX = "hexfactory:hxf1:";
 export const HXF1_PREFIX = "HXF1\n";
@@ -196,6 +196,8 @@ export function compatibility(
     [28, 22, 12],
     [29, 23, 12],
     [30, 24, 12],
+    [31, 25, 13],
+    [32, 26, 14],
   ];
   const from = released.findIndex(
     ([save, definitions, technology]) =>
@@ -230,7 +232,22 @@ export function compatibility(
       envelope.definitionVersion,
     );
   }
-  expect("world generator", build.versions.world, envelope.worldVersion);
+  let worldVersion = envelope.worldVersion;
+  if (
+    migrates &&
+    envelope.saveVersion <= 30 &&
+    build.versions.save >= 31 &&
+    worldVersion === 8
+  )
+    worldVersion = 9;
+  if (
+    migrates &&
+    envelope.saveVersion <= 31 &&
+    build.versions.save >= 32 &&
+    worldVersion === 9
+  )
+    worldVersion = 10;
+  expect("world generator", build.versions.world, worldVersion);
   if (!migrates)
     expect("technology", build.versions.technology, envelope.technologyVersion);
   const scenario = build.scenarios.find(

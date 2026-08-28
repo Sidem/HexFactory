@@ -1,4 +1,5 @@
 import { supportsRecipe } from "./definitions";
+import { productionRecipe, recipeShare, recipeYield } from "./recipes";
 import { technologyAvailability } from "./availability";
 import type {
   BuildingDefinition,
@@ -103,6 +104,7 @@ export function nextAction(
     definitions,
     technologies,
     new Set(snapshot.buildings.map((building) => building.definition_id)),
+    researched,
   );
 
   // 1. Research, in dependency order. Only a technology whose prerequisites are all met can be
@@ -298,6 +300,7 @@ function expand(
   definitions: Definitions,
   technologies: Technologies,
   installed: ReadonlySet<number>,
+  researched: ReadonlySet<number>,
 ): Requirements {
   const machines: BuildingDefinition[] = [];
   const raw: number[] = [];
@@ -306,14 +309,22 @@ function expand(
   const walk = (itemId: number): void => {
     if (seen.has(itemId)) return;
     seen.add(itemId);
-    const recipe = definitions.recipes.find(
-      (value) => value.output.item_id === itemId,
+    const recipe = productionRecipe(definitions, itemId, (route) =>
+      definitions.buildings.some(
+        (building) =>
+          supportsRecipe(building, route) &&
+          (building.unlock_technology_id === undefined ||
+            researched.has(building.unlock_technology_id)),
+      ),
     );
     if (!recipe) {
       raw.push(itemId);
       const item = definitions.items.find((value) => value.id === itemId);
       if (!item?.hand_gather_steps) {
-        const extractor = cheapestExtractor(definitions);
+        const extractor =
+          definitions.buildings.find(
+            (building) => building.output_item_id === itemId,
+          ) ?? cheapestExtractor(definitions);
         if (extractor && !machines.some((value) => value.id === extractor.id))
           machines.push(extractor);
       }
@@ -372,14 +383,19 @@ function constructionGuide(
   ): BuildingDefinition | undefined => {
     if ((snapshot.player.inventory[String(item)] ?? 0) >= quantity)
       return undefined;
-    const recipe = definitions.recipes.find(
-      (value) => value.output.item_id === item,
+    const recipe = productionRecipe(definitions, item, (route) =>
+      definitions.buildings.some(
+        (building) =>
+          supportsRecipe(building, route) &&
+          (building.unlock_technology_id === undefined ||
+            snapshot.researched.includes(building.unlock_technology_id)),
+      ),
     );
     if (!recipe) return undefined;
     const provider = cheapestFor(recipe, definitions, installed, visiting);
     if (!provider || installed.has(provider.id) || visiting.has(provider.id))
       return undefined;
-    const batches = Math.ceil(quantity / recipe.output.quantity);
+    const batches = Math.ceil(quantity / recipeYield(recipe, item));
     for (const input of recipe.inputs) {
       const earlier = find(input.item_id, input.quantity * batches);
       if (earlier) return earlier;
@@ -463,7 +479,12 @@ function cheapestExtractor(
   definitions: Definitions,
 ): BuildingDefinition | undefined {
   return definitions.buildings
-    .filter((building) => building.buildable && building.kind === "extractor")
+    .filter(
+      (building) =>
+        building.buildable &&
+        building.kind === "extractor" &&
+        building.output_item_id === undefined,
+    )
     .sort((a, b) => cost(a, definitions) - cost(b, definitions))[0];
 }
 
@@ -505,9 +526,7 @@ function rawCost(
   // A recipe that reaches its own output is priced as raw rather than recursed into. The catalogue
   // is validated acyclic natively; this is what makes a broken one return a number anyway.
   if (seen.has(itemId)) return 1;
-  const recipe = definitions.recipes.find(
-    (value) => value.output.item_id === itemId,
-  );
+  const recipe = productionRecipe(definitions, itemId);
   if (!recipe) return 1;
   const next = new Set(seen).add(itemId);
   const inputs = recipe.inputs.reduce(
@@ -520,7 +539,9 @@ function rawCost(
     ...definitions.items.map((item) => item.fuel_value ?? 0),
   );
   return (
-    (inputs + (recipe.fuel ?? 0) / fuelValue) /
-    Math.max(recipe.output.quantity, 1)
+    (((inputs + (recipe.fuel ?? 0) / fuelValue) /
+      Math.max(recipeYield(recipe, itemId), 1)) *
+      recipeShare(recipe, itemId)) /
+    100
   );
 }

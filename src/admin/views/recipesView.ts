@@ -1,4 +1,6 @@
 import { supportsRecipe } from "../../core/definitions";
+import { recipeOutputs } from "../../core/recipes";
+import { SIMULATION_TICKS_PER_SECOND } from "../../core/frameClock";
 import type { Ingredient, RecipeDefinition } from "../../core/types";
 import { itemIconSvg } from "../../rendering/icons";
 import type { AdminStore } from "../state";
@@ -88,12 +90,14 @@ export function renderRecipesView(
   const filteredRecipes = store.definitions.recipes.filter((r) => {
     if (filterCat !== "all" && r.category !== filterCat) return false;
     if (query) {
-      const outputItem = itemMap.get(r.output.item_id);
+      const outputNames = recipeOutputs(r)
+        .map((output) => itemMap.get(output.item_id)?.name ?? "")
+        .join(" ");
       const inputItems = r.inputs
         .map((i) => itemMap.get(i.item_id)?.name ?? "")
         .join(" ");
       const matchText =
-        `${r.id} ${r.key} ${r.name} ${r.category} ${r.description} ${outputItem?.name ?? ""} ${inputItems}`.toLowerCase();
+        `${r.id} ${r.key} ${r.name} ${r.category} ${r.description} ${outputNames} ${inputItems}`.toLowerCase();
       if (!matchText.includes(query)) return false;
     }
     return true;
@@ -113,17 +117,22 @@ export function renderRecipesView(
     const card = document.createElement("div");
     card.className = "recipe-card";
 
-    const outputItem = itemMap.get(recipe.output.item_id);
     const machinesRunning = store.definitions.buildings.filter((b) =>
       supportsRecipe(b, recipe),
     );
 
-    // Calculate production rate (per minute at 60 ticks/s)
-    const craftsPerMinute = (60 * 60) / Math.max(1, recipe.duration);
-    const itemsPerMinute = (craftsPerMinute * recipe.output.quantity).toFixed(
+    // Nominal recipe rate; machine speed and power availability are separate.
+    const craftsPerMinute =
+      (60 * SIMULATION_TICKS_PER_SECOND) / Math.max(1, recipe.duration);
+    const itemsPerMinute = recipeOutputs(recipe)
+      .map(
+        (output) =>
+          `${(craftsPerMinute * output.quantity).toFixed(1)} ${itemMap.get(output.item_id)?.name ?? output.item_id}`,
+      )
+      .join(" + ");
+    const durationSec = (recipe.duration / SIMULATION_TICKS_PER_SECOND).toFixed(
       1,
     );
-    const durationSec = (recipe.duration / 60).toFixed(1);
 
     card.innerHTML = `
       <div class="card-header">
@@ -170,23 +179,25 @@ export function renderRecipesView(
         </div>
 
         <div class="flow-output">
-          ${(() => {
-            const it = outputItem;
-            const color = it?.color ?? "#888";
-            const svg = itemIconSvg(it?.icon ?? "ore", color);
-            return `
+          ${recipeOutputs(recipe)
+            .map((output) => {
+              const it = itemMap.get(output.item_id);
+              const color = it?.color ?? "#888";
+              const svg = itemIconSvg(it?.icon ?? "ore", color);
+              return `
               <div class="flow-item-pill flow-output-pill" style="border-color: ${color}60; background: ${color}20;">
                 <span class="flow-icon">${svg}</span>
-                <span class="flow-qty" style="color: ${color}">${recipe.output.quantity}×</span>
-                <span class="flow-name"><strong>${it?.name ?? `#${recipe.output.item_id}`}</strong></span>
+                <span class="flow-qty" style="color: ${color}">${output.quantity}×</span>
+                <span class="flow-name"><strong>${it?.name ?? `#${output.item_id}`}</strong></span>
               </div>
             `;
-          })()}
+            })
+            .join("")}
         </div>
       </div>
 
       <div class="recipe-footer-info">
-        <span class="rate-metric">Throughput: <strong>${itemsPerMinute}</strong>/min</span>
+        <span class="rate-metric">Nominal recipe rate: <strong>${itemsPerMinute}</strong>/min</span>
         <span class="machines-metric" title="Compatible Machines">
           ${
             machinesRunning.length > 0
@@ -318,10 +329,9 @@ function renderRecipeModal(
     const previewEl = modal.querySelector(".modal-recipe-preview");
     if (!previewEl) return;
 
-    const outItem = itemMap.get(currentRecipe.output.item_id);
-    const outColor = outItem?.color ?? "#6fddd0";
-    const outSvg = itemIconSvg(outItem?.icon ?? "ore", outColor);
-    const sec = (currentRecipe.duration / 60).toFixed(1);
+    const sec = (currentRecipe.duration / SIMULATION_TICKS_PER_SECOND).toFixed(
+      1,
+    );
 
     previewEl.innerHTML = `
       <div class="flow-preview-wrap">
@@ -340,7 +350,13 @@ function renderRecipeModal(
           <span class="preview-arrow">➔ ${sec}s ${currentRecipe.fuel ? `(🔥 ${currentRecipe.fuel}MJ)` : ""}</span>
         </div>
         <div class="flow-output-preview">
-          <span class="preview-chip preview-out" style="border-color: ${outColor}70; background: ${outColor}25;">${outSvg} <strong>${currentRecipe.output.quantity}× ${outItem?.name ?? `#${currentRecipe.output.item_id}`}</strong></span>
+          ${recipeOutputs(currentRecipe)
+            .map((output) => {
+              const item = itemMap.get(output.item_id);
+              const color = item?.color ?? "#6fddd0";
+              return `<span class="preview-chip preview-out" style="border-color: ${color}70; background: ${color}25;">${itemIconSvg(item?.icon ?? "ore", color)} <strong>${output.quantity}× ${item?.name ?? `#${output.item_id}`}</strong></span>`;
+            })
+            .join("")}
         </div>
       </div>
     `;
@@ -417,7 +433,7 @@ function renderRecipeModal(
           <label>
             <span>Craft Duration (Ticks) *</span>
             <input type="number" name="duration" id="duration-input" value="${currentRecipe.duration}" min="1" required />
-            <small class="field-hint" id="duration-hint">${(currentRecipe.duration / 60).toFixed(2)} seconds (at 60 TPS)</small>
+            <small class="field-hint" id="duration-hint">${(currentRecipe.duration / SIMULATION_TICKS_PER_SECOND).toFixed(2)} seconds (at ${SIMULATION_TICKS_PER_SECOND} TPS)</small>
           </label>
           <label>
             <span>Fuel Required (MJ)</span>
@@ -478,7 +494,7 @@ function renderRecipeModal(
   durInput.addEventListener("input", () => {
     const val = Math.max(1, Number(durInput.value));
     currentRecipe.duration = val;
-    durHint.textContent = `${(val / 60).toFixed(2)} seconds (at 60 TPS)`;
+    durHint.textContent = `${(val / SIMULATION_TICKS_PER_SECOND).toFixed(2)} seconds (at ${SIMULATION_TICKS_PER_SECOND} TPS)`;
     updateFlowPreview();
   });
 

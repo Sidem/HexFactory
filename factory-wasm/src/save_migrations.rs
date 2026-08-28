@@ -130,6 +130,22 @@ pub(super) fn migrate<'a>(json: &'a str, target_version: u16) -> Result<Cow<'a, 
         version = 31;
     }
 
+    if version == 31 && target_version >= 32 {
+        if let Some(object) = value.as_object_mut() {
+            object.insert("save_version".into(), Value::from(32));
+            for (key, old, new) in [
+                ("definition_version", 25, 26),
+                ("technology_version", 13, 14),
+                ("world_generator_version", 9, 10),
+            ] {
+                if object.get(key) == Some(&Value::from(old)) {
+                    object.insert(key.into(), Value::from(new));
+                }
+            }
+        }
+        version = 32;
+    }
+
     if version == target_version {
         return Ok(Cow::Owned(serde_json::to_string(&value).map_err(
             |error| format!("migrated save could not be written: {error}"),

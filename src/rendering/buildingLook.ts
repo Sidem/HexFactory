@@ -24,6 +24,9 @@ export type SilhouetteKey =
   | "firing"
   | "cutting"
   | "crushing"
+  | "refining"
+  | "asphalt-mixing"
+  | "oil-extraction"
   | "primitive-smelting"
   | "manual-workshop"
   | PowerSource;
@@ -49,7 +52,11 @@ export function silhouetteOf(
   recipeCategory?: string | null,
   powerSource?: PowerSource,
 ): SilhouetteKey {
+  if (kind === "extractor" && recipeCategory === "oil-extraction")
+    return "oil-extraction";
   if (kind === "composer") {
+    if (recipeCategory === "refining") return "refining";
+    if (recipeCategory === "asphalt-mixing") return "asphalt-mixing";
     if (recipeCategory === "primitive-smelting") return "primitive-smelting";
     if (recipeCategory === "manual-workshop") return "manual-workshop";
     if (recipeCategory === "smelting") return "smelting";
@@ -90,6 +97,64 @@ const BEACON = "#f6c85f";
  * raised rails and transverse treads; the heading tick and cargo remain separate state cues.
  */
 export const BUILDING_SHAPES: Record<SilhouetteKey, readonly ShapePart[]> = {
+  "oil-extraction": [
+    { part: "chamber", x: 0, y: 0.07, scale: 0.28, material: "dark" },
+    { part: "mast", x: -0.18, y: -0.22, scale: 0.36 },
+    { part: "mast", x: 0.18, y: -0.22, scale: 0.36 },
+    {
+      part: "rotor",
+      x: 0,
+      y: -0.48,
+      scale: 0.23,
+      upright: true,
+      phase: "spin",
+      count: 3,
+      material: "brass",
+    },
+    {
+      part: "stack",
+      x: 0,
+      y: 0.2,
+      scale: 0.16,
+      rotation: Math.PI,
+      phase: "rise",
+    },
+  ],
+  refining: [
+    { part: "vessel", x: -0.2, y: -0.11, scale: 0.25 },
+    { part: "stack", x: -0.2, y: -0.44, scale: 0.19 },
+    {
+      part: "band",
+      x: -0.2,
+      y: -0.25,
+      scale: 0.22,
+      count: 4,
+      material: "brass",
+    },
+    { part: "vessel", x: 0.25, y: 0.1, scale: 0.24, material: "dark" },
+    {
+      part: "aperture",
+      x: 0.25,
+      y: 0.03,
+      scale: 0.11,
+      phase: "pulse",
+      glow: "#c4a2e8",
+    },
+  ],
+  "asphalt-mixing": [
+    { part: "chamber", x: 0, y: 0.04, scale: 0.4, material: "dark" },
+    { part: "vessel", x: 0, y: -0.12, scale: 0.27 },
+    {
+      part: "rotor",
+      x: 0,
+      y: -0.27,
+      scale: 0.24,
+      count: 4,
+      phase: "spin",
+      material: "brass",
+    },
+    { part: "mouth", x: 0.27, y: 0.13, scale: 0.19 },
+  ],
   "primitive-smelting": [
     { part: "vessel", x: 0, y: 0.08, scale: 0.36, material: "dark" },
     {
@@ -484,7 +549,7 @@ export function drawBuildingLook(
   const trim = trimOf(tier);
   const key = silhouetteOf(
     building.kind,
-    definition?.recipe_category,
+    definition?.recipe_category ?? definition?.source_category,
     definition?.power_source,
   );
   const cycle = workCycle(building, now, reducedMotion);

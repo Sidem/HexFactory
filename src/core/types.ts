@@ -65,6 +65,10 @@ export interface ItemDefinition {
    * falls back to its own cadence, which is water and the pump.
    */
   extract_steps?: number;
+  /** Explicit preference order when more than one recipe makes this item. */
+  production_routes?: number[];
+  /** A specialized field source; ordinary extractors cannot harvest this item. */
+  extraction_building_id?: number;
 }
 
 export interface RecipeDefinition {
@@ -76,6 +80,10 @@ export interface RecipeDefinition {
   category: string;
   inputs: Ingredient[];
   output: Ingredient;
+  /** Produced atomically with the primary output, into the shared output buffer. */
+  co_products?: Ingredient[];
+  /** Percentage shares, in output/co-product order. Required for joint outputs; sum is 100. */
+  cost_allocation?: number[];
   duration: number;
   /** Energy one craft consumes, paid from whatever fuel the machine has been fed. */
   fuel?: number;
@@ -92,6 +100,8 @@ export interface BuildingDefinition {
   capacity?: number;
   /** The recipe category a composer-kind machine may be assigned. */
   recipe_category?: string;
+  /** Authored appearance for specialized sources; never a simulation rule. */
+  source_category?: string;
   /** Explicit supported recipe IDs, replacing the category match on primitive equipment. */
   recipe_ids?: number[];
   /** One attended batch per work command; native owns the work permit and progress. */
@@ -184,6 +194,7 @@ export interface ProgressionGroup {
 export type TechnologyEffect =
   | { kind: "unlock_building"; building_id: number }
   | { kind: "unlock_boundary"; boundary_id: number }
+  | { kind: "unlock_surface"; surface_id: number }
   | { kind: "carry_slots"; amount: number }
   | { kind: "build_range"; amount: number };
 
@@ -986,6 +997,8 @@ export interface BoundaryPreview {
 
 /** One surface a hex can be finished with. `movement` is a percentage of untreated ground. */
 export interface SurfaceDefinition {
+  unlock_technology_id?: number;
+  base_surface_id?: number;
   id: number;
   key: string;
   name: string;

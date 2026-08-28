@@ -147,6 +147,15 @@ export function researchBenefits(
   definitions: Definitions,
 ): string[] {
   const benefits = [
+    ...technology.effects.flatMap((effect) =>
+      effect.kind === "unlock_surface"
+        ? [
+            definitions.surfaces.find(
+              (surface) => surface.id === effect.surface_id,
+            )?.name ?? `Surface ${effect.surface_id}`,
+          ]
+        : [],
+    ),
     ...technologyBuildingUnlocks(technology).map(
       (id) =>
         definitions.buildings.find((building) => building.id === id)?.name ??

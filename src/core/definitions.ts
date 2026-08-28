@@ -1,4 +1,5 @@
 import { validateSkills } from "./skills";
+import { productionRoutes, recipeOutputs } from "./recipes";
 import type {
   BuildingDefinition,
   Definitions,
@@ -133,6 +134,18 @@ export function validateDefinitions(
     )
       throw new TypeError("Invalid surface definition or construction bill");
     surfaceKeys.add(surface.key);
+    if (
+      surface.base_surface_id !== undefined &&
+      !data.surfaces.some(
+        (base) =>
+          base.id === surface.base_surface_id &&
+          base.id !== surface.id &&
+          base.base_surface_id === undefined,
+      )
+    )
+      throw new TypeError(
+        "Surface base must be a different, single-layer surface",
+      );
   }
   for (const item of data.items) {
     if (
@@ -179,7 +192,38 @@ export function validateDefinitions(
       throw new TypeError(
         `recipe ${recipe.id} has category ${recipe.category}, which no building runs`,
       );
-    for (const ingredient of [...recipe.inputs, recipe.output]) {
+    const outputs = recipeOutputs(recipe);
+    if (
+      new Set(outputs.map((output) => output.item_id)).size !==
+        outputs.length ||
+      outputs.length > 8 ||
+      new Set(recipe.inputs.map((input) => input.item_id)).size !==
+        recipe.inputs.length
+    )
+      throw new TypeError(
+        `recipe ${recipe.id} has duplicate or excessive ingredients`,
+      );
+    if (
+      (outputs.length > 1 || recipe.cost_allocation !== undefined) &&
+      (recipe.cost_allocation?.length !== outputs.length ||
+        recipe.cost_allocation.some((share) => !positiveInteger(share)) ||
+        recipe.cost_allocation.reduce((sum, share) => sum + share, 0) !== 100)
+    )
+      throw new TypeError(
+        `recipe ${recipe.id} requires positive cost shares summing to 100`,
+      );
+    if (
+      data.buildings.some(
+        (building) =>
+          supportsRecipe(building, recipe) &&
+          (building.capacity ?? Number.MAX_SAFE_INTEGER) <
+            outputs.reduce((sum, output) => sum + output.quantity, 0),
+      )
+    )
+      throw new TypeError(
+        `recipe ${recipe.id} output batch exceeds machine capacity`,
+      );
+    for (const ingredient of [...recipe.inputs, ...outputs]) {
       if (
         !itemIds.has(ingredient.item_id) ||
         !positiveInteger(ingredient.quantity)
@@ -188,6 +232,45 @@ export function validateDefinitions(
       }
     }
   }
+  for (const item of data.items) {
+    const producers = data.recipes.filter((recipe) =>
+      recipeOutputs(recipe).some((output) => output.item_id === item.id),
+    );
+    const routes = item.production_routes;
+    if (
+      (producers.length > 1 || routes !== undefined) &&
+      (!routes ||
+        routes.length !== producers.length ||
+        new Set(routes).size !== routes.length ||
+        routes.some((id) => !producers.some((recipe) => recipe.id === id)))
+    )
+      throw new TypeError(
+        `item ${item.id} requires an explicit production route order`,
+      );
+    if (
+      item.extraction_building_id !== undefined &&
+      !data.buildings.some(
+        (building) =>
+          building.id === item.extraction_building_id &&
+          building.kind === "extractor" &&
+          building.output_item_id === item.id,
+      )
+    )
+      throw new TypeError(`item ${item.id} has an invalid extraction building`);
+  }
+  const visiting = new Set<number>();
+  const checked = new Set<number>();
+  const visit = (item: number): void => {
+    if (visiting.has(item))
+      throw new TypeError(`recipe cycle through item ${item}`);
+    if (checked.has(item)) return;
+    visiting.add(item);
+    for (const recipe of productionRoutes(data as Definitions, item))
+      for (const input of recipe.inputs) visit(input.item_id);
+    visiting.delete(item);
+    checked.add(item);
+  };
+  for (const item of data.items) visit(item.id);
   for (const building of data.buildings) {
     if (
       !building.key ||
@@ -275,6 +358,11 @@ export function validateDefinitions(
       )
     )
       throw new TypeError(`pump ${building.id} requires a known output item`);
+    if (
+      building.output_item_id !== undefined &&
+      !itemIds.has(building.output_item_id)
+    )
+      throw new TypeError(`source ${building.id} requires a known output item`);
     if (
       building.kind === "generator" &&
       !(
@@ -486,7 +574,12 @@ export function validateTechnologies(
         technology.prerequisites.length ||
       !validGrant(technology) ||
       technology.prerequisites.some((id) => !ids.has(id)) ||
-      !validEffects(technology.effects, buildingIds, boundaryIds)
+      !validEffects(
+        technology.effects,
+        buildingIds,
+        boundaryIds,
+        new Set(definitions.surfaces.map(({ id }) => id)),
+      )
     )
       throw new TypeError(`technology ${technology.id} is invalid`);
     keys.add(technology.key);
@@ -512,6 +605,20 @@ export function validateTechnologies(
       !ids.has(boundary.unlock_technology_id)
     )
       throw new TypeError(`boundary ${boundary.id} has an invalid unlock`);
+  for (const surface of definitions.surfaces)
+    if (
+      surface.unlock_technology_id !== undefined &&
+      !data.technologies.some(
+        (technology) =>
+          technology.id === surface.unlock_technology_id &&
+          technology.effects.some(
+            (effect) =>
+              effect.kind === "unlock_surface" &&
+              effect.surface_id === surface.id,
+          ),
+      )
+    )
+      throw new TypeError(`surface ${surface.id} has an invalid unlock`);
 }
 
 export function technologyPurchasable(
@@ -580,9 +687,11 @@ function validEffects(
   effects: TechnologyEffect[],
   buildingIds: Set<number>,
   boundaryIds: Set<number>,
+  surfaceIds: Set<number>,
 ): boolean {
   const buildings = new Set<number>();
   const boundaries = new Set<number>();
+  const surfaces = new Set<number>();
   for (const effect of effects) {
     if (effect.kind === "unlock_building") {
       if (
@@ -603,6 +712,12 @@ function validEffects(
       continue;
     }
 
+    if (effect.kind === "unlock_surface") {
+      if (!surfaceIds.has(effect.surface_id) || surfaces.has(effect.surface_id))
+        return false;
+      surfaces.add(effect.surface_id);
+      continue;
+    }
     return false;
   }
   return true;

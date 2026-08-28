@@ -17,6 +17,8 @@ import {
 import { cueForEvent, FeedbackAudio } from "./audio/feedback";
 import { halfTransfer } from "./core/commands";
 import { supportsRecipe } from "./core/definitions";
+import { recipeOutputs } from "./core/recipes";
+import { productionNote } from "./ui/production";
 import { FactoryHost } from "./core/FactoryHost";
 import { FrameClock, SIMULATION_TICKS_PER_SECOND } from "./core/frameClock";
 import { nextAction } from "./core/guidance";
@@ -331,8 +333,37 @@ const panels = new PanelController(document, localStorage, (id, open) => {
   stopAiming();
   pressedMovement.clear();
   enqueue(currentMovementIntent());
-  if (id === "research-panel") researchTree.onOpen();
-  else skillsView.update(snapshot);
+  if (id === "research-panel") {
+    researchTree.onOpen();
+    const currentRun = snapshot;
+    void host
+      .worldParams()
+      .then((params) => {
+        // A load/reset may finish while the worker is replying. Never show another run's notice.
+        if (
+          currentRun.scenario !== snapshot.scenario ||
+          currentRun.seed !== snapshot.seed ||
+          snapshot.tick < currentRun.tick
+        )
+          return;
+        const oil = host.definitions.items.find(
+          (item) => item.key === "crude-oil",
+        );
+        const note = required("research-world-note");
+        const hasOil =
+          !oil ||
+          params.site_rules.some(
+            (rule) => rule.item_id === oil.id && rule.weight > 0,
+          );
+        note.hidden = hasOil;
+        note.textContent = hasOil
+          ? ""
+          : "This world keeps its original deposits and has no generated oil sites. Petroleum is optional: keep your existing factory, or start a new world to explore oil and asphalt.";
+      })
+      .catch(() => {
+        /* The worker already reports unavailable world parameters. */
+      });
+  } else skillsView.update(snapshot);
 });
 const researchTree = new ResearchTree(
   researchDialog,
@@ -1483,7 +1514,10 @@ function renderCardRecipes(
       recipe.inputs,
       costLines(recipe.inputs, snapshot),
     );
-    fillIngredients(part<HTMLElement>(row, ".recipe-out"), [recipe.output]);
+    fillIngredients(
+      part<HTMLElement>(row, ".recipe-out"),
+      recipeOutputs(recipe),
+    );
     const meta = [
       `${recipe.duration * (definition.duration_multiplier ?? 1)} ticks`,
     ];
@@ -1505,7 +1539,9 @@ function describeRecipe(recipe: RecipeDefinition): string {
   const inputs = recipe.inputs
     .map(({ item_id, quantity }) => `${quantity} ${name(item_id)}`)
     .join(" and ");
-  return `${inputs} makes ${recipe.output.quantity} ${name(recipe.output.item_id)}`;
+  return `${inputs} makes ${recipeOutputs(recipe)
+    .map(({ item_id, quantity }) => `${quantity} ${name(item_id)}`)
+    .join(" and ")}`;
 }
 
 /**
@@ -1759,7 +1795,9 @@ function renderInspectorActions(building: EntitySnapshot | undefined): void {
         label: "Output",
         accepts: false,
         expected: [
-          ...(recipe ? [recipe.output.item_id] : []),
+          ...(recipe
+            ? recipeOutputs(recipe).map((output) => output.item_id)
+            : []),
           ...(definition?.output_item_id ? [definition.output_item_id] : []),
         ],
         entries: building.output_inventory ?? [],
@@ -2345,6 +2383,10 @@ function fillRecipeOptions(
  * different shape.
  */
 function renderInspectorRecipe(building: EntitySnapshot | undefined): void {
+  const note = required<HTMLElement>("production-note");
+  const message = productionNote(building, host.definitions);
+  note.hidden = !message;
+  note.textContent = message;
   const wrapper = required<HTMLElement>("inspector-recipe");
   const select = required<HTMLSelectElement>("machine-recipe");
   const definition = building
@@ -3186,7 +3228,6 @@ titleContinue.addEventListener("click", () => {
   );
   if (slot) {
     void loadSlot(slot);
-    closeTitleScreen();
   }
 });
 
@@ -4475,6 +4516,9 @@ function updateContinueState(message?: string): void {
     host.scenarios.scenarios.find(
       (scenario) => scenario.key === snapshot.scenario,
     )?.version ?? 0;
+  const titleStatus = required("title-save-status");
+  titleStatus.textContent = message ?? error ?? "";
+  titleStatus.hidden = !titleStatus.textContent;
   required<HTMLElement>("save-status").textContent =
     message ??
     importedNote +

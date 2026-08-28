@@ -8,6 +8,9 @@ use wasm_bindgen::prelude::*;
 
 mod boundaries;
 mod ground;
+#[cfg(test)]
+mod petroleum_tests;
+mod recipes;
 mod runtime;
 mod save_migrations;
 use boundaries::*;
@@ -117,7 +120,7 @@ const SAVE_PREFIX: &str = "HXF1\n";
 /// version-29 file simply has neither, so the migration is the version stamp and the definitions it
 /// travels with — an untouched world is exactly the world it already was, which is why the checksum
 /// contribution stays guarded on emptiness.
-const SAVE_VERSION: u16 = 31;
+const SAVE_VERSION: u16 = 32;
 /// Bumped to 6 for World Parameters. `WorldParams` is now part of a run's identity — it is in the
 /// save envelope and in the checksum — so a version-5 envelope carries no answer to the question
 /// "which world is this" and is rejected rather than assumed to be the default.
@@ -127,7 +130,7 @@ const SAVE_VERSION: u16 = 31;
 /// of by a hardcoded list of eight cells inside the clearing. Every one of those changes what a
 /// seed generates, so a version-6 envelope describes a landscape this build cannot reproduce and is
 /// rejected rather than reinterpreted. The named-save catalog shows the row rather than hiding it.
-const WORLD_GENERATOR_VERSION: u16 = 9;
+const WORLD_GENERATOR_VERSION: u16 = 10;
 const MAX_COMMANDS_PER_BATCH: usize = 8;
 /// A drag is one bounded command, so the run it expands into has to be bounded too. This is the
 /// native cap on cells a single `place_line` or `erase_line` may touch.
@@ -456,6 +459,10 @@ struct ItemDefinition {
     /// because the pump is the only thing that draws it.
     #[serde(default)]
     extract_steps: Option<u32>,
+    #[serde(default)]
+    production_routes: Option<Vec<RecipeId>>,
+    #[serde(default)]
+    extraction_building_id: Option<DefinitionId>,
 }
 
 #[derive(Clone, Deserialize)]
@@ -470,6 +477,10 @@ struct RecipeDefinition {
     category: String,
     inputs: Vec<Ingredient>,
     output: Ingredient,
+    #[serde(default)]
+    co_products: Vec<Ingredient>,
+    #[serde(default)]
+    cost_allocation: Vec<u32>,
     duration: u32,
     /// Energy one craft consumes, paid from whatever fuel item the machine has been fed. Zero for
     /// every recipe that needs no heat, which is what keeps charcoal reachable without coal.
@@ -898,6 +909,7 @@ struct TechnologyDefinition {
 enum TechnologyEffect {
     UnlockBuilding { building_id: DefinitionId },
     UnlockBoundary { boundary_id: DefinitionId },
+    UnlockSurface { surface_id: DefinitionId },
     CarrySlots { amount: u32 },
     BuildRange { amount: u32 },
 }
@@ -2186,6 +2198,25 @@ impl Core {
         seed_override: Option<u32>,
         world_params: Option<WorldParams>,
     ) -> Result<Self, String> {
+        Self::initialize(
+            definitions,
+            technologies,
+            scenario,
+            seed_override,
+            world_params,
+            true,
+        )
+    }
+
+    /// Saved worlds validate their stored state, not a newer release's opening promises.
+    fn initialize(
+        definitions: &DefinitionsInput,
+        technologies: &TechnologiesInput,
+        scenario: &ScenarioDefinition,
+        seed_override: Option<u32>,
+        world_params: Option<WorldParams>,
+        require_opening: bool,
+    ) -> Result<Self, String> {
         let seed = seed_override.unwrap_or(scenario.seed);
         let world_params = match world_params {
             Some(params) => params,
@@ -2201,7 +2232,7 @@ impl Core {
         // A world whose opening cannot be placed is refused here rather than papered over. It is
         // the one generator failure a validator cannot see — `validate` is asked before a seed
         // exists — and shipping it would mean a run that cannot reach its own first extractor.
-        if scenario.generated_environment {
+        if require_opening && scenario.generated_environment {
             if let Some(&(item_id, gave_up_at)) = fields.unmet.first() {
                 return Err(format!(
                     "this world guarantees no item {item_id} within {gave_up_at} hexes of the \
@@ -2842,7 +2873,7 @@ impl Core {
         self.deposit_links[&id]
             .iter()
             .copied()
-            .find(|&key| self.deposit_quantity(key) > 0)
+            .find(|&key| self.extractable_deposit(self.entities[index].placed.definition_id, key))
     }
 
     /// The material an extractor is working right now, read without touching the cache.
@@ -2855,7 +2886,7 @@ impl Core {
             .get(&self.entities[index].id)?
             .iter()
             .copied()
-            .find(|&key| self.deposit_quantity(key) > 0)
+            .find(|&key| self.extractable_deposit(self.entities[index].placed.definition_id, key))
             .and_then(|key| self.field_at(key.0, key.1))
             .map(|field| field.item_id)
     }
@@ -3402,9 +3433,7 @@ impl Core {
                 let Some(recipe) = entity.placed.recipe_id.and_then(|id| self.recipe(id)) else {
                     return false;
                 };
-                if self.room_for_stock(index, StockKind::Output, recipe.output.item_id)
-                    < recipe.output.quantity
-                {
+                if !self.room_for_recipe(index, recipe) {
                     return false;
                 }
                 // Mid-craft always wants power: the inputs are already spent and the only thing
@@ -4165,9 +4194,7 @@ impl Core {
         let Some(recipe) = self.recipe(recipe_id).cloned() else {
             return;
         };
-        if self.room_for_stock(index, StockKind::Output, recipe.output.item_id)
-            < recipe.output.quantity
-        {
+        if !self.room_for_recipe(index, &recipe) {
             return;
         }
         if self.entities[index].progress > 0 {
@@ -4175,10 +4202,12 @@ impl Core {
             self.dirty.entities.push(id);
             self.entities[index].progress += self.power_progress(index, 1);
             if self.entities[index].progress >= self.progress_total(index) {
-                *self.entities[index]
-                    .output_inventory
-                    .entry(recipe.output.item_id)
-                    .or_default() += recipe.output.quantity;
+                for output in recipe.outputs() {
+                    *self.entities[index]
+                        .output_inventory
+                        .entry(output.item_id)
+                        .or_default() += output.quantity;
+                }
                 self.entities[index].progress = 0;
                 self.entities[index].reserved_inputs.clear();
                 if manual {
@@ -4855,10 +4884,8 @@ impl Core {
             return 0;
         }
         match self
-            .definitions
-            .recipes
-            .iter()
-            .find(|recipe| recipe.output.item_id == item)
+            .reachable_recipe(item, guard)
+            .or_else(|| self.definitions.production_routes(item).into_iter().next())
         {
             Some(recipe) => {
                 let inner = recipe
@@ -4896,19 +4923,9 @@ impl Core {
         if depth > MAX_RECIPE_DEPTH {
             return false;
         }
-        match self
-            .definitions
-            .recipes
-            .iter()
-            .find(|recipe| recipe.output.item_id == item)
-        {
-            Some(recipe) => {
-                self.recipe_unlocked(recipe)
-                    && recipe
-                        .inputs
-                        .iter()
-                        .all(|input| self.item_reachable(input.item_id, depth + 1))
-            }
+        match self.reachable_recipe(item, depth) {
+            Some(_) => true,
+            None if !self.definitions.production_routes(item).is_empty() => false,
             None => {
                 let mut sources = self
                     .definitions
@@ -5958,9 +5975,23 @@ impl Core {
             }
         }
         if definition.placement_rule == PlacementRule::Resource
-            && self.deposit_quantity((q, r)) == 0
+            && !self.extractable_deposit(definition.id, (q, r))
         {
-            return Err("extractors require a non-empty deposit".into());
+            return Err(if let Some(item) = definition.output_item_id {
+                format!(
+                    "{} requires a non-empty {} deposit",
+                    definition.name,
+                    self.item_name(item)
+                )
+            } else if self
+                .field_at(q, r)
+                .and_then(|field| self.item_definition(field.item_id))
+                .is_some_and(|item| item.extraction_building_id.is_some())
+            {
+                "This deposit requires an oil well, not an ordinary extractor".into()
+            } else {
+                "extractors require a non-empty deposit".into()
+            });
         }
         let source_radius = definition.extract_radius.unwrap_or(PUMP_RADIUS as u32) as i32;
         if definition.placement_rule == PlacementRule::Water
@@ -7109,9 +7140,7 @@ impl Core {
                 .recipe_id
                 .and_then(|id| self.recipe(id))
                 .ok_or("choose a workshop recipe first")?;
-            if self.room_for_stock(index, StockKind::Output, recipe.output.item_id)
-                < recipe.output.quantity
-            {
+            if !self.room_for_recipe(index, recipe) {
                 return Err("workshop output is full".into());
             }
             if self.entities[index].progress == 0
@@ -7447,10 +7476,7 @@ impl Core {
                     .placed
                     .recipe_id
                     .and_then(|id| self.recipe(id))
-                    .is_some_and(|recipe| {
-                        self.room_for_stock(index, StockKind::Output, recipe.output.item_id)
-                            < recipe.output.quantity
-                    }) =>
+                    .is_some_and(|recipe| !self.room_for_recipe(index, recipe)) =>
             {
                 EntityStatus::OutputBlocked
             }
@@ -7842,9 +7868,13 @@ impl Core {
     }
 
     fn checksum(&self) -> u32 {
+        self.checksum_for_world(WORLD_GENERATOR_VERSION)
+    }
+
+    fn checksum_for_world(&self, world_version: u16) -> u32 {
         let mut hash = 0x811c9dc5u32;
         hash_bytes(&mut hash, self.scenario.key.as_bytes());
-        hash_u32(&mut hash, u32::from(WORLD_GENERATOR_VERSION));
+        hash_u32(&mut hash, u32::from(world_version));
         hash_u32(&mut hash, self.seed);
         hash_world_params(&mut hash, &self.world_params);
         hash_u64(&mut hash, self.tick);
@@ -8064,6 +8094,15 @@ impl Core {
             .strip_prefix(SAVE_PREFIX)
             .ok_or("save must begin with HXF1")?;
         let migrated = save_migrations::migrate(json, SAVE_VERSION)?;
+        // Verify the original world stamp before moving a legacy run onto the current envelope.
+        // Its saved site table is unchanged: adding oil must not reroll an existing landscape.
+        let original: serde_json::Value =
+            serde_json::from_str(json).map_err(|error| error.to_string())?;
+        let original_world = original
+            .get("world_generator_version")
+            .and_then(serde_json::Value::as_u64)
+            .and_then(|version| u16::try_from(version).ok())
+            .ok_or("save has no valid world version")?;
         let legacy_component_bill = matches!(migrated, std::borrow::Cow::Owned(_));
         let envelope: SaveEnvelope = serde_json::from_str(&migrated)
             .map_err(|error| format!("malformed HXF1 save: {error}"))?;
@@ -8083,12 +8122,13 @@ impl Core {
         if scenario.version != envelope.scenario_version {
             return Err("save scenario version is incompatible".into());
         }
-        let mut core = Core::new(
+        let mut core = Core::initialize(
             definitions,
             technologies,
             scenario,
             Some(envelope.state.seed),
             Some(envelope.state.world_params.clone()),
+            false,
         )?;
         validate_saved_state(
             definitions,
@@ -8172,10 +8212,11 @@ impl Core {
                 .unwrap_or(1),
         );
         core.events = vec!["HXF1 save restored".into()];
-        core.compile_graph();
-        if core.checksum() != envelope.checksum {
+        if core.checksum_for_world(original_world) != envelope.checksum {
             return Err("save checksum does not match its native state".into());
         }
+        // Verify saved facts before rebuilding derived topology and route caches.
+        core.compile_graph();
         // v0.33 asks for one component instead of three. Honor existing contributions only after
         // verifying their saved checksum, through the ordinary consumption/grant path. Completed
         // commissions are never replayed and any surplus stays credited at the hub.
@@ -9316,7 +9357,7 @@ fn validate_definitions(definitions: &DefinitionsInput) -> Result<(), String> {
                 recipe.id, recipe.category
             ));
         }
-        for ingredient in recipe.inputs.iter().chain(std::iter::once(&recipe.output)) {
+        for ingredient in recipe.inputs.iter().chain(recipe.outputs()) {
             if ingredient.quantity == 0 || !item_ids.contains(&ingredient.item_id) {
                 return Err(format!("recipe {} references an invalid item", recipe.id));
             }
@@ -9341,6 +9382,15 @@ fn validate_definitions(definitions: &DefinitionsInput) -> Result<(), String> {
                 .is_some_and(|item_id| item_ids.contains(&item_id))
         {
             return Err(format!("pump {} requires a known output item", building.id));
+        }
+        if building
+            .output_item_id
+            .is_some_and(|item_id| !item_ids.contains(&item_id))
+        {
+            return Err(format!(
+                "source {} requires a known output item",
+                building.id
+            ));
         }
         // A machine that runs recipes needs a category, and one that does not must not claim one.
         if (building.kind == BuildingKind::Composer) != building.recipe_category.is_some() {
@@ -9548,6 +9598,7 @@ fn validate_definitions(definitions: &DefinitionsInput) -> Result<(), String> {
             ));
         }
     }
+    recipes::validate_routes(definitions)?;
     validate_upgrade_ladders(definitions)?;
     Ok(())
 }
@@ -9701,7 +9752,16 @@ fn validate_technologies(
                 .len()
                 != technology.prerequisites.len()
             || !valid_technology_grant(technology)
-            || !valid_technology_effects(technology, &building_ids, &boundary_ids)
+            || !valid_technology_effects(
+                technology,
+                &building_ids,
+                &boundary_ids,
+                &definitions
+                    .surfaces
+                    .iter()
+                    .map(|surface| surface.id)
+                    .collect(),
+            )
         {
             return Err(format!("technology {} is incomplete", technology.id));
         }
@@ -9729,6 +9789,13 @@ fn validate_technologies(
                     "boundary {} has an unknown unlock requirement",
                     boundary.id
                 ));
+            }
+        }
+    }
+    for surface in &definitions.surfaces {
+        if let Some(id) = surface.unlock_technology_id {
+            if !technologies.technologies.iter().any(|technology| technology.id == id && technology.effects.iter().any(|effect| matches!(effect, TechnologyEffect::UnlockSurface { surface_id } if *surface_id == surface.id))) {
+                return Err(format!("surface {} has an invalid unlock requirement", surface.id));
             }
         }
     }
@@ -9772,6 +9839,7 @@ fn valid_technology_effects(
     technology: &TechnologyDefinition,
     building_ids: &BTreeSet<DefinitionId>,
     boundary_ids: &BTreeSet<DefinitionId>,
+    surface_ids: &BTreeSet<DefinitionId>,
 ) -> bool {
     let mut buildings = BTreeSet::new();
     for building_id in technology.building_unlocks() {
@@ -9785,7 +9853,11 @@ fn valid_technology_effects(
             return false;
         }
     }
+    let mut surfaces = BTreeSet::new();
     technology.effects.iter().all(|effect| {
+        if let TechnologyEffect::UnlockSurface { surface_id } = effect {
+            return surface_ids.contains(surface_id) && surfaces.insert(*surface_id);
+        }
         matches!(
             effect,
             TechnologyEffect::UnlockBuilding { .. } | TechnologyEffect::UnlockBoundary { .. }
@@ -11040,6 +11112,7 @@ const SAND: ItemId = 7;
 const CLAY: ItemId = 8;
 const WOOD: ItemId = 9;
 const LIMESTONE: ItemId = 26;
+const CRUDE_OIL: ItemId = 28;
 
 /// The shipped resource table. Order is no longer a generation input — the lattice weights one
 /// rule against the others eligible for a band rather than taking the first that matches — so this
@@ -11106,6 +11179,7 @@ fn default_site_rules() -> Vec<SiteRule> {
         // shape change — a base extractor drains its seven hexes and then runs at whatever regrowth
         // supplies — which is why forestry is a question of area rather than of throughput.
         rule(Terrain::Lowland, WOOD, 30, 5, 6, ANY, 3, 1, 2),
+        rule(Terrain::Lowland, CRUDE_OIL, 8, 2, 3, ANY, 40, 20, 4),
         // Riverbanks and lake shores. Rivers are what make this common rather than decorative,
         // which is why the two ship together. Shore-centred clay is the lighter of the two: the
         // sandy-looking tiles are the shore band, and sand has to be what you find on them first.
@@ -13278,7 +13352,7 @@ pub mod survey {
         let mut materials = Vec::new();
         let mut patches = Vec::new();
         for &item_id in &[
-            IRON_ORE, CRYSTAL, COPPER_ORE, COAL, STONE, SAND, CLAY, WOOD, LIMESTONE,
+            IRON_ORE, CRYSTAL, COPPER_ORE, COAL, STONE, SAND, CLAY, WOOD, LIMESTONE, CRUDE_OIL,
         ] {
             let name = name_of(item_id);
             let totals = totals.get(&item_id).copied().unwrap_or_default();
@@ -14991,7 +15065,7 @@ mod tests {
         );
         assert_eq!(
             seen.get(&Terrain::Lowland),
-            Some(&BTreeSet::from([WOOD, CLAY]))
+            Some(&BTreeSet::from([WOOD, CLAY, CRUDE_OIL]))
         );
         // Water is pumped, not mined, which is why a basin can never be emptied. `validate` refuses
         // a rule that names a water band, and this is that refusal seen from the world.
@@ -22334,7 +22408,9 @@ mod tests {
         //
         // 3_614_679_184 → 23_080_823 when limestone entered the site table and world generator 9
         // entered the checksum. The workload's shape, entity count, and delivered total did not move.
-        assert_eq!(first.checksum(), 23_080_823);
+        // Petroleum roads adds the oil site rule and world generator 10; the transport workload
+        // and its delivered total remain unchanged.
+        assert_eq!(first.checksum(), 1_951_253_762);
         assert_eq!(first.entities.len(), spec.entities() as usize);
         // Every line must be running end to end, or the tiers would measure an idle blueprint.
         // Four per line rather than fourteen: the line is now extraction-bound, because a

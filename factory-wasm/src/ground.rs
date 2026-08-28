@@ -23,6 +23,10 @@ pub(super) struct SurfaceDefinition {
     /// and a float here would put the route search and the player's own feet on different arithmetic.
     pub movement: u32,
     pub construction_cost: Vec<Ingredient>,
+    #[serde(default)]
+    pub unlock_technology_id: Option<TechnologyId>,
+    #[serde(default)]
+    pub base_surface_id: Option<DefinitionId>,
 }
 
 /// One prepared hex. Absent from the map means untreated ground at its natural band.
@@ -344,6 +348,17 @@ impl Core {
             } else {
                 None
             };
+            if let Some(id) = definition.and_then(|surface| surface.unlock_technology_id) {
+                if !self.creative && !self.researched.contains(&id) {
+                    return Err(format!(
+                        "Research {} before laying this surface",
+                        self.technology(id)
+                            .map_or("the required technology", |technology| technology
+                                .name
+                                .as_str())
+                    ));
+                }
+            }
             // The first cell of the selection is the grade every other cell is evened onto. Naming
             // the reference by the click that started the drag is what makes levelling a decision
             // the player can see before they make it, rather than an average they have to guess.
@@ -365,11 +380,32 @@ impl Core {
                 match edit.action {
                     GroundAction::Pave => {
                         let definition = definition.expect("pave definition");
+                        if next.surface == definition.id {
+                            continue;
+                        }
+                        if let Some(base) = definition.base_surface_id {
+                            if next.surface != base {
+                                return Err(format!(
+                                    "Lay {} on hex {}, {} first; this road needs a prepared base",
+                                    self.surface_definition(base)
+                                        .map_or("the base surface", |surface| surface
+                                            .name
+                                            .as_str()),
+                                    cell.0,
+                                    cell.1
+                                ));
+                            }
+                        }
                         next.surface = definition.id;
                         next.paid = if self.creative {
                             Vec::new()
                         } else {
-                            definition.construction_cost.clone()
+                            let mut paid = BTreeMap::new();
+                            if definition.base_surface_id.is_some() {
+                                add_ingredients(&mut paid, &next.paid);
+                            }
+                            add_ingredients(&mut paid, &definition.construction_cost);
+                            ingredients(&paid)
                         };
                     }
                     GroundAction::Clear => {
@@ -705,6 +741,13 @@ pub(super) fn validate_surfaces(definitions: &DefinitionsInput) -> Result<(), St
             s.construction_cost.iter().map(|i| i.item_id),
             "surface cost item",
         )?;
+        if let Some(base) = s.base_surface_id {
+            if !definitions.surfaces.iter().any(|surface| {
+                surface.id == base && surface.id != s.id && surface.base_surface_id.is_none()
+            }) {
+                return Err("Surface base must be a different, single-layer surface".into());
+            }
+        }
     }
     Ok(())
 }

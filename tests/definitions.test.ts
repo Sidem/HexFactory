@@ -96,6 +96,8 @@ describe("data-defined content", () => {
       "belt-junctions",
       "grade-separation",
       "fired-masonry",
+      "petroleum-processing",
+      "asphalt-roads",
     ]);
     expect(
       technologies.skills.find(({ key }) => key === "expanded-pack"),
@@ -238,7 +240,13 @@ describe("data-defined content", () => {
 
     // Fuel is a property of the item, so no recipe may name one as the thing it burns.
     const fuels = definitions.items.filter(({ fuel_value }) => fuel_value);
-    expect(fuels.map(({ key }) => key)).toEqual(["coal", "wood", "charcoal"]);
+    expect(fuels.map(({ key }) => key)).toEqual([
+      "coal",
+      "wood",
+      "charcoal",
+      "crude-oil",
+      "refined-fuel",
+    ]);
     // Charcoal is reachable without coal, or a player landing away from a coal field could not
     // bootstrap smelting at all.
     const charcoal = definitions.recipes.find(({ key }) => key === "charcoal");
@@ -252,12 +260,14 @@ describe("data-defined content", () => {
         .map(({ recipe_category }) => recipe_category),
     );
     expect([...categories].sort()).toEqual([
+      "asphalt-mixing",
       "assembly",
       "crushing",
       "cutting",
       "firing",
       "manual-workshop",
       "primitive-smelting",
+      "refining",
       "smelting",
     ]);
     for (const recipe of definitions.recipes)

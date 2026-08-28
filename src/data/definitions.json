@@ -1,5 +1,5 @@
 {
-  "version": 25,
+  "version": 26,
   "items": [
     {
       "id": 1,
@@ -264,6 +264,46 @@
       "icon": "grains",
       "description": "Kiln-fired binder. Turns gravel, sand and water into concrete, and holds a brick wall together.",
       "stack_size": 20
+    },
+    {
+      "id": 28,
+      "key": "crude-oil",
+      "name": "Crude oil",
+      "color": "#9e82b6",
+      "icon": "droplet",
+      "description": "Finite lowland oil deposit. A powered oil well extracts it; hands and ordinary extractors cannot. Travels as abstract belt units, not barrels or a pressure network.",
+      "stack_size": 40,
+      "extract_steps": 20,
+      "extraction_building_id": 29,
+      "fuel_value": 80
+    },
+    {
+      "id": 29,
+      "key": "bitumen",
+      "name": "Bitumen",
+      "color": "#a58d72",
+      "icon": "lump",
+      "description": "Road binder from the refinery. Every two bitumen also produce two refined fuel; give both an outlet.",
+      "stack_size": 40
+    },
+    {
+      "id": 30,
+      "key": "refined-fuel",
+      "name": "Refined fuel",
+      "color": "#efbb66",
+      "icon": "droplet",
+      "description": "Useful refinery co-product. Feed a burner generator, boiler or heated recipe. Oil energy is released here; the refinery needs electricity, not a coal ingredient.",
+      "stack_size": 40,
+      "fuel_value": 160
+    },
+    {
+      "id": 31,
+      "key": "asphalt",
+      "name": "Asphalt",
+      "color": "#84939c",
+      "icon": "grains",
+      "description": "Bitumen-bound aggregate. Two units pave one hex over a gravel base in Ground works, for 50% faster walking. Stored ready to lay; not an upper floor.",
+      "stack_size": 40
     }
   ],
   "recipes": [
@@ -614,6 +654,31 @@
       },
       "duration": 16,
       "fuel": 120
+    },
+    {
+      "id": 18,
+      "key": "oil-refining",
+      "name": "Refine crude oil",
+      "description": "Separate four crude oil into two bitumen and two refined fuel. Both products share the output buffer: remove or route both to keep refining. Cost allocation: bitumen 50%, fuel 50% of the whole batch.",
+      "category": "refining",
+      "inputs": [{ "item_id": 28, "quantity": 4 }],
+      "output": { "item_id": 29, "quantity": 2 },
+      "co_products": [{ "item_id": 30, "quantity": 2 }],
+      "cost_allocation": [50, 50],
+      "duration": 30
+    },
+    {
+      "id": 19,
+      "key": "asphalt",
+      "name": "Mix asphalt",
+      "description": "Bind three gravel with one bitumen into four asphalt. Lay it over a gravel base in Ground works; no curing timer.",
+      "category": "asphalt-mixing",
+      "inputs": [
+        { "item_id": 17, "quantity": 3 },
+        { "item_id": 29, "quantity": 1 }
+      ],
+      "output": { "item_id": 31, "quantity": 4 },
+      "duration": 20
     }
   ],
   "buildings": [
@@ -1530,6 +1595,81 @@
           "r": 0
         }
       ]
+    },
+    {
+      "id": 29,
+      "key": "oil-well",
+      "name": "Oil well",
+      "kind": "extractor",
+      "icon": "OIL",
+      "source_category": "oil-extraction",
+      "description": "A powered well for finite lowland oil deposits. Produces belt-carried crude units, not barrels. Supply electricity and run the outlet toward a refinery. Built from existing metalwork; no oil is needed to obtain the first oil.",
+      "cadence": 20,
+      "capacity": 24,
+      "extract_radius": 1,
+      "extract_speed": 100,
+      "output_item_id": 28,
+      "power_draw": 6,
+      "construction_cost": [
+        { "item_id": 11, "quantity": 6 },
+        { "item_id": 19, "quantity": 2 },
+        { "item_id": 20, "quantity": 2 }
+      ],
+      "unlock_technology_id": 21,
+      "placement_rule": "resource",
+      "buildable": true,
+      "blocks_movement": true,
+      "footprint": [{ "q": 0, "r": 0 }]
+    },
+    {
+      "id": 30,
+      "key": "refinery",
+      "name": "Refinery",
+      "kind": "composer",
+      "icon": "REF",
+      "description": "Separates crude into bitumen and refined fuel in equal quantities. Both leave the same outlet. Buffer both, or use a splitter directly beside an asphalt mixer and a fuel consumer. If either stream backs up, the refinery waits without losing anything.",
+      "capacity": 24,
+      "recipe_category": "refining",
+      "power_draw": 8,
+      "construction_cost": [
+        { "item_id": 11, "quantity": 8 },
+        { "item_id": 19, "quantity": 3 },
+        { "item_id": 20, "quantity": 3 },
+        { "item_id": 14, "quantity": 6 }
+      ],
+      "unlock_technology_id": 21,
+      "placement_rule": "ground",
+      "buildable": true,
+      "blocks_movement": true,
+      "footprint": [
+        { "q": 0, "r": 0 },
+        { "q": -1, "r": 0 }
+      ]
+    },
+    {
+      "id": 31,
+      "key": "asphalt-mixer",
+      "name": "Asphalt mixer",
+      "kind": "composer",
+      "icon": "MIX",
+      "description": "Mixes gravel and bitumen into ready-to-lay asphalt. Two asphalt pave a hex over a gravel base in Ground works. A fast-road specialty; brick and concrete construction remain oil-free.",
+      "capacity": 24,
+      "recipe_category": "asphalt-mixing",
+      "power_draw": 6,
+      "construction_cost": [
+        { "item_id": 11, "quantity": 10 },
+        { "item_id": 19, "quantity": 3 },
+        { "item_id": 20, "quantity": 3 },
+        { "item_id": 14, "quantity": 8 }
+      ],
+      "unlock_technology_id": 22,
+      "placement_rule": "ground",
+      "buildable": true,
+      "blocks_movement": true,
+      "footprint": [
+        { "q": 0, "r": 0 },
+        { "q": -1, "r": 0 }
+      ]
     }
   ],
   "requests": [
@@ -1748,6 +1888,33 @@
       "item_id": 27,
       "quantity": 8,
       "insight": 28
+    },
+    {
+      "id": 25,
+      "key": "road-binder",
+      "name": "Road binder",
+      "brief": "Deliver eight bitumen from a working refinery. The same batches make eight fuel; keep that stream moving too.",
+      "item_id": 29,
+      "quantity": 8,
+      "insight": 24
+    },
+    {
+      "id": 26,
+      "key": "useful-side-stream",
+      "name": "Useful side stream",
+      "brief": "Refining has two useful outputs. Deliver eight refined fuel once; burn later batches in compatible power equipment.",
+      "item_id": 30,
+      "quantity": 8,
+      "insight": 24
+    },
+    {
+      "id": 27,
+      "key": "petroleum-roads",
+      "name": "Petroleum roads",
+      "brief": "Supply sixteen asphalt for a logistics apron. Make it from gravel and refinery bitumen; the petroleum branch is optional.",
+      "item_id": 31,
+      "quantity": 16,
+      "insight": 32
     }
   ],
   "boundaries": [
@@ -1943,7 +2110,7 @@
       "id": 5,
       "key": "concrete-slab",
       "name": "Concrete slab",
-      "description": "Poured and cured. The fastest ground on offer at a third above raw, and the most expensive to lay.",
+      "description": "Poured and cured. A durable oil-free yard with 30% faster walking than raw ground.",
       "movement": 130,
       "construction_cost": [
         {
@@ -1951,6 +2118,16 @@
           "quantity": 1
         }
       ]
+    },
+    {
+      "id": 6,
+      "key": "asphalt-road",
+      "name": "Asphalt road",
+      "description": "A fast logistics road, not a structural floor. Lay over a gravel yard: the base stays paid into the road and comes back when stripped. Two asphalt per hex; 50% faster than raw ground.",
+      "movement": 150,
+      "unlock_technology_id": 22,
+      "base_surface_id": 2,
+      "construction_cost": [{ "item_id": 31, "quantity": 2 }]
     }
   ]
 }

@@ -11,6 +11,7 @@ import type {
   NativeInputCommand,
 } from "../core/types";
 import { UNTREATED_MOVEMENT } from "../core/definitions";
+import { part, syncChildren } from "./dom";
 import type { FactoryRenderer } from "../rendering/FactoryRenderer";
 import { WORLD_SCALE } from "../rendering/landmarks";
 
@@ -324,6 +325,8 @@ export class GroundTool {
     const changed =
       this.snapshot?.ground !== snapshot.ground ||
       this.snapshot?.spoil !== snapshot.spoil ||
+      this.snapshot?.researched !== snapshot.researched ||
+      this.snapshot?.player.creative !== snapshot.player.creative ||
       this.inventorySignature !== signature ||
       this.snapshot?.events !== snapshot.events;
     this.snapshot = snapshot;
@@ -362,43 +365,59 @@ export class GroundTool {
   private buildPalette(): void {
     const inventory = this.snapshot?.player.inventory ?? {};
     const creative = this.snapshot?.player.creative === true;
-    this.palette.replaceChildren(
-      ...this.host.definitions.surfaces.map((surface) => {
+    const surfaces = this.host.definitions.surfaces;
+    const buttons = syncChildren(
+      this.palette,
+      surfaces.map((surface) => String(surface.id)),
+      (key) => {
         const button = document.createElement("button");
         button.type = "button";
-        button.dataset.surface = String(surface.id);
-        button.title = surface.description;
-        button.setAttribute(
-          "aria-pressed",
-          String(surface.id === this.surface),
-        );
-        const name = document.createElement("span");
-        name.textContent = surface.name;
-        const pace = document.createElement("span");
-        pace.className = "ground-pace";
-        pace.textContent = `+${surface.movement - UNTREATED_MOVEMENT}% pace`;
-        const price = document.createElement("small");
-        price.className = "ground-price";
-        const short = surface.construction_cost.some(
-          (item) => (inventory[item.item_id] ?? 0) < item.quantity,
-        );
-        price.classList.toggle("short", short && !creative);
-        price.textContent = creative
-          ? "Free · creative mode"
-          : surface.construction_cost.length
-            ? `${this.names(surface.construction_cost, true)} per hex`
-            : "No materials needed";
-        button.append(name, pace, price);
+        button.dataset.surface = key;
+        button.innerHTML =
+          '<span class="ground-material-name"></span><span class="ground-pace"></span><small class="ground-price"></small><small class="ground-material-hint"></small>';
         button.addEventListener("click", () => {
-          this.surface = surface.id;
+          this.surface = Number(key);
           this.cover = false;
           this.coverInput.checked = false;
           this.buildPalette();
           this.refresh();
         });
         return button;
-      }),
+      },
     );
+    surfaces.forEach((surface, index) => {
+      const button = buttons[index]!;
+      button.title = surface.description;
+      button.setAttribute("aria-pressed", String(surface.id === this.surface));
+      const name = part(button, ".ground-material-name");
+      name.textContent = surface.name;
+      const pace = part(button, ".ground-pace");
+      pace.textContent = `+${surface.movement - UNTREATED_MOVEMENT}% pace`;
+      const price = part(button, ".ground-price");
+      const technology = this.host.technologies.technologies.find(
+        (technology) => technology.id === surface.unlock_technology_id,
+      );
+      const locked =
+        !creative &&
+        surface.unlock_technology_id !== undefined &&
+        !this.snapshot?.researched.includes(surface.unlock_technology_id);
+      const base = surfaces.find((base) => base.id === surface.base_surface_id);
+      part(button, ".ground-material-hint").textContent = locked
+        ? `Research ${technology?.name ?? "the required technology"}`
+        : base
+          ? `Lay ${base.name.toLowerCase()} first · base recovered on stripping`
+          : "";
+      button.classList.toggle("locked", locked);
+      const short = surface.construction_cost.some(
+        (item) => (inventory[item.item_id] ?? 0) < item.quantity,
+      );
+      price.classList.toggle("short", short && !creative);
+      price.textContent = creative
+        ? "Free · creative mode"
+        : surface.construction_cost.length
+          ? `${this.names(surface.construction_cost, true)} per hex`
+          : "No materials needed";
+    });
   }
 
   private readCoordinates(): void {

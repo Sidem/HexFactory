@@ -66,6 +66,9 @@ export const MACHINE_SILHOUETTE_SCALE: Readonly<Record<SilhouetteKey, number>> =
     firing: 2.05,
     cutting: 2,
     crushing: 2.05,
+    refining: 2.15,
+    "asphalt-mixing": 2,
+    "oil-extraction": 2.1,
     container: 2,
     consumer: 1.55,
     hub: 1.45,
@@ -161,7 +164,7 @@ export function collectMachineParts(
     const definition = definitions.get(building.definition_id);
     const key = silhouetteOf(
       building.kind,
-      definition?.recipe_category,
+      definition?.recipe_category ?? definition?.source_category,
       definition?.power_source,
     );
     const tier = definition?.tier ?? 0;

@@ -1,4 +1,5 @@
 import { supportsRecipe } from "../../core/definitions";
+import { recipeOutputs, recipeYield } from "../../core/recipes";
 import { itemIconSvg } from "../../rendering/icons";
 import type { AdminStore } from "../state";
 
@@ -67,7 +68,7 @@ export function renderChainView(
 
     // Recipes that produce this item
     const producerRecipes = store.definitions.recipes.filter(
-      (r) => r.output.item_id === item.id,
+      (r) => recipeYield(r, item.id) > 0,
     );
 
     // Recipes that consume this item
@@ -224,25 +225,27 @@ export function renderChainView(
       group.innerHTML = `<h4>Recipes Consuming This (${consumerRecipes.length})</h4>`;
 
       for (const cr of consumerRecipes) {
-        const outIt = itemMap.get(cr.output.item_id);
-        const c = outIt?.color ?? "#888";
-        const s = itemIconSvg(outIt?.icon ?? "ore", c);
+        for (const output of recipeOutputs(cr)) {
+          const outIt = itemMap.get(output.item_id);
+          const c = outIt?.color ?? "#888";
+          const s = itemIconSvg(outIt?.icon ?? "ore", c);
 
-        const btn = document.createElement("button");
-        btn.type = "button";
-        btn.className = "chain-item-link full-width-link";
-        btn.style.borderColor = `${c}50`;
-        btn.style.background = `${c}15`;
-        btn.innerHTML = `
+          const btn = document.createElement("button");
+          btn.type = "button";
+          btn.className = "chain-item-link full-width-link";
+          btn.style.borderColor = `${c}50`;
+          btn.style.background = `${c}15`;
+          btn.innerHTML = `
           ${s}
-          <span>Creates <strong>${cr.output.quantity}× ${outIt?.name ?? `#${cr.output.item_id}`}</strong> (${cr.name})</span>
+          <span>Creates <strong>${output.quantity}× ${outIt?.name ?? `#${output.item_id}`}</strong> (${cr.name})</span>
         `;
-        btn.onclick = () => {
-          selectedItemId = cr.output.item_id;
-          itemSelect.value = String(selectedItemId);
-          renderChainTree();
-        };
-        group.appendChild(btn);
+          btn.onclick = () => {
+            selectedItemId = output.item_id;
+            itemSelect.value = String(selectedItemId);
+            renderChainTree();
+          };
+          group.appendChild(btn);
+        }
       }
       downstreamCol.appendChild(group);
     }
