@@ -6,7 +6,7 @@
       "key": "new-game",
       "name": "New game",
       "description": "Explore, gather, research, automate, and raise the landing hub's first module.",
-      "version": 6,
+      "version": 7,
       "seed": 1213486160,
       "world_preset": "continental",
       "chunk_size": 8,
@@ -22,9 +22,9 @@
           {
             "key": "components",
             "name": "Prove the line",
-            "brief": "Deliver three components to the landing hub. Build a manual workshop from four wood and two stone, load six iron ore, and work three batches beside it. Completing this grants belts, storage, extractors and on-site power — no insight purchase. Powered assembly comes later.",
+            "brief": "Deliver one mechanical component. Build a primitive furnace and manual workshop; smelt six iron ore into three plates using two coal or six wood as fuel. At the workshop, cut two plates into a gear, then assemble that gear with the last plate. Work each batch beside the bench. Delivery grants belts, storage, extractors and on-site power — no insight purchase.",
             "reads": "the hub plates its base and raises a second mast",
-            "requirements": [{ "item_id": 2, "quantity": 3 }]
+            "requirements": [{ "item_id": 2, "quantity": 1 }]
           },
           {
             "key": "foundry",
@@ -53,8 +53,8 @@
       "id": 2,
       "key": "factory-demo",
       "name": "Factory demo",
-      "description": "The founding prebuilt turning-belt architecture proof.",
-      "version": 6,
+      "description": "A prebuilt turning-belt line cutting timber from wood, with no fuel or manual setup.",
+      "version": 7,
       "seed": 404112911,
       "chunk_size": 8,
       "generated_environment": false,
@@ -71,7 +71,7 @@
             "name": "Observe the compiled line",
             "brief": "A demonstration rather than a contract. The line runs, the hub counts, and nothing here ever finishes.",
             "reads": "nothing — the demo hub never grows",
-            "requirements": [{ "item_id": 2, "quantity": 999999 }]
+            "requirements": [{ "item_id": 16, "quantity": 999999 }]
           }
         ]
       },
@@ -85,7 +85,7 @@
       ],
       "initial_researched": [1, 2, 3, 4, 5, 6, 7, 8, 9],
       "resources": [
-        { "q": -4, "r": 0, "item_id": 1, "quantity": 240 },
+        { "q": -4, "r": 0, "item_id": 9, "quantity": 240 },
         { "q": -4, "r": 3, "item_id": 4, "quantity": 180 },
         { "q": -4, "r": 5, "item_id": 9, "quantity": 40 }
       ],
@@ -121,9 +121,9 @@
         {
           "q": -1,
           "r": 1,
-          "definition_id": 3,
+          "definition_id": 9,
           "orientation": 0,
-          "recipe_id": 1,
+          "recipe_id": 8,
           "scenario_owned": true
         },
         {

@@ -84,6 +84,19 @@ export function nextAction(
   const outstanding = contract.requirements.filter(
     (need) => need.delivered < need.required,
   );
+  const carried = outstanding.find(
+    (need) => (snapshot.player.inventory[String(need.item_id)] ?? 0) > 0,
+  );
+  if (carried) {
+    const item = definitions.items.find(
+      (value) => value.id === carried.item_id,
+    );
+    return {
+      key: "deliver",
+      title: `Deliver ${item?.name ?? "goods"} to the landing hub`,
+      detail: `${carried.delivered} of ${carried.required} delivered. Carry the finished goods to the hub; no replacement production station is needed to deliver them.`,
+    };
+  }
   const wanted = outstanding.map((need) => need.item_id);
   const needs = expand(
     wanted,
@@ -202,15 +215,6 @@ export function nextAction(
 
   const line = outstanding[0];
   const item = definitions.items.find((value) => value.id === line?.item_id);
-  const carrying = line
-    ? (snapshot.player.inventory[String(line.item_id)] ?? 0)
-    : 0;
-  if (line && carrying > 0)
-    return {
-      key: "deliver",
-      title: `Deliver ${item?.name ?? "the bill"}`,
-      detail: `The hub wants ${line.required - line.delivered} more. You are carrying ${carrying}: walk to the landing hub and deliver.`,
-    };
 
   // 4. Material. A raw line the player is neither carrying nor extracting is the reason a chain
   //    stands idle, and the answer is the hand until an extractor covers it.
@@ -255,7 +259,7 @@ export function nextAction(
       key: "workshop",
       title: "Work at the manual workshop",
       detail:
-        "Inspect the workshop, choose a recipe and load its ingredients. Stand within one hex and press Work one batch. Take the output and carry it to the hub; walking or gathering pauses work.",
+        "Make intermediate ingredients at their processing stations first, supplying fuel where needed. Inspect the workshop, choose a recipe and load its ingredients. Stand within one hex and press Work one batch. Carry the finished goods to the hub; walking or gathering pauses work.",
     };
   return {
     key: "supply",

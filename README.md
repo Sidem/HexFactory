@@ -13,7 +13,8 @@ and construction costs close to the world on desktop and touch layouts. A
 new game starts beside a landing hub inside a small surveyed clearing, with the rest of the world
 under fog: explore to lift it, ford rivers or bridge them for transport, cross coastline, basins, and highlands, find the fields
 of ore, coal, stone, clay, and forest the world guarantees within sight of the hub, fill the hub's
-posted requests for insight, make the first components at a manual workshop, then unlock powered
+posted requests for insight, smelt plates and mount a gear at a manual workshop to deliver the first
+mechanical component, then unlock powered
 production and supply the foundry module. Primitive furnaces smelt plates without electricity;
 manual workshops make timber and simple parts one attended batch at a time. Pick the **world** as well as the seed — Continental,
 Archipelago, Highlands, or Basin, with the raw generator parameters exposed behind the preset. The

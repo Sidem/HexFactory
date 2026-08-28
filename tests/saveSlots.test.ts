@@ -124,8 +124,8 @@ describe("compatibility", () => {
       ...build,
       versions: {
         ...build.versions,
-        save: 24,
-        definitions: 19,
+        save: 25,
+        definitions: 20,
         technology: 11,
       },
     };
@@ -135,7 +135,7 @@ describe("compatibility", () => {
       ...latest,
       scenarios: latest.scenarios.map((scenario) => ({
         ...scenario,
-        version: 6,
+        version: 7,
       })),
     };
     for (const [saveVersion, definitionVersion, technologyVersion] of [
@@ -150,6 +150,7 @@ describe("compatibility", () => {
       [22, 18, 10],
       [23, 18, 11],
       [24, 19, 11],
+      [25, 20, 11],
     ] as const) {
       const parsed = parseHxf1(
         envelope({
@@ -167,7 +168,10 @@ describe("compatibility", () => {
       ).toBe(false);
       expect(
         compatibility(
-          { ...parsed, scenarioVersion: saveVersion < 23 ? 5 : 6 },
+          {
+            ...parsed,
+            scenarioVersion: saveVersion < 23 ? 5 : saveVersion < 25 ? 6 : 7,
+          },
           releasedScenarios,
         ).compatible,
       ).toBe(true);
@@ -178,6 +182,11 @@ describe("compatibility", () => {
       if (saveVersion >= 23)
         expect(
           compatibility({ ...parsed, scenarioVersion: 5 }, releasedScenarios)
+            .compatible,
+        ).toBe(false);
+      if (saveVersion >= 25)
+        expect(
+          compatibility({ ...parsed, scenarioVersion: 6 }, releasedScenarios)
             .compatible,
         ).toBe(false);
     }

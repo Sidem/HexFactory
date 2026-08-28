@@ -1,6 +1,6 @@
 {
   "reference": {
-    "definition_version": 19,
+    "definition_version": 20,
     "technology_version": 11,
     "ticks_per_second": 10,
     "player_ticks_per_second": 30,
@@ -201,8 +201,12 @@
       "per_minute_milli": 75000,
       "inputs_per_minute": [
         {
-          "item": "ore",
-          "quantity_milli": 150000
+          "item": "iron-plate",
+          "quantity_milli": 75000
+        },
+        {
+          "item": "gear",
+          "quantity_milli": 75000
         }
       ],
       "power_draw": 8,
@@ -694,8 +698,12 @@
       "per_minute_milli": 18750,
       "inputs_per_minute": [
         {
-          "item": "ore",
-          "quantity_milli": 37500
+          "item": "iron-plate",
+          "quantity_milli": 18750
+        },
+        {
+          "item": "gear",
+          "quantity_milli": 18750
         }
       ],
       "power_draw": 0,
@@ -1078,17 +1086,17 @@
     },
     {
       "item": "component",
-      "depth": 1,
+      "depth": 3,
       "raw": [
         {
           "item": "ore",
-          "quantity_milli": 2000
+          "quantity_milli": 6000
         }
       ],
-      "raw_units_milli": 2000,
-      "fuel_energy_milli": 0,
-      "machine_ticks_milli": 8000,
-      "effort_milli": 2000
+      "raw_units_milli": 6000,
+      "fuel_energy_milli": 240000,
+      "machine_ticks_milli": 46000,
+      "effort_milli": 7500
     },
     {
       "item": "crystal",
@@ -3647,7 +3655,7 @@
       "bill": [
         {
           "item": "component",
-          "quantity": 3
+          "quantity": 1
         }
       ],
       "raw_materials": 1,
@@ -3657,8 +3665,8 @@
         "insight": 0,
         "insight_items": 0,
         "insight_request": "clay-survey",
-        "buildings": ["manual-workshop"],
-        "construction_order": ["manual-workshop"],
+        "buildings": ["manual-workshop", "primitive-furnace"],
+        "construction_order": ["primitive-furnace", "manual-workshop"],
         "gathers": [
           {
             "item": "ore",
@@ -3666,21 +3674,25 @@
           },
           {
             "item": "stone",
-            "quantity": 2
+            "quantity": 8
+          },
+          {
+            "item": "clay",
+            "quantity": 4
           },
           {
             "item": "wood",
             "quantity": 4
           }
         ],
-        "fuel_energy": 0,
-        "fuel_items": 0,
-        "gather_total": 12,
-        "machine_ticks": 0,
-        "player_work_ticks": 96,
-        "hand_seconds_milli": 13000,
-        "machine_seconds_milli": 0,
-        "player_work_seconds_milli": 9600
+        "fuel_energy": 240,
+        "fuel_items": 2,
+        "gather_total": 24,
+        "machine_ticks": 60,
+        "player_work_ticks": 64,
+        "hand_seconds_milli": 24667,
+        "machine_seconds_milli": 6000,
+        "player_work_seconds_milli": 6400
       }
     },
     {
@@ -4069,22 +4081,22 @@
       "request": "component-batch",
       "item": "component",
       "quantity": 8,
-      "insight": 26,
-      "repeat_insight": 26,
+      "insight": 98,
+      "repeat_insight": 98,
       "gathers": [
         {
           "item": "ore",
-          "quantity": 16
+          "quantity": 48
         }
       ],
-      "fuel_items": 0,
-      "gather_total": 16,
-      "insight_per_gather_milli": 1625,
-      "repeat_insight_per_gather_milli": 1625,
-      "insight_per_minute_milli": 51316,
-      "repeat_insight_per_minute_milli": 51316,
-      "machine_ticks": 64,
-      "machine_seconds_milli": 6400
+      "fuel_items": 12,
+      "gather_total": 60,
+      "insight_per_gather_milli": 1633,
+      "repeat_insight_per_gather_milli": 1633,
+      "insight_per_minute_milli": 46372,
+      "repeat_insight_per_minute_milli": 46372,
+      "machine_ticks": 368,
+      "machine_seconds_milli": 36800
     },
     {
       "request": "drawn-wire",

@@ -69,6 +69,10 @@ pub(super) fn migrate<'a>(json: &'a str, target_version: u16) -> Result<Cow<'a, 
         industrial_bills_23_to_24(&mut value);
         version = 24;
     }
+    if version == 24 && target_version >= 25 {
+        mechanical_components_24_to_25(&mut value);
+        version = 25;
+    }
 
     if version == target_version {
         return Ok(Cow::Owned(serde_json::to_string(&value).map_err(
@@ -78,6 +82,22 @@ pub(super) fn migrate<'a>(json: &'a str, target_version: u16) -> Result<Cow<'a, 
     Err(format!(
         "no migration path from save version {version} to {target_version}"
     ))
+}
+
+/// Keep stock, reserved jobs, contributions and the original checksum untouched. The component
+/// output and duration are unchanged, so an already-paid job finishes exactly once. After checksum
+/// verification, the loader closes the smaller commission if existing contributions satisfy it.
+/// New demo layouts apply only to new games; a saved blueprint is never replaced by a template.
+fn mechanical_components_24_to_25(value: &mut Value) {
+    if let Some(object) = value.as_object_mut() {
+        object.insert("save_version".into(), Value::from(25));
+        if object.get("definition_version") == Some(&Value::from(19)) {
+            object.insert("definition_version".into(), Value::from(20));
+        }
+        if object.get("scenario_version") == Some(&Value::from(6)) {
+            object.insert("scenario_version".into(), Value::from(7));
+        }
+    }
 }
 
 /// Industrial bills change only catalog prices. State, active jobs and checksums stay intact.

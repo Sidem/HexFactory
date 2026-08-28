@@ -17,9 +17,11 @@ emblems, hover/focus details and deliberate purchases. v0.31.0
 [Foundation Commissions](FOUNDATION-COMMISSIONS-RECORD.md) grants the four starter automation
 nodes when Prove the line completes, with typed effects replacing ad-hoc unlock and bonus fields.
 Those four are no longer insight purchases; later prices and request rewards are unchanged. Continue
-phase 1 with the component/contract and remaining economy audit. v0.32.0
+phase 1 with the remaining economy audit. v0.32.0
 [Industrial Bills](INDUSTRIAL-BILLS-RECORD.md) prices the five industrial stations and corrects
-construction-order accounting; complete commission/research startup costing is still outstanding. Timed opening validation is withdrawn. This is not the finite insight
+construction-order accounting. v0.33.0 [Mechanical Components](MECHANICAL-COMPONENTS-RECORD.md)
+reforms the component, founding bill and matching request reward; complete commission/research
+startup costing is still outstanding. Timed opening validation is withdrawn. This is not the finite insight
 economy or separate skill system. Larger future discipline lanes, evidence projects, tracking and skills remain planned.
 
 ## Design commitments

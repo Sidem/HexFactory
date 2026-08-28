@@ -58,7 +58,8 @@ describe("data-defined content", () => {
       validateTechnologies(technologies, typedDefinitions),
     ).not.toThrow();
     expect(definitions.recipes[0]?.inputs).toEqual([
-      { item_id: 1, quantity: 2 },
+      { item_id: 11, quantity: 1 },
+      { item_id: 19, quantity: 1 },
     ]);
     expect(
       definitions.buildings.find(({ key }) => key === "extractor")

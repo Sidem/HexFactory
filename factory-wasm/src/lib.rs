@@ -95,7 +95,7 @@ const SAVE_PREFIX: &str = "HXF1\n";
 /// one ore â€” exactly what rebuilding it now costs, which conserves the line rather than paying a
 /// premium on it. Kits have no recipe back to ore, so the boundary cannot mint raw material.
 /// Version 21 adds progression registries (technology 9); saved state and checksum are unchanged.
-const SAVE_VERSION: u16 = 24;
+const SAVE_VERSION: u16 = 25;
 /// Bumped to 6 for World Parameters. `WorldParams` is now part of a run's identity — it is in the
 /// save envelope and in the checksum — so a version-5 envelope carries no answer to the question
 /// "which world is this" and is rejected rather than assumed to be the default.
@@ -7656,6 +7656,7 @@ impl Core {
             .strip_prefix(SAVE_PREFIX)
             .ok_or("save must begin with HXF1")?;
         let migrated = save_migrations::migrate(json, SAVE_VERSION)?;
+        let legacy_component_bill = matches!(migrated, std::borrow::Cow::Owned(_));
         let envelope: SaveEnvelope = serde_json::from_str(&migrated)
             .map_err(|error| format!("malformed HXF1 save: {error}"))?;
         if envelope.world_generator_version != WORLD_GENERATOR_VERSION {
@@ -7745,6 +7746,12 @@ impl Core {
         core.compile_graph();
         if core.checksum() != envelope.checksum {
             return Err("save checksum does not match its native state".into());
+        }
+        // v0.33 asks for one component instead of three. Honor existing contributions only after
+        // verifying their saved checksum, through the ordinary consumption/grant path. Completed
+        // commissions are never replayed and any surplus stays credited at the hub.
+        if legacy_component_bill && core.scenario.key == "new-game" {
+            core.advance_contract();
         }
         // Creative means the whole current tree, including technologies added after the save was
         // written. Verify the saved state first, then extend it through the ordinary capability
@@ -11813,8 +11820,28 @@ pub mod capacity {
     }
 
     fn catalogs() -> (DefinitionsInput, TechnologiesInput) {
+        let mut definitions: DefinitionsInput =
+            serde_json::from_str(DEFINITIONS).expect("shipped definitions parse");
+        // This synthetic transport workload keeps its historical two-ore/eight-tick recipe.
+        // v0.33's gameplay component needs upstream smelting and gears; silently swapping that
+        // into this isolated line would benchmark a stalled machine and invalidate old records.
+        let recipe = definitions
+            .recipes
+            .iter_mut()
+            .find(|recipe| recipe.id == COMPONENT_RECIPE)
+            .unwrap();
+        recipe.inputs = vec![Ingredient {
+            item_id: ORE,
+            quantity: 2,
+        }];
+        recipe.duration = 8;
+        recipe.output = Ingredient {
+            item_id: 2,
+            quantity: 1,
+        };
+        recipe.fuel = 0;
         (
-            serde_json::from_str(DEFINITIONS).expect("shipped definitions parse"),
+            definitions,
             serde_json::from_str(TECHNOLOGIES).expect("shipped technologies parse"),
         )
     }
@@ -15410,6 +15437,210 @@ mod tests {
     }
 
     #[test]
+    fn mechanical_component_commission_is_repeatable_without_research_or_power() {
+        for (fuel, quantity) in [(COAL, 2), (WOOD, 6)] {
+            let mut core = primitive_test_core();
+            core.player.inventory =
+                BTreeMap::from([(STONE, 8), (CLAY, 4), (WOOD, 4), (IRON_ORE, 6)]);
+            *core.player.inventory.entry(fuel).or_default() += quantity;
+            core.place(0, 4, 27, 0, Some(2)).unwrap();
+            core.place(1, 3, 28, 0, Some(11)).unwrap();
+            core.store(0, 4, IRON_ORE, 6).unwrap();
+            core.store(0, 4, fuel, quantity).unwrap();
+            core.tick_many(60);
+            core.withdraw(0, 4, 11, 3).unwrap();
+            core.store(1, 3, 11, 2).unwrap();
+            core.set_enabled(1, 3, true).unwrap();
+            core.tick_many(32);
+            core.withdraw(1, 3, 19, 1).unwrap();
+            core.set_recipe(1, 3, 1).unwrap();
+            core.store(1, 3, 11, 1).unwrap();
+            core.store(1, 3, 19, 1).unwrap();
+            core.set_enabled(1, 3, true).unwrap();
+            core.tick_many(7);
+            let (definitions, technologies, scenarios) = catalogs();
+            let mut resumed = Core::from_save(
+                &definitions,
+                &technologies,
+                &scenarios,
+                &core.save_string().unwrap(),
+            )
+            .unwrap();
+            core.tick_many(25);
+            resumed.tick_many(25);
+            assert_eq!(core.checksum(), resumed.checksum());
+            core.withdraw(1, 3, 2, 1).unwrap();
+            assert_eq!(core.player.inventory, BTreeMap::from([(2, 1)]));
+            assert!(core.researched.is_empty());
+            assert_eq!(core.insight, 0);
+            set_player_hex(&mut core, 0, -1);
+            core.deposit_inventory().unwrap();
+            assert_eq!(core.contract_stage, 1);
+            assert_eq!(core.researched, BTreeSet::from([1, 2, 4, 8]));
+            assert_eq!(core.insight, 0);
+            set_player_hex(&mut core, 0, 3);
+            core.erase(0, 4).unwrap();
+            core.erase(1, 3).unwrap();
+            assert_eq!(
+                core.player.inventory,
+                BTreeMap::from([(STONE, 8), (CLAY, 4), (WOOD, 4)])
+            );
+            core.place(0, 4, 27, 0, Some(2)).unwrap();
+            core.place(1, 3, 28, 0, Some(11)).unwrap();
+        }
+    }
+
+    fn legacy_component_save(core: &mut Core) -> String {
+        core.definitions.version = 19;
+        core.scenario.version = 6;
+        core.scenario.contract.stages[0].requirements[0].quantity = 3;
+        core.definitions
+            .recipes
+            .iter_mut()
+            .find(|recipe| recipe.id == 1)
+            .unwrap()
+            .inputs = vec![Ingredient {
+            item_id: IRON_ORE,
+            quantity: 2,
+        }];
+        core.save_string().unwrap().replacen(
+            &format!("\"save_version\":{SAVE_VERSION}"),
+            "\"save_version\":24",
+            1,
+        )
+    }
+
+    #[test]
+    fn mechanical_component_migration_honors_partial_and_finished_commissions_after_checksum() {
+        let (definitions, technologies, scenarios) = catalogs();
+        for contributed in 0..=3 {
+            let mut old = primitive_test_core();
+            legacy_component_save(&mut old);
+            old.insight = 73;
+            set_player_hex(&mut old, 0, -1);
+            old.player.inventory.insert(2, contributed);
+            if contributed > 0 {
+                old.deposit_item(Some(2)).unwrap();
+            }
+            let save = legacy_component_save(&mut old);
+            let mut restored =
+                Core::from_save(&definitions, &technologies, &scenarios, &save).unwrap();
+            assert_eq!(restored.entities, old.entities);
+            assert_eq!(restored.player, old.player);
+            assert_eq!(restored.insight, 73);
+            assert_eq!(restored.delivered_by_item, old.delivered_by_item);
+            assert_eq!(restored.requests, old.requests);
+            assert_eq!(restored.request_fills, old.request_fills);
+            assert_eq!(restored.contract_stage, usize::from(contributed > 0));
+            if contributed == 0 || contributed == 3 {
+                assert_eq!(restored.checksum(), old.checksum());
+            } else {
+                assert_eq!(
+                    restored.contract_contributed.get(&2),
+                    Some(&u64::from(contributed - 1))
+                );
+            }
+            if contributed > 0 {
+                assert_eq!(restored.researched, BTreeSet::from([1, 2, 4, 8]));
+            }
+            let again = Core::from_save(
+                &definitions,
+                &technologies,
+                &scenarios,
+                &restored.save_string().unwrap(),
+            )
+            .unwrap();
+            assert_eq!(
+                again.checksum(),
+                restored.checksum(),
+                "no repeated grant or consumption"
+            );
+            let tampered = save.replace("\"insight\":73", "\"insight\":74");
+            assert!(
+                Core::from_save(&definitions, &technologies, &scenarios, &tampered)
+                    .err()
+                    .unwrap()
+                    .contains("checksum")
+            );
+            if contributed > 0 {
+                restored.player.inventory.extend([(11, 16), (14, 20)]);
+                restored.deposit_inventory().unwrap();
+                assert!(restored.victory);
+                let finished = legacy_component_save(&mut restored);
+                let migrated =
+                    Core::from_save(&definitions, &technologies, &scenarios, &finished).unwrap();
+                assert!(migrated.victory);
+                assert_eq!(migrated.checksum(), restored.checksum());
+            }
+        }
+    }
+
+    #[test]
+    fn mechanical_component_migration_finishes_or_refunds_only_the_reserved_legacy_job() {
+        let (definitions, technologies, scenarios) = catalogs();
+        for building in [28, 3] {
+            let mut old = primitive_test_core();
+            if building == 3 {
+                grant_foundations(&mut old);
+                old.insight = 8;
+                old.research(3).unwrap();
+                stock_for(&mut old, 3, 1);
+            }
+            set_player_hex(&mut old, 1, 3);
+            old.place(0, 4, building, 0, Some(1)).unwrap();
+            legacy_component_save(&mut old);
+            old.store(0, 4, IRON_ORE, 4).unwrap();
+            if building == 28 {
+                old.set_enabled(0, 4, true).unwrap();
+            }
+            old.power_unmetered = true;
+            old.tick_many(3);
+            let index = old.entity_at(0, 4).unwrap();
+            assert_eq!(
+                old.entities[index].reserved_inputs,
+                BTreeMap::from([(IRON_ORE, 2)])
+            );
+            let save = legacy_component_save(&mut old);
+            let mut restored =
+                Core::from_save(&definitions, &technologies, &scenarios, &save).unwrap();
+            assert_eq!(restored.checksum(), old.checksum());
+            assert_eq!(restored.entities, old.entities);
+            restored.power_unmetered = true;
+            restored.tick_many(100);
+            assert_eq!(restored.entities[index].output_inventory.get(&2), Some(&1));
+            assert_eq!(
+                restored.entities[index].input_inventory.get(&IRON_ORE),
+                Some(&2)
+            );
+            assert!(restored.entities[index].reserved_inputs.is_empty());
+            assert_eq!(restored.entities[index].progress, 0);
+            if building == 28 {
+                assert!(restored.set_enabled(0, 4, true).is_err());
+            }
+            restored
+                .withdraw_from(0, 4, StockKind::Input, IRON_ORE, 2)
+                .unwrap();
+            assert!(!restored.entities[index]
+                .input_inventory
+                .contains_key(&IRON_ORE));
+            let mut cancelled =
+                Core::from_save(&definitions, &technologies, &scenarios, &save).unwrap();
+            let ore_before = cancelled
+                .player
+                .inventory
+                .get(&IRON_ORE)
+                .copied()
+                .unwrap_or(0);
+            cancelled.erase(0, 4).unwrap();
+            assert_eq!(
+                cancelled.player.inventory.get(&IRON_ORE),
+                Some(&(ore_before + 4))
+            );
+            assert!(!cancelled.player.inventory.contains_key(&2));
+        }
+    }
+
+    #[test]
     fn manual_workshop_requires_attendance_and_runs_exactly_one_batch() {
         let mut core = primitive_test_core();
         core.place(0, 4, 28, 0, Some(8)).unwrap();
@@ -17894,7 +18125,8 @@ mod tests {
 
     #[test]
     fn turning_demo_compiles_and_transport_recipe_backpressure_delivery_stay_exact() {
-        let mut core = game("factory-demo");
+        let mut core = bare_game("factory-demo");
+        core.power_unmetered = false;
         let mut index = core
             .entities
             .iter()
@@ -17922,27 +18154,34 @@ mod tests {
             ]
         );
         core.tick_many(400);
-        let produced = core.produced.get(&1).copied().unwrap_or(0);
-        let ore_in_system: u64 = core
-            .entities
-            .iter()
-            .map(|entity| {
-                u64::from(
-                    entity
-                        .cargo
-                        .filter(|cargo| cargo.item_id == 1)
-                        .map(|cargo| cargo.quantity)
-                        .unwrap_or(0),
-                ) + u64::from(entity.inventory.get(&1).copied().unwrap_or(0))
-                    + u64::from(entity.input_inventory.get(&1).copied().unwrap_or(0))
-                    + u64::from(entity.fuel_inventory.get(&1).copied().unwrap_or(0))
-                    + u64::from(entity.output_inventory.get(&1).copied().unwrap_or(0))
-                    + u64::from(entity.reserved_inputs.get(&1).copied().unwrap_or(0))
-            })
-            .sum();
-        let component_equivalent = core.delivered_by_item.get(&2).copied().unwrap_or(0) * 2;
-        assert_eq!(produced, ore_in_system + component_equivalent);
-        assert!(core.delivered > 0);
+        let produced = core.produced.get(&WOOD).copied().unwrap_or(0);
+        let stock_in_system = |item: ItemId| -> u64 {
+            core.entities
+                .iter()
+                .map(|entity| {
+                    u64::from(
+                        entity
+                            .cargo
+                            .filter(|cargo| cargo.item_id == item)
+                            .map(|cargo| cargo.quantity)
+                            .unwrap_or(0),
+                    ) + u64::from(entity.inventory.get(&item).copied().unwrap_or(0))
+                        + u64::from(entity.input_inventory.get(&item).copied().unwrap_or(0))
+                        + u64::from(entity.fuel_inventory.get(&item).copied().unwrap_or(0))
+                        + u64::from(entity.output_inventory.get(&item).copied().unwrap_or(0))
+                        + u64::from(entity.reserved_inputs.get(&item).copied().unwrap_or(0))
+                })
+                .sum()
+        };
+        let delivered = core.delivered_by_item.get(&16).copied().unwrap_or(0);
+        assert_eq!(
+            produced * 2,
+            stock_in_system(WOOD) * 2 + stock_in_system(16) + delivered
+        );
+        assert!(
+            delivered > 0,
+            "the metered demo must deliver timber, not merely hold cargo"
+        );
     }
 
     #[test]
@@ -18204,17 +18443,22 @@ mod tests {
 
     #[test]
     fn composer_consumes_exact_inputs_and_emits_only_after_integer_duration() {
-        let mut core = game("factory-demo");
-        let composer = core
-            .entities
-            .iter()
-            .position(|entity| entity.kind == BuildingKind::Composer)
-            .unwrap();
+        let mut core = game("new-game");
+        grant_foundations(&mut core);
+        core.insight = 8;
+        core.research(3).unwrap();
+        stock_for(&mut core, 3, 1);
+        set_player_hex(&mut core, 1, 3);
+        core.place(0, 4, 3, 0, Some(1)).unwrap();
+        let composer = core.entity_at(0, 4).unwrap();
         core.graph[composer] = Links::default();
-        core.entities[composer].inventory.insert(1, 2);
+        core.entities[composer].inventory.extend([(11, 1), (19, 1)]);
         core.advance_composer(composer);
         assert!(core.entities[composer].inventory.is_empty());
-        assert_eq!(core.entities[composer].reserved_inputs.get(&1), Some(&2));
+        assert_eq!(
+            core.entities[composer].reserved_inputs,
+            BTreeMap::from([(11, 1), (19, 1)])
+        );
         assert_eq!(core.entities[composer].cargo, None);
         for _ in 1..8 {
             core.advance_composer(composer);
@@ -18238,7 +18482,7 @@ mod tests {
         core.tick_many(400);
         let capacity = core.building_definition(1).unwrap().capacity.unwrap();
         assert_eq!(
-            core.entities[extractor].output_inventory.get(&1),
+            core.entities[extractor].output_inventory.get(&9),
             Some(&capacity)
         );
         assert_eq!(core.deposit_quantity((-4, 0)), resource_before - capacity);
@@ -18252,12 +18496,12 @@ mod tests {
             .iter()
             .position(|entity| entity.kind == BuildingKind::Consumer)
             .unwrap();
-        core.entities[container].inventory.insert(2, 7);
+        core.entities[container].inventory.insert(16, 7);
         core.graph[container] = Links::single(Some(consumer));
         for _ in 0..7 {
             core.transfer_cargo();
         }
-        assert_eq!(core.delivered_by_item.get(&2), Some(&7));
+        assert_eq!(core.delivered_by_item.get(&16), Some(&7));
         assert!(core.entities[container].inventory.is_empty());
     }
 
@@ -18285,6 +18529,10 @@ mod tests {
         core.place(3, 0, 1, 3, None).unwrap();
         core.place(2, 0, 2, 3, None).unwrap();
         core.place(1, 0, 3, 3, Some(1)).unwrap();
+        let composer = core.entity_at(1, 0).unwrap();
+        core.entities[composer]
+            .input_inventory
+            .extend([(11, 1), (19, 1)]);
         set_player_hex(&mut core, 6, 0);
         let pole = try_place_near(&mut core, (3, 0), 12);
         let burner = try_place_near(&mut core, pole, 13);
@@ -18331,7 +18579,7 @@ mod tests {
         // Everything the whole contract asks for, in one delivery, plus one component too many.
         // The hub takes a later stage's materials as well as the current one's, which is the
         // surplus rule: a line automated early is credited when the stage that wants it arrives.
-        core.player.inventory.insert(2, 4);
+        core.player.inventory.insert(2, 2);
         core.player.inventory.insert(11, 16);
         core.player.inventory.insert(14, 20);
         core.deposit_inventory().unwrap();
@@ -18345,7 +18593,7 @@ mod tests {
         // than closing one stage per arriving item.
         assert_eq!(core.contract_stage, 2);
         assert!(core.victory);
-        // Each stage consumed exactly its own bill, and the fourth component was never taken at
+        // Each stage consumed exactly its own bill, and the second component was never taken at
         // all: the hub accepts what it asked for and leaves the rest in the pack.
         assert_eq!(core.contract_contributed.get(&2), Some(&0));
         assert_eq!(core.contract_contributed.get(&11), Some(&0));

@@ -18,7 +18,7 @@
  * v23 grants the four starter automation technologies when Prove the line is already complete.
  */
 
-export const SAVE_VERSION = 24;
+export const SAVE_VERSION = 25;
 export const SAVE_CATALOG_KEY = "hexfactory:saves:v1";
 export const LEGACY_SAVE_PREFIX = "hexfactory:hxf1:";
 export const HXF1_PREFIX = "HXF1\n";
@@ -181,6 +181,7 @@ export function compatibility(
     [22, 18, 10],
     [23, 18, 11],
     [24, 19, 11],
+    [25, 20, 11],
   ];
   const from = released.findIndex(
     ([save, definitions, technology]) =>
@@ -228,19 +229,25 @@ export function compatibility(
       found: envelope.scenarioKey,
     });
   } else {
-    // The 22 -> 23 foundation-commission step also migrates scenario catalog 5 to 6.
-    // Keep that exact adjacent change available through later supported save versions.
-    const migratesScenario =
-      migrates &&
-      envelope.saveVersion <= 22 &&
-      build.versions.save >= 23 &&
-      envelope.scenarioVersion === 5 &&
-      scenario.version === 6;
-    expect(
-      `scenario ${scenario.key}`,
-      scenario.version,
-      migratesScenario ? 6 : envelope.scenarioVersion,
-    );
+    // Replay only the released adjacent scenario changes, alongside the envelope tuple above.
+    let scenarioVersion = envelope.scenarioVersion;
+    if (migrates) {
+      if (
+        envelope.saveVersion <= 22 &&
+        build.versions.save >= 23 &&
+        scenarioVersion === 5 &&
+        scenario.version >= 6
+      )
+        scenarioVersion = 6;
+      if (
+        envelope.saveVersion <= 24 &&
+        build.versions.save >= 25 &&
+        scenarioVersion === 6 &&
+        scenario.version >= 7
+      )
+        scenarioVersion = 7;
+    }
+    expect(`scenario ${scenario.key}`, scenario.version, scenarioVersion);
   }
   return { compatible: mismatches.length === 0, mismatches };
 }

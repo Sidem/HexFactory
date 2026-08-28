@@ -49,7 +49,7 @@ This is permanent and is not a scope item.
 
 ## Where the project stands
 
-The engine arc, the generator arc, and the shipped milestones through **v0.32.0 Industrial Bills** are
+The engine arc, the generator arc, and the shipped milestones through **v0.33.0 Mechanical Components** are
 present in this tree. A run today looks like this: land beside a hub in a world chosen by preset
 or by raw parameters, walk out under fog across rivers and coastline — on the keys, or by
 **clicking a selected hex a second time** and watching the route native found — find **fields** of
@@ -58,7 +58,7 @@ materials rather than scattered cells, cross rivers on **bridges**, gather from 
 thin and regrow, fill the hub's posted **requests** for insight and
 its staged founding **contract** for hub growth — completing Prove the line grants belts, storage,
 extractors and on-site power — research the remaining technologies, and build a
-powered, automated line of buildings and fourteen recipes across five machine categories — including
+powered, automated line of buildings and sixteen recipes across industrial and primitive stations — including
 belt lines that **split**, **merge**, climb the two-row period on the same belt definition once it is
 researched, and **pass under** the lanes they cross.
 Buildings are generated as low-poly instanced geometry from the shape grammar, so a tier remains a
@@ -70,10 +70,10 @@ catalog shows which one moved rather than hiding the row:
 
 | Envelope              | Version |
 | --------------------- | ------: |
-| `HXF1` save           |      23 |
-| Definitions           |      18 |
+| `HXF1` save           |      25 |
+| Definitions           |      20 |
 | Technologies          |      11 |
-| Scenarios             |       6 |
+| Scenarios             |       7 |
 | World generator       |       8 |
 | Wire (snapshot delta) |      13 |
 
@@ -167,8 +167,14 @@ small manufactured-part bills. Startup accounting follows construction order ins
 a machine to make its own bill, and guidance names missing primitive suppliers first. Save 24 /
 definitions 19 preserve running jobs and state. See [the industrial bills record](INDUSTRIAL-BILLS-RECORD.md).
 
-Phase 1 remains active: audit the component recipe and founding bill next, then the remaining
-power/tier bills, gear/frame yields and complete commission/research startup accounting. The timed human opening comparison
+**Phase 1 delivery: v0.33.0 Mechanical Components.** One plate and one gear make a component;
+Prove the line asks for one instead of three. The six-ore bill is retained, with a furnace and
+fuel now required. Component request income is repriced against its expanded inputs. Save 25 /
+definitions 20 / scenarios 7 honor partial commissions and paid legacy jobs. See
+[the component record](MECHANICAL-COMPONENTS-RECORD.md).
+
+Phase 1 remains active: audit the remaining power/tier bills, gear/frame yields and complete
+commission/research startup accounting next. The timed human opening comparison
 that used to sit alongside them was **withdrawn on 2026-08-27 by user decision**; the opening's cost
 now stands on `fixtures/balance.json` and the before/after arithmetic recorded in each release
 record, with no person's clock owed against it. Do not treat these additive releases as completion
@@ -534,6 +540,7 @@ both test suites say so.
 One line per release, newest first. The reasoning behind a shipped rule lives in the git history of
 this file and in the code that implements it; what follows is the index.
 
+- **v0.33.0** Mechanical Components — Plate-and-gear component, one-component founding commission, matched request repricing, legacy job/contribution migration, and a working timber demo. Save 25 / definitions 20 / scenarios 7. [Verification record](MECHANICAL-COMPONENTS-RECORD.md).
 - **v0.32.0** Industrial Bills — Reprices five industrial stations in plates, gears and mineral structure, with no brick bootstrap for the kiln. Startup reports use a valid construction order; guidance names missing construction suppliers. Save 24 / definitions 19 preserve active jobs, stock and checksums. [Verification record](INDUSTRIAL-BILLS-RECORD.md).
 - **v0.31.0** Foundation Commissions — Completing the first founding stage grants belts, storage, extractors and on-site power. Those four technologies are grant-only, with typed effects replacing ad-hoc unlock and bonus fields. Save 23 advances technology 10 to 11 and scenario 5 to 6; a factory already past Prove the line receives the grants. Insight prices of later nodes are unchanged. [Verification record](FOUNDATION-COMMISSIONS-RECORD.md).
 - **v0.30.0** Research Atlas — Large central technology tree with all 19 SVG emblems, prerequisite

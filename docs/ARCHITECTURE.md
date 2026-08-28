@@ -328,6 +328,14 @@ counts. Each is behavior-tested without Wasm or WebGL; `main.ts` wires them to t
 
 ## Save contract
 
+Mechanical Components (v0.33.0) advances save 24 to 25, definitions 19 to 20 and scenarios 6 to 7.
+The envelope migration preserves state and checksum. Reserved legacy component jobs retain the
+same output and duration, so they finish once or refund the exact ore they reserved; future jobs
+require plate and gear. After verifying the original checksum, the loader runs ordinary contract
+advancement for older new-game saves: existing contributions can close the smaller commission,
+with no duplicate grant or insight refund. Saved blueprints and stock are never replaced by the
+new timber demo template. See [the release record](MECHANICAL-COMPONENTS-RECORD.md).
+
 Primitive processing (v0.26.0) uses the existing composer kind and compartment inventories.
 An optional `recipe_ids` capability list replaces category matching; `duration_multiplier` scales
 the same recipe's native work duration. `manual_work` stations start disabled. Their existing

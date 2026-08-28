@@ -333,7 +333,8 @@ describe("guidance derived from the rules rather than scripted against them", ()
     const kiln = seen.indexOf("build:kiln");
     expect(processing).toBeGreaterThanOrEqual(0);
     expect(kiln).toBeGreaterThan(processing);
-    expect(seen[0]).toBe("build:manual-workshop");
+    expect(seen[0]).toBe("build:primitive-furnace");
+    expect(seen.indexOf("build:manual-workshop")).toBeGreaterThan(0);
     expect(seen.indexOf("workshop")).toBeLessThan(processing);
   });
 
@@ -389,11 +390,12 @@ describe("guidance derived from the rules rather than scripted against them", ()
     const action = nextAction(
       snapshotAt({
         stage: 0,
-        researched: [1, 2, 3, 8],
+        researched: [1, 2, 3, 5, 8],
         insight: 0,
         inventory: { "1": 6 },
         buildings: [
           { definition_id: 3, kind: "composer" },
+          { definition_id: 7, kind: "composer" },
           { definition_id: 13, kind: "generator" },
         ],
       }),
@@ -445,15 +447,24 @@ describe("guidance derived from the rules rather than scripted against them", ()
       researched: [],
       insight: 0,
       inventory: {},
-      buildings: [{ definition_id: 28, kind: "composer" }],
+      buildings: [
+        { definition_id: 28, kind: "composer" },
+        { definition_id: 27, kind: "composer" },
+      ],
     });
     snapshot.buildings[0]!.recipe_id = 1;
-    snapshot.buildings[0]!.input_inventory = [{ item_id: 1, quantity: 6 }];
+    snapshot.buildings[0]!.input_inventory = [
+      { item_id: 11, quantity: 1 },
+      { item_id: 19, quantity: 1 },
+    ];
+    snapshot.buildings[1]!.recipe_id = 2;
+    snapshot.buildings[1]!.input_inventory = [{ item_id: 1, quantity: 6 }];
     expect(nextAction(snapshot, definitions, technologies).key).toBe(
       "workshop",
     );
     snapshot.buildings[0]!.input_inventory = [];
-    snapshot.player.inventory["2"] = 3;
+    snapshot.player.inventory["2"] = 1;
+    snapshot.buildings = [];
     expect(nextAction(snapshot, definitions, technologies).key).toBe("deliver");
   });
 

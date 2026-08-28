@@ -43,6 +43,12 @@ so the deployed artifact never carries it (v0.12.2: shipped 520.0 KiB, harness b
 
 ## What is measured
 
+Since v0.33.0 the harness explicitly pins its historical `2 ore -> 1 component`, eight-tick,
+fuel-free recipe inside the bench-only catalogue. Gameplay now uses plates and gears; applying
+that bill to this isolated one-input line would measure a stalled factory. The existing pinned
+checksum (2,222,187,037), entity count and four deliveries per line still pass. This preserves the
+workload, not a new timing measurement or evidence for the gameplay component chain.
+
 Six tiers of the same shape, differing only in how many production lines run at once. One line is:
 
 `extractor → 6 belts → composer → belt → container → belt → consumer`

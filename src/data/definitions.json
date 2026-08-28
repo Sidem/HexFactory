@@ -1,5 +1,5 @@
 {
-  "version": 19,
+  "version": 20,
   "items": [
     {
       "id": 1,
@@ -18,7 +18,7 @@
       "name": "Component",
       "color": "#6fddd0",
       "icon": "component",
-      "description": "A composed part required by the landing objective.",
+      "description": "A plate-mounted gear mechanism for the landing hub and mechanical supply requests.",
       "stack_size": 10
     },
     {
@@ -251,12 +251,16 @@
       "id": 1,
       "key": "component",
       "name": "Compose component",
-      "description": "Bind two iron ore into a landing component.",
+      "description": "Mount one gear on an iron plate to make a mechanical component.",
       "category": "assembly",
       "inputs": [
         {
-          "item_id": 1,
-          "quantity": 2
+          "item_id": 11,
+          "quantity": 1
+        },
+        {
+          "item_id": 19,
+          "quantity": 1
         }
       ],
       "output": {
@@ -1621,10 +1625,10 @@
       "id": 16,
       "key": "component-batch",
       "name": "Component batch",
-      "brief": "The part the founding contract is built out of. The hub will take as many as a line can make.",
+      "brief": "Plate-mounted gear mechanisms. The larger payment covers their smelting and mechanical work.",
       "item_id": 2,
       "quantity": 8,
-      "insight": 26
+      "insight": 98
     },
     {
       "id": 17,
