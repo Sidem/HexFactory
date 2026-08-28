@@ -427,6 +427,8 @@ describe("Visual Depth terrain and quality contracts", () => {
     expect(materials.machineDark.vertexColors).toBe(false);
     expect(materials.resource.vertexColors).toBe(false);
     expect(materials.resourceCoal.vertexColors).toBe(false);
+    expect(materials.surface.vertexColors).toBe(false);
+    expect(materials.terrain.lowland.vertexColors).toBe(false);
     for (const material of materials.materials) material.dispose();
   });
 

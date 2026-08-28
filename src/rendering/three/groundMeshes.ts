@@ -44,7 +44,6 @@ export class GroundMeshes {
   );
   private readonly material = new MeshBasicMaterial({
     color: 0xffffff,
-    vertexColors: true,
     transparent: true,
     opacity: 0.5,
     depthWrite: false,

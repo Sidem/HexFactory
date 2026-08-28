@@ -59,7 +59,6 @@ export function createWorldMaterials(): WorldMaterials {
       key,
       new MeshStandardMaterial({
         color: 0xffffff,
-        vertexColors: true,
         emissive: style.color,
         emissiveIntensity: 0.32,
         roughness: style.roughness,
@@ -73,7 +72,6 @@ export function createWorldMaterials(): WorldMaterials {
     terrainSurfaces.attach(material, key as Terrain);
   const surface = new MeshStandardMaterial({
     color: 0xffffff,
-    vertexColors: true,
     roughness: 0.9,
     metalness: 0.02,
     flatShading: true,
