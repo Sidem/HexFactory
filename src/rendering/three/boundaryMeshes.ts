@@ -51,23 +51,29 @@ export class BoundaryMeshes {
     this.built = new InstancedMesh(
       this.geometry,
       this.wood,
-      Math.max(1, boundaries.length * 5),
+      Math.max(1, boundaries.length * 8),
     );
     let index = 0;
     for (const boundary of boundaries) {
+      const definition = this.definitions.find(
+        (d) => d.id === boundary.definition_id,
+      );
       const { a, b } = this.ends(boundary);
       const direction = b.clone().sub(a).normalize();
-      const gate = this.definitions.find(
-        (d) => d.id === boundary.definition_id,
-      )?.gate;
-      for (const p of [a, b])
+      const wall = definition?.family === "wall";
+      const wire = definition?.key.startsWith("wire") === true;
+      const postHeight = wall ? 1.08 : 0.78;
+      const tint = this.tint(definition, boundary.open);
+      for (const p of [a, b]) {
         this.built.setMatrixAt(
-          index++,
+          index,
           this.box(
-            p.clone().add(new Vector3(0, 0.39, 0)),
-            new Vector3(0.1, 0.78, 0.1),
+            p.clone().add(new Vector3(0, postHeight / 2, 0)),
+            new Vector3(wall ? 0.14 : 0.1, postHeight, wall ? 0.14 : 0.1),
           ),
         );
+        this.built.setColorAt(index++, tint);
+      }
       const railDirection = boundary.open
         ? direction.clone().applyAxisAngle(new Vector3(0, 1, 0), Math.PI / 2.4)
         : direction;
@@ -76,36 +82,51 @@ export class BoundaryMeshes {
         new Vector3(1, 0, 0),
         railDirection,
       );
-      for (const height of [0.28, 0.6]) {
+      if (wall && !boundary.open) {
         this.built.setMatrixAt(
           index,
           this.box(
-            center.clone().add(new Vector3(0, height, 0)),
-            new Vector3(0.95, 0.09, 0.07),
+            center.clone().add(new Vector3(0, 0.54, 0)),
+            new Vector3(0.98, 0.96, 0.16),
             rotation,
           ),
         );
-        this.built.setColorAt(
-          index++,
-          new Color(boundary.open ? "#78bfa9" : "#e2c391"),
-        );
+        this.built.setColorAt(index++, tint);
+      } else {
+        const rails = wire
+          ? [0.22, 0.44, 0.66]
+          : wall
+            ? [0.32, 0.72]
+            : [0.28, 0.6];
+        for (const height of rails) {
+          this.built.setMatrixAt(
+            index,
+            this.box(
+              center.clone().add(new Vector3(0, height, 0)),
+              new Vector3(0.95, wire ? 0.045 : 0.09, wire ? 0.04 : 0.07),
+              rotation,
+            ),
+          );
+          this.built.setColorAt(index++, tint);
+        }
       }
-      if (gate) {
+      if (definition?.gate) {
         const braceDirection = railDirection
           .clone()
           .multiplyScalar(0.85)
           .add(new Vector3(0, 0.32, 0));
         this.built.setMatrixAt(
-          index++,
+          index,
           this.box(
-            center.clone().add(new Vector3(0, 0.44, 0)),
-            new Vector3(braceDirection.length(), 0.06, 0.07),
+            center.clone().add(new Vector3(0, wall ? 0.54 : 0.44, 0)),
+            new Vector3(braceDirection.length(), wall ? 0.1 : 0.06, 0.07),
             new Quaternion().setFromUnitVectors(
               new Vector3(1, 0, 0),
               braceDirection.normalize(),
             ),
           ),
         );
+        this.built.setColorAt(index++, tint);
       }
     }
     this.built.count = index;
@@ -146,6 +167,17 @@ export class BoundaryMeshes {
     });
     this.ghost.computeBoundingSphere();
     this.group.add(this.ghost);
+  }
+
+  private tint(
+    definition: BoundaryDefinition | undefined,
+    open: boolean,
+  ): Color {
+    if (definition?.key.startsWith("brick")) return new Color("#b5563f");
+    if (definition?.key.startsWith("concrete")) return new Color("#9aa0a4");
+    if (definition?.key.startsWith("wire")) return new Color("#9fb0ba");
+    if (definition?.family === "wall") return new Color("#8a6234");
+    return new Color(open ? "#78bfa9" : "#e2c391");
   }
 
   private ends(edge: BoundaryEdge): { a: Vector3; b: Vector3 } {

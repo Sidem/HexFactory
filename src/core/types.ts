@@ -183,6 +183,7 @@ export interface ProgressionGroup {
 /** A supported native capability this technology grants when complete. */
 export type TechnologyEffect =
   | { kind: "unlock_building"; building_id: number }
+  | { kind: "unlock_boundary"; boundary_id: number }
   | { kind: "carry_slots"; amount: number }
   | { kind: "build_range"; amount: number };
 
@@ -946,12 +947,15 @@ export interface NativeFactory {
   free(): void;
 }
 
+export type BoundaryFamily = "fence" | "wall";
 export interface BoundaryDefinition {
   id: number;
   key: string;
   name: string;
   description: string;
+  family: BoundaryFamily;
   gate: boolean;
+  unlock_technology_id?: number;
   construction_cost: Ingredient[];
 }
 export interface BoundaryEdge {
@@ -964,12 +968,13 @@ export interface Boundary extends BoundaryEdge {
   open: boolean;
   paid: Ingredient[];
 }
+export type BoundaryAction = "build" | "remove" | "open" | "close";
 export interface BoundaryEdit extends BoundaryEdge {
   to_q: number;
   to_r: number;
   area: boolean;
   definition_id: number;
-  action: "build" | "remove" | "open" | "close";
+  action: BoundaryAction;
 }
 export interface BoundaryPreview {
   edges: BoundaryEdge[];

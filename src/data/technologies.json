@@ -1,5 +1,5 @@
 {
-  "version": 12,
+  "version": 13,
   "technologies": [
     {
       "id": 1,
@@ -228,6 +228,21 @@
       "effects": [{ "kind": "unlock_building", "building_id": 26 }],
       "branch": "logistics",
       "stage": "industrial-systems"
+    },
+    {
+      "id": 20,
+      "key": "fired-masonry",
+      "name": "Fired Masonry",
+      "description": "Lay brick and concrete walls. Cement is fired from hill limestone and clay; concrete binds that cement with gravel, sand and water. Timber and wire fences stay free of this node.",
+      "prerequisites": [5, 7],
+      "cost": 8,
+      "effects": [
+        { "kind": "unlock_boundary", "boundary_id": 6 },
+        { "kind": "unlock_boundary", "boundary_id": 7 },
+        { "kind": "unlock_boundary", "boundary_id": 8 }
+      ],
+      "branch": "masonry",
+      "stage": "industrial-systems"
     }
   ],
   "branches": [
@@ -238,40 +253,46 @@
       "order": 0
     },
     {
+      "key": "masonry",
+      "name": "Masonry",
+      "description": "Firing, cement, concrete and brick construction.",
+      "order": 1
+    },
+    {
       "key": "metallurgy",
       "name": "Metallurgy",
       "description": "Metal processing; the legacy Material Processing bundle also includes firing.",
-      "order": 1
+      "order": 2
     },
     {
       "key": "manufacturing",
       "name": "Manufacturing",
       "description": "Extraction, assembly and industrial machine improvements.",
-      "order": 2
+      "order": 3
     },
     {
       "key": "logistics",
       "name": "Logistics",
       "description": "Transport, storage, junctions and crossings.",
-      "order": 3
+      "order": 4
     },
     {
       "key": "infrastructure",
       "name": "Infrastructure",
       "description": "Construction methods and supported crossings.",
-      "order": 4
+      "order": 5
     },
     {
       "key": "plumbing",
       "name": "Plumbing",
       "description": "Water collection; current water travels as belt cargo, not in pipes.",
-      "order": 5
+      "order": 6
     },
     {
       "key": "electricity",
       "name": "Electricity",
       "description": "Generation and electrical transmission.",
-      "order": 6
+      "order": 7
     }
   ],
   "stages": [

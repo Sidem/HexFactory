@@ -2,14 +2,62 @@ import "./boundaries.css";
 import { axialToPixel, pixelToAxial } from "@hexlife/embed/hex";
 import type { FactoryHost } from "../core/FactoryHost";
 import type {
+  BoundaryAction,
+  BoundaryDefinition,
   BoundaryEdit,
   BoundaryPreview,
   FactorySnapshot,
+  Ingredient,
   NativeInputCommand,
   WorldPoint,
 } from "../core/types";
 import type { FactoryRenderer } from "../rendering/FactoryRenderer";
 import { WORLD_SCALE } from "../rendering/landmarks";
+
+type Verb = BoundaryAction;
+
+interface VerbSpec {
+  readonly action: Verb;
+  readonly icon: string;
+  readonly label: string;
+  readonly hint: string;
+  readonly verb: string;
+}
+
+/**
+ * Four verbs, always in the same place. Place is how a yard goes up; Open and Close are how you
+ * walk through it; Strip takes it back. R cycles them the way Ground works already does.
+ */
+const VERBS: readonly VerbSpec[] = [
+  {
+    action: "build",
+    icon: "▮",
+    label: "Place",
+    hint: "Lay a fence, wall or gate on the selected edges. Identical construction is free.",
+    verb: "Place {n}",
+  },
+  {
+    action: "open",
+    icon: "⌜",
+    label: "Open",
+    hint: "Swing selected gates open. Walking and transport can cross an open gate.",
+    verb: "Open {n}",
+  },
+  {
+    action: "close",
+    icon: "⌝",
+    label: "Close",
+    hint: "Shut selected gates. The edge must be clear of you and of live transport.",
+    verb: "Close {n}",
+  },
+  {
+    action: "remove",
+    icon: "⌫",
+    label: "Strip",
+    hint: "Take the boundary down and recover exactly what it cost.",
+    verb: "Strip {n}",
+  },
+];
 
 /** Picking is presentation; canonical edge identity and every transaction are native answers. */
 export function nearestBoundaryDirection(
@@ -21,9 +69,14 @@ export function nearestBoundaryDirection(
   return ((Math.round(angle / (Math.PI / 3)) % 6) + 6) % 6;
 }
 
-/** A persistent, nonmodal construction tray. Controls are created once and patched in place. */
+/**
+ * A persistent, nonmodal enclosure tray. Every number in it is a native answer to the exact edit
+ * Apply would send: the preview and the commit are one transaction.
+ */
 export class BoundaryTool {
   private opened = false;
+  private action: Verb = "build";
+  private definitionId: number;
   private start: { q: number; r: number } | null = null;
   private target: { q: number; r: number } | null = null;
   private choosingEnd = false;
@@ -35,7 +88,8 @@ export class BoundaryTool {
   private inventorySignature = "";
   private readonly panel: HTMLElement;
   private readonly opener: HTMLButtonElement;
-  private readonly material: HTMLSelectElement;
+  private readonly actions: HTMLElement;
+  private readonly palette: HTMLElement;
   private readonly shape: HTMLSelectElement;
   private readonly direction: HTMLSelectElement;
   private readonly q: HTMLInputElement;
@@ -43,7 +97,8 @@ export class BoundaryTool {
   private readonly apply: HTMLButtonElement;
   private readonly status: HTMLElement;
   private readonly bill: HTMLElement;
-  private readonly description: HTMLElement;
+  private readonly hint: HTMLElement;
+  private readonly existing: HTMLElement;
 
   constructor(
     root: HTMLElement,
@@ -56,24 +111,26 @@ export class BoundaryTool {
       "open-boundaries",
     ) as HTMLButtonElement;
     this.panel = root;
+    this.definitionId = host.definitions.boundaries[0]?.id ?? 0;
     root.innerHTML = `
-      <header><div><small>CONSTRUCTION · WOODWORK</small><h2 id="boundary-heading">Fences & gates</h2></div><button type="button" data-close aria-label="Close boundary tool">×</button></header>
-      <div class="boundary-fields">
-        <label>Action<select data-material></select></label>
-        <label>Selection<select data-shape><option value="edge">Single edge</option><option value="area">Enclose an area</option></select></label>
-      </div>
-      <p data-description></p>
+      <header><div><small>CONSTRUCTION · ENCLOSURES</small><h2 id="boundary-heading">Fences & walls</h2></div><button type="button" data-close aria-label="Close enclosure tool">×</button></header>
+      <div class="boundary-actions" role="group" aria-label="Enclosure work">${VERBS.map(
+        (spec) =>
+          `<button type="button" data-action="${spec.action}" aria-pressed="false" title="${spec.hint}"><span aria-hidden="true">${spec.icon}</span>${spec.label}</button>`,
+      ).join("")}</div>
+      <div class="boundary-palette" role="group" aria-label="Fence, wall or gate" data-palette></div>
+      <p data-hint></p>
+      <div class="boundary-fields"><label>Selection<select data-shape><option value="edge">Single edge</option><option value="area">Enclose an area</option></select></label></div>
       <details class="boundary-precise"><summary>Precise placement</summary><div class="boundary-fields boundary-target">
         <label>Hex Q<input data-q type="number" step="1" min="-100000" max="100000" value="0"></label>
         <label>Hex R<input data-r type="number" step="1" min="-100000" max="100000" value="0"></label>
         <label>Edge<select data-direction><option value="0">East</option><option value="1">Southeast</option><option value="2">Southwest</option><option value="3">West</option><option value="4">Northwest</option><option value="5">Northeast</option></select></label>
-      </div>
-      </details>
+      </div></details>
       <p class="boundary-existing" data-existing></p>
       <p class="boundary-status" data-status role="status" aria-live="polite"></p>
       <p class="boundary-bill" data-bill></p>
-      <div class="boundary-actions"><button type="button" data-apply disabled>Apply</button><button type="button" data-clear>New selection</button><button type="button" data-undo title="Undo the last boundary edit (Ctrl+Z while this tool is open)">Undo</button></div>
-      <small class="boundary-help">Click near a hex edge. R changes its side. For an enclosure, choose two corner hexes, then Apply. Esc cancels a selection; Esc again exits. No materials are spent before Apply.</small>`;
+      <div class="boundary-panel-actions"><button type="button" data-apply disabled>Apply</button><button type="button" data-clear>New selection</button><button type="button" data-undo title="Undo the last enclosure edit (Ctrl+Z while this tool is open)">Undo</button></div>
+      <small class="boundary-help">Click near a hex edge. For an enclosure, click two corner hexes. R cycles the work, Shift+R goes back, Delete jumps to Strip. Esc cancels a selection; Esc again exits. Nothing is spent before Apply.</small>`;
     const get = <T extends HTMLElement>(selector: string): T =>
       root.querySelector<T>(selector)!;
     root.addEventListener("keydown", (event) => {
@@ -83,16 +140,8 @@ export class BoundaryTool {
         this.escape();
       }
     });
-    this.material = get("[data-material]");
-    for (const definition of host.definitions.boundaries) {
-      this.material.add(new Option(definition.name, String(definition.id)));
-    }
-    for (const [value, name] of [
-      ["open", "Open gate"],
-      ["close", "Close gate"],
-      ["remove", "Remove boundary"],
-    ])
-      this.material.add(new Option(name, value));
+    this.actions = get(".boundary-actions");
+    this.palette = get("[data-palette]");
     this.shape = get("[data-shape]");
     this.direction = get("[data-direction]");
     this.q = get("[data-q]");
@@ -100,7 +149,9 @@ export class BoundaryTool {
     this.apply = get("[data-apply]");
     this.status = get("[data-status]");
     this.bill = get("[data-bill]");
-    this.description = get("[data-description]");
+    this.hint = get("[data-hint]");
+    this.existing = get("[data-existing]");
+    this.buildPalette();
     this.opener.addEventListener("click", () =>
       this.opened ? this.close() : this.open(),
     );
@@ -116,10 +167,11 @@ export class BoundaryTool {
     get("[data-undo]").addEventListener("click", () => {
       this.enqueue({ type: "undo_boundary" });
     });
-    this.material.addEventListener("change", () => {
-      if (!this.areaAllowed()) this.shape.value = "edge";
-      this.choosingEnd = false;
-      this.refresh();
+    this.actions.addEventListener("click", (event) => {
+      const action = (event.target as HTMLElement).closest<HTMLElement>(
+        "[data-action]",
+      )?.dataset.action;
+      if (action) this.selectAction(action as Verb);
     });
     this.shape.addEventListener("change", () => this.clear());
     this.direction.addEventListener("change", () => this.refresh());
@@ -157,22 +209,14 @@ export class BoundaryTool {
       if (this.enqueue({ type: "boundary_edit", ...edit })) {
         this.preview = null;
         this.apply.disabled = true;
-        this.status.textContent = "Applying boundary edit…";
+        this.status.textContent = "Raising the enclosure…";
       }
     });
+    this.selectAction("build");
   }
 
   get active(): boolean {
     return this.opened;
-  }
-
-  private areaAllowed(): boolean {
-    const definition = this.host.definitions.boundaries.find(
-      (d) => String(d.id) === this.material.value,
-    );
-    return (
-      this.material.value === "remove" || (!!definition && !definition.gate)
-    );
   }
 
   open(): void {
@@ -188,7 +232,7 @@ export class BoundaryTool {
       this.r.value = String(cell.r);
     }
     this.clear();
-    this.material.focus();
+    this.panel.querySelector<HTMLButtonElement>("[data-action]")?.focus();
   }
 
   close(restoreFocus = true): void {
@@ -207,16 +251,14 @@ export class BoundaryTool {
     else this.close();
   }
 
-  selectRemoval(): void {
-    this.material.value = "remove";
-    this.refresh();
+  cycleAction(reverse: boolean): void {
+    const index = VERBS.findIndex((spec) => spec.action === this.action);
+    const next = (index + (reverse ? VERBS.length - 1 : 1)) % VERBS.length;
+    this.selectAction(VERBS[next]!.action);
   }
 
-  rotate(reverse: boolean): void {
-    this.direction.value = String(
-      (Number(this.direction.value) + (reverse ? 5 : 1)) % 6,
-    );
-    this.refresh();
+  selectRemoval(): void {
+    this.selectAction("remove");
   }
 
   clear(): void {
@@ -254,30 +296,134 @@ export class BoundaryTool {
   }
 
   update(snapshot: FactorySnapshot): void {
-    const signature = `${snapshot.player.x},${snapshot.player.y}:${JSON.stringify(snapshot.player.inventory)}`;
+    const signature = `${snapshot.player.x},${snapshot.player.y}:${JSON.stringify(snapshot.player.inventory)}:${snapshot.researched.join(",")}`;
     const changed =
       this.snapshot?.boundaries !== snapshot.boundaries ||
       this.inventorySignature !== signature ||
       this.snapshot?.events !== snapshot.events;
     this.snapshot = snapshot;
     this.inventorySignature = signature;
-    if (changed && this.opened && this.start) this.refresh();
+    if (changed && this.opened) {
+      this.buildPalette();
+      if (this.start) this.refresh();
+    }
+  }
+
+  private selectAction(action: Verb): void {
+    this.action = action;
+    if (action !== "build" && this.shape.value === "area")
+      this.shape.value = "edge";
+    for (const button of this.actions.querySelectorAll<HTMLElement>(
+      "[data-action]",
+    ))
+      button.setAttribute(
+        "aria-pressed",
+        String(button.dataset.action === action),
+      );
+    this.palette.hidden = action !== "build";
+    this.hint.textContent =
+      VERBS.find((spec) => spec.action === action)?.hint ?? "";
+    this.refresh();
+  }
+
+  private researched(id: number | undefined): boolean {
+    if (id === undefined) return true;
+    if (this.snapshot?.player.creative) return true;
+    return this.snapshot?.researched.includes(id) === true;
+  }
+
+  private buildPalette(): void {
+    const inventory = this.snapshot?.player.inventory ?? {};
+    const creative = this.snapshot?.player.creative === true;
+    const area = this.shape.value === "area";
+    this.palette.replaceChildren(
+      ...this.host.definitions.boundaries.map((definition) => {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.dataset.definition = String(definition.id);
+        button.title = definition.description;
+        button.setAttribute(
+          "aria-pressed",
+          String(definition.id === this.definitionId),
+        );
+        const locked = !this.researched(definition.unlock_technology_id);
+        const gatedArea = area && definition.gate;
+        button.disabled = gatedArea;
+        button.classList.toggle("locked", locked);
+        const swatch = document.createElement("i");
+        swatch.setAttribute("aria-hidden", "true");
+        swatch.style.background = this.swatch(definition);
+        const name = document.createElement("span");
+        name.textContent = definition.name;
+        const kind = document.createElement("span");
+        kind.className = "boundary-kind";
+        kind.textContent = locked
+          ? this.lockLabel(definition)
+          : definition.gate
+            ? "Gate · crossing"
+            : definition.family === "wall"
+              ? "Wall · opaque"
+              : "Fence · see-through";
+        const price = document.createElement("small");
+        price.className = "boundary-price";
+        const short = definition.construction_cost.some(
+          (item) => (inventory[item.item_id] ?? 0) < item.quantity,
+        );
+        price.classList.toggle("short", short && !creative && !locked);
+        price.textContent = locked
+          ? this.lockLabel(definition)
+          : creative
+            ? "Free · creative mode"
+            : `${this.names(definition.construction_cost, true)} per edge`;
+        button.append(swatch, name, kind, price);
+        button.addEventListener("click", () => {
+          this.definitionId = definition.id;
+          this.buildPalette();
+          this.refresh();
+        });
+        return button;
+      }),
+    );
+  }
+
+  private swatch(definition: BoundaryDefinition): string {
+    const item = this.host.definitions.items.find(
+      (entry) => entry.id === definition.construction_cost[0]?.item_id,
+    );
+    return item?.color ?? "#c8aa7c";
+  }
+
+  private lockLabel(definition: BoundaryDefinition): string {
+    const technology = this.host.technologies.technologies.find(
+      (entry) => entry.id === definition.unlock_technology_id,
+    );
+    return technology
+      ? `Research ${technology.name}`
+      : "Locked behind research";
+  }
+
+  private names(items: readonly Ingredient[], owned = false): string {
+    return items
+      .map((item) => {
+        const name =
+          this.host.definitions.items.find((d) => d.id === item.item_id)
+            ?.name ?? "items";
+        const have = this.snapshot?.player.inventory[item.item_id] ?? 0;
+        return `${item.quantity} ${name}${owned ? ` (have ${have})` : ""}`;
+      })
+      .join(" + ");
   }
 
   private edit(): BoundaryEdit | null {
     if (!this.start || !this.target) return null;
-    const action = this.material.value;
     return {
       ...this.start,
       to_q: this.target.q,
       to_r: this.target.r,
       direction: Number(this.direction.value),
       area: this.shape.value === "area",
-      definition_id: Number(action) || 0,
-      action:
-        action === "open" || action === "close" || action === "remove"
-          ? action
-          : "build",
+      definition_id: this.definitionId,
+      action: this.action,
     };
   }
 
@@ -287,17 +433,11 @@ export class BoundaryTool {
     this.apply.disabled = true;
     this.apply.textContent = "Apply";
     this.bill.textContent = "";
-    this.panel.querySelector<HTMLElement>("[data-existing]")!.textContent = "";
-    this.shape.disabled = !this.areaAllowed();
+    this.existing.textContent = "";
+    this.shape.disabled = this.action !== "build";
     this.direction.disabled = this.shape.value === "area";
-    const definition = this.host.definitions.boundaries.find(
-      (d) => String(d.id) === this.material.value,
-    );
-    this.description.textContent =
-      definition?.description ??
-      (this.material.value === "remove"
-        ? "Recover exactly the materials paid. Sandbox-built boundaries recover nothing. Buildings and deposits stay untouched."
-        : "Manual gates use no power. A crossing must be clear of the player and live transport before it can close.");
+    this.palette.hidden = this.action !== "build";
+    if (this.opened) this.buildPalette();
     if (!this.start || !this.opened) {
       this.status.textContent =
         this.shape.value === "area"
@@ -336,13 +476,12 @@ export class BoundaryTool {
           this.host.definitions.boundaries.find(
             (d) => d.id === existing.definition_id,
           );
-        this.panel.querySelector<HTMLElement>("[data-existing]")!.textContent =
-          existing
-            ? `Current: ${definition?.name ?? "Boundary"}${definition?.gate ? (existing.open ? " · Open" : " · Closed") : ""}`
-            : edge
-              ? "Current: empty edge"
-              : "";
-
+        this.existing.textContent = existing
+          ? `Current: ${definition?.name ?? "Boundary"}${definition?.gate ? (existing.open ? " · Open" : " · Closed") : ""}`
+          : edge
+            ? "Current: empty edge"
+            : "";
+        const spec = VERBS.find((entry) => entry.action === this.action);
         this.status.textContent =
           preview.error ??
           (this.choosingEnd
@@ -351,22 +490,11 @@ export class BoundaryTool {
               ? "Already matches this selection. Nothing to spend or recover."
               : `${preview.changes} edge${preview.changes === 1 ? "" : "s"} will change. Hex ${edit.q}, ${edit.r}${edit.area ? ` → ${edit.to_q}, ${edit.to_r}` : ` · ${this.direction.selectedOptions[0]?.text} edge`}. Floor space stays free.`);
         this.status.classList.toggle("blocked", !!preview.error);
-        const names = (items: BoundaryPreview["cost"], owned = false): string =>
-          items
-            .map(
-              (i) =>
-                `${i.quantity} ${this.host.definitions.items.find((d) => d.id === i.item_id)?.name ?? "items"}${owned ? ` (have ${this.snapshot?.player.inventory[i.item_id] ?? 0})` : ""}`,
-            )
-            .join(" + ");
-        this.bill.textContent = `${preview.cost.length ? `Use ${names(preview.cost, true)}` : this.snapshot?.player.creative ? "Creative mode · materials are free" : "No materials needed"}${preview.refund.length ? ` · Recover ${names(preview.refund)}` : ""}`;
-        this.apply.textContent =
-          this.material.value === "remove"
-            ? "Remove selection"
-            : this.material.value === "open"
-              ? "Open gate"
-              : this.material.value === "close"
-                ? "Close gate"
-                : `Build ${preview.changes || "selection"}`;
+        this.bill.textContent = `${preview.cost.length ? `Use ${this.names(preview.cost, true)}` : this.snapshot?.player.creative ? "Creative mode · materials are free" : "No materials needed"}${preview.refund.length ? ` · Recover ${this.names(preview.refund)}` : ""}`;
+        this.apply.textContent = (spec?.verb ?? "Apply {n}").replace(
+          "{n}",
+          String(preview.changes || "selection"),
+        );
         this.renderer.setBoundaryPreview(preview);
       } catch (error) {
         if (revision === this.revision) {

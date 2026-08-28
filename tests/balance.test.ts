@@ -675,7 +675,7 @@ describe("the economy's stated curve", () => {
   it("prices every hand-gathered project below every processed one", () => {
     // Per gather, which is the rate a player can actually improve. Raw rows still pay better per
     // *minute* — a gather is quick and a furnace is not — and that is fine now demand is finite:
-    // the whole hand-gathered catalogue is 73 insight against 120 of research, so hand-gathering
+    // the whole hand-gathered catalogue is 85 insight against 128 of research, so hand-gathering
     // cannot substitute for processing however fast it runs. It buys time, not the tree.
     const handable = new Set(
       fixture.reference.hand_gathers.map(({ item }) => item),
@@ -708,19 +708,34 @@ it("budgets personal skill points separately from factory insight", () => {
   expect(fixture.budget.skill_points).toBe(3);
   expect(fixture.budget.skill_cost).toBe(2);
   expect(fixture.budget.skill_milestones).toBe(3);
-  expect(fixture.budget.research_cost).toBe(120);
-  expect(fixture.budget.project_insight).toBe(572);
+  expect(fixture.budget.research_cost).toBe(128);
+  expect(fixture.budget.project_insight).toBe(626);
 });
 
 describe("primitive boundary construction", () => {
   it("prices boundaries and a nine-hex yard using reachable manual production", () => {
+    const masonry = new Set(["brick", "cement", "concrete"]);
     for (const project of fixture.boundaries) {
       const direct = project.direct.map((i) => ({
         item_id: catalogue.items.find((d) => d.key === i.item)!.id,
         quantity: i.quantity,
       }));
+      const industrial = project.direct.some((i) => masonry.has(i.item));
       expect(
-        openingWork(direct, ["manual-workshop", "primitive-furnace"]),
+        openingWork(
+          direct,
+          industrial
+            ? [
+                "manual-workshop",
+                "primitive-furnace",
+                "kiln",
+                "crusher",
+                "composer",
+                "pump",
+                "smelter",
+              ]
+            : ["manual-workshop", "primitive-furnace"],
+        ),
       ).toEqual([project.process_ticks, project.attended_ticks]);
       expect(
         project.direct.every((i) => !["ore", "copper-ore"].includes(i.item)),

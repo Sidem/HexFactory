@@ -63,6 +63,248 @@
       "attended_ticks": 48
     },
     {
+      "project": "timber-wall",
+      "edges": 1,
+      "direct": [
+        {
+          "item": "timber",
+          "quantity": 4
+        }
+      ],
+      "raw": [
+        {
+          "item": "wood",
+          "quantity_milli": 2000
+        }
+      ],
+      "batch": [
+        {
+          "item": "wood",
+          "quantity": 2
+        }
+      ],
+      "batch_fuel_energy": 0,
+      "process_ticks": 0,
+      "attended_ticks": 48
+    },
+    {
+      "project": "wire-fence",
+      "edges": 1,
+      "direct": [
+        {
+          "item": "timber",
+          "quantity": 1
+        },
+        {
+          "item": "iron-wire",
+          "quantity": 2
+        }
+      ],
+      "raw": [
+        {
+          "item": "ore",
+          "quantity_milli": 2000
+        },
+        {
+          "item": "wood",
+          "quantity_milli": 500
+        }
+      ],
+      "batch": [
+        {
+          "item": "ore",
+          "quantity": 2
+        },
+        {
+          "item": "wood",
+          "quantity": 1
+        }
+      ],
+      "batch_fuel_energy": 80,
+      "process_ticks": 20,
+      "attended_ticks": 48
+    },
+    {
+      "project": "wire-gate",
+      "edges": 1,
+      "direct": [
+        {
+          "item": "timber",
+          "quantity": 1
+        },
+        {
+          "item": "iron-wire",
+          "quantity": 2
+        }
+      ],
+      "raw": [
+        {
+          "item": "ore",
+          "quantity_milli": 2000
+        },
+        {
+          "item": "wood",
+          "quantity_milli": 500
+        }
+      ],
+      "batch": [
+        {
+          "item": "ore",
+          "quantity": 2
+        },
+        {
+          "item": "wood",
+          "quantity": 1
+        }
+      ],
+      "batch_fuel_energy": 80,
+      "process_ticks": 20,
+      "attended_ticks": 48
+    },
+    {
+      "project": "brick-wall",
+      "edges": 1,
+      "direct": [
+        {
+          "item": "brick",
+          "quantity": 3
+        },
+        {
+          "item": "cement",
+          "quantity": 1
+        }
+      ],
+      "raw": [
+        {
+          "item": "clay",
+          "quantity_milli": 2500
+        },
+        {
+          "item": "limestone",
+          "quantity_milli": 1000
+        }
+      ],
+      "batch": [
+        {
+          "item": "clay",
+          "quantity": 3
+        },
+        {
+          "item": "limestone",
+          "quantity": 2
+        }
+      ],
+      "batch_fuel_energy": 200,
+      "process_ticks": 28,
+      "attended_ticks": 0
+    },
+    {
+      "project": "brick-gate",
+      "edges": 1,
+      "direct": [
+        {
+          "item": "brick",
+          "quantity": 3
+        },
+        {
+          "item": "cement",
+          "quantity": 1
+        },
+        {
+          "item": "iron-wire",
+          "quantity": 1
+        }
+      ],
+      "raw": [
+        {
+          "item": "ore",
+          "quantity_milli": 1000
+        },
+        {
+          "item": "clay",
+          "quantity_milli": 2500
+        },
+        {
+          "item": "limestone",
+          "quantity_milli": 1000
+        }
+      ],
+      "batch": [
+        {
+          "item": "ore",
+          "quantity": 2
+        },
+        {
+          "item": "clay",
+          "quantity": 3
+        },
+        {
+          "item": "limestone",
+          "quantity": 2
+        }
+      ],
+      "batch_fuel_energy": 280,
+      "process_ticks": 44,
+      "attended_ticks": 0
+    },
+    {
+      "project": "concrete-wall",
+      "edges": 1,
+      "direct": [
+        {
+          "item": "concrete",
+          "quantity": 2
+        }
+      ],
+      "raw": [
+        {
+          "item": "stone",
+          "quantity_milli": 1000
+        },
+        {
+          "item": "sand",
+          "quantity_milli": 1000
+        },
+        {
+          "item": "clay",
+          "quantity_milli": 500
+        },
+        {
+          "item": "water",
+          "quantity_milli": 1000
+        },
+        {
+          "item": "limestone",
+          "quantity_milli": 1000
+        }
+      ],
+      "batch": [
+        {
+          "item": "stone",
+          "quantity": 1
+        },
+        {
+          "item": "sand",
+          "quantity": 1
+        },
+        {
+          "item": "clay",
+          "quantity": 1
+        },
+        {
+          "item": "water",
+          "quantity": 1
+        },
+        {
+          "item": "limestone",
+          "quantity": 2
+        }
+      ],
+      "batch_fuel_energy": 120,
+      "process_ticks": 34,
+      "attended_ticks": 0
+    },
+    {
       "project": "nine-hex-yard-with-gate",
       "edges": 22,
       "direct": [
@@ -98,6 +340,55 @@
       "batch_fuel_energy": 80,
       "process_ticks": 20,
       "attended_ticks": 552
+    },
+    {
+      "project": "nine-hex-brick-yard-with-gate",
+      "edges": 22,
+      "direct": [
+        {
+          "item": "brick",
+          "quantity": 66
+        },
+        {
+          "item": "iron-wire",
+          "quantity": 1
+        },
+        {
+          "item": "cement",
+          "quantity": 22
+        }
+      ],
+      "raw": [
+        {
+          "item": "ore",
+          "quantity_milli": 1000
+        },
+        {
+          "item": "clay",
+          "quantity_milli": 55000
+        },
+        {
+          "item": "limestone",
+          "quantity_milli": 22000
+        }
+      ],
+      "batch": [
+        {
+          "item": "ore",
+          "quantity": 2
+        },
+        {
+          "item": "clay",
+          "quantity": 55
+        },
+        {
+          "item": "limestone",
+          "quantity": 22
+        }
+      ],
+      "batch_fuel_energy": 3160,
+      "process_ticks": 456,
+      "attended_ticks": 0
     }
   ],
   "surfaces": [
@@ -212,7 +503,15 @@
           "quantity_milli": 4500
         },
         {
+          "item": "clay",
+          "quantity_milli": 2250
+        },
+        {
           "item": "water",
+          "quantity_milli": 4500
+        },
+        {
+          "item": "limestone",
           "quantity_milli": 4500
         }
       ],
@@ -226,16 +525,24 @@
           "quantity": 5
         },
         {
+          "item": "clay",
+          "quantity": 3
+        },
+        {
           "item": "water",
           "quantity": 5
+        },
+        {
+          "item": "limestone",
+          "quantity": 6
         }
       ],
-      "batch_fuel_energy": 0
+      "batch_fuel_energy": 360
     }
   ],
   "reference": {
-    "definition_version": 24,
-    "technology_version": 12,
+    "definition_version": 25,
+    "technology_version": 13,
     "ticks_per_second": 10,
     "player_ticks_per_second": 30,
     "gather_cooldown_steps": 15,
@@ -275,6 +582,11 @@
         "item": "wood",
         "steps": 15,
         "items_per_minute": 120
+      },
+      {
+        "item": "limestone",
+        "steps": 30,
+        "items_per_minute": 60
       }
     ],
     "cells_in_reach": [7, 19],
@@ -305,6 +617,11 @@
         "item": "clay",
         "walk_min": 15,
         "walk_max": 25
+      },
+      {
+        "item": "limestone",
+        "walk_min": 18,
+        "walk_max": 32
       },
       {
         "item": "copper-ore",
@@ -427,6 +744,20 @@
       "fuel_energy_per_minute_milli": 0
     },
     {
+      "building": "extractor",
+      "recipe": null,
+      "ticks_per_cycle": 20,
+      "output_item": "limestone",
+      "output_per_cycle": 1,
+      "per_minute_milli": 30000,
+      "inputs_per_minute": [],
+      "power_draw": 4,
+      "grid_energy_per_cycle": 80,
+      "grid_energy_per_minute_milli": 2400000,
+      "fuel_energy_per_cycle": 0,
+      "fuel_energy_per_minute_milli": 0
+    },
+    {
       "building": "composer",
       "recipe": "component",
       "ticks_per_cycle": 8,
@@ -518,6 +849,10 @@
       "output_per_cycle": 2,
       "per_minute_milli": 100000,
       "inputs_per_minute": [
+        {
+          "item": "cement",
+          "quantity_milli": 50000
+        },
         {
           "item": "gravel",
           "quantity_milli": 100000
@@ -721,6 +1056,29 @@
       "fuel_energy_per_minute_milli": 0
     },
     {
+      "building": "kiln",
+      "recipe": "cement",
+      "ticks_per_cycle": 16,
+      "output_item": "cement",
+      "output_per_cycle": 2,
+      "per_minute_milli": 75000,
+      "inputs_per_minute": [
+        {
+          "item": "limestone",
+          "quantity_milli": 75000
+        },
+        {
+          "item": "clay",
+          "quantity_milli": 37500
+        }
+      ],
+      "power_draw": 10,
+      "grid_energy_per_cycle": 160,
+      "grid_energy_per_minute_milli": 6000000,
+      "fuel_energy_per_cycle": 120,
+      "fuel_energy_per_minute_milli": 4500000
+    },
+    {
       "building": "cutter",
       "recipe": "timber",
       "ticks_per_cycle": 6,
@@ -880,6 +1238,20 @@
       "inputs_per_minute": [],
       "power_draw": 7,
       "grid_energy_per_cycle": 35,
+      "grid_energy_per_minute_milli": 4200000,
+      "fuel_energy_per_cycle": 0,
+      "fuel_energy_per_minute_milli": 0
+    },
+    {
+      "building": "extractor-ii",
+      "recipe": null,
+      "ticks_per_cycle": 10,
+      "output_item": "limestone",
+      "output_per_cycle": 1,
+      "per_minute_milli": 60000,
+      "inputs_per_minute": [],
+      "power_draw": 7,
+      "grid_energy_per_cycle": 70,
       "grid_energy_per_minute_milli": 4200000,
       "fuel_energy_per_cycle": 0,
       "fuel_energy_per_minute_milli": 0
@@ -1601,14 +1973,22 @@
           "quantity_milli": 500
         },
         {
+          "item": "clay",
+          "quantity_milli": 250
+        },
+        {
           "item": "water",
+          "quantity_milli": 500
+        },
+        {
+          "item": "limestone",
           "quantity_milli": 500
         }
       ],
-      "raw_units_milli": 1500,
-      "fuel_energy_milli": 0,
-      "machine_ticks_milli": 9000,
-      "effort_milli": 1500
+      "raw_units_milli": 2250,
+      "fuel_energy_milli": 30000,
+      "machine_ticks_milli": 13000,
+      "effort_milli": 2438
     },
     {
       "item": "circuit",
@@ -1677,6 +2057,38 @@
       "fuel_energy_milli": 40000,
       "machine_ticks_milli": 8000,
       "effort_milli": 1250
+    },
+    {
+      "item": "limestone",
+      "depth": 0,
+      "raw": [
+        {
+          "item": "limestone",
+          "quantity_milli": 1000
+        }
+      ],
+      "raw_units_milli": 1000,
+      "fuel_energy_milli": 0,
+      "machine_ticks_milli": 0,
+      "effort_milli": 1000
+    },
+    {
+      "item": "cement",
+      "depth": 1,
+      "raw": [
+        {
+          "item": "clay",
+          "quantity_milli": 500
+        },
+        {
+          "item": "limestone",
+          "quantity_milli": 1000
+        }
+      ],
+      "raw_units_milli": 1500,
+      "fuel_energy_milli": 60000,
+      "machine_ticks_milli": 8000,
+      "effort_milli": 1875
     }
   ],
   "buildings": [
@@ -3017,9 +3429,9 @@
     },
     {
       "material": "copper-ore",
-      "guaranteed_walk": 25,
-      "guaranteed_hexes": 23,
-      "nearest_generated": 25,
+      "guaranteed_walk": 29,
+      "guaranteed_hexes": 25,
+      "nearest_generated": 29,
       "reachable": true,
       "required_by": 5
     },
@@ -3053,7 +3465,7 @@
       "guaranteed_hexes": 14,
       "nearest_generated": 8,
       "reachable": true,
-      "required_by": 5
+      "required_by": 7
     },
     {
       "material": "wood",
@@ -3070,6 +3482,14 @@
       "nearest_generated": 3,
       "reachable": true,
       "required_by": 1
+    },
+    {
+      "material": "limestone",
+      "guaranteed_walk": 25,
+      "guaranteed_hexes": 23,
+      "nearest_generated": 25,
+      "reachable": true,
+      "required_by": 2
     }
   ],
   "extraction": [
@@ -3092,9 +3512,9 @@
     {
       "preset": "continental",
       "material": "copper-ore",
-      "sites": 183,
-      "mean_cell_quantity": 12,
-      "mean_site_yield": [58, 124],
+      "sites": 161,
+      "mean_cell_quantity": 11,
+      "mean_site_yield": [58, 123],
       "mean_same_material": [58, 123]
     },
     {
@@ -3138,6 +3558,14 @@
       "mean_same_material": [8, 17]
     },
     {
+      "preset": "continental",
+      "material": "limestone",
+      "sites": 60,
+      "mean_cell_quantity": 11,
+      "mean_site_yield": [44, 88],
+      "mean_same_material": [44, 88]
+    },
+    {
       "preset": "archipelago",
       "material": "ore",
       "sites": 57,
@@ -3156,10 +3584,10 @@
     {
       "preset": "archipelago",
       "material": "copper-ore",
-      "sites": 76,
+      "sites": 44,
       "mean_cell_quantity": 12,
-      "mean_site_yield": [56, 120],
-      "mean_same_material": [56, 119]
+      "mean_site_yield": [48, 104],
+      "mean_same_material": [48, 104]
     },
     {
       "preset": "archipelago",
@@ -3202,6 +3630,14 @@
       "mean_same_material": [10, 23]
     },
     {
+      "preset": "archipelago",
+      "material": "limestone",
+      "sites": 101,
+      "mean_cell_quantity": 11,
+      "mean_site_yield": [58, 129],
+      "mean_same_material": [58, 127]
+    },
+    {
       "preset": "highlands",
       "material": "ore",
       "sites": 223,
@@ -3220,10 +3656,10 @@
     {
       "preset": "highlands",
       "material": "copper-ore",
-      "sites": 148,
+      "sites": 126,
       "mean_cell_quantity": 11,
-      "mean_site_yield": [47, 89],
-      "mean_same_material": [47, 89]
+      "mean_site_yield": [52, 109],
+      "mean_same_material": [52, 109]
     },
     {
       "preset": "highlands",
@@ -3266,6 +3702,14 @@
       "mean_same_material": [9, 20]
     },
     {
+      "preset": "highlands",
+      "material": "limestone",
+      "sites": 81,
+      "mean_cell_quantity": 11,
+      "mean_site_yield": [44, 79],
+      "mean_same_material": [44, 79]
+    },
+    {
       "preset": "basin",
       "material": "ore",
       "sites": 50,
@@ -3276,10 +3720,10 @@
     {
       "preset": "basin",
       "material": "copper-ore",
-      "sites": 186,
+      "sites": 145,
       "mean_cell_quantity": 11,
-      "mean_site_yield": [57, 125],
-      "mean_same_material": [57, 125]
+      "mean_site_yield": [58, 124],
+      "mean_same_material": [58, 124]
     },
     {
       "preset": "basin",
@@ -3318,8 +3762,16 @@
       "material": "wood",
       "sites": 1143,
       "mean_cell_quantity": 1,
-      "mean_site_yield": [8, 19],
+      "mean_site_yield": [9, 19],
       "mean_same_material": [8, 18]
+    },
+    {
+      "preset": "basin",
+      "material": "limestone",
+      "sites": 78,
+      "mean_cell_quantity": 11,
+      "mean_site_yield": [54, 117],
+      "mean_same_material": [54, 117]
     }
   ],
   "openings": [
@@ -3332,7 +3784,7 @@
       ],
       "insight": 6,
       "insight_items": 10,
-      "insight_projects": ["clay-survey"],
+      "insight_projects": ["hill-limestone"],
       "commissions": ["components"],
       "buildings": [
         "burner-generator",
@@ -3369,7 +3821,7 @@
       "gather_total": 53,
       "machine_ticks": 130,
       "player_work_ticks": 152,
-      "hand_seconds_milli": 55833,
+      "hand_seconds_milli": 59167,
       "machine_seconds_milli": 13000,
       "player_work_seconds_milli": 15200
     },
@@ -3382,7 +3834,7 @@
       ],
       "insight": 6,
       "insight_items": 10,
-      "insight_projects": ["clay-survey"],
+      "insight_projects": ["hill-limestone"],
       "commissions": ["components"],
       "buildings": [
         "burner-generator",
@@ -3419,7 +3871,7 @@
       "gather_total": 53,
       "machine_ticks": 140,
       "player_work_ticks": 152,
-      "hand_seconds_milli": 54167,
+      "hand_seconds_milli": 57500,
       "machine_seconds_milli": 14000,
       "player_work_seconds_milli": 15200
     },
@@ -3433,7 +3885,7 @@
       ],
       "insight": 16,
       "insight_items": 20,
-      "insight_projects": ["clay-survey", "cliff-stone"],
+      "insight_projects": ["hill-limestone", "clay-survey"],
       "commissions": ["components"],
       "buildings": [
         "burner-generator",
@@ -3484,7 +3936,7 @@
       ],
       "insight": 16,
       "insight_items": 20,
-      "insight_projects": ["clay-survey", "cliff-stone"],
+      "insight_projects": ["hill-limestone", "clay-survey"],
       "commissions": ["components"],
       "buildings": [
         "burner-generator",
@@ -3535,7 +3987,7 @@
       ],
       "insight": 18,
       "insight_items": 20,
-      "insight_projects": ["clay-survey", "cliff-stone"],
+      "insight_projects": ["hill-limestone", "clay-survey"],
       "commissions": ["components"],
       "buildings": [
         "burner-generator",
@@ -3675,7 +4127,7 @@
       "technologies": ["automated-extraction", "composition", "on-site-power"],
       "insight": 8,
       "insight_items": 10,
-      "insight_projects": ["clay-survey"],
+      "insight_projects": ["hill-limestone"],
       "commissions": ["components"],
       "buildings": [
         "burner-generator",
@@ -3712,7 +4164,7 @@
       "gather_total": 56,
       "machine_ticks": 236,
       "player_work_ticks": 184,
-      "hand_seconds_milli": 62333,
+      "hand_seconds_milli": 65667,
       "machine_seconds_milli": 23600,
       "player_work_seconds_milli": 18400
     },
@@ -3726,7 +4178,7 @@
       ],
       "insight": 14,
       "insight_items": 20,
-      "insight_projects": ["clay-survey", "cliff-stone"],
+      "insight_projects": ["hill-limestone", "clay-survey"],
       "commissions": ["components"],
       "buildings": [
         "burner-generator",
@@ -3991,7 +4443,7 @@
         ],
         "insight": 6,
         "insight_items": 10,
-        "insight_projects": ["clay-survey"],
+        "insight_projects": ["hill-limestone"],
         "commissions": ["components"],
         "buildings": [
           "burner-generator",
@@ -4028,7 +4480,7 @@
         "gather_total": 110,
         "machine_ticks": 544,
         "player_work_ticks": 152,
-        "hand_seconds_milli": 128000,
+        "hand_seconds_milli": 131333,
         "machine_seconds_milli": 54400,
         "player_work_seconds_milli": 15200
       }
@@ -4385,7 +4837,7 @@
       "request": "concrete-pour",
       "item": "concrete",
       "quantity": 10,
-      "insight": 28,
+      "insight": 42,
       "gathers": [
         {
           "item": "stone",
@@ -4396,16 +4848,24 @@
           "quantity": 5
         },
         {
+          "item": "clay",
+          "quantity": 3
+        },
+        {
           "item": "water",
           "quantity": 5
+        },
+        {
+          "item": "limestone",
+          "quantity": 6
         }
       ],
-      "fuel_items": 0,
-      "gather_total": 15,
-      "insight_per_gather_milli": 1867,
-      "insight_per_minute_milli": 84706,
-      "machine_ticks": 90,
-      "machine_seconds_milli": 9000
+      "fuel_items": 3,
+      "gather_total": 27,
+      "insight_per_gather_milli": 1556,
+      "insight_per_minute_milli": 67864,
+      "machine_ticks": 138,
+      "machine_seconds_milli": 13800
     },
     {
       "request": "circuit-batch",
@@ -4450,23 +4910,63 @@
       "insight_per_minute_milli": 54000,
       "machine_ticks": 200,
       "machine_seconds_milli": 20000
+    },
+    {
+      "request": "hill-limestone",
+      "item": "limestone",
+      "quantity": 10,
+      "insight": 12,
+      "gathers": [
+        {
+          "item": "limestone",
+          "quantity": 10
+        }
+      ],
+      "fuel_items": 0,
+      "gather_total": 10,
+      "insight_per_gather_milli": 1200,
+      "insight_per_minute_milli": 72000,
+      "machine_ticks": 0,
+      "machine_seconds_milli": 0
+    },
+    {
+      "request": "bagged-cement",
+      "item": "cement",
+      "quantity": 8,
+      "insight": 28,
+      "gathers": [
+        {
+          "item": "clay",
+          "quantity": 4
+        },
+        {
+          "item": "limestone",
+          "quantity": 8
+        }
+      ],
+      "fuel_items": 3,
+      "gather_total": 15,
+      "insight_per_gather_milli": 1867,
+      "insight_per_minute_milli": 77898,
+      "machine_ticks": 64,
+      "machine_seconds_milli": 6400
     }
   ],
   "budget": {
-    "projects": 22,
+    "projects": 24,
     "skill_milestones": 3,
     "skill_points": 3,
     "skill_cost": 2,
-    "project_insight": 572,
-    "raw_project_insight": 73,
-    "research_cost": 120,
+    "project_insight": 626,
+    "raw_project_insight": 85,
+    "research_cost": 128,
     "granted_technologies": [
       "field-logistics",
       "automated-extraction",
       "storage-planning",
       "on-site-power"
     ],
-    "surplus": 452,
-    "surplus_ratio_milli": 4767
+    "surplus": 498,
+    "surplus_ratio_milli": 4891
   }
 }

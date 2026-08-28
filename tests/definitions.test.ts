@@ -95,6 +95,7 @@ describe("data-defined content", () => {
       "shallow-crossings",
       "belt-junctions",
       "grade-separation",
+      "fired-masonry",
     ]);
     expect(
       technologies.skills.find(({ key }) => key === "expanded-pack"),
@@ -186,7 +187,7 @@ describe("data-defined content", () => {
   });
 
   it("gives every material a source and every recipe a machine that runs it", () => {
-    // The eight raw resources the world produces. Water is the only one that is not a field.
+    // The nine raw resources the world produces. Water is the only one that is not a field.
     for (const key of [
       "ore",
       "copper-ore",
@@ -195,6 +196,7 @@ describe("data-defined content", () => {
       "sand",
       "clay",
       "wood",
+      "limestone",
       "water",
     ])
       expect(

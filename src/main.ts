@@ -3713,7 +3713,7 @@ window.addEventListener("keydown", (event) => {
   ) {
     event.preventDefault();
     if (event.code === "Escape") boundaryTool.escape();
-    else if (event.code === "KeyR") boundaryTool.rotate(event.shiftKey);
+    else if (event.code === "KeyR") boundaryTool.cycleAction(event.shiftKey);
     else boundaryTool.selectRemoval();
     return;
   }

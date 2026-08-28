@@ -1238,6 +1238,24 @@ fn boundaries(economy: &Economy) -> Vec<BoundaryCost> {
         .filter(|b| matches!(b.key.as_str(), "manual-workshop" | "primitive-furnace"))
         .map(|b| b.id)
         .collect();
+    let masonry_stations: BTreeSet<_> = economy
+        .definitions
+        .buildings
+        .iter()
+        .filter(|b| {
+            matches!(
+                b.key.as_str(),
+                "manual-workshop"
+                    | "primitive-furnace"
+                    | "kiln"
+                    | "crusher"
+                    | "composer"
+                    | "pump"
+                    | "smelter"
+            )
+        })
+        .map(|b| b.id)
+        .collect();
     let mut projects: Vec<(String, u32, Vec<Ingredient>)> = economy
         .definitions
         .boundaries
@@ -1270,11 +1288,51 @@ fn boundaries(economy: &Economy) -> Vec<BoundaryCost> {
                 .collect(),
         ));
     }
+    let brick_wall = economy
+        .definitions
+        .boundaries
+        .iter()
+        .find(|b| b.key == "brick-wall");
+    let brick_gate = economy
+        .definitions
+        .boundaries
+        .iter()
+        .find(|b| b.key == "brick-gate");
+    if let (Some(wall), Some(gate)) = (brick_wall, brick_gate) {
+        let mut bill = BTreeMap::new();
+        for i in &wall.construction_cost {
+            *bill.entry(i.item_id).or_insert(0) += i.quantity * 21;
+        }
+        for i in &gate.construction_cost {
+            *bill.entry(i.item_id).or_insert(0) += i.quantity;
+        }
+        projects.push((
+            "nine-hex-brick-yard-with-gate".into(),
+            22,
+            bill.into_iter()
+                .map(|(item_id, quantity)| Ingredient { item_id, quantity })
+                .collect(),
+        ));
+    }
     projects
         .into_iter()
         .map(|(project, edges, bill)| {
             let expansion = economy.cost_of(&bill);
-            let (process_ticks, attended_ticks) = opening_work(economy, &primitive, &bill);
+            let masonry = bill.iter().any(|i| {
+                matches!(
+                    economy.item_key(i.item_id).as_str(),
+                    "brick" | "cement" | "concrete"
+                )
+            });
+            let (process_ticks, attended_ticks) = opening_work(
+                economy,
+                if masonry {
+                    &masonry_stations
+                } else {
+                    &primitive
+                },
+                &bill,
+            );
             BoundaryCost {
                 project,
                 edges,

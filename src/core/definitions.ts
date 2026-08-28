@@ -90,6 +90,7 @@ export function validateDefinitions(
       boundaryKeys.has(boundary.key) ||
       !boundary.name ||
       !boundary.description ||
+      (boundary.family !== "fence" && boundary.family !== "wall") ||
       typeof boundary.gate !== "boolean" ||
       !Array.isArray(boundary.construction_cost) ||
       boundary.construction_cost.length === 0 ||
@@ -470,6 +471,7 @@ export function validateTechnologies(
   const keys = new Set<string>();
   const ids = new Set(data.technologies.map(({ id }) => id));
   const buildingIds = new Set(definitions.buildings.map(({ id }) => id));
+  const boundaryIds = new Set(definitions.boundaries.map(({ id }) => id));
   for (const technology of data.technologies) {
     if (
       !technology.key ||
@@ -484,7 +486,7 @@ export function validateTechnologies(
         technology.prerequisites.length ||
       !validGrant(technology) ||
       technology.prerequisites.some((id) => !ids.has(id)) ||
-      !validEffects(technology.effects, buildingIds)
+      !validEffects(technology.effects, buildingIds, boundaryIds)
     )
       throw new TypeError(`technology ${technology.id} is invalid`);
     keys.add(technology.key);
@@ -504,6 +506,12 @@ export function validateTechnologies(
       !ids.has(building.unlock_technology_id)
     )
       throw new TypeError(`building ${building.id} has an invalid unlock`);
+  for (const boundary of definitions.boundaries)
+    if (
+      boundary.unlock_technology_id !== undefined &&
+      !ids.has(boundary.unlock_technology_id)
+    )
+      throw new TypeError(`boundary ${boundary.id} has an invalid unlock`);
 }
 
 export function technologyPurchasable(
@@ -525,6 +533,14 @@ export function technologyBuildingUnlocks(
 ): number[] {
   return technology.effects.flatMap((effect) =>
     effect.kind === "unlock_building" ? [effect.building_id] : [],
+  );
+}
+
+export function technologyBoundaryUnlocks(
+  technology: TechnologyDefinition,
+): number[] {
+  return technology.effects.flatMap((effect) =>
+    effect.kind === "unlock_boundary" ? [effect.boundary_id] : [],
   );
 }
 
@@ -563,8 +579,10 @@ function validGrant(technology: TechnologyDefinition): boolean {
 function validEffects(
   effects: TechnologyEffect[],
   buildingIds: Set<number>,
+  boundaryIds: Set<number>,
 ): boolean {
   const buildings = new Set<number>();
+  const boundaries = new Set<number>();
   for (const effect of effects) {
     if (effect.kind === "unlock_building") {
       if (
@@ -573,6 +591,15 @@ function validEffects(
       )
         return false;
       buildings.add(effect.building_id);
+      continue;
+    }
+    if (effect.kind === "unlock_boundary") {
+      if (
+        !boundaryIds.has(effect.boundary_id) ||
+        boundaries.has(effect.boundary_id)
+      )
+        return false;
+      boundaries.add(effect.boundary_id);
       continue;
     }
 

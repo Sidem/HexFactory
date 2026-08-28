@@ -49,18 +49,19 @@ This is permanent and is not a scope item.
 
 ## Where the project stands
 
-The engine arc, the generator arc, and the shipped milestones through **v0.38.0 Ground Works** are
+The engine arc, the generator arc, and the shipped milestones through **v0.39.0 Masonry Enclosures** are
 present in this tree. A run today looks like this: land beside a hub in a world chosen by preset
 or by raw parameters, walk out under fog across rivers and coastline — on the keys, or by
 **clicking a selected hex a second time** and watching the route native found — find **fields** of
-eight raw
+nine raw
 materials rather than scattered cells, cross rivers on **bridges**, gather from forests that visibly
 thin and regrow, fill the hub's posted **requests** for insight and
 its staged founding **contract** for hub growth — completing Prove the line grants belts, storage,
 extractors and on-site power — research the remaining technologies, and build a
-powered, automated line of buildings and sixteen recipes across industrial and primitive stations — including
+powered, automated line of buildings and seventeen recipes across industrial and primitive stations — including
 belt lines that **split**, **merge**, climb the two-row period on the same belt definition once it is
-researched, and **pass under** the lanes they cross.
+researched, and **pass under** the lanes they cross. Fence a yard, or research Fired Masonry and
+raise brick and concrete walls. The Ground works tray still paves and grades.
 Buildings are generated as low-poly instanced geometry from the shape grammar, so a tier remains a
 data row. Power is energy bought per unit of work. The world renders through Three.js and the
 minimap remains WebGL2.
@@ -70,12 +71,12 @@ catalog shows which one moved rather than hiding the row:
 
 | Envelope              | Version |
 | --------------------- | ------: |
-| `HXF1` save           |      26 |
-| Definitions           |      21 |
-| Technologies          |      11 |
+| `HXF1` save           |      31 |
+| Definitions           |      25 |
+| Technologies          |      13 |
 | Scenarios             |       7 |
-| World generator       |       8 |
-| Wire (snapshot delta) |      13 |
+| World generator       |       9 |
+| Wire (snapshot delta) |      17 |
 
 **Current measured capacity.** At 6,144 entities the complete Three.js browser frame is 27.4% of
 60 Hz on Low, 25.1% on Medium, and 21.7% on High on the reference desktop at 1440×900/DPR 1.
@@ -216,9 +217,14 @@ paving over a deposit seals it and needs an explicit confirmation. Save 30 / def
 preserve older factories, and the generated world keeps exactly the passability it had. See
 [the ground works record](GROUND-WORKS-RECORD.md).
 
-**Continue Phase 3 with masonry, supported floors and the remaining enclosure materials, then
-vertical transport.** The ground slice does not complete either full plan; oil and supported floors
-still follow in order.
+**Phase 3 delivery: v0.39.0 Masonry Enclosures.** Hill limestone, kiln-fired cement, corrected
+concrete, timber/wire/brick/concrete walls and an enclosure tray on the Ground works pattern. Fired
+Masonry is an 8-insight masonry-branch node. Save 31 / definitions 25 / technologies 13 / world 9.
+See [the masonry record](MASONRY-ENCLOSURES-RECORD.md).
+
+**Continue Phase 3 with oil, bitumen and asphalt, then supported floors and vertical transport.**
+Masonry does not complete either full plan; roofs, rebar and steel frames remain later enclosure
+work, and floors still follow petroleum.
 
 **Only afterward:** Living Lattice, then Regional Discovery, then the remaining longer horizon.
 Their former v0.26/v0.27 reservations are withdrawn; assign new version numbers when release
@@ -588,6 +594,7 @@ both test suites say so.
 One line per release, newest first. The reasoning behind a shipped rule lives in the git history of
 this file and in the code that implements it; what follows is the index.
 
+- **v0.39.0** Masonry Enclosures — Hill limestone, kiln-fired cement, corrected concrete, timber/wire/brick/concrete walls, and an enclosure tray on the Ground works pattern. Fired Masonry is an 8-insight masonry-branch node. Save 31 / definitions 25 / technologies 13 / world 9. [Verification record](MASONRY-ENCLOSURES-RECORD.md).
 - **v0.38.0** Ground Works — Five paved surfaces and native integer elevation in one bounded transaction: signed grade deltas capped at three steps, a spoil ledger that makes fill something you dug, walking and building refused across a step of more than two grades, deliberate confirmation before a surface seals a deposit, paid recovery on stripping, and per-transaction undo. Save 30 / definitions 24 / wire 17; no new item, recipe or research. [Verification record](GROUND-WORKS-RECORD.md).
 - **v0.37.0** Timber Boundaries — Timber edge fences and unpowered gates; bounded enclosure selection, native previews and atomic accounting, paid recovery and undo, walking/transport crossing protection, and instanced geometry. Save 29 / definitions 23 / wire 16. [Verification record](TIMBER-BOUNDARIES-RECORD.md).
 - **v0.36.0** Player Skills — Separate personal points, carrying/reach purchases and three finite native milestones; accessible Skills modal; one-time legacy bonus migration and persistent Creative provenance. Save 28 / technologies 12 / wire 15. [Verification record](PLAYER-SKILLS-RECORD.md).

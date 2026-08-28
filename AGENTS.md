@@ -4,19 +4,22 @@ HexFactory is a browser factory-automation game. Player experience is the tiebre
 native ownership, sparse cost, and measured claims exist to keep a large living factory responsive
 and trustworthy.
 
-Current release: **v0.38.0 Ground Works**. **Immediate next work: progression and construction**
+Current release: **v0.39.0 Masonry Enclosures**. **Immediate next work: progression and construction**
 in `docs/PROGRESSION-PLAN.md` and `docs/CONSTRUCTION-MATERIALS-PLAN.md`, ordered by
 `docs/HEXFACTORY-PLAN.md#what-to-do-next`. Complete this workstream before Living Lattice,
 Regional Discovery or other roadmap features unless the user changes priority. Release numbers
-after v0.38.0 are unassigned. Phase 1 is complete: every buildable bill is audited and no definition
+after v0.39.0 are unassigned. Phase 1 is complete: every buildable bill is audited and no definition
 bills raw ore, gear/frame yields are reviewed and unchanged, and commission/research startup
 accounting is done. Phase 2 is complete: the research map, finite insight projects and separate player skills are shipped.
-Phase 3 is in progress: timber edge fences and manual gates are shipped, and so is the paired ground slice — five paved surfaces, native integer elevation, bounded cut/fill and a spoil ledger. Masonry, supported floors, vertical transport and the remaining enclosure materials are next. Hub demand is finite — every project pays once, the catalogue is browsable and
+Phase 3 is in progress: timber edge fences and manual gates, the paired ground slice, and masonry
+enclosures are shipped — limestone, cement, corrected concrete, timber/wire/brick/concrete walls
+and an enclosure tray on the Ground works pattern. Oil, bitumen and asphalt are next, then
+supported floors and vertical transport. Hub demand is finite — every project pays once, the catalogue is browsable and
 postable by name, and the budget is a committed measurement.
 Component/contract reform, the five industrial station bills and construction-order accounting are shipped.
 Foundation commissions, typed effects, branch/stage registries, native research availability and
-the central research atlas are shipped. Timed opening validation was withdrawn. Envelopes: save 30, definitions 24,
-technologies 12, scenarios 7, world 8, wire 17.
+the central research atlas are shipped. Timed opening validation was withdrawn. Envelopes: save 31, definitions 25,
+technologies 13, scenarios 7, world 9, wire 17.
 
 ## Localize before reading
 

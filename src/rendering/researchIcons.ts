@@ -37,6 +37,8 @@ const GLYPHS: Record<string, string> = {
     '<rect x="7" y="8" width="18" height="21" rx="4"/><path d="M12 8V4h8v4M7 15h18M12 20h8v6h-8zM4 12v10m24-10v10"/>',
   "surveyed-construction":
     '<path d="m5 27 9-22 4 22M9 18h11M10 8h10M16 5l11 6-11 6M3 28h20"/><circle cx="14" cy="5" r="2"/><path d="M25 21v8m-4-4h8"/>',
+  "fired-masonry":
+    '<path d="M4 26V12l4-4h4l4 4v14H4Zm12 0V10l4-5h4l4 5v16H16ZM3 26h26M8 16h4m-4 5h4m12-9h4m-4 5h4"/>',
 };
 
 export const RESEARCH_ICON_KEYS = Object.keys(GLYPHS);
@@ -53,6 +55,7 @@ export function researchBranchColor(branch: string): string {
     (
       {
         woodwork: "#d9b67b",
+        masonry: "#d4896a",
         metallurgy: "#becddd",
         manufacturing: "#e3a184",
         logistics: "#88bfff",

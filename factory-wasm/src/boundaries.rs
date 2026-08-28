@@ -1,13 +1,25 @@
 //! Sparse edge construction. The same bounded transaction resolves previews and commits.
 use super::*;
 
+#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub(super) enum BoundaryFamily {
+    #[default]
+    Fence,
+    Wall,
+}
+
 #[derive(Clone, Deserialize)]
 pub(super) struct BoundaryDefinition {
     pub id: DefinitionId,
     pub key: String,
     pub name: String,
     pub description: String,
+    #[serde(default)]
+    pub family: BoundaryFamily,
     pub gate: bool,
+    #[serde(default)]
+    pub unlock_technology_id: Option<TechnologyId>,
     pub construction_cost: Vec<Ingredient>,
 }
 
@@ -359,6 +371,15 @@ impl Core {
                 if edit.area && d.gate {
                     return Err("Place gates on individual edges after enclosing the area".into());
                 }
+                if let Some(required) = d.unlock_technology_id {
+                    if !self.researched.contains(&required) {
+                        let name = self
+                            .technology(required)
+                            .map(|technology| technology.name.as_str())
+                            .unwrap_or("its technology");
+                        return Err(format!("Research {name} before building {}", d.name));
+                    }
+                }
                 Some(d)
             } else {
                 None
@@ -392,10 +413,16 @@ impl Core {
                             .boundary_definition(boundary.definition_id)
                             .is_some_and(|d| d.gate)
                         {
-                            return Err(
-                                "This is a fence. Replace it with a gate to create a crossing"
-                                    .into(),
-                            );
+                            let kind = self
+                                .boundary_definition(boundary.definition_id)
+                                .map(|d| match d.family {
+                                    BoundaryFamily::Wall => "wall",
+                                    BoundaryFamily::Fence => "fence",
+                                })
+                                .unwrap_or("edge");
+                            return Err(format!(
+                                "This {kind} has no gate. Place a gate to create a crossing"
+                            ));
                         }
                         boundary.open = matches!(edit.action, BoundaryAction::Open);
                         Some(boundary)

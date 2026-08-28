@@ -1451,7 +1451,7 @@ describe("availability and expanded snapshot adapter", () => {
         .filter(({ category }) => category === definition.recipe_category)
         .map(({ key: recipe }) => recipe);
     };
-    expect(byCategory("kiln")).toEqual(["brick", "charcoal"]);
+    expect(byCategory("kiln")).toEqual(["brick", "charcoal", "cement"]);
     expect(byCategory("crusher")).toEqual(["gravel"]);
     expect(byCategory("smelter")).toContain("steel");
     expect(byCategory("smelter")).not.toContain("circuit");

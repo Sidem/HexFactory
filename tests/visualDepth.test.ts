@@ -16,6 +16,7 @@ import {
 } from "three";
 
 import type {
+  BoundaryDefinition,
   BuildingDefinition,
   EntitySnapshot,
   FactorySnapshot,
@@ -1279,7 +1280,9 @@ function entity(
 }
 
 it("draws sandbox gates by definition, reuses quiet meshes, and releases replaced geometry", () => {
-  const layer = new BoundaryMeshes(definitions.boundaries);
+  const layer = new BoundaryMeshes(
+    definitions.boundaries as BoundaryDefinition[],
+  );
   const terrain = new Map();
   const boundary = {
     q: -2,

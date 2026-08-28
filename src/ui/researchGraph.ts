@@ -1,4 +1,5 @@
 import {
+  technologyBoundaryUnlocks,
   technologyBuildingUnlocks,
   technologyBuildRangeBonus,
   technologyCarrySlotsBonus,
@@ -24,7 +25,7 @@ const LANDMARKS: Record<string, readonly [number, number]> = {
   "expanded-pack": [465, 230],
   "automated-extraction": [740, 32],
   composition: [620, 170],
-  "material-processing": [790, 170],
+  "material-processing": [760, 170],
   "surveyed-construction": [940, 170],
   "mechanical-shaping": [680, 315],
   "machine-tiers": [825, 315],
@@ -34,6 +35,7 @@ const LANDMARKS: Record<string, readonly [number, number]> = {
   transmission: [1200, 315],
   "grid-engineering": [915, 465],
   "steam-works": [1130, 465],
+  "fired-masonry": [760, 480],
 };
 
 export interface ResearchNode {
@@ -144,11 +146,18 @@ export function researchBenefits(
   technology: TechnologyDefinition,
   definitions: Definitions,
 ): string[] {
-  const benefits = technologyBuildingUnlocks(technology).map(
-    (id) =>
-      definitions.buildings.find((building) => building.id === id)?.name ??
-      `Building ${id}`,
-  );
+  const benefits = [
+    ...technologyBuildingUnlocks(technology).map(
+      (id) =>
+        definitions.buildings.find((building) => building.id === id)?.name ??
+        `Building ${id}`,
+    ),
+    ...technologyBoundaryUnlocks(technology).map(
+      (id) =>
+        definitions.boundaries.find((boundary) => boundary.id === id)?.name ??
+        `Boundary ${id}`,
+    ),
+  ];
   const headings = definitions.buildings.filter(
     (building) => building.corner_technology_id === technology.id,
   );

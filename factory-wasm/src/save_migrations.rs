@@ -110,6 +110,26 @@ pub(super) fn migrate<'a>(json: &'a str, target_version: u16) -> Result<Cow<'a, 
         version = 30;
     }
 
+    // Masonry Enclosures. Limestone is a new site rule on *new* worlds. A version-30 file keeps the
+    // site_rules it was generated with, so existing deposits do not move; the world stamp and the
+    // definition/technology envelopes advance. In-progress Mix concrete jobs that reserved the old
+    // three-ingredient bill can be cancelled from the machine — the recipe now asks for cement.
+    if version == 30 && target_version >= 31 {
+        if let Some(object) = value.as_object_mut() {
+            object.insert("save_version".into(), Value::from(31));
+            if object.get("definition_version") == Some(&Value::from(24)) {
+                object.insert("definition_version".into(), Value::from(25));
+            }
+            if object.get("technology_version") == Some(&Value::from(12)) {
+                object.insert("technology_version".into(), Value::from(13));
+            }
+            if object.get("world_generator_version") == Some(&Value::from(8)) {
+                object.insert("world_generator_version".into(), Value::from(9));
+            }
+        }
+        version = 31;
+    }
+
     if version == target_version {
         return Ok(Cow::Owned(serde_json::to_string(&value).map_err(
             |error| format!("migrated save could not be written: {error}"),
@@ -583,5 +603,21 @@ mod tests {
         assert_eq!(value["state"]["researched"], serde_json::json!([1, 4]));
         assert_eq!(value["state"]["player"]["carry_slots"], 8);
         assert_eq!(value["state"]["player"]["build_range"], 8870);
+    }
+
+    #[test]
+    fn version_thirty_advances_masonry_envelopes_without_rewriting_site_rules() {
+        let json = r#"{"save_version":30,"definition_version":24,"technology_version":12,"world_generator_version":8,"state":{"player":{"inventory":{"21":4}},"world_params":{"site_rules":[{"item_id":6}]}}}"#;
+        let migrated = migrate(json, 31).expect("migrated save");
+        let value: Value = serde_json::from_str(&migrated).expect("migrated json");
+        assert_eq!(value["save_version"], 31);
+        assert_eq!(value["definition_version"], 25);
+        assert_eq!(value["technology_version"], 13);
+        assert_eq!(value["world_generator_version"], 9);
+        assert_eq!(value["state"]["player"]["inventory"]["21"], 4);
+        assert_eq!(
+            value["state"]["world_params"]["site_rules"][0]["item_id"],
+            6
+        );
     }
 }

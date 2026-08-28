@@ -169,6 +169,14 @@ describe("research presentation", () => {
     expect(
       researchMatches(corner, "unobtainium", technologies, definitions),
     ).toBe(false);
+    expect(
+      researchMatches(
+        technologies.technologies.find((t) => t.key === "fired-masonry")!,
+        "brick wall",
+        technologies,
+        definitions,
+      ),
+    ).toBe(true);
   });
   it("uses the native answer even when catalog arithmetic would allow a purchase", () => {
     const technology = technologies.technologies[0]!;

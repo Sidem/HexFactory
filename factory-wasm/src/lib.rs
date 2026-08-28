@@ -117,7 +117,7 @@ const SAVE_PREFIX: &str = "HXF1\n";
 /// version-29 file simply has neither, so the migration is the version stamp and the definitions it
 /// travels with — an untouched world is exactly the world it already was, which is why the checksum
 /// contribution stays guarded on emptiness.
-const SAVE_VERSION: u16 = 30;
+const SAVE_VERSION: u16 = 31;
 /// Bumped to 6 for World Parameters. `WorldParams` is now part of a run's identity — it is in the
 /// save envelope and in the checksum — so a version-5 envelope carries no answer to the question
 /// "which world is this" and is rejected rather than assumed to be the default.
@@ -127,7 +127,7 @@ const SAVE_VERSION: u16 = 30;
 /// of by a hardcoded list of eight cells inside the clearing. Every one of those changes what a
 /// seed generates, so a version-6 envelope describes a landscape this build cannot reproduce and is
 /// rejected rather than reinterpreted. The named-save catalog shows the row rather than hiding it.
-const WORLD_GENERATOR_VERSION: u16 = 8;
+const WORLD_GENERATOR_VERSION: u16 = 9;
 const MAX_COMMANDS_PER_BATCH: usize = 8;
 /// A drag is one bounded command, so the run it expands into has to be bounded too. This is the
 /// native cap on cells a single `place_line` or `erase_line` may touch.
@@ -897,6 +897,7 @@ struct TechnologyDefinition {
 #[serde(tag = "kind", rename_all = "snake_case")]
 enum TechnologyEffect {
     UnlockBuilding { building_id: DefinitionId },
+    UnlockBoundary { boundary_id: DefinitionId },
     CarrySlots { amount: u32 },
     BuildRange { amount: u32 },
 }
@@ -922,6 +923,13 @@ impl TechnologyDefinition {
     fn building_unlocks(&self) -> impl Iterator<Item = DefinitionId> + '_ {
         self.effects.iter().filter_map(|effect| match effect {
             TechnologyEffect::UnlockBuilding { building_id } => Some(*building_id),
+            _ => None,
+        })
+    }
+
+    fn boundary_unlocks(&self) -> impl Iterator<Item = DefinitionId> + '_ {
+        self.effects.iter().filter_map(|effect| match effect {
+            TechnologyEffect::UnlockBoundary { boundary_id } => Some(*boundary_id),
             _ => None,
         })
     }
@@ -9674,6 +9682,11 @@ fn validate_technologies(
         .map(|value| value.id)
         .collect();
     let building_ids: BTreeSet<_> = definitions.buildings.iter().map(|value| value.id).collect();
+    let boundary_ids: BTreeSet<_> = definitions
+        .boundaries
+        .iter()
+        .map(|value| value.id)
+        .collect();
     for technology in &technologies.technologies {
         if technology.key.trim().is_empty()
             || technology.name.trim().is_empty()
@@ -9688,7 +9701,7 @@ fn validate_technologies(
                 .len()
                 != technology.prerequisites.len()
             || !valid_technology_grant(technology)
-            || !valid_technology_effects(technology, &building_ids)
+            || !valid_technology_effects(technology, &building_ids, &boundary_ids)
         {
             return Err(format!("technology {} is incomplete", technology.id));
         }
@@ -9705,6 +9718,16 @@ fn validate_technologies(
                 return Err(format!(
                     "building {} has an unknown unlock requirement",
                     building.id
+                ));
+            }
+        }
+    }
+    for boundary in &definitions.boundaries {
+        if let Some(id) = boundary.unlock_technology_id {
+            if !ids.contains(&id) {
+                return Err(format!(
+                    "boundary {} has an unknown unlock requirement",
+                    boundary.id
                 ));
             }
         }
@@ -9748,6 +9771,7 @@ fn valid_technology_grant(technology: &TechnologyDefinition) -> bool {
 fn valid_technology_effects(
     technology: &TechnologyDefinition,
     building_ids: &BTreeSet<DefinitionId>,
+    boundary_ids: &BTreeSet<DefinitionId>,
 ) -> bool {
     let mut buildings = BTreeSet::new();
     for building_id in technology.building_unlocks() {
@@ -9755,14 +9779,18 @@ fn valid_technology_effects(
             return false;
         }
     }
-    if technology
-        .effects
-        .iter()
-        .any(|effect| !matches!(effect, TechnologyEffect::UnlockBuilding { .. }))
-    {
-        return false;
+    let mut boundaries = BTreeSet::new();
+    for boundary_id in technology.boundary_unlocks() {
+        if !boundary_ids.contains(&boundary_id) || !boundaries.insert(boundary_id) {
+            return false;
+        }
     }
-    true
+    technology.effects.iter().all(|effect| {
+        matches!(
+            effect,
+            TechnologyEffect::UnlockBuilding { .. } | TechnologyEffect::UnlockBoundary { .. }
+        )
+    })
 }
 
 fn validate_scenarios(
@@ -11011,6 +11039,7 @@ const STONE: ItemId = 6;
 const SAND: ItemId = 7;
 const CLAY: ItemId = 8;
 const WOOD: ItemId = 9;
+const LIMESTONE: ItemId = 26;
 
 /// The shipped resource table. Order is no longer a generation input — the lattice weights one
 /// rule against the others eligible for a band rather than taking the first that matches — so this
@@ -11065,6 +11094,9 @@ fn default_site_rules() -> Vec<SiteRule> {
         // doc comment already promises. The pair above may spill down into hills; copper never
         // climbs.
         rule(Terrain::Hills, COPPER_ORE, 34, 2, 4, 30_000, 18, 8, 3),
+        // Limestone is a hill quarry, not cliff scree. It is the binder feedstock, so it has to be
+        // a readable site with buildable ground around it rather than a first-belt gift.
+        rule(Terrain::Hills, LIMESTONE, 22, 2, 4, 28_000, 16, 8, 3),
         SiteRule {
             member: ore_bands,
             ..rule(Terrain::Hills, COAL, 16, 2, 3, 40_000, 18, 8, 3)
@@ -11116,7 +11148,7 @@ fn default_site_rules() -> Vec<SiteRule> {
 /// the player actually walks, and its floor is what keeps a guaranteed disc from reaching inside
 /// the clearing whose field suppression stays exactly as it was. Sand is not guaranteed by
 /// distance — the ocean gate decides where a coast is — and crystal is never guaranteed at all.
-const BOOTSTRAP_GUARANTEES: [(ItemId, i32, i32); 6] = [
+const BOOTSTRAP_GUARANTEES: [(ItemId, i32, i32); 7] = [
     // The first extractor and the first thing a player walks into, both in sight of the hub.
     (IRON_ORE, 9, 14),
     (WOOD, 9, 14),
@@ -11125,6 +11157,8 @@ const BOOTSTRAP_GUARANTEES: [(ItemId, i32, i32); 6] = [
     (STONE, 15, 25),
     // Carries a river or a shore with it, which is also the first pump site.
     (CLAY, 15, 25),
+    // Binder feedstock: past the opening, before the copper expedition.
+    (LIMESTONE, 18, 32),
     // The second metal is an expedition, not an errand.
     (COPPER_ORE, 25, 40),
 ];
@@ -13243,7 +13277,9 @@ pub mod survey {
         // table names and the world does not hold is the row a reader most needs to see.
         let mut materials = Vec::new();
         let mut patches = Vec::new();
-        for &item_id in &[IRON_ORE, CRYSTAL, COPPER_ORE, COAL, STONE, SAND, CLAY, WOOD] {
+        for &item_id in &[
+            IRON_ORE, CRYSTAL, COPPER_ORE, COAL, STONE, SAND, CLAY, WOOD, LIMESTONE,
+        ] {
             let name = name_of(item_id);
             let totals = totals.get(&item_id).copied().unwrap_or_default();
             patches.push(PatchCount {
@@ -14947,7 +14983,7 @@ mod tests {
         );
         assert_eq!(
             seen.get(&Terrain::Hills),
-            Some(&BTreeSet::from([IRON_ORE, COPPER_ORE, COAL]))
+            Some(&BTreeSet::from([IRON_ORE, COPPER_ORE, COAL, LIMESTONE]))
         );
         assert_eq!(
             seen.get(&Terrain::Highland),
@@ -15125,8 +15161,8 @@ mod tests {
     ///
     /// The eight hardcoded clearing cells are gone, so the guarantee is now something the
     /// generator has to *find*: a patch of each material, in its window, big enough to stand an
-    /// extractor in. Every preset generates all eight materials somewhere in the sample, and the
-    /// six guaranteed ones land where they were promised — which is what makes the first hour
+    /// extractor in. Every preset generates the field materials somewhere in the sample, and the
+    /// seven guaranteed ones land where they were promised — which is what makes the first hour
     /// playable rather than just survivable.
     ///
     /// Sand and crystal are deliberately not guaranteed. Sand goes where the ocean gate says a
@@ -22295,7 +22331,10 @@ mod tests {
         // 2_222_187_037 → 3_614_679_184 when project progress moved off the board slot and onto the
         // project, so `checksum` hashes `request_delivered` instead of a per-slot count. The
         // workload's shape, entity count, and delivered total did not move.
-        assert_eq!(first.checksum(), 3_614_679_184);
+        //
+        // 3_614_679_184 → 23_080_823 when limestone entered the site table and world generator 9
+        // entered the checksum. The workload's shape, entity count, and delivered total did not move.
+        assert_eq!(first.checksum(), 23_080_823);
         assert_eq!(first.entities.len(), spec.entities() as usize);
         // Every line must be running end to end, or the tiers would measure an idle blueprint.
         // Four per line rather than fourteen: the line is now extraction-bound, because a
@@ -22997,6 +23036,71 @@ mod tests {
             .unwrap_err()
             .contains("transport"));
         assert_eq!(core.checksum(), checksum);
+    }
+
+    #[test]
+    fn masonry_walls_need_fired_masonry_and_pay_cement() {
+        let mut core = empty_world("new-game");
+        core.compile_graph();
+        core.player.x = -3 * HEX_X;
+        core.player.y = 0;
+        let brick = item_id(&core, "brick");
+        let cement = item_id(&core, "cement");
+        let timber = item_id(&core, "timber");
+        core.player.inventory = BTreeMap::from([(brick, 12), (cement, 4), (timber, 8)]);
+        let brick_wall = core
+            .definitions
+            .boundaries
+            .iter()
+            .find(|d| d.key == "brick-wall")
+            .unwrap()
+            .id;
+        let timber_wall = core
+            .definitions
+            .boundaries
+            .iter()
+            .find(|d| d.key == "timber-wall")
+            .unwrap()
+            .id;
+        let masonry = core
+            .technologies
+            .technologies
+            .iter()
+            .find(|t| t.key == "fired-masonry")
+            .unwrap()
+            .id;
+        let edit = BoundaryEdit {
+            definition_id: brick_wall,
+            ..boundary_edit(0, 0)
+        };
+        assert!(core
+            .boundary_preview(&edit)
+            .error
+            .as_deref()
+            .unwrap()
+            .contains("Fired Masonry"));
+        core.edit_boundaries(&BoundaryEdit {
+            definition_id: timber_wall,
+            ..edit.clone()
+        })
+        .unwrap();
+        assert_eq!(core.player.inventory[&timber], 4);
+        core.edit_boundaries(&BoundaryEdit {
+            action: BoundaryAction::Remove,
+            ..edit.clone()
+        })
+        .unwrap();
+        assert_eq!(core.player.inventory[&timber], 8);
+        core.insight = 8;
+        core.researched.extend([5, 7]);
+        core.research(masonry).unwrap();
+        core.edit_boundaries(&edit).unwrap();
+        assert_eq!(core.player.inventory[&brick], 9);
+        assert_eq!(core.player.inventory[&cement], 3);
+        assert_eq!(
+            core.boundaries.values().next().unwrap().definition_id,
+            brick_wall
+        );
     }
 
     /// A flat, empty, deposit-free world to grade in. Generated terrain is switched off so that a

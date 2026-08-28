@@ -32,7 +32,7 @@ icon-only nodes and prerequisite connections. Completing the first hub commissio
 storage, extractors and on-site power — those four are not insight purchases. Hover or focus an icon
 for its name, costs and effects. Select a node to inspect unlocks, blockers and exact costs; use the
 separate Research button to spend insight on later work. Search, discipline filters, keyboard
-navigation, zoom and a compact list view help explore all 17 technologies. Hover previews never
+navigation, zoom and a compact list view help explore the technology map. Hover previews never
 replace the readable detail panel.
 
 **Skills (K)** separately improves carrying capacity and construction reach. Choose either
@@ -40,10 +40,10 @@ one-point upgrade first. Completing a manual-workshop batch, the first founding 
 and a powered craft each earns one Skill Point once; repeated work never farms more. Existing
 pack/reach research migrates without losing bonuses or spending insight.
 
-**Fences** opens the timber boundary tool. Select a hex edge or two enclosure corners, review
-the native bill, then Apply. Gates start open and work without power. Removal recovers the
-materials actually paid; Undo reverses the last boundary edit. Paving and native levelling
-remain the next ground-work milestone.
+**Walls** opens the enclosure tool. Place, Open, Close or Strip an edge or a two-corner
+yard; R cycles the work. Timber and wire fences need no research. Brick and concrete walls
+need Fired Masonry, hill limestone and kiln-fired cement. Gates start open and work without
+power. Removal recovers the materials actually paid.
 
 ## Controls
 
