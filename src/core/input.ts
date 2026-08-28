@@ -64,6 +64,14 @@ export class BoundedInputQueue {
     return true;
   }
 
+  /** A compound gesture must fit entirely, or leave the queue unchanged. */
+  enqueueBatch(commands: readonly NativeInputCommand[]): boolean {
+    if (this.#commands.length + commands.length > MAX_INPUT_COMMANDS)
+      return false;
+    this.#commands.push(...commands);
+    return true;
+  }
+
   drain(): NativeInputCommand[] {
     return this.#commands.splice(0, MAX_INPUT_COMMANDS);
   }

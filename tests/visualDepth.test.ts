@@ -9,6 +9,7 @@ import {
   Quaternion,
   ShaderLib,
   Vector3,
+  type CylinderGeometry,
   type Mesh,
   type RingGeometry,
   type WebGLProgramParametersWithUniforms,
@@ -20,6 +21,7 @@ import type {
   BuildingDefinition,
   EntitySnapshot,
   FactorySnapshot,
+  SurfaceDefinition,
   Terrain,
 } from "../src/core/types";
 import {
@@ -38,6 +40,12 @@ import {
   type MachinePartInstance,
 } from "../src/rendering/three/machineMeshes";
 import { createWorldMaterials } from "../src/rendering/three/materials";
+import {
+  pavingSource,
+  pavingStyle,
+  UNKNOWN_PAVING,
+} from "../src/rendering/three/pavingSurface";
+import { SURFACE_LOOK } from "../src/rendering/surfaceLook";
 import {
   HEX_RING_START,
   RANGE_RING_WIDTH,
@@ -427,7 +435,8 @@ describe("Visual Depth terrain and quality contracts", () => {
     expect(materials.machineDark.vertexColors).toBe(false);
     expect(materials.resource.vertexColors).toBe(false);
     expect(materials.resourceCoal.vertexColors).toBe(false);
-    expect(materials.surface.vertexColors).toBe(false);
+    for (const material of materials.paving.all())
+      expect(material.vertexColors).toBe(false);
     expect(materials.terrain.lowland.vertexColors).toBe(false);
     for (const material of materials.materials) material.dispose();
   });
@@ -1122,6 +1131,125 @@ describe("Terrain surfaces", () => {
     expect(surfaceBody("water")).toContain("hfTime");
     for (const family of ["sand", "meadow", "rock"] as const)
       expect(surfaceBody(family)).not.toContain("hfTime");
+  });
+
+  /**
+   * The lattice test. A paved yard used to be one tint per hex with a per-hex luminance jitter on
+   * top, and that jitter drew the honeycomb: every hex a slightly different brightness, so a
+   * finished yard read as tiles rather than as ground. Two things remove it, and both are pinned
+   * here because either one coming back alone brings the grid back with it.
+   */
+  it("lays paving as continuous ground rather than a hex per tile", () => {
+    const snapshot = minimalSnapshot();
+    snapshot.ground = [
+      { q: 0, r: 0, surface: 1, elevation: 0, paid: [] },
+      { q: 1, r: 0, surface: 1, elevation: 0, paid: [] },
+      { q: 0, r: 1, surface: 2, elevation: 0, paid: [] },
+    ];
+    const surfaces: SurfaceDefinition[] = [
+      {
+        id: 1,
+        key: "concrete-slab",
+        name: "Concrete slab",
+        description: "",
+        movement: 100,
+        construction_cost: [],
+      },
+      {
+        id: 2,
+        key: "brick-pavers",
+        name: "Brick pavers",
+        description: "",
+        movement: 100,
+        construction_cost: [],
+      },
+    ];
+    const materials = createWorldMaterials();
+    const built = buildTerrainMeshes(snapshot, materials, surfaces);
+    const caps = built.group.children.filter(
+      (child): child is InstancedMesh =>
+        child instanceof InstancedMesh && child.name.startsWith("prepared-"),
+    );
+    // One draw call per material, not per hex: the two concrete cells share an instanced mesh.
+    expect(caps.map(({ name }) => name).sort()).toEqual([
+      "prepared-ground-brick-pavers",
+      "prepared-ground-concrete-slab",
+    ]);
+    expect(caps.map(({ count }) => count).sort()).toEqual([1, 2]);
+    for (const cap of caps) {
+      // No per-instance tint at all. Colour, courses and joints come out of the material, sampled
+      // from world space, so a course runs across a hex boundary without knowing one is there.
+      expect(cap.instanceColor).toBeNull();
+      // Full radius, so neighbouring caps meet edge to edge with no groove of bare ground between
+      // them. An inset cap outlines every hex however seamless the pattern on top of it is.
+      const geometry = cap.geometry as CylinderGeometry;
+      expect(geometry.parameters.radiusTop).toBeCloseTo(HEX_RADIUS, 8);
+      expect(geometry.parameters.radiusBottom).toBeCloseTo(HEX_RADIUS, 8);
+    }
+    expect(caps[0]?.material).not.toBe(caps[1]?.material);
+    for (const geometry of built.geometries) geometry.dispose();
+    for (const material of materials.materials) material.dispose();
+  });
+
+  it("samples every paving from world space and gives each its own program", () => {
+    const materials = createWorldMaterials();
+    const keys = materials.paving
+      .all()
+      .map((material) => material.customProgramCacheKey());
+    expect(new Set(keys).size).toBe(keys.length);
+    for (const pattern of [
+      "earth",
+      "gravel",
+      "timber",
+      "brick",
+      "concrete",
+      "asphalt",
+    ] as const) {
+      const source = pavingSource(pattern);
+      expect(source).toContain("hfWorld");
+      // A UV or an instance attribute is per-hex by construction, and either one reintroduces the
+      // lattice however carefully the rest of the pattern is written.
+      expect(source).not.toContain("vUv");
+      expect(source).not.toContain("vColor");
+    }
+    for (const material of materials.materials) material.dispose();
+  });
+
+  it("spends paving detail only where the profile pays for it", () => {
+    const materials = createWorldMaterials();
+    materials.paving.setDetail(QUALITY_SETTINGS.low.terrainDetail);
+    for (const material of materials.paving.all()) {
+      expect(material.defines?.HF_OCTAVES).toBe(2);
+      expect(material.defines?.HF_PAVE_DETAIL).toBe(0);
+    }
+    materials.paving.setDetail(QUALITY_SETTINGS.high.terrainDetail);
+    for (const material of materials.paving.all()) {
+      expect(material.defines?.HF_OCTAVES).toBe(4);
+      expect(material.defines?.HF_PAVE_DETAIL).toBe(2);
+    }
+    for (const material of materials.materials) material.dispose();
+  });
+
+  it("keeps the laid palette anchored on the one the flat renderers draw", () => {
+    // The 3D yard, the minimap and the 2D renderer have to be the same material. `surfaceLook` is
+    // still the one place that colour is decided, and the pattern brackets it rather than replacing
+    // it, so a palette change lands everywhere at once instead of in two places out of three.
+    for (const [key, look] of Object.entries(SURFACE_LOOK)) {
+      const style = pavingStyle(key);
+      expect(style.roughness).toBeCloseTo(look.roughness, 8);
+      const anchor = new Color(look.color);
+      const low = new Color(style.low);
+      const high = new Color(style.high);
+      expect(low.getHSL({ h: 0, s: 0, l: 0 }).l).toBeLessThan(
+        anchor.getHSL({ h: 0, s: 0, l: 0 }).l + 0.06,
+      );
+      expect(high.getHSL({ h: 0, s: 0, l: 0 }).l).toBeGreaterThan(
+        anchor.getHSL({ h: 0, s: 0, l: 0 }).l - 0.06,
+      );
+    }
+    // An unrecognised surface still draws as worked earth rather than as nothing.
+    expect(pavingStyle("no-such-surface")).toBe(UNKNOWN_PAVING);
+    expect(pavingStyle(undefined)).toBe(UNKNOWN_PAVING);
   });
 });
 

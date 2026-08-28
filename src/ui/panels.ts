@@ -79,19 +79,32 @@ export class PanelController {
   }
 
   /**
-   * Bring the inspector out for something the world did rather than something the player pressed —
-   * walking up to a machine. On a wide screen it already stands beside the world and this changes
-   * nothing; on a narrow one it is behind its button, and this is what opens it.
-   *
-   * A workspace the player opened is left alone. One panel at a time is the rule, and a deliberate
-   * press outranks a footstep: a build list should not close itself because the player walked past
-   * a belt on the way to the hex they are about to build on.
+   * Bring the inspector out because the player walked up to a machine. On a wide screen it already
+   * stands beside the world and this changes nothing; on a narrow one it is behind its button, and
+   * this is what opens it.
    */
   revealInspector(): void {
-    const target = this.root.getElementById(INSPECTOR);
+    this.reveal(INSPECTOR);
+  }
+
+  /**
+   * Open a panel for something the world did rather than something the player pressed.
+   *
+   * A workspace the player opened is left alone, and so is one they are already looking at. One
+   * panel at a time is the rule, and a deliberate press outranks anything the game noticed: a build
+   * list should not close itself because the player walked past a belt on the way to the hex they
+   * are about to build on.
+   */
+  reveal(id: string): void {
+    const target = this.root.getElementById(id);
     if (!target || this.root.querySelector(".glass-panel.open")) return;
     target.classList.add("open");
     this.syncAndSave();
+  }
+
+  /** Whether this panel is currently one of the open workspaces. */
+  isOpen(id: string): boolean {
+    return this.root.getElementById(id)?.classList.contains("open") ?? false;
   }
 
   close(except?: HTMLElement): void {

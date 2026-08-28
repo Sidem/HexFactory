@@ -719,6 +719,8 @@ export interface LinePreviewCell {
   r: number;
   orientation: number;
   legal: boolean;
+  /** Native placement refusal for this resolved heading; preview RPC only, not snapshot wire. */
+  reason?: string;
 }
 
 export type NativeInputCommand =

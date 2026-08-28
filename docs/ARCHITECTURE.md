@@ -265,8 +265,11 @@ the current count and the loader accepts anything from the earned scenario-plus-
 
 Erasing a player-built entity uses one fixed refund policy: return 100% of its construction cost,
 stored inventories, and reserved recipe inputs. In-transit cargo does not teleport into the pack:
-it becomes a timed ground item at the removed entity's anchor. The pack refund is resolved before
-removal and refused if it will not fit, while spilled cargo remains world-owned and collectible.
+it becomes a timed ground item at the removed entity's anchor. Native splits the refund in item-id
+order against a working pack: what fits is carried, the rest spills at the site. Single and drag
+demolition ask once when stock or a batch is present. The dialog states the one-minute ground-item
+timer; no save or wire envelope changes. A removal drag asks native for its released endpoints
+before assembling the confirmation, so it cannot use a stale hover preview.
 
 **Creative mode** is one native flag on the core, not a host mode. It enters `checksum()` and the
 save envelope beside the pack size, so a creative run is a run like any other rather than a session
@@ -652,12 +655,15 @@ defect it prevents; a change that contradicts one needs an argument, not an over
   reference stops matching the placement rule.
 - Carrying capacity is a rule over the ordinary `item_id → quantity` inventory, never a stored slot
   array: each item takes one slot per part-filled stack of its own `stack_size`, against a slot
-  count the scenario fixes. Every path that adds to the player asks first. An erase whose full
-  refund will not fit is refused rather than partially paid, so the policy stays exactly 100%.
+  count the scenario fixes. Every path that adds to the player asks first. An erase carries what
+  fits and spills the rest as saved, checksummed ground items: the recovery stays exactly 100%.
 - A cursor-held stack is native inventory state, not DOM drag data. Left click lifts or places a
   full stack, right click halves a lift or places one, Ctrl-click moves one, and Shift applies the
   same quantity as a quick move between the pack and selected building. Every gesture sends a
   bounded command; native owns reach, stock compatibility, remaining room, save, and checksum.
+  Pointer dragging previews a lift and queues the same pickup/place commands together on release;
+  the bounded queue accepts both or neither. Outside drops and cancelled gestures send nothing.
+  Slot keys exclude quantities, and the pickup freezes its source address at press time.
 - Extractors, pumps, and composers write into bounded output inventories. They request work only
   while the next whole output fits, so a blocked edge fills a finite buffer and then stops without
   consuming a deposit or recipe inputs it cannot preserve. Transport offers from that buffer, not

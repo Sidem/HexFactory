@@ -113,6 +113,8 @@ import {
 } from "./rendering/three/quality";
 import { part, required, syncChildren } from "./ui/dom";
 import { PanelController } from "./ui/panels";
+import { ConfirmDialog } from "./ui/confirm";
+import { machineStockSlots } from "./ui/stockSlots";
 import { WorldParameterForm } from "./ui/worldParameters";
 import {
   applyChanges,
@@ -324,6 +326,18 @@ const researchDialog = required<HTMLDialogElement>("research-panel");
 const skillsDialog = required<HTMLDialogElement>("skills-panel");
 const skillsView = new SkillsView(skillsDialog, host.technologies, (id) =>
   enqueue({ type: "purchase_skill", skill_id: id }),
+);
+const confirmDialog = new ConfirmDialog(
+  required<HTMLDialogElement>("confirm-dialog"),
+  () => {
+    gatherHeld = false;
+    harvestPointer = null;
+    runningHeld = false;
+    pressedMovement.clear();
+    stopAiming();
+    endStackDrag();
+    enqueue(currentMovementIntent());
+  },
 );
 const panels = new PanelController(document, localStorage, (id, open) => {
   if ((id !== "research-panel" && id !== "skills-panel") || !open) return;
@@ -985,6 +999,9 @@ function renderInventory(): void {
     stacks.length > visible.length ? `+${stacks.length - visible.length}` : "";
   peek.classList.toggle("empty", stacks.length === 0);
 
+  // A lifted drag owns the floating stack, because it is carrying something native has not been
+  // told about yet: the pickup is only sent when the drop lands.
+  if (stackDrag?.lifted) return;
   const cursor = required<HTMLElement>("cursor-stack");
   const hand = snapshot.player.hand ?? undefined;
   cursor.hidden = !hand;
@@ -1650,84 +1667,25 @@ const HAND_REACHABLE = new Set<string>([
   "boiler",
 ]);
 
-/**
- * What the inspected hex is holding, and what the hand can take back out of it.
- *
- * Take used to belong to containers alone, which made a burner a one-way slot: fuel went in and
- * only demolition got it back. Every kind that holds stock the player can see now grows the
- * control, because seeing stock you cannot touch is the part that read as a bug.
- *
- * A composer still shows its reserved inputs and still will not hand them back — but that costs no
- * rule here, because native keeps reserved inputs in a different map from `inventory`. What this
- * list shows is free stock, so what it offers is exactly what native will give.
- */
-interface MachineStockSlot {
-  key: string;
-  item_id?: number;
-  quantity: number;
-  ghost?: boolean;
+interface StockCompartment {
+  stock: Exclude<StockKind, "auto">;
+  label: string;
   accepts: boolean;
+  expected: number[];
+  entries: { item_id: number; quantity: number }[];
 }
 
 /**
- * Slot layout is derived from the current recipe (and kind), not from a second building schema.
- * One expected field per named input, a fuel field when the machine burns, and an output field
- * when it produces — a kiln with clay in the bed still shows an empty coal slot.
+ * The compartments one building publishes: what it takes in, what it burns, what it holds, what it
+ * has made.
+ *
+ * Derived from the snapshot and the recipe rather than from a list of building kinds, which is the
+ * whole point of it being one function. Three features ask this question — the inspector draws the
+ * compartments, the pack opens itself beside a building that takes items, and a demolition names
+ * what is inside before it removes it — and a kind list would have had to be edited in three places
+ * every time a machine was added, with two of them silently wrong until someone noticed.
  */
-function machineStockSlots(
-  stored: { item_id: number; quantity: number }[],
-  expected: number[],
-  accepts: boolean,
-  capacity?: number,
-): MachineStockSlot[] {
-  const byId = new Map(stored.map((entry) => [entry.item_id, entry.quantity]));
-  const slots: MachineStockSlot[] = [];
-  const seen = new Set<number>();
-  for (const item_id of expected) {
-    if (item_id <= 0 || seen.has(item_id)) continue;
-    seen.add(item_id);
-    const quantity = byId.get(item_id) ?? 0;
-    slots.push({
-      key: `expected-${item_id}`,
-      item_id,
-      quantity,
-      ghost: quantity === 0,
-      accepts,
-    });
-  }
-  for (const entry of stored) {
-    if (seen.has(entry.item_id)) continue;
-    seen.add(entry.item_id);
-    slots.push({
-      key: `stored-${entry.item_id}`,
-      item_id: entry.item_id,
-      quantity: entry.quantity,
-      accepts,
-    });
-  }
-  const total = stored.reduce((sum, entry) => sum + entry.quantity, 0);
-  if (
-    accepts &&
-    expected.length === 0 &&
-    !slots.some((slot) => slot.quantity === 0) &&
-    (capacity === undefined || total < capacity)
-  ) {
-    slots.push({ key: "drop", quantity: 0, accepts: true });
-  }
-  if (slots.length === 0) {
-    slots.push({ key: "empty", quantity: 0, accepts });
-  }
-  return slots;
-}
-
-function renderInspectorActions(building: EntitySnapshot | undefined): void {
-  const container = required<HTMLElement>("inspect-stock");
-  const list = required<HTMLDivElement>("inspector-actions");
-  if (!building || !HAND_REACHABLE.has(building.kind)) {
-    container.hidden = true;
-    syncChildren(list, [], () => document.createElement("section"));
-    return;
-  }
+function stockCompartments(building: EntitySnapshot): StockCompartment[] {
   const definition = host.definitions.buildings.find(
     ({ id }) => id === building.definition_id,
   );
@@ -1737,13 +1695,7 @@ function renderInspectorActions(building: EntitySnapshot | undefined): void {
   const waterId = host.definitions.items.find(
     (item) => item.key === "water",
   )?.id;
-  const compartments: {
-    stock: Exclude<StockKind, "auto">;
-    label: string;
-    accepts: boolean;
-    expected: number[];
-    entries: { item_id: number; quantity: number }[];
-  }[] = [];
+  const compartments: StockCompartment[] = [];
   if (building.kind === "container")
     compartments.push({
       stock: "inventory",
@@ -1803,6 +1755,21 @@ function renderInspectorActions(building: EntitySnapshot | undefined): void {
         entries: building.output_inventory ?? [],
       });
   }
+  return compartments;
+}
+
+function renderInspectorActions(building: EntitySnapshot | undefined): void {
+  const container = required<HTMLElement>("inspect-stock");
+  const list = required<HTMLDivElement>("inspector-actions");
+  if (!building || !HAND_REACHABLE.has(building.kind)) {
+    container.hidden = true;
+    syncChildren(list, [], () => document.createElement("section"));
+    return;
+  }
+  const definition = host.definitions.buildings.find(
+    ({ id }) => id === building.definition_id,
+  );
+  const compartments = stockCompartments(building);
   container.hidden = compartments.length === 0;
   const cards = syncChildren(
     list,
@@ -1897,6 +1864,54 @@ function renderInspectorLoad(building: EntitySnapshot | undefined): void {
   required<HTMLElement>("inspect-load").hidden = true;
 }
 
+const INVENTORY_PANEL = "inventory-panel";
+
+/** The hex the pack was last offered beside, so the offer is made once per building, not per frame. */
+let packOfferedFor: string | null = null;
+/** Set once the player closes the pack themselves. After that the game never opens it again. */
+let packDeclined = false;
+
+/**
+ * Whether the layout has room for the pack and the inspector at once.
+ *
+ * Read off a custom property rather than matched against a width written here, so the breakpoint
+ * stays in the stylesheet where the rest of the layout keeps it and cannot drift out of step with
+ * the rule that actually hides the inspector.
+ */
+function panelsFitAbreast(): boolean {
+  return (
+    getComputedStyle(document.documentElement)
+      .getPropertyValue("--panels-abreast")
+      .trim() === "1"
+  );
+}
+
+/**
+ * Open the pack beside a building that can take something out of it.
+ *
+ * Which buildings those are is derived from the compartments the snapshot publishes — the same
+ * derivation the inspector draws and the demolition prompt reads — and not from a list of kinds. A
+ * kind list would be a fourth place to remember every time a machine is added, and the two silent
+ * ways it can be wrong are exactly the two that matter: a new machine the pack refuses to open for,
+ * and an old one it opens for pointlessly.
+ *
+ * Only an explicit close declines future offers. Clicking the world also clears panels; that
+ * automatic closure must not be mistaken for the player declining assistance.
+ */
+function offerPackBeside(building: EntitySnapshot | undefined): void {
+  const open = panels.isOpen(INVENTORY_PANEL);
+  const takes =
+    building !== undefined &&
+    stockCompartments(building).some(({ accepts }) => accepts);
+  const key = takes && building ? `${building.q},${building.r}` : null;
+  if (key === packOfferedFor) return;
+  packOfferedFor = key;
+  // Narrow layouts put the two panels in the same space, so opening the pack would take away the
+  // machine the player just selected. There the pack stays behind its key.
+  if (key === null || packDeclined || open || !panelsFitAbreast()) return;
+  panels.reveal(INVENTORY_PANEL);
+}
+
 function renderInspector(): void {
   const empty = required<HTMLElement>("inspect-empty");
   const sheet = required<HTMLElement>("inspect-sheet");
@@ -1914,9 +1929,11 @@ function renderInspector(): void {
     renderInspectorTier(undefined);
     renderInspectorRecipe(undefined);
     renderInspectorHub(undefined);
+    offerPackBeside(undefined);
     return;
   }
   const building = selected ? buildingAt(selected) : undefined;
+  offerPackBeside(building);
   const selectedWorld = axialToPixel(selected, 1024, { x: 0, y: 0 });
   // Field cells are addressed by their tile key, exactly as the native patch addresses them.
   const resource = snapshot.resources.find(
@@ -2704,6 +2721,10 @@ function loadReducedMotion(): boolean {
 }
 
 function syncSessionInputs(next: FactorySnapshot): void {
+  confirmDialog.dismiss();
+  endStackDrag();
+  packOfferedFor = null;
+  packDeclined = false;
   scenarioInput.value = next.scenario;
   showTitleScenario(next.scenario);
   seedInput.value = String(next.seed);
@@ -3674,11 +3695,244 @@ function stackGesture(event: MouseEvent): void {
   }
 }
 
+/**
+ * A stack being dragged from one slot to another.
+ *
+ * Nothing is sent to native while a drag is in flight. The pickup and the placement are enqueued
+ * together when the drop lands, so a drag released over nothing is not an undo of anything — it
+ * simply never happened, and the stack is still exactly where the player pressed. That is what makes
+ * "released over nothing returns the stack" true rather than merely usually true: there is no window
+ * in which the item is in a hand the player did not ask for, so a dropped connection, a closed
+ * panel, or a demolished machine mid-gesture cannot strand it.
+ *
+ * The gesture rides on the same native commands as the clicks: press-lift is `pickup_*`, and
+ * release-place is `place_*`, with the same modifier rules for how much moves. Pointer events rather
+ * than mouse events, so a finger drags a stack the same way a mouse does.
+ */
+interface StackDrag {
+  readonly pointerId: number;
+  readonly source: "player" | "building";
+  readonly origin: HTMLElement;
+  readonly itemId: number;
+  readonly quantity: number;
+  readonly pickup: NativeInputCommand;
+  readonly startX: number;
+  readonly startY: number;
+  lifted: boolean;
+}
+
+/** How far the pointer travels before a press becomes a drag rather than a click. */
+const STACK_DRAG_LIFT = 6;
+
+let stackDrag: StackDrag | null = null;
+/** A completed drag swallows the click the browser synthesises after it. */
+let stackDragHandledClick = false;
+
+// Consume the drag's synthetic click even when its target is outside either grid. A fresh press
+// always starts a new gesture, so a browser that emits no click cannot swallow the next real one.
+window.addEventListener(
+  "pointerdown",
+  () => {
+    stackDragHandledClick = false;
+  },
+  true,
+);
+window.addEventListener(
+  "click",
+  (event) => {
+    if (!stackDragHandledClick) return;
+    stackDragHandledClick = false;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+  },
+  true,
+);
+
+/** Every slot the two grids are currently showing, drag source and drop target alike. */
+function stackSlots(): HTMLElement[] {
+  return ["inventory", "inspector-actions"].flatMap((id) =>
+    Array.from(
+      required<HTMLElement>(id).querySelectorAll<HTMLElement>(
+        "[data-stack-source]",
+      ),
+    ),
+  );
+}
+
+/**
+ * Whether this drag could land on this slot, and why not when it could not.
+ *
+ * The reason is written here rather than left to native because a drop that quietly does nothing is
+ * the failure this whole gesture exists to remove. A slot that cannot take the stack never lights up
+ * in the first place, and a release on one says so.
+ */
+function stackDropRefusal(drag: StackDrag, slot: HTMLElement): string | null {
+  if (slot === drag.origin) return "";
+  const source = slot.dataset.stackSource;
+  if (source === "player") {
+    // The pack is one pool, not an arrangement — native has no notion of which slot a stack sits in,
+    // so a drag inside it would be a gesture with nothing to change.
+    return drag.source === "player" ? "" : null;
+  }
+  if (source !== "building") return "";
+  if (slot.dataset.accepts === "0")
+    return "That compartment does not take items";
+  const held = Number(slot.dataset.itemId);
+  if (held > 0 && held !== drag.itemId)
+    return `That slot is holding ${itemById(held)?.name ?? "something else"}`;
+  return null;
+}
+
+/** Light the slots this drag could land on, and mark the one under the pointer. */
+function paintStackDropTargets(
+  drag: StackDrag | null,
+  over?: Element | null,
+): void {
+  for (const slot of stackSlots()) {
+    const allowed = drag !== null && stackDropRefusal(drag, slot) === null;
+    slot.classList.toggle("drop-ready", allowed);
+    slot.classList.toggle("drop-over", allowed && slot === over);
+  }
+}
+
+/** Put the floating stack away and let the next frame's render own the cursor again. */
+function endStackDrag(): void {
+  if (stackDrag?.lifted) {
+    required<HTMLElement>("cursor-stack").hidden = !snapshot.player.hand;
+    paintStackDropTargets(null);
+    document.body.classList.remove("dragging-stack");
+  }
+  stackDrag = null;
+}
+
 for (const id of ["inventory", "inspector-actions"]) {
   const grid = required<HTMLElement>(id);
   grid.addEventListener("click", stackGesture);
   grid.addEventListener("contextmenu", stackGesture);
+  grid.addEventListener("pointerdown", (event) => {
+    // Only the primary button drags. The secondary one already means "half", and taking it over
+    // would cost the player a gesture they have been using since the panel existed.
+    if (
+      event.button !== 0 ||
+      !event.isPrimary ||
+      snapshot.player.hand ||
+      stackDrag
+    )
+      return;
+    const slot = (event.target as Element).closest<HTMLElement>(
+      "[data-stack-source]",
+    );
+    const source = slot?.dataset.stackSource;
+    if (!slot || (source !== "player" && source !== "building")) return;
+    const itemId = Number(slot.dataset.itemId);
+    const available = Number(slot.dataset.quantity) || 0;
+    if (!Number.isInteger(itemId) || itemId <= 0 || available <= 0) return;
+    stackDrag = {
+      pointerId: event.pointerId,
+      source,
+      origin: slot,
+      itemId,
+      quantity: event.ctrlKey || event.metaKey ? 1 : available,
+      // The inspector's keyed slot can be reused for another building during a drag. Freeze the
+      // source address at the press; never take it from that mutable element at release.
+      pickup:
+        source === "player"
+          ? {
+              type: "pickup_player_stack",
+              item_id: itemId,
+              quantity: event.ctrlKey || event.metaKey ? 1 : available,
+            }
+          : {
+              type: "pickup_building_stack",
+              q: Number(slot.dataset.q),
+              r: Number(slot.dataset.r),
+              stock: slot.dataset.stock as Exclude<StockKind, "auto">,
+              item_id: itemId,
+              quantity: event.ctrlKey || event.metaKey ? 1 : available,
+            },
+      startX: event.clientX,
+      startY: event.clientY,
+      lifted: false,
+    };
+  });
 }
+
+window.addEventListener("pointermove", (event) => {
+  const drag = stackDrag;
+  if (!drag || event.pointerId !== drag.pointerId) return;
+  if (!drag.lifted) {
+    const travelled =
+      Math.abs(event.clientX - drag.startX) +
+      Math.abs(event.clientY - drag.startY);
+    if (travelled < STACK_DRAG_LIFT) return;
+    // The slot may have been repainted between the press and the lift, so the amount is re-read.
+    // The element itself survives — the grids are keyed and patched in place — but its contents do
+    // not, and lifting more than is there would make the drop a refusal at the far end.
+    if (Number(drag.origin.dataset.quantity) < drag.quantity) {
+      stackDrag = null;
+      return;
+    }
+    drag.lifted = true;
+    document.body.classList.add("dragging-stack");
+    const cursor = required<HTMLElement>("cursor-stack");
+    cursor.hidden = false;
+    paintChip(cursor, drag.itemId, {
+      count: drag.quantity,
+      named: false,
+      short: true,
+    });
+  }
+  event.preventDefault();
+  paintStackDropTargets(
+    drag,
+    document
+      .elementFromPoint(event.clientX, event.clientY)
+      ?.closest("[data-stack-source]"),
+  );
+});
+
+window.addEventListener("pointerup", (event) => {
+  const drag = stackDrag;
+  if (!drag || event.pointerId !== drag.pointerId) return;
+  const lifted = drag.lifted;
+  const slot = lifted
+    ? document
+        .elementFromPoint(event.clientX, event.clientY)
+        ?.closest<HTMLElement>("[data-stack-source]")
+    : null;
+  endStackDrag();
+  // An unlifted press is a click, and the click handler is about to run with the gesture the player
+  // actually made. Only a real drag swallows it.
+  if (!lifted) return;
+  stackDragHandledClick = true;
+  if (!slot) {
+    showFeedback("Stack returned — drop it on a slot to move it");
+    return;
+  }
+  const refusal = stackDropRefusal(drag, slot);
+  if (refusal !== null) {
+    if (refusal) showFeedback(refusal);
+    return;
+  }
+  const place: NativeInputCommand =
+    slot.dataset.stackSource === "player"
+      ? { type: "place_player_stack", quantity: drag.quantity }
+      : {
+          type: "place_building_stack",
+          q: Number(slot.dataset.q),
+          r: Number(slot.dataset.r),
+          stock: slot.dataset.stock as Exclude<StockKind, "auto">,
+          quantity: drag.quantity,
+        };
+  if (!input.enqueueBatch([drag.pickup, place]))
+    showFeedback("Too many commands — stack stayed where it was. Try again.");
+});
+
+// A cancelled pointer — the browser taking over for a gesture, a window losing focus — is a release
+// over nothing, and lands in the same place: nothing was sent, so nothing has to be put back.
+window.addEventListener("pointercancel", (event) => {
+  if (stackDrag?.pointerId === event.pointerId) endStackDrag();
+});
 
 let cursorStackX = 0;
 let cursorStackY = 0;
@@ -3702,20 +3956,152 @@ function orbitView(step: -1 | 1): void {
   if (pressedMovement.size) enqueue(currentMovementIntent(runningHeld));
 }
 
-/** Delete the hovered building when there is one, otherwise the selected building. */
-function deleteBuildingUnderCursorOrSelected(): void {
-  const target = hover && buildingAt(hover) ? hover : selected;
-  const building = target ? buildingAt(target) : undefined;
-  if (!target || !building) {
+/**
+ * Demolish one building, asking first when it is holding something.
+ *
+ * Native no longer refuses a recovery the pack cannot hold — it carries what fits and drops the
+ * rest at the site — so the one thing left to get right is that the player knows before it happens
+ * rather than after. What is inside is named, and so is the clock the remainder falls onto, because
+ * a minute is not long enough to discover by being surprised by it.
+ *
+ * An empty building is still one press. The question is asked about stock the player deliberately
+ * put somewhere, so a belt's cargo in transit does not raise it: that has always spilled, it is one
+ * item, and a prompt on every belt would make clearing a line unusable.
+ */
+function eraseBuilding(target: { q: number; r: number }): void {
+  const building = buildingAt(target);
+  if (!building) {
     showFeedback("No building selected to delete");
     return;
   }
   selected = target;
   renderer.setSelection(target);
-  enqueue({ type: "erase", q: target.q, r: target.r });
+  const erase = (): void =>
+    void enqueue({ type: "erase", q: target.q, r: target.r });
+  const held = heldStock(building);
+  if (held.length === 0 && building.progress === 0) {
+    erase();
+    return;
+  }
+  const name =
+    host.definitions.buildings.find(({ id }) => id === building.definition_id)
+      ?.name ?? "building";
+  confirmDialog.ask(
+    {
+      title: `Demolish the ${name}?`,
+      rows: held.map((entry) => ({
+        text: `${entry.quantity} × ${itemById(entry.item_id)?.name ?? "item"}`,
+        paint: (host_) =>
+          void paintChip(host_, entry.item_id, { named: false }),
+      })),
+      note: SPILL_NOTE,
+      accept: "Demolish",
+      cancel: "Keep it",
+    },
+    erase,
+  );
+}
+
+/** Everything one building is holding that the player put there, newest question first. */
+function heldStock(
+  building: EntitySnapshot,
+): { item_id: number; quantity: number }[] {
+  if (!HAND_REACHABLE.has(building.kind)) return [];
+  return stockCompartments(building)
+    .flatMap(({ entries }) => entries)
+    .filter(({ quantity }) => quantity > 0);
+}
+
+const SPILL_NOTE =
+  "What fits goes back to your pack. Anything that does not fit falls at the site, and ground items disappear after about a minute of simulation time.";
+
+/**
+ * A removal drag, asked about once for the whole sweep.
+ *
+ * One prompt per building would make clearing a factory unusable, and no prompt at all would make
+ * the sweep the one route that empties a row of full containers without saying so. So the question
+ * is asked once, over the totals, and the drag is either taken or dropped entire.
+ */
+async function eraseLine(
+  from: { q: number; r: number },
+  to: { q: number; r: number },
+): Promise<void> {
+  // Ask for the released endpoints, not the last asynchronous hover preview, which can still be
+  // in flight. A fast sweep must not silently demolish stock outside an older preview.
+  let cells;
+  try {
+    cells = await host.linePreview(from.q, from.r, to.q, to.r);
+  } catch (error) {
+    showFeedback(`Removal cancelled: ${String(error)}`);
+    return;
+  }
+  const send = (): void =>
+    void enqueue({
+      type: "erase_line",
+      q: from.q,
+      r: from.r,
+      to_q: to.q,
+      to_r: to.r,
+    });
+  const seen = new Set<number>();
+  const totals = new Map<number, number>();
+  let buildings = 0;
+  for (const cell of cells.filter(({ legal }) => legal)) {
+    const building = buildingAt(cell);
+    if (!building || seen.has(building.id)) continue;
+    seen.add(building.id);
+    const held = heldStock(building);
+    if (held.length === 0 && building.progress === 0) continue;
+    buildings += 1;
+    for (const entry of held)
+      totals.set(
+        entry.item_id,
+        (totals.get(entry.item_id) ?? 0) + entry.quantity,
+      );
+  }
+  if (buildings === 0) {
+    send();
+    return;
+  }
+  confirmDialog.ask(
+    {
+      title:
+        buildings === 1
+          ? "Demolish 1 building with stock inside?"
+          : `Demolish ${buildings} buildings with stock inside?`,
+      rows: [...totals].map(([itemId, quantity]) => ({
+        text: `${quantity} × ${itemById(itemId)?.name ?? "item"}`,
+        paint: (holder: HTMLElement) =>
+          void paintChip(holder, itemId, { named: false }),
+      })),
+      note: SPILL_NOTE,
+      accept: "Demolish",
+      cancel: "Keep them",
+    },
+    send,
+  );
+}
+
+/** Delete the hovered building when there is one, otherwise the selected building. */
+function deleteBuildingUnderCursorOrSelected(): void {
+  const target = hover && buildingAt(hover) ? hover : selected;
+  if (!target) {
+    showFeedback("No building selected to delete");
+    return;
+  }
+  eraseBuilding(target);
 }
 
 window.addEventListener("keydown", (event) => {
+  if (event.code === "Escape" && stackDrag) {
+    endStackDrag();
+    event.preventDefault();
+    return;
+  }
+  // A question owns the keyboard entirely while it is up. It has its own two buttons and its own
+  // `Escape`, and a build key that fired past it would edit the world the player is being asked
+  // about — so unlike the two panels below, there is no key that reaches through it.
+  if (confirmDialog.open) return;
   if (researchDialog.open || skillsDialog.open) {
     if (
       ((researchDialog.open && event.code === "KeyO") ||
@@ -3794,6 +4180,7 @@ window.addEventListener("keydown", (event) => {
       return;
     }
     selectTool("inspect");
+    if (panels.isOpen(INVENTORY_PANEL)) packDeclined = true;
     closePanels();
   }
   // Space centres the camera, which is what the button beside it does and what a player who has
@@ -3834,7 +4221,7 @@ window.addEventListener("keydown", (event) => {
 });
 
 window.addEventListener("keyup", (event) => {
-  if (researchDialog.open || skillsDialog.open) return;
+  if (confirmDialog.open || researchDialog.open || skillsDialog.open) return;
   if (
     event.code === "Space" &&
     !isTypingTarget(event.target) &&
@@ -3857,6 +4244,7 @@ window.addEventListener("keyup", (event) => {
 });
 
 window.addEventListener("blur", () => {
+  endStackDrag();
   gatherHeld = false;
   runningHeld = false;
   stopAiming();
@@ -4000,20 +4388,20 @@ canvas.addEventListener("pointerup", (event) => {
   suppressMapClick = true;
   selected = to;
   renderer.setSelection(to);
-  enqueue(
-    erasing
-      ? { type: "erase_line", q: from.q, r: from.r, to_q: to.q, to_r: to.r }
-      : {
-          type: "place_line",
-          q: from.q,
-          r: from.r,
-          to_q: to.q,
-          to_r: to.r,
-          definition_id: tool as number,
-          orientation,
-          recipe_id: recipeFor(tool),
-        },
-  );
+  if (erasing) {
+    void eraseLine(from, to);
+    return;
+  }
+  enqueue({
+    type: "place_line",
+    q: from.q,
+    r: from.r,
+    to_q: to.q,
+    to_r: to.r,
+    definition_id: tool as number,
+    orientation,
+    recipe_id: recipeFor(tool),
+  });
 });
 canvas.addEventListener("pointercancel", (event) => {
   // A cancelled pointer never sends `pointerup`, and a held harvest that outlived its gesture
@@ -4082,8 +4470,12 @@ canvas.addEventListener("click", (event) => {
   selected = coordinate;
   renderer.setSelection(coordinate);
   if (repeat) enqueue({ type: "walk_to", ...coordinate });
-  else if (tool === "erase") enqueue({ type: "erase", ...coordinate });
-  else if (tool === "rotate") enqueue({ type: "rotate", ...coordinate });
+  // Empty ground keeps native's answer: a sweep with the erase tool crosses far more nothing than
+  // something, and a local complaint on every miss would be noise the old path never made.
+  else if (tool === "erase") {
+    if (buildingAt(coordinate)) eraseBuilding(coordinate);
+    else enqueue({ type: "erase", ...coordinate });
+  } else if (tool === "rotate") enqueue({ type: "rotate", ...coordinate });
   else if (tool === "upgrade") enqueue({ type: "upgrade", ...coordinate });
   else if (typeof tool === "number") {
     enqueue({
@@ -4150,7 +4542,8 @@ async function refreshDragPreview(): Promise<void> {
       const legal = cells.filter((cell) => cell.legal).length;
       required<HTMLElement>("placement-value").textContent = erasing
         ? `Remove ${legal} of ${cells.length}`
-        : `Build ${legal} of ${cells.length}`;
+        : (cells.find((cell) => !cell.legal && cell.reason)?.reason ??
+          `Build ${legal} of ${cells.length}`);
       if (dragBuild.to.q === to.q && dragBuild.to.r === to.r) break;
     }
   } catch (error) {
@@ -4344,6 +4737,7 @@ function sendAim(): void {
  * chosen workspace; the right rail hides it while its own menu or timer is open.
  */
 function togglePanel(id: string): void {
+  if (id === INVENTORY_PANEL && panels.isOpen(id)) packDeclined = true;
   boundaryTool.close(false);
   groundTool.close(false);
   panels.toggle(id);
@@ -4946,6 +5340,19 @@ document.addEventListener("change", (event) => {
 
 // A close button closes the panel it is in and nothing else. Clearing the screen is Escape's job.
 panels.bind();
+// Capture before the panel controller changes the class, so only explicit close/toggle actions
+// decline automatic pack opening. Selecting a different machine remains helpful.
+document.addEventListener(
+  "click",
+  (event) => {
+    const target = event.target instanceof Element ? event.target : null;
+    const close = target?.closest("#inventory-panel .panel-close");
+    const toggle = target?.closest('[data-panel-target="inventory-panel"]');
+    if (close || (toggle && panels.isOpen(INVENTORY_PANEL)))
+      packDeclined = true;
+  },
+  true,
+);
 
 for (const button of document.querySelectorAll<HTMLButtonElement>(
   "[data-move-key]",

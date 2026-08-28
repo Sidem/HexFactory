@@ -8,6 +8,7 @@ import type { WebGLProgramParametersWithUniforms } from "three";
 
 import type { Terrain } from "../../core/types";
 import type { MachineMaterialRole } from "../shapeGrammar";
+import { PavingSurfaces } from "./pavingSurface";
 import { TERRAIN_STYLE } from "./terrainStyle";
 import { TerrainSurfaces } from "./terrainSurface";
 
@@ -15,8 +16,8 @@ export interface WorldMaterials {
   readonly terrain: Record<Terrain, MeshStandardMaterial>;
   /** The procedural landform surfaces: one clock, one detail switch, seven materials. */
   readonly terrainSurfaces: TerrainSurfaces;
-  /** Every laid surface at once: one flat-shaded slab, tinted per instance from `surfaceLook`. */
-  readonly surface: MeshStandardMaterial;
+  /** The procedural laid surfaces: one material per paving, each patterned in world space. */
+  readonly paving: PavingSurfaces;
   readonly machine: MeshStandardMaterial;
   readonly machineCeramic: MeshStandardMaterial;
   readonly machineBrass: MeshStandardMaterial;
@@ -70,12 +71,7 @@ export function createWorldMaterials(): WorldMaterials {
   const terrainSurfaces = new TerrainSurfaces();
   for (const [key, material] of Object.entries(terrain))
     terrainSurfaces.attach(material, key as Terrain);
-  const surface = new MeshStandardMaterial({
-    color: 0xffffff,
-    roughness: 0.9,
-    metalness: 0.02,
-    flatShading: true,
-  });
+  const paving = new PavingSurfaces();
   const machine = machineMaterial("#ffffff", "structure", 0.7, 0.3);
   const machineCeramic = machineMaterial("#ffffff", "ceramic", 0.86, 0.04);
   const machineBrass = machineMaterial("#ffffff", "brass", 0.42, 0.62);
@@ -203,7 +199,7 @@ export function createWorldMaterials(): WorldMaterials {
   });
   const materials = [
     ...Object.values(terrain),
-    surface,
+    ...paving.all(),
     machine,
     machineCeramic,
     machineBrass,
@@ -232,7 +228,7 @@ export function createWorldMaterials(): WorldMaterials {
   return {
     terrain,
     terrainSurfaces,
-    surface,
+    paving,
     machine,
     machineCeramic,
     machineBrass,

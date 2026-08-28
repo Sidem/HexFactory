@@ -679,6 +679,21 @@ enum BuildingKind {
     Bridge,
 }
 
+/// Whether a building of this kind could ever take a delivered item — whatever it holds, whatever
+/// recipe it is given, whatever the hub is asking for today.
+///
+/// This is the *static* question, over the kind alone, and it is deliberately a separate predicate
+/// from `accepts_item`. That one answers *would you want this one item, right now*, which changes
+/// with a recipe, a fuel, or a contract, and construction must not be decided by an answer that can
+/// change a tick later. This one never changes, so a graph edge into such a target is a dead edge
+/// worth refusing to compile and worth refusing to build.
+fn never_accepts_deliveries(kind: BuildingKind) -> bool {
+    matches!(
+        kind,
+        BuildingKind::Extractor | BuildingKind::Pump | BuildingKind::Pole | BuildingKind::Bridge
+    )
+}
+
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 enum PowerSource {
@@ -1834,6 +1849,8 @@ struct LinePreviewCell {
     r: i32,
     orientation: u8,
     legal: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    reason: Option<String>,
 }
 
 /// A building's native stock compartment. `Auto` exists only at the command boundary for quick
@@ -2472,6 +2489,43 @@ impl Core {
             filled => stack - filled,
         };
         partial.saturating_add(free_slots.saturating_mul(stack))
+    }
+
+    /// Split a recovery into what the pack can still hold and what will not fit.
+    ///
+    /// Deliberately a walk over a working copy rather than a sum of `player_room_for` calls: each
+    /// item taken consumes slots the next item would otherwise have been offered, so per-item
+    /// answers would promise the same free slot twice. `BTreeMap` order makes the split itself
+    /// deterministic, which matters because the remainder becomes ground items in the checksum.
+    fn split_by_carry(
+        &self,
+        additions: &BTreeMap<ItemId, u32>,
+    ) -> (BTreeMap<ItemId, u32>, BTreeMap<ItemId, u32>) {
+        let mut prospective = self.player.inventory.clone();
+        let mut carried = BTreeMap::new();
+        let mut spilled = BTreeMap::new();
+        for (&item, &quantity) in additions {
+            let stack = self.stack_size(item);
+            let held = prospective.get(&item).copied().unwrap_or(0);
+            let free_slots = self
+                .player
+                .carry_slots
+                .saturating_sub(self.slots_used(&prospective));
+            let partial = match held % stack {
+                0 => 0,
+                filled => stack - filled,
+            };
+            let room = partial.saturating_add(free_slots.saturating_mul(stack));
+            let take = quantity.min(room);
+            if take > 0 {
+                *prospective.entry(item).or_default() += take;
+                carried.insert(item, take);
+            }
+            if quantity > take {
+                spilled.insert(item, quantity - take);
+            }
+        }
+        (carried, spilled)
     }
 
     /// Turn creative mode on or off.
@@ -3155,10 +3209,63 @@ impl Core {
             .and_then(|span| self.trace_underpass(index, orientation, span, occupied))
             .or_else(|| self.trace_ray(index, orientation, occupied));
         target.filter(|&target| {
+            // A dead edge is not compiled at all. Binding one and letting every tick's transfer
+            // refuse it spends arbitration on a delivery that can never land, and draws the player
+            // a connected line that silently is not one.
+            if never_accepts_deliveries(self.entities[target].kind) {
+                return false;
+            }
             let from = &self.entities[index].placed;
             let to = &self.entities[target].placed;
             !self.boundary_blocks_segment(axial_world(from.q, from.r), axial_world(to.q, to.r))
         })
+    }
+
+    /// The entity an output ray on this heading would bind to for a building that is not placed
+    /// yet, with the hex it binds at.
+    ///
+    /// Deliberately mirrors `trace_underpass` then `trace_ray`, in that order and with the same
+    /// step table, limit, and skip-own-footprint rule, so construction refuses exactly the edge the
+    /// graph compile would otherwise go on to build. An entrance that finds its partner delivers
+    /// past whatever stands between, so it must not be judged on what stands between.
+    fn prospective_output(
+        &self,
+        footprint: &[Coordinate],
+        definition: &BuildingDefinition,
+        orientation: u8,
+    ) -> Option<(usize, (i32, i32))> {
+        let anchor = footprint.first().map(|cell| (cell.q, cell.r))?;
+        let (dq, dr) = TRANSPORT_DIRECTIONS[usize::from(orientation) % TRANSPORT_DIRECTIONS.len()];
+        if let Some(span) = definition.underpass_span {
+            let (mut q, mut r) = (anchor.0 + dq, anchor.1 + dr);
+            for _ in 1..=span.min(GRAPH_TRACE_LIMIT as u32) {
+                if let Some(target) = self.entity_at(q, r) {
+                    let placed = &self.entities[target].placed;
+                    if placed.definition_id == definition.id && placed.orientation == orientation {
+                        return None;
+                    }
+                }
+                q += dq;
+                r += dr;
+            }
+        }
+        let (mut q, mut r) = (anchor.0 + dq, anchor.1 + dr);
+        for _ in 0..GRAPH_TRACE_LIMIT {
+            if footprint.iter().any(|cell| cell.q == q && cell.r == r) {
+                q += dq;
+                r += dr;
+                continue;
+            }
+            let target = self.entity_at(q, r)?;
+            let to = &self.entities[target].placed;
+            if self
+                .boundary_blocks_segment(axial_world(anchor.0, anchor.1), axial_world(to.q, to.r))
+            {
+                return None;
+            }
+            return Some((target, (q, r)));
+        }
+        None
     }
 
     /// The ordinary transport ray, unchanged since the graph existed.
@@ -6024,6 +6131,34 @@ impl Core {
                 ));
             }
         }
+        // Transport exists to deliver. A belt aimed at something that can never take an item is not
+        // a slow belt, it is a dead one, and the old game only told the player so much later, when
+        // the line silently backed up. So the question moves from delivery time to construction
+        // time, and the refusal names the hex that is refusing and why.
+        //
+        // Only the facing is judged, and only for transport. A splitter's flanks may legitimately
+        // point at anything, and a machine that happens to face a power pole is still a perfectly
+        // good machine — refusing those would be hostile. A belt exists for one purpose and a drag
+        // chooses its own heading, so it is the one that can be held to it.
+        if definition.kind == BuildingKind::Belt {
+            if let Some((target, (cell_q, cell_r))) =
+                self.prospective_output(&footprint, definition, orientation)
+            {
+                let blocked = &self.entities[target];
+                // A bridge is a support a belt may itself stand on, so a belt aimed at a bare
+                // bridge hex is aimed at the belt that will stand there: not accepting *yet*,
+                // rather than never.
+                if never_accepts_deliveries(blocked.kind) && blocked.kind != BuildingKind::Bridge {
+                    let name = self
+                        .building_definition(blocked.placed.definition_id)
+                        .map(|value| value.name.clone())
+                        .unwrap_or_else(|| "that building".into());
+                    return Err(format!(
+                        "this belt would deliver into the {name} at {cell_q}, {cell_r}, which never takes items"
+                    ));
+                }
+            }
+        }
         // Creative builds for free, so it is asked for nothing. Every other rule above still
         // applies — terrain, footprint, overlap, reach, orientation — because a creative layout that
         // could not be built in a priced run would be no use as a test of one.
@@ -6229,10 +6364,11 @@ impl Core {
                 // A run that turns can change price partway along it, so the budget is charged the
                 // heading each cell actually takes rather than the heading the drag started at.
                 let cost = definition.cost_at(cell_orientation);
+                let reason = self
+                    .placement_legality(q, r, definition_id, cell_orientation, recipe_id, false)
+                    .err();
                 let legal = !taken.contains(&(q, r))
-                    && self
-                        .placement_legality(q, r, definition_id, cell_orientation, recipe_id, false)
-                        .is_ok()
+                    && reason.is_none()
                     && (self.creative || has_ingredients(&budget, cost));
                 if legal {
                     if !self.creative {
@@ -6247,6 +6383,7 @@ impl Core {
                     r,
                     orientation: cell_orientation,
                     legal,
+                    reason,
                 }
             })
             .collect()
@@ -6408,7 +6545,6 @@ impl Core {
     /// preview spends materials against one: the cell a run stops at has to be visible before the
     /// drag is released, whether it stops for cost or for carrying space.
     fn erase_line_preview(&self, from: (i32, i32), to: (i32, i32)) -> Vec<LinePreviewCell> {
-        let mut carried = self.player.inventory.clone();
         let mut taken = BTreeSet::new();
         line_between(from, to, self.erase_line_axis(from))
             .into_iter()
@@ -6418,23 +6554,22 @@ impl Core {
                     !self.entities[index].placed.scenario_owned
                         && !taken.contains(&self.entities[index].id)
                 });
-                let legal = in_range
-                    && removable.is_some_and(|index| {
-                        let refund = self.erase_refund(index);
-                        let mut prospective = carried.clone();
-                        add_inventory(&mut prospective, &refund);
-                        let fits = self.slots_used(&prospective) <= self.player.carry_slots;
-                        if fits {
-                            carried = prospective;
-                            taken.insert(self.entities[index].id);
-                        }
-                        fits
-                    });
+                // A full pack no longer refuses a recovery — whatever will not fit falls at the
+                // site — so the preview no longer walks a running total of what the pack could
+                // still take. `taken` stays: a multi-cell footprint is reached from several cells
+                // of the drag, and only the first of them removes anything.
+                if in_range {
+                    if let Some(index) = removable {
+                        taken.insert(self.entities[index].id);
+                    }
+                }
+                let legal = in_range && removable.is_some();
                 LinePreviewCell {
                     q,
                     r,
                     orientation: 0,
                     legal,
+                    reason: None,
                 }
             })
             .collect()
@@ -6525,13 +6660,14 @@ impl Core {
         if self.entities[index].placed.scenario_owned {
             return Err("scenario-owned objects are protected".into());
         }
-        // Construction cost and stored contents return to the pack atomically. Cargo currently in
-        // transit is different: removing its belt spills it onto that belt's hex as a real ground
-        // item, so demolition never teleports a moving resource into the player's inventory.
+        // Construction cost and stored contents come back to the pack, and whatever will not fit
+        // falls at the site as real ground items — the same treatment in-transit cargo has always
+        // had. Refusing the demolition instead was the worse trade: it left the player holding a
+        // full pack and a full building with no order of operations that emptied either, and the
+        // building they wanted gone stayed. The host warns first and says the ground items are on a
+        // timer, so the loss is a decision rather than a surprise.
         let refund = self.erase_refund(index);
-        if !self.player_can_carry(&refund) {
-            return Err("no room to carry what this would recover".into());
-        }
+        let (carried, spilled) = self.split_by_carry(&refund);
         let old_links = self.graph_links_by_id();
         let changed_cells = self
             .entity_footprint(&self.entities[index])
@@ -6546,7 +6682,7 @@ impl Core {
             .building_definition(entity.placed.definition_id)
             .map(|definition| definition.name.clone())
             .unwrap_or_else(|| "building".into());
-        add_inventory(&mut self.player.inventory, &refund);
+        add_inventory(&mut self.player.inventory, &carried);
         if let Some(cargo) = entity.cargo {
             self.add_ground_item(
                 entity.placed.q,
@@ -6555,8 +6691,17 @@ impl Core {
                 cargo.quantity,
             );
         }
+        for (&item, &quantity) in &spilled {
+            self.add_ground_item(entity.placed.q, entity.placed.r, item, quantity);
+        }
         self.recompile_graph_components(&old_links, &changed_cells, &BTreeSet::from([entity.id]));
         self.events.push(format!("Recovered {name}"));
+        if !spilled.is_empty() {
+            let total: u32 = spilled.values().sum();
+            self.events.push(format!(
+                "{total} items would not fit your pack and fell at the site"
+            ));
+        }
         Ok(())
     }
 
@@ -6564,10 +6709,10 @@ impl Core {
     /// reserved recipe inputs. In-transit cargo is deliberately absent because `erase` spills it
     /// on the ground at the removed entity's anchor.
     ///
-    /// Creative recovers nothing. Building costs nothing there, so there is nothing owed back, and a
-    /// refund that could not fit is the one thing that makes an erase *fail* — a creative player
-    /// clearing a full factory would be stopped by their own pack. One rule here covers every route:
-    /// single erase, drag erase, the drag's preview, and undo.
+    /// Creative recovers nothing. Building costs nothing there, so there is nothing owed back, and
+    /// nothing to spill either — a creative player clearing a full factory leaves no litter behind
+    /// them. One rule here covers every route: single erase, drag erase, the drag's preview, and
+    /// undo.
     fn erase_refund(&self, index: usize) -> BTreeMap<ItemId, u32> {
         if self.creative {
             return BTreeMap::new();
@@ -18262,6 +18407,160 @@ mod tests {
         assert!(core.erase(0, 0).unwrap_err().contains("protected"));
     }
 
+    /// A belt may not be built into something that can never take an item, and no such edge is
+    /// compiled if one arises anyway.
+    ///
+    /// The old game answered this at delivery time, which meant it never answered it at all: the
+    /// line looked connected, compiled an edge, and quietly backed up. The static question gets its
+    /// own predicate so the answer cannot change with a recipe or a contract the way `accepts_item`
+    /// can, construction refuses by name and by hex, and only transport is held to its heading —
+    /// a machine that happens to face a pole is still a perfectly good machine.
+    #[test]
+    fn a_belt_may_not_be_built_into_a_target_that_can_never_accept() {
+        let mut core = game("new-game");
+        core.set_creative(true);
+        set_player_hex(&mut core, 1, 3);
+        core.place(0, 3, 12, 0, None).unwrap();
+
+        // Heading 4 is due north on the routing table, so from (0, 4) it points straight at the
+        // pole. Pointed anywhere else the same belt on the same hex is fine.
+        assert!(core.placement_legality(0, 4, 2, 0, None, false).is_ok());
+        let refused = core
+            .placement_legality(0, 4, 2, 4, None, false)
+            .unwrap_err();
+        assert!(refused.contains("Pole"), "names the building: {refused}");
+        assert!(refused.contains("0, 3"), "names the hex: {refused}");
+        assert!(
+            refused.contains("never takes items"),
+            "names the reason: {refused}"
+        );
+        let preview = core.line_preview((0, 5), (0, 4), 2, 4, None);
+        let tip = preview
+            .iter()
+            .find(|cell| cell.q == 0 && cell.r == 4)
+            .unwrap();
+        assert!(!tip.legal);
+        assert!(tip.reason.as_ref().unwrap().contains("Pole at 0, 3"));
+        assert!(
+            core.placement_legality(0, 4, 4, 4, None, false).is_ok(),
+            "a container facing the same pole is not transport and is not refused"
+        );
+
+        // Nothing about the runtime question moved: a pole was never a delivery target and still
+        // is not, asked the way the tick asks it.
+        let pole = core.entity_at(0, 3).unwrap();
+        assert!(!core.accepts_item(pole, 3));
+
+        // And an edge into such a target is not compiled even when one arises anyway — building
+        // the pole second, where no placement rule could have refused it.
+        let mut core = empty_world("new-game");
+        add_test_belt(&mut core, 0, 0, 0);
+        add_test_entity(&mut core, 1, 0, 12, 0);
+        core.compile_graph();
+        assert!(
+            core.graph[0].is_empty(),
+            "the belt shows no downstream rather than a connection that never delivers"
+        );
+    }
+
+    /// Demolishing a building with something in it no longer stops at a full pack.
+    ///
+    /// What fits comes back, what does not falls at the site on the ordinary ground-item clock, and
+    /// the two together are exactly what the building held — that split is the conservation law.
+    /// Refusing instead was the worse trade: a full pack and a full building had no order of
+    /// operations that emptied either, so the building the player wanted gone simply stayed. The
+    /// host warns first and says the ground items are on a timer, so the loss is a decision.
+    #[test]
+    fn erase_carries_what_fits_and_spills_the_rest() {
+        let mut core = game("new-game");
+        core.researched.extend([1, 4, 12]);
+        set_player_hex(&mut core, 1, 3);
+        core.player.inventory.insert(16, 3);
+        core.place(0, 3, 4, 0, None).unwrap();
+
+        // Three stacks inside, and room in the pack for exactly one of them.
+        let stack = core.stack_size(3);
+        let index = core.entity_at(0, 3).unwrap();
+        core.entities[index].inventory.insert(3, stack * 3);
+        core.player.inventory.clear();
+        core.player.carry_slots = 1;
+
+        core.erase(0, 3)
+            .expect("a full pack no longer blocks a demolition");
+        assert_eq!(core.player.inventory.get(&3), Some(&stack));
+        assert_eq!(
+            core.player.inventory.get(&16),
+            None,
+            "the construction cost had no slot left to come back into"
+        );
+        assert_eq!(
+            core.ground_items
+                .iter()
+                .map(|item| (item.item_id, item.quantity, item.despawn_tick))
+                .collect::<Vec<_>>(),
+            vec![
+                (3, stack * 2, GROUND_ITEM_LIFETIME_TICKS),
+                (16, 3, GROUND_ITEM_LIFETIME_TICKS),
+            ],
+            "the remainder falls at the site, on the clock the confirmation states"
+        );
+        assert!(
+            core.events
+                .iter()
+                .any(|event| event.contains("would not fit your pack")),
+            "and the player is told, not left to notice"
+        );
+    }
+
+    #[test]
+    fn temporarily_blocked_targets_still_compile_and_allow_belts() {
+        for definition_id in [3, 4] {
+            let mut core = game("new-game");
+            core.set_creative(true);
+            set_player_hex(&mut core, 1, 3);
+            core.place(0, 3, definition_id, 0, (definition_id == 3).then_some(1))
+                .unwrap();
+            let target = core.entity_at(0, 3).unwrap();
+            if definition_id == 4 {
+                core.entities[target].inventory.insert(3, 60);
+            } else {
+                core.entities[target].placed.recipe_id = None;
+            }
+            assert!(core.placement_legality(0, 4, 2, 4, None, false).is_ok());
+            core.place(0, 4, 2, 4, None).unwrap();
+            let belt = core.entity_at(0, 4).unwrap();
+            assert_eq!(core.graph[belt].primary(), Some(target));
+        }
+    }
+
+    #[test]
+    fn demolition_overflow_round_trips_and_can_be_collected() {
+        let (definitions, technologies, scenarios) = catalogs();
+        let mut core = game("new-game");
+        core.set_creative(true);
+        core.place(2, 0, 4, 0, None).unwrap();
+        let container = core.entity_at(2, 0).unwrap();
+        core.entities[container].inventory.insert(3, 60);
+        core.player.inventory.clear();
+        core.player
+            .inventory
+            .insert(1, core.player.carry_slots * core.stack_size(1));
+        core.set_creative(false);
+        core.erase(2, 0).unwrap();
+        let save = core.save_string().unwrap();
+        let mut restored = Core::from_save(&definitions, &technologies, &scenarios, &save).unwrap();
+        assert_eq!(restored.checksum(), core.checksum());
+        assert_eq!(restored.ground_items, core.ground_items);
+        restored.player.inventory.clear();
+        set_player_hex(&mut restored, 2, 0);
+        restored.tick += 30;
+        restored.player.move_x = 1;
+        restored.collect_ground_items();
+        assert!(restored.ground_items.is_empty());
+        assert_eq!(restored.player.inventory.get(&3), Some(&60));
+        assert_eq!(restored.player.inventory.get(&16), Some(&3));
+    }
+
     /// Transport is bought a batch at a time, and the price boundary that introduced kits conserves.
     ///
     /// A line used to be paid for one raw ore per segment, so laying belt never touched the factory
@@ -18434,8 +18733,15 @@ mod tests {
         );
     }
 
+    /// A full pack no longer refuses a demolition, and nothing is destroyed when it does not.
+    ///
+    /// The refusal sounded protective and was not: a full pack and a full container had no order of
+    /// operations that emptied either, so the building the player wanted gone simply stayed. The
+    /// recovery splits instead — what fits is carried, what does not falls at the site — and the
+    /// removal preview promises the same thing, so a drag cannot show a cell it will refuse on
+    /// release.
     #[test]
-    fn an_erase_that_cannot_be_carried_is_refused_rather_than_losing_items() {
+    fn an_erase_with_a_full_pack_splits_the_recovery_rather_than_refusing() {
         let mut core = game("new-game");
         core.researched.extend([1, 2, 3, 4]);
         stock_for(&mut core, 4, 1);
@@ -18444,27 +18750,42 @@ mod tests {
         let index = core.entity_at(2, 0).unwrap();
         core.entities[index].inventory.insert(3, 9);
 
-        // A full pack refuses the recovery: the container and its contents stay exactly as they
-        // were, so nothing is destroyed and the erase is available again once there is room.
+        // A pack with no room left in it at all.
         let stack = core.stack_size(1);
         core.player
             .inventory
             .insert(1, core.player.carry_slots * stack);
-        let before = core.checksum();
-        assert!(core.erase(2, 0).unwrap_err().contains("no room"));
-        assert_eq!(core.checksum(), before);
-        // The removal preview says the same thing, so a drag cannot promise a recovery it will
-        // refuse on release.
+        let held_before = core.player.inventory.clone();
         assert!(core
             .erase_line_preview((2, 0), (2, 0))
             .iter()
-            .all(|cell| !cell.legal));
+            .all(|cell| cell.legal));
 
-        // With room, the same erase returns the cost and every stored item.
+        core.erase(2, 0).unwrap();
+        assert_eq!(
+            core.player.inventory, held_before,
+            "nothing was carried, because nothing could be"
+        );
+        assert_eq!(
+            core.ground_items
+                .iter()
+                .map(|item| ((item.q, item.r), item.item_id, item.quantity))
+                .collect::<Vec<_>>(),
+            vec![((2, 0), 3, 9), ((2, 0), 16, 3)],
+            "and nothing was destroyed either: the whole recovery is on the ground at the site"
+        );
+
+        // With room, the same recovery comes back to the pack and leaves no litter.
         core.player.inventory.clear();
+        core.ground_items.clear();
+        stock_for(&mut core, 4, 1);
+        core.place(2, 0, 4, 0, None).unwrap();
+        let rebuilt = core.entity_at(2, 0).unwrap();
+        core.entities[rebuilt].inventory.insert(3, 9);
         core.erase(2, 0).unwrap();
         assert_eq!(core.player.inventory.get(&16), Some(&3));
         assert_eq!(core.player.inventory.get(&3), Some(&9));
+        assert!(core.ground_items.is_empty());
     }
 
     #[test]
@@ -22102,7 +22423,8 @@ mod tests {
     /// An upgrade grows a building in place: contents, heading, and connections all survive, and
     /// the ladder conserves items exactly. The round trip is the assertion that matters — an
     /// upgrade that paid out more than it took in would be a duplication exploit, which is the
-    /// same failure `erase`'s all-or-nothing refund exists to prevent.
+    /// same failure `erase`'s carry-then-spill split exists to prevent: every item is either in the
+    /// pack or on the ground, and none is in both.
     #[test]
     fn an_upgrade_preserves_contents_connections_and_conserves_items_exactly() {
         let mut core = game("new-game");

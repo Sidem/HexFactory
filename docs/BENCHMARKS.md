@@ -1,5 +1,16 @@
 # HexFactory capacity benchmarks
 
+## Handling and Clarity paving check — v0.41.0
+
+The focused [625-cell Low paving report](benchmarks/handling-clarity-paving-low.json) uses
+`paving-bench.html` and the production renderer. At 1200×720, DPR 1, Chromium 151 on Windows,
+60 warmup frames and 240 measured frames per material yielded 249–303 µs mean CPU submission
+for paved cases (p95 300–400 µs). The untreated control measured 318 µs mean. Each single-material
+yard adds one draw call and one geometry, with no added texture. RAF p95 was 16.7–16.8 ms.
+This is a synthetic level yard, not a native simulation or GPU completion measurement, and is not
+evidence of a speedup over the previous release. The full capacity records below remain unchanged.
+See [the release record](HANDLING-CLARITY-RECORD.md) for procedure and limitations.
+
 Capacity is measured, never asserted, and the measurement orders the work. Every number here was
 produced by the committed harness; the raw reports live in `docs/benchmarks/` and are the source for
 any table that was trimmed out of this document.

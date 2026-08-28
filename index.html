@@ -254,9 +254,10 @@
               </button>
             </div>
             <p class="panel-copy">
-              Left-click lifts a stack, right-click lifts half or places one,
-              and Ctrl-click lifts one. Shift-click quick-moves the same amounts
-              between this pack and the inspected building.
+              Drag stacks between the pack and a machine. Release outside a slot
+              to leave the stack where it was. Click also lifts and places;
+              right-click lifts half or places one, Ctrl moves one, and
+              Shift-click quick-moves.
             </p>
             <div
               id="inventory"
@@ -984,7 +985,7 @@
                     <div class="inspect-storage-heading">
                       <span class="inspect-kind">Storage</span>
                       <span class="inspect-storage-hint"
-                        >Click · right-click · Ctrl · Shift</span
+                        >Drag · click · Ctrl · Shift</span
                       >
                     </div>
                     <div
@@ -1749,6 +1750,30 @@
       hidden
     />
     <div id="cursor-stack" class="cursor-stack chip-host" hidden></div>
+    <!-- The one prompt that stops an edit to ask. Deliberately outside `.glass-panel`: a workspace
+         is remembered and reopened, and a question must never come back on its own. -->
+    <dialog
+      id="confirm-dialog"
+      class="confirm-dialog"
+      aria-labelledby="confirm-title"
+      aria-describedby="confirm-note"
+    >
+      <h2 id="confirm-title"></h2>
+      <ul id="confirm-contents" class="confirm-contents"></ul>
+      <p id="confirm-note" class="confirm-note"></p>
+      <div class="confirm-actions">
+        <button type="button" id="confirm-cancel" class="confirm-button">
+          Keep it
+        </button>
+        <button
+          type="button"
+          id="confirm-accept"
+          class="confirm-button confirm-danger"
+        >
+          Demolish
+        </button>
+      </div>
+    </dialog>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

@@ -4,15 +4,15 @@ HexFactory is a browser factory-automation game. Player experience is the tiebre
 native ownership, sparse cost, and measured claims exist to keep a large living factory responsive
 and trustworthy.
 
-Current release: **v0.40.0 Petroleum Roads** — powered oil wells, joint-output refining, useful
-refined fuel, asphalt mixing and gravel-based roads, on the shipped economy, research atlas, player
-skills, ground works and masonry enclosures. Envelopes: save 32, definitions 26, technologies 14,
+Current release: **v0.41.0 Handling and Clarity** — stack dragging, automatic pack opening,
+named belt-target refusals, confirmed demolition with collectible overflow, and seamless paving,
+on the shipped petroleum economy. Envelopes: save 32, definitions 26, technologies 14,
 scenarios 7, world 10, wire 17. Old worlds keep their saved site rules; new oil sites need a new
 world.
 
-Next work is the numbered phase table in `docs/HEXFACTORY-PLAN.md#what-to-do-next`: handling and
-clarity, then straight walls and gates, then supported floors and vertical transport. Release
-numbers after v0.40.0 are unassigned. Do not reorder those phases without the user.
+Next work is the numbered phase table in `docs/HEXFACTORY-PLAN.md#what-to-do-next`: straight walls
+and gates, then supported floors and vertical transport. Release numbers after v0.41.0 are
+unassigned. Do not reorder those phases without the user.
 
 ## Localize before reading
 
@@ -100,7 +100,7 @@ next work is `docs/HEXFACTORY-PLAN.md`; measured evidence is `docs/BENCHMARKS.md
 milestone collapses to one ledger line in the plan and its brief is deleted — the detail lives in
 git history and in the code. At most one release record may exist at a time, for the milestone
 currently in flight; it is deleted when the next one ships. Today that is
-`docs/PETROLEUM-ROADS-RECORD.md`. `README.md` is the only player-facing document.
+`docs/HANDLING-CLARITY-RECORD.md`. `README.md` is the only player-facing document.
 
 ## Evidence behind the context policy
 

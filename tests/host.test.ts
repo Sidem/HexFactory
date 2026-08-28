@@ -243,6 +243,19 @@ describe("public hex host contract", () => {
 });
 
 describe("bounded host input", () => {
+  it("queues a stack gesture entirely or leaves it entirely unsent", () => {
+    const queue = new BoundedInputQueue();
+    const gesture = [
+      { type: "pickup_player_stack", item_id: 1, quantity: 2 },
+      { type: "place_player_stack", quantity: 2 },
+    ] as const;
+    for (let i = 0; i < MAX_INPUT_COMMANDS - 1; i += 1)
+      queue.enqueue({ type: "move_intent", x: 0, y: 0 });
+    expect(queue.enqueueBatch(gesture)).toBe(false);
+    expect(queue.drain()).toHaveLength(MAX_INPUT_COMMANDS - 1);
+    expect(queue.enqueueBatch(gesture)).toBe(true);
+    expect(queue.drain()).toEqual(gesture);
+  });
   it("maps WASD to normalized continuous intent and never exceeds one native batch limit", () => {
     expect(MOVEMENT_KEYS).toEqual({
       KeyW: { x: 0, y: -1 },
@@ -866,15 +879,24 @@ describe("bounded host input", () => {
     expect(main).toContain('type: "set_enabled"');
     expect(main).not.toMatch(/enabled:\s*!/);
     expect(html).toContain('id="inspect-power-switch"');
-    // The inspector displays the native compartments directly. It must never try to infer free
-    // input or subtract a reservation in presentation code.
+    // The host displays the native compartments directly. It must never try to infer free input or
+    // subtract a reservation in presentation code. One function derives them, because three
+    // features now ask the same question — the inspector draws them, the pack opens beside a
+    // building that takes items, and a demolition names what is inside — and a second derivation
+    // would be a second thing to get wrong.
+    const compartments = main.slice(
+      main.indexOf("function stockCompartments("),
+      main.indexOf("\n}", main.indexOf("function stockCompartments(")),
+    );
+    expect(compartments).toContain("building.input_inventory");
+    expect(compartments).toContain("building.fuel_inventory");
+    expect(compartments).toContain("building.output_inventory");
+    expect(compartments).not.toMatch(/reserved_inputs/);
     const actions = main.slice(
       main.indexOf("function renderInspectorActions("),
       main.indexOf("\n}", main.indexOf("function renderInspectorActions(")),
     );
-    expect(actions).toContain("building.input_inventory");
-    expect(actions).toContain("building.fuel_inventory");
-    expect(actions).toContain("building.output_inventory");
+    expect(actions).toContain("stockCompartments(building)");
     expect(actions).not.toMatch(/reserved_inputs/);
   });
 

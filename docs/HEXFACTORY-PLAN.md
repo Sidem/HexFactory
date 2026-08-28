@@ -49,7 +49,7 @@ This is permanent and is not a scope item.
 
 ## Where the project stands
 
-The engine arc, the generator arc, and the shipped milestones through **v0.40.0 Petroleum Roads** are
+The engine arc, the generator arc, and the shipped milestones through **v0.41.0 Handling and Clarity** are
 present in this tree. A run today looks like this: land beside a hub in a world chosen by preset
 or by raw parameters, walk out under fog across rivers and coastline — on the keys, or by
 **clicking a selected hex a second time** and watching the route native found — find **fields** of
@@ -91,22 +91,14 @@ qualification run that was outstanding is withdrawn rather than pending. See
 exists; read the section a milestone names when you need the reasoning behind a rule you are about
 to change.
 
-**Latest delivery: v0.40.0 Petroleum Roads completes Phase 4.** Powered wells, atomic joint-output
-refining, refined fuel, asphalt mixing and gravel-based roads are shipped, together with explicit
-production routes and cost allocation. See [the release record](PETROLEUM-ROADS-RECORD.md) for
-verification, measurements and legacy-save limits. Petroleum work below is now a delivered contract;
-the next slice is Handling and clarity, followed by straight boundaries and supported floors.
+**Latest delivery: v0.41.0 Handling and Clarity completes Phase 5.** Stack dragging, automatic pack opening, named belt-target refusals, confirmed demolition overflow and continuous paving are shipped. See [the release record](HANDLING-CLARITY-RECORD.md) for verification and limits. Straight walls and gates are next, followed by supported floors.
 
 ## What to do next
 
-Phases 1 to 3 — the opening and recipe audit, the research map and player skills, and construction
-materials with ground works and enclosures — are **shipped**, through v0.39.0. Read the ledger for
-what they delivered. What follows is the rest of the approved sequence, in order.
+Phases 1 to 5 are **shipped**, through v0.41.0. Read the ledger for what they delivered. The rest of the approved sequence follows in order.
 
 | Order | Work                                    | Scope and dependency                                                                                                                                                                          |
 | ----- | --------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 4     | Petroleum roads                         | Well, refinery, bitumen, asphalt, refined fuel. Carries the shared multi-output recipe and joint-cost work everything later reuses. **Delivered in this tree.**                               |
-| 5     | Handling and clarity                    | Five small defects in how the player moves items and removes buildings, plus seamless paving. No new material, recipe or research; a short release between two large ones.                    |
 | 6     | Straight walls and gates                | Boundaries stop following the hex edge chain and run straight across tiles, anchored on lattice vertices. Gates place the same way. Migrates every v0.37/v0.39 boundary exactly.              |
 | 7     | Supported floors and vertical transport | Support classes, the first upper floor, stairs, belt lifts and a layer view, standing on phase 3's grades. Needs the beams and concrete phase 3 and 4 produce.                                |
 | 8     | Icon pass and integrated validation     | Generate and review the planned UI icon families once the visual contract is stable, then finish migration, accessibility and measured-performance acceptance across the whole workstream.    |
@@ -133,121 +125,6 @@ to row 7 rather than to row 6, because they are a structural system and row 6 is
 Generated terrain height remains presentation-only; as of v0.38.0 the integer grade a player cuts or
 fills is native, checksummed state that walking, routing and building legality all read. Gameplay is
 otherwise two-dimensional: there are no floors above or below a hex, and no vertical transport.
-
-## Phase 4 — Petroleum roads
-
-Delivered in this tree by v0.40.0. The brief below is the standing contract that release is measured
-against; what it actually delivered is in [PETROLEUM-ROADS-RECORD.md](PETROLEUM-ROADS-RECORD.md),
-which collapses into the shipped ledger when the next milestone ships.
-
-A useful end-to-end route: surveyed deposit → well → refinery → bitumen → asphalt mixer → roads,
-with refined fuel consumed by ordinary compatible energy equipment. Wells are built from already
-accessible metalwork; **no oil-dependent part may be required to obtain the first oil.** The
-refinery and mixer use recipe categories where their behaviour fits existing processing; a well's
-source behaviour may justify a distinct native kind.
-
-A first slice may use explicitly abstract item units on belts, as water does today, plus bounded
-native tanks. Do not draw returning barrels unless containers exist and are conserved. This is not
-a physical fluid network — pipes, pressure and flow are row 9's decision and are not a prerequisite
-for trying asphalt. Keep the refinery roster small: bitumen and one useful fuel stream. Show which
-output is blocking work. Stopping extraction when storage fills is valid; silent deletion or an
-infinite sink is not. No spoilage, cooling or curing timers in the first release unless testing
-shows they improve construction; a stored concrete or asphalt unit is a stated abstraction.
-
-**This row carries the shared costing work.** `Economy::recipe_for` still asserts one recipe per
-item, and refinery co-products break that. Before any alternative recipe or joint output ships:
-
-- Replace the single-producer assumption in native balance, TypeScript tests, reachability,
-  contract expansion, requests and guidance. An unlock must select a route that is actually usable.
-- Report named routes separately with their machine, research, fuel, energy and raw-material
-  requirements. A default guidance route must be explicit, deterministic and visible to the player;
-  neither array order nor a cheapest theoretical route is sufficient.
-- For joint outputs, report the whole batch and an explicit allocation rule whose shares sum to the
-  whole cost. Do not declare the secondary output free or charge each output the entire batch.
-- Reject unresolved dependency cycles; price recycling against an external supply of recoverable
-  material. Requests must not fund an endless refine/recycle loop.
-- Reserve all outputs atomically. If any required output has no room, the machine waits without
-  consuming the next batch or deleting co-products.
-- Keep process heat and fuel separate from material ingredients. Coal used as steel feedstock is an
-  ingredient; coal burned to run the process belongs in the fuel compartment.
-
-Introduce alternative recipes only when geography, fuel, recovery or scale gives them a real
-tradeoff — quarried versus manufactured sand, direct versus recovered aggregate, later carbon
-routes for steel. Manufactured sand is an intentional inland supply option, not an unnoticed
-removal of the reason to explore beaches.
-
-**One decision to settle in the prototype:** is asphalt's speed worth an oil outpost while gravel is
-already pleasant to use? Compare journeys of several lengths on visually distinct routes, and tune
-speed and yield together rather than separately.
-
-**Acceptance.** The whole chain runs, backs up safely and resumes. Roads are attractive but never
-required to keep a factory operating. Every new definition reaches `fixtures/balance.json`. Extend
-`npm run survey` and the landing/reachability tests for oil: every preset and every accepted custom
-world keeps a starter path and access to oil, and a new deposit cannot silently appear in an old
-seeded world — version the generator and choose a deliberate migration or an explicit refusal.
-
-## Phase 5 — Handling and clarity
-
-Five defects the player meets in the first hour. None of them needs a new material, recipe or
-research row, which is what makes this a short release rather than a pass folded into a larger one.
-The pillar it serves is the second and third: a control that needs explaining is a defect in the
-control, and the player should always know what just happened.
-
-**Items move by dragging, not only by clicking.** v0.25.3 shipped a native cursor-held stack with
-full, half, single and Shift quick moves. The gesture is complete but it is click-lift, click-place;
-a player who presses on a stack and drags expects the stack to come with the pointer. Add press-lift
-and release-place over the same native commands: a drag is presentation, every gesture still
-resolves to the same bounded command, and a drag released over nothing returns the stack to where it
-came from rather than dropping it in the world. Use pointer events so touch gets the same gesture.
-The hazard is already written down: **host lists carrying a control are patched in place, never
-rebuilt**, and a rebuild between pointerdown and pointerup would cancel the drag. A slot grid that
-re-renders on every snapshot will break this, so the patch-in-place rule has to hold for the
-compartment grids specifically, under a test.
-
-**Cargo opens with a building that takes items.** Selecting a machine that has an ingredient, fuel
-or container compartment should open the pack beside it, because every reason to select it involves
-moving something into or out of it. Derive that from the stock compartments the snapshot already
-publishes — never from a hardcoded list of kinds — so a definition added later behaves correctly
-without a host edit. The pack still closes independently, and a player who closed it deliberately
-should not have it reopened on the next selection.
-
-**A belt may not be built into something that can never accept an item.** `accepts_item` already
-answers `false` for the pole, extractor, pump and bridge, but it is asked at **delivery**, so a belt
-aimed at a pole is built happily and then silently backs up with no explanation. Move the question
-to construction: the drag resolver and the graph compile refuse an output edge whose target can
-never accept anything, and the preview says which cell is refusing and why. The distinction that
-matters — and the reason this is not a one-line change — is between _can never accept_ and _is not
-accepting right now_. A composer with no recipe chosen yet, a container that is full, a hub whose
-request is already satisfied: all of those are temporary and must stay connectable. So the static
-question needs its own predicate over the definition, and the existing runtime `accepts_item` stays
-exactly as it is.
-
-**Removing a building with something inside it warns first, and spills what will not fit.** Today an
-erase refunds in full and is **refused outright** if the refund plus contents will not fit the pack,
-which is a correct conservation rule and a bad experience: the player is told no and left to empty
-the machine by hand. Replace the refusal with a confirmation that names what is inside, and let the
-remainder that does not fit fall to the ground as timed ground items — the same native, saved,
-checksummed ground-item state that demolished belt cargo has used since v0.25.3. Conservation is
-preserved because the items are still in the world and still collectable. **One thing must be
-decided before this ships:** the ground-item timer is one minute, which is right for a belt's cargo
-and a trap for a full container's contents. Either the spill from a demolition gets a longer or
-unlimited life, or the confirmation states the timer plainly. Do not ship the spill on a one-minute
-clock without saying so in the dialog.
-
-**Paved surfaces read as one continuous yard.** The five surfaces from v0.38.0 are drawn per hex, so
-a paved area shows the lattice it was built on and reads as tiling rather than as ground. Sample the
-surface material from a continuous world-space coordinate rather than per-hex UVs, so a pattern
-crosses the hex boundary unbroken and only the surface's own edge is visible. This is the
-**organic tileables** horizon item arriving early for one case; the same invariants hold — generated,
-presentation-only, derived from published snapshot facts, never a checksum input, and no per-hex
-host cost added to a frame. Verify by eye in a real browser session on a large paved area at
-ordinary zoom on Low quality, and re-measure the frame if the material changes.
-
-**Acceptance.** No save, definition, technology, scenario, world or wire version moves except for
-whatever the spill decision requires. A recorded browser session shows: a stack dragged between two
-compartments and one released over nothing; a machine selected with the pack opening beside it; a
-belt drag refused into a pole with a named reason; a full container demolished, confirmed, and its
-overflow collected off the ground; and a paved area with no visible lattice.
 
 ## Phase 6 — Straight walls and gates
 
@@ -654,6 +531,8 @@ both test suites say so.
 One line per release, newest first. The reasoning behind a shipped rule lives in the git history of
 this file and in the code that implements it; what follows is the index.
 
+- **v0.41.0** Handling and Clarity — Pointer stack dragging, automatic pack opening, named static belt-target refusals, confirmed carry-and-spill demolition, and continuous world-space paving. All envelopes unchanged; 625-cell Low rendering measurement committed.
+- **v0.40.0** Petroleum Roads — Powered oil wells, atomic joint-output refining, refined fuel, asphalt over gravel, production-route accounting and petroleum research/projects. Save 32 / definitions 26 / technologies 14 / world 10; old worlds keep their site rules.
 - **v0.39.0** Masonry Enclosures — Hill limestone, kiln-fired cement, corrected concrete, timber/wire/brick/concrete walls, and an enclosure tray on the Ground works pattern. Fired Masonry is an 8-insight masonry-branch node. Save 31 / definitions 25 / technologies 13 / world 9.
 - **v0.38.0** Ground Works — Five paved surfaces and native integer elevation in one bounded transaction: signed grade deltas capped at three steps, a spoil ledger that makes fill something you dug, walking and building refused across a step of more than two grades, deliberate confirmation before a surface seals a deposit, paid recovery on stripping, and per-transaction undo. Save 30 / definitions 24 / wire 17; no new item, recipe or research.
 - **v0.37.0** Timber Boundaries — Timber edge fences and unpowered gates; bounded enclosure selection, native previews and atomic accounting, paid recovery and undo, walking/transport crossing protection, and instanced geometry. Save 29 / definitions 23 / wire 16.

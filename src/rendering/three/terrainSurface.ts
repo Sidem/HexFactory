@@ -5,6 +5,7 @@ import {
 } from "three";
 
 import type { Terrain } from "../../core/types";
+import { NOISE_GLSL } from "./noiseGlsl";
 
 /**
  * Four procedural surface families cover the seven bands. A terrain differs from its family only
@@ -155,37 +156,7 @@ vec3 hfAlbedo;
 float hfRough;
 vec3 hfGlow;
 vec3 hfBend;
-
-float hfHash12( vec2 p ) {
-	vec3 q = fract( vec3( p.xyx ) * 0.1031 );
-	q += dot( q, q.yzx + 33.33 );
-	return fract( ( q.x + q.y ) * q.z );
-}
-
-float hfValue( vec2 p ) {
-	vec2 cell = floor( p );
-	vec2 f = fract( p );
-	vec2 u = f * f * ( 3.0 - 2.0 * f );
-	return mix(
-		mix( hfHash12( cell ), hfHash12( cell + vec2( 1.0, 0.0 ) ), u.x ),
-		mix( hfHash12( cell + vec2( 0.0, 1.0 ) ), hfHash12( cell + vec2( 1.0, 1.0 ) ), u.x ),
-		u.y
-	);
-}
-
-float hfFbm( vec2 p ) {
-	float sum = 0.0;
-	float weight = 0.0;
-	float amplitude = 0.55;
-	for ( int octave = 0; octave < HF_OCTAVES; octave += 1 ) {
-		sum += hfValue( p ) * amplitude;
-		weight += amplitude;
-		p = p * 2.07 + 19.19;
-		amplitude *= 0.5;
-	}
-	return sum / weight;
-}
-
+${NOISE_GLSL}
 /** How much of this fragment is the flat cap rather than the prism's flank. */
 float hfCap() {
 	return smoothstep( 0.35, 0.85, hfNormal.y );

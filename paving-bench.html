@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>HexFactory paving measurement</title>
+    <style>
+      body {
+        color: #dcefe9;
+        background: #142129;
+        font: 15px system-ui;
+      }
+      canvas {
+        display: block;
+        width: 1200px;
+        height: 720px;
+      }
+      pre {
+        white-space: pre-wrap;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Paving — Low profile</h1>
+    <p>
+      625 level paved hexes; synthetic rendering fixture, not a simulated
+      factory. 60 warmup frames and 240 measured frames per material. CPU render
+      submission only, not GPU completion or worker time.
+    </p>
+    <button id="run">Measure all surfaces</button>
+    <label
+      >Inspect material
+      <select id="surface"></select
+    ></label>
+    <canvas id="world" aria-label="Paved yard"></canvas>
+    <pre id="result">Ready</pre>
+    <script type="module" src="/src/bench/paving.ts"></script>
+  </body>
+</html>

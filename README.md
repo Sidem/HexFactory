@@ -50,8 +50,13 @@ refined fuel together, and an asphalt mixer. Ground works lays asphalt over grav
 walking than untreated ground; stripping recovers the materials paid for both layers. Research and
 machine inspectors explain prerequisites and blocked output buffers. Petroleum is optional and
 never gates starter automation. Existing worlds keep their deposits: start a new world to find oil.
-Its accounting and verification are in the [release record](docs/PETROLEUM-ROADS-RECORD.md), which
-collapses into the roadmap ledger once the next milestone ships.
+
+**Handling and Clarity (v0.41.0)** adds stack dragging, a pack that opens beside selected storage
+and machines on wide screens, and named refusals for belts aimed into buildings that never accept
+items. Demolition warns about stored contents and spills anything that will not fit your pack.
+Ground items expire after about one minute of simulation time; make room and walk over them to
+collect them. Paving patterns now continue across hex boundaries. Existing saves keep the same
+versions. See the [release record](docs/HANDLING-CLARITY-RECORD.md) for verification and limits.
 
 ## Controls
 
@@ -63,9 +68,11 @@ collapses into the roadmap ledger once the next milestone ships.
   fog.
 - Hold `F` to keep gathering a nearby deposit, or right-click a hex to harvest that one by name.
   Press `X` beside the hub to hand over what it has actually asked for — the posted requests and the
-  contract's outstanding bill. Your pack holds a fixed number of stacks, so gathering — and
-  recovering a building with something inside it — stops when no slot is free. Select a container
-  and use the inspector's **Take** and **Put** rows to move stock either way, in whole or in half.
+  contract's outstanding bill. Your pack holds a fixed number of stacks, so gathering stops when
+  no slot is free. Drag stacks between the pack and machine compartments; releasing outside a
+  slot leaves the source unchanged. Click also lifts and places; right-click lifts half or places
+  one, Ctrl moves one, and Shift-click quick-moves. Closing the pack explicitly disables automatic
+  opening for the current session.
 - Walking runs on its own cadence: it is unaffected by the simulation speed and continues while the
   factory is paused.
 - Select build tools with the hotbar or number keys `1`–`9`, and click to place on the construction
@@ -80,7 +87,7 @@ collapses into the roadmap ledger once the next milestone ships.
   recentres the camera on the player and resumes following. The right button is only ever the
   harvest.
 - `I` opens the cargo pack, `O` research, `B` the construction catalogue, and `P` the objective and
-  controls reference. They open independently and several at a time. `T` pauses, `M` mutes, and
+  controls reference. One workspace opens at a time, beside the inspector on wide screens. `T` pauses, `M` mutes, and
   `Escape` returns to inspection and clears the open panels.
 - Hold `Shift` while walking to run. One hexagon is about 1 m²; the walk is 3 m/s and the run is
   5 m/s. Shallow water is a 1 m/s ford and can carry bridge-supported transport; deep water still blocks.

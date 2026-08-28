@@ -478,6 +478,9 @@ export class ThreeFactoryRenderer implements FactoryRenderer {
       settings.terrainDetail,
       settings.waterDetail,
     );
+    // Laid ground follows the landform's detail: a yard and the hillside it sits on are the same
+    // surface as far as the eye is concerned, and dropping one without the other would show.
+    this.materials.paving.setDetail(settings.terrainDetail);
     this.renderer.shadowMap.enabled = settings.shadows;
     this.keyLight.castShadow = settings.shadows;
     if (settings.shadows) {

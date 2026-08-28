@@ -21,7 +21,7 @@ import type {
   Terrain,
 } from "../../core/types";
 import { WORLD_SCALE } from "../landmarks";
-import { GRADE_STEP_HEIGHT, surfaceLook } from "../surfaceLook";
+import { GRADE_STEP_HEIGHT } from "../surfaceLook";
 import type { WorldMaterials } from "./materials";
 import { TERRAIN_STYLE, visualHeight } from "./terrainStyle";
 
@@ -106,7 +106,7 @@ export function buildTerrainMeshes(
   const frontier = frontierLines(cells, materials);
   group.add(frontier.mesh);
   const caps = surfaceCaps(cells, surfaces, materials);
-  if (caps) group.add(caps);
+  if (caps) for (const mesh of caps.meshes) group.add(mesh);
   return {
     group,
     cells,
@@ -116,48 +116,57 @@ export function buildTerrainMeshes(
 }
 
 /**
- * Every prepared hex in one instanced slab: paving is a skin on the landform rather than a
- * replacement for it, so the band underneath still shows at the rim and a paved shore still reads
- * as shore. One draw call however much of the map is finished.
+ * Every prepared hex, laid as a skin on the landform rather than as a replacement for it, so the
+ * band underneath still shows at the rim and a paved shore still reads as shore.
+ *
+ * Two things here are what make a finished yard read as one continuous surface instead of a grid of
+ * tiles. The cap is the prism's full radius, so neighbouring hexes meet edge to edge with no groove
+ * of bare ground between them. And nothing is tinted per instance: the colour, the courses and the
+ * joints all come out of the material, sampled from world-space metres, so a pattern runs straight
+ * across a hex boundary without knowing one is there. A per-hex luminance jitter was the lattice.
+ *
+ * One draw call per surface material — six at the very most, and one for the yard almost everyone
+ * actually builds — however much of the map is finished. Nothing is computed per hex per frame.
  */
 function surfaceCaps(
   cells: readonly TerrainCell[],
   surfaces: readonly SurfaceDefinition[],
   materials: WorldMaterials,
-): InstancedMesh | null {
+): { meshes: InstancedMesh[]; geometry: BufferGeometry } | null {
   const paved = cells.filter((cell) => cell.surface !== 0);
   if (!paved.length) return null;
   const keyById = new Map(surfaces.map((surface) => [surface.id, surface.key]));
-  const geometry = new CylinderGeometry(
-    HEX_RADIUS * 0.96,
-    HEX_RADIUS * 0.96,
-    1,
-    6,
-    1,
-    false,
-  );
-  const mesh = new InstancedMesh(geometry, materials.surface, paved.length);
-  mesh.name = "prepared-ground";
-  mesh.receiveShadow = true;
+  const buckets = new Map<number, TerrainCell[]>();
+  for (const cell of paved) {
+    const bucket = buckets.get(cell.surface);
+    if (bucket) bucket.push(cell);
+    else buckets.set(cell.surface, [cell]);
+  }
+  const geometry = new CylinderGeometry(HEX_RADIUS, HEX_RADIUS, 1, 6, 1, false);
   const matrix = new Matrix4();
   const quaternion = new Quaternion();
   const scale = new Vector3(1, SURFACE_CAP_DEPTH, 1);
   const position = new Vector3();
-  const tint = new Color();
-  for (const [index, cell] of paved.entries()) {
-    // The cap's top sits a hair above the column's so the two never fight for the same pixel.
-    position.set(cell.x, cell.height + 0.004 - SURFACE_CAP_DEPTH / 2, cell.z);
-    matrix.compose(position, quaternion, scale);
-    mesh.setMatrixAt(index, matrix);
-    const look = surfaceLook(keyById.get(cell.surface));
-    tint
-      .set(look.color)
-      .multiplyScalar(0.9 + stableVariation(cell.q, cell.r) * 0.2);
-    mesh.setColorAt(index, tint);
+  const meshes: InstancedMesh[] = [];
+  for (const [surface, bucket] of buckets) {
+    const key = keyById.get(surface);
+    const mesh = new InstancedMesh(
+      geometry,
+      materials.paving.material(key),
+      bucket.length,
+    );
+    mesh.name = `prepared-ground-${key ?? surface}`;
+    mesh.receiveShadow = true;
+    for (const [index, cell] of bucket.entries()) {
+      // The cap's top sits a hair above the column's so the two never fight for the same pixel.
+      position.set(cell.x, cell.height + 0.004 - SURFACE_CAP_DEPTH / 2, cell.z);
+      matrix.compose(position, quaternion, scale);
+      mesh.setMatrixAt(index, matrix);
+    }
+    mesh.instanceMatrix.needsUpdate = true;
+    meshes.push(mesh);
   }
-  mesh.instanceMatrix.needsUpdate = true;
-  if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
-  return mesh;
+  return { meshes, geometry };
 }
 
 export function terrainAt(

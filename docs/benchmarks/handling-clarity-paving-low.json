@@ -1,0 +1,154 @@
+{
+  "measured_at": "2026-08-28T19:55:53.985Z",
+  "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36",
+  "viewport": {
+    "width": 1200,
+    "height": 720
+  },
+  "profile": "low",
+  "warmup_frames": 60,
+  "measured_frames": 240,
+  "scope": "Synthetic level yard; CPU render submission, no worker or GPU completion timing. RAF includes browser scheduling.",
+  "results": [
+    {
+      "surface": "untreated",
+      "paved_hexes": 0,
+      "mean_cpu_us": 317.50000004346174,
+      "p95_cpu_us": 400.0000059604645,
+      "p95_raf_interval_ms": 16.799999999999272,
+      "diagnostics": {
+        "name": "Three.js Visual Depth",
+        "profile": "low",
+        "drawCalls": 12,
+        "triangles": 58128,
+        "geometries": 19,
+        "textures": 1,
+        "cpuPreparationUs": 6.311464652016339,
+        "contextLost": false,
+        "pixelRatio": 1,
+        "frameP95Us": 400.0000059604645,
+        "frameSamples": 240
+      }
+    },
+    {
+      "surface": "compacted-earth",
+      "paved_hexes": 625,
+      "mean_cpu_us": 302.5000003166497,
+      "p95_cpu_us": 400.0000059604645,
+      "p95_raf_interval_ms": 16.700000000000728,
+      "diagnostics": {
+        "name": "Three.js Visual Depth",
+        "profile": "low",
+        "drawCalls": 13,
+        "triangles": 73128,
+        "geometries": 20,
+        "textures": 1,
+        "cpuPreparationUs": 5.406038925279664,
+        "contextLost": false,
+        "pixelRatio": 1,
+        "frameP95Us": 400.0000059604645,
+        "frameSamples": 240
+      }
+    },
+    {
+      "surface": "gravel-yard",
+      "paved_hexes": 625,
+      "mean_cpu_us": 297.0833330415189,
+      "p95_cpu_us": 400.0000059604645,
+      "p95_raf_interval_ms": 16.700000000000728,
+      "diagnostics": {
+        "name": "Three.js Visual Depth",
+        "profile": "low",
+        "drawCalls": 13,
+        "triangles": 73128,
+        "geometries": 20,
+        "textures": 1,
+        "cpuPreparationUs": 0.11651215485121866,
+        "contextLost": false,
+        "pixelRatio": 1,
+        "frameP95Us": 399.9999985098839,
+        "frameSamples": 240
+      }
+    },
+    {
+      "surface": "timber-decking",
+      "paved_hexes": 625,
+      "mean_cpu_us": 283.7500000372529,
+      "p95_cpu_us": 399.9999985098839,
+      "p95_raf_interval_ms": 16.799999999999272,
+      "diagnostics": {
+        "name": "Three.js Visual Depth",
+        "profile": "low",
+        "drawCalls": 13,
+        "triangles": 73128,
+        "geometries": 20,
+        "textures": 1,
+        "cpuPreparationUs": 0.44475712512820265,
+        "contextLost": false,
+        "pixelRatio": 1,
+        "frameP95Us": 399.9999985098839,
+        "frameSamples": 240
+      }
+    },
+    {
+      "surface": "brick-pavers",
+      "paved_hexes": 625,
+      "mean_cpu_us": 275.8333335320155,
+      "p95_cpu_us": 399.9999985098839,
+      "p95_raf_interval_ms": 16.799999999999272,
+      "diagnostics": {
+        "name": "Three.js Visual Depth",
+        "profile": "low",
+        "drawCalls": 13,
+        "triangles": 73128,
+        "geometries": 20,
+        "textures": 1,
+        "cpuPreparationUs": 0.03359276845323656,
+        "contextLost": false,
+        "pixelRatio": 1,
+        "frameP95Us": 399.9999985098839,
+        "frameSamples": 240
+      }
+    },
+    {
+      "surface": "concrete-slab",
+      "paved_hexes": 625,
+      "mean_cpu_us": 278.7500002110998,
+      "p95_cpu_us": 399.9999985098839,
+      "p95_raf_interval_ms": 16.700000000004366,
+      "diagnostics": {
+        "name": "Three.js Visual Depth",
+        "profile": "low",
+        "drawCalls": 13,
+        "triangles": 73128,
+        "geometries": 20,
+        "textures": 1,
+        "cpuPreparationUs": 6.9727335938815544,
+        "contextLost": false,
+        "pixelRatio": 1,
+        "frameP95Us": 399.9999985098839,
+        "frameSamples": 240
+      }
+    },
+    {
+      "surface": "asphalt-road",
+      "paved_hexes": 625,
+      "mean_cpu_us": 248.75000019868216,
+      "p95_cpu_us": 300.00000447034836,
+      "p95_raf_interval_ms": 16.700000000004366,
+      "diagnostics": {
+        "name": "Three.js Visual Depth",
+        "profile": "low",
+        "drawCalls": 13,
+        "triangles": 73128,
+        "geometries": 20,
+        "textures": 1,
+        "cpuPreparationUs": 1.8865900960767126,
+        "contextLost": false,
+        "pixelRatio": 1,
+        "frameP95Us": 300.00000447034836,
+        "frameSamples": 240
+      }
+    }
+  ]
+}
