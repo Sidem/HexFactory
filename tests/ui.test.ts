@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { itemTooltip } from "../src/rendering/itemChip";
 import { PanelController } from "../src/ui/panels";
 
 class FakeClassList {
@@ -211,5 +212,41 @@ describe("panel controller", () => {
     view.controller.close();
     expect(view.right.classList.contains("open")).toBe(false);
     expect(view.values.get("hexfactory:panels:v1")).toBe("[]");
+  });
+
+  it("formats detailed hover tooltips with name, count, description, and properties", () => {
+    const coal = {
+      id: 5,
+      key: "coal",
+      name: "Coal",
+      color: "#000000",
+      icon: "lump",
+      description: "Dense highland fuel, and the carbon steel is made with.",
+      stack_size: 20,
+      fuel_value: 160,
+    };
+    const tooltip = itemTooltip(coal, coal.name, { count: 5 });
+    expect(tooltip).toBe(
+      "Coal (5 / 20)\nDense highland fuel, and the carbon steel is made with.\nFuel: 160",
+    );
+
+    const plate = {
+      id: 11,
+      key: "iron-plate",
+      name: "Iron plate",
+      color: "#c3ced6",
+      icon: "plate",
+      description: "Smelted iron. The structural backbone of every later tier.",
+      stack_size: 10,
+    };
+    const plateTooltip = itemTooltip(plate, plate.name, {
+      progress: { have: 2, need: 5 },
+      shortfall: 3,
+    });
+    expect(plateTooltip).toBe(
+      "Iron plate (2 / 5) · Need 3 more\nSmelted iron. The structural backbone of every later tier.",
+    );
+
+    expect(itemTooltip(undefined, "Empty")).toBe("Empty");
   });
 });

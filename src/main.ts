@@ -92,6 +92,7 @@ import { itemIconSvg } from "./rendering/icons";
 import {
   createItemChip,
   fillItemChip,
+  itemTooltip,
   type ItemChipView,
 } from "./rendering/itemChip";
 import {
@@ -893,6 +894,10 @@ function renderInventory(): void {
     cell.dataset.itemId = stack ? String(stack.item_id) : "";
     cell.dataset.quantity = stack ? String(stack.quantity) : "0";
     cell.tabIndex = 0;
+    cell.title =
+      item && stack
+        ? itemTooltip(item, item.name, { count: stack.quantity })
+        : "Empty carrying slot";
     cell.setAttribute(
       "aria-label",
       item && stack
@@ -926,6 +931,10 @@ function renderInventory(): void {
       named: false,
       short: true,
     });
+    const item = itemById(stack.item_id);
+    if (item) {
+      holder.title = itemTooltip(item, item.name, { count: stack.quantity });
+    }
   });
   peek.dataset.overflow =
     stacks.length > visible.length ? `+${stacks.length - visible.length}` : "";
@@ -934,12 +943,17 @@ function renderInventory(): void {
   const cursor = required<HTMLElement>("cursor-stack");
   const hand = snapshot.player.hand ?? undefined;
   cursor.hidden = !hand;
-  if (hand)
+  if (hand) {
     paintChip(cursor, hand.item_id, {
       count: hand.quantity,
       named: false,
       short: true,
     });
+    const item = itemById(hand.item_id);
+    if (item) {
+      cursor.title = itemTooltip(item, item.name, { count: hand.quantity });
+    }
+  }
 }
 
 /**
@@ -1798,6 +1812,13 @@ function renderInspectorActions(building: EntitySnapshot | undefined): void {
           short: true,
         });
         const item = itemById(entry.item_id);
+        const slotTooltip =
+          item && filled
+            ? `${label}: ${itemTooltip(item, item.name, { count: entry.quantity })}`
+            : item
+              ? `Empty ${label.toLowerCase()} slot for ${item.name}\n${item.description}`
+              : `Empty ${label.toLowerCase()} slot`;
+        cell.title = slotTooltip;
         cell.setAttribute(
           "aria-label",
           item && filled

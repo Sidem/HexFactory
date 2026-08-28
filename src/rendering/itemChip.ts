@@ -122,8 +122,43 @@ export function fillItemChip(
   short.hidden = shortfall === 0 || metered;
   short.textContent = short.hidden ? "" : `need ${shortfall}`;
 
-  chip.title = chipLabel(name, view);
-  chip.setAttribute("aria-label", chip.title);
+  chip.title = itemTooltip(item, name, view);
+  chip.setAttribute("aria-label", chipLabel(name, view));
+}
+
+/** Detailed description for hovering over items, chips, and slots. */
+export function itemTooltip(
+  item: ItemDefinition | undefined,
+  name: string,
+  view: ItemChipView = {},
+): string {
+  const shortfall = view.shortfall ?? 0;
+  const amount = view.progress
+    ? `${view.progress.have} / ${view.progress.need}`
+    : view.count === undefined
+      ? ""
+      : item?.stack_size
+        ? `${view.count} / ${item.stack_size}`
+        : String(view.count);
+
+  const header = amount ? `${name} (${amount})` : name;
+  const lines: string[] = [
+    shortfall > 0 ? `${header} · Need ${shortfall} more` : header,
+  ];
+
+  if (item?.description) {
+    lines.push(item.description);
+  }
+
+  const attributes: string[] = [];
+  if (item?.fuel_value) {
+    attributes.push(`Fuel: ${item.fuel_value}`);
+  }
+  if (attributes.length > 0) {
+    lines.push(attributes.join(" · "));
+  }
+
+  return lines.join("\n");
 }
 
 /** The same chip in words, for a screen reader and for the tooltip a dense row needs. */
