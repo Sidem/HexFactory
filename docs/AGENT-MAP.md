@@ -462,9 +462,9 @@ Data or fixture; inspect keys before loading the full file.
 
 - ContactSheetRenderer:41, contactPartColour:267, fakeEntity:278
 
-### `src/rendering/three/HexSceneCamera.ts` — 269 lines / 9.2 KiB
+### `src/rendering/three/HexSceneCamera.ts` — 277 lines / 9.7 KiB
 
-- HexSceneCamera:31, clamp:266
+- HexSceneCamera:39, clamp:274
 
 ### `src/rendering/three/ThreeFactoryRenderer.ts` — 541 lines / 17.1 KiB
 
@@ -657,9 +657,9 @@ Data or fixture; inspect keys before loading the full file.
 
 - FakeClassList:55, element:103, harness:139
 
-### `tests/visualDepth.test.ts` — 1506 lines / 49.1 KiB
+### `tests/visualDepth.test.ts` — 1532 lines / 50.4 KiB
 
-- heading:87, turnedBy:91, settle:97, surfaceBody:1280, uniformValue:1286, compileTerrain:1296, minimalSnapshot:1310, beltDefinition:1393, entity:1409
+- heading:87, turnedBy:91, settle:97, surfaceBody:1306, uniformValue:1312, compileTerrain:1322, minimalSnapshot:1336, beltDefinition:1419, entity:1435
 
 ### `tests/worldParameters.test.ts` — 155 lines / 5.0 KiB
 

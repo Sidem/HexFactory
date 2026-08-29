@@ -150,6 +150,32 @@ describe("Visual Depth camera", () => {
     expect(turnedBy(camera, start)).toBeCloseTo(0, 6);
   });
 
+  it("squares the hex edges up with the screen at every orbit stop", () => {
+    // The six corners of a unit hex on the ground, in the order the six-segment cylinder that draws
+    // every tile lays them down: the first sits on +z and the rest follow a sixth of a turn apart.
+    const corners = Array.from({ length: 6 }, (_, index) => {
+      const theta = (index * Math.PI) / 3;
+      return { x: Math.sin(theta), z: Math.cos(theta) };
+    });
+    const camera = new HexSceneCamera();
+    camera.resize(1440, 900);
+    for (let orbit = 0; orbit < 12; orbit += 1) {
+      const screen = corners.map((corner) =>
+        camera.projectScene(corner.x, 0, corner.z),
+      );
+      const edges = screen.map((from, index) => {
+        const to = screen[(index + 1) % 6]!;
+        return { x: Math.abs(to.x - from.x), y: Math.abs(to.y - from.y) };
+      });
+      // A whole orbit turn is 30°, so the stops alternate: an edge along the screen's horizontal at
+      // the even ones, an edge along its vertical at the odd ones. Never the old 45° skew.
+      const flat = edges.filter((edge) => edge.y < 1e-6).length;
+      const upright = edges.filter((edge) => edge.x < 1e-6).length;
+      expect(orbit % 2 === 0 ? flat : upright, `orbit ${orbit}`).toBe(2);
+      camera.orbitBy(1, false);
+    }
+  });
+
   it("inverse-projects WASD through every camera orbit", () => {
     const directions = [
       { x: 0, y: -1 },

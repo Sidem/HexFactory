@@ -14,8 +14,16 @@ const MIN_ZOOM = 0.55;
 const MAX_ZOOM = 4;
 const CAMERA_DISTANCE = 38;
 const CAMERA_HEIGHT = 31;
-/** Orbit zero looks from the south-west toward north-east. */
-const BASE_ANGLE = Math.PI / 4;
+/**
+ * Orbit zero looks from the south-east toward north-west.
+ *
+ * It has to be a multiple of 30° or no stop ever squares up with the grid. The camera's right
+ * vector across the ground is the heading turned a quarter turn, and the pointy-top hexes run their
+ * edges along 30°, 90° and 150°; the old 45° start therefore left every one of the twelve stops
+ * with the tiles askew. At a multiple of 60° an edge lies along the screen's horizontal, and the
+ * half-steps between put one along the vertical, so every stop reads square.
+ */
+const BASE_ANGLE = Math.PI / 3;
 /** Twelve stops: the six hex headings and the six half-steps between them. */
 const ORBIT_STEPS = 12;
 const ORBIT_STEP = (Math.PI * 2) / ORBIT_STEPS;
