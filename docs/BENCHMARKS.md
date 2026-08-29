@@ -9,13 +9,14 @@ for paved cases (p95 300–400 µs). The untreated control measured 318 µs mean
 yard adds one draw call and one geometry, with no added texture. RAF p95 was 16.7–16.8 ms.
 This is a synthetic level yard, not a native simulation or GPU completion measurement, and is not
 evidence of a speedup over the previous release. The full capacity records below remain unchanged.
-See [the release record](HANDLING-CLARITY-RECORD.md) for procedure and limitations.
+This section is the surviving procedure and limitation record; the shipped release itself has
+collapsed to its one ledger line in `HEXFACTORY-PLAN.md`.
 
 Capacity is measured, never asserted, and the measurement orders the work. Every number here was
 produced by the committed harness; the raw reports live in `docs/benchmarks/` and are the source for
 any table that was trimmed out of this document.
 
-**Current records.** Native: **v0.25.1 runtime index**. Browser frame: **Visual Depth v0.25 profile ladders**.
+**Current records.** Native: **v0.43.0 current-build audit**. Browser frame: **v0.43.0 profile ladders**.
 Generation: **v0.21**. Payload: **Binary Delta v0.12.2**.
 
 v0.37 shipped boundary correctness and small-browser interaction checks but no large-perimeter
@@ -23,9 +24,10 @@ capacity measurement, and the historical factory ladders do not establish bounda
 
 **Two caveats travel with those records.**
 
-- **The v0.24 browser record is a comparison baseline, not current renderer evidence.** Current
-  Three.js claims must name Low, Medium, or High. No physical integrated-GPU laptop was available
-  for v0.25 qualification, so these desktop records do not establish the laptop support target.
+- **The v0.24 and v0.25 browser records are historical baselines, not current renderer evidence.**
+  Current Three.js claims must name the v0.43 Low, Medium, or High record. The reference desktop is
+  the support target; integrated-GPU laptop qualification was withdrawn by user decision on
+  2026-08-27.
 - **Every tier checksum below is historical.** v0.18, v0.19, v0.20, v0.21, and the world-scale
   pass, and v0.22 each moved the pinned workload checksum: `2402899979` → `1679299541` →
   `914129621` → `780276626` → `325426962` → `3745973835` → `1543489001` → `841205484` →
@@ -112,7 +114,35 @@ a mean per tick, per frame, or per edit, so the two remain comparable; the workl
 and each tier's checksum comes from a separate core advanced exactly once through its tick budget so
 extra samples cannot move it.
 
-## Native — the current record (v0.25.1 runtime index)
+## Native — the current record (v0.43.0 audit)
+
+Recorded 2026-08-29 on the same Ryzen 7 5800X / Windows 11 reference desktop with the shipped
+release profile. Raw report:
+[`capacity-v0.43-native.json`](benchmarks/capacity-v0.43-native.json), SHA-256
+`7C6F28C832D6D4D21A77A112DF0D0A3FBFD6E8DCA3FBEAFADA5696C426F9ED0F`.
+
+| tier   | entities | tick µs | snapshot µs | checksum µs | frame µs | compile µs | recompile µs | edit µs |
+| ------ | -------: | ------: | ----------: | ----------: | -------: | ---------: | -----------: | ------: |
+| line   |       12 |     0.9 |        28.3 |         1.8 |     15.4 |        4.8 |          8.6 |    16.1 |
+| small  |      192 |     8.0 |        95.4 |        16.0 |     52.7 |       44.8 |        109.4 |   139.4 |
+| medium |      768 |    37.0 |       483.9 |        54.6 |    199.6 |      211.7 |        432.4 |   405.4 |
+| wide   |    1,536 |    79.8 |       827.3 |       119.8 |    368.5 |      447.1 |        919.4 |   954.8 |
+| large  |    3,072 |   134.0 |     1,753.8 |       202.2 |    687.9 |    1,027.7 |      1,894.6 | 2,174.8 |
+| xlarge |    6,144 |   286.9 |     3,488.0 |       411.9 |  1,372.2 |    1,906.1 |      4,045.5 | 3,887.8 |
+
+The xlarge tick is 1.7% of a 60 Hz frame and the complete in-wasm frame is 8.2%; at the shipped
+10 tps the tick itself is not the player-facing limit on this machine. Complete snapshots remain an
+opening/load baseline rather than a recurring frame cost. The current workload still walks every
+runtime-indexed machine, power participant and transport source, and power allocation constructs
+ordered request and plant groups each tick. This record says that work fits; it does not prove that
+the scheduler or its allocations are optimal.
+
+Do not read the higher absolute values than v0.25.1 as a regression percentage. Definitions,
+geometry-era state, generation and the pinned checksum all moved across eight releases, so the old
+and new records are not a same-build A/B. What is settled is narrower: v0.25.1 can no longer be
+quoted as current-build cost.
+
+## Native — v0.25.1 runtime-index baseline
 
 Host: AMD Ryzen 7 5800X (8 cores / 16 threads), Windows 11 Pro 10.0.26200, rustc 1.87.0,
 `factory-wasm` built with the shipped release profile (`opt-level = "s"`, LTO, `wasm-opt -Oz`).
@@ -276,7 +306,53 @@ Context loss was not recoverable inside the v0.24 renderer: both WebGL renderers
 `webglcontextrestored` handler. Drawing therefore stops until a page reload constructs fresh
 contexts. Visual Depth must replace this source-inspected baseline with an exercised restore path.
 
-## Browser frame — v0.25 Visual Depth
+## Browser frame — the current v0.43.0 audit
+
+Recorded 2026-08-29 on the Ryzen 7 5800X / Windows 11 reference desktop in Chromium 151, at
+1440×900, DPR 1 and a 178 px minimap. Each profile ran the complete six-tier ladder and every
+applied snapshot retained its full entity count. Raw reports and SHA-256:
+
+- [`benchmarks/capacity-v0.43-browser-low.json`](benchmarks/capacity-v0.43-browser-low.json) —
+  `4BCF85F7C70B9DC09DE0D9A506DC11BDA33E3808B33DDC9463B0DE8739683BAD`
+- [`benchmarks/capacity-v0.43-browser-medium.json`](benchmarks/capacity-v0.43-browser-medium.json) —
+  `8F65194CF3A434796F1079F809DFFA1FF1B7A6655EC5081608D4593A72F3CFEC`
+- [`benchmarks/capacity-v0.43-browser-high.json`](benchmarks/capacity-v0.43-browser-high.json) —
+  `6C69DEEB4C6445C8182B3BA025C4CE382DB58599578040F6A8312CEBA4DC3D50`
+
+| profile | tier   | entities | browser frame µs | frame share | draw calls | triangles | geometries | textures |
+| ------- | ------ | -------: | ---------------: | ----------: | ---------: | --------: | ---------: | -------: |
+| Low     | line   |       12 |            633.0 |        3.8% |         34 |    24,464 |         36 |        1 |
+| Low     | small  |      192 |            827.3 |        5.0% |         35 |    96,232 |         36 |        1 |
+| Low     | medium |      768 |          1,443.4 |        8.7% |         34 |   329,960 |         36 |        1 |
+| Low     | wide   |    1,536 |          2,521.7 |       15.1% |         36 |   654,312 |         36 |        1 |
+| Low     | large  |    3,072 |          3,198.2 |       19.2% |         34 | 1,268,744 |         36 |        1 |
+| Low     | xlarge |    6,144 |          5,386.4 |       32.3% |         35 | 2,546,696 |         36 |        1 |
+| Medium  | line   |       12 |            628.4 |        3.8% |         34 |    24,464 |         36 |        3 |
+| Medium  | small  |      192 |            748.2 |        4.5% |         35 |    96,232 |         36 |        3 |
+| Medium  | medium |      768 |          1,639.3 |        9.8% |         34 |   329,960 |         36 |        3 |
+| Medium  | wide   |    1,536 |          2,012.4 |       12.1% |         36 |   654,312 |         36 |        3 |
+| Medium  | large  |    3,072 |          2,978.0 |       17.9% |         34 | 1,268,744 |         36 |        3 |
+| Medium  | xlarge |    6,144 |          5,576.5 |       33.5% |         35 | 2,546,696 |         36 |        3 |
+| High    | line   |       12 |            845.4 |        5.1% |         34 |    24,464 |         36 |        3 |
+| High    | small  |      192 |            641.7 |        3.9% |         35 |    96,232 |         36 |        3 |
+| High    | medium |      768 |          1,104.8 |        6.6% |         34 |   329,960 |         36 |        3 |
+| High    | wide   |    1,536 |          1,835.3 |       11.0% |         36 |   654,312 |         36 |        3 |
+| High    | large  |    3,072 |          3,425.9 |       20.6% |         34 | 1,268,744 |         36 |        3 |
+| High    | xlarge |    6,144 |          5,656.0 |       33.9% |         35 | 2,546,696 |         36 |        3 |
+
+Every profile remains under the plan's 35% desktop ceiling, but the xlarge tier now leaves only
+1.1–2.7 percentage points of margin. That is a pass, not abundant headroom: the browser clocks step
+in 100 µs increments and this is one desktop. Phase 7 must add a stacked-floor/lift workload and
+repeat the three profiles before it adds another permanent visual bucket.
+
+Draw calls remain 34–36 from 12 through 6,144 entities, so instances rather than entity count still
+own submission. The fixed vocabulary is larger than v0.25's 14–16 calls and 18 geometries: this
+record has 36 geometries, one or three textures and 2.55 million triangles at xlarge. That is the
+cost of the current shipped scene, not evidence that one particular release caused it; the older
+record is not a same-build A/B. This browser API still provides no GPU-completion or GPU-memory
+telemetry.
+
+## Browser frame — v0.25 Visual Depth baseline
 
 Recorded 2026-08-23 after the production Three.js cutover, on the same Ryzen 7 5800X / Windows 11 /
 Chromium 151 desktop, at 1440×900, DPR 1, a 178 px minimap, and the same 100 µs browser clocks. Each
@@ -327,8 +403,8 @@ benchmark work followed by returning to the game also redrew cleanly. Reduced mo
 laptop-size, narrow, and mobile layouts were exercised. PNG pixel checks found nonblank, varied
 output at every required viewport, and browser logs contained no warnings or errors.
 
-No qualifying physical Intel Iris Xe / AMD Vega-class-or-weaker laptop was available. Therefore the
-plan's integrated-GPU 60/30 Hz target remains external validation and this record makes no
+No qualifying physical Intel Iris Xe / AMD Vega-class-or-weaker laptop was available for this
+historical record. That support target was later withdrawn on 2026-08-27; this baseline makes no
 integrated-GPU support claim.
 
 ## Browser frame — historical v0.13.1 record
@@ -380,15 +456,18 @@ browser frame, render included, and exists only from v0.12.4.
 
 Each row is a full report in `docs/benchmarks/`. The headline is what the run was for.
 
-- v0.25 (browser, 2026-08-23) — **Current browser renderer records.** Low, Medium, and High each
+- v0.43.0 (both, 2026-08-29) — **Current native and browser records.** The 6,144-entity native
+  frame was 1,372 µs. Complete browser frames were 5,386 µs Low, 5,577 µs Medium and 5,656 µs
+  High: all pass the 35% desktop gate, with only 1.1–2.7 percentage points left. Draw calls remained
+  34–36 across the ladder. This is a current-build audit, not an A/B against v0.25.
+- v0.25 (browser, 2026-08-23) — **Visual Depth baseline.** Low, Medium, and High each
   completed the six-tier Three.js ladder. The 6,144-entity browser frame was 4,562 µs Low,
   4,191 µs Medium, and 3,623 µs High on this desktop; all stayed below 35% of 60 Hz. Draw calls
-  remained 14–16 and geometry counts remained 18. Physical integrated-GPU qualification is still
-  external and is not implied by these records.
-- v0.24 (browser, 2026-08-23) — **Current pre-Visual-Depth browser baseline.** The hybrid
+  remained 14–16 and geometry counts remained 18.
+- v0.24 (browser, 2026-08-23) — **Pre-Visual-Depth browser baseline.** The hybrid
   instanced-WebGL2/Canvas world completed the 6,144-entity tier in 2,725 µs, 16.4% of 60 Hz, with
   1,281 µs in the world draw. Six viewport comparison captures record the shipped opening and demo.
-- v0.21 (native, 2026-08-20) — **Current native record.** Flat against v0.16, which is the point:
+- v0.21 (native, 2026-08-20) — **Current generation record.** Flat against v0.16, which is the point:
   the ladder never generates, and a milestone that rewrote generation had to leave it untouched.
   Generation itself moved 0.52 → 1.42 µs/hex, both re-measured on this host so the comparison is
   against the same harness rather than against the v0.16 line.
@@ -400,8 +479,8 @@ Each row is a full report in `docs/benchmarks/`. The headline is what the run wa
   which never imports the grammar, held at 428 µs ± 2.6% across all five runs, which is what makes
   the A/B trustworthy. All six tier checksums identical — the presentation-only claim demonstrated
   rather than asserted.
-- v0.13.1 (browser, 2026-08-18) — **Current browser record** (simulation half only; the renderer has
-  since changed). Stage B and first Stage C motion fit in the measured headroom.
+- v0.13.1 (browser, 2026-08-18) — Historical simulation-half record; Stage B and first Stage C
+  motion fit in the measured headroom.
 - v0.13 (native, 2026-08-18) — Tick about 1.4× v0.12.2 at the largest tier, from refreshing supply
   and demand once per tick. An all-pairs compile over every powered machine was caught here — it
   made xlarge compile 61× slower — and replaced by pole-to-pole plus machine-to-pole before the
@@ -453,26 +532,31 @@ Each row is a full report in `docs/benchmarks/`. The headline is what the run wa
 
 ## Live follow-ups, in the order the measurement supports
 
-1. **Qualify Visual Depth on physical integrated-GPU hardware.** The complete desktop profile
-   ladders are recorded; the outstanding release-support evidence is the plan's Iris Xe / AMD
-   Vega-class-or-weaker laptop run at DPR 1.
-2. **Extend the ladder past 6,144 entities**, so the record brackets a ceiling again instead of only
-   showing headroom.
+1. **Add Phase 7's workload before adding Phase 7's visual cost.** Stack visible/faded floor cells,
+   active lifts and cross-level graph edges into a deterministic tier. Repeat all three desktop
+   profiles before shipping: the current xlarge profile leaves only 1.1–2.7 percentage points under
+   the 35% gate, and the present straight-line factory contains no upper floor to price.
+2. **Measure the scheduler under the shapes the game now owns.** Add junction-dense,
+   backpressured and power-dense tiers. Source inspection finds bounded but recurring ordered-map
+   and vector construction in power allocation, and runtime orders are still visited every tick;
+   the straight always-accepting line cannot say whether active sets or reused scratch would pay.
 3. **Measure the site cache under a walk rather than under a survey.** The generation record sweeps
    a disc in lattice order, which is the cache's best case. A walking player crosses cells in a worse
    one, and `generate_chunk` is the path that pays for it. Nothing here resolves that today.
-4. **Measure `apply` properly.** The main-thread merge did not grow — everything around it shrank,
-   taking it from 0.7–1.5% of a host frame to 6.3%. At 115 µs against a 100 µs clock step, what it
-   needs first is a measurement that can resolve it, not an optimization.
-5. **Batch the transport recompile inside a construction drag.** A 32-cell run recompiles 32 times,
+4. **Batch the transport recompile inside a construction drag.** A 32-cell run recompiles 32 times,
    once on pointer release rather than per frame. No tier measures it, so it is a known cost and not
    yet a measured one.
-6. **Re-examine incremental transport recompilation.** Both records show the incremental path
-   costing about three times a full compile. Do not remove it on that alone: its tested behaviour
-   under component splits and merges is a correctness asset.
-7. **An incremental checksum** sits at the bottom. v0.11's sparse overlay already took 3.0× off it;
-   it is about a tenth of the in-wasm frame. Determinism-critical work for a small and shrinking
-   share is the wrong thing to attack.
+5. **Re-examine incremental transport recompilation.** At xlarge the current affected-component
+   path costs 4.05 ms against 1.91 ms for a full compile. Do not remove it on that alone: the tier is
+   one connected line, while its tested behaviour under local component splits and merges is a
+   correctness asset. Add affected-size reporting first.
+6. **Measure `apply` with a finer clock before optimizing it.** The current 120–185 µs xlarge means
+   are only one or two 100 µs browser steps per sample.
+7. **Extend the ladder past 6,144 only after the Phase 7 workload exists.** The present ladder is
+   close to the support gate but still does not locate a technical ceiling; more copies of the old
+   shape would answer a less urgent question than the first stacked factory.
+8. **An incremental checksum** remains last. It is determinism-critical work for a small share of
+   the current native frame; optimize it only if a later record moves that share materially.
 
 Record a new run by adding a dated report under `docs/benchmarks/` and updating the tables above.
 **Checksum comparisons are valid only while the pinned workload checksum in the Rust test gate is

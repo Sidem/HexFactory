@@ -12,6 +12,11 @@ const routes = [
     "BoundaryEdit, boundary_transaction, BoundaryTool, BoundaryMeshes",
   ],
   [
+    "Ground grading, paving and roads",
+    "factory-wasm/src/ground.rs; src/ui/ground.ts; src/rendering/three/pavingSurface.ts",
+    "GroundEdit, ground_transaction, GroundTool, PavingSurface",
+  ],
+  [
     "Native tick, determinism",
     "factory-wasm/src/lib.rs",
     "advance_ticks, checksum, Core",
@@ -49,6 +54,11 @@ const routes = [
     "ResearchTree, layoutResearch, researchIconSvg",
   ],
   [
+    "Skills and surveyed range",
+    "factory-wasm/src/skills.rs; src/data/technologies.json; src/ui/skills.ts",
+    "SkillEffect, observe_skill_event, SkillsView, skillView",
+  ],
+  [
     "Panels and keyed DOM",
     "src/ui/panels.ts; src/ui/dom.ts",
     "PanelController, syncChildren",
@@ -64,6 +74,21 @@ const routes = [
     "validateDefinitions, Economy",
   ],
   [
+    "Petroleum and joint-output recipes",
+    "factory-wasm/src/recipes.rs; factory-wasm/src/petroleum_tests.rs; src/data/definitions.json; src/ui/production.ts",
+    "outputs, cost_allocation, oil-refining, productionNote",
+  ],
+  [
+    "Contracts, requests and scenarios",
+    "src/data/scenarios.json; src/core/guidance.ts; factory-wasm/src/lib.rs",
+    "ContractDefinition, request_eligible, advance_contract, nextAction",
+  ],
+  [
+    "Title screen and save catalogue",
+    "src/core/saveSlots.ts; src/main.ts; factory-wasm/src/save_migrations.rs",
+    "SaveSlot, compatibility, openTitleScreen, migrate",
+  ],
+  [
     "Guidance and progression UI",
     "src/core/guidance.ts; src/main.ts",
     "nextAction, renderNextAction",
@@ -72,6 +97,11 @@ const routes = [
     "Three.js world",
     "src/rendering/three/ThreeFactoryRenderer.ts; src/rendering/three/worldInstances.ts",
     "ThreeFactoryRenderer, WorldInstances",
+  ],
+  [
+    "Camera, orbit, zoom and graphics profiles",
+    "src/rendering/three/HexSceneCamera.ts; src/rendering/three/ThreeFactoryRenderer.ts; src/rendering/three/quality.ts",
+    "HexSceneCamera, orbit, zoom, GraphicsProfile",
   ],
   [
     "Machine appearance",

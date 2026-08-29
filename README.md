@@ -181,9 +181,9 @@ Capacity is measured rather than asserted, and the measurement orders the work. 
 deterministic ladder runs natively and as wasm in the browser worker — the measurement lives in Rust
 and only the clock differs — so the record describes the artifact that ships. Every tier from 12 to
 6,144 simultaneous buildings advances a tick, merges the result, and draws a 1440×900 frame inside
-60 Hz, with the largest using 19.0% of one, and every browser tier reproduces its native checksum.
-That render figure was measured against the Canvas 2D renderer the WebGL2 pass replaced, and is owed
-a re-measurement.
+60 Hz on the reference desktop, and every browser tier keeps the full native entity count. In the
+v0.43 current-build record the largest tier uses 32.3% of a 60 Hz frame on Low, 33.5% on Medium and
+33.9% on High. The native frame is 1.37 ms there; browser/world rendering is the larger cost.
 
 One Chromium version on one desktop is the whole browser evidence. No claim is made beyond the
 recorded ladder. Run the ladders with `npm run bench` and `npm run bench:browser`; see

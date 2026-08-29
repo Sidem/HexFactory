@@ -82,8 +82,10 @@ catalog shows which one moved rather than hiding the row:
 | World generator       |      10 |
 | Wire (snapshot delta) |      18 |
 
-**Current measured capacity.** At 6,144 entities the complete Three.js browser frame is 27.4% of
-60 Hz on Low, 25.1% on Medium, and 21.7% on High on the reference desktop at 1440×900/DPR 1.
+**Current measured capacity.** The v0.43 audit puts the complete 6,144-entity Three.js browser frame
+at 32.3% of 60 Hz on Low, 33.5% on Medium, and 33.9% on High on the reference desktop at
+1440×900/DPR 1. All three pass the 35% gate, but only by 1.1–2.7 percentage points. The native
+current-build frame is 1.37 ms at the same tier and the tick itself is 0.287 ms.
 Generation costs at most 1.42 µs per hex on the v0.21 site lattice, against 0.52 µs for the model it
 replaced on the same harness. **The reference desktop is the support target**, decided 2026-08-27:
 integrated-GPU laptops are no longer a supported configuration, and the Iris Xe / AMD Vega-class
@@ -95,6 +97,71 @@ exists; read the section a milestone names when you need the reasoning behind a 
 to change.
 
 **Latest delivery: v0.43.0 Closer Views and Field Survey.** The camera turns in twelve 30-degree stops and zooms in far enough to read one machine, and Field Survey is a third one-point skill that opens a second ring of chunks around wherever you walk. It rides on Phase 6, which v0.42.0 completed; no later phase was started. See [the release record](CLOSER-VIEWS-RECORD.md) for verification and limits. Supported floors and vertical transport are next.
+
+### Current assessment — 2026-08-29
+
+The game is a strong, unusually trustworthy factory-game foundation and a polished short-form
+vertical slice. It is not yet a deep open-ended game: the first two hub stages and 27 finite projects
+give the present roster a reason to exist, but an established factory has no programme after the
+foundry module beyond self-directed building. The later Living Lattice, primitive-human and Regional
+Discovery phases are the planned answer; do not invent repeatable filler quests in the meantime.
+
+**Development and retrieval.** Native ownership, the worker boundary, data-defined catalogues,
+cross-language fixtures, deterministic saves and headless balance/capacity harnesses are the right
+architecture. The task-first generated map and `rg` routine make most changes cheap to localise. The
+concentration behind that map is now the limiting factor: `factory-wasm/src/lib.rs` is 24,192 lines
+(production ends near line 13,960 and the rest is mostly inline tests), `src/main.ts` is 5,482 lines,
+and production `lib.rs` contains 110 `BuildingKind` references. The suite is strong — 239 Rust tests
+and 292 TypeScript cases at this review — but three browser test files also pin important wiring by
+source inspection rather than by composed interaction. The map routes added in this audit cover
+ground works, skills, petroleum, scenarios, saves and the camera; the big files still cost an agent
+more context and wider regression reasoning than their behaviours require.
+
+**Compute.** The sparse wire, transferred deltas, cached fields, compiled graph indexes and instanced
+renderer are effective. Constant 34–36 draw calls across 12 to 6,144 entities prove that entity count
+does not own submission. This is efficient, not demonstrably optimal: every runtime-indexed machine,
+power participant and transport source is still visited each tick, and power allocation constructs
+ordered groups each time. The current desktop record fits, but the old v0.25 headroom no longer
+describes this build. Phase 7 has to measure stacked floors and active lifts before adding permanent
+scene buckets; source inspection alone does not authorize an active-set rewrite. The production
+build also warns on its 816 kB minified main chunk (225 kB gzip), alongside a 1.22 MB Wasm artifact
+(415 kB gzip). That is not a runtime failure or a measured loading problem, but startup has no stated
+payload budget and should be measured before code-splitting is treated as necessary work.
+
+**Player experience.** The diorama, generated machine language, resource fields, research atlas,
+pack, exact costs, click-twice walking, gathering feedback and desktop/narrow layout are cohesive and
+satisfying. The immediate weaknesses are clarity and scale management:
+
+- the opening card says _Build a primitive furnace_ before the player owns its 6 stone + 4 clay,
+  instead of naming the gather/search action that is actually possible;
+- Mission control and the selected hub inspector can duplicate the same contract and request copy;
+- the 30-definition construction catalogue is readable card by card but needs search before Phase 7
+  adds another family;
+- at 390×844 the dock remains usable, but off-screen tools need a visible horizontal-more affordance;
+- the reviewed browser showed nine clearly diagnosed older saves and no loadable current save. The
+  honesty is good; before the next envelope change, define the migration window a player can rely on.
+
+The balance harness makes the two authored tasks reasonable on paper. Prove the line costs 24 hand
+gathers plus 36.8 seconds of machine/player work with walking excluded; Raise the foundry module
+costs 110 gathers plus 200.9 seconds after the first stage grants automation. That is a sensible
+tutorial-to-factory escalation, and every requested product has a reachable chain. It is not a human
+pace result: travel to guaranteed fields is deliberately 9–25 hexes in the opening, and the timed
+playtest gate was withdrawn. Treat the task logic as validated and the lived pacing as a judgement.
+
+**Resources, recipes and extraction.** The chains are legible compressions of reality: ore to plate,
+plate to mechanisms and steel; wood to timber; clay and limestone through brick/cement into concrete;
+crude through a joint-output refinery into bitumen, useful fuel and asphalt. Water on belts, unitless
+oil and instant electrical adjacency are explicit abstractions. They are acceptable at this scale
+because they create readable routing and backpressure without pretending to be fluid simulation;
+pipes remain the later point where that bargain changes.
+
+Keep the generic Extractor as the starter and keep its native component shared. Water already earns
+a Pump and petroleum earns an Oil well because their placement, depletion and factory stories differ.
+Do **not** add one machine per raw item merely for realism. Add a player-facing family only with a
+distinct decision: a managed logging camp/forester belongs with Living Lattice and regrowth; a
+quarry or mine head belongs with a later regional/depth system if overburden, footprint, waste or
+grade changes play. Until then, recoloured synonyms would lengthen the catalogue without deepening
+the factory.
 
 ## What to do next
 
@@ -116,6 +183,20 @@ fixes, measurements and shared prerequisites are part of delivering a row, not r
 Optional extensions stay optional: this sequence does not pull in underground strata, a full
 physical fluid network, every chemical candidate or every future skill merely because a brief
 mentions them.
+
+**Phase 7 entry work from the current assessment, not a new phase:**
+
+1. Make guidance name the first executable action and remove the initial hub/mission duplication;
+   add construction search and a visible narrow-dock overflow cue before the catalogue grows.
+2. Before level IDs widen native state, mechanically move the inline native tests and capacity
+   harness out of `lib.rs`, then extract only the occupancy/placement/transport slices Phase 7 has to
+   touch. Split the corresponding session/panel wiring out of `main.ts`. Preserve behavior,
+   checksum, save and wire at each step; this is not authority for a rewrite.
+3. State and test the supported save-migration window before the next envelope bump. A catalogue
+   may keep diagnosing older files, but a player needs to know which recent release boundary is a
+   promise rather than discovering it from a disabled Load button.
+4. Add a deterministic stacked-floor/lift capacity tier and rerun Low, Medium and High before a
+   floor release. The current 6,144-entity record is already near the desktop gate.
 
 Rows 5, 6, 9 and 11 were added on 2026-08-28 at the user's direction. Their direction and priority
 are approved; the costs, rates and tuning hypotheses in their briefs are not, and still need the
