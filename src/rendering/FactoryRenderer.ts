@@ -1,6 +1,7 @@
 import type { AxialCoordinate } from "@hexlife/embed/hex";
 
 import type {
+  BoundaryAnchor,
   BoundaryPreview,
   BuildingDefinition,
   ChunkSnapshot,
@@ -76,6 +77,11 @@ export interface FactoryRenderer {
   readonly cameraSettling: boolean;
   setSnapshot(snapshot: FactorySnapshot): void;
   setBoundaryPreview(preview: BoundaryPreview | null): void;
+  /**
+   * The lattice vertices a selection is pinned to. Separate from the preview because the first
+   * click of a two-vertex selection has no run to price yet and still has to show where it landed.
+   */
+  setBoundaryAnchors(anchors: readonly BoundaryAnchor[]): void;
   setGroundPreview(preview: GroundPreview | null): void;
   setHome(point: WorldPoint | null): void;
   setReducedMotion(value: boolean): void;

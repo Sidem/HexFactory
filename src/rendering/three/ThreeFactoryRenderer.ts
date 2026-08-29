@@ -13,6 +13,7 @@ import {
 import { rotateAxial, type AxialCoordinate } from "@hexlife/embed/hex";
 
 import type {
+  BoundaryAnchor,
   BoundaryPreview,
   BuildingDefinition,
   Definitions,
@@ -194,6 +195,11 @@ export class ThreeFactoryRenderer implements FactoryRenderer {
 
   setBoundaryPreview(preview: BoundaryPreview | null): void {
     this.boundaries.setPreview(preview);
+    this.markDirty();
+  }
+
+  setBoundaryAnchors(anchors: readonly BoundaryAnchor[]): void {
+    this.boundaries.setAnchors(anchors);
     this.markDirty();
   }
 

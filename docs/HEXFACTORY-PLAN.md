@@ -49,7 +49,7 @@ This is permanent and is not a scope item.
 
 ## Where the project stands
 
-The engine arc, the generator arc, and the shipped milestones through **v0.41.0 Handling and Clarity** are
+The engine arc, the generator arc, and the shipped milestones through **v0.42.0 Straight Walls and Yards** are
 present in this tree. A run today looks like this: land beside a hub in a world chosen by preset
 or by raw parameters, walk out under fog across rivers and coastline — on the keys, or by
 **clicking a selected hex a second time** and watching the route native found — find **fields** of
@@ -61,8 +61,11 @@ extractors and on-site power — research the remaining technologies, and build 
 powered, automated line of buildings and nineteen recipes across industrial and primitive stations — including
 belt lines that **split**, **merge**, climb the two-row period on the same belt definition once it is
 researched, and **pass under** the lanes they cross. Fence a yard, or research Fired Masonry and
-raise brick and concrete walls. Refine oil into bitumen and useful fuel, then mix asphalt and lay
-fast roads over gravel in the Ground works tray. The tray also grades and recovers paid layers.
+raise brick and concrete walls — **straight across hexes now**, anchored on lattice vertices, so a
+run holds its heading and a **rectangular yard** closes in one drag. Refine oil into bitumen and
+useful fuel, then mix asphalt and lay
+fast roads over gravel in the Ground works tray. The tray also grades and recovers paid layers, and
+**paves a rectangle**: drag two corners and every hex the rectangle touches is taken in.
 Buildings are generated as low-poly instanced geometry from the shape grammar, so a tier remains a
 data row. Power is energy bought per unit of work. The world renders through Three.js and the
 minimap remains WebGL2.
@@ -72,12 +75,12 @@ catalog shows which one moved rather than hiding the row:
 
 | Envelope              | Version |
 | --------------------- | ------: |
-| `HXF1` save           |      32 |
+| `HXF1` save           |      33 |
 | Definitions           |      26 |
 | Technologies          |      14 |
 | Scenarios             |       7 |
 | World generator       |      10 |
-| Wire (snapshot delta) |      17 |
+| Wire (snapshot delta) |      18 |
 
 **Current measured capacity.** At 6,144 entities the complete Three.js browser frame is 27.4% of
 60 Hz on Low, 25.1% on Medium, and 21.7% on High on the reference desktop at 1440×900/DPR 1.
@@ -91,15 +94,14 @@ qualification run that was outstanding is withdrawn rather than pending. See
 exists; read the section a milestone names when you need the reasoning behind a rule you are about
 to change.
 
-**Latest delivery: v0.41.0 Handling and Clarity completes Phase 5.** Stack dragging, automatic pack opening, named belt-target refusals, confirmed demolition overflow and continuous paving are shipped. See [the release record](HANDLING-CLARITY-RECORD.md) for verification and limits. Straight walls and gates are next, followed by supported floors.
+**Latest delivery: v0.42.0 Straight Walls and Yards completes Phase 6.** Boundaries are anchored on lattice vertices rather than hex edges, runs hold a heading, and both trays take a rectangle from two picked corners. See [the release record](STRAIGHT-WALLS-RECORD.md) for verification and limits. Supported floors and vertical transport are next.
 
 ## What to do next
 
-Phases 1 to 5 are **shipped**, through v0.41.0. Read the ledger for what they delivered. The rest of the approved sequence follows in order.
+Phases 1 to 6 are **shipped**, through v0.42.0. Read the ledger for what they delivered. The rest of the approved sequence follows in order.
 
 | Order | Work                                    | Scope and dependency                                                                                                                                                                          |
 | ----- | --------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 6     | Straight walls and gates                | Boundaries stop following the hex edge chain and run straight across tiles, anchored on lattice vertices. Gates place the same way. Migrates every v0.37/v0.39 boundary exactly.              |
 | 7     | Supported floors and vertical transport | Support classes, the first upper floor, stairs, belt lifts and a layer view, standing on phase 3's grades. Needs the beams and concrete phase 3 and 4 produce.                                |
 | 8     | Icon pass and integrated validation     | Generate and review the planned UI icon families once the visual contract is stable, then finish migration, accessibility and measured-performance acceptance across the whole workstream.    |
 | 9     | Flowing water                           | Water becomes an entity that sits on the ground and runs downhill, instead of a terrain band. Reads the phase 3 grades; supersedes the old fluid-network and water-reshaping horizon entries. |
@@ -119,76 +121,13 @@ Rows 5, 6, 9 and 11 were added on 2026-08-28 at the user's direction. Their dire
 are approved; the costs, rates and tuning hypotheses in their briefs are not, and still need the
 validation each brief names.
 
-Masonry did not complete the enclosure work: roofs, rebar and steel frames remain, and they attach
-to row 7 rather than to row 6, because they are a structural system and row 6 is a geometry change.
+Masonry and the vertex lattice did not complete the enclosure work: roofs, rebar and steel frames
+remain, and they attach to row 7, because they are a structural system and the shipped row 6 was a
+geometry change.
 
 Generated terrain height remains presentation-only; as of v0.38.0 the integer grade a player cuts or
 fills is native, checksummed state that walking, routing and building legality all read. Gameplay is
 otherwise two-dimensional: there are no floors above or below a hex, and no vertical transport.
-
-## Phase 6 — Straight walls and gates
-
-v0.37.0 and v0.39.0 place boundaries on **canonical hex edges**. That rule bought a real thing — a
-shared edge has one identity from either adjacent hex, six neighbours stay six, and a wall costs no
-floor area — and it has a cost the player sees immediately: a wall that should run straight instead
-zigzags along the edge chain, because the six edge headings are the only headings available. Ask for
-a straight line and the game gives a sawtooth.
-
-**The rule changes.** A boundary is anchored on the **vertices** of the hex lattice, not on the
-edges between hex centres. A wall is a chain of straight segments, each running from one lattice
-vertex to another, and it may cut across a hex rather than only around it. A gate is a segment of
-that chain carrying an open/closed state, placed by the same tool in the same way.
-
-This is measurable rather than hopeful, and it was measured before being written down. Enumerating
-the pointy-top vertex lattice and testing every candidate step vector for an unbroken collinear run:
-
-| Heading family | Step | Longest unbroken vertex chain found |
-| -------------- | ---: | ----------------------------------: |
-| 0°, 60°, 120°  |   √3 |           11 segments, unterminated |
-| 30°, 90°, 150° |    3 |            6 segments, unterminated |
-
-So the vertex lattice admits perfectly straight, arbitrarily long walls in **twelve headings at 30°
-increments** — the same twelve-point rosette transport already uses — against the six zigzagging
-chains the edge model allows. Any other angle is approximated by a chord chain whose deviation from
-the intended line is bounded by half a hex. That is the honest claim: twelve exact headings, and a
-bounded approximation everywhere else. It is not free-form geometry, and it must not become
-free-form geometry — the anchors stay integer lattice vertices so the state stays integer, the
-checksum stays exact, and a wall can still be named by the hexes it touches.
-
-**Migration is exact, and that is the argument for this model over any other.** Every shared hex
-edge is precisely the segment between the two vertices those hexes have in common, so each existing
-v0.37/v0.39 boundary maps to one vertex-pair segment with no ambiguity and no loss. An old fence is
-the same fence; it simply stops being the only shape a fence can have.
-
-What has to move with it:
-
-- **Crossing.** Walking, route planning and transport crossing currently look a boundary up by hex
-  edge. They ask instead whether the step from hex A to hex B crosses a segment; the old edge lookup
-  is the special case where the segment lies on the shared edge. Keep the answer O(segments touching
-  the two hexes), not a scan.
-- **Occupancy.** A segment crossing a hex divides that hex without occupying it. Decide explicitly
-  whether a machine may stand on a divided hex, and whether a belt may run through the half the
-  segment cut off. The simplest defensible answer is that a segment blocks movement and transport
-  across itself and reserves nothing else; state it either way rather than leaving it to fall out of
-  the implementation.
-- **Enclosure detection.** The two-corner yard tool and the Open/Close/Strip work must operate on
-  vertex paths. A yard is now a closed vertex loop, which is a stronger definition than a set of
-  edges, and worth testing for the case where a loop crosses itself.
-- **Gates and apertures.** Belts and later pipes still need planned openings; they do not clip
-  through a wall automatically. Preview any live connection a wall would block. Recompile affected
-  graph components and replan affected walking routes after construction or a gate change.
-- **Drawing.** The instanced geometry is placed from the segment endpoints instead of from an edge
-  index. Roofs stay a separate question and still do not create walkable floors.
-
-**Acceptance.** A straight run of at least twenty segments exists in each of the twelve headings and
-is visibly straight. Every v0.37/v0.39 save loads with its boundaries in the same places and the same
-materials, proven by a migration test rather than by inspection. A gate opens and closes on a
-crossing segment and the routes replan. No enclosure edit strands cargo or creates a phantom
-crossing. `DIRECTIONS` remains six: this changes where a wall may sit, and changes nothing about
-adjacency, power or the six-neighbour rules.
-
-**The rest of the enclosure family stays with row 7.** Reinforced walls, rebar, steel frames and
-roofs are structural — they exist to carry a floor, and there is no floor until row 7 builds one.
 
 ## Phase 7 — Supported floors and vertical transport
 
@@ -531,6 +470,7 @@ both test suites say so.
 One line per release, newest first. The reasoning behind a shipped rule lives in the git history of
 this file and in the code that implements it; what follows is the index.
 
+- **v0.42.0** Straight Walls and Yards — Boundaries move from canonical hex edges to the vertex lattice: a segment is a chord of one hex between two of its corners, twelve headings run dead straight, and off-heading runs staircase to the far end within half a hex. A rectangular yard closes from two picked corners, and Ground works takes the same two corners to pave every hex the rectangle touches. Every v0.37/v0.39 boundary loads in place through a `direction` alias with no migration pass. Save 33 / wire 18; definitions, technologies, scenarios and world unchanged.
 - **v0.41.0** Handling and Clarity — Pointer stack dragging, automatic pack opening, named static belt-target refusals, confirmed carry-and-spill demolition, and continuous world-space paving. All envelopes unchanged; 625-cell Low rendering measurement committed.
 - **v0.40.0** Petroleum Roads — Powered oil wells, atomic joint-output refining, refined fuel, asphalt over gravel, production-route accounting and petroleum research/projects. Save 32 / definitions 26 / technologies 14 / world 10; old worlds keep their site rules.
 - **v0.39.0** Masonry Enclosures — Hill limestone, kiln-fired cement, corrected concrete, timber/wire/brick/concrete walls, and an enclosure tray on the Ground works pattern. Fired Masonry is an 8-insight masonry-branch node. Save 31 / definitions 25 / technologies 13 / world 9.

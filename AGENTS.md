@@ -4,14 +4,14 @@ HexFactory is a browser factory-automation game. Player experience is the tiebre
 native ownership, sparse cost, and measured claims exist to keep a large living factory responsive
 and trustworthy.
 
-Current release: **v0.41.0 Handling and Clarity** — stack dragging, automatic pack opening,
-named belt-target refusals, confirmed demolition with collectible overflow, and seamless paving,
-on the shipped petroleum economy. Envelopes: save 32, definitions 26, technologies 14,
-scenarios 7, world 10, wire 17. Old worlds keep their saved site rules; new oil sites need a new
-world.
+Current release: **v0.42.0 Straight Walls and Yards** — boundaries anchored on the hex vertex
+lattice, twelve dead-straight headings, rectangular yards, and rectangular paving that takes in
+every hex the rectangle touches, on the shipped petroleum economy. Envelopes: save 33,
+definitions 26, technologies 14, scenarios 7, world 10, wire 18. A v0.37/v0.39 boundary loads in
+place through a `direction` serde alias; old worlds still keep their saved site rules.
 
-Next work is the numbered phase table in `docs/HEXFACTORY-PLAN.md#what-to-do-next`: straight walls
-and gates, then supported floors and vertical transport. Release numbers after v0.41.0 are
+Next work is the numbered phase table in `docs/HEXFACTORY-PLAN.md#what-to-do-next`: supported
+floors and vertical transport. Release numbers after v0.42.0 are
 unassigned. Do not reorder those phases without the user.
 
 ## Localize before reading
@@ -100,7 +100,7 @@ next work is `docs/HEXFACTORY-PLAN.md`; measured evidence is `docs/BENCHMARKS.md
 milestone collapses to one ledger line in the plan and its brief is deleted — the detail lives in
 git history and in the code. At most one release record may exist at a time, for the milestone
 currently in flight; it is deleted when the next one ships. Today that is
-`docs/HANDLING-CLARITY-RECORD.md`. `README.md` is the only player-facing document.
+`docs/STRAIGHT-WALLS-RECORD.md`. `README.md` is the only player-facing document.
 
 ## Evidence behind the context policy
 

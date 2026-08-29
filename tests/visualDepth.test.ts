@@ -1417,7 +1417,7 @@ it("draws sandbox gates by definition, reuses quiet meshes, and releases replace
   const boundary = {
     q: -2,
     r: 1,
-    direction: 0,
+    chord: 0,
     definition_id: 2,
     open: false,
     paid: [],
@@ -1441,7 +1441,7 @@ it("draws sandbox gates by definition, reuses quiet meshes, and releases replace
   open.getMatrixAt(2, openMatrix);
   expect(openMatrix.equals(closedMatrix)).toBe(false);
   layer.setPreview({
-    edges: [boundary],
+    segments: [boundary],
     changes: 1,
     cost: [],
     refund: [],
@@ -1450,6 +1450,33 @@ it("draws sandbox gates by definition, reuses quiet meshes, and releases replace
   expect(layer.group.children).toHaveLength(2);
   layer.setPreview(null);
   expect(layer.group.children).toHaveLength(1);
+  // The pins are their own mesh: the first click of a two-vertex selection has no run to preview
+  // yet, and the player still has to see where it landed.
+  layer.setAnchors([{ q: -2, r: 1, corner: 1 }]);
+  expect(layer.group.children).toHaveLength(2);
+  layer.setAnchors([]);
+  expect(layer.group.children).toHaveLength(1);
   layer.dispose();
   expect(layer.group.children).toHaveLength(0);
+});
+
+it("measures every rail off the chord it spans, not off a hex edge", () => {
+  const layer = new BoundaryMeshes(
+    definitions.boundaries as BoundaryDefinition[],
+  );
+  const base = { q: 0, r: 0, definition_id: 1, open: false, paid: [] };
+  // Chord 0 is a hex edge, chord 12 a long diagonal across the whole hex. A layer that assumed a
+  // unit edge would draw the diagonal at edge length and leave it hanging in the air short of its
+  // own post, so the two are compared by the width the instance is actually scaled to.
+  const widthOf = (chord: number): number => {
+    const meshes = new BoundaryMeshes(
+      definitions.boundaries as BoundaryDefinition[],
+    );
+    meshes.update([{ ...base, chord }], new Map());
+    const matrix = new Matrix4();
+    (meshes.group.children[0] as InstancedMesh).getMatrixAt(2, matrix);
+    return new Vector3().setFromMatrixScale(matrix).x;
+  };
+  expect(widthOf(12)).toBeGreaterThan(widthOf(0) * 1.9);
+  layer.dispose();
 });

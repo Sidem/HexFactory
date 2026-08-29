@@ -47,7 +47,7 @@ export const TERRAIN_INFO: Record<Terrain, TerrainInfo> = {
   },
   lowland: {
     name: "Lowland",
-    note: "wood, clay, crystal",
+    note: "wood, clay, crude oil",
     passable: true,
     buildable: true,
     fill: "#2a4a3ccc",
@@ -55,7 +55,7 @@ export const TERRAIN_INFO: Record<Terrain, TerrainInfo> = {
   },
   hills: {
     name: "Hills",
-    note: "copper ore and coal",
+    note: "copper ore, coal, limestone",
     passable: true,
     buildable: true,
     fill: "#48604ddd",

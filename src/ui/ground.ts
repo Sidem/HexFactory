@@ -2,6 +2,7 @@ import "./ground.css";
 import { pixelToAxial } from "@hexlife/embed/hex";
 import type { FactoryHost } from "../core/FactoryHost";
 import type {
+  BoundaryAnchor,
   FactorySnapshot,
   GroundAction,
   GroundEdit,
@@ -9,8 +10,10 @@ import type {
   GroundShape,
   Ingredient,
   NativeInputCommand,
+  WorldPoint,
 } from "../core/types";
 import { UNTREATED_MOVEMENT } from "../core/definitions";
+import { CORNER_NAMES, nearestVertex, sameVertex } from "../core/lattice";
 import { part, syncChildren } from "./dom";
 import type { FactoryRenderer } from "../rendering/FactoryRenderer";
 import { WORLD_SCALE } from "../rendering/landmarks";
@@ -70,8 +73,12 @@ const ACTIONS: readonly ActionSpec[] = [
 const SHAPES: readonly { value: GroundShape; label: string }[] = [
   { value: "cell", label: "One hex" },
   { value: "path", label: "Line of hexes" },
-  { value: "area", label: "Rectangle of hexes" },
+  { value: "rect", label: "Rectangle" },
 ];
+
+const cornerOptions = CORNER_NAMES.map(
+  (name, index) => `<option value="${index}">${name}</option>`,
+).join("");
 
 /**
  * A persistent, nonmodal earthworks tray. Every number in it is a native answer to the exact edit
@@ -83,8 +90,13 @@ export class GroundTool {
   private action: GroundAction = "pave";
   private surface: number;
   private cover = false;
-  private start: { q: number; r: number } | null = null;
-  private target: { q: number; r: number } | null = null;
+  /**
+   * Both ends of the selection. A hex or a line is anchored on hexes and the corner is ignored; a
+   * rectangle is anchored on two lattice vertices, the same two a wall would be drawn between, so a
+   * yard and the fence around it can be laid on exactly the same rectangle.
+   */
+  private start: BoundaryAnchor | null = null;
+  private target: BoundaryAnchor | null = null;
   private choosingEnd = false;
   private preview: GroundPreview | null = null;
   private revision = 0;
@@ -101,6 +113,9 @@ export class GroundTool {
   private readonly r: HTMLInputElement;
   private readonly toQ: HTMLInputElement;
   private readonly toR: HTMLInputElement;
+  private readonly corner: HTMLSelectElement;
+  private readonly toCorner: HTMLSelectElement;
+  private readonly cornerFields: readonly HTMLElement[];
   private readonly apply: HTMLButtonElement;
   private readonly status: HTMLElement;
   private readonly bill: HTMLElement;
@@ -140,8 +155,10 @@ export class GroundTool {
       <details class="ground-precise"><summary>Precise selection</summary><div class="ground-fields ground-target">
         <label>From Q<input data-q type="number" step="1" min="-100000" max="100000" value="0"></label>
         <label>From R<input data-r type="number" step="1" min="-100000" max="100000" value="0"></label>
+        <label data-corner-field hidden>Corner<select data-corner>${cornerOptions}</select></label>
         <label>To Q<input data-to-q type="number" step="1" min="-100000" max="100000" value="0"></label>
         <label>To R<input data-to-r type="number" step="1" min="-100000" max="100000" value="0"></label>
+        <label data-corner-field hidden>To corner<select data-to-corner>${cornerOptions}</select></label>
       </div></details>
       <div class="ground-spoil"><span>Spoil heap</span><span class="ground-gauge"><i data-spoil-fill style="width: 0%"></i></span><b data-spoil>0</b></div>
       <p class="ground-move" data-move hidden></p>
@@ -150,7 +167,7 @@ export class GroundTool {
       <p class="ground-retaining" data-retaining hidden></p>
       <label class="ground-cover" data-cover hidden><input type="checkbox" data-cover-input><span data-cover-text></span></label>
       <div class="ground-panel-actions"><button type="button" data-apply disabled>Apply</button><button type="button" data-clear>New selection</button><button type="button" data-undo title="Undo the last ground works edit (Ctrl+Z while this tool is open)">Undo</button></div>
-      <small class="ground-help">Click a hex to start. For a line or a rectangle, click again to finish it. R cycles the work, Shift+R goes back, Delete jumps to Strip. Esc cancels a selection; Esc again exits. Nothing is spent, dug or recovered before Apply.</small>`;
+      <small class="ground-help">Click a hex to start, and for a line click again to finish it. A rectangle is drawn between two hex corners, and takes in every hex it touches. R cycles the work, Shift+R goes back, Delete jumps to Strip. Esc cancels a selection; Esc again exits. Nothing is spent, dug or recovered before Apply.</small>`;
     const get = <T extends HTMLElement>(selector: string): T =>
       root.querySelector<T>(selector)!;
     root.addEventListener("keydown", (event) => {
@@ -167,6 +184,11 @@ export class GroundTool {
     this.r = get("[data-r]");
     this.toQ = get("[data-to-q]");
     this.toR = get("[data-to-r]");
+    this.corner = get("[data-corner]");
+    this.toCorner = get("[data-to-corner]");
+    this.cornerFields = [
+      ...root.querySelectorAll<HTMLElement>("[data-corner-field]"),
+    ];
     this.apply = get("[data-apply]");
     this.status = get("[data-status]");
     this.bill = get("[data-bill]");
@@ -201,9 +223,15 @@ export class GroundTool {
       )?.dataset.action;
       if (action) this.selectAction(action as GroundAction);
     });
-    this.shape.addEventListener("change", () => this.clear());
+    this.shape.addEventListener("change", () => {
+      this.syncFields();
+      this.clear();
+    });
     for (const input of [this.q, this.r, this.toQ, this.toR])
       input.addEventListener("input", () => this.readCoordinates());
+    for (const control of [this.corner, this.toCorner])
+      control.addEventListener("change", () => this.readCoordinates());
+    this.syncFields();
     // The acknowledgement is per selection, not per session: it is re-asked the moment the edit it
     // was given for stops being the edit on the table.
     this.coverInput.addEventListener("change", () => {
@@ -286,38 +314,66 @@ export class GroundTool {
     this.refresh();
   }
 
-  pick(cell: { q: number; r: number }): void {
+  /** Where the pointer landed, as the shape on the table understands it: a hex, or a hex corner. */
+  private anchorAt(
+    cell: { q: number; r: number },
+    point: WorldPoint,
+  ): BoundaryAnchor {
+    return this.shape.value === "rect"
+      ? nearestVertex(point)
+      : { ...cell, corner: 0 };
+  }
+
+  pick(cell: { q: number; r: number }, point: WorldPoint): void {
+    const anchor = this.anchorAt(cell, point);
     if (this.shape.value !== "cell" && this.choosingEnd) {
-      this.target = cell;
+      this.target = anchor;
       this.choosingEnd = false;
-      this.toQ.value = String(cell.q);
-      this.toR.value = String(cell.r);
     } else {
       // A fresh selection is a fresh question, so a covering already agreed to does not carry over.
       this.cover = false;
       this.coverInput.checked = false;
-      this.start = cell;
-      this.target = cell;
-      this.q.value = String(cell.q);
-      this.r.value = String(cell.r);
-      this.toQ.value = String(cell.q);
-      this.toR.value = String(cell.r);
+      this.start = anchor;
+      this.target = anchor;
       this.choosingEnd = this.shape.value !== "cell";
     }
+    this.writeCoordinates();
     this.refresh();
   }
 
-  hover(cell: { q: number; r: number }): void {
+  hover(cell: { q: number; r: number }, point: WorldPoint): void {
+    if (!this.opened || !this.choosingEnd) return;
+    const anchor = this.anchorAt(cell, point);
     if (
-      !this.opened ||
-      !this.choosingEnd ||
-      (this.target?.q === cell.q && this.target.r === cell.r)
+      this.shape.value === "rect"
+        ? sameVertex(this.target, anchor)
+        : this.target?.q === anchor.q && this.target.r === anchor.r
     )
       return;
-    this.target = cell;
-    this.toQ.value = String(cell.q);
-    this.toR.value = String(cell.r);
+    this.target = anchor;
+    this.writeCoordinates();
     this.refresh();
+  }
+
+  /** Which precise-selection controls belong to the shape on the table. */
+  private syncFields(): void {
+    const rect = this.shape.value === "rect";
+    for (const field of this.cornerFields) field.hidden = !rect;
+    this.cornerFields[0]?.parentElement?.classList.toggle("vertices", rect);
+  }
+
+  /** Push the picked anchors back into the number fields, so both ways in agree. */
+  private writeCoordinates(): void {
+    if (this.start) {
+      this.q.value = String(this.start.q);
+      this.r.value = String(this.start.r);
+      this.corner.value = String(this.start.corner);
+    }
+    if (this.target) {
+      this.toQ.value = String(this.target.q);
+      this.toR.value = String(this.target.r);
+      this.toCorner.value = String(this.target.corner);
+    }
   }
 
   update(snapshot: FactorySnapshot): void {
@@ -431,11 +487,19 @@ export class GroundTool {
       this.renderer.setGroundPreview(null);
       return;
     }
-    this.start = { q: Number(this.q.value), r: Number(this.r.value) };
+    this.start = {
+      q: Number(this.q.value),
+      r: Number(this.r.value),
+      corner: Number(this.corner.value),
+    };
     this.target =
       this.shape.value === "cell"
         ? this.start
-        : { q: Number(this.toQ.value), r: Number(this.toR.value) };
+        : {
+            q: Number(this.toQ.value),
+            r: Number(this.toR.value),
+            corner: Number(this.toCorner.value),
+          };
     this.choosingEnd = false;
     this.refresh();
   }
@@ -444,9 +508,12 @@ export class GroundTool {
     if (!this.start || !this.target) return null;
     const target = this.shape.value === "cell" ? this.start : this.target;
     return {
-      ...this.start,
+      q: this.start.q,
+      r: this.start.r,
+      corner: this.start.corner,
       to_q: target.q,
       to_r: target.r,
+      to_corner: target.corner,
       shape: this.shape.value as GroundShape,
       definition_id: this.surface,
       action: this.action,
@@ -486,15 +553,26 @@ export class GroundTool {
     this.move.hidden = true;
     this.retaining.hidden = true;
     this.drawSpoil(this.snapshot?.spoil ?? 0);
+    // A rectangle is pinned to lattice vertices, so the pins go up the moment the first corner is
+    // taken — before there is any rectangle to price, and the same pins a wall would be drawn on.
+    this.renderer.setBoundaryAnchors(
+      !this.opened || !this.start || this.shape.value !== "rect"
+        ? []
+        : sameVertex(this.start, this.target)
+          ? [this.start]
+          : [this.start, this.target!],
+    );
     if (!this.start || !this.opened) {
       this.coverBox.hidden = true;
       this.status.classList.remove("blocked");
       this.status.textContent =
         this.shape.value === "cell"
           ? "Click the hex to work."
-          : this.action === "level"
-            ? "Click the hex whose grade everything else should match, then the far end."
-            : "Click the first hex, then the far end. Up to 32 hexes at a time.";
+          : this.shape.value === "rect"
+            ? "Click one corner of the rectangle, then the opposite one. Every hex it touches is taken in, up to 32 at a time."
+            : this.action === "level"
+              ? "Click the hex whose grade everything else should match, then the far end."
+              : "Click the first hex, then the far end. Up to 32 hexes at a time.";
       this.renderer.setGroundPreview(null);
       return;
     }
@@ -556,10 +634,14 @@ export class GroundTool {
     this.status.textContent =
       preview.error ??
       (this.choosingEnd
-        ? `Choose the far end. ${preview.changes} hex${preview.changes === 1 ? "" : "es"} would change.`
+        ? `${edit.shape === "rect" ? "Choose the opposite corner" : "Choose the far end"}. ${preview.changes} hex${preview.changes === 1 ? "" : "es"} would change.`
         : preview.changes === 0
           ? "This ground already matches. Nothing to spend, dig or recover."
-          : `${preview.changes} hex${preview.changes === 1 ? "" : "es"} will change. Hex ${edit.q}, ${edit.r}${edit.shape === "cell" ? "" : ` → ${edit.to_q}, ${edit.to_r}`}.`);
+          : `${preview.changes} hex${preview.changes === 1 ? "" : "es"} will change. ${
+              edit.shape === "rect"
+                ? `Rectangle ${CORNER_NAMES[edit.corner ?? 0]?.toLowerCase() ?? ""} of ${edit.q}, ${edit.r} → ${CORNER_NAMES[edit.to_corner ?? 0]?.toLowerCase() ?? ""} of ${edit.to_q}, ${edit.to_r}.`
+                : `Hex ${edit.q}, ${edit.r}${edit.shape === "cell" ? "" : ` → ${edit.to_q}, ${edit.to_r}`}.`
+            }`);
     this.status.classList.toggle("blocked", !!preview.error);
     // A refused edit was never priced — native stops before the bill — so quoting one here would be
     // inventing a number. The refusal is the whole answer until it is dealt with.

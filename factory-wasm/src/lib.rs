@@ -120,7 +120,11 @@ const SAVE_PREFIX: &str = "HXF1\n";
 /// version-29 file simply has neither, so the migration is the version stamp and the definitions it
 /// travels with — an untouched world is exactly the world it already was, which is why the checksum
 /// contribution stays guarded on emptiness.
-const SAVE_VERSION: u16 = 32;
+/// Version 33 moves boundaries onto the hex vertex lattice: a boundary is a chord of one hex, and
+/// the three shared hex edges are the first three chords under the numbers they already had. A
+/// version-32 file is therefore migrated by its version stamp alone, and its boundaries load
+/// unchanged through a serde alias rather than being rewritten.
+const SAVE_VERSION: u16 = 33;
 /// Bumped to 6 for World Parameters. `WorldParams` is now part of a run's identity — it is in the
 /// save envelope and in the checksum — so a version-5 envelope carries no answer to the question
 /// "which world is this" and is rejected rather than assumed to be the default.
@@ -2068,7 +2072,7 @@ enum InputCommand {
 }
 
 struct Core {
-    boundaries: BTreeMap<Edge, Boundary>,
+    boundaries: BTreeMap<Segment, Boundary>,
     boundary_hash_cache: RefCell<Option<u32>>,
     boundary_undo: Vec<BoundaryUndo>,
     /// Prepared ground: surface and graded elevation, sparse over the untreated world.
@@ -8339,7 +8343,7 @@ impl Core {
             .state
             .boundaries
             .into_iter()
-            .map(|b| (b.edge, b))
+            .map(|b| (b.segment, b))
             .collect();
         core.ground = envelope
             .state
@@ -20881,10 +20885,10 @@ mod tests {
 
         let boundaries = SnapshotDelta {
             boundaries: Some(vec![Boundary {
-                edge: Edge {
+                segment: Segment {
                     q: -4,
                     r: 7,
-                    direction: 2,
+                    chord: 2,
                 },
                 definition_id: 2,
                 open: true,
@@ -22993,14 +22997,37 @@ mod tests {
         let restored = Core::from_save(&definitions, &technologies, &scenarios, &save).unwrap();
         assert_eq!(restored.ground_items, before_ground);
     }
+    /// The east edge of hex `q, r`, spelled the way the vertex lattice spells it: the run from the
+    /// hex's north-east corner to its south-east one.
     fn boundary_edit(q: i32, r: i32) -> BoundaryEdit {
+        edge_edit(q, r, 0)
+    }
+
+    /// The shared edge of hex `q, r` in `DIRECTIONS[direction]`, as a two-vertex run.
+    fn edge_edit(q: i32, r: i32, direction: u8) -> BoundaryEdit {
         BoundaryEdit {
             q,
             r,
+            corner: (direction + 1) % 6,
             to_q: q,
             to_r: r,
-            direction: 0,
-            area: false,
+            to_corner: (direction + 2) % 6,
+            shape: BoundaryShape::Line,
+            definition_id: 1,
+            action: BoundaryAction::Build,
+        }
+    }
+
+    /// A run from one lattice vertex to another, both named by hex and corner.
+    fn line_edit(from: (i32, i32, u8), to: (i32, i32, u8)) -> BoundaryEdit {
+        BoundaryEdit {
+            q: from.0,
+            r: from.1,
+            corner: from.2,
+            to_q: to.0,
+            to_r: to.1,
+            to_corner: to.2,
+            shape: BoundaryShape::Line,
             definition_id: 1,
             action: BoundaryAction::Build,
         }
@@ -23087,43 +23114,51 @@ mod tests {
         core.set_creative(true);
         let edit = boundary_edit(0, 0);
         core.edit_boundaries(&edit).unwrap();
-        let reverse = BoundaryEdit {
-            q: 1,
-            direction: 3,
-            ..edit.clone()
-        };
+        // The same chord named from the neighbour that shares it is the same record, not a second.
+        let reverse = edge_edit(1, 0, 3);
         assert_eq!(core.boundary_preview(&reverse).changes, 0);
         assert_eq!(core.boundaries.len(), 1);
         core.undo_boundary().unwrap();
-        let area = BoundaryEdit {
-            area: true,
+        let yard = BoundaryEdit {
+            shape: BoundaryShape::Yard,
             to_q: 1,
+            to_corner: 3,
             ..edit.clone()
         };
-        let preview = core.boundary_preview(&area);
+        let preview = core.boundary_preview(&yard);
         assert_eq!(preview.error, None);
-        assert_eq!(preview.edges.len(), 10);
-        core.edit_boundaries(&area).unwrap();
-        assert_eq!(core.boundaries.len(), 10);
+        let sides = preview.segments.len();
+        assert!(sides >= 4);
+        core.edit_boundaries(&yard).unwrap();
+        assert_eq!(core.boundaries.len(), sides);
         core.undo_boundary().unwrap();
         let checksum = core.checksum();
         for invalid in [
+            // A rectangle far past the segment budget is refused before anything is priced.
             BoundaryEdit {
-                to_q: 100_000,
-                ..area.clone()
+                to_q: 99_999,
+                ..yard.clone()
             },
             BoundaryEdit {
                 q: i32::MIN,
                 ..edit.clone()
             },
             BoundaryEdit {
-                direction: 6,
+                corner: 6,
                 ..edit.clone()
             },
             BoundaryEdit {
                 q: 99,
                 r: 99,
+                to_q: 99,
+                to_r: 99,
                 ..edit.clone()
+            },
+            // A rectangle with no extent is a point, which the yard shape cannot draw.
+            BoundaryEdit {
+                to_q: 0,
+                to_corner: 1,
+                ..yard.clone()
             },
         ] {
             assert!(core.boundary_preview(&invalid).error.is_some());
@@ -23133,13 +23168,14 @@ mod tests {
         core.set_creative(false);
         core.player.inventory.clear();
         let before = core.checksum();
-        assert!(core.edit_boundaries(&area).is_err());
+        assert!(core.edit_boundaries(&yard).is_err());
         assert_eq!(core.checksum(), before);
-        // Canonicalizing the west/north sides must not create a record that save loading rejects.
+        // Anchors stop one hex short of the limit, so canonicalizing a chord onto its neighbour can
+        // never mint a record that save loading would reject.
         assert!(core
             .boundary_preview(&BoundaryEdit {
                 q: -100_000,
-                direction: 3,
+                to_q: -100_000,
                 ..edit.clone()
             })
             .error
@@ -23252,6 +23288,16 @@ mod tests {
         assert_eq!(restored.boundaries, core.boundaries);
         assert_eq!(restored.checksum(), core.checksum());
         assert!(restored.boundary_undo.is_empty());
+        // Every boundary written before the vertex lattice spelled its chord `direction` and only
+        // ever held the three shared edges, which are the same three chords under the same
+        // identity. Old saves therefore load in place, byte for byte, with no state rewrite.
+        let legacy = save
+            .replace("\"save_version\":33", "\"save_version\":32")
+            .replace("\"chord\":", "\"direction\":");
+        assert!(legacy.contains("\"direction\":"));
+        let loaded = Core::from_save(&definitions, &technologies, &scenarios, &legacy).unwrap();
+        assert_eq!(loaded.boundaries, core.boundaries);
+        assert_eq!(loaded.checksum(), core.checksum());
         let previous = core.snapshot();
         let baseline = SnapshotBaseline::from_snapshot(&previous);
         core.dirty = SnapshotDirty::default();
@@ -23284,22 +23330,14 @@ mod tests {
         core.player.y = 0;
         core.set_creative(true);
         for direction in 0..6 {
-            let edit = BoundaryEdit {
-                direction,
-                ..boundary_edit(0, 0)
-            };
+            let edit = edge_edit(0, 0, direction);
             core.edit_boundaries(&edit).unwrap();
             let (q, r) = DIRECTIONS[direction as usize];
             let other = axial_world(q, r);
             assert!(core.boundary_blocks_segment((0, 0), other));
             assert!(core.boundary_blocks_segment(other, (0, 0)));
             assert!(core.boundary_blocks_player(other.0 / 2, other.1 / 2));
-            let reverse = BoundaryEdit {
-                q,
-                r,
-                direction: (direction + 3) % 6,
-                ..edit
-            };
+            let reverse = edge_edit(q, r, (direction + 3) % 6);
             assert_eq!(core.boundary_preview(&reverse).changes, 0);
             assert_eq!(core.boundary_state_hash(), core.uncached_boundary_hash());
             assert_eq!(core.boundary_state_hash(), core.uncached_boundary_hash());
@@ -23335,12 +23373,101 @@ mod tests {
         let yard = BoundaryEdit {
             q: -2,
             r: -2,
+            corner: 0,
             to_q: 0,
             to_r: 0,
-            area: true,
+            to_corner: 3,
+            shape: BoundaryShape::Yard,
             ..boundary_edit(0, 0)
         };
-        assert_eq!(core.boundary_preview(&yard).edges.len(), 22);
+        // The player is standing on the rectangle's own edge; step off it before walling it.
+        core.player.x = 4 * HEX_X;
+        let sides = core.boundary_preview(&yard);
+        assert_eq!(sides.error, None);
+        // A closed rectangle: every vertex it visits is entered once and left once.
+        let mut visits: BTreeMap<(i32, i32), usize> = BTreeMap::new();
+        for segment in &sides.segments {
+            let (a, b) = segment.ends();
+            *visits.entry(a).or_default() += 1;
+            *visits.entry(b).or_default() += 1;
+        }
+        assert!(visits.values().all(|&n| n == 2));
+    }
+
+    /// The point of anchoring on vertices: a wall can hold one heading for a long run. Twelve
+    /// headings leave every lattice vertex, thirty degrees apart, and each has to draw exactly
+    /// straight for at least the twenty segments this phase is graded on.
+    ///
+    /// Only six of the twelve repeat one chord over and over — the honeycomb is not a lattice under
+    /// its own edges, so the other six alternate two chord lengths and are no less straight for it.
+    /// The test is collinearity, not sameness: every vertex the run touches lies on the ray, and
+    /// each one is further along it than the last.
+    #[test]
+    fn straight_boundary_runs_hold_all_twelve_headings_for_twenty_segments() {
+        let mut core = empty_world("new-game");
+        core.scenario.generated_environment = false;
+        core.compile_graph();
+        core.player.x = 40 * HEX_X;
+        core.player.y = 0;
+        core.set_creative(true);
+        // Creative mode recomputes reach from earned skills; a twenty-segment run outruns it.
+        core.player.build_range = 200 * HEX_X as u32;
+        let start = (0, 0, 0u8);
+        let origin = corner_world(start.0, start.1, start.2);
+        let mut headings = BTreeSet::new();
+        for corner in 0..6u8 {
+            for hex in corner_hexes(start.0, start.1, start.2) {
+                let Some(local) = (0..6u8).find(|&k| corner_world(hex.0, hex.1, k) == origin)
+                else {
+                    continue;
+                };
+                if corner == local {
+                    continue;
+                }
+                let step = corner_world(hex.0, hex.1, corner);
+                let (dx, dy) = (step.0 - origin.0, step.1 - origin.1);
+                if !headings.insert((dx, dy)) {
+                    continue;
+                }
+                // Aim further and further along the ray, stopping at the first vertex on it whose
+                // run is long enough to grade.
+                let mut run = None;
+                for reach in 1..=64 {
+                    let far = (origin.0 + dx * reach, origin.1 + dy * reach);
+                    let end = nearest_corner(far.0, far.1);
+                    if corner_world(end.0, end.1, end.2) != far {
+                        continue;
+                    }
+                    let preview = core.boundary_preview(&line_edit(start, end));
+                    assert_eq!(preview.error, None, "heading {dx}, {dy} at {far:?}");
+                    if preview.segments.len() >= 20 {
+                        run = Some((far, preview));
+                        break;
+                    }
+                }
+                let (far, preview) = run.expect("twenty segments on this heading");
+                let mut at = origin;
+                for segment in &preview.segments {
+                    let (a, b) = segment.ends();
+                    assert!(a == at || b == at, "heading {dx}, {dy} broke at {at:?}");
+                    let next = if a == at { b } else { a };
+                    let (ax, ay) = (i64::from(next.0 - origin.0), i64::from(next.1 - origin.1));
+                    assert_eq!(
+                        ax * i64::from(dy) - ay * i64::from(dx),
+                        0,
+                        "heading {dx}, {dy} left the line at {next:?}"
+                    );
+                    assert!(
+                        i64::from(next.0 - at.0) * i64::from(dx)
+                            + i64::from(next.1 - at.1) * i64::from(dy)
+                            > 0
+                    );
+                    at = next;
+                }
+                assert_eq!(at, far);
+            }
+        }
+        assert_eq!(headings.len(), 12);
     }
 
     #[test]
@@ -23392,9 +23519,8 @@ mod tests {
         core.player.y = 0;
         core.set_creative(true);
         let edit = BoundaryEdit {
-            direction: 1,
             definition_id: 2,
-            ..boundary_edit(0, 0)
+            ..edge_edit(0, 0, 1)
         };
         core.edit_boundaries(&edit).unwrap();
         let container = core
@@ -23530,6 +23656,8 @@ mod tests {
             r,
             to_q: q,
             to_r: r,
+            corner: 0,
+            to_corner: 0,
             shape: GroundShape::Cell,
             definition_id: 2,
             action,

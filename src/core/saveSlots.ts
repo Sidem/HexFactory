@@ -27,7 +27,7 @@
 // exactly the world it already was, so only the stamps move: definition catalog 23 advances to 24.
 // v31 opens masonry: definition catalog 25, technology catalog 13, world generator 9. Old worlds
 // keep the site_rules they were generated with, so existing deposits do not move.
-export const SAVE_VERSION = 32;
+export const SAVE_VERSION = 33;
 export const SAVE_CATALOG_KEY = "hexfactory:saves:v1";
 export const LEGACY_SAVE_PREFIX = "hexfactory:hxf1:";
 export const HXF1_PREFIX = "HXF1\n";

@@ -93,7 +93,12 @@ pub(crate) const WIRE_MAGIC: [u8; 4] = *b"HXFD";
 /// mask bits, so a version-16 buffer decodes unchanged — but a version-16 *decoder* would stop at
 /// the end of the boundary group and its "consumed the whole buffer" assertion is exactly what
 /// catches that, which is why the version moves rather than the groups being smuggled in.
-pub(crate) const WIRE_VERSION: u8 = 17;
+///
+/// Version 18 anchors boundaries on the hex vertex lattice. The byte layout is unchanged — the
+/// third field of a boundary is still one byte — but it now names one of a hex's fifteen chords
+/// rather than one of its three shared edges, and a version-17 host would draw twelve of the
+/// fifteen in the wrong place entirely. The meaning moved, so the version moves with it.
+pub(crate) const WIRE_VERSION: u8 = 18;
 
 /// Which optional groups the buffer carries, in the order they are written.
 mod group {
@@ -469,9 +474,9 @@ pub(crate) fn encode_delta(delta: &SnapshotDelta) -> Vec<u8> {
     if let Some(boundaries) = &delta.boundaries {
         writer.uvarint(boundaries.len() as u64);
         for boundary in boundaries {
-            writer.svarint(i64::from(boundary.edge.q));
-            writer.svarint(i64::from(boundary.edge.r));
-            writer.u8(boundary.edge.direction);
+            writer.svarint(i64::from(boundary.segment.q));
+            writer.svarint(i64::from(boundary.segment.r));
+            writer.u8(boundary.segment.chord);
             writer.uvarint(u64::from(boundary.definition_id));
             writer.bool(boundary.open);
             writer.ingredients(&boundary.paid);
@@ -1060,10 +1065,10 @@ pub(crate) mod decode {
         let boundaries = has(group::BOUNDARIES).then(|| {
             (0..reader.count())
                 .map(|_| crate::Boundary {
-                    edge: crate::Edge {
+                    segment: crate::Segment {
                         q: reader.svarint() as i32,
                         r: reader.svarint() as i32,
-                        direction: reader.u8(),
+                        chord: reader.u8(),
                     },
                     definition_id: reader.uvarint() as u16,
                     open: reader.bool(),

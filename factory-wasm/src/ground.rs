@@ -70,7 +70,10 @@ pub(super) enum GroundAction {
 pub(super) enum GroundShape {
     Cell,
     Path,
-    Area,
+    /// A rectangle drawn on the world, not on the axial grid: two lattice vertices, and every hex
+    /// the rectangle touches. It shares its anchors and its snapping with the walled yard, so a
+    /// floor and the wall around it land on exactly the same rectangle.
+    Rect,
 }
 
 #[derive(Clone, Deserialize)]
@@ -79,6 +82,12 @@ pub(super) struct GroundEdit {
     pub r: i32,
     pub to_q: i32,
     pub to_r: i32,
+    /// Which corner of hex `q, r` a rectangle is anchored on. Ignored by the other shapes, which
+    /// name whole hexes, so it defaults rather than being spelled on every edit.
+    #[serde(default)]
+    pub corner: u8,
+    #[serde(default)]
+    pub to_corner: u8,
     pub shape: GroundShape,
     pub definition_id: DefinitionId,
     pub action: GroundAction,
@@ -86,6 +95,54 @@ pub(super) struct GroundEdit {
     /// deposit the player cannot see again is exactly the decision that has to be deliberate.
     #[serde(default)]
     pub cover: bool,
+}
+
+/// Every hex a world rectangle touches, contact along an edge or at a single corner included.
+///
+/// Both shapes are convex, so five separating axes settle it exactly: the rectangle's two, and the
+/// three its own edges give the hexagon. It is all integer arithmetic on the lattice the rest of
+/// the core measures in, so a hex that merely grazes the line is in or out for everyone at once.
+fn hexes_touching_rect(rect: ((i32, i32), (i32, i32))) -> Result<Vec<(i32, i32)>, String> {
+    let ((left, top), (right, bottom)) = rect;
+    let (x0, y0) = (i64::from(left), i64::from(top));
+    let (x1, y1) = (i64::from(right), i64::from(bottom));
+    let hex_x = i64::from(HEX_X);
+    let hex_y = i64::from(HEX_Y);
+    let half_x = hex_x / 2;
+    let radius = i64::from(HEX_RADIUS);
+    // The hexagon's two slanted edge pairs project onto (radius/2, half_x); this is their support.
+    let (nx, ny) = (radius / 2, half_x);
+    let support = 2 * nx * ny;
+    let r_min = (y0 - radius).div_euclid(hex_y) - 1;
+    let r_max = (y1 + radius).div_euclid(hex_y) + 1;
+    let columns = (x1 - x0 + 2 * half_x) / hex_x + 3;
+    // Bounded before anything is scanned, let alone priced, so an accidental drag across the map is
+    // refused rather than walked.
+    if (r_max - r_min + 1).saturating_mul(columns) > MAX_GROUND_CELLS as i64 * 16 {
+        return Err(format!(
+            "Select at most {MAX_GROUND_CELLS} hexes of ground at a time"
+        ));
+    }
+    let mut cells = Vec::new();
+    for r in r_min..=r_max {
+        let first = (x0 - half_x - r * half_x).div_euclid(hex_x) - 1;
+        for q in first..=first + columns {
+            let (cx, cy) = (q * hex_x + r * half_x, r * hex_y);
+            if cx - half_x > x1 || cx + half_x < x0 || cy - radius > y1 || cy + radius < y0 {
+                continue;
+            }
+            let along = nx * cx + ny * cy;
+            if along - support > nx * x1 + ny * y1 || along + support < nx * x0 + ny * y0 {
+                continue;
+            }
+            let across = nx * cx - ny * cy;
+            if across - support > nx * x1 - ny * y0 || across + support < nx * x0 - ny * y1 {
+                continue;
+            }
+            cells.push((q as i32, r as i32));
+        }
+    }
+    Ok(cells)
 }
 
 /// One cell of the preview, as the host draws it.
@@ -243,21 +300,15 @@ impl Core {
         let cells: Vec<(i32, i32)> = match edit.shape {
             GroundShape::Cell => vec![(edit.q, edit.r)],
             GroundShape::Path => hex_line_any((edit.q, edit.r), (edit.to_q, edit.to_r)),
-            GroundShape::Area => {
-                let width = u64::from(edit.q.abs_diff(edit.to_q)) + 1;
-                let height = u64::from(edit.r.abs_diff(edit.to_r)) + 1;
-                if width * height > MAX_GROUND_CELLS {
-                    return Err(format!(
-                        "Select at most {MAX_GROUND_CELLS} hexes of ground at a time"
-                    ));
+            GroundShape::Rect => {
+                if edit.corner >= 6 || edit.to_corner >= 6 {
+                    return Err("Ground target is outside the supported coordinate range".into());
                 }
-                let mut cells = Vec::new();
-                for q in edit.q.min(edit.to_q)..=edit.q.max(edit.to_q) {
-                    for r in edit.r.min(edit.to_r)..=edit.r.max(edit.to_r) {
-                        cells.push((q, r));
-                    }
-                }
-                cells
+                let rect = yard_rect(
+                    (edit.q, edit.r, edit.corner),
+                    (edit.to_q, edit.to_r, edit.to_corner),
+                )?;
+                hexes_touching_rect(rect)?
             }
         };
         if cells.len() as u64 > MAX_GROUND_CELLS {

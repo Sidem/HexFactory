@@ -146,6 +146,19 @@ pub(super) fn migrate<'a>(json: &'a str, target_version: u16) -> Result<Cow<'a, 
         version = 32;
     }
 
+    // Version 33 anchors boundaries on the hex vertex lattice. A boundary's identity is now a
+    // chord of one hex rather than one of its three shared edges, but the three shared edges are
+    // the first three chords, under the same numbers they always had — so a version-32 boundary is
+    // already a version-33 boundary and the record is left exactly as written. The field it is
+    // spelled with is read through a serde alias rather than rewritten here, which keeps this step
+    // to the version stamp and leaves the checksum's input untouched.
+    if version == 32 && target_version >= 33 {
+        if let Some(object) = value.as_object_mut() {
+            object.insert("save_version".into(), Value::from(33));
+        }
+        version = 33;
+    }
+
     if version == target_version {
         return Ok(Cow::Owned(serde_json::to_string(&value).map_err(
             |error| format!("migrated save could not be written: {error}"),

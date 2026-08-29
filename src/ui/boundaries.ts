@@ -3,6 +3,7 @@ import { axialToPixel, pixelToAxial } from "@hexlife/embed/hex";
 import type { FactoryHost } from "../core/FactoryHost";
 import type {
   BoundaryAction,
+  BoundaryAnchor,
   BoundaryDefinition,
   BoundaryEdit,
   BoundaryPreview,
@@ -11,10 +12,24 @@ import type {
   NativeInputCommand,
   WorldPoint,
 } from "../core/types";
+import {
+  CORNER_NAMES,
+  headingLabel,
+  nearestVertex,
+  sameVertex,
+} from "../core/lattice";
 import type { FactoryRenderer } from "../rendering/FactoryRenderer";
 import { WORLD_SCALE } from "../rendering/landmarks";
 
 type Verb = BoundaryAction;
+
+/**
+ * What the player is drawing, which is not quite what native is asked for. Native knows two shapes:
+ * a straight run between two lattice vertices, and the rectangle two vertices bound. `edge` is the
+ * third thing a player wants and the one they wanted most often before straight runs existed — one
+ * side of one hex — expressed as the run between that side's two corners.
+ */
+type Selection = "edge" | "line" | "yard";
 
 interface VerbSpec {
   readonly action: Verb;
@@ -33,7 +48,7 @@ const VERBS: readonly VerbSpec[] = [
     action: "build",
     icon: "▮",
     label: "Place",
-    hint: "Lay a fence, wall or gate on the selected edges. Identical construction is free.",
+    hint: "Lay a fence, wall or gate along the selection. Identical construction is free.",
     verb: "Place {n}",
   },
   {
@@ -47,7 +62,7 @@ const VERBS: readonly VerbSpec[] = [
     action: "close",
     icon: "⌝",
     label: "Close",
-    hint: "Shut selected gates. The edge must be clear of you and of live transport.",
+    hint: "Shut selected gates. The line must be clear of you and of live transport.",
     verb: "Close {n}",
   },
   {
@@ -59,7 +74,32 @@ const VERBS: readonly VerbSpec[] = [
   },
 ];
 
-/** Picking is presentation; canonical edge identity and every transaction are native answers. */
+const SELECTIONS: readonly {
+  value: Selection;
+  label: string;
+  /** What to do next, before anything is picked. */
+  prompt: string;
+}[] = [
+  {
+    value: "edge",
+    label: "One side of a hex",
+    prompt: "Click near the side of a hex. One click, one segment.",
+  },
+  {
+    value: "line",
+    label: "Straight run",
+    prompt:
+      "Click a corner to anchor the run, then its far end. Twelve headings run dead straight.",
+  },
+  {
+    value: "yard",
+    label: "Rectangular yard",
+    prompt:
+      "Click one corner of the yard, then the opposite one. The rectangle snaps to whole hexes.",
+  },
+];
+
+/** Picking is presentation; canonical segment identity and every transaction are native answers. */
 export function nearestBoundaryDirection(
   cell: { q: number; r: number },
   point: WorldPoint,
@@ -69,6 +109,21 @@ export function nearestBoundaryDirection(
   return ((Math.round(angle / (Math.PI / 3)) % 6) + 6) % 6;
 }
 
+/** The two corners of one hex side, in the order native names them. */
+function edgeAnchors(
+  cell: { q: number; r: number },
+  direction: number,
+): [BoundaryAnchor, BoundaryAnchor] {
+  return [
+    { ...cell, corner: (direction + 1) % 6 },
+    { ...cell, corner: (direction + 2) % 6 },
+  ];
+}
+
+const cornerOptions = CORNER_NAMES.map(
+  (name, index) => `<option value="${index}">${name}</option>`,
+).join("");
+
 /**
  * A persistent, nonmodal enclosure tray. Every number in it is a native answer to the exact edit
  * Apply would send: the preview and the commit are one transaction.
@@ -77,8 +132,8 @@ export class BoundaryTool {
   private opened = false;
   private action: Verb = "build";
   private definitionId: number;
-  private start: { q: number; r: number } | null = null;
-  private target: { q: number; r: number } | null = null;
+  private start: BoundaryAnchor | null = null;
+  private target: BoundaryAnchor | null = null;
   private choosingEnd = false;
   private preview: BoundaryPreview | null = null;
   private revision = 0;
@@ -92,12 +147,20 @@ export class BoundaryTool {
   private readonly palette: HTMLElement;
   private readonly shape: HTMLSelectElement;
   private readonly direction: HTMLSelectElement;
+  private readonly corner: HTMLSelectElement;
+  private readonly toCorner: HTMLSelectElement;
   private readonly q: HTMLInputElement;
   private readonly r: HTMLInputElement;
+  private readonly toQ: HTMLInputElement;
+  private readonly toR: HTMLInputElement;
+  private readonly edgeField: HTMLElement;
+  private readonly cornerField: HTMLElement;
+  private readonly endFields: HTMLElement;
   private readonly apply: HTMLButtonElement;
   private readonly status: HTMLElement;
   private readonly bill: HTMLElement;
   private readonly hint: HTMLElement;
+  private readonly heading: HTMLElement;
   private readonly existing: HTMLElement;
 
   constructor(
@@ -120,17 +183,25 @@ export class BoundaryTool {
       ).join("")}</div>
       <div class="boundary-palette" role="group" aria-label="Fence, wall or gate" data-palette></div>
       <p data-hint></p>
-      <div class="boundary-fields"><label>Selection<select data-shape><option value="edge">Single edge</option><option value="area">Enclose an area</option></select></label></div>
+      <div class="boundary-fields"><label>Selection<select data-shape>${SELECTIONS.map(
+        (shape) => `<option value="${shape.value}">${shape.label}</option>`,
+      ).join("")}</select></label></div>
+      <p class="boundary-heading-readout" data-heading hidden></p>
       <details class="boundary-precise"><summary>Precise placement</summary><div class="boundary-fields boundary-target">
         <label>Hex Q<input data-q type="number" step="1" min="-100000" max="100000" value="0"></label>
         <label>Hex R<input data-r type="number" step="1" min="-100000" max="100000" value="0"></label>
-        <label>Edge<select data-direction><option value="0">East</option><option value="1">Southeast</option><option value="2">Southwest</option><option value="3">West</option><option value="4">Northwest</option><option value="5">Northeast</option></select></label>
+        <label data-edge-field>Edge<select data-direction><option value="0">East</option><option value="1">Southeast</option><option value="2">Southwest</option><option value="3">West</option><option value="4">Northwest</option><option value="5">Northeast</option></select></label>
+        <label data-corner-field hidden>Corner<select data-corner>${cornerOptions}</select></label>
+      </div><div class="boundary-fields boundary-target" data-end-fields hidden>
+        <label>To Q<input data-to-q type="number" step="1" min="-100000" max="100000" value="0"></label>
+        <label>To R<input data-to-r type="number" step="1" min="-100000" max="100000" value="0"></label>
+        <label>To corner<select data-to-corner>${cornerOptions}</select></label>
       </div></details>
       <p class="boundary-existing" data-existing></p>
       <p class="boundary-status" data-status role="status" aria-live="polite"></p>
       <p class="boundary-bill" data-bill></p>
       <div class="boundary-panel-actions"><button type="button" data-apply disabled>Apply</button><button type="button" data-clear>New selection</button><button type="button" data-undo title="Undo the last enclosure edit (Ctrl+Z while this tool is open)">Undo</button></div>
-      <small class="boundary-help">Click near a hex edge. For an enclosure, click two corner hexes. R cycles the work, Shift+R goes back, Delete jumps to Strip. Esc cancels a selection; Esc again exits. Nothing is spent before Apply.</small>`;
+      <small class="boundary-help">R cycles the work, Shift+R goes back, Delete jumps to Strip. Esc cancels a selection; Esc again exits. Nothing is spent before Apply.</small>`;
     const get = <T extends HTMLElement>(selector: string): T =>
       root.querySelector<T>(selector)!;
     root.addEventListener("keydown", (event) => {
@@ -144,12 +215,20 @@ export class BoundaryTool {
     this.palette = get("[data-palette]");
     this.shape = get("[data-shape]");
     this.direction = get("[data-direction]");
+    this.corner = get("[data-corner]");
+    this.toCorner = get("[data-to-corner]");
     this.q = get("[data-q]");
     this.r = get("[data-r]");
+    this.toQ = get("[data-to-q]");
+    this.toR = get("[data-to-r]");
+    this.edgeField = get("[data-edge-field]");
+    this.cornerField = get("[data-corner-field]");
+    this.endFields = get("[data-end-fields]");
     this.apply = get("[data-apply]");
     this.status = get("[data-status]");
     this.bill = get("[data-bill]");
     this.hint = get("[data-hint]");
+    this.heading = get("[data-heading]");
     this.existing = get("[data-existing]");
     this.buildPalette();
     this.opener.addEventListener("click", () =>
@@ -173,29 +252,14 @@ export class BoundaryTool {
       )?.dataset.action;
       if (action) this.selectAction(action as Verb);
     });
-    this.shape.addEventListener("change", () => this.clear());
-    this.direction.addEventListener("change", () => this.refresh());
-    for (const input of [this.q, this.r])
-      input.addEventListener("input", () => {
-        if (
-          !this.q.validity.valid ||
-          !this.r.validity.valid ||
-          !this.q.value ||
-          !this.r.value
-        ) {
-          this.revision += 1;
-          this.preview = null;
-          this.apply.disabled = true;
-          this.status.textContent =
-            "Enter whole hex coordinates between −100000 and 100000.";
-          this.renderer.setBoundaryPreview(null);
-          return;
-        }
-        this.start = { q: Number(this.q.value), r: Number(this.r.value) };
-        this.target = this.start;
-        this.choosingEnd = this.shape.value === "area";
-        this.refresh();
-      });
+    this.shape.addEventListener("change", () => {
+      this.syncFields();
+      this.clear();
+    });
+    for (const control of [this.direction, this.corner, this.toCorner])
+      control.addEventListener("change", () => this.readCoordinates());
+    for (const input of [this.q, this.r, this.toQ, this.toR])
+      input.addEventListener("input", () => this.readCoordinates());
     this.apply.addEventListener("click", () => {
       const edit = this.edit();
       if (
@@ -212,11 +276,16 @@ export class BoundaryTool {
         this.status.textContent = "Raising the enclosure…";
       }
     });
+    this.syncFields();
     this.selectAction("build");
   }
 
   get active(): boolean {
     return this.opened;
+  }
+
+  private get selection(): Selection {
+    return this.shape.value as Selection;
   }
 
   open(): void {
@@ -228,8 +297,8 @@ export class BoundaryTool {
     this.renderer.setBuildMode(true);
     if (this.snapshot) {
       const cell = pixelToAxial(this.snapshot.player, WORLD_SCALE);
-      this.q.value = String(cell.q);
-      this.r.value = String(cell.r);
+      for (const input of [this.q, this.toQ]) input.value = String(cell.q);
+      for (const input of [this.r, this.toR]) input.value = String(cell.r);
     }
     this.clear();
     this.panel.querySelector<HTMLButtonElement>("[data-action]")?.focus();
@@ -269,29 +338,39 @@ export class BoundaryTool {
     this.refresh();
   }
 
+  /**
+   * One click of the map. A hex side is picked whole, because that is one decision; a run or a yard
+   * is two vertices, and the first click leaves the second one following the pointer.
+   */
   pick(cell: { q: number; r: number }, point: WorldPoint): void {
-    if (this.shape.value === "area" && this.choosingEnd) {
-      this.target = cell;
+    if (this.selection === "edge") {
+      const direction = nearestBoundaryDirection(cell, point);
+      [this.start, this.target] = edgeAnchors(cell, direction);
+      this.choosingEnd = false;
+      this.direction.value = String(direction);
+      this.writeCoordinates();
+      this.refresh();
+      return;
+    }
+    const vertex = nearestVertex(point);
+    if (this.choosingEnd) {
+      this.target = vertex;
       this.choosingEnd = false;
     } else {
-      this.start = cell;
-      this.target = cell;
-      this.q.value = String(cell.q);
-      this.r.value = String(cell.r);
-      this.direction.value = String(nearestBoundaryDirection(cell, point));
-      this.choosingEnd = this.shape.value === "area";
+      this.start = vertex;
+      this.target = vertex;
+      this.choosingEnd = true;
     }
+    this.writeCoordinates();
     this.refresh();
   }
 
-  hover(cell: { q: number; r: number }): void {
-    if (
-      !this.opened ||
-      !this.choosingEnd ||
-      (this.target?.q === cell.q && this.target.r === cell.r)
-    )
-      return;
-    this.target = cell;
+  hover(_cell: { q: number; r: number }, point: WorldPoint): void {
+    if (!this.opened || !this.choosingEnd) return;
+    const vertex = nearestVertex(point);
+    if (sameVertex(this.target, vertex)) return;
+    this.target = vertex;
+    this.writeCoordinates();
     this.refresh();
   }
 
@@ -309,10 +388,16 @@ export class BoundaryTool {
     }
   }
 
+  /** Which precise-placement controls belong to the shape on the table. */
+  private syncFields(): void {
+    const edge = this.selection === "edge";
+    this.edgeField.hidden = !edge;
+    this.cornerField.hidden = edge;
+    this.endFields.hidden = edge;
+  }
+
   private selectAction(action: Verb): void {
     this.action = action;
-    if (action !== "build" && this.shape.value === "area")
-      this.shape.value = "edge";
     for (const button of this.actions.querySelectorAll<HTMLElement>(
       "[data-action]",
     ))
@@ -335,7 +420,9 @@ export class BoundaryTool {
   private buildPalette(): void {
     const inventory = this.snapshot?.player.inventory ?? {};
     const creative = this.snapshot?.player.creative === true;
-    const area = this.shape.value === "area";
+    // Native builds gates one segment at a time, so a shape that can draw more than one refuses
+    // them outright rather than letting a run be priced and then turned away.
+    const many = this.selection !== "edge";
     this.palette.replaceChildren(
       ...this.host.definitions.boundaries.map((definition) => {
         const button = document.createElement("button");
@@ -347,8 +434,8 @@ export class BoundaryTool {
           String(definition.id === this.definitionId),
         );
         const locked = !this.researched(definition.unlock_technology_id);
-        const gatedArea = area && definition.gate;
-        button.disabled = gatedArea;
+        const gatedRun = many && definition.gate;
+        button.disabled = gatedRun;
         button.classList.toggle("locked", locked);
         const swatch = document.createElement("i");
         swatch.setAttribute("aria-hidden", "true");
@@ -357,13 +444,15 @@ export class BoundaryTool {
         name.textContent = definition.name;
         const kind = document.createElement("span");
         kind.className = "boundary-kind";
-        kind.textContent = locked
-          ? this.lockLabel(definition)
-          : definition.gate
-            ? "Gate · crossing"
-            : definition.family === "wall"
-              ? "Wall · opaque"
-              : "Fence · see-through";
+        kind.textContent = gatedRun
+          ? "Gate · one side at a time"
+          : locked
+            ? this.lockLabel(definition)
+            : definition.gate
+              ? "Gate · crossing"
+              : definition.family === "wall"
+                ? "Wall · opaque"
+                : "Fence · see-through";
         const price = document.createElement("small");
         price.className = "boundary-price";
         const short = definition.construction_cost.some(
@@ -374,7 +463,7 @@ export class BoundaryTool {
           ? this.lockLabel(definition)
           : creative
             ? "Free · creative mode"
-            : `${this.names(definition.construction_cost, true)} per edge`;
+            : `${this.names(definition.construction_cost, true)} per segment`;
         button.append(swatch, name, kind, price);
         button.addEventListener("click", () => {
           this.definitionId = definition.id;
@@ -414,17 +503,83 @@ export class BoundaryTool {
       .join(" + ");
   }
 
+  /** Push the picked vertices back into the number fields, so both ways in agree. */
+  private writeCoordinates(): void {
+    if (this.start) {
+      this.q.value = String(this.start.q);
+      this.r.value = String(this.start.r);
+      this.corner.value = String(this.start.corner);
+    }
+    if (this.target) {
+      this.toQ.value = String(this.target.q);
+      this.toR.value = String(this.target.r);
+      this.toCorner.value = String(this.target.corner);
+    }
+  }
+
+  /** Typed coordinates are a selection like any other: same anchors, same native transaction. */
+  private readCoordinates(): void {
+    const edge = this.selection === "edge";
+    const inputs = edge
+      ? [this.q, this.r]
+      : [this.q, this.r, this.toQ, this.toR];
+    if (inputs.some((input) => !input.validity.valid || !input.value)) {
+      this.revision += 1;
+      this.preview = null;
+      this.apply.disabled = true;
+      this.status.textContent =
+        "Enter whole hex coordinates between −100000 and 100000.";
+      this.renderer.setBoundaryPreview(null);
+      this.renderer.setBoundaryAnchors([]);
+      return;
+    }
+    const cell = { q: Number(this.q.value), r: Number(this.r.value) };
+    if (edge) {
+      [this.start, this.target] = edgeAnchors(
+        cell,
+        Number(this.direction.value),
+      );
+    } else {
+      this.start = { ...cell, corner: Number(this.corner.value) };
+      this.target = {
+        q: Number(this.toQ.value),
+        r: Number(this.toR.value),
+        corner: Number(this.toCorner.value),
+      };
+    }
+    this.choosingEnd = false;
+    this.refresh();
+  }
+
   private edit(): BoundaryEdit | null {
     if (!this.start || !this.target) return null;
     return {
-      ...this.start,
+      q: this.start.q,
+      r: this.start.r,
+      corner: this.start.corner,
       to_q: this.target.q,
       to_r: this.target.r,
-      direction: Number(this.direction.value),
-      area: this.shape.value === "area",
+      to_corner: this.target.corner,
+      shape: this.selection === "yard" ? "yard" : "line",
       definition_id: this.definitionId,
       action: this.action,
     };
+  }
+
+  /** The bearing a run is on, and whether the lattice can hold it dead straight. */
+  private describeHeading(): void {
+    const bearing =
+      this.selection === "yard" || !this.start || !this.target
+        ? null
+        : headingLabel(this.start, this.target);
+    this.heading.hidden = !bearing;
+    if (!bearing) return;
+    // Native reaches any vertex: off the twelve headings its chain staircases toward the far end
+    // rather than refusing. That is a fine wall and a surprising one, so it is said in advance.
+    this.heading.textContent = bearing.exact
+      ? `Heading ${bearing.bearing} · dead straight.`
+      : `Just off ${bearing.bearing} · this run steps toward the far end. Twelve headings leave a corner dead straight.`;
+    this.heading.classList.toggle("approximate", !bearing.exact);
   }
 
   private refresh(): void {
@@ -434,15 +589,20 @@ export class BoundaryTool {
     this.apply.textContent = "Apply";
     this.bill.textContent = "";
     this.existing.textContent = "";
-    this.shape.disabled = this.action !== "build";
-    this.direction.disabled = this.shape.value === "area";
     this.palette.hidden = this.action !== "build";
     if (this.opened) this.buildPalette();
+    this.describeHeading();
+    this.renderer.setBoundaryAnchors(
+      !this.opened || !this.start
+        ? []
+        : this.selection === "edge" || sameVertex(this.start, this.target)
+          ? [this.start]
+          : [this.start, this.target!],
+    );
     if (!this.start || !this.opened) {
       this.status.textContent =
-        this.shape.value === "area"
-          ? "Choose the first corner hex. Maximum 32 hexes per enclosure."
-          : "Choose an edge on the map. Precise placement also accepts hex coordinates.";
+        SELECTIONS.find((shape) => shape.value === this.selection)?.prompt ??
+        "";
       this.renderer.setBoundaryPreview(null);
       return;
     }
@@ -462,14 +622,12 @@ export class BoundaryTool {
         const preview = await this.host.boundaryPreview(edit);
         if (revision !== this.revision) continue;
         this.preview = preview;
-        const edge = preview.edges.length === 1 ? preview.edges[0] : null;
+        const only =
+          preview.segments.length === 1 ? preview.segments[0]! : null;
         const existing =
-          edge &&
+          only &&
           this.snapshot?.boundaries.find(
-            (b) =>
-              b.q === edge.q &&
-              b.r === edge.r &&
-              b.direction === edge.direction,
+            (b) => b.q === only.q && b.r === only.r && b.chord === only.chord,
           );
         const definition =
           existing &&
@@ -478,17 +636,18 @@ export class BoundaryTool {
           );
         this.existing.textContent = existing
           ? `Current: ${definition?.name ?? "Boundary"}${definition?.gate ? (existing.open ? " · Open" : " · Closed") : ""}`
-          : edge
-            ? "Current: empty edge"
+          : only
+            ? "Current: empty line"
             : "";
         const spec = VERBS.find((entry) => entry.action === this.action);
+        const segments = `${preview.segments.length} segment${preview.segments.length === 1 ? "" : "s"}`;
         this.status.textContent =
           preview.error ??
           (this.choosingEnd
-            ? `Choose the second corner. Preview: ${preview.edges.length} perimeter edges.`
+            ? `${this.selection === "yard" ? "Choose the opposite corner" : "Choose the far end"}. Preview: ${segments}.`
             : preview.changes === 0
               ? "Already matches this selection. Nothing to spend or recover."
-              : `${preview.changes} edge${preview.changes === 1 ? "" : "s"} will change. Hex ${edit.q}, ${edit.r}${edit.area ? ` → ${edit.to_q}, ${edit.to_r}` : ` · ${this.direction.selectedOptions[0]?.text} edge`}. Floor space stays free.`);
+              : `${preview.changes} of ${segments} will change. Floor space stays free.`);
         this.status.classList.toggle("blocked", !!preview.error);
         this.bill.textContent = `${preview.cost.length ? `Use ${this.names(preview.cost, true)}` : this.snapshot?.player.creative ? "Creative mode · materials are free" : "No materials needed"}${preview.refund.length ? ` · Recover ${this.names(preview.refund)}` : ""}`;
         this.apply.textContent = (spec?.verb ?? "Apply {n}").replace(

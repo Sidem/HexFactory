@@ -32,7 +32,7 @@ function bytesOf(hex: string): ArrayBuffer {
 describe("binary snapshot delta", () => {
   it("agrees with the Rust encoder on the format's identity", () => {
     expect(fixture.magic).toBe("HXFD");
-    expect(fixture.version).toBe(17);
+    expect(fixture.version).toBe(18);
   });
 
   it("reads prepared ground as a signed grade beside an unsigned surface", () => {

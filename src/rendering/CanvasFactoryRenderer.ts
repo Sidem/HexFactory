@@ -7,6 +7,7 @@ import {
 } from "@hexlife/embed/hex";
 
 import type {
+  BoundaryAnchor,
   BoundaryPreview,
   BuildingDefinition,
   ChunkSnapshot,
@@ -41,6 +42,7 @@ import {
   trimOf,
   workCycle,
 } from "./buildingLook";
+import { chordCorners } from "../core/lattice";
 import { isStill, drawParts } from "./shapeGrammar";
 import type { ShapePart } from "./shapeGrammar";
 import { drawItemIcon } from "./icons";
@@ -189,6 +191,7 @@ export class CanvasFactoryRenderer implements FactoryRenderer {
   }
   private snapshot: FactorySnapshot | null = null;
   private boundaryPreview: BoundaryPreview | null = null;
+  private boundaryAnchors: readonly BoundaryAnchor[] = [];
   private groundPreview: GroundPreview | null = null;
   /** Surface key by definition id, so a laid surface can be coloured without the catalogue. */
   private readonly surfaceKeys: ReadonlyMap<number, string>;
@@ -268,6 +271,11 @@ export class CanvasFactoryRenderer implements FactoryRenderer {
 
   setBoundaryPreview(preview: BoundaryPreview | null): void {
     this.boundaryPreview = preview;
+    this.markDirty();
+  }
+
+  setBoundaryAnchors(anchors: readonly BoundaryAnchor[]): void {
+    this.boundaryAnchors = anchors;
     this.markDirty();
   }
 
@@ -501,40 +509,74 @@ export class CanvasFactoryRenderer implements FactoryRenderer {
     for (const building of this.snapshot.buildings)
       this.drawBuilding(building, width, height, size);
     this.drawGroundItems(width, height, size);
-    for (const edge of [
+    for (const segment of [
       ...this.snapshot.boundaries,
-      ...(this.boundaryPreview?.edges ?? []),
+      ...(this.boundaryPreview?.segments ?? []),
     ]) {
-      const center = this.camera.project(edge, width, height);
-      if (!visible(center, size, width, height)) continue;
-      const angle = (edge.direction * Math.PI) / 3;
+      const center = this.camera.project(segment, width, height);
+      // Twice the circumradius: the longest chord is a full hex diameter, so a segment whose ends
+      // reach past the centre's own hex still has to be drawn rather than culled.
+      if (!visible(center, size * 2, width, height)) continue;
+      const [first, second] = chordCorners(segment.chord);
       ctx.strokeStyle =
-        "open" in edge
-          ? edge.open
+        "open" in segment
+          ? segment.open
             ? "#72e2b4"
             : "#c89b60"
           : this.boundaryPreview?.error
             ? "#ff8279"
             : "#72e2b4";
       ctx.lineWidth = 3;
-      ctx.setLineDash("open" in edge && edge.open ? [3, 4] : []);
+      ctx.setLineDash("open" in segment && segment.open ? [3, 4] : []);
       ctx.beginPath();
-      ctx.moveTo(
-        center.x + Math.cos(angle - Math.PI / 6) * size,
-        center.y + Math.sin(angle - Math.PI / 6) * size,
-      );
-      ctx.lineTo(
-        center.x + Math.cos(angle + Math.PI / 6) * size,
-        center.y + Math.sin(angle + Math.PI / 6) * size,
-      );
+      const at = (corner: number): [number, number] => {
+        const angle = (corner * Math.PI) / 3 - Math.PI / 2;
+        return [
+          center.x + Math.cos(angle) * size,
+          center.y + Math.sin(angle) * size,
+        ];
+      };
+      ctx.moveTo(...at(first!));
+      ctx.lineTo(...at(second!));
       ctx.stroke();
       ctx.setLineDash([]);
     }
+    this.drawBoundaryAnchors(width, height, size);
     this.drawFog(width, height);
     this.drawEnvironment(width, height, size);
     this.drawPlayer(width, height, size);
     this.drawHomeMarker(width, height);
     if (this.dragPath.length) this.drawDragPath(width, height, size);
+  }
+
+  /**
+   * The vertices a selection is pinned to, as rings on the lattice. Drawn after the segments and
+   * whether or not a run resolved: the first click of a two-vertex selection has nothing to price
+   * yet, and a marker is the only thing that says where it landed.
+   */
+  private drawBoundaryAnchors(
+    width: number,
+    height: number,
+    size: number,
+  ): void {
+    if (!this.boundaryAnchors.length) return;
+    const ctx = this.context;
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = "#ffd479";
+    ctx.fillStyle = "rgba(255, 212, 121, 0.35)";
+    for (const anchor of this.boundaryAnchors) {
+      const center = this.camera.project(anchor, width, height);
+      const angle = ((anchor.corner % 6) * Math.PI) / 3 - Math.PI / 2;
+      const point = {
+        x: center.x + Math.cos(angle) * size,
+        y: center.y + Math.sin(angle) * size,
+      };
+      if (!visible(point, size, width, height)) continue;
+      ctx.beginPath();
+      ctx.arc(point.x, point.y, Math.max(4, size * 0.2), 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+    }
   }
 
   /**

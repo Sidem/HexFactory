@@ -2773,10 +2773,12 @@ function refreshHoverPreview(): void {
 function syncHoverWithCamera(): void {
   if (!aimPointer || panPointer || harvestPointer || dragBuild) return;
   const coordinate = renderer.pick(aimPointer.x, aimPointer.y);
+  // Vertex tools follow the pointer within a hex, so they are told even when the hex has not moved.
+  const point = renderer.pickWorld(aimPointer.x, aimPointer.y);
+  boundaryTool.hover(coordinate, point);
+  groundTool.hover(coordinate, point);
   if (hover?.q === coordinate.q && hover.r === coordinate.r) return;
   hover = coordinate;
-  boundaryTool.hover(coordinate);
-  groundTool.hover(coordinate);
   refreshHoverPreview();
 }
 
@@ -4296,8 +4298,9 @@ canvas.addEventListener("pointermove", (event) => {
     return;
   }
   hover = coordinate;
-  boundaryTool.hover(coordinate);
-  groundTool.hover(coordinate);
+  const vertexPoint = renderer.pickWorld(event.clientX, event.clientY);
+  boundaryTool.hover(coordinate, vertexPoint);
+  groundTool.hover(coordinate, vertexPoint);
   refreshHoverPreview();
 });
 canvas.addEventListener("pointerdown", (event) => {
@@ -4445,7 +4448,10 @@ canvas.addEventListener("click", (event) => {
     return;
   }
   if (groundTool.active) {
-    groundTool.pick(coordinate);
+    groundTool.pick(
+      coordinate,
+      renderer.pickWorld(event.clientX, event.clientY),
+    );
     return;
   }
   if (snapshot?.player.hand) {

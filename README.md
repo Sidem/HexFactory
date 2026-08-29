@@ -56,7 +56,15 @@ and machines on wide screens, and named refusals for belts aimed into buildings 
 items. Demolition warns about stored contents and spills anything that will not fit your pack.
 Ground items expire after about one minute of simulation time; make room and walk over them to
 collect them. Paving patterns now continue across hex boundaries. Existing saves keep the same
-versions. See the [release record](docs/HANDLING-CLARITY-RECORD.md) for verification and limits.
+versions.
+
+**Straight Walls and Yards (v0.42.0)** lets a fence or wall run straight across hexes instead of
+zigzagging around them. Click a corner to anchor a run and click its far end: twelve headings run
+dead straight, and any other angle steps toward the far end within half a hex. Pick two opposite
+corners instead and the run closes into a rectangular yard. Ground works takes the same two corners
+and paves every hex the rectangle touches, so a yard and the fence around it are drawn from the same
+pick. Gates still go up one side at a time. Every existing fence and wall loads exactly where you
+left it. See the [release record](docs/STRAIGHT-WALLS-RECORD.md) for verification and limits.
 
 ## Controls
 
@@ -153,9 +161,8 @@ See the [goal, state, and roadmap](docs/HEXFACTORY-PLAN.md), the
 [art direction](docs/ART.md), the [measured capacity](docs/BENCHMARKS.md), and the
 [agent entrypoint](AGENTS.md).
 
-**Next roadmap priority:** handling and clarity — drag-and-drop stacks, cargo that opens with the
-machine, belts that refuse to connect where nothing can be delivered, a warning before demolishing a
-full building, and seamless paving — then straight walls and gates. The
+**Next roadmap priority:** supported floors and vertical transport — floors carried above the ground,
+roofs and frames over the walls that now run straight, and lifts between levels. The
 [phase table](docs/HEXFACTORY-PLAN.md#what-to-do-next) defines the order and gates.
 
 ## Measured capacity

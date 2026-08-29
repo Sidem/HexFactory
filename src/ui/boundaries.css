@@ -133,6 +133,12 @@
 .boundary-palette button.locked {
   opacity: 0.72;
 }
+/* A gate goes up one side at a time, so on a run or a yard it is shown refused rather than hidden:
+ * the shelf stays the same shelf, and the reason it cannot be picked is written on it. */
+.boundary-palette button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
 .boundary-palette .boundary-kind {
   color: var(--mint);
   font-size: 11px;
@@ -159,6 +165,12 @@
   color: #a8beb4;
   min-width: 0;
 }
+/* `display: grid` outranks the hidden attribute's own rule, so a field the shape does not use has
+ * to be told to go away explicitly. */
+.boundary-fields label[hidden],
+.boundary-fields[hidden] {
+  display: none;
+}
 .boundary-fields select,
 .boundary-fields input {
   width: 100%;
@@ -177,6 +189,23 @@
   font-size: 12px;
   color: #abc2b5;
   padding: 8px 0;
+}
+/* The bearing a run is on. Twelve headings run dead straight; anything else staircases, and that is
+ * worth saying while the run can still be moved rather than after it is paid for. */
+.boundary-panel .boundary-heading-readout {
+  margin: 10px 0 0;
+  padding: 6px 9px;
+  border-left: 3px solid var(--mint);
+  border-radius: 0 6px 6px 0;
+  background: #12241e;
+  color: var(--mint);
+}
+.boundary-panel .boundary-heading-readout[hidden] {
+  display: none;
+}
+.boundary-panel .boundary-heading-readout.approximate {
+  border-left-color: var(--gold);
+  color: var(--gold);
 }
 .boundary-panel .boundary-status {
   color: var(--mint);

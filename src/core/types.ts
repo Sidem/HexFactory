@@ -971,26 +971,45 @@ export interface BoundaryDefinition {
   unlock_technology_id?: number;
   construction_cost: Ingredient[];
 }
-export interface BoundaryEdge {
+/**
+ * One straight boundary: a chord of hex `q, r` between two of its six corners.
+ *
+ * Chords `0`, `1` and `2` are the edges the hex shares with its east, south-east and south-west
+ * neighbours — the only boundaries that existed before the vertex lattice, under the same numbers.
+ * `6`–`11` are the short diagonals and `12`–`14` the long ones; those run through the hex's
+ * interior, and they are what lets a wall hold a heading past a hex centre. Chords `3`–`5` are the
+ * hex's other three shared edges and are always rewritten onto the neighbour that owns them, so
+ * they never appear in a snapshot.
+ */
+export interface BoundarySegment {
   q: number;
   r: number;
-  direction: number;
+  chord: number;
 }
-export interface Boundary extends BoundaryEdge {
+export interface Boundary extends BoundarySegment {
   definition_id: number;
   open: boolean;
   paid: Ingredient[];
 }
 export type BoundaryAction = "build" | "remove" | "open" | "close";
-export interface BoundaryEdit extends BoundaryEdge {
+/** A straight run between two lattice vertices, or the four sides of the rectangle they define. */
+export type BoundaryShape = "line" | "yard";
+/** A lattice vertex, named by a hex and which of its six corners. */
+export interface BoundaryAnchor {
+  q: number;
+  r: number;
+  corner: number;
+}
+export interface BoundaryEdit extends BoundaryAnchor {
   to_q: number;
   to_r: number;
-  area: boolean;
+  to_corner: number;
+  shape: BoundaryShape;
   definition_id: number;
   action: BoundaryAction;
 }
 export interface BoundaryPreview {
-  edges: BoundaryEdge[];
+  segments: BoundarySegment[];
   changes: number;
   cost: Ingredient[];
   refund: Ingredient[];
@@ -1025,13 +1044,21 @@ export interface GroundCell {
 }
 
 export type GroundAction = "pave" | "clear" | "raise" | "lower" | "level";
-export type GroundShape = "cell" | "path" | "area";
+/**
+ * `rect` is drawn on the world rather than on the axial grid: two lattice vertices, and every hex
+ * the rectangle between them touches. It shares its anchors and its snapping with the walled yard,
+ * so a floor and the wall around it land on exactly the same rectangle.
+ */
+export type GroundShape = "cell" | "path" | "rect";
 
 export interface GroundEdit {
   q: number;
   r: number;
   to_q: number;
   to_r: number;
+  /** Which corner of `q, r` a `rect` is anchored on. The other shapes name whole hexes. */
+  corner: number;
+  to_corner: number;
   shape: GroundShape;
   definition_id: number;
   action: GroundAction;

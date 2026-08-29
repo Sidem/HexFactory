@@ -1730,22 +1730,23 @@ it("skill UI uses native availability, keeps currencies separate and explains gr
   expect(applied.snapshot.insight).toBe(snapshot.insight);
 });
 
-it("carries bounded edge transactions without host expansion", () => {
+it("carries bounded boundary transactions as two lattice vertices", () => {
   expect(
     encodeCommand({
       type: "boundary_edit",
       q: -2,
       r: 1,
+      corner: 5,
       to_q: 2,
       to_r: 3,
-      direction: 5,
-      area: true,
+      to_corner: 2,
+      shape: "yard",
       definition_id: 1,
       action: "build",
     }),
   ).toEqual({
     opcode: 30,
-    args: [-2, 1, 2, 3, 5, 1, 1, 0],
+    args: [-2, 1, 5, 2, 3, 2, 1, 1, 0],
   });
   expect(encodeCommand({ type: "undo_boundary" })).toEqual({
     opcode: 31,
@@ -1756,10 +1757,27 @@ it("carries bounded edge transactions without host expansion", () => {
       type: "boundary_edit",
       q: 0.5,
       r: 0,
+      corner: 0,
       to_q: 0,
       to_r: 0,
-      direction: 0,
-      area: false,
+      to_corner: 0,
+      shape: "line",
+      definition_id: 1,
+      action: "build",
+    }),
+  ).toThrow(/boundary/);
+  // A corner outside the six is as unsendable as a hex outside the world: native names vertices by
+  // hex and corner, so a host that invented a seventh corner would be inventing a lattice.
+  expect(() =>
+    encodeCommand({
+      type: "boundary_edit",
+      q: 0,
+      r: 0,
+      corner: 6,
+      to_q: 0,
+      to_r: 0,
+      to_corner: 0,
+      shape: "line",
       definition_id: 1,
       action: "build",
     }),
@@ -1774,16 +1792,18 @@ it("carries ground selections as two corners, a verb and a deliberate cover", ()
       type: "ground_edit",
       q: -2,
       r: 1,
+      corner: 3,
       to_q: 2,
       to_r: 3,
-      shape: "area",
+      to_corner: 0,
+      shape: "rect",
       definition_id: 4,
       action: "level",
       cover: true,
     }),
   ).toEqual({
     opcode: 32,
-    args: [-2, 1, 2, 3, 2, 4, 4, 1],
+    args: [-2, 1, 3, 2, 3, 0, 2, 4, 4, 1],
   });
   // `cover` travels, never defaults: sealing a deposit is the one ground change a player cannot
   // walk back by looking at it, so an unconfirmed edit must reach native as an explicit no.
@@ -1792,13 +1812,15 @@ it("carries ground selections as two corners, a verb and a deliberate cover", ()
       type: "ground_edit",
       q: 0,
       r: 0,
+      corner: 0,
       to_q: 0,
       to_r: 0,
+      to_corner: 0,
       shape: "cell",
       definition_id: 1,
       action: "pave",
       cover: false,
-    }).args[7],
+    }).args[9],
   ).toBe(0);
   expect(encodeCommand({ type: "undo_ground" })).toEqual({
     opcode: 33,
@@ -1809,8 +1831,10 @@ it("carries ground selections as two corners, a verb and a deliberate cover", ()
       type: "ground_edit",
       q: 0,
       r: 0,
+      corner: 0,
       to_q: 1e9,
       to_r: 0,
+      to_corner: 0,
       shape: "path",
       definition_id: 1,
       action: "lower",

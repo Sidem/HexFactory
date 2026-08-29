@@ -38,7 +38,7 @@ import type {
  */
 
 const MAGIC = 0x48584644; // "HXFD"
-const VERSION = 17;
+const VERSION = 18;
 
 /** Wire code is the index. Pinned against Rust by `fixtures/snapshot-delta-wire.json`. */
 const KINDS: BuildingKind[] = [
@@ -399,7 +399,7 @@ export function decodeSnapshotDelta(buffer: ArrayBuffer): FactorySnapshotDelta {
     delta.boundaries = Array.from({ length: count }, () => ({
       q: reader.svarint(),
       r: reader.svarint(),
-      direction: reader.u8(),
+      chord: reader.u8(),
       definition_id: reader.uvarint(),
       open: reader.bool(),
       paid: reader.ingredients(),

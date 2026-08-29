@@ -1,4 +1,15 @@
-//! Sparse edge construction. The same bounded transaction resolves previews and commits.
+//! Sparse boundary construction on the hex *vertex* lattice. The same bounded transaction resolves
+//! previews and commits.
+//!
+//! A boundary is a **chord**: a straight line between two corners of one hex. Three of a hex's
+//! fifteen chords are the edges it shares with a neighbour — those are the only ones that existed
+//! before this release, and they are stored under exactly the same identity they always were. The
+//! other twelve run through the hex's interior, and they are what lets a wall hold one heading for
+//! twenty segments instead of zig-zagging around hex centres.
+//!
+//! Every vertex of the lattice has twelve chords leaving it, one per thirty degrees, so a straight
+//! run between two vertices is exact on twelve headings and never more than half a hex off the line
+//! on any other. `DIRECTIONS` is untouched: adjacency is still six-sided, and always will be.
 use super::*;
 
 #[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Eq)]
@@ -23,57 +34,261 @@ pub(super) struct BoundaryDefinition {
     pub construction_cost: Vec<Ingredient>,
 }
 
-#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
-pub(super) struct Edge {
-    pub q: i32,
-    pub r: i32,
-    pub direction: u8,
+/// The six corners of a hex, as world offsets from its centre. Index 0 is due north, then
+/// clockwise, so corners `k + 1` and `k + 2` are the ends of the hex edge in `DIRECTIONS[k]`.
+pub(super) const CORNERS: [(i32, i32); 6] = [
+    (0, -HEX_RADIUS),
+    (HEX_X / 2, -HEX_RADIUS / 2),
+    (HEX_X / 2, HEX_RADIUS / 2),
+    (0, HEX_RADIUS),
+    (-HEX_X / 2, HEX_RADIUS / 2),
+    (-HEX_X / 2, -HEX_RADIUS / 2),
+];
+
+/// How many chords one hex names. `0..3` are the edges this hex owns, `3..6` the other three edges,
+/// always rewritten onto the neighbour that owns them, `6..12` the six short diagonals (corner `k`
+/// to corner `k + 2`) and `12..15` the three long diagonals (corner `k` to corner `k + 3`).
+const CHORDS: u8 = 15;
+
+/// The longest run one selection may draw. Bounded before anything is priced, so a stray drag is
+/// refused rather than costed, and comfortably above the twenty segments a straight run has to
+/// reach on every heading.
+const MAX_BOUNDARY_SEGMENTS: usize = 32;
+
+/// The two corners a chord joins.
+fn chord_corners(chord: u8) -> (u8, u8) {
+    match chord {
+        0..=5 => ((chord + 1) % 6, (chord + 2) % 6),
+        6..=11 => (chord - 6, (chord - 4) % 6),
+        _ => (chord - 12, chord - 9),
+    }
 }
 
-impl Edge {
-    fn new(q: i32, r: i32, direction: u8) -> Result<Self, String> {
+/// The chord joining two distinct corners of one hex. Inverse of [`chord_corners`].
+fn chord_between(from: u8, to: u8) -> u8 {
+    match (to + 6 - from) % 6 {
+        1 => (from + 5) % 6,
+        5 => (to + 5) % 6,
+        2 => 6 + from,
+        4 => 6 + to,
+        _ => 12 + from % 3,
+    }
+}
+
+/// Where corner `corner` of hex `q, r` sits in world units.
+pub(super) fn corner_world(q: i32, r: i32, corner: u8) -> (i32, i32) {
+    let (x, y) = axial_world(q, r);
+    let (dx, dy) = CORNERS[(corner % 6) as usize];
+    (x + dx, y + dy)
+}
+
+fn distance2(a: (i32, i32), b: (i32, i32)) -> i64 {
+    (i64::from(a.0) - i64::from(b.0)).pow(2) + (i64::from(a.1) - i64::from(b.1)).pow(2)
+}
+
+/// The lattice vertex nearest a world point, named by the hex the point falls in and one of its
+/// corners. Every vertex belongs to three hexes; naming it from the containing hex keeps the answer
+/// local and deterministic, and [`Segment::new`] folds the three spellings back together.
+pub(super) fn nearest_corner(x: i32, y: i32) -> (i32, i32, u8) {
+    let (q, r) = world_to_axial(x, y);
+    let corner = (0..6u8)
+        .min_by_key(|&corner| (distance2(corner_world(q, r, corner), (x, y)), corner))
+        .unwrap_or(0);
+    (q, r, corner)
+}
+
+/// The three hexes meeting at corner `corner` of hex `q, r`.
+pub(super) fn corner_hexes(q: i32, r: i32, corner: u8) -> [(i32, i32); 3] {
+    let k = (corner % 6) as usize;
+    let a = DIRECTIONS[(k + 5) % 6];
+    let b = DIRECTIONS[(k + 4) % 6];
+    [
+        (q, r),
+        (q.saturating_add(a.0), r.saturating_add(a.1)),
+        (q.saturating_add(b.0), r.saturating_add(b.1)),
+    ]
+}
+
+/// Every atomic straight step out of one vertex: the twelve chords that start there, one per
+/// thirty degrees. Derived from the three hexes meeting at the vertex rather than tabulated, so the
+/// rose cannot drift out of step with [`CORNERS`].
+fn corner_steps(q: i32, r: i32, corner: u8) -> Vec<((i32, i32, u8), Segment)> {
+    let origin = corner_world(q, r, corner);
+    let mut steps: Vec<((i32, i32, u8), Segment)> = Vec::with_capacity(12);
+    for (hq, hr) in corner_hexes(q, r, corner) {
+        let Some(from) = (0..6u8).find(|&k| corner_world(hq, hr, k) == origin) else {
+            continue;
+        };
+        for to in (0..6u8).filter(|&to| to != from) {
+            let Ok(segment) = Segment::new(hq, hr, chord_between(from, to)) else {
+                continue;
+            };
+            if steps.iter().any(|(_, other)| *other == segment) {
+                continue;
+            }
+            steps.push(((hq, hr, to), segment));
+        }
+    }
+    steps
+}
+
+/// A straight run of chords between two lattice vertices.
+///
+/// Greedy on the twelve-heading rose: a step is only considered if it strictly closes the distance
+/// to the far end, and among those the one deviating least from the straight line wins. On the
+/// twelve exact headings the deviation is zero at every step, so the run is exactly straight; off
+/// them it is the lattice's own best staircase. Strict closing makes the walk monotone, so it
+/// always terminates and never revisits a vertex.
+fn chord_chain(
+    start: (i32, i32, u8),
+    end: (i32, i32, u8),
+    budget: usize,
+) -> Result<Vec<Segment>, String> {
+    let from = corner_world(start.0, start.1, start.2);
+    let to = corner_world(end.0, end.1, end.2);
+    let mut chain = Vec::new();
+    let mut here = start;
+    let mut at = from;
+    while at != to {
+        let remaining = distance2(at, to);
+        let mut best: Option<((i128, i64), Segment, (i32, i32, u8), (i32, i32))> = None;
+        for (target, segment) in corner_steps(here.0, here.1, here.2) {
+            let next = corner_world(target.0, target.1, target.2);
+            let closing = distance2(next, to);
+            if closing >= remaining {
+                continue;
+            }
+            let drift = ((i128::from(to.0) - i128::from(from.0))
+                * (i128::from(next.1) - i128::from(from.1))
+                - (i128::from(to.1) - i128::from(from.1))
+                    * (i128::from(next.0) - i128::from(from.0)))
+            .abs();
+            if best
+                .as_ref()
+                .is_none_or(|(key, ..)| (drift, closing) < *key)
+            {
+                best = Some(((drift, closing), segment, target, next));
+            }
+        }
+        let Some((_, segment, target, next)) = best else {
+            return Err("No straight run reaches there from that anchor".into());
+        };
+        chain.push(segment);
+        if chain.len() > budget {
+            return Err(format!("Draw at most {budget} boundary segments at a time"));
+        }
+        here = target;
+        at = next;
+    }
+    Ok(chain)
+}
+
+fn round_to(value: i32, step: i32) -> i32 {
+    let half = step / 2;
+    if value >= 0 {
+        (value + half) / step * step
+    } else {
+        -((half - value) / step * step)
+    }
+}
+
+/// The rectangle two picked vertices define, snapped so that all four of its corners are lattice
+/// vertices and every side is an exactly straight run.
+///
+/// Columns are one hex wide. Rows follow the vertex ladder at a fixed world-x, which alternates
+/// steps of one and two hex radii and so repeats every three: from an even corner the reachable
+/// rises are `0` and `2r` modulo `3r`, from an odd corner `0` and `r`. Snapping to that ladder is
+/// what makes "wall this rectangle" and "pave this rectangle" line up on the same anchors.
+pub(super) fn yard_rect(
+    start: (i32, i32, u8),
+    end: (i32, i32, u8),
+) -> Result<((i32, i32), (i32, i32)), String> {
+    let (ax, ay) = corner_world(start.0, start.1, start.2);
+    let (bx, by) = corner_world(end.0, end.1, end.2);
+    let width = round_to(bx - ax, HEX_X);
+    let rise = if start.2 % 2 == 0 {
+        HEX_RADIUS * 2
+    } else {
+        HEX_RADIUS
+    };
+    let period = HEX_RADIUS * 3;
+    let height = [0, rise]
+        .into_iter()
+        .map(|offset| round_to((by - ay) - offset, period) + offset)
+        .min_by_key(|&candidate| ((candidate - (by - ay)).abs(), Reverse(candidate.abs())))
+        .unwrap_or(0);
+    if width == 0 || height == 0 {
+        return Err("Drag out a rectangle at least one hex across".into());
+    }
+    Ok((
+        ((ax + width).min(ax), (ay + height).min(ay)),
+        ((ax + width).max(ax), (ay + height).max(ay)),
+    ))
+}
+
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+pub(super) struct Segment {
+    pub q: i32,
+    pub r: i32,
+    /// Which chord of hex `q, r` this is. Saves written before the vertex lattice spell this field
+    /// `direction` and only ever held `0..3`, which are the same three chords under the same
+    /// identity — the alias loads them in place, unchanged and unmigrated.
+    #[serde(alias = "direction")]
+    pub chord: u8,
+}
+
+impl Segment {
+    fn new(q: i32, r: i32, chord: u8) -> Result<Self, String> {
         // Keeps all world geometry exact and comfortably within i32 axial_world arithmetic.
-        if q.abs_diff(0) > 100_000 || r.abs_diff(0) > 100_000 || direction >= 6 {
+        if q.abs_diff(0) > 100_000 || r.abs_diff(0) > 100_000 || chord >= CHORDS {
             return Err("Boundary target is outside the supported coordinate range".into());
         }
-        if direction < 3 {
-            Ok(Self { q, r, direction })
-        } else {
-            let (dq, dr) = DIRECTIONS[direction as usize];
+        if (3..6).contains(&chord) {
+            let (dq, dr) = DIRECTIONS[chord as usize];
             if (q + dq).abs_diff(0) > 100_000 || (r + dr).abs_diff(0) > 100_000 {
                 return Err("Boundary target is outside the supported coordinate range".into());
             }
             Ok(Self {
                 q: q + dq,
                 r: r + dr,
-                direction: direction - 3,
+                chord: chord - 3,
             })
+        } else {
+            Ok(Self { q, r, chord })
         }
     }
 
-    fn neighbour(self) -> (i32, i32) {
-        let (dq, dr) = DIRECTIONS[self.direction as usize];
-        (self.q + dq, self.r + dr)
+    /// Whether this chord is a shared hex edge rather than a line through one hex's interior.
+    fn is_edge(self) -> bool {
+        self.chord < 3
     }
 
-    fn ends(self) -> ((i32, i32), (i32, i32)) {
-        let (x, y) = axial_world(self.q, self.r);
-        let vertices = [
-            (HEX_X / 2, -HEX_RADIUS / 2),
-            (HEX_X / 2, HEX_RADIUS / 2),
-            (0, HEX_RADIUS),
-            (-HEX_X / 2, HEX_RADIUS / 2),
-        ];
-        let a = vertices[self.direction as usize];
-        let b = vertices[self.direction as usize + 1];
-        ((x + a.0, y + a.1), (x + b.0, y + b.1))
+    /// The hexes this chord divides: two for a shared edge, one for an interior chord.
+    fn hexes(self) -> ((i32, i32), Option<(i32, i32)>) {
+        if self.is_edge() {
+            let (dq, dr) = DIRECTIONS[self.chord as usize];
+            (
+                (self.q, self.r),
+                Some((self.q.saturating_add(dq), self.r.saturating_add(dr))),
+            )
+        } else {
+            ((self.q, self.r), None)
+        }
+    }
+
+    pub(super) fn ends(self) -> ((i32, i32), (i32, i32)) {
+        let (a, b) = chord_corners(self.chord);
+        (
+            corner_world(self.q, self.r, a),
+            corner_world(self.q, self.r, b),
+        )
     }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub(super) struct Boundary {
     #[serde(flatten)]
-    pub edge: Edge,
+    pub segment: Segment,
     pub definition_id: DefinitionId,
     pub open: bool,
     /// Actual paid bill: sandbox construction never becomes a material source.
@@ -89,21 +304,34 @@ pub(super) enum BoundaryAction {
     Close,
 }
 
+#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub(super) enum BoundaryShape {
+    /// A straight run from one lattice vertex to another.
+    #[default]
+    Line,
+    /// The four straight sides of the rectangle two vertices define.
+    Yard,
+}
+
 #[derive(Clone, Deserialize)]
 pub(super) struct BoundaryEdit {
     pub q: i32,
     pub r: i32,
+    /// Which corner of hex `q, r` the run starts on.
+    pub corner: u8,
     pub to_q: i32,
     pub to_r: i32,
-    pub direction: u8,
-    pub area: bool,
+    pub to_corner: u8,
+    #[serde(default)]
+    pub shape: BoundaryShape,
     pub definition_id: DefinitionId,
     pub action: BoundaryAction,
 }
 
 #[derive(Serialize)]
 pub(super) struct BoundaryPreview {
-    pub edges: Vec<Edge>,
+    pub segments: Vec<Segment>,
     pub changes: usize,
     pub cost: Vec<Ingredient>,
     pub refund: Vec<Ingredient>,
@@ -112,8 +340,8 @@ pub(super) struct BoundaryPreview {
 
 #[derive(Clone)]
 pub(super) struct BoundaryUndo {
-    before: Vec<(Edge, Option<Boundary>)>,
-    after: Vec<(Edge, Option<Boundary>)>,
+    before: Vec<(Segment, Option<Boundary>)>,
+    after: Vec<(Segment, Option<Boundary>)>,
 }
 
 struct BoundaryTransaction {
@@ -150,8 +378,8 @@ fn segments_cross(a: (i32, i32), b: (i32, i32), c: (i32, i32), d: (i32, i32)) ->
         && cross(c, d, a).signum() * cross(c, d, b).signum() <= 0
 }
 
-fn near_edge(edge: Edge, p: (i32, i32), radius: i32) -> bool {
-    let (a, b) = edge.ends();
+fn near_segment(segment: Segment, p: (i32, i32), radius: i32) -> bool {
+    let (a, b) = segment.ends();
     let dx = i128::from(b.0 - a.0);
     let dy = i128::from(b.1 - a.1);
     let px = i128::from(p.0) - i128::from(a.0);
@@ -169,20 +397,36 @@ fn near_edge(edge: Edge, p: (i32, i32), radius: i32) -> bool {
 }
 
 impl Core {
+    /// Every boundary keyed on one hex, in one ordered range scan. Chords are stored under the hex
+    /// that owns them, so a hex and its six neighbours name every segment that can touch it however
+    /// many boundaries the world holds.
+    fn segments_in(&self, q: i32, r: i32) -> impl Iterator<Item = (&Segment, &Boundary)> {
+        self.boundaries.range(
+            Segment { q, r, chord: 0 }..=Segment {
+                q,
+                r,
+                chord: CHORDS - 1,
+            },
+        )
+    }
+
     pub(super) fn boundary_crosses_footprint(&self, footprint: &[Coordinate]) -> bool {
         footprint.iter().any(|cell| {
-            (0..6).any(|direction| {
-                let (dq, dr) = DIRECTIONS[direction as usize];
-                footprint
-                    .iter()
-                    .any(|other| other.q == cell.q + dq && other.r == cell.r + dr)
-                    && self.boundary_between(cell.q, cell.r, direction)
-            })
+            // A chord through the interior runs across the machine's own floor, not beside it.
+            self.segments_in(cell.q, cell.r)
+                .any(|(segment, _)| !segment.is_edge())
+                || (0..6).any(|direction| {
+                    let (dq, dr) = DIRECTIONS[direction as usize];
+                    footprint
+                        .iter()
+                        .any(|other| other.q == cell.q + dq && other.r == cell.r + dr)
+                        && self.boundary_between(cell.q, cell.r, direction)
+                })
         })
     }
 
     pub(super) fn boundary_between(&self, q: i32, r: i32, direction: u8) -> bool {
-        Edge::new(q, r, direction).is_ok_and(|edge| self.boundaries.contains_key(&edge))
+        Segment::new(q, r, direction).is_ok_and(|segment| self.boundaries.contains_key(&segment))
     }
 
     fn boundary_definition(&self, id: DefinitionId) -> Option<&BoundaryDefinition> {
@@ -204,9 +448,9 @@ impl Core {
         let mut hash = 0x811c9dc5u32;
         hash_u64(&mut hash, self.boundaries.len() as u64);
         for b in self.boundaries.values() {
-            hash_i32(&mut hash, b.edge.q);
-            hash_i32(&mut hash, b.edge.r);
-            hash_u32(&mut hash, u32::from(b.edge.direction));
+            hash_i32(&mut hash, b.segment.q);
+            hash_i32(&mut hash, b.segment.r);
+            hash_u32(&mut hash, u32::from(b.segment.chord));
             hash_u32(&mut hash, u32::from(b.definition_id));
             hash_u32(&mut hash, u32::from(b.open));
             hash_u32(&mut hash, b.paid.len() as u32);
@@ -231,19 +475,12 @@ impl Core {
         let b = world_to_axial(to.0, to.1);
         for (q, r) in hex_line_any(a, b) {
             for (dq, dr) in [(0, 0)].into_iter().chain(DIRECTIONS) {
-                for direction in 0..6 {
-                    let Ok(edge) = Edge::new(q + dq, r + dr, direction) else {
-                        continue;
-                    };
-                    if self
-                        .boundaries
-                        .get(&edge)
-                        .is_some_and(|boundary| !boundary.open)
-                    {
-                        let (c, d) = edge.ends();
-                        if segments_cross(from, to, c, d) {
-                            return true;
-                        }
+                for (segment, boundary) in
+                    self.segments_in(q.saturating_add(dq), r.saturating_add(dr))
+                {
+                    let (c, d) = segment.ends();
+                    if !boundary.open && segments_cross(from, to, c, d) {
+                        return true;
                     }
                 }
             }
@@ -257,16 +494,9 @@ impl Core {
         }
         let (q, r) = world_to_axial(x, y);
         for (dq, dr) in [(0, 0)].into_iter().chain(DIRECTIONS) {
-            for direction in 0..6 {
-                let Ok(edge) = Edge::new(q + dq, r + dr, direction) else {
-                    continue;
-                };
-                if self
-                    .boundaries
-                    .get(&edge)
-                    .is_some_and(|boundary| !boundary.open)
-                    && near_edge(edge, (x, y), PLAYER_RADIUS)
-                {
+            for (segment, boundary) in self.segments_in(q.saturating_add(dq), r.saturating_add(dr))
+            {
+                if !boundary.open && near_segment(*segment, (x, y), PLAYER_RADIUS) {
                     return true;
                 }
             }
@@ -274,62 +504,85 @@ impl Core {
         false
     }
 
-    fn boundary_edges(edit: &BoundaryEdit) -> Result<Vec<Edge>, String> {
-        Edge::new(edit.q, edit.r, edit.direction)?;
-        Edge::new(edit.to_q, edit.to_r, edit.direction)?;
-        if !edit.area {
-            return Ok(vec![Edge::new(edit.q, edit.r, edit.direction)?]);
+    /// Anchors stop one hex inside the segment limit, so every chord a run can reach from a valid
+    /// anchor — including the three that canonicalize onto a neighbour — is still representable.
+    fn anchor(q: i32, r: i32, corner: u8) -> Result<(i32, i32, u8), String> {
+        if q.abs_diff(0) >= 100_000 || r.abs_diff(0) >= 100_000 || corner >= 6 {
+            return Err("Boundary target is outside the supported coordinate range".into());
         }
-        if !matches!(edit.action, BoundaryAction::Build | BoundaryAction::Remove) {
-            return Err("Operate one gate at a time".into());
-        }
-        let width = edit.q.abs_diff(edit.to_q) + 1;
-        let height = edit.r.abs_diff(edit.to_r) + 1;
-        if u64::from(width) * u64::from(height) > 32 {
-            return Err("Select at most 32 hexes per enclosure".into());
-        }
-        let qs = edit.q.min(edit.to_q)..=edit.q.max(edit.to_q);
-        let rs = edit.r.min(edit.to_r)..=edit.r.max(edit.to_r);
-        let mut edges = BTreeSet::new();
-        for q in qs.clone() {
-            for r in rs.clone() {
-                for (direction, (dq, dr)) in DIRECTIONS.iter().enumerate() {
-                    if !qs.contains(&(q + dq)) || !rs.contains(&(r + dr)) {
-                        edges.insert(Edge::new(q, r, direction as u8)?);
-                    }
-                }
-            }
-        }
-        Ok(edges.into_iter().collect())
+        Ok((q, r, corner))
     }
 
-    fn boundary_site_check(&self, edge: Edge, closing: bool) -> Result<(), String> {
-        let other = edge.neighbour();
-        if !self.within_world_range(edge.q, edge.r, self.player.build_range)
-            && !self.within_world_range(other.0, other.1, self.player.build_range)
+    fn boundary_segments(edit: &BoundaryEdit) -> Result<Vec<Segment>, String> {
+        let start = Self::anchor(edit.q, edit.r, edit.corner)?;
+        let end = Self::anchor(edit.to_q, edit.to_r, edit.to_corner)?;
+        match edit.shape {
+            BoundaryShape::Line => {
+                let chain = chord_chain(start, end, MAX_BOUNDARY_SEGMENTS)?;
+                if chain.is_empty() {
+                    return Err("Pick the far end of the run".into());
+                }
+                Ok(chain)
+            }
+            BoundaryShape::Yard => {
+                let ((left, top), (right, bottom)) = yard_rect(start, end)?;
+                let corners = [(left, top), (right, top), (right, bottom), (left, bottom)]
+                    .map(|(x, y)| nearest_corner(x, y));
+                let mut segments = BTreeSet::new();
+                for side in 0..4 {
+                    for segment in chord_chain(
+                        corners[side],
+                        corners[(side + 1) % 4],
+                        MAX_BOUNDARY_SEGMENTS,
+                    )? {
+                        segments.insert(segment);
+                    }
+                    if segments.len() > MAX_BOUNDARY_SEGMENTS {
+                        return Err(format!(
+                            "Draw at most {MAX_BOUNDARY_SEGMENTS} boundary segments at a time"
+                        ));
+                    }
+                }
+                Ok(segments.into_iter().collect())
+            }
+        }
+    }
+
+    fn boundary_site_check(&self, segment: Segment, closing: bool) -> Result<(), String> {
+        let (hex, other) = segment.hexes();
+        let sides = [Some(hex), other];
+        if !sides
+            .iter()
+            .flatten()
+            .any(|&(q, r)| self.within_world_range(q, r, self.player.build_range))
         {
             return Err("Walk closer: boundary is outside build reach".into());
         }
         if !closing {
             return Ok(());
         }
-        if self.terrain_at(edge.q, edge.r).blocks_construction()
-            || self.terrain_at(other.0, other.1).blocks_construction()
+        if sides
+            .iter()
+            .flatten()
+            .any(|&(q, r)| self.terrain_at(q, r).blocks_construction())
         {
             return Err("Boundaries need dry, buildable ground on both sides".into());
         }
-        if near_edge(edge, (self.player.x, self.player.y), PLAYER_RADIUS) {
-            return Err("Step away from this edge before closing or building it".into());
+        if near_segment(segment, (self.player.x, self.player.y), PLAYER_RADIUS) {
+            return Err("Step away from this line before closing or building it".into());
         }
         for entity in &self.entities {
             let footprint = self.entity_footprint(entity);
-            if footprint.iter().any(|c| (c.q, c.r) == (edge.q, edge.r))
-                && footprint.iter().any(|c| (c.q, c.r) == other)
-            {
-                return Err("A building spans this edge".into());
+            let on = |cell: (i32, i32)| footprint.iter().any(|c| (c.q, c.r) == cell);
+            let blocked = match other {
+                Some(other) => on(hex) && on(other),
+                None => on(hex),
+            };
+            if blocked {
+                return Err("A building stands across this line".into());
             }
         }
-        let (a, b) = edge.ends();
+        let (a, b) = segment.ends();
         for (index, links) in self.graph.iter().enumerate() {
             let source = &self.entities[index].placed;
             for target in links.iter() {
@@ -340,7 +593,7 @@ impl Core {
                     axial_world(source.q, source.r),
                     axial_world(target.q, target.r),
                 ) {
-                    return Err("Reroute the transport crossing this edge before closing it".into());
+                    return Err("Reroute the transport crossing this line before closing it".into());
                 }
             }
         }
@@ -350,7 +603,7 @@ impl Core {
     fn boundary_transaction(&self, edit: &BoundaryEdit) -> BoundaryTransaction {
         let mut transaction = BoundaryTransaction {
             preview: BoundaryPreview {
-                edges: Vec::new(),
+                segments: Vec::new(),
                 changes: 0,
                 cost: Vec::new(),
                 refund: Vec::new(),
@@ -363,13 +616,13 @@ impl Core {
             inventory: self.player.inventory.clone(),
         };
         let result = (|| -> Result<(), String> {
-            transaction.preview.edges = Self::boundary_edges(edit)?;
+            transaction.preview.segments = Self::boundary_segments(edit)?;
             let definition = if matches!(edit.action, BoundaryAction::Build) {
                 let d = self
                     .boundary_definition(edit.definition_id)
                     .ok_or("Unknown boundary material")?;
-                if edit.area && d.gate {
-                    return Err("Place gates on individual edges after enclosing the area".into());
+                if d.gate && transaction.preview.segments.len() > 1 {
+                    return Err("Place gates one segment at a time".into());
                 }
                 if let Some(required) = d.unlock_technology_id {
                     if !self.researched.contains(&required) {
@@ -384,8 +637,8 @@ impl Core {
             } else {
                 None
             };
-            for &edge in &transaction.preview.edges {
-                let before = self.boundaries.get(&edge).cloned();
+            for &segment in &transaction.preview.segments {
+                let before = self.boundaries.get(&segment).cloned();
                 let after = match edit.action {
                     BoundaryAction::Build => {
                         let definition = definition.expect("build definition");
@@ -396,7 +649,7 @@ impl Core {
                             continue;
                         }
                         Some(Boundary {
-                            edge,
+                            segment,
                             definition_id: definition.id,
                             open: definition.gate,
                             paid: if self.creative {
@@ -408,7 +661,7 @@ impl Core {
                     }
                     BoundaryAction::Remove => None,
                     BoundaryAction::Open | BoundaryAction::Close => {
-                        let mut boundary = before.clone().ok_or("Select a gate edge first")?;
+                        let mut boundary = before.clone().ok_or("Select a gate first")?;
                         if !self
                             .boundary_definition(boundary.definition_id)
                             .is_some_and(|d| d.gate)
@@ -419,7 +672,7 @@ impl Core {
                                     BoundaryFamily::Wall => "wall",
                                     BoundaryFamily::Fence => "fence",
                                 })
-                                .unwrap_or("edge");
+                                .unwrap_or("boundary");
                             return Err(format!(
                                 "This {kind} has no gate. Place a gate to create a crossing"
                             ));
@@ -433,20 +686,13 @@ impl Core {
                 }
                 // Even an open gate must not bisect a building or stand in water.
                 self.boundary_site_check(
-                    edge,
+                    segment,
                     after.as_ref().is_some_and(|b| !b.open)
                         || matches!(edit.action, BoundaryAction::Build),
                 )
-                .map_err(|reason| {
-                    format!(
-                        "{} edge of hex {}, {}: {reason}",
-                        ["East", "Southeast", "Southwest"][edge.direction as usize],
-                        edge.q,
-                        edge.r
-                    )
-                })?;
-                transaction.undo.before.push((edge, before));
-                transaction.undo.after.push((edge, after));
+                .map_err(|reason| format!("Hex {}, {}: {reason}", segment.q, segment.r))?;
+                transaction.undo.before.push((segment, before));
+                transaction.undo.after.push((segment, after));
             }
             transaction.preview.changes = transaction.undo.after.len();
             self.boundary_price(&mut transaction)?;
@@ -501,13 +747,14 @@ impl Core {
     fn commit_boundary_transaction(&mut self, transaction: &BoundaryTransaction) {
         let old_links = self.graph_links_by_id();
         let mut cells = BTreeSet::new();
-        for (edge, after) in &transaction.undo.after {
-            cells.insert((edge.q, edge.r));
-            cells.insert(edge.neighbour());
+        for (segment, after) in &transaction.undo.after {
+            let (hex, other) = segment.hexes();
+            cells.insert(hex);
+            cells.extend(other);
             if let Some(boundary) = after {
-                self.boundaries.insert(*edge, boundary.clone());
+                self.boundaries.insert(*segment, boundary.clone());
             } else {
-                self.boundaries.remove(edge);
+                self.boundaries.remove(segment);
             }
         }
         self.player.inventory = transaction.inventory.clone();
@@ -541,7 +788,7 @@ impl Core {
             self.boundary_undo.remove(0);
         }
         self.events.push(format!(
-            "Updated {} boundary edge{}",
+            "Updated {} boundary segment{}",
             transaction.preview.changes,
             if transaction.preview.changes == 1 {
                 ""
@@ -560,7 +807,7 @@ impl Core {
             .clone();
         let mut transaction = BoundaryTransaction {
             preview: BoundaryPreview {
-                edges: Vec::new(),
+                segments: Vec::new(),
                 changes: undo.before.len(),
                 cost: Vec::new(),
                 refund: Vec::new(),
@@ -572,14 +819,14 @@ impl Core {
             },
             inventory: self.player.inventory.clone(),
         };
-        for (edge, before) in &transaction.undo.before {
-            if self.boundaries.get(edge) != before.as_ref() {
+        for (segment, before) in &transaction.undo.before {
+            if self.boundaries.get(segment) != before.as_ref() {
                 return Err("Boundary changed since that edit".into());
             }
         }
-        for (edge, after) in &transaction.undo.after {
+        for (segment, after) in &transaction.undo.after {
             // Restoring an open gate is construction too: a newly placed building may span it.
-            self.boundary_site_check(*edge, after.is_some())?;
+            self.boundary_site_check(*segment, after.is_some())?;
         }
         self.boundary_price(&mut transaction)?;
         self.commit_boundary_transaction(&transaction);
@@ -618,15 +865,15 @@ pub(super) fn validate_saved_boundaries(
     definitions: &DefinitionsInput,
     saved: &[Boundary],
 ) -> Result<(), String> {
-    let mut edges = BTreeSet::new();
+    let mut segments = BTreeSet::new();
     for b in saved {
         let d = definitions
             .boundaries
             .iter()
             .find(|d| d.id == b.definition_id)
             .ok_or("Unknown saved boundary")?;
-        if Edge::new(b.edge.q, b.edge.r, b.edge.direction)? != b.edge
-            || !edges.insert(b.edge)
+        if Segment::new(b.segment.q, b.segment.r, b.segment.chord)? != b.segment
+            || !segments.insert(b.segment)
             || (b.open && !d.gate)
             || (!b.paid.is_empty() && b.paid != d.construction_cost)
         {

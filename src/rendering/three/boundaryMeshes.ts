@@ -11,13 +11,29 @@ import {
 import { axialToPixel } from "@hexlife/embed/hex";
 import type {
   Boundary,
+  BoundaryAnchor,
   BoundaryDefinition,
-  BoundaryEdge,
   BoundaryPreview,
+  BoundarySegment,
 } from "../../core/types";
+import { chordCorners, cornerHexes } from "../../core/lattice";
 import type { TerrainCell } from "./terrainMeshes";
 
-/** One box vocabulary for posts, rails, gate braces and selection strips; no per-edge draw calls. */
+/**
+ * The six corners of a hex of circumradius one, index 0 due north and then clockwise. The same
+ * corners `lattice.ts` names in native's integers, in the trigonometry the rest of the diorama is
+ * laid out with, so a post lands on the corner the hex mesh actually drew.
+ */
+const CORNER_OFFSETS: readonly (readonly [number, number])[] = [
+  [0, -1],
+  [Math.sqrt(3) / 2, -0.5],
+  [Math.sqrt(3) / 2, 0.5],
+  [0, 1],
+  [-Math.sqrt(3) / 2, 0.5],
+  [-Math.sqrt(3) / 2, -0.5],
+];
+
+/** One box vocabulary for posts, rails, gate braces and selection strips; no per-segment draw calls. */
 export class BoundaryMeshes {
   readonly group = new Group();
   private readonly geometry = new BoxGeometry(1, 1, 1);
@@ -31,11 +47,19 @@ export class BoundaryMeshes {
     opacity: 0.7,
     depthWrite: false,
   });
+  /** The anchor pins read as a decision the player made, so they stay lit rather than ghosted. */
+  private readonly pin = new MeshStandardMaterial({
+    color: "#ffd479",
+    emissive: new Color("#6b4c00"),
+    roughness: 0.4,
+  });
   private built: InstancedMesh | null = null;
   private ghost: InstancedMesh | null = null;
+  private pins: InstancedMesh | null = null;
   private boundaries: readonly Boundary[] | null = null;
   private terrain: ReadonlyMap<string, TerrainCell> | null = null;
   private preview: BoundaryPreview | null = null;
+  private anchors: readonly BoundaryAnchor[] = [];
 
   constructor(private readonly definitions: readonly BoundaryDefinition[]) {}
 
@@ -59,6 +83,9 @@ export class BoundaryMeshes {
         (d) => d.id === boundary.definition_id,
       );
       const { a, b } = this.ends(boundary);
+      // A chord is one, two or four hex radii long depending on which of the fifteen it is, so
+      // every rail, panel and brace is measured off the run rather than assumed to be a unit.
+      const span = a.distanceTo(b);
       const direction = b.clone().sub(a).normalize();
       const wall = definition?.family === "wall";
       const wire = definition?.key.startsWith("wire") === true;
@@ -77,7 +104,7 @@ export class BoundaryMeshes {
       const railDirection = boundary.open
         ? direction.clone().applyAxisAngle(new Vector3(0, 1, 0), Math.PI / 2.4)
         : direction;
-      const center = a.clone().addScaledVector(railDirection, 0.5);
+      const center = a.clone().addScaledVector(railDirection, span / 2);
       const rotation = new Quaternion().setFromUnitVectors(
         new Vector3(1, 0, 0),
         railDirection,
@@ -87,7 +114,7 @@ export class BoundaryMeshes {
           index,
           this.box(
             center.clone().add(new Vector3(0, 0.54, 0)),
-            new Vector3(0.98, 0.96, 0.16),
+            new Vector3(span - 0.02, 0.96, 0.16),
             rotation,
           ),
         );
@@ -103,7 +130,7 @@ export class BoundaryMeshes {
             index,
             this.box(
               center.clone().add(new Vector3(0, height, 0)),
-              new Vector3(0.95, wire ? 0.045 : 0.09, wire ? 0.04 : 0.07),
+              new Vector3(span - 0.05, wire ? 0.045 : 0.09, wire ? 0.04 : 0.07),
               rotation,
             ),
           );
@@ -113,7 +140,7 @@ export class BoundaryMeshes {
       if (definition?.gate) {
         const braceDirection = railDirection
           .clone()
-          .multiplyScalar(0.85)
+          .multiplyScalar(span * 0.85)
           .add(new Vector3(0, 0.32, 0));
         this.built.setMatrixAt(
           index,
@@ -135,6 +162,7 @@ export class BoundaryMeshes {
     this.built.computeBoundingSphere();
     this.group.add(this.built);
     this.setPreview(this.preview);
+    this.setAnchors(this.anchors);
     return true;
   }
 
@@ -142,15 +170,16 @@ export class BoundaryMeshes {
     this.preview = preview;
     this.drop(this.ghost);
     this.ghost = null;
-    if (!preview?.edges.length) return;
+    if (!preview?.segments.length) return;
     this.marker.color.set(preview.error ? "#ff8077" : "#79e7c0");
     this.ghost = new InstancedMesh(
       this.geometry,
       this.marker,
-      preview.edges.length,
+      preview.segments.length,
     );
-    preview.edges.forEach((edge, index) => {
-      const { a, b } = this.ends(edge);
+    preview.segments.forEach((segment, index) => {
+      const { a, b } = this.ends(segment);
+      const span = a.distanceTo(b);
       const direction = b.clone().sub(a).normalize();
       this.ghost!.setMatrixAt(
         index,
@@ -160,13 +189,43 @@ export class BoundaryMeshes {
             .add(b)
             .multiplyScalar(0.5)
             .add(new Vector3(0, 0.87, 0)),
-          new Vector3(1.03, 0.09, 0.12),
+          new Vector3(span + 0.03, 0.09, 0.12),
           new Quaternion().setFromUnitVectors(new Vector3(1, 0, 0), direction),
         ),
       );
     });
     this.ghost.computeBoundingSphere();
     this.group.add(this.ghost);
+  }
+
+  /**
+   * The vertices a selection is pinned to. Drawn whether or not a run resolves, because the first
+   * click of a two-click selection has nothing to preview yet and still has to be visible.
+   */
+  setAnchors(anchors: readonly BoundaryAnchor[]): void {
+    this.anchors = anchors;
+    this.drop(this.pins);
+    this.pins = null;
+    if (!anchors.length) return;
+    this.pins = new InstancedMesh(this.geometry, this.pin, anchors.length);
+    anchors.forEach((anchor, index) => {
+      const centre = axialToPixel(anchor, 1);
+      const offset = CORNER_OFFSETS[((anchor.corner % 6) + 6) % 6]!;
+      this.pins!.setMatrixAt(
+        index,
+        this.box(
+          new Vector3(
+            centre.x + offset[0]!,
+            this.heightAt(anchor) + 0.62,
+            centre.y + offset[1]!,
+          ),
+          new Vector3(0.16, 1.24, 0.16),
+          new Quaternion().setFromAxisAngle(new Vector3(0, 1, 0), Math.PI / 4),
+        ),
+      );
+    });
+    this.pins.computeBoundingSphere();
+    this.group.add(this.pins);
   }
 
   private tint(
@@ -180,30 +239,33 @@ export class BoundaryMeshes {
     return new Color(open ? "#78bfa9" : "#e2c391");
   }
 
-  private ends(edge: BoundaryEdge): { a: Vector3; b: Vector3 } {
-    const center = axialToPixel(edge, 1);
-    const [dq, dr] = [
-      [1, 0],
-      [0, 1],
-      [-1, 1],
-    ][edge.direction]!;
-    const height = Math.max(
-      this.terrain?.get(`${edge.q},${edge.r}`)?.height ?? 0.07,
-      this.terrain?.get(`${edge.q + dq!},${edge.r + dr!}`)?.height ?? 0.07,
+  /** The grade a vertex stands on: the highest of the three hexes that meet there. */
+  private heightAt(anchor: BoundaryAnchor): number {
+    return Math.max(
+      ...cornerHexes(anchor).map(
+        (cell) => this.terrain?.get(`${cell.q},${cell.r}`)?.height ?? 0.07,
+      ),
     );
-    const angle = (edge.direction * Math.PI) / 3;
-    return {
-      a: new Vector3(
-        center.x + Math.cos(angle - Math.PI / 6),
-        height,
-        center.y + Math.sin(angle - Math.PI / 6),
-      ),
-      b: new Vector3(
-        center.x + Math.cos(angle + Math.PI / 6),
-        height,
-        center.y + Math.sin(angle + Math.PI / 6),
-      ),
+  }
+
+  /**
+   * Both ends of a chord. Three of the fifteen are hex edges and the rest cut across the hex's
+   * interior, so the ends come from the corner pair rather than from an edge direction.
+   */
+  private ends(segment: BoundarySegment): { a: Vector3; b: Vector3 } {
+    const [first, second] = chordCorners(segment.chord);
+    const centre = axialToPixel(segment, 1);
+    // One height for the whole chord: a rail is a straight bar, and a run that stepped mid-span
+    // would leave a gap under it. The higher of the two ends is the one that keeps it above ground.
+    const height = Math.max(
+      this.heightAt({ ...segment, corner: first }),
+      this.heightAt({ ...segment, corner: second }),
+    );
+    const at = (corner: number): Vector3 => {
+      const offset = CORNER_OFFSETS[corner]!;
+      return new Vector3(centre.x + offset[0]!, height, centre.y + offset[1]!);
     };
+    return { a: at(first), b: at(second) };
   }
 
   private box(
@@ -224,8 +286,10 @@ export class BoundaryMeshes {
   dispose(): void {
     this.drop(this.built);
     this.drop(this.ghost);
+    this.drop(this.pins);
     this.geometry.dispose();
     this.wood.dispose();
     this.marker.dispose();
+    this.pin.dispose();
   }
 }

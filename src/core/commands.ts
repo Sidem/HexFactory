@@ -34,14 +34,17 @@ const STOCK_CODE = {
 
 export function encodeCommand(command: NativeInputCommand): EncodedCommand {
   switch (command.type) {
+    // Two lattice vertices, a shape and one verb. A vertex is a hex and one of its six corners, so
+    // the same point can be named three ways and native folds them together — the host never has to
+    // decide which hex "owns" the wall it just drew.
     case "boundary_edit":
       if (
         ![command.q, command.r, command.to_q, command.to_r].every(
           (n) => Number.isInteger(n) && Math.abs(n) <= 100000,
         ) ||
-        !Number.isInteger(command.direction) ||
-        command.direction < 0 ||
-        command.direction > 5
+        ![command.corner, command.to_corner].every(
+          (n) => Number.isInteger(n) && n >= 0 && n <= 5,
+        )
       )
         throw new RangeError("Invalid boundary target");
       return {
@@ -49,10 +52,11 @@ export function encodeCommand(command: NativeInputCommand): EncodedCommand {
         args: [
           command.q,
           command.r,
+          command.corner,
           command.to_q,
           command.to_r,
-          command.direction,
-          command.area ? 1 : 0,
+          command.to_corner,
+          { line: 0, yard: 1 }[command.shape],
           command.definition_id,
           { build: 0, remove: 1, open: 2, close: 3 }[command.action],
         ],
@@ -68,6 +72,9 @@ export function encodeCommand(command: NativeInputCommand): EncodedCommand {
       if (
         ![command.q, command.r, command.to_q, command.to_r].every(
           (n) => Number.isInteger(n) && Math.abs(n) <= 100000,
+        ) ||
+        ![command.corner, command.to_corner].every(
+          (n) => Number.isInteger(n) && n >= 0 && n <= 5,
         )
       )
         throw new RangeError("Invalid ground target");
@@ -76,9 +83,11 @@ export function encodeCommand(command: NativeInputCommand): EncodedCommand {
         args: [
           command.q,
           command.r,
+          command.corner,
           command.to_q,
           command.to_r,
-          { cell: 0, path: 1, area: 2 }[command.shape],
+          command.to_corner,
+          { cell: 0, path: 1, rect: 2 }[command.shape],
           command.definition_id,
           { pave: 0, clear: 1, raise: 2, lower: 3, level: 4 }[command.action],
           command.cover ? 1 : 0,
