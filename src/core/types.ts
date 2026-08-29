@@ -221,7 +221,7 @@ export interface TechnologyDefinition {
 }
 
 export type SkillEffect = {
-  kind: "carry_slots" | "build_range";
+  kind: "carry_slots" | "build_range" | "survey_range";
   amount: number;
 };
 export interface SkillDefinition {
@@ -229,7 +229,7 @@ export interface SkillDefinition {
   key: string;
   name: string;
   description: string;
-  branch: "carrying" | "construction";
+  branch: "carrying" | "construction" | "surveying";
   prerequisites: number[];
   cost: number;
   effect: SkillEffect;

@@ -1,5 +1,5 @@
 {
-  "version": 14,
+  "version": 15,
   "technologies": [
     {
       "id": 1,
@@ -377,6 +377,19 @@
         "amount": 3
       },
       "legacy_technology_id": 19
+    },
+    {
+      "id": 3,
+      "key": "field-survey",
+      "name": "Field Survey",
+      "description": "Read the ground a full ring of chunks farther as you travel, so terrain and deposits are on the map before you reach them.",
+      "branch": "surveying",
+      "prerequisites": [],
+      "cost": 1,
+      "effect": {
+        "kind": "survey_range",
+        "amount": 1
+      }
     }
   ],
   "skill_milestones": [

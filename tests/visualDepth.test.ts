@@ -102,7 +102,7 @@ describe("Visual Depth camera", () => {
   it("round-trips native world and axial points at every orbit and zoom extreme", () => {
     const coordinate = { q: 7, r: -4 };
     const world = axialToPixel(coordinate, WORLD_SCALE, { x: 0, y: 0 });
-    for (let orbit = 0; orbit < 6; orbit += 1) {
+    for (let orbit = 0; orbit < 12; orbit += 1) {
       for (const factor of [0.01, 100]) {
         const camera = new HexSceneCamera();
         camera.resize(1440, 900);
@@ -119,12 +119,35 @@ describe("Visual Depth camera", () => {
     }
   });
 
-  it("keeps orbit as a six-step presentation value", () => {
+  it("zooms in past the old ceiling and still clamps at both ends", () => {
     const camera = new HexSceneCamera();
-    for (let step = 0; step < 12; step += 1) camera.orbitBy(1);
+    camera.resize(1440, 900);
+    camera.zoomAt(720, 450, 100);
+    expect(camera.zoomLevel).toBeCloseTo(4, 6);
+    camera.zoomAt(720, 450, 0.0001);
+    expect(camera.zoomLevel).toBeCloseTo(0.55, 6);
+  });
+
+  it("keeps orbit as a twelve-step presentation value", () => {
+    const camera = new HexSceneCamera();
+    for (let step = 0; step < 24; step += 1) camera.orbitBy(1);
     expect(camera.orbitIndex).toBe(0);
     camera.orbitBy(-1);
-    expect(camera.orbitIndex).toBe(5);
+    expect(camera.orbitIndex).toBe(11);
+  });
+
+  it("closes the full circle in twelve thirty-degree stops", () => {
+    const camera = new HexSceneCamera();
+    camera.resize(1440, 900);
+    const start = heading(camera);
+    let previous = start;
+    for (let step = 1; step <= 12; step += 1) {
+      camera.orbitBy(1, false);
+      expect(camera.orbitIndex).toBe(step % 12);
+      expect(turnedBy(camera, previous)).toBeCloseTo(Math.PI / 6, 6);
+      previous = heading(camera);
+    }
+    expect(turnedBy(camera, start)).toBeCloseTo(0, 6);
   });
 
   it("inverse-projects WASD through every camera orbit", () => {
@@ -136,7 +159,7 @@ describe("Visual Depth camera", () => {
     ];
     const camera = new HexSceneCamera();
     camera.resize(1440, 900);
-    for (let orbit = 0; orbit < 6; orbit += 1) {
+    for (let orbit = 0; orbit < 12; orbit += 1) {
       const center = camera.projectScene(0, 0, 0);
       for (const direction of directions) {
         const world = camera.screenMovement(direction.x, direction.y);
@@ -153,7 +176,7 @@ describe("Visual Depth camera", () => {
     }
   });
 
-  it("sweeps a full sixty degrees and lands there", () => {
+  it("sweeps a full thirty degrees and lands there", () => {
     const camera = new HexSceneCamera();
     camera.resize(1440, 900);
     const start = heading(camera);
@@ -161,7 +184,7 @@ describe("Visual Depth camera", () => {
     expect(camera.isOrbiting).toBe(true);
     settle(camera);
     expect(camera.isOrbiting).toBe(false);
-    expect(turnedBy(camera, start)).toBeCloseTo(Math.PI / 3, 6);
+    expect(turnedBy(camera, start)).toBeCloseTo(Math.PI / 6, 6);
     expect(camera.orbitIndex).toBe(1);
   });
 
@@ -171,13 +194,13 @@ describe("Visual Depth camera", () => {
     const start = heading(camera);
     const began = performance.now();
     camera.orbitBy(1);
-    expect(camera.advanceOrbit(began + 230)).toBe(true);
+    expect(camera.advanceOrbit(began + 115)).toBe(true);
     const partway = turnedBy(camera, start);
     expect(partway).toBeGreaterThan(0.05);
-    expect(partway).toBeLessThan(Math.PI / 3 - 0.05);
+    expect(partway).toBeLessThan(Math.PI / 6 - 0.05);
     camera.advanceOrbit(began + 1000);
     expect(camera.isOrbiting).toBe(false);
-    expect(turnedBy(camera, start)).toBeCloseTo(Math.PI / 3, 6);
+    expect(turnedBy(camera, start)).toBeCloseTo(Math.PI / 6, 6);
   });
 
   it("keeps a step pressed mid-sweep inside the same second", () => {
@@ -186,13 +209,13 @@ describe("Visual Depth camera", () => {
     const start = heading(camera);
     const began = performance.now();
     camera.orbitBy(1);
-    camera.advanceOrbit(began + 200);
+    camera.advanceOrbit(began + 100);
     camera.orbitBy(1);
     expect(camera.orbitIndex).toBe(2);
     expect(camera.isOrbiting).toBe(true);
     camera.advanceOrbit(began + 1000);
     expect(camera.isOrbiting).toBe(false);
-    expect(turnedBy(camera, start)).toBeCloseTo((2 * Math.PI) / 3, 6);
+    expect(turnedBy(camera, start)).toBeCloseTo(Math.PI / 3, 6);
   });
 
   it("snaps the same turn without a sweep when motion is reduced", () => {
@@ -202,7 +225,7 @@ describe("Visual Depth camera", () => {
     camera.orbitBy(1, false);
     expect(camera.isOrbiting).toBe(false);
     expect(camera.advanceOrbit(performance.now() + 1000)).toBe(false);
-    expect(turnedBy(camera, start)).toBeCloseTo(Math.PI / 3, 6);
+    expect(turnedBy(camera, start)).toBeCloseTo(Math.PI / 6, 6);
   });
 
   it("walks toward the heading the sweep is landing on, not the frame it is passing", () => {

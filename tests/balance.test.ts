@@ -735,7 +735,11 @@ describe("the economy's stated curve", () => {
 
 it("budgets personal skill points separately from factory insight", () => {
   expect(fixture.budget.skill_points).toBe(3);
-  expect(fixture.budget.skill_cost).toBe(2);
+  // The journey funds the whole ladder and not a point more: three milestones, three upgrades.
+  expect(fixture.budget.skill_cost).toBe(3);
+  expect(fixture.budget.skill_cost).toBeLessThanOrEqual(
+    fixture.budget.skill_points,
+  );
   expect(fixture.budget.skill_milestones).toBe(3);
   expect(fixture.budget.research_cost).toBe(156);
   expect(fixture.budget.project_insight).toBe(706);

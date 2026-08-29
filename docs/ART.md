@@ -158,7 +158,7 @@ an amount and the other progress toward a known target.
 ## Visual Depth renderer
 
 **Visual Depth v0.25** ships the generator as a stylized low-poly Three.js diorama. The
-near-orthographic camera tilts and orbits in six 60-degree steps; terrain, buildings, cargo, fields,
+near-orthographic camera tilts and orbits in twelve 30-degree steps; terrain, buildings, cargo, fields,
 trees, depletion, overlays, and the player have shape while native gameplay remains on the existing
 axial plane. Visual terrain height is a total seven-band presentation lookup and never save,
 checksum, wire, movement, or construction state. From v0.38.0 a hex is drawn at that band plus the

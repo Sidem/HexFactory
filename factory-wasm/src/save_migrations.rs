@@ -159,6 +159,20 @@ pub(super) fn migrate<'a>(json: &'a str, target_version: u16) -> Result<Cow<'a, 
         version = 33;
     }
 
+    // Version 34 adds the surveying skill. It is a new row in the technology catalogue and nothing
+    // else: an unlearned skill is an id absent from `skills.purchased`, which is what every
+    // version-33 file already says, and how far the world opens is derived from that set rather
+    // than stored beside it. So the state is untouched and only the two stamps move.
+    if version == 33 && target_version >= 34 {
+        if let Some(object) = value.as_object_mut() {
+            object.insert("save_version".into(), Value::from(34));
+            if object.get("technology_version") == Some(&Value::from(14)) {
+                object.insert("technology_version".into(), Value::from(15));
+            }
+        }
+        version = 34;
+    }
+
     if version == target_version {
         return Ok(Cow::Owned(serde_json::to_string(&value).map_err(
             |error| format!("migrated save could not be written: {error}"),
@@ -648,5 +662,24 @@ mod tests {
             value["state"]["world_params"]["site_rules"][0]["item_id"],
             6
         );
+    }
+
+    #[test]
+    fn version_thirty_three_offers_the_survey_skill_without_learning_it() {
+        let json = r#"{"save_version":33,"definition_version":26,"technology_version":14,"state":{"skills":{"points":1,"purchased":[1]},"player":{"carry_slots":12}}}"#;
+        let migrated = migrate(json, 34).expect("migrated save");
+        let value: Value = serde_json::from_str(&migrated).expect("migrated json");
+        assert_eq!(value["save_version"], 34);
+        assert_eq!(value["technology_version"], 15);
+        // The new skill is offered, never granted: the purchased set is the file's own, the point
+        // that would buy it is still unspent, and nothing about how far the world was surveyed is
+        // written down here to be moved.
+        assert_eq!(
+            value["state"]["skills"]["purchased"],
+            serde_json::json!([1])
+        );
+        assert_eq!(value["state"]["skills"]["points"], 1);
+        assert_eq!(value["state"]["player"]["carry_slots"], 12);
+        assert_eq!(value["definition_version"], 26);
     }
 }

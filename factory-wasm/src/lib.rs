@@ -124,7 +124,13 @@ const SAVE_PREFIX: &str = "HXF1\n";
 /// the three shared hex edges are the first three chords under the numbers they already had. A
 /// version-32 file is therefore migrated by its version stamp alone, and its boundaries load
 /// unchanged through a serde alias rather than being rewritten.
-const SAVE_VERSION: u16 = 33;
+///
+/// Version 34 adds the surveying skill. It carries no new saved field: what a player has learned is
+/// already in `skills`, and how far that opens the world is derived from it by `Core::survey_rings`.
+/// A version-33 file therefore moves on its version stamp and the technology envelope alone, and
+/// keeps exactly the `generated_chunks` it was saved with — the wider survey applies from the next
+/// hex the player reaches.
+const SAVE_VERSION: u16 = 34;
 /// Bumped to 6 for World Parameters. `WorldParams` is now part of a run's identity — it is in the
 /// save envelope and in the checksum — so a version-5 envelope carries no answer to the question
 /// "which world is this" and is rejected rather than assumed to be the default.
@@ -146,6 +152,15 @@ const MAX_UNDO_DEPTH: usize = 64;
 /// else, and an unbounded one would be a host-chosen number in the checksum and a host-chosen number
 /// of cells for the host to draw.
 const MAX_CARRY_SLOTS: u32 = 240;
+/// Rings of chunks generated around a hex the player reaches, before any surveying skill.
+///
+/// One ring — the chunk plus its six neighbours — is what the game has always opened, so the value
+/// is here to be widened rather than to change anything on its own.
+const BASE_SURVEY_RINGS: u32 = 1;
+/// The most a skill catalogue may add to it. A survey of `n` rings generates `3n(n+1)+1` chunks, so
+/// this is a cost ceiling on world generation, not a taste: at the shipped chunk size, two rings is
+/// 1,216 hexes against one ring's 448, and three would be 2,432.
+const MAX_SURVEY_RING_BONUS: u32 = 2;
 const GRAPH_TRACE_LIMIT: i32 = 8;
 /// The most outgoing transport links one entity may compile: its facing, and — for a splitter —
 /// the two flanks 60° either side of it.
@@ -3010,8 +3025,8 @@ impl Core {
 
     fn earned_carry_slots(&self) -> u32 {
         let (legacy, _) = research_bonuses(&self.technologies, &self.researched);
-        let (skills, _) = self.skills.bonuses(&self.technologies);
-        let carry_slots = legacy.saturating_add(skills);
+        let skills = self.skills.bonuses(&self.technologies);
+        let carry_slots = legacy.saturating_add(skills.carry_slots);
         self.scenario
             .carry_slots
             .saturating_add(carry_slots)
@@ -3020,17 +3035,31 @@ impl Core {
 
     fn earned_build_range(&self) -> u32 {
         let (_, legacy) = research_bonuses(&self.technologies, &self.researched);
-        let (_, skills) = self.skills.bonuses(&self.technologies);
-        let build_range = legacy.saturating_add(skills);
+        let skills = self.skills.bonuses(&self.technologies);
+        let build_range = legacy.saturating_add(skills.build_range);
         self.scenario
             .build_range
             .saturating_add(build_range)
             .saturating_mul(HEX_X as u32)
     }
 
+    /// How far the world opens around a hex the player reaches, in rings of chunks.
+    ///
+    /// Derived rather than stored, under the rule every other derived value follows: the skills
+    /// that widen it are already saved and validated, so a saved copy of this could only ever
+    /// disagree with them. It is also not a `PlayerState` field for a second reason — the surveyed
+    /// world lives in `generated_chunks`, which is a checksum input, and a stored radius would be a
+    /// second, unhashed account of the same thing.
+    fn survey_rings(&self) -> u32 {
+        BASE_SURVEY_RINGS
+            .saturating_add(self.skills.bonuses(&self.technologies).survey_rings)
+            .min(BASE_SURVEY_RINGS + MAX_SURVEY_RING_BONUS)
+    }
+
     /// Apply earned skills through the same native player fields placement and carrying use.
     /// Pack size is a floor because creative mode may have widened it further; build range has no
-    /// separate editor and is therefore exactly the researched value.
+    /// separate editor and is therefore exactly the researched value. Survey range is not here at
+    /// all: `survey_rings` reads the skills directly, so there is nothing to write back.
     fn apply_research_effects(&mut self) {
         self.player.carry_slots = self.player.carry_slots.max(self.earned_carry_slots());
         self.player.build_range = self.earned_build_range();
@@ -3126,13 +3155,21 @@ impl Core {
         self.generate_chunk(floor_div(q, size), floor_div(r, size));
     }
 
+    /// Survey the world around a point: the chunk it falls in, plus `survey_rings()` rings of
+    /// chunks around that one.
+    ///
+    /// The rings are a hex disc on the chunk lattice, which at one ring is exactly the chunk and
+    /// its six `DIRECTIONS` neighbours this always generated — so the shipped opening is unchanged
+    /// and only a surveying skill widens it.
     fn ensure_neighborhood(&mut self, x: i32, y: i32) {
         let size = self.scenario.chunk_size;
         let (q, r) = world_to_axial(x, y);
         let center = (floor_div(q, size), floor_div(r, size));
-        self.generate_chunk(center.0, center.1);
-        for (dq, dr) in DIRECTIONS {
-            self.generate_chunk(center.0 + dq, center.1 + dr);
+        let rings = self.survey_rings() as i32;
+        for dq in -rings..=rings {
+            for dr in (-rings).max(-dq - rings)..=rings.min(-dq + rings) {
+                self.generate_chunk(center.0 + dq, center.1 + dr);
+            }
         }
     }
 
@@ -10225,8 +10262,9 @@ fn validate_saved_state(
         }
     }
     let (carry, reach) = research_bonuses(technologies, &state.researched);
-    let (skill_carry, skill_reach) = state.skills.bonuses(technologies);
-    let (carry_slots_bonus, build_range_bonus) = (carry + skill_carry, reach + skill_reach);
+    let skills = state.skills.bonuses(technologies);
+    let (carry_slots_bonus, build_range_bonus) =
+        (carry + skills.carry_slots, reach + skills.build_range);
     let earned_carry_slots = scenario
         .carry_slots
         .saturating_add(carry_slots_bonus)
@@ -10342,12 +10380,15 @@ fn research_bonuses(
         .technologies
         .iter()
         .filter(|technology| researched.contains(&technology.id))
-        .fold(initial, |(carry_slots, build_range), technology| {
-            (
-                carry_slots.saturating_add(technology.carry_slots_bonus()),
-                build_range.saturating_add(technology.build_range_bonus()),
-            )
-        })
+        .fold(
+            (initial.carry_slots, initial.build_range),
+            |(carry_slots, build_range), technology| {
+                (
+                    carry_slots.saturating_add(technology.carry_slots_bonus()),
+                    build_range.saturating_add(technology.build_range_bonus()),
+                )
+            },
+        )
 }
 
 fn unique_positive_ids(ids: impl Iterator<Item = u16>, label: &str) -> Result<(), String> {
@@ -16267,7 +16308,7 @@ mod tests {
         core.purchase_skill(1).unwrap();
         core.set_creative(true);
         assert_eq!(core.skills.purchased, BTreeSet::from([1]));
-        assert_eq!(core.skills.granted, BTreeSet::from([2]));
+        assert_eq!(core.skills.granted, BTreeSet::from([2, 3]));
         core.set_creative(false);
         core.observe_skill_event(SkillEvent::PoweredCraft);
         core.observe_skill_event(SkillEvent::ContractStage {
@@ -16285,6 +16326,48 @@ mod tests {
         .unwrap();
         restored.observe_skill_event(SkillEvent::PoweredCraft);
         assert_eq!(restored.checksum(), core.checksum());
+    }
+
+    #[test]
+    fn the_field_survey_opens_two_rings_where_one_was_opened_before() {
+        let far = 4000 * HEX_X;
+        let mut narrow = game("new-game");
+        assert_eq!(narrow.survey_rings(), 1);
+        let baseline = narrow.generated_chunks.len();
+        narrow.ensure_neighborhood(far, 0);
+        // One ring is the chunk you are on plus its six neighbours, which is exactly the
+        // neighbourhood the game opened before there was a skill to widen it.
+        assert_eq!(narrow.generated_chunks.len(), baseline + 7);
+
+        let mut wide = game("new-game");
+        wide.observe_skill_event(SkillEvent::WorkshopCraft);
+        wide.purchase_skill(3).unwrap();
+        assert_eq!(wide.survey_rings(), 2);
+        // Learning it pays out where you stand rather than on the next step.
+        let opened = wide.generated_chunks.len();
+        assert!(opened > baseline);
+        wide.ensure_neighborhood(far, 0);
+        // Two rings is nineteen chunks: `3n(n+1)+1` at n = 2.
+        assert_eq!(wide.generated_chunks.len(), opened + 19);
+        // Generation is idempotent per chunk, so surveying the same ground twice moves nothing —
+        // which is what lets the purchase re-survey a neighbourhood that is already half open.
+        let settled = wide.checksum();
+        wide.ensure_neighborhood(far, 0);
+        assert_eq!(wide.generated_chunks.len(), opened + 19);
+        assert_eq!(wide.checksum(), settled);
+
+        // The wider survey is derived from the skill, never stored: a reload rebuilds it from the
+        // purchased set, and the surveyed world it produced is the one the checksum was taken over.
+        let (definitions, technologies, scenarios) = catalogs();
+        let restored = Core::from_save(
+            &definitions,
+            &technologies,
+            &scenarios,
+            &wide.save_string().unwrap(),
+        )
+        .unwrap();
+        assert_eq!(restored.survey_rings(), 2);
+        assert_eq!(restored.checksum(), wide.checksum());
     }
 
     #[test]
@@ -23292,7 +23375,7 @@ mod tests {
         // ever held the three shared edges, which are the same three chords under the same
         // identity. Old saves therefore load in place, byte for byte, with no state rewrite.
         let legacy = save
-            .replace("\"save_version\":33", "\"save_version\":32")
+            .replace("\"save_version\":34", "\"save_version\":32")
             .replace("\"chord\":", "\"direction\":");
         assert!(legacy.contains("\"direction\":"));
         let loaded = Core::from_save(&definitions, &technologies, &scenarios, &legacy).unwrap();

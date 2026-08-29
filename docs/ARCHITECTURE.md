@@ -295,14 +295,15 @@ container, and a delegated handler resolves nothing — which is how research cl
 silently dropped about once a second.
 
 `FactoryRenderer` is the replaceable world boundary. Visual Depth v0.25 supplies its production
-implementation with Three.js: an orthographic scene camera at a fixed tilt, six discrete 60-degree
-orbits, bounded zoom, native-snapshot-driven instance buckets, and scene overlays. Picking
+implementation with Three.js: an orthographic scene camera at a fixed tilt, twelve discrete
+30-degree orbits, bounded zoom, native-snapshot-driven instance buckets, and scene overlays. Picking
 intersects the unchanged logical axial plane and converts through the public
 `@hexlife/embed/hex` geometry; rendered terrain height never enters a command. Native-resolved drag
 cells, twelve transport headings, and native chunk coverage are consumed rather than reconstructed.
 
-An orbit remains an integer in `[0, 5]` and moves the instant the key is pressed; only the drawn
-heading eases across the 60 degrees, over roughly half a second and never more than one. The sweep
+An orbit remains an integer in `[0, 11]` and moves the instant the key is pressed; only the drawn
+heading eases across the 30 degrees, at the rate the 60-degree step always turned at, so a held key
+still crosses the circle in the time it used to and a stop is half as far away. The sweep
 raises its own dirty frames so it still runs when nothing else redraws, a step pressed mid-sweep
 extends the turn already running instead of restarting it, and reduced motion arrives at the same
 view with no sweep at all. Directional input reads the heading the sweep is landing on, because a

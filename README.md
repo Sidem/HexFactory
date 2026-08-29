@@ -35,10 +35,12 @@ separate Research button to spend insight on later work. Search, discipline filt
 navigation, zoom and a compact list view help explore the technology map. Hover previews never
 replace the readable detail panel.
 
-**Skills (K)** separately improves carrying capacity and construction reach. Choose either
-one-point upgrade first. Completing a manual-workshop batch, the first founding commission,
-and a powered craft each earns one Skill Point once; repeated work never farms more. Existing
-pack/reach research migrates without losing bonuses or spending insight.
+**Skills (K)** separately improves carrying capacity, construction reach, and surveying range.
+Learn the three one-point upgrades in any order. Field Survey reads the ground a full ring of
+chunks farther as you travel, so terrain and deposits are on the map before you reach them.
+Completing a manual-workshop batch, the first founding commission, and a powered craft each
+earns one Skill Point once; repeated work never farms more. Existing pack/reach research
+migrates without losing bonuses or spending insight.
 
 **Walls** opens the enclosure tool. Place, Open, Close or Strip an edge or a two-corner
 yard; R cycles the work. Timber and wire fences need no research. Brick and concrete walls
@@ -64,7 +66,14 @@ dead straight, and any other angle steps toward the far end within half a hex. P
 corners instead and the run closes into a rectangular yard. Ground works takes the same two corners
 and paves every hex the rectangle touches, so a yard and the fence around it are drawn from the same
 pick. Gates still go up one side at a time. Every existing fence and wall loads exactly where you
-left it. See the [release record](docs/STRAIGHT-WALLS-RECORD.md) for verification and limits.
+left it.
+
+**Closer Views and Field Survey (v0.43.0)** turns the camera in twelve 30-degree steps instead of
+six 60-degree ones — the same turning speed, twice as many places to stop — and zooms in far enough
+to read a single machine and the ground it stands on. Field Survey is a third one-point skill: it
+reads the ground a full ring of chunks farther as you travel, so terrain and deposits are on the map
+before you reach them. Existing saves gain the new skill unlearned and nothing else changes. See the
+[release record](docs/CLOSER-VIEWS-RECORD.md) for verification and limits.
 
 ## Controls
 
@@ -91,9 +100,10 @@ left it. See the [release record](docs/STRAIGHT-WALLS-RECORD.md) for verificatio
   `Q` copies whatever is under the cursor, and `Ctrl`+`Z` takes back the last thing you built.
   Some definitions occupy multiple cells; those are placed one at a time. The grid appears during
   editing or via its toggle.
-- Middle-drag, or hold `Shift` and drag with the left button, to pan; use the wheel to zoom. `Space`
-  recentres the camera on the player and resumes following. The right button is only ever the
-  harvest.
+- Middle-drag, or hold `Shift` and drag with the left button, to pan; use the wheel to zoom, which
+  now goes in close enough to read one machine. `,` and `.` turn the view a twelfth of a circle at a
+  time. `Space` recentres the camera on the player and resumes following. The right button is only
+  ever the harvest.
 - `I` opens the cargo pack, `O` research, `B` the construction catalogue, and `P` the objective and
   controls reference. One workspace opens at a time, beside the inspector on wide screens. `T` pauses, `M` mutes, and
   `Escape` returns to inspection and clears the open panels.

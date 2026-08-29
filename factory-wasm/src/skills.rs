@@ -17,8 +17,27 @@ pub(super) struct SkillDefinition {
 #[derive(Clone, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub(super) enum SkillEffect {
-    CarrySlots { amount: u32 },
-    BuildRange { amount: u32 },
+    CarrySlots {
+        amount: u32,
+    },
+    BuildRange {
+        amount: u32,
+    },
+    /// Extra rings of chunks generated around wherever the player reaches, in the same unit
+    /// `Core::survey_rings` counts. World generation is quadratic in this, which is why the
+    /// catalogue bound on it is far tighter than the other two.
+    SurveyRange {
+        amount: u32,
+    },
+}
+
+/// What the owned skills add, by effect. Three separate ceilings apply to these, so they travel as
+/// named fields rather than a tuple every caller has to destructure in the right order.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(super) struct SkillBonuses {
+    pub(super) carry_slots: u32,
+    pub(super) build_range: u32,
+    pub(super) survey_rings: u32,
 }
 
 #[derive(Clone, Deserialize)]
@@ -72,14 +91,18 @@ impl SkillsState {
         self.purchased.contains(&id) || self.granted.contains(&id)
     }
 
-    pub(super) fn bonuses(&self, technologies: &TechnologiesInput) -> (u32, u32) {
+    pub(super) fn bonuses(&self, technologies: &TechnologiesInput) -> SkillBonuses {
         technologies
             .skills
             .iter()
             .filter(|skill| self.owns(skill.id))
-            .fold((0, 0), |(carry, reach), skill| match skill.effect {
-                SkillEffect::CarrySlots { amount } => (carry + amount, reach),
-                SkillEffect::BuildRange { amount } => (carry, reach + amount),
+            .fold(SkillBonuses::default(), |mut total, skill| {
+                match skill.effect {
+                    SkillEffect::CarrySlots { amount } => total.carry_slots += amount,
+                    SkillEffect::BuildRange { amount } => total.build_range += amount,
+                    SkillEffect::SurveyRange { amount } => total.survey_rings += amount,
+                }
+                total
             })
     }
 
@@ -106,6 +129,9 @@ impl Core {
         let current_value = match skill.effect {
             SkillEffect::CarrySlots { .. } => self.player.carry_slots,
             SkillEffect::BuildRange { .. } => self.player.build_range / HEX_X as u32,
+            // Rings, the unit the surveying skill is priced and bounded in, not hexes: a chunk is
+            // the unit of generation and a ring of them is what one purchase actually buys.
+            SkillEffect::SurveyRange { .. } => self.survey_rings(),
         };
         let resulting_value = if complete {
             current_value
@@ -117,6 +143,7 @@ impl Core {
                         .min(MAX_CARRY_SLOTS),
                 ),
                 SkillEffect::BuildRange { amount } => current_value + amount,
+                SkillEffect::SurveyRange { amount } => current_value + amount,
             }
         };
         SkillAvailability {
@@ -170,6 +197,11 @@ impl Core {
         self.skills.points -= skill.cost;
         self.skills.purchased.insert(skill.id);
         self.apply_research_effects();
+        // A wider survey is bought to see further from where you stand, so it pays out here rather
+        // than on the next step. Generation is idempotent per chunk: a narrower skill re-runs this
+        // and adds nothing. Load deliberately does not, because generating during a load would move
+        // `generated_chunks` — a checksum input — under a file that was verified without it.
+        self.ensure_neighborhood(self.player.x, self.player.y);
         self.events.push(format!("Learned {}", skill.name));
         Ok(())
     }
@@ -241,6 +273,7 @@ pub(super) fn validate_skills(technologies: &TechnologiesInput) -> Result<(), St
     let mut legacy_ids = BTreeSet::new();
     let mut carry = 0u32;
     let mut reach = 0u32;
+    let mut survey = 0u32;
     let mut cost = 0u32;
     for skill in skills {
         let amount = match skill.effect {
@@ -252,12 +285,19 @@ pub(super) fn validate_skills(technologies: &TechnologiesInput) -> Result<(), St
                 reach = reach.saturating_add(amount);
                 amount
             }
+            SkillEffect::SurveyRange { amount } => {
+                survey = survey.saturating_add(amount);
+                amount
+            }
         };
         if skill.key.trim().is_empty()
             || !keys.insert(&skill.key)
             || skill.name.trim().is_empty()
             || skill.description.trim().is_empty()
-            || !matches!(skill.branch.as_str(), "carrying" | "construction")
+            || !matches!(
+                skill.branch.as_str(),
+                "carrying" | "construction" | "surveying"
+            )
             || skill.cost == 0
             || skill.cost > 100
             || amount == 0
@@ -278,7 +318,10 @@ pub(super) fn validate_skills(technologies: &TechnologiesInput) -> Result<(), St
         }
         cost += skill.cost;
     }
-    if carry > MAX_CARRY_SLOTS / 2 || reach > 32 {
+    // The survey bound is the tight one: a ring is `3n(n+1)+1` chunks, so the catalogue may not
+    // author a ladder whose top rank asks the generator for an order of magnitude more world than
+    // the shipped opening does.
+    if carry > MAX_CARRY_SLOTS / 2 || reach > 32 || survey > MAX_SURVEY_RING_BONUS {
         return Err("skill effects exceed player bounds".into());
     }
     let mut reachable = BTreeSet::new();

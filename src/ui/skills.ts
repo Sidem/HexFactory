@@ -2,10 +2,51 @@ import { researchIconSvg } from "../rendering/researchIcons";
 import type {
   FactorySnapshot,
   SkillDefinition,
+  SkillEffect,
   Technologies,
 } from "../core/types";
 import { part, syncChildren } from "./dom";
 import "./skills.css";
+
+/**
+ * What each kind of upgrade is called, in the unit the native answer already counts it in.
+ *
+ * Keyed by effect rather than by branch so a new upgrade fails to compile until it is written out
+ * here, instead of quietly borrowing whichever wording the last one used.
+ */
+const BRANCHES: Record<
+  SkillEffect["kind"],
+  {
+    label: string;
+    /** The gain, both ways: no upgrade is worth reading "+1 cargo slots". */
+    gain: [one: string, many: string];
+    /** The capacity of yours it widens, and the unit that capacity is measured in. */
+    capacity: string;
+    unit: [one: string, many: string];
+  }
+> = {
+  carry_slots: {
+    label: "01 / Carrying",
+    gain: ["cargo slot", "cargo slots"],
+    capacity: "pack",
+    unit: ["slot", "slots"],
+  },
+  build_range: {
+    label: "02 / Construction reach",
+    gain: ["hex of reach", "hexes of reach"],
+    capacity: "reach",
+    unit: ["hex", "hexes"],
+  },
+  survey_range: {
+    label: "03 / Surveying range",
+    gain: ["ring of surveyed ground", "rings of surveyed ground"],
+    capacity: "survey",
+    unit: ["ring", "rings"],
+  },
+};
+
+const count = (amount: number, [one, many]: [string, string]) =>
+  `${amount} ${amount === 1 ? one : many}`;
 
 /** Text and affordances from the native purchase answer; never decides affordability. */
 export function skillView(skill: SkillDefinition, snapshot: FactorySnapshot) {
@@ -31,7 +72,7 @@ export function skillView(skill: SkillDefinition, snapshot: FactorySnapshot) {
   };
 }
 
-/** Two legible upgrade branches and the full, finite journey that pays for them. */
+/** Three legible upgrade branches and the full, finite journey that pays for them. */
 export class SkillsView {
   private snapshot: FactorySnapshot | null = null;
   constructor(
@@ -91,26 +132,24 @@ export class SkillsView {
     rows.forEach((card, index) => {
       const skill = this.technologies.skills[index]!;
       const view = skillView(skill, snapshot);
-      const pack = skill.effect.kind === "carry_slots";
+      const copy = BRANCHES[skill.effect.kind];
       card.dataset.branch = skill.branch;
       card.classList.toggle("learned", view.complete);
-      part(card, ".skill-branch").textContent = pack
-        ? "01 / Carrying"
-        : "02 / Construction reach";
+      part(card, ".skill-branch").textContent = copy.label;
       part(card, ".skill-state").textContent = view.status;
       part(card, ".skill-name").textContent = skill.name;
       if (!part(card, ".skill-icon").hasChildNodes())
         part(card, ".skill-icon").innerHTML = researchIconSvg(skill.key);
       part(card, ".skill-benefit").textContent =
-        `+${skill.effect.amount} ${pack ? "cargo slots" : "hexes of reach"}`;
+        `+${count(skill.effect.amount, copy.gain)}`;
       part(card, ".skill-description").textContent = skill.description;
       const native = snapshot.skills.availability.find(
         (r) => r.skill_id === skill.id,
       );
       const current = native?.current_value ?? 0;
       part(card, ".skill-capacity").textContent = view.complete
-        ? `Your ${pack ? "pack" : "reach"}: ${current} ${pack ? "slots" : "hexes"}`
-        : `${current} → ${native?.resulting_value ?? current} ${pack ? "slots" : "hexes"} after learning`;
+        ? `Your ${copy.capacity}: ${count(current, copy.unit)}`
+        : `${current} → ${count(native?.resulting_value ?? current, copy.unit)} after learning`;
       const missing =
         snapshot.skills.availability.find((r) => r.skill_id === skill.id)
           ?.missing_prerequisites ?? [];
@@ -122,7 +161,7 @@ export class SkillsView {
           : "Permanent upgrade. Your choice is saved."
         : missing.length
           ? `First learn: ${missing.map((id) => this.technologies.skills.find((s) => s.id === id)?.name ?? id).join(", ")}`
-          : `${view.canPurchase ? "Choose either upgrade first." : view.status + "."} Journey milestones can fund both.`;
+          : `${view.canPurchase ? "Learn these in any order." : view.status + "."} Journey milestones fund the whole set.`;
       const button = part<HTMLButtonElement>(card, "button");
       button.textContent = view.complete
         ? view.status

@@ -71,7 +71,9 @@ dialog.glass-panel.skills-panel::backdrop {
 }
 #skill-branches {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  /* Fits the branches the catalogue actually ships rather than a fixed two, so a third upgrade
+     sits beside the others instead of stranding half a row. */
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
   gap: 16px;
 }
 .skill-card {
@@ -85,6 +87,9 @@ dialog.glass-panel.skills-panel::backdrop {
 }
 .skill-card[data-branch="construction"] {
   border-top-color: #e5bf86;
+}
+.skill-card[data-branch="surveying"] {
+  border-top-color: #9dbdea;
 }
 .skill-card-top {
   display: flex;
@@ -115,6 +120,9 @@ dialog.glass-panel.skills-panel::backdrop {
 }
 .skill-card[data-branch="construction"] .skill-benefit {
   color: #f0d3a7;
+}
+.skill-card[data-branch="surveying"] .skill-benefit {
+  color: #c3d9f7;
 }
 .skill-description {
   font-size: 0.85rem;

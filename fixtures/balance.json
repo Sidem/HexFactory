@@ -1715,7 +1715,7 @@
   ],
   "reference": {
     "definition_version": 26,
-    "technology_version": 14,
+    "technology_version": 15,
     "ticks_per_second": 10,
     "player_ticks_per_second": 30,
     "gather_cooldown_steps": 15,
@@ -6648,7 +6648,7 @@
     "projects": 27,
     "skill_milestones": 3,
     "skill_points": 3,
-    "skill_cost": 2,
+    "skill_cost": 3,
     "project_insight": 706,
     "raw_project_insight": 85,
     "research_cost": 156,

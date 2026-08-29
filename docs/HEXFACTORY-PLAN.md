@@ -49,7 +49,7 @@ This is permanent and is not a scope item.
 
 ## Where the project stands
 
-The engine arc, the generator arc, and the shipped milestones through **v0.42.0 Straight Walls and Yards** are
+The engine arc, the generator arc, and the shipped milestones through **v0.43.0 Closer Views and Field Survey** are
 present in this tree. A run today looks like this: land beside a hub in a world chosen by preset
 or by raw parameters, walk out under fog across rivers and coastline — on the keys, or by
 **clicking a selected hex a second time** and watching the route native found — find **fields** of
@@ -94,11 +94,11 @@ qualification run that was outstanding is withdrawn rather than pending. See
 exists; read the section a milestone names when you need the reasoning behind a rule you are about
 to change.
 
-**Latest delivery: v0.42.0 Straight Walls and Yards completes Phase 6.** Boundaries are anchored on lattice vertices rather than hex edges, runs hold a heading, and both trays take a rectangle from two picked corners. See [the release record](STRAIGHT-WALLS-RECORD.md) for verification and limits. Supported floors and vertical transport are next.
+**Latest delivery: v0.43.0 Closer Views and Field Survey.** The camera turns in twelve 30-degree stops and zooms in far enough to read one machine, and Field Survey is a third one-point skill that opens a second ring of chunks around wherever you walk. It rides on Phase 6, which v0.42.0 completed; no later phase was started. See [the release record](CLOSER-VIEWS-RECORD.md) for verification and limits. Supported floors and vertical transport are next.
 
 ## What to do next
 
-Phases 1 to 6 are **shipped**, through v0.42.0. Read the ledger for what they delivered. The rest of the approved sequence follows in order.
+Phases 1 to 6 are **shipped**, through v0.43.0. Read the ledger for what they delivered. The rest of the approved sequence follows in order.
 
 | Order | Work                                    | Scope and dependency                                                                                                                                                                          |
 | ----- | --------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -338,12 +338,12 @@ that side of the line, and cut any need that cannot.
 - **Attributes are bounded and legible.** Strength raises what the player can carry and how fast
   hand work goes; it does not become an invisible multiplier applied to every rate in the game. Each
   attribute states its exact effect and its ceiling, the same way a skill rank does.
-- **There is one player-progression story, not two.** v0.36.0 already spends Skill Points on
-  Carrying and Construction reach, and Carrying is exactly what a strength attribute would also
-  touch. Reconcile them before implementing: either attributes replace those ranks, or attributes
-  set the base that ranks modify, but the player must never face two currencies that buy the same
-  bonus. The `Fieldcraft` and `Surveying` branches that were reserved as candidates are where this
-  should land.
+- **There is one player-progression story, not two.** Skill Points already buy Carrying,
+  Construction reach and — since v0.43.0 — Surveying range, and Carrying is exactly what a strength
+  attribute would also touch. Reconcile them before implementing: either attributes replace those
+  ranks, or attributes set the base that ranks modify, but the player must never face two currencies
+  that buy the same bonus. `Surveying` is now a shipped branch rather than a reserved name, so a
+  perception-style attribute has to answer to it; `Fieldcraft` is still free.
 - **It is native state.** Hunger, condition and attributes are saved and checksummed, owned by the
   player clock that already runs on its own cadence independent of the simulation rate — so a need
   keeps advancing while the factory is paused, which is a decision to make explicitly rather than
@@ -470,6 +470,7 @@ both test suites say so.
 One line per release, newest first. The reasoning behind a shipped rule lives in the git history of
 this file and in the code that implements it; what follows is the index.
 
+- **v0.43.0** Closer Views and Field Survey — The scene camera orbits in twelve 30-degree stops rather than six 60-degree ones, at the same turning rate, and zooms in to 4× so one machine and the hexes under it can be read. Field Survey is a third one-point skill: it opens a second ring of chunks around wherever the player reaches, derived from the purchased set rather than stored beside it, and paid out the moment it is learned. Save 34 / technologies 15; definitions, scenarios, world and wire unchanged, and a version-33 save simply gains the skill unlearned.
 - **v0.42.0** Straight Walls and Yards — Boundaries move from canonical hex edges to the vertex lattice: a segment is a chord of one hex between two of its corners, twelve headings run dead straight, and off-heading runs staircase to the far end within half a hex. A rectangular yard closes from two picked corners, and Ground works takes the same two corners to pave every hex the rectangle touches. Every v0.37/v0.39 boundary loads in place through a `direction` alias with no migration pass. Save 33 / wire 18; definitions, technologies, scenarios and world unchanged.
 - **v0.41.0** Handling and Clarity — Pointer stack dragging, automatic pack opening, named static belt-target refusals, confirmed carry-and-spill demolition, and continuous world-space paving. All envelopes unchanged; 625-cell Low rendering measurement committed.
 - **v0.40.0** Petroleum Roads — Powered oil wells, atomic joint-output refining, refined fuel, asphalt over gravel, production-route accounting and petroleum research/projects. Save 32 / definitions 26 / technologies 14 / world 10; old worlds keep their site rules.

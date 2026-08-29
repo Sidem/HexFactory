@@ -6,18 +6,28 @@ import { BASE_HEX_SIZE } from "../FactoryRenderer";
 import { WORLD_SCALE } from "../landmarks";
 
 const MIN_ZOOM = 0.55;
-const MAX_ZOOM = 2.2;
+/**
+ * The close end of the range. Raised past the old 2.2 so one machine and the hexes it stands on
+ * can be looked at properly. Nothing baked is scaled up by it: this route draws meshes, and the
+ * flat renderer's sprite atlas keeps its own 2.2 clamp in `CanvasFactoryRenderer`.
+ */
+const MAX_ZOOM = 4;
 const CAMERA_DISTANCE = 38;
 const CAMERA_HEIGHT = 31;
 /** Orbit zero looks from the south-west toward north-east. */
 const BASE_ANGLE = Math.PI / 4;
-const ORBIT_STEP = Math.PI / 3;
-/** One 60° sweep, eased. Long enough to read as a turn, short enough to keep the key responsive. */
-const ORBIT_STEP_MS = 460;
+/** Twelve stops: the six hex headings and the six half-steps between them. */
+const ORBIT_STEPS = 12;
+const ORBIT_STEP = (Math.PI * 2) / ORBIT_STEPS;
+/**
+ * One 30° sweep, eased. Half the duration the 60° step used, so the view turns at exactly the rate
+ * it always did and a held key still crosses the circle in the same time.
+ */
+const ORBIT_STEP_MS = 230;
 /** A sweep already carrying queued steps still lands inside a second. */
 const ORBIT_MAX_MS = 1000;
 
-/** Fixed-tilt, six-orbit camera over the native logical plane. */
+/** Fixed-tilt, twelve-orbit camera over the native logical plane. */
 export class HexSceneCamera {
   readonly camera = new OrthographicCamera(-1, 1, 1, -1, 0.1, 180);
   private readonly raycaster = new Raycaster();
@@ -74,11 +84,11 @@ export class HexSceneCamera {
   }
 
   /**
-   * Turn one sixth of a circle. The six-step index moves at once — it is what the rest of the game
-   * reads — while the drawn heading eases across to it over the next few frames.
+   * Turn one twelfth of a circle. The twelve-step index moves at once — it is what the rest of the
+   * game reads — while the drawn heading eases across to it over the next few frames.
    */
   orbitBy(step: -1 | 1, animate = true): void {
-    this.orbit = (this.orbit + step + 6) % 6;
+    this.orbit = (this.orbit + step + ORBIT_STEPS) % ORBIT_STEPS;
     const target = this.orbitTarget + step * ORBIT_STEP;
     if (!animate) {
       this.settleOrbit(target);
@@ -239,7 +249,8 @@ export class HexSceneCamera {
   }
 
   private updatePose(): void {
-    // Sixty-degree steps keep the native six/twelve heading indices intact; only the view moves.
+    // The orbit is presentation only: the native six/twelve heading indices are unchanged by it,
+    // and a half-step between two hex headings moves nothing but where the scene is looked at from.
     const angle = this.orbitAngle;
     this.camera.position.set(
       this.target.x + Math.cos(angle) * CAMERA_DISTANCE,
