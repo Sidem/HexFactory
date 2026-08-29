@@ -49,7 +49,7 @@ This is permanent and is not a scope item.
 
 ## Where the project stands
 
-The engine arc, the generator arc, and the shipped milestones through **v0.43.0 Closer Views and Field Survey** are
+The engine arc, the generator arc, and the shipped milestones through **v0.44.0 Emblems and Clarity** are
 present in this tree. A run today looks like this: land beside a hub in a world chosen by preset
 or by raw parameters, walk out under fog across rivers and coastline — on the keys, or by
 **clicking a selected hex a second time** and watching the route native found — find **fields** of
@@ -75,9 +75,9 @@ catalog shows which one moved rather than hiding the row:
 
 | Envelope              | Version |
 | --------------------- | ------: |
-| `HXF1` save           |      33 |
+| `HXF1` save           |      34 |
 | Definitions           |      26 |
-| Technologies          |      14 |
+| Technologies          |      15 |
 | Scenarios             |       7 |
 | World generator       |      10 |
 | Wire (snapshot delta) |      18 |
@@ -96,7 +96,7 @@ qualification run that was outstanding is withdrawn rather than pending. See
 exists; read the section a milestone names when you need the reasoning behind a rule you are about
 to change.
 
-**Latest delivery: v0.43.0 Closer Views and Field Survey.** The camera turns in twelve 30-degree stops and zooms in far enough to read one machine, and Field Survey is a third one-point skill that opens a second ring of chunks around wherever you walk. It rides on Phase 6, which v0.42.0 completed; no later phase was started. See [the release record](CLOSER-VIEWS-RECORD.md) for verification and limits. Supported floors and vertical transport are next.
+**Latest delivery: v0.44.0 Emblems and Clarity.** Every buildable machine, recipe category and research branch now has an original stroke emblem drawn to one published contract, replacing the three-letter text stamps; the build catalogue gained a search box and a scroll affordance, the guide names material a hand can gather before it names a machine built from it, and the hub inspector says what to do rather than repeating mission control's prose. See [the release record](EMBLEMS-RECORD.md) for verification and limits. Flowing water is next; supported floors moved behind Living Lattice on 2026-08-29 so the player learns one level before the game asks them to think in levels.
 
 ### Current assessment — 2026-08-29
 
@@ -165,16 +165,16 @@ the factory.
 
 ## What to do next
 
-Phases 1 to 6 are **shipped**, through v0.43.0. Read the ledger for what they delivered. The rest of the approved sequence follows in order.
+Phases 1 to 7 are **shipped**, through v0.44.0. Read the ledger for what they delivered. The rest of the approved sequence follows in order.
 
-| Order | Work                                    | Scope and dependency                                                                                                                                                                          |
-| ----- | --------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 7     | Supported floors and vertical transport | Support classes, the first upper floor, stairs, belt lifts and a layer view, standing on phase 3's grades. Needs the beams and concrete phase 3 and 4 produce.                                |
-| 8     | Icon pass and integrated validation     | Generate and review the planned UI icon families once the visual contract is stable, then finish migration, accessibility and measured-performance acceptance across the whole workstream.    |
-| 9     | Flowing water                           | Water becomes an entity that sits on the ground and runs downhill, instead of a terrain band. Reads the phase 3 grades; supersedes the old fluid-network and water-reshaping horizon entries. |
-| 10    | Living Lattice                          | Animals, biomatter and waste as one ecological system. Reuses phase 4's joint-output costing. Brief below.                                                                                    |
-| 11    | The primitive human                     | The player gains needs and attributes. Depends on 9 and 10 for a food supply worth automating, and revises the skills budget rather than sitting beside it.                                   |
-| 12    | Regional Discovery                      | The play half of regional variation: survey tools, distant sites, outposts. Brief below.                                                                                                      |
+| Order | Work                                    | Scope and dependency                                                                                                                                                                               |
+| ----- | --------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 7     | Icon pass and integrated validation     | **Shipped as v0.44.0.** The emblem library covers buildings, recipe categories and branches under one contract; accessibility and the measured-capacity position are stated in the release record. |
+| 8     | Flowing water                           | Water becomes an entity that sits on the ground and runs downhill, instead of a terrain band. Reads the phase 3 grades; supersedes the old fluid-network and water-reshaping horizon entries.      |
+| 9     | Living Lattice                          | Animals, biomatter and waste as one ecological system. Reuses phase 4's joint-output costing. Brief below.                                                                                         |
+| 10    | Supported floors and vertical transport | Support classes, the first upper floor, stairs, belt lifts and a layer view, standing on phase 3's grades. Needs the beams and concrete phase 3 and 4 produce.                                     |
+| 11    | The primitive human                     | The player gains needs and attributes. Depends on flowing water and Living Lattice for a food supply worth automating, and revises the skills budget rather than sitting beside it.                |
+| 12    | Regional Discovery                      | The play half of regional variation: survey tools, distant sites, outposts. Brief below.                                                                                                           |
 
 These are delivery phases, not a single giant release, and a phase may ship as several versions.
 Do not start a later row in parallel with an earlier one unless the user changes priority; an unmet
@@ -184,91 +184,41 @@ Optional extensions stay optional: this sequence does not pull in underground st
 physical fluid network, every chemical candidate or every future skill merely because a brief
 mentions them.
 
-**Phase 7 entry work from the current assessment, not a new phase:**
+**Floors moved behind Living Lattice on 2026-08-29, at the user's direction.** The reason is player
+progression rather than engineering: the player should stay on one level long enough to actually
+learn the ground-level building systems already shipped — floors and surfaces, walls and enclosures,
+groundwork — before the game asks them to think in levels at all. A second storey is a new spatial
+concept on top of systems the player has not yet finished meeting, and phases 8 and 9 deepen the one
+level they are standing on. Nothing in the floors brief changed; only when it runs.
+
+**Entry work from the current assessment, not a new phase.** Items 1 and 3 belong to row 7, which is
+why the row leads with clarity as well as icons; items 2 and 4 belong to row 10 and are gates on it:
 
 1. Make guidance name the first executable action and remove the initial hub/mission duplication;
    add construction search and a visible narrow-dock overflow cue before the catalogue grows.
 2. Before level IDs widen native state, mechanically move the inline native tests and capacity
-   harness out of `lib.rs`, then extract only the occupancy/placement/transport slices Phase 7 has to
-   touch. Split the corresponding session/panel wiring out of `main.ts`. Preserve behavior,
-   checksum, save and wire at each step; this is not authority for a rewrite.
+   harness out of `lib.rs`, then extract only the occupancy/placement/transport slices the floors
+   row has to touch. Split the corresponding session/panel wiring out of `main.ts`. Preserve
+   behavior, checksum, save and wire at each step; this is not authority for a rewrite.
 3. State and test the supported save-migration window before the next envelope bump. A catalogue
    may keep diagnosing older files, but a player needs to know which recent release boundary is a
    promise rather than discovering it from a disabled Load button.
 4. Add a deterministic stacked-floor/lift capacity tier and rerun Low, Medium and High before a
    floor release. The current 6,144-entity record is already near the desktop gate.
 
-Rows 5, 6, 9 and 11 were added on 2026-08-28 at the user's direction. Their direction and priority
-are approved; the costs, rates and tuning hypotheses in their briefs are not, and still need the
-validation each brief names.
+Rows 5 and 6 (both shipped), flowing water and the primitive human were added on 2026-08-28 at the
+user's direction. Their direction and priority are approved; the costs, rates and tuning hypotheses
+in their briefs are not, and still need the validation each brief names.
 
 Masonry and the vertex lattice did not complete the enclosure work: roofs, rebar and steel frames
-remain, and they attach to row 7, because they are a structural system and the shipped row 6 was a
-geometry change.
+remain, and they attach to the floors row, because they are a structural system and the shipped row 6
+was a geometry change. That work waits with the floors row rather than moving ahead of it.
 
 Generated terrain height remains presentation-only; as of v0.38.0 the integer grade a player cuts or
 fills is native, checksummed state that walking, routing and building legality all read. Gameplay is
 otherwise two-dimensional: there are no floors above or below a hex, and no vertical transport.
 
-## Phase 7 — Supported floors and vertical transport
-
-A gated milestone after foundations, enclosure and native layer semantics. Start with ground plus
-one usable upper floor; expand only after it is legible and measured. The purpose is a compact
-factory, not a voxel building editor or a structural-collapse simulator.
-
-**The destination**, stated 2026-08-27, is a genuinely multi-level building: machines processing
-material on several floors, with belts moving that material both within a floor and between floors,
-inside one structure the player reads as a single works. Ground plus one floor with a working lift is
-the first shippable step. A machine occupying more than one level is a later extension of the same
-level-ID model — it reserves its footprint on every level it stands on, exposes intake and output on
-named levels, and never acquires implicit connections above or below.
-
-- **Logical levels:** position becomes an axial cell plus an explicit level ID. A cell on floor 1 is
-  not occupied by the machine at the same axial cell on floor 0. Foundation grade and floor index are
-  distinct facts. Existing two-row corner belts remain planar; they are not vertical lifts.
-- **Supports and loads:** definition-driven load classes and maximum spans. The preview states which
-  floor cells need columns and which machines are too heavy. Recalculate changed support regions on
-  edit, never all buildings every tick. Reject unsupported placement and the removal of a loaded
-  support; no surprise collapse, and no inventory lost to one.
-- **Floor openings:** stairs, lifts, columns and shafts reserve their full footprint and headroom
-  across affected levels. An apparently empty cell cannot hide a conflicting shaft above it.
-- **Belt lifts:** explicit intake/output endpoints join compiled graph edges across levels. Cargo,
-  progress, buffers, direction, capacity, duration and energy demand stay native, with identical
-  conservation and backpressure rules. A full destination leaves cargo at its source or in its
-  reserved in-transit slot.
-- **Failure and editing:** removing a loaded lift recovers its stock or refuses safely; a direction
-  change cannot teleport or duplicate cargo. Test multi-output arbitration and save/load with cargo
-  between floors. Existing underpasses must not acquire cross-level connections.
-- **Player access:** stairs first, elevators optional and later. Walking, reach, gathering,
-  construction and interaction all resolve the correct level — no reaching through a ceiling because
-  the axial distance happens to be small.
-- **Power and utilities:** adjacent axial positions on different floors do not connect implicitly.
-  Define explicit risers; pipes adopt them when fluid networks exist.
-- **Editing view:** active-floor selection, hide/fade above, ghosted context below, layer-aware
-  selection and clearly marked shaft destinations. Picking intersects the selected logical plane and
-  never derives authoritative height from a rendered mesh. Warnings and controls stay usable with
-  roofs on, at ordinary zoom, on Low quality, and in narrow layouts.
-
-**The structural half of the enclosure family lands here**, because it exists to carry a floor:
-
-| Family                            | Ingredients             | Structural role                              |
-| --------------------------------- | ----------------------- | -------------------------------------------- |
-| Reinforced concrete wall / column | Concrete + rebar        | Heavy decks and taller supported stacks      |
-| Steel frame and cladding          | Beams + plate or panels | Larger clear spans with explicit load limits |
-| Roof                              | Per material            | Cosmetic first, with automatic cutaway       |
-
-Higher floors, larger spans and heavier equipment are what should create demand for beams and rebar.
-Do not require reinforced concrete for the player's first small upper room. A roof does not create a
-walkable floor until the structural system exists, and keeps its appearance separate from movement
-blocking and load bearing. Underground strata stay a separate decision; designing level IDs does not
-commit the game to excavation.
-
-**Acceptance.** A useful stacked factory with no hidden routing, load and removal validation, full
-cargo conservation, and readability and performance evidence at the recorded tier. If one upper floor
-cannot be edited confidently at normal zoom, fix the layer view before expanding structural rules,
-floor count or scope.
-
-## Phase 8 — Icon pass and integrated validation
+## Phase 7 — Icon pass and integrated validation
 
 v0.30.0 supplies original code-native SVG emblems for the current technologies. Broader image
 families were deferred to here, once the visual contract is stable.
@@ -287,7 +237,7 @@ The validation half closes the workstream: migration, accessibility and measured
 acceptance across every row above, and a re-measured capacity ladder wherever the entity or world
 snapshot moved.
 
-## Phase 9 — Flowing water
+## Phase 8 — Flowing water
 
 Asked for on 2026-08-28: water should stop being a property of a cell and become its own thing —
 infinite sources that sit **on top of** a tile and run downhill into lower ones, in the spirit of
@@ -336,7 +286,7 @@ generates a chunk, proven by a test that walks water to the frontier. The capaci
 re-measured with a large active front, and the claim is the measured tier and nothing beyond it. The
 pump draws from player-made water as readily as from a river, and says which it is drawing from.
 
-## Phase 10 — Living Lattice
+## Phase 9 — Living Lattice
 
 Formerly reserved for v0.26; its release number is unassigned. Its ecological scope is preserved.
 
@@ -394,6 +344,64 @@ was withdrawn on 2026-08-27 with the rest of that debt; ecology no longer waits 
   measured fixture analogous to the world survey.
 - The native capacity ladder and complete browser frame are re-measured if the entity or world
   snapshot changes. No claim beyond the measured tier.
+
+## Phase 10 — Supported floors and vertical transport
+
+A gated milestone after foundations, enclosure and native layer semantics. Start with ground plus
+one usable upper floor; expand only after it is legible and measured. The purpose is a compact
+factory, not a voxel building editor or a structural-collapse simulator.
+
+**The destination**, stated 2026-08-27, is a genuinely multi-level building: machines processing
+material on several floors, with belts moving that material both within a floor and between floors,
+inside one structure the player reads as a single works. Ground plus one floor with a working lift is
+the first shippable step. A machine occupying more than one level is a later extension of the same
+level-ID model — it reserves its footprint on every level it stands on, exposes intake and output on
+named levels, and never acquires implicit connections above or below.
+
+- **Logical levels:** position becomes an axial cell plus an explicit level ID. A cell on floor 1 is
+  not occupied by the machine at the same axial cell on floor 0. Foundation grade and floor index are
+  distinct facts. Existing two-row corner belts remain planar; they are not vertical lifts.
+- **Supports and loads:** definition-driven load classes and maximum spans. The preview states which
+  floor cells need columns and which machines are too heavy. Recalculate changed support regions on
+  edit, never all buildings every tick. Reject unsupported placement and the removal of a loaded
+  support; no surprise collapse, and no inventory lost to one.
+- **Floor openings:** stairs, lifts, columns and shafts reserve their full footprint and headroom
+  across affected levels. An apparently empty cell cannot hide a conflicting shaft above it.
+- **Belt lifts:** explicit intake/output endpoints join compiled graph edges across levels. Cargo,
+  progress, buffers, direction, capacity, duration and energy demand stay native, with identical
+  conservation and backpressure rules. A full destination leaves cargo at its source or in its
+  reserved in-transit slot.
+- **Failure and editing:** removing a loaded lift recovers its stock or refuses safely; a direction
+  change cannot teleport or duplicate cargo. Test multi-output arbitration and save/load with cargo
+  between floors. Existing underpasses must not acquire cross-level connections.
+- **Player access:** stairs first, elevators optional and later. Walking, reach, gathering,
+  construction and interaction all resolve the correct level — no reaching through a ceiling because
+  the axial distance happens to be small.
+- **Power and utilities:** adjacent axial positions on different floors do not connect implicitly.
+  Define explicit risers; pipes adopt them when fluid networks exist.
+- **Editing view:** active-floor selection, hide/fade above, ghosted context below, layer-aware
+  selection and clearly marked shaft destinations. Picking intersects the selected logical plane and
+  never derives authoritative height from a rendered mesh. Warnings and controls stay usable with
+  roofs on, at ordinary zoom, on Low quality, and in narrow layouts.
+
+**The structural half of the enclosure family lands here**, because it exists to carry a floor:
+
+| Family                            | Ingredients             | Structural role                              |
+| --------------------------------- | ----------------------- | -------------------------------------------- |
+| Reinforced concrete wall / column | Concrete + rebar        | Heavy decks and taller supported stacks      |
+| Steel frame and cladding          | Beams + plate or panels | Larger clear spans with explicit load limits |
+| Roof                              | Per material            | Cosmetic first, with automatic cutaway       |
+
+Higher floors, larger spans and heavier equipment are what should create demand for beams and rebar.
+Do not require reinforced concrete for the player's first small upper room. A roof does not create a
+walkable floor until the structural system exists, and keeps its appearance separate from movement
+blocking and load bearing. Underground strata stay a separate decision; designing level IDs does not
+commit the game to excavation.
+
+**Acceptance.** A useful stacked factory with no hidden routing, load and removal validation, full
+cargo conservation, and readability and performance evidence at the recorded tier. If one upper floor
+cannot be edited confidently at normal zoom, fix the layer view before expanding structural rules,
+floor count or scope.
 
 ## Phase 11 — The primitive human
 
@@ -551,6 +559,7 @@ both test suites say so.
 One line per release, newest first. The reasoning behind a shipped rule lives in the git history of
 this file and in the code that implements it; what follows is the index.
 
+- **v0.44.0** Emblems and Clarity — One emblem library under a published contract: 32×32, `currentColor`, straight-on elevation, ink inside 3–29 on a shared ground line, no baked colour and no baked text. It covers every buildable machine, every recipe category and all twelve branches, and a tier resolves to its base drawing with the rank as a UI badge, so the three-letter stamps are gone from the catalogue, the dock and the recipe rows. The build catalogue gained a search that looks past progressive disclosure, the tool shelf gained a scroll affordance, the guide names hand-gatherable material before the machine built from it, and the hub inspector says what to do instead of repeating the stage brief. Presentation only: no emblem key reaches a save, a checksum, a native definition or the wire, and every envelope is unchanged at save 34 / definitions 26 / technologies 15 / scenarios 7 / world 10 / wire 18.
 - **v0.43.0** Closer Views and Field Survey — The scene camera orbits in twelve 30-degree stops rather than six 60-degree ones, at the same turning rate, and zooms in to 4× so one machine and the hexes under it can be read. Field Survey is a third one-point skill: it opens a second ring of chunks around wherever the player reaches, derived from the purchased set rather than stored beside it, and paid out the moment it is learned. Save 34 / technologies 15; definitions, scenarios, world and wire unchanged, and a version-33 save simply gains the skill unlearned.
 - **v0.42.0** Straight Walls and Yards — Boundaries move from canonical hex edges to the vertex lattice: a segment is a chord of one hex between two of its corners, twelve headings run dead straight, and off-heading runs staircase to the far end within half a hex. A rectangular yard closes from two picked corners, and Ground works takes the same two corners to pave every hex the rectangle touches. Every v0.37/v0.39 boundary loads in place through a `direction` alias with no migration pass. Save 33 / wire 18; definitions, technologies, scenarios and world unchanged.
 - **v0.41.0** Handling and Clarity — Pointer stack dragging, automatic pack opening, named static belt-target refusals, confirmed carry-and-spill demolition, and continuous world-space paving. All envelopes unchanged; 625-cell Low rendering measurement committed.

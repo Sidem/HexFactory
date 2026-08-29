@@ -492,6 +492,11 @@ canvas {
   opacity: 0.62;
   cursor: not-allowed;
 }
+/* Locked keeps its emblem — a player deciding what to research next needs to recognise the machine
+   they cannot build yet. The plate goes dashed instead, so the state is still readable at a glance. */
+.build-card.locked .build-stamp {
+  border-style: dashed;
+}
 .build-card.unaffordable .build-cost .ingredient-list {
   color: #ff9e9b;
 }
@@ -500,18 +505,59 @@ canvas {
   align-items: center;
   gap: 9px;
 }
-.build-stamp {
+/*
+ * The fixed emblem box, shared by every family `src/rendering/emblems.ts` draws.
+ *
+ * Fixed is the whole point. A box that resizes to its artwork means redrawing one emblem reflows
+ * the card it sits on, so the size is declared here once and every drawing is fitted into it. The
+ * accent arrives as `--emblem-color` and the SVG inherits it through `currentColor`, which is why
+ * no drawing carries a colour of its own.
+ */
+.emblem {
+  position: relative;
   display: grid;
-  flex: 0 0 32px;
+  flex: 0 0 var(--emblem-size, 32px);
   place-items: center;
-  height: 32px;
-  border: 1px solid var(--stamp-color, #8fd4ff);
-  border-radius: 7px;
-  background: color-mix(in srgb, var(--stamp-color, #8fd4ff) 22%, #08130f);
-  color: #f2fbf7;
-  font-size: 0.62rem;
+  width: var(--emblem-size, 32px);
+  height: var(--emblem-size, 32px);
+  color: var(--emblem-color, #8fd4ff);
+}
+.emblem > svg {
+  width: 76%;
+  height: 76%;
+}
+/* A rank is an overlay, never baked into the drawing — Extractor II is the extractor plus a badge,
+   so the two tiers stay recognisably the same machine. */
+.emblem-rank {
+  position: absolute;
+  right: -2px;
+  bottom: -3px;
+  padding: 0 2px;
+  border-radius: 4px;
+  background: #06110eee;
+  color: var(--emblem-color, #8fd4ff);
+  font-size: 0.48rem;
   font-style: normal;
-  font-weight: 900;
+  font-weight: 800;
+  line-height: 1.4;
+}
+/* The fallback: a generic plate plus the definition's own short text. Never a blank button. */
+.emblem-generic > svg {
+  opacity: 0.45;
+}
+.emblem-generic::after {
+  content: attr(data-text);
+  position: absolute;
+  color: #eef8f3;
+  font-size: 0.44rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+}
+.build-stamp {
+  --emblem-size: 32px;
+  border: 1px solid var(--emblem-color, #8fd4ff);
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--emblem-color, #8fd4ff) 18%, #08130f);
 }
 .build-card-title {
   display: grid;
@@ -712,6 +758,13 @@ canvas {
 .recipe-row.chosen {
   border-color: var(--gold);
   background: #1a1c12b0;
+}
+/* The category emblem says what kind of process this row is, which matters on the stations that run
+   more than one: a workshop offering assembly and cutting reads as two different jobs at a glance
+   rather than as two rows of chips that happen to differ. */
+.recipe-emblem {
+  --emblem-size: 18px;
+  flex: 0 0 18px;
 }
 .recipe-arrow {
   color: var(--gold);
@@ -1734,12 +1787,6 @@ canvas {
   opacity: 0.45;
   cursor: not-allowed;
 }
-.inspect-hub-brief {
-  grid-column: 1 / -1;
-  color: #b9ccc5;
-  font-size: 0.68rem;
-  line-height: 1.4;
-}
 .placement-readout {
   min-height: 1.3em;
   margin: 6px 0 0;
@@ -2728,15 +2775,74 @@ canvas {
   padding-right: 7px;
   border-right: 1px solid #3c534d;
 }
+/*
+ * The shelf scrolls sideways when the dock is wider than the window allows, and it used to do so
+ * with the scrollbar explicitly hidden and nothing in its place: on a narrow layout the last slots
+ * and the catalogue opener simply were not there, with no sign that anything had been cut off. A
+ * control the player cannot find is the same defect as a control that does not exist.
+ *
+ * So the hidden bar is replaced by cues that say the same thing better. The edge that has more
+ * content behind it fades, and a nudge button appears on that side; both are driven by
+ * `overflow-start` / `overflow-end` on the dock, which `main.ts` sets from the real scroll position.
+ * When the shelf fits, none of this is visible and the dock looks exactly as it did.
+ */
 .tool-shelf {
   display: flex;
   gap: 5px;
   min-width: 0;
   overflow-x: auto;
+  scroll-behavior: smooth;
   scrollbar-width: none;
 }
 .tool-shelf::-webkit-scrollbar {
   display: none;
+}
+.build-dock.overflow-start .tool-shelf {
+  mask-image: linear-gradient(90deg, #0000, #000 26px);
+}
+.build-dock.overflow-end .tool-shelf {
+  mask-image: linear-gradient(270deg, #0000, #000 26px);
+}
+.build-dock.overflow-start.overflow-end .tool-shelf {
+  mask-image: linear-gradient(
+    90deg,
+    #0000,
+    #000 26px,
+    #000 calc(100% - 26px),
+    #0000
+  );
+}
+/* Outside the toolbar's own child list on purpose: these nudge the view, they are not build tools,
+   and they must not join the roving order a player arrows through to pick one. */
+.shelf-nudge {
+  position: absolute;
+  z-index: 2;
+  top: 8px;
+  bottom: 8px;
+  display: none;
+  place-items: center;
+  width: 20px;
+  padding: 0;
+  border: 1px solid #4a625c;
+  border-radius: 7px;
+  background: #0d1c19f2;
+  color: #cfe6de;
+  font-size: 0.72rem;
+  line-height: 1;
+}
+.shelf-nudge:hover {
+  border-color: var(--gold);
+  color: var(--gold);
+}
+.shelf-nudge[data-nudge="back"] {
+  left: 4px;
+}
+.shelf-nudge[data-nudge="forward"] {
+  right: 4px;
+}
+.build-dock.overflow-start .shelf-nudge[data-nudge="back"],
+.build-dock.overflow-end .shelf-nudge[data-nudge="forward"] {
+  display: grid;
 }
 /* The four fixed tools are narrower than a dock button, because the bar now has to carry nine
    slots and the catalogue opener beside them and still fit a 1440-wide window without scrolling. */
@@ -2769,7 +2875,10 @@ canvas {
 .build-dock .hotbar-slot > small {
   display: none;
 }
+/* A pinned building draws its emblem here; a pinned tool keeps its text glyph, which is the useful
+   distinction — one is a machine you are about to place, the other is a mode you are about to enter. */
 .build-dock .hotbar-slot > span {
+  --emblem-size: 22px;
   font-size: 0.72rem;
 }
 .hotbar-key {
@@ -3106,9 +3215,47 @@ canvas {
 }
 
 /* Progressive disclosure: the control that says what is being held back, and hands it over. */
+/*
+ * Finding a building in the catalogue.
+ *
+ * Thirty definitions across five groups is past the point where scanning is a reasonable ask, and
+ * the reach/everything toggle answers a different question — what is *available* — not "where is
+ * the crusher". Search matches name, description and group, so a player who half-remembers what a
+ * machine does can still reach it, and it deliberately looks past the reach filter: typing a name
+ * is an explicit request for that thing, and hiding it because it is locked would be answering a
+ * question nobody asked.
+ */
+.build-find {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+#build-search {
+  width: 100%;
+  padding: 0.4rem 0.6rem;
+  border: 1px solid #35524b;
+  border-radius: 9px;
+  background: #0a1815d0;
+  color: #e6f4ee;
+  font-size: 0.74rem;
+}
+#build-search::placeholder {
+  color: #6f8c84;
+}
+#build-search:focus-visible {
+  border-color: var(--gold);
+  outline: none;
+}
+.build-empty {
+  margin: 0 0 10px;
+  color: var(--muted);
+  font-size: 0.74rem;
+}
+.build-empty[hidden] {
+  display: none;
+}
 .scope-toggle {
   width: 100%;
-  margin-bottom: 10px;
   padding: 0.4rem 0.6rem;
   border: 1px dashed #4a625c;
   border-radius: 9px;

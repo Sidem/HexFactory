@@ -262,8 +262,19 @@ describe("guidance derived from the rules rather than scripted against them", ()
 
       if (guidance.key.startsWith("gather:")) {
         // Gathering is always available to a player with a free slot, which is the state the loop
-        // is in here.
-        state.inventory = { ...state.inventory, "1": 8, "8": 8 };
+        // is in here — but only for something a hand can actually take out of the ground, so the
+        // step has to name a real raw item and the walk only banks what that step named.
+        const key = guidance.key.slice("gather:".length);
+        const item = definitions.items.find((value) => value.key === key);
+        expect(item, `guidance named an unknown item ${key}`).toBeDefined();
+        if (!item) break;
+        expect(CRAFTED.has(item.id)).toBe(false);
+        state.inventory = {
+          ...state.inventory,
+          "1": 8,
+          "8": 8,
+          [String(item.id)]: 8,
+        };
         continue;
       }
 
@@ -345,7 +356,10 @@ describe("guidance derived from the rules rather than scripted against them", ()
     const kiln = seen.indexOf("build:kiln");
     expect(processing).toBeGreaterThanOrEqual(0);
     expect(kiln).toBeGreaterThan(processing);
-    expect(seen[0]).toBe("build:primitive-furnace");
+    // The first step is the one the player's own hands can take. Naming the furnace before the ore
+    // it is built from would be naming a step the rules refuse.
+    expect(seen[0]).toBe("gather:stone");
+    expect(seen.indexOf("build:primitive-furnace")).toBeGreaterThan(0);
     expect(seen.indexOf("build:manual-workshop")).toBeGreaterThan(0);
     expect(seen.indexOf("workshop")).toBeLessThan(processing);
   });
@@ -422,9 +436,17 @@ describe("guidance derived from the rules rather than scripted against them", ()
       stage: 1,
       researched: [1, 2, 3, 4, 5, 8],
       insight: 0,
-      inventory: {},
+      inventory: {} as Record<string, number>,
       buildings: [{ definition_id: 28, kind: "composer" }],
     };
+    // Empty-handed, the furnace is not yet a step the player can take: it is built from material
+    // nothing on the map produces yet, so the guide names the material rather than the machine.
+    expect(nextAction(snapshotAt(state), definitions, technologies).key).toBe(
+      "gather:ore",
+    );
+    // Ore for the plate the contract wants, stone and clay for the furnace itself. With the whole
+    // bill in hand the machine is finally the next thing the player can actually do.
+    state.inventory = { "1": 20, "6": 20, "8": 20 };
     expect(nextAction(snapshotAt(state), definitions, technologies).key).toBe(
       "build:primitive-furnace",
     );

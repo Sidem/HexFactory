@@ -91,6 +91,15 @@ import {
   type GraphicsProfile,
   type RendererDiagnostics,
 } from "./rendering/FactoryRenderer";
+import {
+  buildingEmblemSvg,
+  clearEmblem,
+  emblemRank,
+  hasBuildingEmblem,
+  paintEmblem,
+  recipeCategoryAccent,
+  recipeCategoryEmblemSvg,
+} from "./rendering/emblems";
 import { itemIconSvg } from "./rendering/icons";
 import {
   createItemChip,
@@ -566,6 +575,9 @@ const DEFAULT_HOTBAR: (Tool | null)[] = [28, 27, 2, 4, 1, 3, 12, 13, 8];
 let hotbar: (Tool | null)[] = loadHotbar();
 /** Panel scope, not game state: which side of progressive disclosure each catalogue is showing. */
 let showAllBuildings = false;
+/** The live catalogue search. Panel state, deliberately not persisted: a filter that survives a
+    reload is a catalogue that looks broken until the player notices the box. */
+let buildSearch = "";
 /** The slot a drag is currently over, so the drop target can be shown before the pointer lands. */
 let hotbarDragOver: number | null = null;
 
@@ -1164,7 +1176,7 @@ function renderHotbarSlots(): void {
       delete button.dataset.tool;
       button.disabled = false;
       button.classList.remove("active", "unaffordable", "locked");
-      part(button, "span").textContent = "";
+      clearEmblem(part(button, "span")).textContent = "";
       part(button, "small").textContent = "Empty";
       button.title = `Slot ${slot + 1} is empty — pin something from the build catalogue (B)`;
       button.setAttribute("aria-label", `Hotbar slot ${slot + 1}, empty`);
@@ -1182,9 +1194,7 @@ function renderHotbarSlots(): void {
       button.disabled = availability.locked;
       button.classList.toggle("unaffordable", !availability.affordable);
       button.classList.toggle("locked", availability.locked);
-      part(button, "span").textContent = availability.locked
-        ? "◇"
-        : definition.icon;
+      paintBuildingEmblem(part(button, "span"), definition);
       part(button, "small").textContent = definition.name;
       button.title = availability.locked
         ? `${definition.name} — locked by research`
@@ -1197,7 +1207,9 @@ function renderHotbarSlots(): void {
     }
     button.disabled = false;
     button.classList.remove("unaffordable", "locked");
-    part(button, "span").textContent = fixed?.icon ?? "?";
+    // A pinned tool keeps its text glyph rather than borrowing a machine emblem: a mode you enter
+    // and a machine you place are different kinds of thing, and the bar should say which is which.
+    clearEmblem(part(button, "span")).textContent = fixed?.icon ?? "?";
     part(button, "small").textContent = fixed?.name ?? String(value);
     button.title = fixed?.name ?? String(value);
     button.setAttribute(
@@ -1282,22 +1294,52 @@ function catalogueVisible(
   return (reach.get(technology) ?? Number.MAX_SAFE_INTEGER) <= DISCLOSURE_REACH;
 }
 
-function renderBuildPanel(): void {
-  const root = required<HTMLDivElement>("build-groups");
-  const buildable = host.definitions.buildings.filter(
-    (definition) => definition.buildable,
-  );
-  const reach = technologyReach();
-  const hidden = buildable.filter(
-    (definition) => !catalogueVisible(definition, reach),
-  ).length;
+/**
+ * Whether a search names this definition.
+ *
+ * Description and group are searched as well as the name, because the player who needs search most
+ * is the one who remembers what a machine *does* — "crush", "power", "under" — rather than what it
+ * is called.
+ */
+function buildMatches(
+  definition: BuildingDefinition,
+  group: (typeof BUILD_GROUPS)[number],
+  query: string,
+): boolean {
+  return `${definition.name} ${definition.description} ${group.title} ${group.blurb}`
+    .toLowerCase()
+    .includes(query);
+}
+
+/**
+ * A search looks past progressive disclosure: typing a name is an explicit request for that
+ * machine, and answering it with silence because the machine is still locked would be answering a
+ * question nobody asked. The reach toggle would then be a control with no effect, so it steps out
+ * of the way until the box is empty again.
+ */
+function renderBuildScope(hidden: number, query: string): void {
   const scope = required<HTMLButtonElement>("build-scope");
+  scope.hidden = query.length > 0;
   scope.textContent = showAllBuildings
     ? "Show what is in reach"
     : hidden > 0
       ? `Show everything (${hidden} locked)`
       : "Show everything";
   scope.setAttribute("aria-pressed", String(showAllBuildings));
+}
+
+function renderBuildPanel(): void {
+  const root = required<HTMLDivElement>("build-groups");
+  const buildable = host.definitions.buildings.filter(
+    (definition) => definition.buildable,
+  );
+  const reach = technologyReach();
+  const query = buildSearch.trim().toLowerCase();
+  renderBuildScope(
+    buildable.filter((definition) => !catalogueVisible(definition, reach))
+      .length,
+    query,
+  );
   if (!root.childElementCount)
     for (const group of BUILD_GROUPS) {
       const section = document.createElement("section");
@@ -1306,15 +1348,20 @@ function renderBuildPanel(): void {
       section.innerHTML = `<h3>${group.title}</h3><p>${group.blurb}</p><div class="build-cards"></div>`;
       root.append(section);
     }
+  let shown = 0;
   for (const group of BUILD_GROUPS) {
     const section = root.querySelector<HTMLElement>(
       `[data-group="${group.key}"]`,
     );
     if (!section) continue;
-    const definitions = buildable.filter(
-      (definition) =>
-        group.holds(definition) && catalogueVisible(definition, reach),
+    const definitions = buildable.filter((definition) =>
+      group.holds(definition)
+        ? query
+          ? buildMatches(definition, group, query)
+          : catalogueVisible(definition, reach)
+        : false,
     );
+    shown += definitions.length;
     section.hidden = definitions.length === 0;
     const cards = syncChildren(
       part<HTMLElement>(section, ".build-cards"),
@@ -1326,6 +1373,12 @@ function renderBuildPanel(): void {
       if (card) fillBuildCard(card, definition);
     });
   }
+  // An empty catalogue that says nothing reads as a broken panel. Say which search emptied it.
+  const empty = required<HTMLParagraphElement>("build-empty");
+  empty.hidden = shown > 0;
+  empty.textContent = query
+    ? `Nothing in the catalogue matches “${buildSearch.trim()}”.`
+    : "Nothing to build yet.";
 }
 
 function createBuildCard(key: string): HTMLElement {
@@ -1360,6 +1413,29 @@ function heldOrientationFor(definition: BuildingDefinition): number {
   return definition.id === tool ? orientation : 0;
 }
 
+/**
+ * Draw a building's emblem into a fixed box.
+ *
+ * One function, so the catalogue card and the hotbar slot cannot drift apart: a machine has to look
+ * the same in both places, or the pin a player just made is unrecognisable on the bar a second
+ * later. Tier rides as a rank badge rather than as a second drawing, so Extractor II is visibly the
+ * extractor. A definition the emblem library has never seen falls back to the generic plate
+ * carrying that definition's own short code — adding a building to `definitions.json` yields a
+ * plain button, never an empty one.
+ */
+function paintBuildingEmblem(
+  box: HTMLElement,
+  definition: BuildingDefinition,
+): void {
+  paintEmblem(box, {
+    key: definition.key,
+    markup: buildingEmblemSvg(definition.key),
+    accent: BUILDING_COLORS[definition.kind] ?? "#8fd4ff",
+    rank: emblemRank(definition.tier),
+    text: hasBuildingEmblem(definition.key) ? undefined : definition.icon,
+  });
+}
+
 function fillBuildCard(
   card: HTMLElement,
   definition: BuildingDefinition,
@@ -1374,12 +1450,7 @@ function fillBuildCard(
   card.classList.toggle("unaffordable", !availability.affordable);
   card.classList.toggle("active", definition.id === tool);
   card.classList.toggle("pinned", hotbar.includes(definition.id));
-  const stamp = part<HTMLElement>(card, ".build-stamp");
-  stamp.textContent = availability.locked ? "◇" : definition.icon;
-  stamp.style.setProperty(
-    "--stamp-color",
-    BUILDING_COLORS[definition.kind] ?? "#8fd4ff",
-  );
+  paintBuildingEmblem(part<HTMLElement>(card, ".build-stamp"), definition);
   part(card, "strong").textContent = definition.name;
   part(card, ".build-card-copy").textContent = definition.description;
 
@@ -1512,7 +1583,7 @@ function renderCardRecipes(
       row.type = "button";
       row.className = "recipe-row";
       row.innerHTML =
-        '<span class="ingredient-list recipe-in"></span><i class="recipe-arrow" aria-hidden="true">→</i><span class="ingredient-list recipe-out"></span><small class="recipe-meta"></small>';
+        '<i class="recipe-emblem"></i><span class="ingredient-list recipe-in"></span><i class="recipe-arrow" aria-hidden="true">→</i><span class="ingredient-list recipe-out"></span><small class="recipe-meta"></small>';
       return row;
     },
   );
@@ -1523,6 +1594,11 @@ function renderCardRecipes(
     row.dataset.definitionId = String(definition.id);
     row.dataset.recipeId = String(recipe.id);
     row.classList.toggle("chosen", recipe.id === chosen);
+    paintEmblem(part<HTMLElement>(row, ".recipe-emblem"), {
+      key: recipe.category,
+      accent: recipeCategoryAccent(recipe.category),
+      markup: recipeCategoryEmblemSvg(recipe.category),
+    });
     // Inputs are a quantity the player may be expected to supply — early machines are hand-fed
     // through Put long before a belt reaches them — so they are priced against the pack. The
     // output is a result and is only ever an amount.
@@ -2150,10 +2226,25 @@ function renderInspectorHub(building: EntitySnapshot | undefined): void {
     contract.complete
       ? `${contract.name} complete`
       : `${contract.name} · stage ${contract.stage + 1} of ${contract.stages}`;
-  required<HTMLElement>("inspect-hub-contract-note").textContent =
-    contract.complete
-      ? "The hub project is complete. Standing requests remain open for research insight."
-      : contract.stage_brief;
+  // Not the stage brief. Mission control already carries that paragraph word for word, and a new
+  // player's first two panels reading identically is the duplication the v0.43 audit called out —
+  // it costs a screenful and teaches that one of the two panels is redundant. What the inspector
+  // can say that mission control cannot is whether the pack in the player's hands is any use here,
+  // because this is the object the delivery actually happens at. The brief stays one press away.
+  const wanted = contract.requirements.some(
+    (need) =>
+      need.required > need.delivered &&
+      (snapshot.player.inventory[String(need.item_id)] ??
+        snapshot.player.inventory[need.item_id] ??
+        0) > 0,
+  );
+  const contractNote = required<HTMLElement>("inspect-hub-contract-note");
+  contractNote.textContent = contract.complete
+    ? "The hub project is complete. Standing requests remain open for research insight."
+    : wanted
+      ? "You are carrying material this stage wants. Deliver it below."
+      : "Nothing in your pack fits this stage yet. Mission control (M) has the brief.";
+  contractNote.title = contract.complete ? "" : contract.stage_brief;
   const contractList = required<HTMLElement>("inspect-hub-contract");
   const contractRows = syncChildren(
     contractList,
@@ -2207,7 +2298,10 @@ function renderInspectorHub(building: EntitySnapshot | undefined): void {
     () => {
       const row = document.createElement("li");
       row.className = "inspect-hub-line";
-      row.innerHTML = `<span class="inspect-hub-item chip-host"></span><span class="inspect-hub-price"></span><button type="button" class="inspect-hub-deliver">Deliver</button><small class="inspect-hub-brief"></small>`;
+      // No brief line. The same sentence is already printed against the same request in mission
+      // control, and here it pushed the Deliver button — the only thing this panel can do that the
+      // other cannot — down the list. It rides on the row's tooltip instead, so nothing is lost.
+      row.innerHTML = `<span class="inspect-hub-item chip-host"></span><span class="inspect-hub-price"></span><button type="button" class="inspect-hub-deliver">Deliver</button>`;
       return row;
     },
   );
@@ -2233,7 +2327,7 @@ function renderInspectorHub(building: EntitySnapshot | undefined): void {
     });
 
     part(row, ".inspect-hub-price").textContent = `+${request.insight} ◆`;
-    part(row, ".inspect-hub-brief").textContent = request.brief;
+    row.title = request.brief;
 
     const button = part<HTMLButtonElement>(row, ".inspect-hub-deliver");
     button.dataset.itemId = String(request.item_id);
@@ -2834,6 +2928,64 @@ required<HTMLButtonElement>("build-scope").addEventListener("click", () => {
   showAllBuildings = !showAllBuildings;
   renderBuildPanel();
 });
+/*
+ * The dock's overflow cues.
+ *
+ * The shelf has always scrolled sideways on a narrow window with its scrollbar hidden, so slots and
+ * the catalogue opener could be off the edge with nothing saying so. This measures the real scroll
+ * position and lets the stylesheet fade the edge that has content behind it and reveal the matching
+ * nudge. Measurement, not a guess at a breakpoint: the dock's width depends on how many slots are
+ * filled and on the window, and a breakpoint would be wrong on one of those the moment it is right
+ * on the other.
+ */
+{
+  const shelf = required<HTMLDivElement>("tool-shelf");
+  const dock = shelf.closest<HTMLElement>(".build-dock");
+  const update = (): void => {
+    if (!dock) return;
+    const slack = shelf.scrollWidth - shelf.clientWidth;
+    dock.classList.toggle("overflow-start", shelf.scrollLeft > 2);
+    dock.classList.toggle("overflow-end", shelf.scrollLeft < slack - 2);
+  };
+  shelf.addEventListener("scroll", update, { passive: true });
+  // Width is the only thing that moves the answer. The shelf always carries the same nine slots and
+  // the same fixed tools, so its content width is settled at load; what changes is how much room
+  // the window leaves it, and that is exactly what a resize observer reports. Watching content
+  // instead would re-measure on every repaint of a caption, which is a forced layout per frame in
+  // exchange for a fact that cannot have changed.
+  new ResizeObserver(update).observe(shelf);
+  for (const nudge of document.querySelectorAll<HTMLButtonElement>(
+    ".shelf-nudge",
+  ))
+    nudge.addEventListener("click", () => {
+      shelf.scrollBy({
+        left: nudge.dataset.nudge === "back" ? -160 : 160,
+        behavior: "smooth",
+      });
+    });
+  update();
+}
+{
+  const search = required<HTMLInputElement>("build-search");
+  search.addEventListener("input", () => {
+    buildSearch = search.value;
+    renderBuildPanel();
+  });
+  // Escape in a filled box clears the filter: a player who has just typed one is asking to undo it,
+  // not to leave. In an empty box it hands the keyboard back to the world, so the next Escape
+  // closes the panel the way it does everywhere else — a focused text field otherwise swallows
+  // Escape completely, and a panel that will not close is the more surprising of the two.
+  search.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape") return;
+    if (search.value === "") {
+      search.blur();
+      return;
+    }
+    search.value = "";
+    buildSearch = "";
+    renderBuildPanel();
+  });
+}
 required<HTMLButtonElement>("reset").addEventListener("click", () => {
   input.clear();
   void host

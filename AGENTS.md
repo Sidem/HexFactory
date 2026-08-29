@@ -4,15 +4,19 @@ HexFactory is a browser factory-automation game. Player experience is the tiebre
 native ownership, sparse cost, and measured claims exist to keep a large living factory responsive
 and trustworthy.
 
-Current release: **v0.43.0 Closer Views and Field Survey** — the diorama camera turns in twelve
-30-degree stops and zooms in to a single machine, and a third player skill widens how far the world
-is surveyed around you, on the shipped straight-wall and petroleum work. Envelopes: save 34,
-definitions 26, technologies 15, scenarios 7, world 10, wire 18. A version-33 save gains the new
-skill unlearned; a v0.37/v0.39 boundary still loads in place through a `direction` serde alias.
+Current release: **v0.44.0 Emblems and Clarity** — one emblem library, under a contract published at
+the top of `src/rendering/emblems.ts`, draws every buildable machine, recipe category and research
+branch; the build catalogue gained search and a shelf affordance, and the guide and hub inspector
+say what to do rather than repeating prose. Presentation only: no emblem key reaches a save, a
+checksum, a native definition or the wire. Envelopes are unchanged — save 34, definitions 26,
+technologies 15, scenarios 7, world 10, wire 18 — so every save the previous release loaded still
+loads, unmigrated.
 
-Next work is the numbered phase table in `docs/HEXFACTORY-PLAN.md#what-to-do-next`: supported
-floors and vertical transport. Release numbers after v0.43.0 are
-unassigned. Do not reorder those phases without the user.
+Next work is the numbered phase table in `docs/HEXFACTORY-PLAN.md#what-to-do-next`: flowing water.
+Release numbers after v0.44.0 are unassigned. Do not reorder those phases without the user. On
+2026-08-29 the user moved supported floors and vertical transport from row 7 to row 10, behind
+flowing water and Living Lattice, so the player learns the shipped ground-level systems before the
+game asks them to think in levels.
 
 ## Localize before reading
 
@@ -100,7 +104,7 @@ next work is `docs/HEXFACTORY-PLAN.md`; measured evidence is `docs/BENCHMARKS.md
 milestone collapses to one ledger line in the plan and its brief is deleted — the detail lives in
 git history and in the code. At most one release record may exist at a time, for the milestone
 currently in flight; it is deleted when the next one ships. Today that is
-`docs/CLOSER-VIEWS-RECORD.md`. `README.md` is the only player-facing document.
+`docs/EMBLEMS-RECORD.md`. `README.md` is the only player-facing document.
 
 ## Evidence behind the context policy
 

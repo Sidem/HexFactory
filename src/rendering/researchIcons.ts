@@ -68,7 +68,9 @@ export function researchBranchColor(branch: string): string {
         plumbing: "#7cdacb",
         electricity: "#efd27c",
         chemistry: "#c5a5e8",
-        "field-capabilities": "#c6adeb",
+        carrying: "#c6adeb",
+        construction: "#e0b48a",
+        surveying: "#8fd4ff",
       } as Record<string, string>
     )[branch] ?? "#a9c4c0"
   );

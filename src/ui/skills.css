@@ -93,18 +93,22 @@ dialog.glass-panel.skills-panel::backdrop {
 }
 .skill-card-top {
   display: flex;
-  align-items: start;
-  justify-content: space-between;
-  gap: 12px;
+  align-items: center;
+  gap: 8px;
   font-size: 0.65rem;
   line-height: 1.5;
+}
+.skill-branch-emblem {
+  --emblem-size: 18px;
 }
 .skill-branch {
   text-transform: uppercase;
   letter-spacing: 0.08em;
   color: #b5ccc6;
 }
+/* The state stays hard right; the emblem and its label travel together on the left. */
 .skill-state {
+  margin-left: auto;
   text-align: right;
   color: #cbd9d5;
 }

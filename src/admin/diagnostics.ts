@@ -11,6 +11,7 @@ import type {
   Technologies,
   TechnologyDefinition,
 } from "../core/types";
+import { emblemBaseKey, hasBuildingEmblem } from "../rendering/emblems";
 import { isItemIconKey } from "../rendering/icons";
 import { recipeOutputs } from "../core/recipes";
 import type { ValidationIssue } from "./types";
@@ -187,6 +188,21 @@ export function runDiagnostics(
       });
     }
     buildingKeys.set(building.key, building.id);
+
+    // A machine with no emblem still draws — the library falls back to a plate and the definition's
+    // own short text — but it is the one card in the catalogue the player has to read rather than
+    // recognise. Worth saying out loud when a new machine is added.
+    if (building.buildable && !hasBuildingEmblem(building.key)) {
+      issues.push({
+        id: `missing-building-emblem-${building.id}`,
+        severity: "warning",
+        category: "Rendering",
+        entity: "building",
+        entityId: building.id,
+        message: `Building "${building.name}" has no emblem for "${emblemBaseKey(building.key)}" and falls back to the generic plate`,
+        field: "key",
+      });
+    }
 
     // Validate costs
     for (const cost of building.construction_cost) {

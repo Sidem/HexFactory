@@ -6,6 +6,7 @@ import type {
 } from "../core/types";
 import { technologyAvailability } from "../core/availability";
 import { technologyGrantLabel } from "../core/definitions";
+import { branchEmblemSvg, paintEmblem } from "../rendering/emblems";
 import {
   researchBranchColor,
   researchIconSvg,
@@ -470,6 +471,11 @@ export class ResearchTree {
       icon.dataset.key = tech.key;
     }
     icon.style.setProperty("--discipline", researchBranchColor(tech.branch));
+    paintEmblem(part<HTMLElement>(this.details, ".research-branch-emblem"), {
+      key: tech.branch,
+      markup: branchEmblemSvg(tech.branch),
+      accent: researchBranchColor(tech.branch),
+    });
     part(this.details, "h3").textContent = tech.name;
     part(this.details, ".research-context").textContent = technologyContext(
       tech,

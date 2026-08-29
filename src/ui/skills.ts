@@ -1,4 +1,8 @@
-import { researchIconSvg } from "../rendering/researchIcons";
+import { branchEmblemSvg, paintEmblem } from "../rendering/emblems";
+import {
+  researchBranchColor,
+  researchIconSvg,
+} from "../rendering/researchIcons";
 import type {
   FactorySnapshot,
   SkillDefinition,
@@ -119,7 +123,7 @@ export class SkillsView {
       (key) => {
         const card = document.createElement("article");
         card.className = "skill-card";
-        card.innerHTML = `<div class="skill-card-top"><span class="skill-branch"></span><span class="skill-state"></span></div>
+        card.innerHTML = `<div class="skill-card-top"><i class="skill-branch-emblem"></i><span class="skill-branch"></span><span class="skill-state"></span></div>
         <h3><span class="skill-icon"></span><span class="skill-name"></span></h3><div class="skill-benefit"></div><p class="skill-description"></p>
         <p class="skill-capacity"></p><p class="skill-requirements"></p><button type="button" class="skill-purchase"></button>`;
         const button = part<HTMLButtonElement>(card, "button");
@@ -135,6 +139,11 @@ export class SkillsView {
       const copy = BRANCHES[skill.effect.kind];
       card.dataset.branch = skill.branch;
       card.classList.toggle("learned", view.complete);
+      paintEmblem(part<HTMLElement>(card, ".skill-branch-emblem"), {
+        key: skill.branch,
+        markup: branchEmblemSvg(skill.branch),
+        accent: researchBranchColor(skill.branch),
+      });
       part(card, ".skill-branch").textContent = copy.label;
       part(card, ".skill-state").textContent = view.status;
       part(card, ".skill-name").textContent = skill.name;

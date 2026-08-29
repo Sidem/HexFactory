@@ -367,20 +367,31 @@ function expand(
   };
 }
 
-/** Construction producers must exist before the machine whose bill they supply. */
-function constructionGuide(
+/**
+ * What has to happen before `target` can be built, if anything.
+ *
+ * Two answers, because a bill can be short in two ways. A part that something makes needs the
+ * station that makes it; a part nothing makes needs the player's hands or an extractor. The second
+ * answer is the fix for the defect the v0.43 audit named: this used to give up on a raw shortfall
+ * (`if (!recipe) return undefined`), so the caller went ahead and named the build. The opening card
+ * therefore read "Build a primitive furnace" to a player holding an empty pack and no way to pay
+ * the six stone and four clay — a first instruction that cannot be carried out, in a game whose
+ * pillars say the player should always know what to try next.
+ */
+type Prerequisite =
+  | { kind: "build"; provider: BuildingDefinition }
+  | { kind: "gather"; item: number; quantity: number };
+
+function constructionPrerequisite(
   target: BuildingDefinition,
   snapshot: FactorySnapshot,
   definitions: Definitions,
-): Guidance | undefined {
+): Prerequisite | undefined {
   const installed = new Set(
     snapshot.buildings.map((building) => building.definition_id),
   );
   const visiting = new Set<number>([target.id]);
-  const find = (
-    item: number,
-    quantity: number,
-  ): BuildingDefinition | undefined => {
+  const find = (item: number, quantity: number): Prerequisite | undefined => {
     if ((snapshot.player.inventory[String(item)] ?? 0) >= quantity)
       return undefined;
     const recipe = productionRecipe(definitions, item, (route) =>
@@ -391,8 +402,14 @@ function constructionGuide(
             snapshot.researched.includes(building.unlock_technology_id)),
       ),
     );
-    if (!recipe) return undefined;
+    // Nothing produces this and the pack is short: it comes out of the ground or off a tree, and
+    // fetching it is the first thing the player can actually do.
+    if (!recipe) return { kind: "gather", item, quantity };
     const provider = cheapestFor(recipe, definitions, installed, visiting);
+    // A station that already stands is not a prerequisite, and its ingredients are not this
+    // function's business either: whether it is short of ore or merely mid-batch is a question step
+    // 4 answers properly, by looking inside the machine. Guessing from the pack alone would tell a
+    // player to fetch ore for a smelter that is already smelting.
     if (!provider || installed.has(provider.id) || visiting.has(provider.id))
       return undefined;
     const batches = Math.ceil(quantity / recipeYield(recipe, item));
@@ -408,19 +425,47 @@ function constructionGuide(
     visiting.delete(provider.id);
     return provider.unlock_technology_id === undefined ||
       snapshot.researched.includes(provider.unlock_technology_id)
-      ? provider
+      ? { kind: "build", provider }
       : undefined;
   };
   for (const input of target.construction_cost) {
-    const producer = find(input.item_id, input.quantity);
-    if (producer)
-      return {
-        key: `build:${producer.key}`,
-        title: `Build a ${producer.name.toLowerCase()}`,
-        detail: `${producer.description} Make the construction parts for the ${target.name.toLowerCase()} here first.`,
-      };
+    const prerequisite = find(input.item_id, input.quantity);
+    if (prerequisite) return prerequisite;
   }
   return undefined;
+}
+
+/** Construction producers must exist before the machine whose bill they supply. */
+function constructionGuide(
+  target: BuildingDefinition,
+  snapshot: FactorySnapshot,
+  definitions: Definitions,
+): Guidance | undefined {
+  const prerequisite = constructionPrerequisite(target, snapshot, definitions);
+  if (!prerequisite) return undefined;
+  if (prerequisite.kind === "build")
+    return {
+      key: `build:${prerequisite.provider.key}`,
+      title: `Build a ${prerequisite.provider.name.toLowerCase()}`,
+      detail: `${prerequisite.provider.description} Make the construction parts for the ${target.name.toLowerCase()} here first.`,
+    };
+  const item = definitions.items.find(
+    (value) => value.id === prerequisite.item,
+  );
+  const held = snapshot.player.inventory[String(prerequisite.item)] ?? 0;
+  const name = item?.name ?? "raw material";
+  // Hand-gatherable materials name the hand, because that is the action available right now.
+  // Anything else needs a machine standing on the field, and saying "gather" would be advice the
+  // player cannot follow.
+  const how = item?.hand_gather_steps
+    ? "Terrain is the material map, so walk the band it belongs to and gather — one field trip covers the whole bill."
+    : "No amount of hand work produces this; it needs an extractor standing on the field.";
+  return {
+    key: `gather:${item?.key ?? prerequisite.item}`,
+    title: `Gather ${name.toLowerCase()}`,
+    detail:
+      `A ${target.name.toLowerCase()} costs ${prerequisite.quantity} ${name.toLowerCase()} and you have ${held}. ${item?.description ?? ""} ${how}`.trim(),
+  };
 }
 
 /**

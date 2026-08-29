@@ -488,7 +488,10 @@
                     Back to map <span aria-hidden="true">×</span>
                   </button>
                   <span class="research-detail-icon" aria-hidden="true"></span>
-                  <p class="research-context"></p>
+                  <div class="research-branch-line">
+                    <i class="research-branch-emblem"></i>
+                    <p class="research-context"></p>
+                  </div>
                   <h3></h3>
                   <p class="research-description"></p>
                   <h4>What you unlock</h4>
@@ -573,12 +576,22 @@
               on the bar, or drag a card straight onto the slot you want. Drag a
               slot off the bar to clear it.
             </p>
-            <button
-              id="build-scope"
-              class="scope-toggle"
-              type="button"
-              aria-pressed="false"
-            ></button>
+            <div class="build-find">
+              <input
+                id="build-search"
+                type="search"
+                autocomplete="off"
+                placeholder="Search buildings…"
+                aria-label="Search the construction catalogue"
+              />
+              <button
+                id="build-scope"
+                class="scope-toggle"
+                type="button"
+                aria-pressed="false"
+              ></button>
+            </div>
+            <p id="build-empty" class="build-empty" hidden></p>
             <div id="build-groups" class="build-groups"></div>
           </aside>
 
@@ -1405,6 +1418,30 @@
               <span aria-hidden="true">⊞</span><small>Build · B</small>
             </button>
           </div>
+          <!--
+            Mouse affordances for a shelf that has scrolled, and nothing more. They sit outside the
+            toolbar so they cannot join the roving order a player arrows through to choose a tool,
+            and they are hidden from assistive technology because they duplicate scrolling that
+            focus movement already does: tabbing to a slot brings it into view on its own.
+          -->
+          <button
+            class="shelf-nudge"
+            data-nudge="back"
+            type="button"
+            tabindex="-1"
+            aria-hidden="true"
+          >
+            ‹
+          </button>
+          <button
+            class="shelf-nudge"
+            data-nudge="forward"
+            type="button"
+            tabindex="-1"
+            aria-hidden="true"
+          >
+            ›
+          </button>
           <button
             id="turn"
             class="rotate-button"

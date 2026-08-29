@@ -72,8 +72,14 @@ left it.
 six 60-degree ones — the same turning speed, twice as many places to stop — and zooms in far enough
 to read a single machine and the ground it stands on. Field Survey is a third one-point skill: it
 reads the ground a full ring of chunks farther as you travel, so terrain and deposits are on the map
-before you reach them. Existing saves gain the new skill unlearned and nothing else changes. See the
-[release record](docs/CLOSER-VIEWS-RECORD.md) for verification and limits.
+before you reach them. Existing saves gain the new skill unlearned and nothing else changes.
+
+**Emblems and Clarity (v0.44.0)** gives every machine, recipe category and research branch its own
+drawn emblem, so a card is recognised rather than read. An upgraded machine shows the same drawing
+with its rank beside it. The build catalogue gained a search that finds a machine whether or not you
+have unlocked it yet, the tool bar now shows when it has more slots off the edge, and the guide names
+something you can actually pick up before it names the machine built from it. Existing saves keep the
+same versions. See the [release record](docs/EMBLEMS-RECORD.md) for verification and limits.
 
 ## Controls
 
