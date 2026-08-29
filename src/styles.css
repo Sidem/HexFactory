@@ -2844,11 +2844,12 @@ canvas {
 .build-dock.overflow-end .shelf-nudge[data-nudge="forward"] {
   display: grid;
 }
-/* The four fixed tools are narrower than a dock button, because the bar now has to carry nine
-   slots and the catalogue opener beside them and still fit a 1440-wide window without scrolling. */
-.build-dock .tool-shelf > button {
-  flex: 0 0 50px;
-  min-width: 50px;
+/* Every button on the shelf is one width — the fixed tools and the nine slots alike — so the bar
+   reads as one row of the same kind of thing rather than two sizes of button that happen to sit
+   together. It is wide enough for a caption and no wider. */
+.build-dock .tool-shelf button {
+  flex: 0 0 56px;
+  min-width: 56px;
   padding: 4px 3px;
 }
 .shelf-divider {
@@ -2863,23 +2864,13 @@ canvas {
   gap: 5px;
 }
 /* A slot is a button with its digit drawn on it, so the binding is visible instead of memorized.
-   Compact and caption-less on purpose: nine slots beside four tools and the catalogue button have
-   to fit the bar without scrolling, and at this width a name would truncate to nothing useful. The
-   stamp is the identity here; the full name lives in the tooltip and in the catalogue. */
+   It used to be narrow and caption-less so that nine slots beside the tools and the catalogue button
+   would fit without scrolling — but that traded a name the player can read for a bar that fits, and
+   a slot is worth reading. It now carries the same emblem and caption as every other dock button.
+   The bar overflows sooner because of it; the fades and nudges above are what make that legible. */
 .build-dock .hotbar-slot {
   position: relative;
-  flex: 0 0 46px;
-  min-width: 46px;
-  padding: 4px 2px;
-}
-.build-dock .hotbar-slot > small {
-  display: none;
-}
-/* A pinned building draws its emblem here; a pinned tool keeps its text glyph, which is the useful
-   distinction — one is a machine you are about to place, the other is a mode you are about to enter. */
-.build-dock .hotbar-slot > span {
-  --emblem-size: 22px;
-  font-size: 0.72rem;
+  padding: 4px 3px;
 }
 .hotbar-key {
   position: absolute;
@@ -2949,26 +2940,41 @@ canvas {
   display: grid;
   flex: 0 0 62px;
   place-items: center;
-  gap: 2px;
+  gap: 3px;
   min-width: 58px;
-  height: 54px;
+  height: 70px;
   padding: 4px 5px;
 }
+/* The picture is the thing being clicked and the caption is its label, so the picture gets the
+   room: a 32px emblem box draws at 24px, and a text glyph is set to match it rather than to match
+   the caption under it. A pinned building draws its emblem here; a pinned tool keeps its text
+   glyph, which is the useful distinction — one is a machine you are about to place, the other is a
+   mode you are about to enter. */
 .tool-shelf button > span,
 .rotate-button > span,
 .field-actions button > span {
-  font-size: 1.05rem;
+  --emblem-size: 32px;
+  font-size: 1.5rem;
   font-weight: 900;
+  line-height: 1;
 }
+/* Two lines rather than one, because a two-word machine name is the common case here and
+   "Manual Wo…" is not a name. The clamp still cuts anything longer off, so the button cannot grow
+   under a caption; the full name stays in the tooltip and in the catalogue. */
 .tool-shelf small,
 .rotate-button small,
 .field-actions small {
+  display: -webkit-box;
   overflow: hidden;
   max-width: 100%;
   color: #a9beb6;
   font-size: 0.58rem;
+  line-height: 1.15;
+  text-align: center;
   text-overflow: ellipsis;
-  white-space: nowrap;
+  white-space: normal;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
 .field-actions .primary-action small {
   color: #ffe9b4;

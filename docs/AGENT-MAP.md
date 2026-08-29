@@ -414,10 +414,10 @@ Data or fixture; inspect keys before loading the full file.
 - SilhouetteKey:20, BuildingTrim:34, BUILDING_SHAPE_VERSION:44, silhouetteOf:50, trimOf:77, BUILDING_SHAPES:99, PLAYER_RING:452, PLAYER_BODY:455, partsFor:467, buildingStamp:492, bakedStills:500, BuildingLookInput:527
 - drawBuildingLook:541, drawShape:573, STALL_MARKS:619, stallMark:629, cargoTravel:633, workCycle:643, NORTH:661, facingTip:675, spanEnd:695
 
-### `src/rendering/emblems.ts` — 269 lines / 13.1 KiB
+### `src/rendering/emblems.ts` — 271 lines / 13.3 KiB
 
-- frame:39, BUILDING_EMBLEM_KEYS:150, RECIPE_CATEGORY_EMBLEM_KEYS:151, BRANCH_EMBLEM_KEYS:152, emblemBaseKey:160, emblemRank:165, hasBuildingEmblem:172, buildingEmblemSvg:176, recipeCategoryEmblemSvg:180, branchEmblemSvg:184, genericEmblemSvg:188, EMBLEM_ACCENTS:199
-- recipeCategoryAccent:212, paintEmblem:226, clearEmblem:260
+- frame:39, BUILDING_EMBLEM_KEYS:152, RECIPE_CATEGORY_EMBLEM_KEYS:153, BRANCH_EMBLEM_KEYS:154, emblemBaseKey:162, emblemRank:167, hasBuildingEmblem:174, buildingEmblemSvg:178, recipeCategoryEmblemSvg:182, branchEmblemSvg:186, genericEmblemSvg:190, EMBLEM_ACCENTS:201
+- recipeCategoryAccent:214, paintEmblem:228, clearEmblem:262
 
 ### `src/rendering/gl/WorldGl.ts` — 1155 lines / 33.8 KiB
 

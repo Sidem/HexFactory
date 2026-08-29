@@ -84,8 +84,10 @@ const BUILDINGS: Record<string, string> = {
     '<path d="M3 12h26M8 12v3m16-3v3M6 12c0 6 4 9 10 9s10-3 10-9M3 26c3-3 5 3 8 0s5 3 8 0 5 3 8 0"/>',
   splitter:
     '<path d="M3 16h11M14 16l6-6h9M14 16l6 6h9M26 7l3 3-3 3M26 19l3 3-3 3"/>',
-  merger:
-    '<path d="M29 16H18M18 16l-6-6H3m9 6-6 6H3M6 7 3 10l3 3M6 19l-3 3 3 3"/>',
+  // Two lanes in, one lane out, and the arrowheads have to agree with that: they sit at the head of
+  // each input and point along the flow, into the junction. Drawn the other way round the glyph is a
+  // splitter running backwards, which is the one thing a merger must not be mistaken for.
+  merger: '<path d="M6 10h6l6 6h11M6 22h6l6-6M3 7l3 3-3 3M3 19l3 3-3 3"/>',
   underpass:
     '<path d="M16 3v26M4 16h8m8 0h8M12 16l-2.5-3M12 16l-2.5 3M20 16l2.5-3M20 16l2.5 3"/>',
   "primitive-furnace":
