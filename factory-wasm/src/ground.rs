@@ -246,6 +246,35 @@ impl Core {
             + i32::from(self.ground.get(&(q, r)).map_or(0, |cell| cell.elevation))
     }
 
+    /// Whether the cliff on this hex has been quarried away.
+    ///
+    /// A cliff is the one impassable band made of something a player can take apart, and taking it
+    /// apart is the cut they could already make everywhere else: the face comes down, the rock
+    /// leaves as spoil, and the hex is a hex again. The cut has to reach *below* the band's natural
+    /// grade before that happens, so a cliff nobody has worked is still the wall the generator drew.
+    ///
+    /// One step is enough because `natural_elevation` puts a cliff exactly one above highland: the
+    /// first cut brings the face level with the ground beside it, which is the same fact the player
+    /// can see in the diorama before they pay for it.
+    pub(super) fn cliff_quarried(&self, q: i32, r: i32) -> bool {
+        self.terrain_at(q, r) == Terrain::Cliff
+            && self.ground.get(&(q, r)).map_or(0, |cell| cell.elevation) < 0
+    }
+
+    /// Whether the terrain on this hex stops the player's body, as the finished ground leaves it.
+    ///
+    /// [`Terrain::blocks_movement`] is the rule for ground nobody has worked, and that is all the
+    /// band table has ever claimed. Everything that walks, routes, drops or builds asks this
+    /// instead, because a quarried cliff is a wall only in the table.
+    pub(super) fn terrain_blocks_movement(&self, q: i32, r: i32) -> bool {
+        self.terrain_at(q, r).blocks_movement() && !self.cliff_quarried(q, r)
+    }
+
+    /// The construction half of the same rule.
+    pub(super) fn terrain_blocks_construction(&self, q: i32, r: i32) -> bool {
+        self.terrain_at(q, r).blocks_construction() && !self.cliff_quarried(q, r)
+    }
+
     /// Whether the step between two neighbouring hexes is too steep to walk.
     ///
     /// This is the whole of what a retaining wall is. It is deliberately symmetric: a wall keeps the
@@ -345,7 +374,18 @@ impl Core {
         if !self.within_world_range(cell.0, cell.1, self.player.build_range) {
             return Err("Walk closer: this ground is outside build reach".into());
         }
-        if self.terrain_at(cell.0, cell.1).blocks_construction() {
+        // Grading a cliff is not asked whether the hex is buildable: that question is exactly what
+        // the cut is about to change, and refusing it here is what used to make a cliff permanent.
+        // Everything laid *on* the hex still waits for the rock to be below its natural grade.
+        let cliff = self.terrain_at(cell.0, cell.1) == Terrain::Cliff;
+        if cliff {
+            if !grading && !self.cliff_quarried(cell.0, cell.1) {
+                return Err(
+                    "Cut this cliff down first: lower the face and the hex stops being a wall"
+                        .into(),
+                );
+            }
+        } else if self.terrain_at(cell.0, cell.1).blocks_construction() {
             return Err("Ground works need dry, buildable land".into());
         }
         if !grading {
@@ -354,7 +394,15 @@ impl Core {
         if self.entity_on(cell) {
             return Err("Remove the building standing here before grading it".into());
         }
-        if self.field_at(cell.0, cell.1).is_some() {
+        // A cliff is the exception, and it is the exception on the guard's own reasoning. Elsewhere
+        // a cut would move ground a deposit is measured in while leaving the deposit sitting on top
+        // of it, which is a fiction the ground works refuse to write. A cliff face is the one place
+        // where taking the ground down is what reaching the stone has always meant, and nearly
+        // every cliff carries a scree field — so honouring the guard here would not protect a
+        // deposit, it would only put the wall back beyond reach. The stone itself is untouched:
+        // the quantity is a per-hex number that no grade has ever entered, and a quarried face is
+        // still gathered from, now from on top rather than from beside.
+        if !cliff && self.field_at(cell.0, cell.1).is_some() {
             return Err("A deposit sits here; grading would move ground it is measured in".into());
         }
         if world_to_axial(self.player.x, self.player.y) == cell {
@@ -539,6 +587,25 @@ impl Core {
             }
         };
 
+        // A cliff coming down in this very selection has stopped being a wall by the time the
+        // footing checks below run, and one going back up has become one again. Asking the
+        // committed map instead would price the player's escape route against ground they are in
+        // the middle of moving.
+        let finished_blocks = |cell: (i32, i32)| -> bool {
+            let terrain = self.terrain_at(cell.0, cell.1);
+            if !terrain.blocks_movement() {
+                return false;
+            }
+            if terrain != Terrain::Cliff {
+                return true;
+            }
+            let delta = match after.get(&cell) {
+                Some(entry) => entry.as_ref().map_or(0, |c| c.elevation),
+                None => self.ground.get(&cell).map_or(0, |c| c.elevation),
+            };
+            delta >= 0
+        };
+
         let mut retaining = 0usize;
         for &cell in cells {
             let (surface, elevation) = finished(cell);
@@ -548,7 +615,7 @@ impl Core {
             }
             let retained = DIRECTIONS.iter().any(|&(dq, dr)| {
                 let neighbour = (cell.0 + dq, cell.1 + dr);
-                !self.terrain_at(neighbour.0, neighbour.1).blocks_movement()
+                !finished_blocks(neighbour)
                     && (elevation - finished(neighbour).1).abs() > MAX_WALK_STEP
             });
             if retained {
@@ -592,8 +659,7 @@ impl Core {
         let (_, here) = finished(standing);
         let escapes = DIRECTIONS.iter().any(|&(dq, dr)| {
             let neighbour = (standing.0 + dq, standing.1 + dr);
-            !self.terrain_at(neighbour.0, neighbour.1).blocks_movement()
-                && (here - finished(neighbour).1).abs() <= MAX_WALK_STEP
+            !finished_blocks(neighbour) && (here - finished(neighbour).1).abs() <= MAX_WALK_STEP
         });
         if !escapes {
             return Err("That grade would leave you with no way out of this hex".into());

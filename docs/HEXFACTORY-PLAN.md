@@ -65,7 +65,9 @@ raise brick and concrete walls — **straight across hexes now**, anchored on la
 run holds its heading and a **rectangular yard** closes in one drag. Refine oil into bitumen and
 useful fuel, then mix asphalt and lay
 fast roads over gravel in the Ground works tray. The tray also grades and recovers paid layers, and
-**paves a rectangle**: drag two corners and every hex the rectangle touches is taken in.
+**paves a rectangle**: drag two corners and every hex the rectangle touches is taken in. No landform
+is permanent: one cut with **Lower** takes a **cliff face down**, and the hex walks and builds like
+any other ground with the rock on the spoil heap.
 Buildings are generated as low-poly instanced geometry from the shape grammar, so a tier remains a
 data row. Power is energy bought per unit of work. The world renders through Three.js and the
 minimap remains WebGL2.

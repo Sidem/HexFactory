@@ -74,7 +74,7 @@ export const TERRAIN_INFO: Record<Terrain, TerrainInfo> = {
     // apart by walking into one of them. The hatch below carries the category; this carries the
     // material.
     name: "Cliff",
-    note: "stone, quarried from the hex beside it",
+    note: "stone, quarried from beside it or by cutting the face down",
     passable: false,
     buildable: false,
     fill: "#57493eee",
@@ -100,4 +100,36 @@ export const TERRAIN_ORDER: Terrain[] = [
 export function terrainAccess(info: TerrainInfo): string {
   if (!info.passable) return "Impassable";
   return info.buildable ? "Buildable" : "Walkable";
+}
+
+/**
+ * Whether the cliff on a hex has been quarried away, given the grade the player left on it.
+ *
+ * Native's `Core::cliff_quarried`, copied on the same terms as the band table above: the face has
+ * to be below its natural grade, and one cut is enough because a cliff sits exactly one step over
+ * highland. `elevation` is the signed step delta the ground overlay carries, `0` for untouched
+ * ground — which is why nothing in a world nobody has dug takes this path at all.
+ */
+export function cliffQuarried(terrain: Terrain, elevation: number): boolean {
+  return terrain === "cliff" && elevation < 0;
+}
+
+/**
+ * The band as the finished ground leaves it, rather than as the generator drew it.
+ *
+ * Anything that reports what the player may do *on a particular hex* asks this; `TERRAIN_INFO` on
+ * its own still answers for the band, which is what a legend is about. A quarried cliff keeps the
+ * cliff's colours — it is the same rock, and the diorama has already dropped it a step — and stops
+ * claiming to be a wall.
+ */
+export function bandAt(terrain: Terrain, elevation: number): TerrainInfo {
+  const info = TERRAIN_INFO[terrain];
+  if (!cliffQuarried(terrain, elevation)) return info;
+  return {
+    ...info,
+    name: "Quarried cliff",
+    note: "stone, and the face is down",
+    passable: true,
+    buildable: true,
+  };
 }

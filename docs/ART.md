@@ -112,6 +112,12 @@ category. Which bands are in that category is native's rule, pinned by
 `fixtures/terrain-passability.json`; the renderer reads the table and never decides for itself which
 grey means cliff.
 
+The one thing that outranks the table is the grade the player has cut into a particular hex. A cliff
+whose face has been quarried down keeps the cliff's brown — it is the same rock, and the diorama has
+already shown it drop a step — and loses the hatch, because the hatch is the sentence "cannot stand
+here" and that sentence has stopped being true. The flat view has no height to say it with, so the
+hatch is the whole of what it has to get right.
+
 ## Item colours and glyphs
 
 Items keep their identity colours, and the glyph set names material _forms_ rather than individual

@@ -5433,7 +5433,7 @@ impl Core {
     /// chunk — deliberately. `generated_chunks` is a checksum input, so a search that surveyed the
     /// ground it considered would make *thinking about* a route change the run's checksum.
     fn walkable_hex(&self, q: i32, r: i32) -> bool {
-        if self.terrain_at(q, r).blocks_movement() {
+        if self.terrain_blocks_movement(q, r) {
             return false;
         }
         !self
@@ -5708,7 +5708,7 @@ impl Core {
 
     fn player_blocked(&self, x: i32, y: i32) -> bool {
         let (q, r) = world_to_axial(x, y);
-        let feature_collision = self.terrain_at(q, r).blocks_movement();
+        let feature_collision = self.terrain_blocks_movement(q, r);
         feature_collision
             // A retaining face stops the body exactly where it stops the route. The step is measured
             // between the hex being left and the hex being entered, so standing still on a terrace
@@ -6134,7 +6134,10 @@ impl Core {
             let bridged_transport = definition.kind == BuildingKind::Belt
                 && terrain == Terrain::ShallowWater
                 && self.bridge_at(cell.q, cell.r);
-            if terrain.blocks_construction() && !shallow_support && !bridged_transport {
+            if self.terrain_blocks_construction(cell.q, cell.r)
+                && !shallow_support
+                && !bridged_transport
+            {
                 return Err("environment blocks construction".into());
             }
         }
@@ -7208,8 +7211,7 @@ impl Core {
         }
         self.ensure_neighborhood(self.player.x, self.player.y);
         self.ensure_tile(q, r);
-        let terrain = self.terrain_at(q, r);
-        if terrain.blocks_movement() {
+        if self.terrain_blocks_movement(q, r) {
             return Err("items cannot land on impassable terrain".into());
         }
         let moved = quantity.min(hand.quantity);
@@ -15219,9 +15221,10 @@ mod tests {
     #[test]
     fn every_material_is_generated_where_its_geography_says_it_should_be() {
         let core = game("new-game");
-        // Stone is quarried from a cliff, which nothing can stand on or build on. It is reached
-        // from the hex beside it, through the same radius an extractor uses — the v0.11 lesson,
-        // which survives the model change because cliffs are still members of a scree field.
+        // Stone is quarried from a cliff, which nothing can stand on or build on until somebody
+        // cuts the face down. Until then it is reached from the hex beside it, through the same
+        // radius an extractor uses — the v0.11 lesson, which survives the model change because
+        // cliffs are still members of a scree field.
         assert_eq!(core.terrain_at(1, -1), Terrain::Cliff);
         assert!(core.terrain_at(1, -1).blocks_construction());
 
@@ -24284,5 +24287,54 @@ mod tests {
             WALK_STEP_COST * UNTREATED_MOVEMENT / MAX_SURFACE_MOVEMENT
         );
         assert!(MIN_WALK_STEP_COST <= WALK_STEP_COST * UNTREATED_MOVEMENT / MAX_SURFACE_MOVEMENT);
+    }
+
+    /// The one wall the player may take apart, end to end.
+    ///
+    /// A cliff is impassable until somebody quarries it. Nothing may be laid on a face that is
+    /// still standing, one cut brings that face level with the highland beside it, and after the
+    /// cut the hex walks and builds like any other ground — with the rock that came out of it on
+    /// the spoil heap rather than gone. The band the generator drew never moves: the whole change
+    /// lives in the overlay, so a world nobody has dug is exactly as passable as it always was.
+    #[test]
+    fn a_quarried_cliff_stops_being_a_wall() {
+        let mut core = game("new-game");
+        reach(&mut core);
+        assert_eq!(core.terrain_at(1, -1), Terrain::Cliff);
+        assert!(core.terrain_blocks_movement(1, -1));
+        assert!(core.terrain_blocks_construction(1, -1));
+        assert!(!core.walkable_hex(1, -1));
+        assert_eq!(core.spoil, 0);
+
+        let pave = core.ground_preview(&ground_edit(1, -1, GroundAction::Pave));
+        assert!(
+            pave.error
+                .as_deref()
+                .is_some_and(|error| error.contains("Cut this cliff down first")),
+            "paving a standing cliff said {:?}",
+            pave.error
+        );
+
+        core.edit_ground(&ground_edit(1, -1, GroundAction::Lower))
+            .unwrap();
+        assert!(core.cliff_quarried(1, -1));
+        assert_eq!(core.terrain_at(1, -1), Terrain::Cliff);
+        assert_eq!(
+            core.ground_elevation_at(1, -1),
+            natural_elevation(Terrain::Highland)
+        );
+        assert!(!core.terrain_blocks_movement(1, -1));
+        assert!(!core.terrain_blocks_construction(1, -1));
+        assert!(core.walkable_hex(1, -1));
+        // Quarried rock leaves as spoil, on the same ledger every other cut pays into.
+        assert_eq!(core.spoil, 1);
+
+        // Undo is the edit run backwards, so the wall comes back and takes its spoil with it.
+        core.undo_ground().unwrap();
+        assert!(!core.cliff_quarried(1, -1));
+        assert!(core.terrain_blocks_movement(1, -1));
+        assert!(core.terrain_blocks_construction(1, -1));
+        assert_eq!(core.spoil, 0);
+        assert!(core.ground.is_empty());
     }
 }

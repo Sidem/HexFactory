@@ -564,7 +564,7 @@ impl Core {
         if sides
             .iter()
             .flatten()
-            .any(|&(q, r)| self.terrain_at(q, r).blocks_construction())
+            .any(|&(q, r)| self.terrain_blocks_construction(q, r))
         {
             return Err("Boundaries need dry, buildable ground on both sides".into());
         }

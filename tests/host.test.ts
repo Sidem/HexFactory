@@ -39,6 +39,8 @@ import {
   applySnapshotDelta,
 } from "../src/core/snapshotDelta";
 import {
+  bandAt,
+  cliffQuarried,
   TERRAIN_INFO,
   TERRAIN_ORDER,
   terrainAccess,
@@ -1377,9 +1379,42 @@ describe("availability and expanded snapshot adapter", () => {
       "utf8",
     );
     // Impassability is drawn from the table, not from a second opinion about which grey is cliff.
-    expect(worldGl).toContain("info.passable ? 0 : 1");
+    // The one thing allowed on top of the table is the grade the player has cut into the hex, which
+    // is a fact about that hex rather than about the band.
+    expect(worldGl).toContain("info.passable ||");
+    expect(worldGl).toContain("passable ? 0 : 1");
     expect(renderer).not.toContain('case "cliff"');
     expect(worldGl).not.toContain('case "cliff"');
+  });
+
+  it("lets a quarried cliff stop being a wall, and only a quarried one", () => {
+    // Native's `Core::cliff_quarried` and `terrain_blocks_movement`, copied on the same terms as the
+    // band table above: a cliff is the one wall made of something the player can take apart, and it
+    // is taken apart by cutting the face below the grade the generator drew. `bandAt` is what every
+    // panel asks once it is talking about a particular hex rather than about a legend.
+    for (const terrain of TERRAIN_ORDER) {
+      // Untouched ground is the table, to the letter — which is why a world nobody has dug reads
+      // exactly as it always did.
+      expect(bandAt(terrain, 0), terrain).toBe(TERRAIN_INFO[terrain]);
+      expect(cliffQuarried(terrain, 0), terrain).toBe(false);
+      // A cut anywhere else is landscaping, not demolition: deep water stays a wall however deep it
+      // is dug, and no amount of filling makes a cliff into one thing or another.
+      expect(cliffQuarried(terrain, -1), terrain).toBe(terrain === "cliff");
+      expect(cliffQuarried(terrain, 1), terrain).toBe(false);
+      expect(bandAt(terrain, 1), terrain).toBe(TERRAIN_INFO[terrain]);
+    }
+
+    const quarried = bandAt("cliff", -1);
+    expect(quarried.passable).toBe(true);
+    expect(quarried.buildable).toBe(true);
+    expect(terrainAccess(quarried)).toBe("Buildable");
+    // Same rock, same paint: the face has come down, the hex has not become highland.
+    expect(quarried.fill).toBe(TERRAIN_INFO.cliff.fill);
+    expect(quarried.stroke).toBe(TERRAIN_INFO.cliff.stroke);
+    expect(quarried.name).not.toBe(TERRAIN_INFO.cliff.name);
+    // The table itself is untouched by the reading — `bandAt` answers, it does not edit.
+    expect(TERRAIN_INFO.cliff.passable).toBe(false);
+    expect(TERRAIN_INFO.cliff.buildable).toBe(false);
   });
 
   it("always knows which way the landing hub is", () => {

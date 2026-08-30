@@ -124,6 +124,7 @@ export class WorldGl {
   private lastTerrain: FactorySnapshot["terrain"] | null = null;
   private lastResources: FactorySnapshot["resources"] | null = null;
   private lastBuildings: FactorySnapshot["buildings"] | null = null;
+  private lastGround: FactorySnapshot["ground"] | null = null;
   private lastStage = -1;
   private lastReduced = false;
   private coverageWorldMin: [number, number] = [0, 0];
@@ -238,6 +239,7 @@ export class WorldGl {
       snapshot.terrain === this.lastTerrain &&
       snapshot.resources === this.lastResources &&
       snapshot.buildings === this.lastBuildings &&
+      snapshot.ground === this.lastGround &&
       snapshot.contract.stage === this.lastStage &&
       reducedMotion === this.lastReduced
     )
@@ -245,11 +247,23 @@ export class WorldGl {
     this.lastTerrain = snapshot.terrain;
     this.lastResources = snapshot.resources;
     this.lastBuildings = snapshot.buildings;
+    this.lastGround = snapshot.ground;
     this.lastStage = snapshot.contract.stage;
     this.lastReduced = reducedMotion;
+    // The flat view has no height to show a quarried cliff with, so the one thing it must get right
+    // is the hatch: a face the player has already taken down must stop being drawn as a wall. Every
+    // other consequence of a grade is stated by the overlay drawn over the top of this batch.
+    const quarried = new Set(
+      snapshot.ground
+        .filter((cell) => cell.elevation < 0)
+        .map((cell) => `${cell.q},${cell.r}`),
+    );
     this.hexCount = 0;
     for (const region of snapshot.terrain) {
       const info = TERRAIN_INFO[region.terrain];
+      const passable =
+        info.passable ||
+        (region.terrain === "cliff" && quarried.has(`${region.q},${region.r}`));
       const look = hexLook(region.q, region.r);
       this.pushHex(
         region.x,
@@ -262,7 +276,7 @@ export class WorldGl {
         0,
         look.jitter,
         look.salt,
-        info.passable ? 0 : 1,
+        passable ? 0 : 1,
         region.terrain === "deep_water" || region.terrain === "shallow_water"
           ? 1
           : 0,

@@ -58,7 +58,7 @@ const ACTIONS: readonly ActionSpec[] = [
     action: "lower",
     icon: "▼",
     label: "Lower",
-    hint: "Cut one step. What comes out goes on the spoil heap, ready to fill somewhere else.",
+    hint: "Cut one step. What comes out goes on the spoil heap, ready to fill somewhere else. One cut takes a cliff face down and the hex walks like any other.",
     verb: "Lower {n}",
   },
   {

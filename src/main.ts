@@ -64,7 +64,12 @@ import {
   type CheckpointContext,
   type RunTimings,
 } from "./core/checkpoints";
-import { TERRAIN_INFO, TERRAIN_ORDER, terrainAccess } from "./core/terrain";
+import {
+  bandAt,
+  TERRAIN_INFO,
+  TERRAIN_ORDER,
+  terrainAccess,
+} from "./core/terrain";
 import {
   CORNER_START,
   DIRECTION_NAMES,
@@ -467,6 +472,37 @@ let dragBuild: {
   erasing: boolean;
 } | null = null;
 let dragPreviewPending = false;
+
+/** Whether a pointer gesture currently owns the screen, whichever of them it is. */
+function dragOwnsPointer(): boolean {
+  return (
+    stackDrag !== null ||
+    panPointer !== null ||
+    harvestPointer !== null ||
+    dragBuild !== null
+  );
+}
+
+/*
+ * A drag starts on a slot or on the map and then travels across labels, headings and readouts, and
+ * the browser's default reading of that journey is a text selection: the player finishes a belt run
+ * or a stack move looking at a blue smear of their own interface, which they then have to click
+ * somewhere empty to be rid of.
+ *
+ * `selectstart` is the one moment the browser asks before it begins highlighting, and it fires
+ * after the `pointerdown` that armed the gesture — so by the time this runs, the drag has already
+ * said what it is, and the question can be answered by asking rather than by remembering. That is
+ * the whole reason it is done here instead of switching `user-select` off at each drag's start and
+ * back on at its end: an end that got missed would leave the interface unselectable for the rest of
+ * the session, which is a worse fault than the one being fixed. Anything left highlighted from
+ * before goes at the same time, so beginning a drag clears the smear rather than adding to it.
+ */
+document.addEventListener("selectstart", (event) => {
+  if (!dragOwnsPointer()) return;
+  event.preventDefault();
+  getSelection()?.removeAllRanges();
+});
+
 let gatherHeld = false;
 /**
  * Which recipe each machine definition is currently set to build with, so a choice survives
@@ -2207,7 +2243,13 @@ function renderInspector(): void {
         ({ q, r }) => q === selected?.q && r === selected?.r,
       )?.terrain ?? "lowland")
     : undefined;
-  const band = terrain ? TERRAIN_INFO[terrain] : undefined;
+  // The band says what the generator drew; the grade on top of it says what the player has since
+  // made of the hex. Only the pair answers "can I stand here", which is the question this panel is
+  // being asked, so a quarried cliff stops reading Impassable the moment its face is down.
+  const grade =
+    snapshot.ground.find(({ q, r }) => q === selected?.q && r === selected?.r)
+      ?.elevation ?? 0;
+  const band = terrain ? bandAt(terrain, grade) : undefined;
 
   if (building) {
     kicker.textContent = "Building";

@@ -601,6 +601,16 @@ defect it prevents; a change that contradicts one needs an argument, not an over
   `Terrain::blocks_construction` in Rust and against `src/core/terrain.ts` in TypeScript. The host
   draws impassable ground as one category before it draws it as a material; that treatment reads the
   pinned table and never a palette-side guess about which grey means cliff.
+- **The band table answers for ground nobody has worked; a hex answers for itself.** A cliff is the
+  one wall made of something the player can take apart, and one `Lower` cut takes it apart —
+  `natural_elevation` puts a cliff exactly one step over highland, so the first cut brings the face
+  level with the ground beside it. Nothing about the band moves: the cliff is still a cliff, still
+  painted as one, and the whole change lives in the ground overlay's signed `elevation`, which is why
+  no envelope, checksum or save moved for it and a world nobody has dug is exactly as passable as it
+  always was. Anything asking what may happen **on a particular hex** must go through
+  `Core::terrain_blocks_movement` / `terrain_blocks_construction` in Rust or `bandAt` in TypeScript,
+  never through `blocks_movement` or `TERRAIN_INFO` directly — those two still state the band, which
+  is what a legend and a pinned fixture are for.
 - Snapshot deltas cross to the host in the binary wire format, encoded by `factory-wasm/src/wire.rs`
   and decoded by `src/core/snapshotWire.ts`. The decoder's contract is that it produces exactly what
   `JSON.parse(snapshot_delta_json())` produced — the same keys, the same omissions, `null` where
@@ -639,7 +649,8 @@ defect it prevents; a change that contradicts one needs an argument, not an over
   deposit, and its basin never empties.
 - Terrain is the material map. Each raw resource is generated only in the band its geography names,
   because a landscape the player cannot read is decoration. A resource reachable from no buildable
-  hex is a defect — stone sits against impassable cliffs and is quarried from the hex beside them.
+  hex is a defect — stone sits against impassable cliffs and is quarried from the hex beside them, or
+  from on top of one once the player has cut its face down.
 - **A deposit is a site, not a hex, and one patch is one material.** The `site_cell` lattice picks
   one rule per site and a hex belongs to the nearest site that covers it, so purity is a property of
   the model rather than a number that was tuned; `npm run survey` reports it and it may not fall
