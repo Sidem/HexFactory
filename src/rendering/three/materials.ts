@@ -160,13 +160,13 @@ export function createWorldMaterials(): WorldMaterials {
   const poleSupplyRange = new MeshBasicMaterial({
     color: "#f6c85f",
     transparent: true,
-    opacity: 0.62,
+    opacity: 0.98,
     depthTest: false,
   });
   const poleLinkRange = new MeshBasicMaterial({
     color: "#ff7669",
     transparent: true,
-    opacity: 0.54,
+    opacity: 0.9,
     depthTest: false,
   });
   const grid = new LineBasicMaterial({

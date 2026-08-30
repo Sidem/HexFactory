@@ -49,8 +49,8 @@ export const HEX_RING_START = Math.PI / 6;
 export const RANGE_RING_WIDTH = Object.freeze({
   build: 0.045,
   extract: 0.04,
-  supply: 0.035,
-  link: 0.018,
+  supply: 0.09,
+  link: 0.055,
 });
 
 /**

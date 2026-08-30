@@ -383,6 +383,28 @@ describe("bounded host input", () => {
       encodeCommand({ type: "rotate", q: 2, r: -1, reverse: true }),
     ).toEqual({ opcode: 5, args: [2, -1, 1] });
     expect(
+      encodeCommand({
+        type: "set_output_route",
+        q: 2,
+        r: -1,
+        item_id: 30,
+        output_q: 1,
+        output_r: -1,
+        direction: 2,
+      }),
+    ).toEqual({ opcode: 34, args: [2, -1, 30, 1, -1, 2] });
+    expect(() =>
+      encodeCommand({
+        type: "set_output_route",
+        q: 2,
+        r: -1,
+        item_id: 30,
+        output_q: 1,
+        output_r: -1,
+        direction: 6,
+      }),
+    ).toThrow("Invalid output route");
+    expect(
       encodeCommand({ type: "withdraw", q: 1, r: 1, item_id: 2, quantity: 7 }),
     ).toEqual({ opcode: 10, args: [1, 1, 2, 7, 0] });
     expect(
@@ -1625,6 +1647,8 @@ describe("availability and expanded snapshot adapter", () => {
     expect(html).toContain('id="inspect-title"');
     expect(html).toContain('id="inspect-q"');
     expect(html).toContain('id="inspect-compass"');
+    expect(html).toContain('id="inspect-output-products"');
+    expect(html).toContain('id="inspect-output-ports"');
     // The field cell is a metered item chip. Static markup names a holder rather than spelling the
     // chip out, so `createItemChip` stays the only place its shape is written down.
     expect(html).toContain('id="inspect-field-chip"');
@@ -1632,6 +1656,8 @@ describe("availability and expanded snapshot adapter", () => {
     expect(html).not.toContain('id="selected-tool-value"');
     // Direction 0 never reaches the player; the six names and a compass do.
     expect(main).toContain("DIRECTION_NAMES[building.orientation]");
+    expect(main).toContain('type: "set_output_route"');
+    expect(main).toContain("footprintKeys.has");
     expect(main).not.toContain("Direction ${building.orientation}");
     expect(main).not.toContain("lines.join");
     // A proportion is both published numbers, same rule as the cooldown ring.

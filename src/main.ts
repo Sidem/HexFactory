@@ -74,6 +74,7 @@ import {
   CORNER_START,
   DIRECTION_NAMES,
   rotateAnyOrientation,
+  TRANSPORT_DIRECTIONS,
 } from "./core/directions";
 import type {
   BuildingDefinition,
@@ -2132,6 +2133,178 @@ function renderInspectorLoad(building: EntitySnapshot | undefined): void {
   required<HTMLElement>("inspect-load").hidden = true;
 }
 
+/** The product last chosen on each entity; presentation state only, never factory truth. */
+const selectedOutputProduct = new Map<number, number>();
+
+function renderOutputRouting(building: EntitySnapshot | undefined): void {
+  const section = required<HTMLElement>("inspect-output-routing");
+  const routes = building?.output_routes ?? [];
+  if (!building || routes.length === 0) {
+    section.hidden = true;
+    return;
+  }
+  section.hidden = false;
+  const remembered = selectedOutputProduct.get(building.id);
+  const selectedItem = routes.some(({ item_id }) => item_id === remembered)
+    ? remembered!
+    : routes[0]!.item_id;
+  selectedOutputProduct.set(building.id, selectedItem);
+  const selectedRoute = routes.find(({ item_id }) => item_id === selectedItem)!;
+  const item = itemById(selectedItem);
+  section.style.setProperty("--item-color", item?.color ?? "var(--gold)");
+
+  const products = required<HTMLElement>("inspect-output-products");
+  const productButtons = syncChildren(
+    products,
+    routes.map(({ item_id }) => String(item_id)),
+    () => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "inspect-output-product chip-host";
+      return button;
+    },
+  );
+  routes.forEach((route, index) => {
+    const button = productButtons[index]!;
+    const routeItem = itemById(route.item_id);
+    button.dataset.itemId = String(route.item_id);
+    button.classList.toggle("active", route.item_id === selectedItem);
+    button.style.setProperty("--item-color", routeItem?.color ?? "var(--gold)");
+    button.setAttribute("aria-pressed", String(route.item_id === selectedItem));
+    button.setAttribute(
+      "aria-label",
+      `Route ${routeItem?.name ?? `item ${route.item_id}`}`,
+    );
+    paintChip(button, route.item_id, { named: true, short: true });
+  });
+
+  required<HTMLElement>("inspect-output-summary").textContent =
+    `${item?.name ?? `Item ${selectedItem}`} · ${DIRECTION_NAMES[selectedRoute.direction] ?? "Output"} from q${selectedRoute.q}, r${selectedRoute.r}`;
+  const status = required<HTMLElement>("inspect-output-status");
+  status.textContent = selectedRoute.target_id ? "Connected" : "Open";
+  status.classList.toggle("open", !selectedRoute.target_id);
+
+  const footprint = building.footprint;
+  const footprintKeys = new Set(footprint.map(({ q, r }) => `${q},${r}`));
+  const centers = footprint.map((cell) => ({
+    cell,
+    point: axialToPixel(cell, 26, { x: 0, y: 0 }),
+  }));
+  const minY = Math.min(...centers.map(({ point }) => point.y));
+  const maxY = Math.max(...centers.map(({ point }) => point.y));
+  const minX = Math.min(...centers.map(({ point }) => point.x));
+  const maxX = Math.max(...centers.map(({ point }) => point.x));
+  const midX = (minX + maxX) / 2;
+  const map = required<HTMLElement>("inspect-output-map");
+  map.style.height = `${Math.max(92, maxY - minY + 78)}px`;
+
+  const cells = syncChildren(
+    required<HTMLElement>("inspect-output-cells"),
+    footprint.map(({ q, r }) => `${q},${r}`),
+    () => {
+      const cell = document.createElement("div");
+      cell.className = "inspect-output-cell";
+      return cell;
+    },
+  );
+  centers.forEach(({ cell, point }, index) => {
+    const element = cells[index]!;
+    element.style.setProperty("--output-x", `${point.x - midX}px`);
+    element.style.setProperty("--output-y", `${point.y - minY + 39}px`);
+    element.classList.toggle(
+      "active",
+      cell.q === selectedRoute.q && cell.r === selectedRoute.r,
+    );
+    element.textContent = `q${cell.q}\nr${cell.r}`;
+  });
+
+  const ports = centers.flatMap(({ cell, point }) =>
+    TRANSPORT_DIRECTIONS.slice(0, 6).flatMap((direction, index) => {
+      if (footprintKeys.has(`${cell.q + direction.q},${cell.r + direction.r}`))
+        return [];
+      const step = axialToPixel(direction, 26, { x: 0, y: 0 });
+      const length = Math.hypot(step.x, step.y) || 1;
+      return [
+        {
+          q: cell.q,
+          r: cell.r,
+          direction: index,
+          x: point.x - midX + (step.x / length) * 30,
+          y: point.y - minY + 39 + (step.y / length) * 30,
+          angle: Math.atan2(step.y, step.x),
+        },
+      ];
+    }),
+  );
+  const portButtons = syncChildren(
+    required<HTMLElement>("inspect-output-ports"),
+    ports.map(({ q, r, direction }) => `${q},${r},${direction}`),
+    () => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "inspect-output-port";
+      button.innerHTML = "<span>›</span>";
+      return button;
+    },
+  );
+  ports.forEach((port, index) => {
+    const button = portButtons[index]!;
+    const active =
+      port.q === selectedRoute.q &&
+      port.r === selectedRoute.r &&
+      port.direction === selectedRoute.direction;
+    button.dataset.q = String(port.q);
+    button.dataset.r = String(port.r);
+    button.dataset.direction = String(port.direction);
+    button.style.setProperty("--output-x", `${port.x}px`);
+    button.style.setProperty("--output-y", `${port.y}px`);
+    button.style.setProperty("--output-angle", `${port.angle}rad`);
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-pressed", String(active));
+    button.setAttribute(
+      "aria-label",
+      `Send ${item?.name ?? "product"} ${DIRECTION_NAMES[port.direction]} from footprint tile q${port.q}, r${port.r}`,
+    );
+    button.title = `${DIRECTION_NAMES[port.direction]} from q${port.q}, r${port.r}`;
+  });
+}
+
+required<HTMLElement>("inspect-output-products").addEventListener(
+  "click",
+  (event) => {
+    const button = (event.target as Element).closest<HTMLElement>(
+      "[data-item-id]",
+    );
+    const building = selected ? buildingAt(selected) : undefined;
+    const itemId = Number(button?.dataset.itemId);
+    if (!building || !Number.isInteger(itemId)) return;
+    selectedOutputProduct.set(building.id, itemId);
+    renderOutputRouting(building);
+  },
+);
+
+required<HTMLElement>("inspect-output-ports").addEventListener(
+  "click",
+  (event) => {
+    const button = (event.target as Element).closest<HTMLElement>(
+      ".inspect-output-port",
+    );
+    const building = selected ? buildingAt(selected) : undefined;
+    if (!button || !building) return;
+    const itemId = selectedOutputProduct.get(building.id);
+    if (!itemId) return;
+    enqueue({
+      type: "set_output_route",
+      q: building.q,
+      r: building.r,
+      item_id: itemId,
+      output_q: Number(button.dataset.q),
+      output_r: Number(button.dataset.r),
+      direction: Number(button.dataset.direction),
+    });
+  },
+);
+
 const INVENTORY_PANEL = "inventory-panel";
 
 /** The hex the pack was last offered beside, so the offer is made once per building, not per frame. */
@@ -2193,6 +2366,7 @@ function renderInspector(): void {
     title.textContent = "Select a hex";
     status.hidden = true;
     renderInspectorActions(undefined);
+    renderOutputRouting(undefined);
     renderInspectorLoad(undefined);
     renderInspectorTier(undefined);
     renderInspectorRecipe(undefined);
@@ -2400,6 +2574,7 @@ function renderInspector(): void {
   }
 
   renderInspectorActions(building);
+  renderOutputRouting(building);
   renderInspectorLoad(building);
   renderInspectorTier(building);
   renderInspectorRecipe(building);

@@ -742,6 +742,75 @@ describe("Visual Depth terrain and quality contracts", () => {
     for (const material of materials.materials) material.dispose();
   });
 
+  it("draws separate item-coloured outlets from the chosen multi-cell footprint ports", () => {
+    const materials = createWorldMaterials();
+    const composer = { ...beltDefinition(), id: 30, kind: "composer" as const };
+    const layer = new WorldInstanceLayer(
+      {
+        boundaries: [],
+        surfaces: [],
+        version: 1,
+        items: [
+          {
+            id: 29,
+            key: "bitumen",
+            name: "Bitumen",
+            color: "#a58d72",
+            icon: "lump",
+            description: "",
+            stack_size: 40,
+          },
+          {
+            id: 30,
+            key: "fuel",
+            name: "Fuel",
+            color: "#efbb66",
+            icon: "droplet",
+            description: "",
+            stack_size: 40,
+          },
+        ],
+        recipes: [],
+        requests: [],
+        buildings: [beltDefinition(), composer],
+      },
+      materials,
+    );
+    const snapshot = minimalSnapshot();
+    const refinery = entity(1, 30, "composer", 0, 0, 0);
+    refinery.footprint = [
+      { q: 0, r: 0 },
+      { q: -1, r: 0 },
+    ];
+    refinery.output_routes = [
+      { item_id: 29, q: 0, r: 0, direction: 0, target_id: 2 },
+      { item_id: 30, q: -1, r: 0, direction: 2, target_id: 3 },
+    ];
+    snapshot.buildings.push(
+      refinery,
+      entity(2, 2, "belt", 1, 0, 0),
+      entity(3, 2, "belt", -2, 1, 2),
+    );
+    layer.setSnapshot(snapshot, new Map(), 0);
+
+    const indicators = layer.group.getObjectByName(
+      "building-output-indicators",
+    ) as InstancedMesh;
+    const connections = layer.group.getObjectByName(
+      "transport-connections",
+    ) as InstancedMesh;
+    expect(indicators.count).toBe(4);
+    expect(connections.count).toBe(2);
+    const first = new Matrix4();
+    const second = new Matrix4();
+    indicators.getMatrixAt(0, first);
+    indicators.getMatrixAt(1, second);
+    expect(first.elements[12]).not.toBeCloseTo(second.elements[12]!, 4);
+
+    layer.dispose();
+    for (const material of materials.materials) material.dispose();
+  });
+
   it("slopes transport links between terrain heights and lets cargo settle once", () => {
     const materials = createWorldMaterials();
     const layer = new WorldInstanceLayer(

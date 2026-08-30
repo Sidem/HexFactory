@@ -38,7 +38,7 @@ import type {
  */
 
 const MAGIC = 0x48584644; // "HXFD"
-const VERSION = 18;
+const VERSION = 19;
 
 /** Wire code is the index. Pinned against Rust by `fixtures/snapshot-delta-wire.json`. */
 const KINDS: BuildingKind[] = [
@@ -135,6 +135,7 @@ const ENTITY_FLAG = {
   inputInventory: 1 << 11,
   fuelInventory: 1 << 12,
   outputInventory: 1 << 13,
+  outputRoutes: 1 << 14,
 } as const;
 
 const PATCH_REPLACE = 1 << 0;
@@ -595,6 +596,24 @@ function readBuildings(reader: Reader): BuildingsPatch {
       (flags & ENTITY_FLAG.fuelInventory) !== 0 ? reader.ingredients() : [];
     const output_inventory =
       (flags & ENTITY_FLAG.outputInventory) !== 0 ? reader.ingredients() : [];
+    const output_routes = [] as NonNullable<EntitySnapshot["output_routes"]>;
+    if ((flags & ENTITY_FLAG.outputRoutes) !== 0) {
+      const routes = reader.uvarint();
+      for (let route = 0; route < routes; route += 1) {
+        const item_id = reader.uvarint();
+        const routeQ = q + reader.svarint();
+        const routeR = r + reader.svarint();
+        const direction = reader.u8();
+        const target = reader.uvarint();
+        output_routes.push({
+          item_id,
+          q: routeQ,
+          r: routeR,
+          direction,
+          target_id: target || null,
+        });
+      }
+    }
     const progress = reader.uvarint();
     const progress_total = reader.uvarint();
     const fuel_charge =
@@ -644,6 +663,7 @@ function readBuildings(reader: Reader): BuildingsPatch {
     if (input_inventory.length > 0) entity.input_inventory = input_inventory;
     if (fuel_inventory.length > 0) entity.fuel_inventory = fuel_inventory;
     if (output_inventory.length > 0) entity.output_inventory = output_inventory;
+    if (output_routes.length > 0) entity.output_routes = output_routes;
     // Absent rather than zero, because that is what native sends: two numbers per entity per delta
     // saying "this is not a furnace" cost 86 KB at the largest measured tier, which is why they are
     // skipped in the first place. The flag bit already carried the distinction.

@@ -26,6 +26,6 @@ export function productionNote(
     .map((entry) => `${entry.quantity} ${name(entry.item_id)}`)
     .join(", ");
   return building.status === "output blocked"
-    ? `Output buffer blocked${stored ? ` — holding ${stored}` : ""}. Free space for the whole batch (${batch}). Take output below or connect storage for both products; no inputs are consumed while blocked.`
-    : `Each batch makes ${batch}. Both share one outlet and one buffer. Keep both moving: use storage, or a splitter beside compatible consumers. Refined fuel runs burners and boilers; bitumen feeds asphalt.`;
+    ? `Output buffer blocked${stored ? ` — holding ${stored}` : ""}. Free space for the whole batch (${batch}). Take output below or connect every product port; no inputs are consumed while blocked.`
+    : `Each batch makes ${batch} into one shared buffer. In Product outputs, choose each product and click the exact outside footprint port it should use. Refined fuel runs burners and boilers; bitumen feeds asphalt.`;
 }

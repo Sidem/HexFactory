@@ -283,7 +283,7 @@
       "name": "Bitumen",
       "color": "#a58d72",
       "icon": "lump",
-      "description": "Road binder from the refinery. Every two bitumen also produce two refined fuel; give both an outlet.",
+      "description": "Road binder from the refinery. Every two bitumen also produce two refined fuel; route each product through its own footprint port.",
       "stack_size": 40
     },
     {
@@ -659,7 +659,7 @@
       "id": 18,
       "key": "oil-refining",
       "name": "Refine crude oil",
-      "description": "Separate four crude oil into two bitumen and two refined fuel. Both products share the output buffer: remove or route both to keep refining. Cost allocation: bitumen 50%, fuel 50% of the whole batch.",
+      "description": "Separate four crude oil into two bitumen and two refined fuel. Both products share the output buffer but may leave through separate chosen footprint ports. Cost allocation: bitumen 50%, fuel 50% of the whole batch.",
       "category": "refining",
       "inputs": [{ "item_id": 28, "quantity": 4 }],
       "output": { "item_id": 29, "quantity": 2 },
@@ -1627,7 +1627,7 @@
       "name": "Refinery",
       "kind": "composer",
       "icon": "REF",
-      "description": "Separates crude into bitumen and refined fuel in equal quantities. Both leave the same outlet. Buffer both, or use a splitter directly beside an asphalt mixer and a fuel consumer. If either stream backs up, the refinery waits without losing anything.",
+      "description": "Separates crude into bitumen and refined fuel in equal quantities. Select each product in the inspector and assign an outside port on either footprint tile. If either stream backs up, the refinery waits without losing anything.",
       "capacity": 24,
       "recipe_category": "refining",
       "power_draw": 8,

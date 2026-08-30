@@ -444,6 +444,14 @@ export interface WorldPreset {
 
 export type Cargo = Ingredient;
 
+export interface OutputRouteSnapshot extends AxialCoordinate {
+  item_id: number;
+  /** One of the six exterior footprint sides, clockwise from east. */
+  direction: number;
+  /** The native compiled target, or null when this port currently reaches nothing. */
+  target_id?: number | null;
+}
+
 export interface EntitySnapshot extends AxialCoordinate {
   id: number;
   definition_id: number;
@@ -462,6 +470,8 @@ export interface EntitySnapshot extends AxialCoordinate {
   input_inventory?: Ingredient[];
   fuel_inventory?: Ingredient[];
   output_inventory?: Ingredient[];
+  /** Effective route for every product, including unchanged legacy-facing defaults. */
+  output_routes?: OutputRouteSnapshot[];
   progress: number;
   progress_total: number;
   /**
@@ -777,6 +787,15 @@ export type NativeInputCommand =
   | { type: "erase"; q: number; r: number }
   | { type: "erase_line"; q: number; r: number; to_q: number; to_r: number }
   | { type: "rotate"; q: number; r: number; reverse?: boolean }
+  | {
+      type: "set_output_route";
+      q: number;
+      r: number;
+      item_id: number;
+      output_q: number;
+      output_r: number;
+      direction: number;
+    }
   /**
    * Grow a building into the next tier of itself. Contents, heading, and connections survive
    * because native edits the entity in place rather than replacing it, and the price is netted

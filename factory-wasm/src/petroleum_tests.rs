@@ -136,6 +136,67 @@ fn petroleum_joint_outputs_and_reserved_jobs_are_refunded_and_dirty_tracked() {
 }
 
 #[test]
+fn refinery_products_leave_independent_exterior_footprint_ports_and_round_trip() {
+    let (mut core, scenarios) = test_core();
+    let container = core
+        .definitions
+        .buildings
+        .iter()
+        .find(|building| building.key == "container")
+        .unwrap()
+        .id;
+    core.place(2, 0, 30, 0, Some(18)).unwrap();
+    core.place(3, 0, container, 0, None).unwrap();
+    core.place(0, 1, container, 0, None).unwrap();
+    assert_eq!(
+        core.set_output_route(2, 0, 29, 2, 0, 3).unwrap_err(),
+        "output port is on an internal footprint seam"
+    );
+    core.set_output_route(2, 0, 29, 2, 0, 0).unwrap();
+    core.set_output_route(1, 0, 30, 1, 0, 2).unwrap();
+    let refinery = at(&core, 2, 0);
+    core.entities[refinery].output_inventory.insert(29, 2);
+    core.entities[refinery].output_inventory.insert(30, 2);
+
+    let routes = core.entity_snapshot(refinery).output_routes;
+    assert_eq!(
+        routes,
+        vec![
+            OutputRouteSnapshot {
+                item_id: 29,
+                q: 2,
+                r: 0,
+                direction: 0,
+                target_id: Some(core.entities[at(&core, 3, 0)].id),
+            },
+            OutputRouteSnapshot {
+                item_id: 30,
+                q: 1,
+                r: 0,
+                direction: 2,
+                target_id: Some(core.entities[at(&core, 0, 1)].id),
+            },
+        ]
+    );
+    for _ in 0..4 {
+        core.transfer_cargo();
+    }
+    assert_eq!(core.entities[at(&core, 3, 0)].inventory.get(&29), Some(&2));
+    assert_eq!(core.entities[at(&core, 0, 1)].inventory.get(&30), Some(&2));
+    assert!(core.entities[refinery].output_inventory.is_empty());
+
+    let save = core.save_string().unwrap();
+    let mut restored =
+        Core::from_save(&core.definitions, &core.technologies, &scenarios, &save).unwrap();
+    let restored_refinery = at(&restored, 2, 0);
+    assert_eq!(
+        restored.entity_snapshot(restored_refinery).output_routes,
+        routes
+    );
+    assert_eq!(restored.checksum(), core.checksum());
+}
+
+#[test]
 fn petroleum_powered_chain_routes_both_products_and_makes_asphalt() {
     let (mut core, _) = test_core();
     core.power_unmetered = false;

@@ -81,11 +81,19 @@ have unlocked it yet, the tool bar now shows when it has more slots off the edge
 something you can actually pick up before it names the machine built from it. Existing saves keep the
 same versions. See the [release record](docs/EMBLEMS-RECORD.md) for verification and limits.
 
+Post-release maintenance adds a **Product outputs** map to buildings that make cargo. Pick a
+product, then click an outside arrow on the exact footprint tile and side where it should leave.
+Joint products such as bitumen and refined fuel can now feed separate belts, and item-coloured
+arrows on the building keep those outlets visible in the world. Existing buildings keep their old
+facing outlet until you change one.
+
 ## Controls
 
 - The default hotbar starts with the manual workshop and primitive furnace. Existing pinned bars
   are preserved. Load a workshop's ingredients, stand within one hex, and press **Work one batch**
   in its inspector. Walking or gathering pauses work; dismantling refunds reserved ingredients.
+- Inspect a producing building to open **Product outputs**. Choose a product, then choose an outside
+  arrow on a specific footprint tile; internal seams are deliberately not offered.
 - Move freely with `W/A/S/D` or the narrow-layout touch pad; movement is not snapped to building
   cells. Travelling past the dashed survey frontier generates new world and permanently lifts its
   fog.

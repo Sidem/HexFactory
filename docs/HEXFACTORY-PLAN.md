@@ -100,6 +100,8 @@ to change.
 
 **Latest delivery: v0.44.0 Emblems and Clarity.** Every buildable machine, recipe category and research branch now has an original stroke emblem drawn to one published contract, replacing the three-letter text stamps; the build catalogue gained a search box and a scroll affordance, the guide names material a hand can gather before it names a machine built from it, and the hub inspector says what to do rather than repeating mission control's prose. See [the release record](EMBLEMS-RECORD.md) for verification and limits. Flowing water is next; supported floors moved behind Living Lattice on 2026-08-29 so the player learns one level before the game asks them to think in levels.
 
+Post-release maintenance adds native per-product output ports without assigning the next release number: a player selects a product and an exterior side of a specific footprint tile, and item-filtered compiled edges move joint outputs separately. Legacy buildings retain their facing outlet until edited. Save 35 and wire 19 carry the checksummed routes and their effective snapshot ports; definition, technology, scenario and world envelopes remain unchanged.
+
 ### Current assessment — 2026-08-29
 
 The game is a strong, unusually trustworthy factory-game foundation and a polished short-form

@@ -8,9 +8,10 @@ Current release: **v0.44.0 Emblems and Clarity** — one emblem library, under a
 the top of `src/rendering/emblems.ts`, draws every buildable machine, recipe category and research
 branch; the build catalogue gained search and a shelf affordance, and the guide and hub inspector
 say what to do rather than repeating prose. Presentation only: no emblem key reaches a save, a
-checksum, a native definition or the wire. Envelopes are unchanged — save 34, definitions 26,
-technologies 15, scenarios 7, world 10, wire 18 — so every save the previous release loaded still
-loads, unmigrated.
+checksum, a native definition or the wire. Post-release maintenance adds native per-product output
+ports for joint-output buildings without assigning a new release number. Current envelopes are save
+35, definitions 26, technologies 15, scenarios 7, world 10, wire 19; save 34 migrates by adding an
+empty route map, preserving the previous facing outlet and checksum.
 
 Next work is the numbered phase table in `docs/HEXFACTORY-PLAN.md#what-to-do-next`: flowing water.
 Release numbers after v0.44.0 are unassigned. Do not reorder those phases without the user. On

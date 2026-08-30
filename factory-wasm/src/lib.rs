@@ -130,7 +130,11 @@ const SAVE_PREFIX: &str = "HXF1\n";
 /// A version-33 file therefore moves on its version stamp and the technology envelope alone, and
 /// keeps exactly the `generated_chunks` it was saved with — the wider survey applies from the next
 /// hex the player reaches.
-const SAVE_VERSION: u16 = 34;
+/// Version 35 adds per-product output ports. The map is empty on every older building, which is
+/// exactly the legacy behaviour: all products leave from the building's facing. The checksum
+/// contribution is guarded on emptiness, so the 34 -> 35 migration can verify the original run
+/// before adding no state at all.
+const SAVE_VERSION: u16 = 35;
 /// Bumped to 6 for World Parameters. `WorldParams` is now part of a run's identity — it is in the
 /// save envelope and in the checksum — so a version-5 envelope carries no answer to the question
 /// "which world is this" and is rejected rather than assumed to be the default.
@@ -168,7 +172,9 @@ const GRAPH_TRACE_LIMIT: i32 = 8;
 /// A fixed width rather than a vector per entity. The graph is compiled for every building in the
 /// world and re-compiled on every edit, so `Links` staying a `Copy` value the graph holds inline
 /// is what keeps a splitter from costing an allocation on entities that will never have one.
-const MAX_LINKS: usize = 3;
+/// One compiled edge per recipe output. A splitter still uses only three wildcard edges; a joint
+/// recipe can name up to eight outputs and route each independently.
+const MAX_LINKS: usize = 8;
 /// The furthest an underpass may reach for its partner, counted in hexes along its own heading.
 ///
 /// This is the crossing budget and nothing else: an entrance rays *past* whatever stands between,
@@ -804,11 +810,25 @@ impl OrientationAxis {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Link {
+    /// `None` is the legacy/default route shared by every offered item. A named item is one
+    /// independently configured product outlet.
+    item_id: Option<ItemId>,
+    target: usize,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct LinkId {
+    item_id: Option<ItemId>,
+    target_id: u32,
+}
+
 /// One entity's outgoing edges named by stable entity id rather than by vector index.
 ///
 /// What an incremental recompile carries across an edit: erasing shifts every index after the hole,
 /// so the edges that were *not* affected have to survive as ids and be resolved back afterwards.
-type LinkIds = [Option<u32>; MAX_LINKS];
+type LinkIds = [Option<LinkId>; MAX_LINKS];
 
 /// One entity's outgoing transport edges, in the order they were compiled.
 ///
@@ -821,29 +841,61 @@ type LinkIds = [Option<u32>; MAX_LINKS];
 /// Fixed width and `Copy`. See `MAX_LINKS`.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 struct Links {
-    targets: [Option<usize>; MAX_LINKS],
+    edges: [Option<Link>; MAX_LINKS],
 }
 
 impl Links {
     /// The one-edge graph every non-splitting building compiles.
     fn single(target: Option<usize>) -> Self {
         let mut links = Self::default();
-        links.targets[0] = target;
+        if let Some(target) = target {
+            links.edges[0] = Some(Link {
+                item_id: None,
+                target,
+            });
+        }
         links
     }
 
-    /// Every target this entity delivers to, in compile order and without repeats.
+    /// Every distinct target this entity delivers to, in compile order.
+    ///
+    /// Two products may use the same belt. Reverse feeder indexes still need that source once,
+    /// not once per product, or merger arbitration would silently weight the source.
     fn iter(self) -> impl Iterator<Item = usize> {
-        self.targets.into_iter().flatten()
+        self.edges
+            .into_iter()
+            .enumerate()
+            .filter_map(move |(index, edge)| {
+                let edge = edge?;
+                (!self.edges[..index]
+                    .iter()
+                    .flatten()
+                    .any(|previous| previous.target == edge.target))
+                .then_some(edge.target)
+            })
+    }
+
+    /// The edges this item may actually take. Once a product has a named route, the wildcard is
+    /// no longer a fallback for it — a disconnected configured port must stay disconnected.
+    fn iter_for(self, item_id: ItemId) -> impl Iterator<Item = usize> {
+        let named = self
+            .edges
+            .iter()
+            .flatten()
+            .any(|edge| edge.item_id == Some(item_id));
+        self.edges.into_iter().flatten().filter_map(move |edge| {
+            (edge.item_id == Some(item_id) || (!named && edge.item_id.is_none()))
+                .then_some(edge.target)
+        })
     }
 
     /// The first outgoing edge, which for everything but a splitter is the only one.
     fn primary(self) -> Option<usize> {
-        self.targets[0]
+        self.edges[0].map(|edge| edge.target)
     }
 
     fn is_empty(self) -> bool {
-        self.targets[0].is_none()
+        self.edges[0].is_none()
     }
 
     /// Add one edge, keeping the slots packed from the front.
@@ -853,13 +905,34 @@ impl Links {
     /// would hand that consumer two of every three items — a round robin that silently weights
     /// itself by geometry.
     fn push(&mut self, target: usize) {
-        if self.iter().any(|existing| existing == target) {
+        self.push_item(None, target);
+    }
+
+    fn push_item(&mut self, item_id: Option<ItemId>, target: usize) {
+        if self
+            .edges
+            .iter()
+            .flatten()
+            .any(|existing| existing.item_id == item_id && existing.target == target)
+        {
             return;
         }
-        if let Some(slot) = self.targets.iter_mut().find(|slot| slot.is_none()) {
-            *slot = Some(target);
+        if let Some(slot) = self.edges.iter_mut().find(|slot| slot.is_none()) {
+            *slot = Some(Link { item_id, target });
         }
     }
+}
+
+/// A product outlet stored relative to the entity anchor, in world orientation.
+///
+/// The cell is one real footprint tile and the direction is one of its six exterior sides. It is
+/// saved and checksummed: two otherwise equal refineries that send fuel in different directions
+/// are different factories and must reload that way.
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
+struct OutputRoute {
+    q: i32,
+    r: i32,
+    direction: u8,
 }
 
 /// Whether a routing heading is one of the six vertex headings rather than one of the six edges.
@@ -1513,6 +1586,10 @@ struct EntitySnapshot {
     fuel_inventory: Vec<Ingredient>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     output_inventory: Vec<Ingredient>,
+    /// One effective port per product this building can make. Defaults are published too, so the
+    /// inspector never has to reconstruct where a multi-cell building's facing exits its hull.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    output_routes: Vec<OutputRouteSnapshot>,
     progress: u32,
     progress_total: u32,
     /// Energy the machine is holding, and what one craft of its recipe costs. Both are published
@@ -1550,6 +1627,15 @@ struct EntitySnapshot {
     #[serde(skip_serializing_if = "Vec::is_empty")]
     branch_ids: Vec<u32>,
     footprint: Vec<Coordinate>,
+}
+
+#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
+struct OutputRouteSnapshot {
+    item_id: ItemId,
+    q: i32,
+    r: i32,
+    direction: u8,
+    target_id: Option<u32>,
 }
 
 /// A per-entity buildings patch. `changed` carries inserted and modified entities and `removed`
@@ -1957,6 +2043,16 @@ enum InputCommand {
         #[serde(default)]
         reverse: bool,
     },
+    /// Route one product through one exterior side of one footprint tile. The building target and
+    /// the port cell are both explicit so a multi-cell refinery is never reduced to its anchor.
+    SetOutputRoute {
+        q: i32,
+        r: i32,
+        item_id: ItemId,
+        output_q: i32,
+        output_r: i32,
+        direction: u8,
+    },
     /// Grow a building into the next tier of itself, keeping its contents, its heading, and its
     /// connections. Bounded and range-checked like every other edit.
     Upgrade {
@@ -2131,6 +2227,9 @@ struct Core {
     /// saved, and it is never hashed or checksummed.
     flora_regrowth: BTreeSet<(i32, i32)>,
     entities: Vec<Entity>,
+    /// Per-entity, per-product outlet choices keyed by stable entity id. Empty means the legacy
+    /// facing outlet for every product. Real saved state; compiled graph edges remain derived.
+    output_routes: BTreeMap<u32, BTreeMap<ItemId, OutputRoute>>,
     ground_items: Vec<GroundItem>,
     next_ground_item_id: u32,
     graph: Vec<Links>,
@@ -2311,6 +2410,7 @@ impl Core {
                 .collect(),
             flora_regrowth: BTreeSet::new(),
             entities: Vec::new(),
+            output_routes: BTreeMap::new(),
             ground_items: Vec::new(),
             next_ground_item_id: 1,
             graph: Vec::new(),
@@ -3220,6 +3320,20 @@ impl Core {
         let Some(definition) = self.building_definition(entity.placed.definition_id) else {
             return Links::default();
         };
+        if let Some(routes) = self.output_routes.get(&entity.id) {
+            if !routes.is_empty() {
+                let mut links = Links::default();
+                for (&item_id, &route) in routes {
+                    let origin = (entity.placed.q + route.q, entity.placed.r + route.r);
+                    if let Some(target) =
+                        self.trace_output_from(index, origin, route.direction, None, occupied)
+                    {
+                        links.push_item(Some(item_id), target);
+                    }
+                }
+                return links;
+            }
+        }
         let facing = entity.placed.orientation;
         let span = definition.underpass_span;
         let mut links = Links::single(self.trace_output(index, facing, span, occupied));
@@ -3246,9 +3360,27 @@ impl Core {
         underpass_span: Option<u32>,
         occupied: &BTreeMap<(i32, i32), usize>,
     ) -> Option<usize> {
+        let placed = self.entities[index].placed;
+        self.trace_output_from(
+            index,
+            (placed.q, placed.r),
+            orientation,
+            underpass_span,
+            occupied,
+        )
+    }
+
+    fn trace_output_from(
+        &self,
+        index: usize,
+        origin: (i32, i32),
+        orientation: u8,
+        underpass_span: Option<u32>,
+        occupied: &BTreeMap<(i32, i32), usize>,
+    ) -> Option<usize> {
         let target = underpass_span
             .and_then(|span| self.trace_underpass(index, orientation, span, occupied))
-            .or_else(|| self.trace_ray(index, orientation, occupied));
+            .or_else(|| self.trace_ray_from(index, origin, orientation, occupied));
         target.filter(|&target| {
             // A dead edge is not compiled at all. Binding one and letting every tick's transfer
             // refuse it spends arbitration on a delivery that can never land, and draws the player
@@ -3256,9 +3388,8 @@ impl Core {
             if never_accepts_deliveries(self.entities[target].kind) {
                 return false;
             }
-            let from = &self.entities[index].placed;
             let to = &self.entities[target].placed;
-            !self.boundary_blocks_segment(axial_world(from.q, from.r), axial_world(to.q, to.r))
+            !self.boundary_blocks_segment(axial_world(origin.0, origin.1), axial_world(to.q, to.r))
         })
     }
 
@@ -3315,16 +3446,16 @@ impl Core {
     /// skipping its own footprint, and returns the first other occupied cell. Nothing in it ever
     /// assumed the step was a unit vector, which is why the six corner headings cost table rows
     /// here and nothing else.
-    fn trace_ray(
+    fn trace_ray_from(
         &self,
         index: usize,
+        origin: (i32, i32),
         orientation: u8,
         occupied: &BTreeMap<(i32, i32), usize>,
     ) -> Option<usize> {
-        let entity = &self.entities[index];
         let (dq, dr) = TRANSPORT_DIRECTIONS[usize::from(orientation) % TRANSPORT_DIRECTIONS.len()];
-        let mut q = entity.placed.q + dq;
-        let mut r = entity.placed.r + dr;
+        let mut q = origin.0 + dq;
+        let mut r = origin.1 + dr;
         for _ in 0..GRAPH_TRACE_LIMIT {
             match occupied.get(&(q, r)).copied() {
                 Some(target) if target == index => {
@@ -3923,9 +4054,12 @@ impl Core {
             .map(|(index, entity)| {
                 (
                     entity.id,
-                    self.graph[index]
-                        .targets
-                        .map(|target| target.map(|target| self.entities[target].id)),
+                    self.graph[index].edges.map(|edge| {
+                        edge.map(|edge| LinkId {
+                            item_id: edge.item_id,
+                            target_id: self.entities[edge.target].id,
+                        })
+                    }),
                 )
             })
             .collect()
@@ -3945,26 +4079,36 @@ impl Core {
             .enumerate()
             .map(|(index, entity)| (entity.id, index))
             .collect();
-        let anchors: BTreeMap<(i32, i32), u32> = self
-            .entities
-            .iter()
-            .map(|entity| ((entity.placed.q, entity.placed.r), entity.id))
-            .collect();
+        let mut ray_origins: BTreeMap<(i32, i32), Vec<u32>> = BTreeMap::new();
+        for entity in &self.entities {
+            ray_origins
+                .entry((entity.placed.q, entity.placed.r))
+                .or_default()
+                .push(entity.id);
+            if let Some(routes) = self.output_routes.get(&entity.id) {
+                for route in routes.values() {
+                    ray_origins
+                        .entry((entity.placed.q + route.q, entity.placed.r + route.r))
+                        .or_default()
+                        .push(entity.id);
+                }
+            }
+        }
 
         let mut graph: Vec<Links> = self
             .entities
             .iter()
             .map(|entity| {
                 let mut links = Links::default();
-                for target in old_links
+                for link in old_links
                     .get(&entity.id)
                     .copied()
                     .unwrap_or_default()
                     .into_iter()
                     .flatten()
                 {
-                    if let Some(&index) = indices_by_id.get(&target) {
-                        links.push(index);
+                    if let Some(&index) = indices_by_id.get(&link.target_id) {
+                        links.push_item(link.item_id, index);
                     }
                 }
                 links
@@ -3974,9 +4118,15 @@ impl Core {
         let mut old_adjacency: BTreeMap<u32, BTreeSet<u32>> = BTreeMap::new();
         for (&source, targets) in old_links {
             old_adjacency.entry(source).or_default();
-            for target in targets.iter().copied().flatten() {
-                old_adjacency.entry(source).or_default().insert(target);
-                old_adjacency.entry(target).or_default().insert(source);
+            for link in targets.iter().copied().flatten() {
+                old_adjacency
+                    .entry(source)
+                    .or_default()
+                    .insert(link.target_id);
+                old_adjacency
+                    .entry(link.target_id)
+                    .or_default()
+                    .insert(source);
             }
         }
 
@@ -3994,8 +4144,9 @@ impl Core {
             }
             for (dq, dr) in TRANSPORT_DIRECTIONS {
                 for distance in 1..=GRAPH_TRACE_LIMIT {
-                    if let Some(&source) = anchors.get(&(q - dq * distance, r - dr * distance)) {
-                        affected.insert(source);
+                    if let Some(sources) = ray_origins.get(&(q - dq * distance, r - dr * distance))
+                    {
+                        affected.extend(sources.iter().copied());
                     }
                 }
             }
@@ -4544,7 +4695,10 @@ impl Core {
                 continue;
             };
             let links = self.graph[source];
-            let outputs: Vec<usize> = links.iter().collect();
+            let outputs: Vec<usize> = links.iter_for(cargo.item_id).collect();
+            if outputs.is_empty() {
+                continue;
+            }
             let cursor = usize::from(self.entities[source].route_cursor);
             for offset in 0..outputs.len() {
                 let slot = (cursor + offset) % outputs.len();
@@ -6754,6 +6908,7 @@ impl Core {
             .collect();
         let entity = self.entities.remove(index);
         self.deposit_links.remove(&entity.id);
+        self.output_routes.remove(&entity.id);
         self.dirty.removed.insert(entity.id);
         self.dirty.chunks = true;
         let name = self
@@ -7307,8 +7462,120 @@ impl Core {
             self.entities[index].disabled = true;
         }
         let id = self.entities[index].id;
+        // A recipe chooses the product identities. Ports for the old recipe cannot silently become
+        // ports for the new one, so reassignment returns the machine to its single facing outlet.
+        self.output_routes.remove(&id);
+        self.compile_graph();
         self.dirty.entities.push(id);
         self.events.push(format!("Set recipe to {}", recipe.name));
+        Ok(())
+    }
+
+    fn output_items(&self, index: usize) -> Vec<ItemId> {
+        let entity = &self.entities[index];
+        let mut items: Vec<ItemId> = entity
+            .placed
+            .recipe_id
+            .and_then(|id| self.recipe(id))
+            .map(|recipe| recipe.outputs().map(|output| output.item_id).collect())
+            .unwrap_or_default();
+        if items.is_empty() {
+            if let Some(item_id) = self
+                .building_definition(entity.placed.definition_id)
+                .and_then(|definition| definition.output_item_id)
+            {
+                items.push(item_id);
+            }
+        }
+        items.sort_unstable();
+        items.dedup();
+        items
+    }
+
+    /// The legacy facing translated into one unambiguous exterior footprint port.
+    fn default_output_route(&self, index: usize) -> OutputRoute {
+        let entity = &self.entities[index];
+        let direction = entity.placed.orientation;
+        let mut cell = Coordinate {
+            q: entity.placed.q,
+            r: entity.placed.r,
+        };
+        if usize::from(direction) < DIRECTIONS.len() {
+            let footprint: BTreeSet<(i32, i32)> = self
+                .entity_footprint(entity)
+                .into_iter()
+                .map(|cell| (cell.q, cell.r))
+                .collect();
+            let (dq, dr) = DIRECTIONS[usize::from(direction)];
+            while footprint.contains(&(cell.q + dq, cell.r + dr)) {
+                cell.q += dq;
+                cell.r += dr;
+            }
+        }
+        OutputRoute {
+            q: cell.q - entity.placed.q,
+            r: cell.r - entity.placed.r,
+            direction,
+        }
+    }
+
+    fn set_output_route(
+        &mut self,
+        q: i32,
+        r: i32,
+        item_id: ItemId,
+        output_q: i32,
+        output_r: i32,
+        direction: u8,
+    ) -> Result<(), String> {
+        if !self.within_build_range_of_target(q, r) {
+            return Err("output target is outside build range".into());
+        }
+        let index = self.entity_at(q, r).ok_or("no building at that hex")?;
+        if self.entities[index].placed.scenario_owned {
+            return Err("scenario-owned objects are protected".into());
+        }
+        let items = self.output_items(index);
+        if !items.contains(&item_id) {
+            return Err("that building does not produce this item".into());
+        }
+        if usize::from(direction) >= DIRECTIONS.len() {
+            return Err("an output port must use one of the six footprint sides".into());
+        }
+        let footprint: BTreeSet<(i32, i32)> = self
+            .entity_footprint(&self.entities[index])
+            .into_iter()
+            .map(|cell| (cell.q, cell.r))
+            .collect();
+        if !footprint.contains(&(output_q, output_r)) {
+            return Err("output port is not on this building's footprint".into());
+        }
+        let (dq, dr) = DIRECTIONS[usize::from(direction)];
+        if footprint.contains(&(output_q + dq, output_r + dr)) {
+            return Err("output port is on an internal footprint seam".into());
+        }
+        let id = self.entities[index].id;
+        let anchor = self.entities[index].placed;
+        // The first edit materializes every current default before changing one. No co-product is
+        // disconnected merely because the player started configuring its neighbour.
+        if !self.output_routes.contains_key(&id) {
+            let default = self.default_output_route(index);
+            self.output_routes.insert(
+                id,
+                items.iter().copied().map(|item| (item, default)).collect(),
+            );
+        }
+        self.output_routes.entry(id).or_default().insert(
+            item_id,
+            OutputRoute {
+                q: output_q - anchor.q,
+                r: output_r - anchor.r,
+                direction,
+            },
+        );
+        self.compile_graph();
+        self.dirty.entities.push(id);
+        self.events.push("Changed product output".into());
         Ok(())
     }
 
@@ -7500,6 +7767,33 @@ impl Core {
             self.charge_difference(&charge, &credit)?;
         }
         self.entities[index].placed.orientation = next_orientation;
+        // Product ports are attached to the hull. Rotating the building turns both the chosen
+        // footprint tile and its exterior side, rather than leaving a world-fixed outlet behind.
+        let old_turn = if orientation >= NORTH {
+            orientation - NORTH
+        } else {
+            orientation
+        };
+        let next_turn = if next_orientation >= NORTH {
+            next_orientation - NORTH
+        } else {
+            next_orientation
+        };
+        let turns = (next_turn + 6 - old_turn) % 6;
+        if let Some(routes) = self.output_routes.get_mut(&id) {
+            for route in routes.values_mut() {
+                let rotated = rotate_coordinate(
+                    Coordinate {
+                        q: route.q,
+                        r: route.r,
+                    },
+                    turns,
+                );
+                route.q = rotated.q;
+                route.r = rotated.r;
+                route.direction = (route.direction + turns) % 6;
+            }
+        }
         self.dirty.entities.push(id);
         let changed_cells = old_footprint
             .into_iter()
@@ -7580,6 +7874,14 @@ impl Core {
                     self.erase_line((q, r), (to_q, to_r))
                 }
                 InputCommand::Rotate { q, r, reverse } => self.rotate(q, r, reverse),
+                InputCommand::SetOutputRoute {
+                    q,
+                    r,
+                    item_id,
+                    output_q,
+                    output_r,
+                    direction,
+                } => self.set_output_route(q, r, item_id, output_q, output_r, direction),
                 InputCommand::Upgrade { q, r } => self.upgrade(q, r),
                 InputCommand::Withdraw {
                     q,
@@ -7706,7 +8008,7 @@ impl Core {
                 // first would paint a working junction as blocked every time its cursor happened to
                 // rest on the branch that is full.
                 if self.graph[index]
-                    .iter()
+                    .iter_for(cargo.item_id)
                     .any(|target| self.can_accept(target, cargo))
                 {
                     EntityStatus::Carrying
@@ -7802,6 +8104,29 @@ impl Core {
         let input_inventory = self.stock_snapshot(index, StockKind::Input);
         let fuel_inventory = self.stock_snapshot(index, StockKind::Fuel);
         let output_inventory = self.stock_snapshot(index, StockKind::Output);
+        let output_routes: Vec<OutputRouteSnapshot> = self
+            .output_items(index)
+            .into_iter()
+            .map(|item_id| {
+                let entity = &self.entities[index];
+                let route = self
+                    .output_routes
+                    .get(&entity.id)
+                    .and_then(|routes| routes.get(&item_id))
+                    .copied()
+                    .unwrap_or_else(|| self.default_output_route(index));
+                OutputRouteSnapshot {
+                    item_id,
+                    q: entity.placed.q + route.q,
+                    r: entity.placed.r + route.r,
+                    direction: route.direction,
+                    target_id: self.graph[index]
+                        .iter_for(item_id)
+                        .next()
+                        .map(|target| self.entities[target].id),
+                }
+            })
+            .collect();
         let entity = &self.entities[index];
         let fuel_required = entity
             .placed
@@ -7846,6 +8171,7 @@ impl Core {
             input_inventory,
             fuel_inventory,
             output_inventory,
+            output_routes,
             progress: entity.progress,
             progress_total,
             fuel_charge: entity.fuel_charge,
@@ -8192,6 +8518,19 @@ impl Core {
                 hash_u32(&mut hash, 0);
             }
         }
+        if !self.output_routes.is_empty() {
+            hash_u32(&mut hash, u32::MAX - 31);
+            for (&entity_id, routes) in &self.output_routes {
+                hash_u32(&mut hash, entity_id);
+                for (&item_id, route) in routes {
+                    hash_u32(&mut hash, u32::from(item_id));
+                    hash_i32(&mut hash, route.q);
+                    hash_i32(&mut hash, route.r);
+                    hash_u32(&mut hash, u32::from(route.direction));
+                }
+                hash_u32(&mut hash, u32::MAX);
+            }
+        }
         for (&item, &quantity) in &self.delivered_by_item {
             hash_u32(&mut hash, u32::from(item));
             hash_u64(&mut hash, quantity);
@@ -8257,6 +8596,7 @@ impl Core {
                 .collect(),
             tiles: self.tiles.values().cloned().collect(),
             entities: self.entities.clone(),
+            output_routes: self.output_routes.clone(),
             player: self.player.clone(),
             pending_gather: self.pending_gather,
             researched: self.researched.clone(),
@@ -8373,6 +8713,7 @@ impl Core {
         // Undo history is session state, not saved state: a restored save has nothing to take back.
         core.undo_stack.clear();
         core.entities = envelope.state.entities;
+        core.output_routes = envelope.state.output_routes;
         // A save records entities in stable id order; sorting makes that an invariant of the loaded
         // core rather than a property of the file. Entity order is not a simulation input — the
         // checksum and every arbitration order sort by id — so this cannot change a result.
@@ -8482,6 +8823,8 @@ struct SavedState {
     generated_chunks: Vec<Coordinate>,
     tiles: Vec<TileState>,
     entities: Vec<Entity>,
+    #[serde(default)]
+    output_routes: BTreeMap<u32, BTreeMap<ItemId, OutputRoute>>,
     player: PlayerState,
     /// The hex a swing in flight is working. Optional and defaulted, because a save written before
     /// a harvest cost work has no swing to carry and reads back as an idle player — and because
@@ -10269,11 +10612,44 @@ fn validate_saved_state(
                 _ => false,
             }
         });
+        let footprint: BTreeSet<(i32, i32)> = definition
+            .footprint
+            .iter()
+            .map(|offset| {
+                let turns = if entity.placed.orientation >= NORTH {
+                    entity.placed.orientation - NORTH
+                } else {
+                    entity.placed.orientation
+                };
+                let offset = rotate_coordinate(*offset, turns);
+                (entity.placed.q + offset.q, entity.placed.r + offset.r)
+            })
+            .collect();
+        let allowed_outputs: BTreeSet<ItemId> = entity
+            .placed
+            .recipe_id
+            .and_then(|id| definitions.recipes.iter().find(|recipe| recipe.id == id))
+            .map(|recipe| recipe.outputs().map(|output| output.item_id).collect())
+            .unwrap_or_else(|| definition.output_item_id.into_iter().collect());
+        let routes_valid = state.output_routes.get(&entity.id).is_none_or(|routes| {
+            routes.len() <= MAX_LINKS
+                && routes.iter().all(|(&item_id, route)| {
+                    if !allowed_outputs.contains(&item_id)
+                        || usize::from(route.direction) >= DIRECTIONS.len()
+                    {
+                        return false;
+                    }
+                    let cell = (entity.placed.q + route.q, entity.placed.r + route.r);
+                    let (dq, dr) = DIRECTIONS[usize::from(route.direction)];
+                    footprint.contains(&cell) && !footprint.contains(&(cell.0 + dq, cell.1 + dr))
+                })
+        });
         if entity.kind != definition.kind
             || !definition
                 .orientation_axis
                 .allows(entity.placed.orientation)
             || !footprint_valid
+            || !routes_valid
             || !entity_ids.insert(entity.id)
             || entity
                 .inventory
@@ -10286,6 +10662,13 @@ fn validate_saved_state(
         {
             return Err("save contains invalid entity state".into());
         }
+    }
+    if state
+        .output_routes
+        .keys()
+        .any(|entity_id| !entity_ids.contains(entity_id))
+    {
+        return Err("save contains output routes for an unknown entity".into());
     }
     let (carry, reach) = research_bonuses(technologies, &state.researched);
     let skills = state.skills.bonuses(technologies);
@@ -14734,8 +15117,11 @@ mod tests {
     /// old `Option<usize>` graph could not have expressed and this helper would otherwise hide.
     fn sole_link(links: &BTreeMap<u32, LinkIds>, id: u32) -> Option<u32> {
         let ids = links[&id];
-        assert_eq!(ids[1..], [None, None], "entity {id} compiled a branch");
-        ids[0]
+        assert!(
+            ids[1..].iter().all(Option::is_none),
+            "entity {id} compiled a branch"
+        );
+        ids[0].map(|link| link.target_id)
     }
 
     #[test]
@@ -20962,6 +21348,7 @@ mod tests {
                         input_inventory: Vec::new(),
                         fuel_inventory: Vec::new(),
                         output_inventory: Vec::new(),
+                        output_routes: Vec::new(),
                         progress: 0,
                         progress_total: 0,
                         fuel_charge: 0,
@@ -21014,6 +21401,13 @@ mod tests {
                         output_inventory: vec![Ingredient {
                             item_id: 4,
                             quantity: 9,
+                        }],
+                        output_routes: vec![OutputRouteSnapshot {
+                            item_id: 4,
+                            q: -1,
+                            r: 6,
+                            direction: 5,
+                            target_id: Some(7),
                         }],
                         progress: 17,
                         progress_total: 40,

@@ -194,9 +194,11 @@ The Rust `Core` owns all state that can change a game result:
    charge, and scenario ownership separate. Definitions include a bounded axial footprint;
    occupancy, collision, edit targeting, scenario validation, and snapshots rotate the same data.
    Initial entity IDs derive from sorted anchors; later IDs are monotonic.
-9. `compile_graph` resolves each entity output into one directed transport edge after edits. Runtime
-   transfers use this compiled graph. Proposals sort by stable entity ID and a rejected transfer
-   never changes its source.
+9. `compile_graph` resolves each entity output into directed transport edges after edits. An
+   unconfigured building keeps one facing edge for every product. Once configured, each recipe
+   output names one exterior side of one real footprint tile and cargo may use only its own edge.
+   Runtime transfers use this compiled graph. Proposals sort by stable entity ID and a rejected
+   transfer never changes its source.
 10. A construction or removal drag arrives as one bounded command holding two endpoints. Edge belts
     use a deterministic shortest path through cells which pass the ordinary placement predicate,
     bounded by the same 32-cell run cap; this is what lets a run detour around an obstacle without
@@ -342,10 +344,13 @@ The named-save picker mirrors these adjacent envelopes and shows load failures o
 Recipes retain a primary output and may add up to seven co-products. Each output is a positive
 integer quantity, with unique identities and an explicit positive integer cost allocation summing
 to 100. The shared output compartment must hold the entire batch before native reserves any inputs;
-all products complete atomically through the existing inventory and dirty-delta paths. Every
-compatible station must fit the batch. Item-level ordered `production_routes` name all producers
-when alternatives exist; reachability selects a usable unlocked route and the balance fixture prices
-each named route and its whole batch. Definition cycles are refused rather than recursively priced.
+all products complete atomically through the existing inventory and dirty-delta paths. The shared
+buffer does not imply one outlet: `output_routes` is saved and checksummed by stable entity and item,
+and each route names one exterior side of one footprint cell. The compiled graph filters offers by
+item, while an absent route map preserves the legacy facing outlet. Every compatible station must
+fit the batch. Item-level ordered `production_routes` name all producers when alternatives exist;
+reachability selects a usable unlocked route and the balance fixture prices each named route and its
+whole batch. Definition cycles are refused rather than recursively priced.
 
 An asphalt ground record preserves the gravel base's actual paid bill and adds the top layer's bill.
 Strip recovers both; creative construction cannot create a refund. No new floor layer or fluid state

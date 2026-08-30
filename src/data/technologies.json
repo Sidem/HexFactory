@@ -248,7 +248,7 @@
       "id": 21,
       "key": "petroleum-processing",
       "name": "Petroleum Processing",
-      "description": "Find a lowland oil deposit, power a well and refine crude into bitumen plus fuel. Both outputs must have somewhere to go. Oil travels as belt cargo; pipes are not required.",
+      "description": "Find a lowland oil deposit, power a well and refine crude into bitumen plus fuel. Route each product through its own refinery footprint port. Oil travels as belt cargo; pipes are not required.",
       "prerequisites": [5, 8],
       "cost": 16,
       "effects": [

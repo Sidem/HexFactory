@@ -289,6 +289,12 @@ export class WorldInstanceLayer {
             entity.r,
             entity.next_id ?? 0,
             (entity.branch_ids ?? []).join(","),
+            (entity.output_routes ?? [])
+              .map(
+                ({ item_id, q, r, direction, target_id }) =>
+                  `${item_id}@${q},${r},${direction}>${target_id ?? 0}`,
+              )
+              .join(","),
           ].join(":"),
         )
         .join("|") + `@${snapshot.contract.stage}`;
@@ -535,7 +541,7 @@ export class WorldInstanceLayer {
       // geometry is authored for the one-row period and would fall short of the seam.
       if (
         link.to.orientation >= CORNER_START ||
-        Math.abs(this.transportTurn(link.from, link.to)) < 0.01
+        Math.abs(this.transportTurn(link)) < 0.01
       )
         straightInputTargets.add(link.to.id);
     }
@@ -661,10 +667,11 @@ export class WorldInstanceLayer {
   private transportDeckRuns(
     link: TransportLink,
   ): { start: Vector3; end: Vector3 }[] {
-    const a = this.pointById.get(link.from.id)!;
+    const fromPoint = axialToPixel(link.fromCell, 1, { x: 0, y: 0 });
+    const a = { x: fromPoint.x, z: fromPoint.y };
     const b = this.pointById.get(link.to.id)!;
     const direction = new Vector3(b.x - a.x, 0, b.z - a.z).normalize();
-    const fromGround = this.groundById.get(link.from.id) ?? 0.07;
+    const fromGround = this.groundHeight(link.fromCell.q, link.fromCell.r);
     const toGround = this.groundById.get(link.to.id) ?? 0.07;
     const fromInset = this.transportLinkInset(link.from);
     const toInset = this.transportLinkInset(link.to);
@@ -697,26 +704,26 @@ export class WorldInstanceLayer {
     ];
   }
 
-  private transportTurn(from: EntitySnapshot, to: EntitySnapshot): number {
-    const fromCenter = this.pointById.get(from.id)!;
-    const toCenter = this.pointById.get(to.id)!;
+  private transportTurn(link: TransportLink): number {
+    const fromPoint = axialToPixel(link.fromCell, 1, { x: 0, y: 0 });
+    const fromCenter = { x: fromPoint.x, z: fromPoint.y };
+    const toCenter = this.pointById.get(link.to.id)!;
     const incomingAngle = Math.atan2(
       -(toCenter.z - fromCenter.z),
       toCenter.x - fromCenter.x,
     );
-    return normalizeAngle(incomingAngle - directionAngle(to.orientation));
+    return normalizeAngle(incomingAngle - directionAngle(link.to.orientation));
   }
 
   /** Every incoming branch gets its own centre curve into the target belt. That keeps a merge
    * legible without asking presentation to choose one predecessor as the "real" lane. */
-  private addTransportCurves(
-    links: readonly { from: EntitySnapshot; to: EntitySnapshot }[],
-  ): void {
+  private addTransportCurves(links: readonly TransportLink[]): void {
     const buckets = new Map<number, EntitySnapshot[]>();
-    for (const { from, to } of links) {
+    for (const link of links) {
+      const { to } = link;
       if (to.kind !== "belt") continue;
       if (to.orientation >= CORNER_START) continue;
-      const turn = this.transportTurn(from, to);
+      const turn = this.transportTurn(link);
       if (Math.abs(turn) < 0.01) continue;
       const key = Math.round(turn * 1_000_000) / 1_000_000;
       const bucket = buckets.get(key);
@@ -774,24 +781,63 @@ export class WorldInstanceLayer {
   }
 
   private addOutputIndicators(snapshot: FactorySnapshot): void {
-    const buildings = snapshot.buildings.filter((building) =>
-      hasDirectionalOutput(building.kind),
-    );
-    if (!buildings.length) return;
+    const indicators = snapshot.buildings.flatMap((building) => {
+      if (!hasDirectionalOutput(building.kind)) return [];
+      const routes = building.output_routes ?? [];
+      if (routes.length === 0)
+        return [
+          {
+            building,
+            q: building.q,
+            r: building.r,
+            direction: building.orientation,
+            color: "#ffd166",
+          },
+        ];
+      const grouped = new Map<
+        string,
+        { q: number; r: number; direction: number; itemIds: number[] }
+      >();
+      for (const route of routes) {
+        const key = `${route.q},${route.r},${route.direction}`;
+        const existing = grouped.get(key);
+        if (existing) existing.itemIds.push(route.item_id);
+        else
+          grouped.set(key, {
+            q: route.q,
+            r: route.r,
+            direction: route.direction,
+            itemIds: [route.item_id],
+          });
+      }
+      return Array.from(grouped.values()).map((route) => ({
+        building,
+        q: route.q,
+        r: route.r,
+        direction: route.direction,
+        color:
+          route.itemIds.length === 1
+            ? (this.items.get(route.itemIds[0]!)?.color ?? "#ffd166")
+            : "#ffd166",
+      }));
+    });
+    if (!indicators.length) return;
     const mesh = new InstancedMesh(
       this.geometry.outputIndicator,
       this.materials.emissive,
-      buildings.length,
+      indicators.length,
     );
     mesh.name = "building-output-indicators";
-    for (const [index, building] of buildings.entries()) {
-      const center = this.pointById.get(building.id)!;
-      const angle = directionAngle(building.orientation);
-      const footprintReach = building.footprint.length > 1 ? 0.9 : 0.68;
+    for (const [index, indicator] of indicators.entries()) {
+      const center = axialToPixel({ q: indicator.q, r: indicator.r }, 1, {
+        x: 0,
+        y: 0,
+      });
+      const angle = directionAngle(indicator.direction);
       this.scratchPosition.set(
-        center.x + Math.cos(angle) * footprintReach,
-        (this.groundById.get(building.id) ?? 0.07) + 0.53,
-        center.z - Math.sin(angle) * footprintReach,
+        center.x + Math.cos(angle) * 0.68,
+        this.groundHeight(indicator.q, indicator.r) + 0.53,
+        center.y - Math.sin(angle) * 0.68,
       );
       this.scratchQuaternion.setFromAxisAngle(WORLD_UP, angle);
       this.scratchMatrix.compose(
@@ -800,7 +846,7 @@ export class WorldInstanceLayer {
         this.scratchScale.set(1, 1, 1),
       );
       mesh.setMatrixAt(index, this.scratchMatrix);
-      mesh.setColorAt(index, this.scratchColor.set("#ffd166"));
+      mesh.setColorAt(index, this.scratchColor.set(indicator.color));
     }
     markInstancesDirty(mesh);
     this.staticGroup.add(mesh);
@@ -1484,6 +1530,7 @@ const UNDERPASS_HEIGHT = 0.04;
 /** One compiled transport edge, with how many hexes it spans — see {@link connectedTransportLinks}. */
 interface TransportLink {
   readonly from: EntitySnapshot;
+  readonly fromCell: { q: number; r: number };
   readonly to: EntitySnapshot;
   readonly steps: number;
 }
@@ -1522,22 +1569,40 @@ function connectedTransportLinks(
   buildings: readonly EntitySnapshot[],
 ): TransportLink[] {
   const byId = new Map(buildings.map((building) => [building.id, building]));
-  return buildings.flatMap((from) =>
-    [from.next_id, ...(from.branch_ids ?? [])].flatMap((id) => {
+  return buildings.flatMap((from) => {
+    const routed = (from.output_routes ?? []).flatMap((route) =>
+      route.target_id
+        ? [{ id: route.target_id, fromCell: { q: route.q, r: route.r } }]
+        : [],
+    );
+    const links =
+      routed.length > 0
+        ? routed
+        : [from.next_id, ...(from.branch_ids ?? [])].flatMap((id) =>
+            id ? [{ id, fromCell: { q: from.q, r: from.r } }] : [],
+          );
+    const seen = new Set<string>();
+    return links.flatMap(({ id, fromCell }) => {
       if (!id) return [];
       const to = byId.get(id);
       if (!to || (from.kind !== "belt" && to.kind !== "belt")) return [];
-      const steps = transportRun(from, to);
-      return steps === null ? [] : [{ from, to, steps }];
-    }),
-  );
+      const key = `${fromCell.q},${fromCell.r}>${id}`;
+      if (seen.has(key)) return [];
+      seen.add(key);
+      const steps = transportRun(fromCell, to);
+      return steps === null ? [] : [{ from, fromCell, to, steps }];
+    });
+  });
 }
 
 /**
  * How many hexes separate two linked cells along one heading, or null when no single heading
  * joins them. Only an underpass ever answers more than one, and never more than its span.
  */
-function transportRun(from: EntitySnapshot, to: EntitySnapshot): number | null {
+function transportRun(
+  from: { q: number; r: number },
+  to: EntitySnapshot,
+): number | null {
   const dq = to.q - from.q;
   const dr = to.r - from.r;
   for (const direction of TRANSPORT_DIRECTIONS) {

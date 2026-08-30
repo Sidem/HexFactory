@@ -98,7 +98,9 @@ pub(crate) const WIRE_MAGIC: [u8; 4] = *b"HXFD";
 /// third field of a boundary is still one byte — but it now names one of a hex's fifteen chords
 /// rather than one of its three shared edges, and a version-17 host would draw twelve of the
 /// fifteen in the wrong place entirely. The meaning moved, so the version moves with it.
-pub(crate) const WIRE_VERSION: u8 = 18;
+/// Version 19 adds effective per-product output ports to entity snapshots. Each route carries its
+/// item, footprint tile, side and resolved target so the host draws native routing truth.
+pub(crate) const WIRE_VERSION: u8 = 19;
 
 /// Which optional groups the buffer carries, in the order they are written.
 mod group {
@@ -155,6 +157,7 @@ mod entity_flag {
     pub(super) const INPUT_INVENTORY: u16 = 1 << 11;
     pub(super) const FUEL_INVENTORY: u16 = 1 << 12;
     pub(super) const OUTPUT_INVENTORY: u16 = 1 << 13;
+    pub(super) const OUTPUT_ROUTES: u16 = 1 << 14;
 }
 
 /// Set on a group whose list replaces the host's rather than patching it.
@@ -659,6 +662,9 @@ fn write_entities(writer: &mut Writer, entities: &[EntitySnapshot]) {
         if !entity.output_inventory.is_empty() {
             flags |= entity_flag::OUTPUT_INVENTORY;
         }
+        if !entity.output_routes.is_empty() {
+            flags |= entity_flag::OUTPUT_ROUTES;
+        }
         if entity.power_satisfied != 0 {
             flags |= entity_flag::POWER_SATISFIED;
         }
@@ -689,6 +695,16 @@ fn write_entities(writer: &mut Writer, entities: &[EntitySnapshot]) {
         }
         if flags & entity_flag::OUTPUT_INVENTORY != 0 {
             writer.ingredients(&entity.output_inventory);
+        }
+        if flags & entity_flag::OUTPUT_ROUTES != 0 {
+            writer.uvarint(entity.output_routes.len() as u64);
+            for route in &entity.output_routes {
+                writer.uvarint(u64::from(route.item_id));
+                writer.svarint(i64::from(route.q - entity.q));
+                writer.svarint(i64::from(route.r - entity.r));
+                writer.u8(route.direction);
+                writer.uvarint(u64::from(route.target_id.unwrap_or(0)));
+            }
         }
         writer.uvarint(u64::from(entity.progress));
         writer.uvarint(u64::from(entity.progress_total));
@@ -1229,6 +1245,30 @@ pub(crate) mod decode {
             } else {
                 Vec::new()
             };
+            let output_routes = if flags & entity_flag::OUTPUT_ROUTES != 0 {
+                let count = reader.count();
+                (0..count)
+                    .map(|_| {
+                        let item_id = reader.uvarint() as ItemId;
+                        let route_q = q + reader.svarint() as i32;
+                        let route_r = r + reader.svarint() as i32;
+                        let direction = reader.u8();
+                        let target_id = match reader.uvarint() as u32 {
+                            0 => None,
+                            id => Some(id),
+                        };
+                        OutputRouteSnapshot {
+                            item_id,
+                            q: route_q,
+                            r: route_r,
+                            direction,
+                            target_id,
+                        }
+                    })
+                    .collect()
+            } else {
+                Vec::new()
+            };
             let progress = reader.uvarint() as u32;
             let progress_total = reader.uvarint() as u32;
             let fuel_charge = if flags & entity_flag::FUEL_CHARGE != 0 {
@@ -1290,6 +1330,7 @@ pub(crate) mod decode {
                 input_inventory,
                 fuel_inventory,
                 output_inventory,
+                output_routes,
                 progress,
                 progress_total,
                 fuel_charge,

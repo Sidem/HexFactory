@@ -141,6 +141,30 @@ export function encodeCommand(command: NativeInputCommand): EncodedCommand {
         opcode: 5,
         args: [command.q, command.r, command.reverse ? 1 : 0],
       };
+    case "set_output_route":
+      if (
+        ![command.q, command.r, command.output_q, command.output_r].every(
+          (value) => Number.isInteger(value) && Math.abs(value) <= 100000,
+        ) ||
+        !Number.isInteger(command.item_id) ||
+        command.item_id <= 0 ||
+        command.item_id > 65535 ||
+        !Number.isInteger(command.direction) ||
+        command.direction < 0 ||
+        command.direction > 5
+      )
+        throw new RangeError("Invalid output route");
+      return {
+        opcode: 34,
+        args: [
+          command.q,
+          command.r,
+          command.item_id,
+          command.output_q,
+          command.output_r,
+          command.direction,
+        ],
+      };
     case "research":
       return { opcode: 6, args: [command.technology_id] };
     case "place_line":

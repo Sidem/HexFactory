@@ -173,6 +173,16 @@ pub(super) fn migrate<'a>(json: &'a str, target_version: u16) -> Result<Cow<'a, 
         version = 34;
     }
 
+    // Version 35 adds per-product output ports. An absent map is the old single-facing outlet,
+    // and `SavedState` defaults it to empty, so preserving a version-34 factory means moving only
+    // the envelope stamp. Its original checksum remains the one verified by `Core::from_save`.
+    if version == 34 && target_version >= 35 {
+        if let Some(object) = value.as_object_mut() {
+            object.insert("save_version".into(), Value::from(35));
+        }
+        version = 35;
+    }
+
     if version == target_version {
         return Ok(Cow::Owned(serde_json::to_string(&value).map_err(
             |error| format!("migrated save could not be written: {error}"),
@@ -681,5 +691,18 @@ mod tests {
         assert_eq!(value["state"]["skills"]["points"], 1);
         assert_eq!(value["state"]["player"]["carry_slots"], 12);
         assert_eq!(value["definition_version"], 26);
+    }
+
+    #[test]
+    fn version_thirty_four_keeps_every_building_on_its_facing_outlet() {
+        let json = r#"{"save_version":34,"definition_version":26,"technology_version":15,"state":{"entities":[{"id":7,"orientation":3,"output_inventory":{"29":2,"30":2}}]}}"#;
+        let migrated = migrate(json, 35).expect("migrated save");
+        let value: Value = serde_json::from_str(&migrated).expect("migrated json");
+        assert_eq!(value["save_version"], 35);
+        assert_eq!(value["state"]["entities"][0]["orientation"], 3);
+        assert_eq!(value["state"]["entities"][0]["output_inventory"]["29"], 2);
+        assert!(value["state"].get("output_routes").is_none());
+        assert_eq!(value["definition_version"], 26);
+        assert_eq!(value["technology_version"], 15);
     }
 }
