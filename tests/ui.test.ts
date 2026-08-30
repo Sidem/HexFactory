@@ -364,10 +364,18 @@ describe("panel controller", () => {
     expect(keys(held)).toEqual(["stored-5", "drop"]);
     expect(keys(heldMore)).toEqual(keys(held));
     // A full container loses the spare slot, and only that slot: the stack it is holding keeps its
-    // element, so a drag already aimed at it still lands.
+    // element, so a drag already aimed at it still lands. Its store is one shared pool.
     expect(
       keys(machineStockSlots([{ item_id: 5, quantity: 60 }], [], true, 60)),
     ).toEqual(["stored-5"]);
+    // A fuel compartment is bounded per item instead, so a firebox holding a whole capacity of one
+    // fuel still offers the spare slot — a second fuel gets that capacity to itself, and native
+    // would accept it. The drawing has to agree, or the player sees no way to put it in.
+    expect(
+      keys(
+        machineStockSlots([{ item_id: 5, quantity: 60 }], [], true, 60, true),
+      ),
+    ).toEqual(["stored-5", "drop"]);
   });
 
   it("never repeats a compartment slot key", () => {

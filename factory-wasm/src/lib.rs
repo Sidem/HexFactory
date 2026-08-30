@@ -4787,15 +4787,49 @@ impl Core {
         }
     }
 
-    /// How much more this one compartment will hold. A kiln's clay, coal, and brick therefore each
-    /// receive the definition's named capacity instead of competing for one undifferentiated total.
-    fn room_for_stock(&self, target: usize, stock: StockKind, _item_id: ItemId) -> u32 {
+    /// How much more this compartment will hold of *this item*.
+    ///
+    /// Ingredient and fuel compartments are bounded per item: every ingredient a recipe names gets
+    /// the definition's whole capacity to itself, and so does every fuel. They used to share one
+    /// undifferentiated total, which made a composer refuse its second ingredient the moment the
+    /// first one filled the buffer — twelve iron plates in a twelve-capacity machine left the empty
+    /// gear slot unfillable, and the only way out was to take plates back into the pack. A recipe
+    /// with four ingredients could not hold a working set of any of them.
+    ///
+    /// The output compartment and a container's store stay one shared pool, and deliberately so: a
+    /// recipe's whole batch has to fit in the former before any input is reserved, and the latter is
+    /// the storage decision the player is actually making when they choose a container's tier.
+    fn room_for_stock(&self, target: usize, stock: StockKind, item_id: ItemId) -> u32 {
         let entity = &self.entities[target];
         let capacity = self
             .building_definition(entity.placed.definition_id)
             .and_then(|definition| definition.capacity)
             .unwrap_or(u32::MAX);
-        capacity.saturating_sub(self.stock_total(target, stock))
+        let held = match stock {
+            StockKind::Input | StockKind::Fuel => self.stock_quantity(target, stock, item_id),
+            StockKind::Inventory | StockKind::Output | StockKind::Auto => {
+                self.stock_total(target, stock)
+            }
+        };
+        capacity.saturating_sub(held)
+    }
+
+    /// Whether that capacity would hold everything this entity is holding, under exactly the rule
+    /// `room_for_stock` applies: per item where a compartment is bounded per item, one pool where it
+    /// is shared. Asked when a tier changes, so the two answers cannot drift apart.
+    fn stock_fits_capacity(&self, index: usize, capacity: u32) -> bool {
+        // Only a container is capped on `inventory` as a pool. A machine's legacy version-15 stock
+        // still lives there, but it is classified into input and fuel below and capped per item.
+        let shared = if self.entities[index].kind == BuildingKind::Container {
+            self.stock_total(index, StockKind::Inventory)
+        } else {
+            0
+        };
+        shared.max(self.stock_total(index, StockKind::Output)) <= capacity
+            && [StockKind::Input, StockKind::Fuel]
+                .into_iter()
+                .flat_map(|stock| self.stock_snapshot(index, stock))
+                .all(|held| held.quantity <= capacity)
     }
 
     fn can_accept(&self, target: usize, cargo: Cargo) -> bool {
@@ -6970,19 +7004,9 @@ impl Core {
         // A container that already holds more than the next tier can is a capacity *downgrade*
         // dressed as an upgrade. Refuse rather than silently strand the overflow.
         if let Some(capacity) = next.capacity {
-            let stored = [
-                StockKind::Inventory,
-                StockKind::Input,
-                StockKind::Fuel,
-                StockKind::Output,
-            ]
-            .into_iter()
-            .map(|stock| self.stock_total(index, stock))
-            .max()
-            .unwrap_or(0);
-            if stored > capacity {
+            if !self.stock_fits_capacity(index, capacity) {
                 return Err(format!(
-                    "{} holds {stored}, more than the next tier stores",
+                    "{} holds more than the next tier stores",
                     current.name
                 ));
             }
@@ -19829,6 +19853,79 @@ mod tests {
         assert!(core.entities[composer].reserved_inputs.is_empty());
         core.advance_composer(composer);
         assert_eq!(core.entities[composer].output_inventory.get(&2), Some(&1));
+    }
+
+    /// Ingredient capacity is per ingredient, not one pot the ingredients fight over.
+    ///
+    /// A composer stores twelve and a component takes an iron plate and a gear. Under the old
+    /// shared total, twelve iron plates filled the compartment and the gear slot — visibly empty,
+    /// visibly expected by the recipe — refused everything. Belts stopped delivering gears, the
+    /// hand refused to place them, and the only way to unwedge the machine was to take plates back
+    /// out. A four-ingredient recipe like concrete could not hold a working set of anything.
+    ///
+    /// Both routes in are pinned, because they used to fail together: `can_accept` is the belt and
+    /// `store_into` is the hand, and both ask `room_for_stock`.
+    #[test]
+    fn a_full_ingredient_slot_does_not_close_the_empty_one_beside_it() {
+        let mut core = game("new-game");
+        grant_foundations(&mut core);
+        core.insight = 8;
+        core.research(3).unwrap();
+        stock_for(&mut core, 3, 1);
+        stock_for(&mut core, 4, 1);
+        set_player_hex(&mut core, 1, 3);
+        core.place(0, 4, 3, 0, Some(1)).unwrap();
+        core.place(1, 4, 4, 0, None).unwrap();
+        let composer = core.entity_at(0, 4).unwrap();
+        let store = core.entity_at(1, 4).unwrap();
+        let capacity = core.building_definition(3).unwrap().capacity.unwrap();
+
+        core.player.inventory.clear();
+        core.player.inventory.insert(11, capacity);
+        core.store_into(0, 4, StockKind::Input, 11, capacity)
+            .unwrap();
+        assert_eq!(
+            core.entities[composer].input_inventory.get(&11),
+            Some(&capacity)
+        );
+
+        // The plate slot is full and takes nothing more; the gear slot has the whole capacity.
+        assert!(!core.can_accept(
+            composer,
+            Cargo {
+                item_id: 11,
+                quantity: 1
+            }
+        ));
+        assert!(core.can_accept(
+            composer,
+            Cargo {
+                item_id: 19,
+                quantity: capacity
+            }
+        ));
+        core.player.inventory.insert(19, capacity);
+        core.store_into(0, 4, StockKind::Input, 19, capacity)
+            .unwrap();
+        assert_eq!(
+            core.entities[composer].input_inventory.get(&19),
+            Some(&capacity)
+        );
+        assert_eq!(core.player.inventory.get(&19), None);
+
+        // A container's store is still one shared pool: that is the tier decision the player buys,
+        // and per-item there would make a tier-one crate hold every item in the game at capacity.
+        let shelf = core.building_definition(4).unwrap().capacity.unwrap();
+        core.player.inventory.insert(11, shelf);
+        core.store_into(1, 4, StockKind::Inventory, 11, shelf)
+            .unwrap();
+        assert!(!core.can_accept(
+            store,
+            Cargo {
+                item_id: 19,
+                quantity: 1
+            }
+        ));
     }
 
     #[test]

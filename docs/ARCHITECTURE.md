@@ -626,6 +626,13 @@ defect it prevents; a change that contradicts one needs an argument, not an over
   first — coal is ingredient in steel — and only then admits another burnable item as fuel.
   `burnable_item` is still the one fuel predicate; the tick, hand transfer, transport acceptance,
   and status that explains a stop must keep asking it.
+- A building's `capacity` bounds the ingredient and fuel compartments **per item** and the output
+  compartment and a container's store **as one pool**. `room_for_stock` is the single answer, so a
+  belt, a hand transfer and a drawn slot cannot disagree. Per item, because a shared ingredient
+  total made a full first ingredient close the empty slot beside it — twelve iron plates wedged a
+  twelve-capacity composer, and a four-ingredient recipe could hold a working set of nothing. One
+  pool for output, because a recipe's whole batch must fit before native reserves any inputs, and
+  for a container, because choosing a tier is the storage decision the player is actually making.
 - A new machine is a `recipe_category` and a check, not a `BuildingKind` and a tick path. Smelter,
   kiln, cutter, crusher, and composer are one kind. Add a kind only when a building's _source_ is
   genuinely different, which is the whole reason `Pump` is one: it draws from terrain rather than a
@@ -658,6 +665,11 @@ defect it prevents; a change that contradicts one needs an argument, not an over
   array: each item takes one slot per part-filled stack of its own `stack_size`, against a slot
   count the scenario fixes. Every path that adds to the player asks first. An erase carries what
   fits and spills the rest as saved, checksummed ground items: the recovery stays exactly 100%.
+- A `stack_size` is chosen against the recipes that item is in, not by category feel: every input
+  and output quantity of every recipe divides the stack size of its own item, so a stack is always
+  a whole number of crafts and never ends mid-batch. Six wood to a charcoal against a stack of
+  twenty stranded two wood at the bottom of every stack the player carried. `tests/definitions.test.ts`
+  pins the rule arithmetically, so a new recipe ratio fails the gate rather than the player.
 - A cursor-held stack is native inventory state, not DOM drag data. Left click lifts or places a
   full stack, right click halves a lift or places one, Ctrl-click moves one, and Shift applies the
   same quantity as a quick move between the pack and selected building. Every gesture sends a

@@ -2013,15 +2013,23 @@ function renderInspectorActions(building: EntitySnapshot | undefined): void {
       part<HTMLElement>(card, ".machine-compartment-header span").textContent =
         label;
       const total = entries.reduce((sum, entry) => sum + entry.quantity, 0);
+      // Native bounds ingredients and fuel per item and the rest as one pool, so the count has to
+      // read differently: `12 each` is the promise that a stocked slot never crowds out an empty
+      // one, where `n / 12` would still claim the compartment is a single shared budget.
+      const perItem = stock === "input" || stock === "fuel";
+      const capacity = definition?.capacity;
       part<HTMLElement>(card, ".machine-compartment-count").textContent =
-        definition?.capacity === undefined
+        capacity === undefined
           ? String(total)
-          : `${total} / ${definition.capacity}`;
+          : perItem
+            ? `${total} · ${capacity} each`
+            : `${total} / ${capacity}`;
       const layout = machineStockSlots(
         entries,
         expected,
         accepts,
-        definition?.capacity,
+        capacity,
+        perItem,
       );
       const slots = part<HTMLElement>(card, ".machine-stock-grid");
       const cells = syncChildren(

@@ -27,12 +27,21 @@ export interface MachineStockSlot {
  * dragged onto: the press lands on one element and the release resolves against its replacement, so
  * the drop target vanishes from under the pointer while a machine ticks. Keys stable across
  * quantity are what make the grid patch in place, and `tests/ui.test.ts` pins that.
+ *
+ * The spare drop slot asks one question — would this compartment take an item it is not already
+ * holding? — and `perItem` is what makes the answer match native. Native bounds ingredients and
+ * fuel per item, so a per-item compartment has its whole capacity waiting for a new item however
+ * full its named slots are; a container's store is one shared pool, so a full pool has nothing
+ * left. An undefined `capacity` is unbounded. The arithmetic lives here rather than at the call
+ * site because it is a drawing decision: native still clamps every transfer, and `tests/host.test.ts`
+ * pins that the host never turns a displayed capacity into authority of its own.
  */
 export function machineStockSlots(
   stored: { item_id: number; quantity: number }[],
   expected: number[],
   accepts: boolean,
   capacity?: number,
+  perItem = false,
 ): MachineStockSlot[] {
   const byId = new Map(stored.map((entry) => [entry.item_id, entry.quantity]));
   const slots: MachineStockSlot[] = [];
@@ -60,11 +69,13 @@ export function machineStockSlots(
     });
   }
   const total = stored.reduce((sum, entry) => sum + entry.quantity, 0);
+  const room =
+    capacity === undefined ? Infinity : perItem ? capacity : capacity - total;
   if (
     accepts &&
     expected.length === 0 &&
     !slots.some((slot) => slot.quantity === 0) &&
-    (capacity === undefined || total < capacity)
+    room > 0
   ) {
     slots.push({ key: "drop", quantity: 0, accepts: true });
   }

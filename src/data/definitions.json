@@ -61,7 +61,7 @@
       "color": "#8b9098",
       "icon": "lump",
       "description": "Cut from cliff faces. The cheapest structural material there is.",
-      "stack_size": 20,
+      "stack_size": 30,
       "hand_gather_steps": 30,
       "extract_steps": 20
     },
@@ -94,7 +94,7 @@
       "color": "#7c5a34",
       "icon": "log",
       "description": "Cut from lowland flora, which grows back. Burns, and cuts into timber.",
-      "stack_size": 20,
+      "stack_size": 30,
       "fuel_value": 40,
       "regrowth_ticks": 450,
       "hand_gather_steps": 15,
@@ -143,7 +143,7 @@
       "color": "#b5563f",
       "icon": "plate",
       "description": "Fired clay. Cheap, plentiful, and it holds heat.",
-      "stack_size": 20
+      "stack_size": 30
     },
     {
       "id": 15,
@@ -171,7 +171,7 @@
       "color": "#9a9188",
       "icon": "grains",
       "description": "Crushed stone. Aggregate for concrete.",
-      "stack_size": 20
+      "stack_size": 30
     },
     {
       "id": 18,
@@ -180,7 +180,7 @@
       "color": "#e0a45f",
       "icon": "wire",
       "description": "Drawn copper. Three of them and a pane of glass make a circuit.",
-      "stack_size": 20
+      "stack_size": 30
     },
     {
       "id": 19,
@@ -252,7 +252,7 @@
       "color": "#d4c4a0",
       "icon": "lump",
       "description": "Hill quarry stone. Burned with clay into cement; not the same rock as the cliff scree you already cut.",
-      "stack_size": 20,
+      "stack_size": 40,
       "hand_gather_steps": 30,
       "extract_steps": 20
     },

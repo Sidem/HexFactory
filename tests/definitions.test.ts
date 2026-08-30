@@ -5,6 +5,7 @@ import {
   supportsRecipe,
   validateTechnologies,
 } from "../src/core/definitions";
+import { recipeOutputs } from "../src/core/recipes";
 import type { Definitions, Technologies } from "../src/core/types";
 import definitions from "../src/data/definitions.json";
 import scenariosJson from "../src/data/scenarios.json";
@@ -272,6 +273,35 @@ describe("data-defined content", () => {
     ]);
     for (const recipe of definitions.recipes)
       expect(categories.has(recipe.category), recipe.key).toBe(true);
+  });
+
+  /**
+   * A stack is the unit the player actually moves: one hand grab, one belt hand-off, one row of the
+   * pack. If a recipe's ratio does not divide the stack size, every stack leaves a remainder the
+   * player has to shepherd by hand — six wood to a charcoal against a stack of twenty stranded two
+   * wood at the bottom of every stack, and three copper wire to a circuit stranded two wire. So the
+   * rule is arithmetic, not taste: for every recipe, each input and output quantity divides the
+   * stack size of its own item, so a stack is always a whole number of crafts.
+   *
+   * This does not claim the ratios *between* two items line up — steel takes two iron plate and two
+   * coal, and their stacks are ten and twenty, so a coal stack outlasts an iron one. That is a
+   * supply decision the player makes. What it does claim is that no single stack ends mid-craft.
+   */
+  it("sizes every stack to a whole number of crafts", () => {
+    const stack = new Map(
+      typedDefinitions.items.map((item) => [item.id, item.stack_size]),
+    );
+    const name = (id: number) =>
+      typedDefinitions.items.find((item) => item.id === id)?.key ?? `${id}`;
+    for (const recipe of typedDefinitions.recipes) {
+      for (const entry of [...recipe.inputs, ...recipeOutputs(recipe)]) {
+        const size = stack.get(entry.item_id) ?? 0;
+        expect(
+          size % entry.quantity,
+          `${recipe.key} moves ${entry.quantity} ${name(entry.item_id)} against a stack of ${size}`,
+        ).toBe(0);
+      }
+    }
   });
 
   it("rejects a recipe no machine can run and a machine that claims the wrong category", () => {

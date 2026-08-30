@@ -13,22 +13,10 @@ export function productionNote(
   const outputs = recipeOutputs(recipe);
   const name = (id: number): string =>
     definitions.items.find((item) => item.id === id)?.name ?? `Item ${id}`;
-  const definition = definitions.buildings.find(
-    (definition) => definition.id === building.definition_id,
-  );
-  const ingredients = building.input_inventory ?? [];
-  const missing = recipe.inputs.filter(
-    (input) =>
-      (ingredients.find((entry) => entry.item_id === input.item_id)?.quantity ??
-        0) < input.quantity,
-  );
-  if (
-    building.status === "waiting for inputs" &&
-    missing.length &&
-    ingredients.reduce((sum, entry) => sum + entry.quantity, 0) >=
-      (definition?.capacity ?? Infinity)
-  )
-    return `Ingredient buffer full, but this recipe still needs ${missing.map((input) => name(input.item_id)).join(" and ")}. Take some of the other ingredients back into your pack to make room. The capacity is shared by all ingredients.`;
+  // There used to be a note here for a machine wedged by its own ingredient buffer: one full
+  // ingredient left no room for the others, and the only way out was to take stock back into the
+  // pack. Ingredient capacity is per ingredient now, so a stocked slot cannot crowd out an empty
+  // one and the note has nothing left to describe.
   if (outputs.length < 2) return "";
   const batch = outputs
     .map((output) => `${output.quantity} ${name(output.item_id)}`)
