@@ -22,6 +22,7 @@ import {
   fileStem,
   saveFileName,
   slotsFromFileText,
+  unsavedRunAtRisk,
   type CurrentBuild,
   type StorageLike,
   writeCatalog,
@@ -386,6 +387,58 @@ describe("catalog", () => {
     expect(formatConfig(slot.config)).toBe(
       "New game · seed 7 · custom (land 40, sea 1000)",
     );
+  });
+});
+
+describe("unsavedRunAtRisk", () => {
+  const grace = 30_000;
+
+  it("says nothing when the newest write already covers this tick", () => {
+    expect(
+      unsavedRunAtRisk({
+        tick: 400,
+        savedTick: 400,
+        savedAt: 0,
+        now: 10 * grace,
+        graceMs: grace,
+      }),
+    ).toBe(false);
+  });
+
+  it("keeps quiet about the ticks a player runs up moments after saving", () => {
+    expect(
+      unsavedRunAtRisk({
+        tick: 412,
+        savedTick: 400,
+        savedAt: 1_000,
+        now: 1_000 + grace - 1,
+        graceMs: grace,
+      }),
+    ).toBe(false);
+  });
+
+  it("asks once a whole grace window of factory is unwritten", () => {
+    expect(
+      unsavedRunAtRisk({
+        tick: 412,
+        savedTick: 400,
+        savedAt: 1_000,
+        now: 1_000 + grace,
+        graceMs: grace,
+      }),
+    ).toBe(true);
+  });
+
+  it("stays quiet on an idle run however long the save has stood", () => {
+    expect(
+      unsavedRunAtRisk({
+        tick: 400,
+        savedTick: 412,
+        savedAt: 0,
+        now: 60 * grace,
+        graceMs: grace,
+      }),
+    ).toBe(false);
   });
 });
 

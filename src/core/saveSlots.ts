@@ -602,6 +602,32 @@ export function latestCompatible(
     .sort((left, right) => right.savedAt - left.savedAt)[0];
 }
 
+export interface CloseRisk {
+  /** The tick the run is on now. */
+  tick: number;
+  /** The tick the newest successful write covered. A fresh world counts as covered. */
+  savedTick: number;
+  /** When that write landed, as `Date.now()`. */
+  savedAt: number;
+  now: number;
+  /** How much unwritten time is not worth stopping a leaving player for. */
+  graceMs: number;
+}
+
+/**
+ * Whether closing now would lose enough of a run to be worth asking about.
+ *
+ * Progress on its own is not the question: the factory advances every frame, so a run is almost
+ * always a tick or two ahead of its newest write, and a prompt on every close is a prompt nobody
+ * reads. What matters is how long it has been ahead. Inside the grace window the auto-save has
+ * effectively just run and there is nothing at stake; outside it, up to a whole interval of factory
+ * is about to go.
+ */
+export function unsavedRunAtRisk(risk: CloseRisk): boolean {
+  if (risk.tick <= risk.savedTick) return false;
+  return risk.now - risk.savedAt >= risk.graceMs;
+}
+
 export function slotsNewestFirst(slots: SaveSlot[]): SaveSlot[] {
   return slots.slice().sort((left, right) => right.savedAt - left.savedAt);
 }

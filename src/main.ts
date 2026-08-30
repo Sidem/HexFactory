@@ -46,6 +46,7 @@ import {
   slotsFromFileText,
   slotsNewestFirst,
   uniqueSlotName,
+  unsavedRunAtRisk,
   upsertSlot,
   writeCatalog,
   type CurrentBuild,
@@ -430,6 +431,17 @@ let lastEvent = "";
 let autoSavePending = false;
 let lastAutoSaveTime = performance.now();
 const AUTOSAVE_INTERVAL_MS = 60_000;
+/**
+ * How much of this run is not on disk, and how long it has been that way.
+ *
+ * `savedTick` is the tick the newest successful write covered; a world that has just been generated
+ * or loaded counts as covered, because nothing has happened in it that the catalogue does not have.
+ * The close guard reads both numbers — see `unsavedRunAtRisk`.
+ */
+let savedTick = 0;
+let savedAt = Date.now();
+/** Half the auto-save interval. Less than this at risk is not worth stopping a leaving player. */
+const UNSAVED_CLOSE_GRACE_MS = 30_000;
 /**
  * The run clock, and the time it has counted.
  *
@@ -3862,6 +3874,8 @@ titleStartGame.addEventListener("click", async () => {
     update(next);
     syncSessionInputs(next);
     renderer.recenter();
+    // Nothing has happened in a world this new, so there is nothing for the close guard to save.
+    markSaved(next.tick);
     closeTitleScreen();
     closePanels();
   } catch (error) {
@@ -3892,6 +3906,7 @@ required<HTMLButtonElement>("new-game").addEventListener("click", async () => {
     update(next);
     syncSessionInputs(next);
     renderer.recenter();
+    markSaved(next.tick);
     closePanels();
   } catch (error) {
     reportWorkerError(error);
@@ -3950,6 +3965,8 @@ required<HTMLButtonElement>("run-reset").addEventListener("click", () => {
 });
 
 required<HTMLButtonElement>("save").addEventListener("click", async () => {
+  // Read before the round trip, so the mark never claims more of the run is written than is.
+  const tick = snapshot.tick;
   try {
     const payload = await host.save();
     const build = currentBuild();
@@ -3986,16 +4003,39 @@ required<HTMLButtonElement>("save").addEventListener("click", async () => {
         ? upsertSlot(slots, drafted)
         : replaceNamedSlot(slots, drafted);
     writeCatalog(localStorage, nextSlots);
+    markSaved(tick);
     selectedSaveId = drafted.id;
     // Saving under a name adopts it: the auto-save follows the player rather than continuing to
     // write to the name they just moved away from.
     setRunName(drafted.name);
     updateContinueState(`Saved “${drafted.name}”.`);
     showFeedback("Game saved");
+    offerSaveFile(drafted);
   } catch (error) {
     updateContinueState(`Save failed: ${String(error)}`);
   }
 });
+
+/**
+ * The slot landed; ask whether a copy should go to disk as well.
+ *
+ * A named slot lives in this browser's storage, which the browser may clear without asking anyone.
+ * The offer is made here because this is the one moment the player has already said the run is worth
+ * keeping — leaving it to the Export button means only players who already know about it are safe.
+ * The accept click is also the user gesture the file picker needs, so the file dialog opens straight
+ * from the answer rather than being refused for want of an activation.
+ */
+function offerSaveFile(slot: SaveSlot): void {
+  confirmDialog.ask(
+    {
+      title: `Saved “${slot.name}”`,
+      note: "That save is in this browser, and clearing site data removes it. Keep a copy as a file too?",
+      accept: "Save to file",
+      cancel: "Browser only",
+    },
+    () => void exportSlotFile(slot),
+  );
+}
 required<HTMLButtonElement>("continue").addEventListener("click", () => {
   const slot = latestCompatible(
     readCatalog(localStorage).slots,
@@ -5421,6 +5461,7 @@ function frame(now: number): void {
 async function triggerAutoSave(silent = true): Promise<void> {
   if (autoSavePending || titleScreen.classList.contains("open")) return;
   autoSavePending = true;
+  const tick = snapshot.tick;
   try {
     const payload = await host.save();
     const build = currentBuild();
@@ -5433,6 +5474,7 @@ async function triggerAutoSave(silent = true): Promise<void> {
     const nextSlots = replaceNamedSlot(slots, drafted);
     writeCatalog(localStorage, nextSlots);
     lastAutoSaveTime = performance.now();
+    markSaved(tick);
     updateContinueState();
     if (!silent) showFeedback("Factory auto-saved");
   } catch {
@@ -5457,10 +5499,38 @@ window.addEventListener("pagehide", () => {
   }
 });
 
-window.addEventListener("beforeunload", () => {
-  if (!titleScreen.classList.contains("open")) {
-    void triggerAutoSave();
-  }
+/** Everything the catalogue now holds is covered up to `tick`. */
+function markSaved(tick: number): void {
+  savedTick = tick;
+  savedAt = Date.now();
+}
+
+/**
+ * The last chance to keep a run, and the only prompt a page is allowed to ask for.
+ *
+ * The auto-save fired here rarely finishes: it is a worker round trip and a storage write, and the
+ * tab is already leaving. So a close can drop up to a whole auto-save interval of factory. When that
+ * much is at stake the browser's own leave prompt is raised — calling `preventDefault` is the entire
+ * request, the wording belongs to the browser, and a page cannot say more than that. A player who
+ * stays is told what to press, because the browser's dialog says nothing about saving.
+ */
+window.addEventListener("beforeunload", (event) => {
+  if (titleScreen.classList.contains("open")) return;
+  void triggerAutoSave();
+  const atRisk = unsavedRunAtRisk({
+    tick: snapshot.tick,
+    savedTick,
+    savedAt,
+    now: Date.now(),
+    graceMs: UNSAVED_CLOSE_GRACE_MS,
+  });
+  if (!atRisk) return;
+  event.preventDefault();
+  // Timers are frozen while the leave prompt is up, and the page is gone if the player goes through
+  // with it, so this only ever reaches somebody who stayed.
+  window.setTimeout(() => {
+    showFeedback("Not saved yet — open the game menu and press Save.");
+  }, 0);
 });
 
 function updateContinueState(message?: string): void {
@@ -5604,6 +5674,8 @@ async function loadSlot(slot: SaveSlot): Promise<void> {
     update(next);
     syncSessionInputs(next);
     renderer.recenter();
+    // The catalogue already holds exactly this state, so the close guard starts from clean.
+    markSaved(next.tick);
     selectedSaveId = slot.id;
     setRunName(slot.name);
     showFeedback(`Restored “${slot.name}”`);
