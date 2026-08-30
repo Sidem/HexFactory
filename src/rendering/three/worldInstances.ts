@@ -174,23 +174,23 @@ export class WorldInstanceLayer {
       this.dynamicGroup,
       this.playerGroup,
     );
+    // The wayfinder casts no shadow. The shadow map is baked on demand rather than every
+    // frame, so the one caster that moves continuously would leave its shadow standing a
+    // stride behind it until the next bake caught up.
     this.playerBody = new Mesh(
       new CylinderGeometry(0.13, 0.16, 0.25, 7),
       materials.wayfinderHull,
     );
-    this.playerBody.castShadow = true;
     this.playerBody.position.y = 0.31;
     this.playerShell = new Mesh(
       new CylinderGeometry(0.17, 0.14, 0.13, 7),
       materials.wayfinderShell,
     );
-    this.playerShell.castShadow = true;
     this.playerShell.position.y = 0.43;
     this.playerHead = new Mesh(
       new IcosahedronGeometry(0.095, 1),
       materials.wayfinderShell,
     );
-    this.playerHead.castShadow = true;
     this.playerHead.position.y = 0.535;
     this.playerFacing = new Mesh(
       new BoxGeometry(0.115, 0.045, 0.035),
@@ -201,7 +201,6 @@ export class WorldInstanceLayer {
       new BoxGeometry(0.17, 0.22, 0.1),
       materials.wayfinderBrass,
     );
-    this.playerPack.castShadow = true;
     this.playerPack.position.set(0, 0.34, -0.13);
     this.playerBeacon = new Mesh(
       new OctahedronGeometry(0.035, 0),
@@ -230,18 +229,10 @@ export class WorldInstanceLayer {
     );
     this.playerRightArm.position.set(0.17, 0.34, 0.015);
     this.playerRightArm.rotation.z = 0.18;
-    for (const limb of [
-      this.playerLeftLeg,
-      this.playerRightLeg,
-      this.playerLeftArm,
-      this.playerRightArm,
-    ])
-      limb.castShadow = true;
     this.playerTool = new Mesh(
       new CylinderGeometry(0.025, 0.04, 0.24, 6),
       materials.wayfinderBrass,
     );
-    this.playerTool.castShadow = true;
     this.playerTool.position.set(0.22, 0.25, 0.075);
     this.playerTool.rotation.z = -0.5;
     this.playerWork = new Mesh(

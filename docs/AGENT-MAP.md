@@ -535,10 +535,10 @@ Data or fixture; inspect keys before loading the full file.
 
 - TransportGeometrySet:7, CurvedTransportGeometry:13, createTransportGeometry:19, beltFrameGeometry:28, beltTreadGeometry:38, createCurvedTransportGeometry:50, quadraticPoint:89, quadraticTangent:101, mergeAndDispose:112, isTransportKind:120, transportScale:133
 
-### `src/rendering/three/worldInstances.ts` — 1763 lines / 58.7 KiB
+### `src/rendering/three/worldInstances.ts` — 1754 lines / 58.5 KiB
 
-- PowerWireLink:66, FIELD_RESOURCE_SHAPES:72, WAYFINDER_VISUAL_SCALE:81, WorldInstanceLayer:83, normalizeAngle:1500, outputIndicatorGeometry:1504, hasDirectionalOutput:1510, connectedTransportLinks:1530, transportRun:1549, powerWireLinks:1562, footprintDistance:1597, poleWireHeight:1614
-- wirePoint:1621, fieldVisualColor:1638, fieldShade:1647, SphereGeometryCompat:1656, machineMaterialFor:1662, machinePartColor:1678, plumeFor:1703, plumeOriginHeight:1722, positiveFraction:1734, markInstancesDirty:1738, adjacentFootprintPairs:1743
+- PowerWireLink:66, FIELD_RESOURCE_SHAPES:72, WAYFINDER_VISUAL_SCALE:81, WorldInstanceLayer:83, normalizeAngle:1491, outputIndicatorGeometry:1495, hasDirectionalOutput:1501, connectedTransportLinks:1521, transportRun:1540, powerWireLinks:1553, footprintDistance:1588, poleWireHeight:1605
+- wirePoint:1612, fieldVisualColor:1629, fieldShade:1638, SphereGeometryCompat:1647, machineMaterialFor:1653, machinePartColor:1669, plumeFor:1694, plumeOriginHeight:1713, positiveFraction:1725, markInstancesDirty:1729, adjacentFootprintPairs:1734
 
 
 ## Browser UI
