@@ -72,7 +72,7 @@ button:disabled {
   cursor: not-allowed;
   opacity: 0.43;
 }
-button.unaffordable:not(:disabled) {
+button.unaffordable:not(:disabled):not([aria-disabled="true"]) {
   border-color: #875c57;
 }
 a {
@@ -450,6 +450,12 @@ canvas {
 .build-panel.open {
   display: block;
 }
+.recipe-panel {
+  width: min(560px, calc(100vw - 28px));
+}
+.recipe-panel.open {
+  display: block;
+}
 .build-groups {
   display: grid;
   gap: 16px;
@@ -743,6 +749,28 @@ canvas {
   display: grid;
   gap: 4px;
   margin-top: 2px;
+}
+/*
+ * A card's recipes are the detail behind it, not part of its resting shape. Drawing every row for
+ * every machine turned the catalogue into a wall of chips to scroll past, and the rows a player is
+ * scrolling past are precisely the ones they are not choosing between. The card keeps its name,
+ * cost and chips at rest and opens its recipes under the pointer; `:focus-within` opens the same
+ * list for a keyboard, which reaches the rows by tabbing through the card's own Pin, and the held
+ * machine keeps its list open because that is the one a recipe is being chosen for. Searching every
+ * recipe by ingredient is the recipe panel's job, and it is one key away.
+ *
+ * Only where there is a pointer to hover with. On a touch screen there is no such gesture, and a
+ * list that can never be opened is worse than a long one.
+ */
+@media (hover: hover) {
+  .build-card .build-recipes {
+    display: none;
+  }
+  .build-card:hover .build-recipes:not([hidden]),
+  .build-card:focus-within .build-recipes:not([hidden]),
+  .build-card.active .build-recipes:not([hidden]) {
+    display: grid;
+  }
 }
 .recipe-row {
   width: 100%;
@@ -2900,6 +2928,20 @@ canvas {
   border-color: var(--gold);
   box-shadow: 0 0 0 1px #f6c85f66 inset;
 }
+/* A slot locked by research is refused rather than switched off, because `disabled` would swallow
+   the click on its own × as well and strand the pin on the bar. The dimming rides on the contents
+   so the clear affordance stays at full strength — the one control a locked slot must still offer. */
+.hotbar-slot[aria-disabled="true"] {
+  cursor: not-allowed;
+}
+.hotbar-slot[aria-disabled="true"] > span,
+.hotbar-slot[aria-disabled="true"] > small,
+.hotbar-slot[aria-disabled="true"] > .hotbar-key {
+  opacity: 0.43;
+}
+.hotbar-slot[aria-disabled="true"] .hotbar-clear {
+  cursor: pointer;
+}
 /* The clear affordance stays out of the way until the slot is worth clearing. */
 .hotbar-clear {
   position: absolute;
@@ -3231,12 +3273,24 @@ canvas {
  * is an explicit request for that thing, and hiding it because it is locked would be answering a
  * question nobody asked.
  */
+/*
+ * The search is the panel's own control rather than a row that scrolls away with the results it
+ * filters: refining a query meant scrolling back up to reach the box, which is the one place in a
+ * long catalogue a player is guaranteed to be far from. It sticks to the panel's inner top edge,
+ * and it is offset by the panel's own padding and painted solid so nothing passes behind it.
+ */
 .build-find {
+  position: sticky;
+  z-index: 2;
+  top: -15px;
   display: grid;
   gap: 6px;
-  margin-bottom: 10px;
+  margin: 0 -15px 10px;
+  padding: 15px 15px 8px;
+  background: var(--panel-solid);
 }
-#build-search {
+#build-search,
+#recipe-search {
   width: 100%;
   padding: 0.4rem 0.6rem;
   border: 1px solid #35524b;
@@ -3245,12 +3299,67 @@ canvas {
   color: #e6f4ee;
   font-size: 0.74rem;
 }
-#build-search::placeholder {
+#build-search::placeholder,
+#recipe-search::placeholder {
   color: #6f8c84;
 }
-#build-search:focus-visible {
+#build-search:focus-visible,
+#recipe-search:focus-visible {
   border-color: var(--gold);
   outline: none;
+}
+/*
+ * The recipe lookup's results. Two answers to the same query, kept apart because they are different
+ * facts: what makes the thing you searched for, and what spends it. A row reads left to right —
+ * process emblem, name, time — then wraps to the materials and to the machines that run it, so a
+ * scan down the column compares the same three things in the same places.
+ */
+.recipe-results {
+  display: grid;
+  gap: 14px;
+}
+.recipe-group[hidden] {
+  display: none;
+}
+.recipe-group h3 {
+  margin: 0 0 6px;
+  font-size: 0.82rem;
+  letter-spacing: -0.01em;
+}
+.recipe-list {
+  display: grid;
+  gap: 5px;
+}
+.lookup-row {
+  gap: 4px 7px;
+  padding: 7px 9px;
+}
+.lookup-name {
+  font-size: 0.76rem;
+}
+.lookup-flow {
+  display: flex;
+  flex: 1 0 100%;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+}
+.lookup-machines {
+  flex: 1 0 100%;
+  color: var(--muted);
+  font-size: 0.64rem;
+}
+/* A recipe no research has reached is still worth reading — it is how a player learns what to aim
+   at — so it is dimmed rather than withheld, and the click says which machine is still missing. */
+.lookup-row.locked .lookup-machines {
+  color: #b0906a;
+}
+.lookup-row.locked .recipe-emblem,
+.lookup-row.locked .lookup-flow {
+  opacity: 0.62;
+}
+.recipe-arrow[hidden] {
+  display: none;
 }
 .build-empty {
   margin: 0 0 10px;

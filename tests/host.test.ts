@@ -696,6 +696,62 @@ describe("bounded host input", () => {
     expect(worldPointer).toContain("closePanels()");
   });
 
+  it("keeps a refused slot clearable and answers a recipe from either side", () => {
+    const main = readFileSync(
+      new URL("../src/main.ts", import.meta.url),
+      "utf8",
+    );
+    const css = readFileSync(
+      new URL("../src/styles.css", import.meta.url),
+      "utf8",
+    );
+    const html = readFileSync(
+      new URL("../index.html", import.meta.url),
+      "utf8",
+    );
+    // A disabled button swallows every pointer event inside it, including the × and the drag-off,
+    // so a pin made before its research existed had no gesture left that could remove it. The
+    // refusal is spoken by the handler now; the button itself stays reachable.
+    const slots = main.slice(
+      main.indexOf("function renderHotbarSlots("),
+      main.indexOf("function renderHotbar("),
+    );
+    expect(slots).not.toMatch(/disabled = availability\.locked/);
+    expect(slots).toContain(
+      'setAttribute("aria-disabled", String(availability.locked))',
+    );
+    expect(main).toContain('getAttribute("aria-disabled") === "true"');
+    // Dimming rides on the children so the clear affordance stays at full strength above it.
+    expect(css).toContain('.hotbar-slot[aria-disabled="true"] .hotbar-clear');
+    // The search stays on screen through a catalogue that scrolls past nine hundred pixels.
+    const find = css.slice(
+      css.indexOf(".build-find {"),
+      css.indexOf("}", css.indexOf(".build-find {")),
+    );
+    expect(find).toMatch(/position:\s*sticky/);
+    // A card's recipes are an answer to pointing at it, not a wall the list is read through — but
+    // only where a pointer can hover, so a touch reader is never left without them.
+    expect(css).toContain("@media (hover: hover)");
+    expect(css).toContain(".build-card:hover .build-recipes:not([hidden])");
+    // The lookup answers "what makes this" and "what spends this" from one query, which is why it
+    // matches the item rather than the recipe name: no recipe called "gear" makes a gear.
+    expect(main).toContain("function itemsMatching(");
+    expect(main).toContain("function renderRecipePanel(");
+    expect(main).toContain('renderRecipeGroup("recipe-makes"');
+    expect(main).toContain('renderRecipeGroup("recipe-uses"');
+    expect(html).toContain('id="recipe-panel"');
+    expect(html).toContain('data-panel-target="recipe-panel"');
+    expect(main).toContain('KeyL: "recipe-panel"');
+    // The lookup is a reader, not a second command path: clicking a row selects the tool the
+    // catalogue already selects, and nothing about a search reaches the worker.
+    const lookup = main.slice(
+      main.indexOf("function renderRecipePanel("),
+      main.indexOf("function createLookupRow("),
+    );
+    expect(lookup).not.toContain("enqueue(");
+    expect(main).not.toMatch(/enqueue\(\{[^}]*recipeSearch/);
+  });
+
   it("draws every item through the one chip component", () => {
     const main = readFileSync(
       new URL("../src/main.ts", import.meta.url),

@@ -194,6 +194,7 @@ const PANEL_KEYS: Record<string, string> = {
   KeyK: "skills-panel",
   KeyP: "quest-panel",
   KeyB: "build-panel",
+  KeyL: "recipe-panel",
   KeyC: "creative-panel",
 };
 /**
@@ -578,6 +579,8 @@ let showAllBuildings = false;
 /** The live catalogue search. Panel state, deliberately not persisted: a filter that survives a
     reload is a catalogue that looks broken until the player notices the box. */
 let buildSearch = "";
+/** The live recipe-lookup search, on the same terms as {@link buildSearch}. */
+let recipeSearch = "";
 /** The slot a drag is currently over, so the drop target can be shown before the pointer lands. */
 let hotbarDragOver: number | null = null;
 
@@ -794,6 +797,7 @@ function update(next: FactorySnapshot): void {
     renderCreative();
     renderHotbar();
     renderBuildPanel();
+    renderRecipePanel();
     renderTechnologies();
     renderContract();
     renderRequests();
@@ -1175,6 +1179,7 @@ function renderHotbarSlots(): void {
     if (value === null) {
       delete button.dataset.tool;
       button.disabled = false;
+      button.removeAttribute("aria-disabled");
       button.classList.remove("active", "unaffordable", "locked");
       clearEmblem(part(button, "span")).textContent = "";
       part(button, "small").textContent = "Empty";
@@ -1191,7 +1196,13 @@ function renderHotbarSlots(): void {
         host.definitions.items,
         heldOrientationFor(definition),
       );
-      button.disabled = availability.locked;
+      // A locked slot refuses the build, but it must never refuse the ×. `disabled` swallows every
+      // pointer event inside the button, including the clear affordance and the drag, so a pin the
+      // player made before the research existed was stuck on the bar with no gesture that could
+      // take it off. `aria-disabled` says the same thing to a screen reader and leaves the button
+      // reachable; the click handler is what declines to select it.
+      button.disabled = false;
+      button.setAttribute("aria-disabled", String(availability.locked));
       button.classList.toggle("unaffordable", !availability.affordable);
       button.classList.toggle("locked", availability.locked);
       paintBuildingEmblem(part(button, "span"), definition);
@@ -1206,6 +1217,7 @@ function renderHotbarSlots(): void {
       return;
     }
     button.disabled = false;
+    button.removeAttribute("aria-disabled");
     button.classList.remove("unaffordable", "locked");
     // A pinned tool keeps its text glyph rather than borrowing a machine emblem: a mode you enter
     // and a machine you place are different kinds of thing, and the bar should say which is which.
@@ -1635,6 +1647,142 @@ function describeRecipe(recipe: RecipeDefinition): string {
   return `${inputs} makes ${recipeOutputs(recipe)
     .map(({ item_id, quantity }) => `${quantity} ${name(item_id)}`)
     .join(" and ")}`;
+}
+
+/**
+ * The recipe lookup.
+ *
+ * The catalogue answers "what can this machine do", which is the question you ask once you have
+ * already decided which machine to look at. This answers the one a stuck player actually has —
+ * "where does a gear come from", "what is copper wire for" — by searching every recipe from both
+ * sides of the arrow at once and saying which machine runs each. It is a reading of the shipped
+ * definitions and nothing else: no command is sent from here, and the click at the end of it is the
+ * same tool selection the catalogue already makes.
+ */
+/** Every buildable machine that may run this recipe, in catalog order. */
+function machinesForRecipe(recipe: RecipeDefinition): BuildingDefinition[] {
+  return host.definitions.buildings.filter(
+    (definition) => definition.buildable && supportsRecipe(definition, recipe),
+  );
+}
+
+/**
+ * The items a search names. Matching the item first is what lets one query answer both halves of
+ * the question: typing "gear" finds the recipe that makes a gear and every recipe that spends one,
+ * neither of which has the word in its own name.
+ */
+function itemsMatching(query: string): Set<number> {
+  const called = host.definitions.items.filter((item) =>
+    `${item.name} ${item.key}`.toLowerCase().includes(query),
+  );
+  // A description is prose, and prose names other materials: the component's blurb mentions the
+  // gear it is built from, which would file "Compose component" under Made by for a search for
+  // gears. So the blurb is read only when nothing is actually called that, where its reach is the
+  // difference between an oblique answer and an empty panel.
+  const matched =
+    called.length > 0
+      ? called
+      : host.definitions.items.filter((item) =>
+          item.description.toLowerCase().includes(query),
+        );
+  return new Set(matched.map(({ id }) => id));
+}
+
+/** Whether a search names the recipe itself — its name, its process, or a machine that runs it. */
+function recipeMatches(recipe: RecipeDefinition, query: string): boolean {
+  return `${recipe.name} ${recipe.description} ${recipe.category} ${machinesForRecipe(
+    recipe,
+  )
+    .map(({ name }) => name)
+    .join(" ")}`
+    .toLowerCase()
+    .includes(query);
+}
+
+function renderRecipePanel(): void {
+  const query = recipeSearch.trim().toLowerCase();
+  const recipes = host.definitions.recipes;
+  const named = query ? itemsMatching(query) : new Set<number>();
+  const makes = recipes.filter((recipe) =>
+    recipeOutputs(recipe).some(({ item_id }) => named.has(item_id)),
+  );
+  const uses = recipes.filter((recipe) =>
+    recipe.inputs.some(({ item_id }) => named.has(item_id)),
+  );
+  // A recipe already answered on one side is not repeated as a weaker match on the other.
+  const claimed = new Set([...makes, ...uses].map(({ id }) => id));
+  const rest = query
+    ? recipes.filter(
+        (recipe) => !claimed.has(recipe.id) && recipeMatches(recipe, query),
+      )
+    : recipes;
+  renderRecipeGroup("recipe-makes", makes);
+  renderRecipeGroup("recipe-uses", uses);
+  renderRecipeGroup("recipe-rest", rest);
+  required<HTMLElement>("recipe-rest-title").textContent = query
+    ? "Other matches"
+    : "Every recipe";
+  const empty = required<HTMLParagraphElement>("recipe-empty");
+  empty.hidden = makes.length + uses.length + rest.length > 0;
+  empty.textContent = `Nothing makes or uses “${recipeSearch.trim()}”.`;
+}
+
+function renderRecipeGroup(id: string, recipes: RecipeDefinition[]): void {
+  const section = required<HTMLElement>(id);
+  section.hidden = recipes.length === 0;
+  const rows = syncChildren(
+    part<HTMLElement>(section, ".recipe-list"),
+    recipes.map(({ id: recipe }) => String(recipe)),
+    createLookupRow,
+  );
+  recipes.forEach((recipe, index) => {
+    const row = rows[index];
+    if (row) fillLookupRow(row, recipe);
+  });
+}
+
+function createLookupRow(key: string): HTMLElement {
+  const row = document.createElement("button");
+  row.type = "button";
+  row.className = "recipe-row lookup-row";
+  row.dataset.recipeId = key;
+  row.innerHTML =
+    '<i class="recipe-emblem"></i><strong class="lookup-name"></strong><small class="recipe-meta"></small><span class="lookup-flow"><span class="ingredient-list lookup-in"></span><i class="recipe-arrow" aria-hidden="true">→</i><span class="ingredient-list lookup-out"></span></span><small class="lookup-machines"></small>';
+  return row;
+}
+
+function fillLookupRow(row: HTMLElement, recipe: RecipeDefinition): void {
+  paintEmblem(part<HTMLElement>(row, ".recipe-emblem"), {
+    key: recipe.category,
+    accent: recipeCategoryAccent(recipe.category),
+    markup: recipeCategoryEmblemSvg(recipe.category),
+  });
+  part(row, ".lookup-name").textContent = recipe.name;
+  // Plain amounts on both sides: this is a reference, not a bill the player is being asked to pay.
+  fillIngredients(part<HTMLElement>(row, ".lookup-in"), recipe.inputs);
+  fillIngredients(part<HTMLElement>(row, ".lookup-out"), recipeOutputs(recipe));
+  part<HTMLElement>(row, ".recipe-arrow").hidden = recipe.inputs.length === 0;
+  const meta = [`${recipe.duration} ticks`];
+  if (recipe.fuel) meta.push(`${recipe.fuel} fuel`);
+  part(row, ".recipe-meta").textContent = meta.join(" · ");
+  // The row builds the first machine research has actually reached, so clicking it hands over
+  // something placeable rather than a refusal. The list still names every machine that runs it.
+  const machines = machinesForRecipe(recipe);
+  const reachable = machines.find(
+    (definition) =>
+      !buildingAvailability(definition, snapshot, host.definitions.items)
+        .locked,
+  );
+  row.dataset.definitionId = String(reachable?.id ?? machines[0]?.id ?? "");
+  row.classList.toggle("locked", reachable === undefined);
+  part(row, ".lookup-machines").textContent = machines.length
+    ? `Runs on ${machines.map(({ name }) => name).join(" · ")}`
+    : "No machine runs this yet";
+  row.title = recipe.description;
+  row.setAttribute(
+    "aria-label",
+    `${recipe.name}: ${describeRecipe(recipe)}. ${meta.join(", ")}`,
+  );
 }
 
 /**
@@ -2986,6 +3134,58 @@ required<HTMLButtonElement>("build-scope").addEventListener("click", () => {
     renderBuildPanel();
   });
 }
+{
+  const search = required<HTMLInputElement>("recipe-search");
+  search.addEventListener("input", () => {
+    recipeSearch = search.value;
+    renderRecipePanel();
+  });
+  // Escape behaves as it does in the catalogue box: it undoes the filter first, and only then
+  // hands the keyboard back so the next press closes the panel.
+  search.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape") return;
+    if (search.value === "") {
+      search.blur();
+      return;
+    }
+    search.value = "";
+    recipeSearch = "";
+    renderRecipePanel();
+  });
+}
+/*
+ * A looked-up recipe is still a build. Clicking a row hands over the machine that runs it, already
+ * set to that recipe, which is the same gesture the catalogue's own recipe rows make — the lookup
+ * would otherwise be the one place in the game that tells you the answer and leaves you to go find
+ * the machine yourself.
+ */
+required<HTMLElement>("recipe-results").addEventListener("click", (event) => {
+  const row = (event.target as Element).closest<HTMLElement>(".lookup-row");
+  if (!row) return;
+  const definition = host.definitions.buildings.find(
+    ({ id }) => id === Number(row.dataset.definitionId),
+  );
+  if (!definition) {
+    showFeedback("No machine in the catalogue runs that recipe");
+    return;
+  }
+  if (
+    buildingAvailability(definition, snapshot, host.definitions.items).locked
+  ) {
+    showFeedback(`${definition.name} is still locked by research`);
+    return;
+  }
+  const recipeId = Number(row.dataset.recipeId);
+  selectedRecipes.set(definition.id, recipeId);
+  selectTool(definition.id);
+  closePanels();
+  showFeedback(
+    `Holding ${definition.name} set to ${
+      host.definitions.recipes.find(({ id }) => id === recipeId)?.name ??
+      "that recipe"
+    } — click or drag on the world to place`,
+  );
+});
 required<HTMLButtonElement>("reset").addEventListener("click", () => {
   input.clear();
   void host
@@ -3618,6 +3818,12 @@ toolShelf.addEventListener("click", (event) => {
     "button[data-tool]",
   );
   if (!button || button.disabled) return;
+  // The refusal a locked slot used to make by being unclickable, made in words instead — and made
+  // here, so the × above it stays live. The catalogue says the same sentence for the same reason.
+  if (button.getAttribute("aria-disabled") === "true") {
+    showFeedback("That building is still locked by research");
+    return;
+  }
   const value = button.dataset.tool ?? "inspect";
   selectTool(/^\d+$/.test(value) ? Number(value) : (value as Tool));
 });

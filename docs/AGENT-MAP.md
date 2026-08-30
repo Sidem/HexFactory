@@ -268,19 +268,20 @@ Data or fixture; inspect keys before loading the full file.
 
 Data or fixture; inspect keys before loading the full file.
 
-### `src/main.ts` — 5635 lines / 202.5 KiB
+### `src/main.ts` — 5841 lines / 211.3 KiB
 
-- currentBuild:144, loadHotbar:584, sanitiseSlot:612, saveHotbar:620, checkpointContext:635, evaluateRun:665, beginRun:682, renderRun:689, update:735, refreshLandingHub:834, syncStandingSelection:852, renderHomeReadout:871
-- sameCarry:891, itemById:906, paintChip:920, renderInventory:939, renderCreative:1050, renderHotbarSlots:1148, assignHotbarSlot:1223, pinToHotbar:1236, renderHotbar:1260, catalogueVisible:1287, buildMatches:1304, renderBuildScope:1320
-- renderBuildPanel:1331, createBuildCard:1384, heldOrientationFor:1412, paintBuildingEmblem:1426, fillBuildCard:1439, renderIngredientRow:1505, fillIngredients:1536, renderCardRecipes:1572, describeRecipe:1628, technologyReach:1657, renderTechnologies:1686, paintHexFace:1695
-- setMeter:1706, setItemGlyph:1721, stockCompartments:1764, renderInspectorActions:1837, renderInspectorLoad:1938, panelsFitAbreast:1957, offerPackBeside:1977, renderInspector:1991, renderInspectorHub:2216, renderInspectorSwitch:2369, renderInspectorTier:2407, costSummary:2452
-- recipeChoices:2464, fillRecipeOptions:2473, renderInspectorRecipe:2496, renderRecipePicker:2523, renderContract:2545, renderRequests:2638, renderProjectCatalogue:2694, renderNextAction:2747, showFeedback:2755, setMuted:2771, setReducedMotion:2787, setGraphicsProfile:2798
-- loadReducedMotion:2809, syncSessionInputs:2817, selectTool:2831, enqueue:2847, refreshHoverPreview:2856, syncHoverWithCamera:2867, flushHoverPreview:2879, previewItemLook:3095, previewSeed:3133, requestWorldPreview:3150, drawWorldPreview:3157, titleScenarioKey:3222
-- showTitleScenario:3229, applyPreviewRepair:3239, showWorldParams:3250, syncWorldInputs:3282, setRunName:3327, showCreativeNote:3336, setTitleOpen:3347, openTitleScreen:3351, closeTitleScreen:3365, switchTitleTab:3372, stackGesture:3766, stackSlots:3906
-- stackDropRefusal:3923, paintStackDropTargets:3941, endStackDrag:3953, currentMovementIntent:4101, orbitView:4107, eraseBuilding:4125, heldStock:4160, eraseLine:4179, deleteBuildingUnderCursorOrSelected:4240, draggableTool:4654, recipeFor:4666, refreshDragPreview:4683
-- endDrag:4714, rotateUnderCursorOrPending:4728, pickToolUnderCursor:4745, buildingAt:4765, setOrientation:4774, orientationRange:4798, orientationAllowed:4820, rotateNewBuilding:4840, stopAiming:4860, sendAim:4877, togglePanel:4897, renderTerrainLegend:4912
-- frame:4932, triggerAutoSave:4990, updateContinueState:5035, renderSaveSlots:5086, renderTitleSaveSlots:5090, paintSaveSlotList:5099, loadSlot:5160, handleSaveSlotClick:5187, downloadTextFile:5236, exportTextFile:5264, exportSlotFile:5303, exportCurrentSave:5314
-- exportAllSaves:5331, openSaveFilePicker:5352, importSaveFiles:5357, isTypingTarget:5422, isKeyboardFocusedControl:5437, isPointerActivatedControl:5447, titleCase:5469, reportWorkerError:5473, closePanels:5482
+- currentBuild:144, loadHotbar:587, sanitiseSlot:615, saveHotbar:623, checkpointContext:638, evaluateRun:668, beginRun:685, renderRun:692, update:738, refreshLandingHub:838, syncStandingSelection:856, renderHomeReadout:875
+- sameCarry:895, itemById:910, paintChip:924, renderInventory:943, renderCreative:1054, renderHotbarSlots:1152, assignHotbarSlot:1235, pinToHotbar:1248, renderHotbar:1272, catalogueVisible:1299, buildMatches:1316, renderBuildScope:1332
+- renderBuildPanel:1343, createBuildCard:1396, heldOrientationFor:1424, paintBuildingEmblem:1438, fillBuildCard:1451, renderIngredientRow:1517, fillIngredients:1548, renderCardRecipes:1584, describeRecipe:1640, machinesForRecipe:1663, itemsMatching:1674, recipeMatches:1692
+- renderRecipePanel:1702, renderRecipeGroup:1730, createLookupRow:1744, fillLookupRow:1754, technologyReach:1805, renderTechnologies:1834, paintHexFace:1843, setMeter:1854, setItemGlyph:1869, stockCompartments:1912, renderInspectorActions:1985, renderInspectorLoad:2086
+- panelsFitAbreast:2105, offerPackBeside:2125, renderInspector:2139, renderInspectorHub:2364, renderInspectorSwitch:2517, renderInspectorTier:2555, costSummary:2600, recipeChoices:2612, fillRecipeOptions:2621, renderInspectorRecipe:2644, renderRecipePicker:2671, renderContract:2693
+- renderRequests:2786, renderProjectCatalogue:2842, renderNextAction:2895, showFeedback:2903, setMuted:2919, setReducedMotion:2935, setGraphicsProfile:2946, loadReducedMotion:2957, syncSessionInputs:2965, selectTool:2979, enqueue:2995, refreshHoverPreview:3004
+- syncHoverWithCamera:3015, flushHoverPreview:3027, previewItemLook:3295, previewSeed:3333, requestWorldPreview:3350, drawWorldPreview:3357, titleScenarioKey:3422, showTitleScenario:3429, applyPreviewRepair:3439, showWorldParams:3450, syncWorldInputs:3482, setRunName:3527
+- showCreativeNote:3536, setTitleOpen:3547, openTitleScreen:3551, closeTitleScreen:3565, switchTitleTab:3572, stackGesture:3972, stackSlots:4112, stackDropRefusal:4129, paintStackDropTargets:4147, endStackDrag:4159, currentMovementIntent:4307, orbitView:4313
+- eraseBuilding:4331, heldStock:4366, eraseLine:4385, deleteBuildingUnderCursorOrSelected:4446, draggableTool:4860, recipeFor:4872, refreshDragPreview:4889, endDrag:4920, rotateUnderCursorOrPending:4934, pickToolUnderCursor:4951, buildingAt:4971, setOrientation:4980
+- orientationRange:5004, orientationAllowed:5026, rotateNewBuilding:5046, stopAiming:5066, sendAim:5083, togglePanel:5103, renderTerrainLegend:5118, frame:5138, triggerAutoSave:5196, updateContinueState:5241, renderSaveSlots:5292, renderTitleSaveSlots:5296
+- paintSaveSlotList:5305, loadSlot:5366, handleSaveSlotClick:5393, downloadTextFile:5442, exportTextFile:5470, exportSlotFile:5509, exportCurrentSave:5520, exportAllSaves:5537, openSaveFilePicker:5558, importSaveFiles:5563, isTypingTarget:5628, isKeyboardFocusedControl:5643
+- isPointerActivatedControl:5653, titleCase:5675, reportWorkerError:5679, closePanels:5688
 
 ### `src/vite-env.d.ts` — 2 lines / 0.0 KiB
 
@@ -645,9 +646,9 @@ Data or fixture; inspect keys before loading the full file.
 
 - shippedScenario:29, boardFor:50, snapshotAt:79
 
-### `tests/host.test.ts` — 1845 lines / 68.9 KiB
+### `tests/host.test.ts` — 1901 lines / 71.7 KiB
 
-- fakeTransport:1648
+- fakeTransport:1704
 
 ### `tests/look.test.ts` — 431 lines / 17.1 KiB
 

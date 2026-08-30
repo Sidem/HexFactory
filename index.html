@@ -595,6 +595,59 @@
             <div id="build-groups" class="build-groups"></div>
           </aside>
 
+          <!--
+            The recipe lookup. The catalogue answers "what can this machine do"; this answers the
+            question a stuck player actually asks — "where does a gear come from" and "what is
+            copper wire for" — by searching every recipe from either side of the arrow.
+          -->
+          <aside
+            id="recipe-panel"
+            class="glass-panel recipe-panel"
+            aria-label="Recipe lookup"
+          >
+            <div class="panel-heading">
+              <div>
+                <span class="section-kicker">Where things come from · L</span>
+                <h2>Recipes</h2>
+              </div>
+              <button
+                class="panel-close"
+                type="button"
+                aria-label="Close recipe lookup"
+              >
+                ×
+              </button>
+            </div>
+            <p class="panel-copy">
+              Search by material, ingredient or machine. Click a recipe to hold
+              the machine that runs it, already set to that recipe.
+            </p>
+            <div class="build-find recipe-find">
+              <input
+                id="recipe-search"
+                type="search"
+                autocomplete="off"
+                placeholder="Search items, ingredients, machines…"
+                aria-label="Search every recipe"
+              />
+            </div>
+            <p id="recipe-empty" class="build-empty" hidden></p>
+            <div id="recipe-results" class="recipe-results">
+              <section id="recipe-makes" class="recipe-group" hidden>
+                <h3>Made by</h3>
+                <div class="recipe-list"></div>
+              </section>
+              <section id="recipe-uses" class="recipe-group" hidden>
+                <h3>Used in</h3>
+                <div class="recipe-list"></div>
+              </section>
+              <section id="recipe-rest" class="recipe-group" hidden>
+                <h3 id="recipe-rest-title">Every recipe</h3>
+                <div class="recipe-list"></div>
+              </section>
+            </div>
+          </aside>
+
           <aside
             id="creative-panel"
             class="glass-panel creative-panel"
@@ -753,11 +806,11 @@
                   <span class="section-kicker">Panels</span>
                   <p>
                     <kbd>B</kbd> opens the construction catalogue,
-                    <kbd>I</kbd> the cargo pack, <kbd>O</kbd> research,
-                    <kbd>C</kbd> creative mode, and <kbd>P</kbd> this panel.
-                    <kbd>Esc</kbd> closes whatever is open and returns to the
-                    inspect tool, which is the one panel that stays on the
-                    world.
+                    <kbd>L</kbd> the recipe lookup, <kbd>I</kbd> the cargo pack,
+                    <kbd>O</kbd> research, <kbd>C</kbd> creative mode, and
+                    <kbd>P</kbd> this panel. <kbd>Esc</kbd> closes whatever is
+                    open and returns to the inspect tool, which is the one panel
+                    that stays on the world.
                   </p>
                 </div>
                 <div class="control-block">
@@ -790,14 +843,15 @@
                   >
                   <p>
                     <kbd>B</kbd> opens the catalogue: everything you can build,
-                    grouped by what it is for, each card showing what it costs
-                    and — for a machine — every recipe it runs, written as the
-                    materials in and the materials out. Click a recipe to hold
-                    that machine set to it. The bottom bar is yours to arrange:
-                    <kbd>1</kbd>–<kbd>9</kbd> select its nine slots,
-                    <strong>Pin</strong> drops a building into the first free
-                    one, and dragging a card onto a slot chooses which. Drag a
-                    slot onto another to swap them, or use the
+                    grouped by what it is for, each card showing what it costs.
+                    Point at a machine's card to open its recipes, written as
+                    the materials in and the materials out, and click one to
+                    hold that machine set to it. <kbd>L</kbd> searches every
+                    recipe in the game from either side of the arrow. The bottom
+                    bar is yours to arrange: <kbd>1</kbd>–<kbd>9</kbd> select
+                    its nine slots, <strong>Pin</strong> drops a building into
+                    the first free one, and dragging a card onto a slot chooses
+                    which. Drag a slot onto another to swap them, or use the
                     <strong>×</strong>
                     to clear one. Your arrangement is remembered.
                   </p>
@@ -1416,6 +1470,18 @@
               aria-label="Open the construction catalogue"
             >
               <span aria-hidden="true">⊞</span><small>Build · B</small>
+            </button>
+            <button
+              id="open-recipes"
+              class="shelf-more panel-toggle"
+              type="button"
+              data-panel-target="recipe-panel"
+              aria-controls="recipe-panel"
+              aria-expanded="false"
+              title="Look up any recipe by material or machine (L)"
+              aria-label="Open the recipe lookup"
+            >
+              <span aria-hidden="true">⇄</span><small>Recipes · L</small>
             </button>
           </div>
           <!--
