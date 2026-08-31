@@ -641,6 +641,13 @@ defect it prevents; a change that contradicts one needs an argument, not an over
   longer matches the Core, and is rebuilt rather than saved, hashed or checksummed. The uncached
   source is the cache oracle, and `fixtures/terrain-passability.json` pins the adapter on both sides
   of the host boundary.
+- **The Phase 8 physical source is prepared native-side before activation.** Native tests may build
+  `GroundSpine::physical`, which translates the drainage prototype onto a deterministic dry,
+  walkable seven-hex valley shelf and publishes absolute bed height plus numeric initial water depth,
+  surface and discharge through the same cache oracle. Query order and surveyed caching are pinned.
+  The constructor and `terra` remain compiled out of wasm, and running `Core` still constructs
+  `GroundSpine::legacy`; this is preparation for the one reviewed compatibility bundle, not a hidden
+  mixed-scale world.
 - **An earthworks selection is resolved in three passes, and the footprint survives a refusal.**
   `ground_transaction` runs `ground_resolve` per cell, which records a `blocked` reason on the hex in
   the way instead of aborting the whole edit; then `ground_footprint`, which publishes every selected

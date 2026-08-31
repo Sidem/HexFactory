@@ -1,10 +1,11 @@
-//! Phase 8's production ground spine, behind the shipped presentation.
+//! Phase 8's production ground spine and the prepared physical source.
 //!
 //! The seven shipped [`Terrain`] bands currently answer four different questions at once: height,
 //! material, water and presentation. This module separates those answers without activating the
-//! Phase 8 physical generator. [`GroundSpine::generated_uncached_at`] is the full legacy oracle;
-//! the cache only holds surveyed chunks and must always echo that oracle. Slice 3 can replace the
-//! source without teaching walking, placement or ground transactions another route to height.
+//! Phase 8 physical generator. [`GroundSpine::generated_uncached_at`] is the full source oracle;
+//! the cache only holds surveyed chunks and must always echo that oracle. Production still selects
+//! [`GroundSpine::legacy`], while native slice-3 tests can select [`GroundSpine::physical`] and
+//! exercise the exact typed boundary before the save/world/wire envelopes move together.
 //!
 //! Heights in this slice are deliberately generator-native units. The legacy source produces the
 //! shipped presentation steps; the physical source will produce 0.25 m quanta when it activates.
@@ -53,22 +54,13 @@ pub(super) enum Substrate {
     Rock,
 }
 
-/// The legacy water distinction, separated from bed height and substrate.
-///
-/// Slice 4 replaces this compatibility class with numeric depth and discharge. Keeping the class
-/// explicit now prevents `DeepWater` and `ShallowWater` from remaining hidden altitude values.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum WaterDepthClass {
-    Dry,
-    Shallow,
-    Deep,
-}
-
 /// Initial water above the generated bed. Discharge is zero because ridge-noise water is not a
 /// live flow model; the field exists now so the physical source has an independent output to fill.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct InitialHydrology {
-    pub(super) depth: WaterDepthClass,
+    /// Standing depth in 0.25 m quanta for the physical source. The legacy adapter uses one native
+    /// unit for either old water band; its presentation remains the compatibility distinction.
+    pub(super) depth_quanta: i32,
     pub(super) surface: GroundElevation,
     pub(super) discharge_class: u8,
 }
@@ -93,27 +85,81 @@ impl GeneratedGround {
             Terrain::Hills => Substrate::Soil,
             Terrain::Highland | Terrain::Cliff => Substrate::Rock,
         };
-        let depth = match terrain {
-            Terrain::DeepWater => WaterDepthClass::Deep,
-            Terrain::ShallowWater => WaterDepthClass::Shallow,
-            _ => WaterDepthClass::Dry,
+        let depth_quanta = match terrain {
+            Terrain::DeepWater | Terrain::ShallowWater => 1,
+            _ => 0,
         };
         // These are compatibility surfaces in legacy steps, not physical water levels. Nothing
         // reads them for simulation before the physical source activates.
-        let surface = match depth {
-            WaterDepthClass::Deep => GroundElevation::new(0),
-            WaterDepthClass::Shallow => GroundElevation::new(1),
-            WaterDepthClass::Dry => bed,
-        };
+        let surface = GroundElevation::new(bed.get() + depth_quanta);
         Self {
             bed,
             substrate,
             hydrology: InitialHydrology {
-                depth,
+                depth_quanta,
                 surface,
                 discharge_class: 0,
             },
             presentation: terrain,
+        }
+    }
+}
+
+#[cfg(test)]
+impl GeneratedGround {
+    fn from_physical(
+        terra: &mut crate::terra::Terra,
+        origin: (i32, i32),
+        q: i32,
+        r: i32,
+        generated_environment: bool,
+    ) -> Self {
+        if !generated_environment {
+            return Self::from_legacy_band(Terrain::Lowland);
+        }
+        let source = (q + origin.0, r + origin.1);
+        let bed = terra.head(source.0, source.1);
+        let water = terra.water(source.0, source.1);
+        let depth_quanta = water.depth();
+        let max_step = DIRECTIONS
+            .iter()
+            .map(|&(dq, dr)| (bed - terra.head(source.0 + dq, source.1 + dr)).abs())
+            .max()
+            .unwrap_or(0);
+        // This is the first physical material policy, deliberately stated against native facts.
+        // Slice 3 may tune the thresholds from the opening survey; it may not turn a height back
+        // into the old seven-band authority.
+        let substrate = if bed <= crate::scale::SEA_LEVEL_QUANTA + 8 {
+            Substrate::Sand
+        } else if max_step > crate::scale::MAX_WALK_STEP_QUANTA || bed >= 1_600 {
+            Substrate::Rock
+        } else if bed >= 320 {
+            Substrate::Soil
+        } else {
+            Substrate::Meadow
+        };
+        let presentation = if depth_quanta >= crate::scale::WADE_LIMIT_QUANTA {
+            Terrain::DeepWater
+        } else if depth_quanta > 0 {
+            Terrain::ShallowWater
+        } else {
+            match substrate {
+                Substrate::Sand => Terrain::Shore,
+                Substrate::Meadow => Terrain::Lowland,
+                Substrate::Soil => Terrain::Hills,
+                Substrate::Rock if max_step > crate::scale::MAX_WALK_STEP_QUANTA => Terrain::Cliff,
+                Substrate::Rock => Terrain::Highland,
+            }
+        };
+        Self {
+            bed: GroundElevation::new(bed),
+            substrate,
+            hydrology: InitialHydrology {
+                depth_quanta,
+                surface: GroundElevation::new(bed + depth_quanta),
+                discharge_class: water.discharge_class(),
+            },
+            presentation,
         }
     }
 }
@@ -158,10 +204,20 @@ pub(super) const fn legacy_band_elevation(terrain: Terrain) -> i32 {
 }
 
 /// Pure generated ground plus a cache restricted to surveyed chunks.
+enum GroundSource {
+    Legacy,
+    #[cfg(test)]
+    Physical {
+        terra: RefCell<crate::terra::Terra>,
+        origin: (i32, i32),
+    },
+}
+
 pub(super) struct GroundSpine {
     params: WorldParams,
     seed: u32,
     generated_environment: bool,
+    source: GroundSource,
     cache: RefCell<BTreeMap<(i32, i32), GeneratedGround>>,
 }
 
@@ -171,6 +227,25 @@ impl GroundSpine {
             params: params.clone(),
             seed,
             generated_environment,
+            source: GroundSource::Legacy,
+            cache: RefCell::new(BTreeMap::new()),
+        }
+    }
+
+    /// Prepared physical source for native activation tests. The wasm build has no constructor and
+    /// production still selects [`GroundSpine::legacy`], so this cannot create a mixed-scale run.
+    #[cfg(test)]
+    pub(super) fn physical(params: &WorldParams, seed: u32, generated_environment: bool) -> Self {
+        let mut terra = crate::terra::Terra::new(seed);
+        let landing = terra.landing_site();
+        Self {
+            params: params.clone(),
+            seed,
+            generated_environment,
+            source: GroundSource::Physical {
+                terra: RefCell::new(terra),
+                origin: (landing.q, landing.r),
+            },
             cache: RefCell::new(BTreeMap::new()),
         }
     }
@@ -205,13 +280,23 @@ impl GroundSpine {
 
     /// The full oracle. It never reads or populates the cache.
     pub(super) fn generated_uncached_at(&self, q: i32, r: i32) -> GeneratedGround {
-        GeneratedGround::from_legacy_band(terrain_at(
-            &self.params,
-            self.seed,
-            q,
-            r,
-            self.generated_environment,
-        ))
+        match &self.source {
+            GroundSource::Legacy => GeneratedGround::from_legacy_band(terrain_at(
+                &self.params,
+                self.seed,
+                q,
+                r,
+                self.generated_environment,
+            )),
+            #[cfg(test)]
+            GroundSource::Physical { terra, origin } => GeneratedGround::from_physical(
+                &mut terra.borrow_mut(),
+                *origin,
+                q,
+                r,
+                self.generated_environment,
+            ),
+        }
     }
 
     /// Cache exactly one gameplay chunk. Querying an unsurveyed cell remains a pure uncached read
@@ -245,43 +330,19 @@ mod tests {
     #[test]
     fn legacy_adapter_separates_facts_without_changing_height() {
         let cases = [
-            (
-                Terrain::DeepWater,
-                -1,
-                Substrate::Soil,
-                WaterDepthClass::Deep,
-                0,
-            ),
-            (
-                Terrain::ShallowWater,
-                0,
-                Substrate::Soil,
-                WaterDepthClass::Shallow,
-                1,
-            ),
-            (Terrain::Shore, 0, Substrate::Sand, WaterDepthClass::Dry, 0),
-            (
-                Terrain::Lowland,
-                0,
-                Substrate::Meadow,
-                WaterDepthClass::Dry,
-                0,
-            ),
-            (Terrain::Hills, 1, Substrate::Soil, WaterDepthClass::Dry, 1),
-            (
-                Terrain::Highland,
-                2,
-                Substrate::Rock,
-                WaterDepthClass::Dry,
-                2,
-            ),
-            (Terrain::Cliff, 3, Substrate::Rock, WaterDepthClass::Dry, 3),
+            (Terrain::DeepWater, -1, Substrate::Soil, 1, 0),
+            (Terrain::ShallowWater, 0, Substrate::Soil, 1, 1),
+            (Terrain::Shore, 0, Substrate::Sand, 0, 0),
+            (Terrain::Lowland, 0, Substrate::Meadow, 0, 0),
+            (Terrain::Hills, 1, Substrate::Soil, 0, 1),
+            (Terrain::Highland, 2, Substrate::Rock, 0, 2),
+            (Terrain::Cliff, 3, Substrate::Rock, 0, 3),
         ];
-        for (terrain, elevation, substrate, depth, water_surface) in cases {
+        for (terrain, elevation, substrate, depth_quanta, water_surface) in cases {
             let ground = GeneratedGround::from_legacy_band(terrain);
             assert_eq!(ground.bed.get(), elevation);
             assert_eq!(ground.substrate, substrate);
-            assert_eq!(ground.hydrology.depth, depth);
+            assert_eq!(ground.hydrology.depth_quanta, depth_quanta);
             assert_eq!(ground.hydrology.surface.get(), water_surface);
             assert_eq!(ground.hydrology.discharge_class, 0);
             assert_eq!(ground.presentation, terrain);
@@ -348,5 +409,42 @@ mod tests {
         assert!(!finished.blocks_movement());
         assert!(!finished.blocks_construction());
         assert_eq!(finished.surface, 0);
+    }
+
+    #[test]
+    fn physical_source_translates_the_world_to_a_dry_buildable_shelf() {
+        let params = default_world_params();
+        let spine = GroundSpine::physical(&params, 1_213_486_160, true);
+        let pad = hexes_in_radius((0, 0), crate::terra::LANDING_PAD_RADIUS);
+        let clear = hexes_in_radius((0, 0), crate::terra::LANDING_CLEAR_RADIUS);
+        let heights: Vec<_> = pad
+            .iter()
+            .map(|&(q, r)| spine.generated_uncached_at(q, r).bed.get())
+            .collect();
+        assert!(
+            heights.iter().max().unwrap() - heights.iter().min().unwrap()
+                <= crate::scale::MAX_BUILD_STEP_QUANTA
+        );
+        assert!(clear
+            .iter()
+            .all(|&(q, r)| { spine.generated_uncached_at(q, r).hydrology.depth_quanta == 0 }));
+    }
+
+    #[test]
+    fn physical_surveyed_cache_matches_the_full_oracle() {
+        let params = default_world_params();
+        let spine = GroundSpine::physical(&params, 1_213_486_160, true);
+        spine.cache_chunk(0, 0, 16);
+        assert_eq!(spine.cached_cells(), 256);
+        for q in -2..=18 {
+            for r in -2..=18 {
+                assert_eq!(
+                    spine.generated_at(q, r),
+                    spine.generated_uncached_at(q, r),
+                    "physical cache drifted at {q},{r}"
+                );
+            }
+        }
+        assert_eq!(spine.cached_cells(), 256);
     }
 }

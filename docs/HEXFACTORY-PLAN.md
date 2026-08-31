@@ -493,6 +493,17 @@ partially activated physical model.
    heightfield/water renderer and height-aware picking, retune the opening, then switch new worlds to
    the 25 m² generator at the declared compatibility boundary. Move every envelope and fixture in
    one reviewed activation; validate desktop and mobile journeys before production.
+
+   Development toward this slice now includes a native-only physical `GroundSpine` source. It maps
+   the drainage prototype's absolute bed, numeric water depth/surface/discharge and independently
+   derived substrate into the same surveyed-cache oracle the legacy source uses. `Terra::landing_site`
+   chooses a dry, walkable seven-hex valley shelf deterministically and translates the unbounded
+   source so the opening no longer depends on whatever the seed placed at coordinate zero. Three
+   representative seeds and reordered prior queries pin that choice; cached and uncached physical
+   ground agree. Production still constructs `GroundSpine::legacy`, `terra` is still absent from the
+   wasm artifact, and no compatibility envelope has moved. The remaining work in this slice is the
+   content, wire, renderer, picking and one-way activation bundle above.
+
 4. **Sparse disturbed water.** Add water departure state, active-region equilibrium, frontier
    boundaries, pumps, flood/drain commands and save/load/checksum coverage. Re-measure the active
    front and the settled-world zero-work case.

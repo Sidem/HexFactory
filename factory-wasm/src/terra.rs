@@ -4,8 +4,9 @@
 //! shipped ridge-noise rivers, and refuses to let a flow simulation grow the generated world. This
 //! module exists to falsify the replacement cheaply, before the save boundary makes it expensive.
 //! It is **native only** — like `capacity` and `survey`, it is never compiled into the wasm
-//! artifact — so nothing in the game can read it by accident. Slice 2 promotes what survives here
-//! into the production ground spine.
+//! artifact — so nothing in the game can read it by accident. Slice 2 promoted the typed boundary
+//! into the production ground spine; slice 3 now exercises this physical source through native-only
+//! `GroundSpine` tests before the compatibility envelopes select it in wasm.
 //!
 //! # What is being tested
 //!
@@ -44,7 +45,10 @@ use std::rc::Rc;
 use std::time::Instant;
 
 use crate::scale::{BED_MAX_QUANTA, BED_MIN_QUANTA, SEA_LEVEL_QUANTA};
-use crate::{axial_distance, coordinate_hash, cube_round_num, floor_div, value_noise, DIRECTIONS};
+use crate::{
+    axial_distance, coordinate_hash, cube_round_num, floor_div, hexes_in_radius, value_noise,
+    DIRECTIONS,
+};
 
 /// The noise ceiling `value_noise` interpolates against. Mirrors the private constant in `lib.rs`;
 /// re-stated rather than exported because a prototype should not widen the production surface.
@@ -108,6 +112,16 @@ pub const UPSTREAM_PROVINCE_BUDGET: usize = 96;
 const SPRING_MOISTURE: i32 = 38_000;
 /// Wavelength of the moisture channel, in cells.
 const MOISTURE_CELL: i32 = 96;
+
+/// Bounded search used to choose a new world's valley shelf. Province ranks are `O(1)`, so the
+/// wide macro search is cheap; only the eight nearest dry candidates are solved in full.
+const LANDING_PROVINCE_RADIUS: i32 = 32;
+const LANDING_PROVINCE_BUDGET: usize = 8;
+const LANDING_SAMPLE_STRIDE: i32 = 8;
+/// The inner pad must carry the largest initial footprint; the outer clearing must be dry and
+/// traversable so opening material searches do not begin behind a river or retaining face.
+pub const LANDING_PAD_RADIUS: i32 = 1;
+pub const LANDING_CLEAR_RADIUS: i32 = 7;
 
 /// Octave salts. Distinct from every channel `lib.rs` already samples, so the prototype cannot
 /// accidentally correlate with the shipped generator.
@@ -194,6 +208,28 @@ impl Water {
     pub fn is_wet(self) -> bool {
         !matches!(self, Water::Dry)
     }
+
+    /// Rated discharge carried by this initial-water cell. Seas and lakes are settled boundary
+    /// conditions rather than river reaches, so only a river publishes a non-zero class.
+    pub fn discharge_class(self) -> u8 {
+        match self {
+            Water::River { class, .. } => class,
+            Water::Dry | Water::Sea { .. } | Water::Lake { .. } => 0,
+        }
+    }
+}
+
+/// A deterministic valley shelf used as the physical world's local origin.
+///
+/// The generated drainage remains in its own unbounded coordinate system. New-world activation
+/// translates that system so the player starts on a naturally dry, walkable shelf instead of
+/// flattening whatever the seed happened to put at `(0, 0)`. Translation preserves every seam,
+/// outlet and flow invariant because every physical query applies the same offset.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct LandingSite {
+    pub q: i32,
+    pub r: i32,
+    pub bed_quanta: i32,
 }
 
 /// The province a cell belongs to.
@@ -1187,6 +1223,96 @@ impl Terra {
             Water::Dry
         }
     }
+
+    /// Locate the nearest deterministic dry shelf suitable for the opening.
+    ///
+    /// The search ranks macro provinces without solving them, then samples at most eight complete
+    /// provinces. A candidate is judged on the exact generated bed and water the running source
+    /// will publish: no preview approximation, no rounded band and no query-order state. The first
+    /// exact shelf wins in distance order; if a hostile seed offers none inside the bound, the
+    /// least-bad dry candidate is still deterministic and its score remains testable.
+    pub fn landing_site(&mut self) -> LandingSite {
+        let mut provinces = Vec::new();
+        for pq in -LANDING_PROVINCE_RADIUS..=LANDING_PROVINCE_RADIUS {
+            for pr in -LANDING_PROVINCE_RADIUS..=LANDING_PROVINCE_RADIUS {
+                let rank = province_rank(self.seed, pq, pr);
+                if rank >= SEA_LEVEL_QUANTA {
+                    provinces.push((axial_distance((0, 0), (pq, pr)), pq, pr, Reverse(rank)));
+                }
+            }
+        }
+        provinces.sort_unstable();
+
+        let pad_offsets = hexes_in_radius((0, 0), LANDING_PAD_RADIUS);
+        let clear_offsets = hexes_in_radius((0, 0), LANDING_CLEAR_RADIUS);
+        let mut best: Option<((u32, i32, u32, i32, i32, i32, i32), LandingSite)> = None;
+        for &(_, pq, pr, _) in provinces.iter().take(LANDING_PROVINCE_BUDGET) {
+            let (origin_q, origin_r) = province_origin(pq, pr);
+            let margin = LANDING_CLEAR_RADIUS;
+            let mut local_r = margin;
+            while local_r < PROVINCE_CELL - margin {
+                let mut local_q = margin;
+                while local_q < PROVINCE_CELL - margin {
+                    let q = origin_q + local_q;
+                    let r = origin_r + local_r;
+                    let mut water_cells = 0u32;
+                    let mut clear_min = i32::MAX;
+                    let mut clear_max = i32::MIN;
+                    let mut walk_edges = 0u32;
+                    for &(dq, dr) in &clear_offsets {
+                        let cell = (q + dq, r + dr);
+                        let head = self.head(cell.0, cell.1);
+                        clear_min = clear_min.min(head);
+                        clear_max = clear_max.max(head);
+                        water_cells += u32::from(self.water(cell.0, cell.1).is_wet());
+                        for &(step_q, step_r) in &DIRECTIONS {
+                            if (head - self.head(cell.0 + step_q, cell.1 + step_r)).abs()
+                                > crate::scale::MAX_WALK_STEP_QUANTA
+                            {
+                                walk_edges += 1;
+                            }
+                        }
+                    }
+                    let mut pad_min = i32::MAX;
+                    let mut pad_max = i32::MIN;
+                    for &(dq, dr) in &pad_offsets {
+                        let head = self.head(q + dq, r + dr);
+                        pad_min = pad_min.min(head);
+                        pad_max = pad_max.max(head);
+                    }
+                    let pad_spread = pad_max - pad_min;
+                    let clear_spread = clear_max - clear_min;
+                    let score = (
+                        water_cells,
+                        pad_spread,
+                        walk_edges,
+                        clear_spread,
+                        axial_distance((0, 0), (q, r)),
+                        q,
+                        r,
+                    );
+                    let site = LandingSite {
+                        q,
+                        r,
+                        bed_quanta: self.head(q, r),
+                    };
+                    if best.as_ref().is_none_or(|(current, _)| score < *current) {
+                        best = Some((score, site));
+                    }
+                    if water_cells == 0
+                        && pad_spread <= crate::scale::MAX_BUILD_STEP_QUANTA
+                        && walk_edges == 0
+                    {
+                        return site;
+                    }
+                    local_q += LANDING_SAMPLE_STRIDE;
+                }
+                local_r += LANDING_SAMPLE_STRIDE;
+            }
+        }
+        best.map(|(_, site)| site)
+            .expect("the bounded landing search contains dry-ranked provinces")
+    }
 }
 
 /// The neighbour a cell's water runs to: the minimum of `(head, q, r)`, and only when it is
@@ -2045,6 +2171,46 @@ mod tests {
             }
         }
         assert_eq!(terra.provinces_solved(), 1);
+    }
+
+    #[test]
+    fn landing_shelves_are_deterministic_dry_and_buildable() {
+        for seed in [SEED, 1_213_486_160, 0xA11C_E551] {
+            let mut first = Terra::new(seed);
+            let site = first.landing_site();
+            assert!(
+                first.provinces_solved() <= LANDING_PROVINCE_BUDGET,
+                "landing search exceeded its province budget"
+            );
+            let mut reordered = Terra::new(seed);
+            for &(q, r) in &[(8_000, -4_000), (-6_000, 3_000), (128, 128)] {
+                reordered.head(q, r);
+            }
+            assert_eq!(site, reordered.landing_site());
+
+            let pad = hexes_in_radius((site.q, site.r), LANDING_PAD_RADIUS);
+            let clear = hexes_in_radius((site.q, site.r), LANDING_CLEAR_RADIUS);
+            let heights: Vec<_> = pad.iter().map(|&(q, r)| first.head(q, r)).collect();
+            assert!(
+                heights.iter().max().unwrap() - heights.iter().min().unwrap()
+                    <= crate::scale::MAX_BUILD_STEP_QUANTA,
+                "seed {seed} chose an uneven opening pad at {},{}",
+                site.q,
+                site.r
+            );
+            assert!(
+                clear.iter().all(|&(q, r)| !first.water(q, r).is_wet()),
+                "seed {seed} chose a wet opening at {},{}",
+                site.q,
+                site.r
+            );
+            assert!(clear
+                .iter()
+                .all(|&(q, r)| DIRECTIONS.iter().all(|&(dq, dr)| {
+                    (first.head(q, r) - first.head(q + dq, r + dr)).abs()
+                        <= crate::scale::MAX_WALK_STEP_QUANTA
+                })));
+        }
     }
 
     /// A different seed is a different world; the same seed is the same world twice.
