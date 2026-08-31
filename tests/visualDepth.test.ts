@@ -23,6 +23,7 @@ import type {
   FactorySnapshot,
   SurfaceDefinition,
   Terrain,
+  TerrainSnapshot,
 } from "../src/core/types";
 import { TRANSPORT_DIRECTIONS } from "../src/core/directions";
 import {
@@ -1576,9 +1577,7 @@ describe("Terrain surfaces", () => {
 describe("picking the drawn landform", () => {
   it("names the raised cell the pointer is over, where the plane picker names its neighbour", () => {
     const snapshot = minimalSnapshot();
-    snapshot.terrain = [
-      { q: 0, r: 0, x: 0, y: 0, radius: WORLD_SCALE, terrain: "cliff" },
-    ];
+    snapshot.terrain = [cliffTile(0, 0)];
     snapshot.ground = [{ q: 0, r: 0, surface: 0, elevation: 3, paid: [] }];
     const materials = createWorldMaterials();
     const built = buildTerrainMeshes(snapshot, materials);
@@ -1613,9 +1612,7 @@ describe("picking the drawn landform", () => {
 
   it("names the low cell in front of a rise rather than the rise behind it", () => {
     const snapshot = minimalSnapshot();
-    snapshot.terrain = [
-      { q: 0, r: 0, x: 0, y: 0, radius: WORLD_SCALE, terrain: "cliff" },
-    ];
+    snapshot.terrain = [cliffTile(0, 0)];
     snapshot.ground = [{ q: 0, r: 0, surface: 0, elevation: 3, paid: [] }];
     const materials = createWorldMaterials();
     const built = buildTerrainMeshes(snapshot, materials);
@@ -1712,6 +1709,27 @@ function compileTerrain(terrain: Terrain) {
   return { materials, shader };
 }
 
+/**
+ * One surveyed cell of rock standing at sea level. These tests are about what the renderer draws
+ * from the presentation band and the earthwork above it, so the generated ground the wire now
+ * carries beside the band is held flat and dry: any relief in the assertions below comes from the
+ * `ground` group, which is the thing under test.
+ */
+function cliffTile(q: number, r: number): TerrainSnapshot {
+  return {
+    q,
+    r,
+    x: 0,
+    y: 0,
+    radius: WORLD_SCALE,
+    terrain: "cliff",
+    height: 0,
+    substrate: "rock",
+    water_depth: 0,
+    discharge: 0,
+  };
+}
+
 function minimalSnapshot(): FactorySnapshot {
   return {
     boundaries: [],
@@ -1778,16 +1796,7 @@ function minimalSnapshot(): FactorySnapshot {
         span: WORLD_SCALE * 4,
       },
     ],
-    terrain: [
-      {
-        q: 99,
-        r: 99,
-        x: 0,
-        y: 0,
-        radius: WORLD_SCALE,
-        terrain: "cliff",
-      },
-    ],
+    terrain: [cliffTile(99, 99)],
     resources: [],
     buildings: [],
     ground_items: [],

@@ -14,7 +14,9 @@ import type {
   ResearchAvailability,
   ResourceSnapshot,
   ResourcesPatch,
+  Substrate,
   Terrain,
+  TerrainPatch,
   TerrainSnapshot,
 } from "./types";
 
@@ -38,7 +40,7 @@ import type {
  */
 
 const MAGIC = 0x48584644; // "HXFD"
-const VERSION = 19;
+const VERSION = 20;
 
 /** Wire code is the index. Pinned against Rust by `fixtures/snapshot-delta-wire.json`. */
 const KINDS: BuildingKind[] = [
@@ -64,6 +66,8 @@ const TERRAIN: Terrain[] = [
   "highland",
   "cliff",
 ];
+
+const SUBSTRATES: Substrate[] = ["sand", "meadow", "soil", "rock"];
 
 /** Index is the code `project_state_code` writes; an unknown code reads as `locked`. */
 const PROJECT_STATE: ProjectState[] = [
@@ -522,22 +526,42 @@ function stepCell(reader: Reader, cell: Cell): void {
   cell.y += reader.svarint();
 }
 
-function readTerrain(reader: Reader): TerrainSnapshot[] {
+/**
+ * Ground travels per cell, so the per-cell cost is the whole cost of the group. Height is coded
+ * against the previous tile's height rather than absolutely: a chunk is a piece of landscape and
+ * neighbouring cells differ by a few quanta, where an absolute continental elevation would charge
+ * two or three bytes on every cell of the world to say what one byte of slope says.
+ */
+function readTerrain(reader: Reader): TerrainPatch {
+  const replace = (reader.u8() & PATCH_REPLACE) !== 0;
   const count = reader.uvarint();
-  const tiles: TerrainSnapshot[] = new Array<TerrainSnapshot>(count);
+  const changed: TerrainSnapshot[] = new Array<TerrainSnapshot>(count);
   const cell: Cell = { q: 0, r: 0, x: 0, y: 0 };
+  let height = 0;
   for (let index = 0; index < count; index += 1) {
     stepCell(reader, cell);
-    tiles[index] = {
+    const radius = reader.uvarint();
+    const terrain = terrainOf(reader.u8());
+    height += reader.svarint();
+    changed[index] = {
       q: cell.q,
       r: cell.r,
       x: cell.x,
       y: cell.y,
-      radius: reader.uvarint(),
-      terrain: terrainOf(reader.u8()),
+      radius,
+      terrain,
+      height,
+      substrate: substrateOf(reader.u8()),
+      water_depth: reader.uvarint(),
+      discharge: reader.u8(),
     };
   }
-  return tiles;
+  const patch: TerrainPatch = {};
+  // Native skips a false flag and an empty list rather than sending them, exactly as it does for
+  // resources; reproducing the omission is what keeps the two encodings interchangeable.
+  if (replace) patch.replace = true;
+  if (changed.length > 0) patch.changed = changed;
+  return patch;
 }
 
 function readResources(reader: Reader): ResourcesPatch {
@@ -705,6 +729,13 @@ function terrainOf(code: number): Terrain {
   if (terrain === undefined)
     throw new Error(`Unknown terrain code ${code} on the wire`);
   return terrain;
+}
+
+function substrateOf(code: number): Substrate {
+  const substrate = SUBSTRATES[code];
+  if (substrate === undefined)
+    throw new Error(`Unknown substrate code ${code} on the wire`);
+  return substrate;
 }
 
 function statusOf(code: number): string {

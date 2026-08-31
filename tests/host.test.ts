@@ -156,6 +156,10 @@ const snapshot: FactorySnapshot = {
       y: 1500,
       radius: 1024,
       terrain: "shallow_water",
+      height: 0,
+      substrate: "soil",
+      water_depth: 1,
+      discharge: 0,
     },
   ],
   resources: [
@@ -1769,7 +1773,9 @@ function fakeTransport(): {
   const requests: Array<{ method: FactoryWorkerMethod; payload: unknown }> = [];
   let revision = 0;
   const response = (
-    patch: Partial<Omit<FactorySnapshot, "buildings" | "resources">>,
+    patch: Partial<
+      Omit<FactorySnapshot, "buildings" | "resources" | "terrain">
+    >,
   ): FactorySnapshotDelta => ({
     base_revision: revision,
     revision: (revision += 1),

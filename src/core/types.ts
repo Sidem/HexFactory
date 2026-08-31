@@ -20,6 +20,12 @@ export type Terrain =
   | "hills"
   | "highland"
   | "cliff";
+/**
+ * What a cell's bed is made of, independent of the water standing on it. A player-readable material
+ * family rather than an altitude band: `Terrain` still ships as the presentation the shaders read,
+ * but legality and look increasingly come from this plus height and water depth.
+ */
+export type Substrate = "sand" | "meadow" | "soil" | "rock";
 export type PlacementRule =
   | "ground"
   | "resource"
@@ -529,11 +535,27 @@ export interface ResourceSnapshot extends WorldPoint {
   initial_quantity: number;
 }
 
+/**
+ * One surveyed cell of generated ground.
+ *
+ * Every cell of every surveyed chunk appears, plain lowland included: the band used to be the whole
+ * payload, so a lowland tile carried nothing and was skipped, but a per-cell height has no default
+ * for the host to fill a gap with.
+ *
+ * `height` and `water_depth` are the *generated* bed in native height units — signed, absolute, sea
+ * level at zero. Whatever the player cut or filled arrives separately in the ground group, and the
+ * host adds the two exactly as native does. That is what lets a tile be published once and never
+ * revisited.
+ */
 export interface TerrainSnapshot extends WorldPoint {
   q: number;
   r: number;
   radius: number;
   terrain: Terrain;
+  height: number;
+  substrate: Substrate;
+  water_depth: number;
+  discharge: number;
 }
 
 /**
@@ -708,9 +730,22 @@ export interface ResourcesPatch {
   changed?: ResourceSnapshot[];
 }
 
+/**
+ * The per-cell terrain patch. Generation is the only thing that adds a tile and nothing ever
+ * changes or removes one, so `changed` is exactly the chunks surveyed since the host last heard.
+ * `replace` is set only by a full snapshot, where the host holds nothing to patch.
+ */
+export interface TerrainPatch {
+  replace?: boolean;
+  changed?: TerrainSnapshot[];
+}
+
 export interface FactorySnapshotDelta
   extends Partial<
-    Omit<FactorySnapshot, "tick" | "checksum" | "buildings" | "resources">
+    Omit<
+      FactorySnapshot,
+      "tick" | "checksum" | "buildings" | "resources" | "terrain"
+    >
   > {
   base_revision: number;
   revision: number;
@@ -718,6 +753,7 @@ export interface FactorySnapshotDelta
   checksum: number;
   buildings?: BuildingsPatch;
   resources?: ResourcesPatch;
+  terrain?: TerrainPatch;
 }
 
 export interface PlacementPreview {

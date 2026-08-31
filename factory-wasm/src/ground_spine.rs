@@ -46,7 +46,8 @@ impl GroundDelta {
 }
 
 /// What the bed is made of, independent of whether water stands above it.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
 pub(super) enum Substrate {
     Sand,
     Meadow,

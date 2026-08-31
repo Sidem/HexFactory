@@ -100,7 +100,14 @@ pub(crate) const WIRE_MAGIC: [u8; 4] = *b"HXFD";
 /// fifteen in the wrong place entirely. The meaning moved, so the version moves with it.
 /// Version 19 adds effective per-product output ports to entity snapshots. Each route carries its
 /// item, footprint tile, side and resolved target so the host draws native routing truth.
-pub(crate) const WIRE_VERSION: u8 = 19;
+///
+/// Version 20 turns the terrain group into native ground. Each tile now carries an absolute bed
+/// height, a substrate, a standing water depth and a drainage class beside the presentation band,
+/// every surveyed cell appears rather than only the non-lowland ones, and the group gained a patch
+/// flag so a newly surveyed chunk travels once instead of resending the surveyed world. All three
+/// changes are in the same group, and none of them is additive: a version-19 host would read the
+/// height of one tile as the coordinates of the next.
+pub(crate) const WIRE_VERSION: u8 = 20;
 
 /// Which optional groups the buffer carries, in the order they are written.
 mod group {
@@ -188,6 +195,15 @@ fn terrain_code(terrain: Terrain) -> u8 {
         Terrain::Hills => 4,
         Terrain::Highland => 5,
         Terrain::Cliff => 6,
+    }
+}
+
+fn substrate_code(substrate: Substrate) -> u8 {
+    match substrate {
+        Substrate::Sand => 0,
+        Substrate::Meadow => 1,
+        Substrate::Soil => 2,
+        Substrate::Rock => 3,
     }
 }
 
@@ -411,7 +427,8 @@ pub(crate) fn encode_delta(delta: &SnapshotDelta) -> Vec<u8> {
         write_chunks(&mut writer, chunks);
     }
     if let Some(terrain) = &delta.terrain {
-        write_terrain(&mut writer, terrain);
+        writer.u8(if terrain.replace { PATCH_REPLACE } else { 0 });
+        write_terrain(&mut writer, &terrain.changed);
     }
     if let Some(resources) = &delta.resources {
         writer.u8(if resources.replace { PATCH_REPLACE } else { 0 });
@@ -571,13 +588,23 @@ fn write_chunks(writer: &mut Writer, chunks: &[ChunkSnapshot]) {
     }
 }
 
+/// Ground travels per cell now, so the per-cell cost is the whole cost of the group. Height is
+/// coded against the previous tile's height rather than absolutely: a chunk is a piece of landscape,
+/// neighbouring cells differ by a few quanta, and an absolute continental elevation would otherwise
+/// charge two or three bytes on every cell of the world to say what one byte of slope says.
 fn write_terrain(writer: &mut Writer, tiles: &[TileSnapshot]) {
     writer.uvarint(tiles.len() as u64);
     let mut previous = Cell::default();
+    let mut height = 0i32;
     for tile in tiles {
         previous.write_delta(writer, tile.q, tile.r, tile.x, tile.y);
         writer.uvarint(u64::from(tile.radius));
         writer.u8(terrain_code(tile.terrain));
+        writer.svarint(i64::from(tile.height) - i64::from(height));
+        height = tile.height;
+        writer.u8(substrate_code(tile.substrate));
+        writer.uvarint(tile.water_depth.max(0) as u64);
+        writer.u8(tile.discharge);
     }
 }
 
@@ -846,6 +873,15 @@ pub(crate) mod decode {
         ][usize::from(code)]
     }
 
+    fn substrate_of(code: u8) -> Substrate {
+        [
+            Substrate::Sand,
+            Substrate::Meadow,
+            Substrate::Soil,
+            Substrate::Rock,
+        ][usize::from(code)]
+    }
+
     fn status_of(code: u8) -> EntityStatus {
         [
             EntityStatus::OutputBlocked,
@@ -946,21 +982,31 @@ pub(crate) mod decode {
                 .collect()
         });
         let terrain = has(group::TERRAIN).then(|| {
+            let replace = reader.u8() & PATCH_REPLACE != 0;
             let count = reader.count();
             let mut cell = Cell::default();
-            (0..count)
+            let mut height = 0i32;
+            let changed = (0..count)
                 .map(|_| {
                     let (q, r, x, y) = read_cell(&mut reader, &mut cell);
+                    let radius = reader.uvarint() as u32;
+                    let terrain = terrain_of(reader.u8());
+                    height += reader.svarint() as i32;
                     TileSnapshot {
                         q,
                         r,
                         x,
                         y,
-                        radius: reader.uvarint() as u32,
-                        terrain: terrain_of(reader.u8()),
+                        radius,
+                        terrain,
+                        height,
+                        substrate: substrate_of(reader.u8()),
+                        water_depth: reader.uvarint() as i32,
+                        discharge: reader.u8(),
                     }
                 })
-                .collect()
+                .collect();
+            TerrainDelta { replace, changed }
         });
         let resources = has(group::RESOURCES).then(|| {
             let replace = reader.u8() & PATCH_REPLACE != 0;

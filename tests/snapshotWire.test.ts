@@ -32,7 +32,7 @@ function bytesOf(hex: string): ArrayBuffer {
 describe("binary snapshot delta", () => {
   it("agrees with the Rust encoder on the format's identity", () => {
     expect(fixture.magic).toBe("HXFD");
-    expect(fixture.version).toBe(19);
+    expect(fixture.version).toBe(20);
   });
 
   it("reads prepared ground as a signed grade beside an unsigned surface", () => {
@@ -80,9 +80,25 @@ describe("binary snapshot delta", () => {
       "idle",
       "composing",
     ]);
-    expect(decoded.terrain?.map((tile) => tile.terrain)).toEqual([
+    expect(decoded.terrain?.changed?.map((tile) => tile.terrain)).toEqual([
       "cliff",
       "deep_water",
+    ]);
+    expect(decoded.terrain?.changed?.map((tile) => tile.substrate)).toEqual([
+      "rock",
+      "sand",
+    ]);
+    // Height is delta-coded against the previous tile and the drop between these two is far wider
+    // than one byte of zigzag, so this is also what proves the running accumulator is signed and
+    // that the host reads whole quanta rather than the hop.
+    expect(decoded.terrain?.changed?.map((tile) => tile.height)).toEqual([
+      4212, -37,
+    ]);
+    expect(decoded.terrain?.changed?.map((tile) => tile.water_depth)).toEqual([
+      0, 41,
+    ]);
+    expect(decoded.terrain?.changed?.map((tile) => tile.discharge)).toEqual([
+      0, 7,
     ]);
   });
 

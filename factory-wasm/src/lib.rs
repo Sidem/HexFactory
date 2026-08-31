@@ -1544,6 +1544,17 @@ struct ChunkSnapshot {
     span: i32,
 }
 
+/// One surveyed cell of generated ground, as the host draws it.
+///
+/// Every cell of every surveyed chunk appears, including plain lowland. The band used to be the
+/// whole payload and a lowland tile carried no information, so it was skipped and the host defaulted
+/// the gaps; a per-cell height has no default, so the omission cannot survive it. What keeps that
+/// affordable is the group being a patch rather than a resend — a newly surveyed chunk travels once
+/// and is never repeated — and delta coding, which prices a neighbouring cell at the hop to it.
+///
+/// `height`, `water_depth` and the substrate are generated facts and nothing else: the earthwork the
+/// player paid for arrives separately in the ground group, and the host adds the two exactly as
+/// native does. That is what lets this list be published once and never revisited.
 #[derive(Clone, Copy, Debug, Serialize, PartialEq, Eq)]
 struct TileSnapshot {
     q: i32,
@@ -1552,6 +1563,15 @@ struct TileSnapshot {
     y: i32,
     radius: u32,
     terrain: Terrain,
+    /// Generated bed elevation in the active source's native height unit: signed, absolute, and
+    /// with sea level at zero once the physical source is the one answering.
+    height: i32,
+    /// What the bed is made of, independent of the water standing on it.
+    substrate: Substrate,
+    /// Standing water above the bed in the same unit as `height`. Zero is dry ground.
+    water_depth: i32,
+    /// Integer drainage class at this cell. Zero is still water or none at all.
+    discharge: u8,
 }
 
 /// One field cell. `q`/`r` is its identity: the tile key it is stored under, and what the host
@@ -1705,6 +1725,20 @@ struct BuildingsDelta {
     removed: Vec<u32>,
 }
 
+/// A per-cell terrain patch, addressed by tile key.
+///
+/// Generation is the only thing that adds a tile and nothing ever changes or removes one, so an
+/// incremental patch is exactly the chunks surveyed since the host last heard — the phase brief's
+/// "publish newly surveyed height chunks once". `replace` is set only by a full snapshot, where the
+/// host holds nothing to patch.
+#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
+struct TerrainDelta {
+    #[serde(skip_serializing_if = "is_false")]
+    replace: bool,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    changed: Vec<TileSnapshot>,
+}
+
 /// A per-deposit resources patch, addressed by tile key. Resource tiles are inserted by
 /// world generation and updated by extraction and gathering; the tile map has no removal path, so
 /// the patch needs no removal list. Generation is the only thing that adds a deposit, and it sets
@@ -1752,8 +1786,10 @@ struct SnapshotDirty {
     /// Set when generation may have added deposits, so the resources group is resent whole and the
     /// host's ordering stays exactly the native one.
     resources_replace: bool,
-    /// Set when generation adds tiles. Terrain only ever grows, so a flag is exact.
-    terrain: bool,
+    /// Chunk keys generation has surveyed since the host last heard. Terrain only ever grows, and it
+    /// grows a whole chunk at a time, so the chunk key is the whole mark: the tiles it names have
+    /// never been published and every other tile in the world is already correct at the host.
+    terrain: Vec<(i32, i32)>,
     /// Set when the generated chunk set or any chunk's entity count may differ.
     chunks: bool,
     /// Set when dropped ground items change.
@@ -1811,7 +1847,7 @@ struct SnapshotDelta {
     #[serde(skip_serializing_if = "Option::is_none")]
     chunks: Option<Vec<ChunkSnapshot>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    terrain: Option<Vec<TileSnapshot>>,
+    terrain: Option<TerrainDelta>,
     #[serde(skip_serializing_if = "Option::is_none")]
     resources: Option<ResourcesDelta>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1844,7 +1880,10 @@ impl SnapshotDelta {
             research_availability: Some(current.research_availability.clone()),
             skills: Some(current.skills.clone()),
             chunks: Some(current.chunks.clone()),
-            terrain: Some(current.terrain.clone()),
+            terrain: Some(TerrainDelta {
+                replace: true,
+                changed: current.terrain.clone(),
+            }),
             resources: Some(ResourcesDelta {
                 replace: true,
                 changed: current.resources.clone(),
@@ -1890,7 +1929,7 @@ impl SnapshotDelta {
             ),
             skills: changed(&previous.skills, &current.skills),
             chunks: changed(&previous.chunks, &current.chunks),
-            terrain: changed(&previous.terrain, &current.terrain),
+            terrain: terrain_delta(&previous.terrain, &current.terrain),
             resources: resources_delta(&previous.resources, &current.resources),
             buildings: buildings_delta(&previous.buildings, &current.buildings),
             ground_items: changed(&previous.ground_items, &current.ground_items),
@@ -1900,6 +1939,24 @@ impl SnapshotDelta {
             events: changed(&previous.events, &current.events),
         }
     }
+}
+
+/// The reference terrain diff, retained alongside `SnapshotDelta::between` as the oracle for the
+/// dirty-tracked builder. A tile is never altered or removed once generation publishes it, so this
+/// is exactly the cells the previous snapshot did not have — the chunks surveyed in between, in the
+/// order the surveyed-chunk set already holds them.
+#[cfg(test)]
+fn terrain_delta(previous: &[TileSnapshot], current: &[TileSnapshot]) -> Option<TerrainDelta> {
+    let before: BTreeSet<(i32, i32)> = previous.iter().map(|tile| (tile.q, tile.r)).collect();
+    let changed: Vec<TileSnapshot> = current
+        .iter()
+        .filter(|tile| !before.contains(&(tile.q, tile.r)))
+        .copied()
+        .collect();
+    (!changed.is_empty()).then_some(TerrainDelta {
+        replace: false,
+        changed,
+    })
 }
 
 /// The reference resources diff, retained alongside `SnapshotDelta::between` as the oracle for the
@@ -3337,17 +3394,19 @@ impl Core {
         self.deposit_links.clear();
         self.mark_all_entities_dirty();
         self.dirty.chunks = true;
+        // Every cell of a new chunk is a cell the host has never seen a height for, so the whole
+        // chunk is the mark. It is not narrowed to "interesting" cells the way it was when the band
+        // was the only payload: a plain lowland tile now carries an elevation, a substrate and a
+        // water depth that nothing else in the frame can supply.
+        self.dirty.terrain.push((chunk_q, chunk_r));
         let size = self.scenario.chunk_size;
         for local_r in 0..size {
             for local_q in 0..size {
                 let q = chunk_q * size + local_q;
                 let r = chunk_r * size + local_r;
-                let terrain = self.terrain_at(q, r);
-                // A chunk of plain lowland adds nothing to either group, so both marks are
-                // narrowed to a cell that actually appears in one. Generation is the only path
-                // that adds to either: resending resources whole keeps the host's order exactly
-                // the native one, so later patches can address field cells in place.
-                self.dirty.terrain |= terrain != Terrain::Lowland;
+                // Resources still narrow to a cell that actually appears in the group. Generation
+                // is the only path that adds one, and resending them whole keeps the host's order
+                // exactly the native one, so later patches can address field cells in place.
                 self.dirty.resources_replace |= self.field_at(q, r).is_some();
             }
         }
@@ -8538,25 +8597,37 @@ impl Core {
             .collect()
     }
 
+    /// One cell of generated ground, as the wire carries it. The band travels beside the height
+    /// rather than instead of it: it is what the shipped presentation still reads, and it is a
+    /// derived output of the same generated facts, so nothing here is a second source of truth.
+    fn tile_snapshot(&self, q: i32, r: i32) -> TileSnapshot {
+        let generated = self.generated_ground_at(q, r);
+        let (x, y) = axial_world(q, r);
+        TileSnapshot {
+            q,
+            r,
+            x,
+            y,
+            radius: HEX_RADIUS as u32,
+            terrain: generated.presentation,
+            height: generated.bed.get(),
+            substrate: generated.substrate,
+            water_depth: generated.hydrology.depth_quanta,
+            discharge: generated.hydrology.discharge_class,
+        }
+    }
+
+    /// Every cell of one surveyed chunk, in the chunk's own iteration order.
+    fn chunk_terrain_snapshots(&self, chunk_q: i32, chunk_r: i32) -> Vec<TileSnapshot> {
+        hexes_in_chunk(chunk_q, chunk_r, self.scenario.chunk_size)
+            .map(|(q, r)| self.tile_snapshot(q, r))
+            .collect()
+    }
+
     fn terrain_snapshots(&self) -> Vec<TileSnapshot> {
         let mut tiles = Vec::new();
-        let size = self.scenario.chunk_size;
         for &(chunk_q, chunk_r) in &self.generated_chunks {
-            for (q, r) in hexes_in_chunk(chunk_q, chunk_r, size) {
-                let terrain = self.terrain_at(q, r);
-                if terrain == Terrain::Lowland {
-                    continue;
-                }
-                let (x, y) = axial_world(q, r);
-                tiles.push(TileSnapshot {
-                    q,
-                    r,
-                    x,
-                    y,
-                    radius: HEX_RADIUS as u32,
-                    terrain,
-                });
-            }
+            tiles.extend(self.chunk_terrain_snapshots(chunk_q, chunk_r));
         }
         tiles
     }
@@ -9309,6 +9380,7 @@ impl Factory {
         let mut dirty = std::mem::take(&mut core.dirty);
         let marked_entities = drain_marks(&mut dirty.entities);
         let marked_resources = drain_marks(&mut dirty.resources);
+        let marked_terrain = drain_marks(&mut dirty.terrain);
 
         let mut removed: Vec<u32> = Vec::new();
         for id in &dirty.removed {
@@ -9351,6 +9423,17 @@ impl Factory {
                 .filter_map(|key| core.resource_snapshot(key))
                 .collect();
             (!changed.is_empty()).then_some(ResourcesDelta {
+                replace: false,
+                changed,
+            })
+        };
+
+        let terrain = {
+            let changed: Vec<TileSnapshot> = marked_terrain
+                .into_iter()
+                .flat_map(|(chunk_q, chunk_r)| core.chunk_terrain_snapshots(chunk_q, chunk_r))
+                .collect();
+            (!changed.is_empty()).then_some(TerrainDelta {
                 replace: false,
                 changed,
             })
@@ -9415,8 +9498,10 @@ impl Factory {
                 .then(|| take_changed(&mut baseline.chunks, core.chunk_snapshots()))
                 .flatten(),
             // Terrain is never retained for comparison: `generate_chunk` is the only path that can
-            // add a non-ground tile, and it marks exactly that case.
-            terrain: dirty.terrain.then(|| core.terrain_snapshots()),
+            // add a tile, nothing ever changes or removes one, and the mark names the chunks it
+            // added. The surveyed-chunk set is ordered, and so are the marks, so the tiles travel in
+            // the same order a full snapshot would have listed them in.
+            terrain,
             resources,
             buildings,
             ground_items,
@@ -21949,24 +22034,38 @@ mod tests {
             revision: 11,
             tick: 512,
             checksum: 0x0102_0304,
-            terrain: Some(vec![
-                TileSnapshot {
-                    q: -3,
-                    r: -4,
-                    x: -8_870,
-                    y: -6_144,
-                    radius: 1024,
-                    terrain: Terrain::Cliff,
-                },
-                TileSnapshot {
-                    q: -2,
-                    r: -4,
-                    x: -7_096,
-                    y: -6_144,
-                    radius: 1024,
-                    terrain: Terrain::DeepWater,
-                },
-            ]),
+            // A patch rather than a replace, a summit beside a flooded basin, and a height that
+            // steps down by more than a byte of zigzag between the two: the pair pins the height
+            // delta coding, a signed absolute bed, standing water and a drainage class at once.
+            terrain: Some(TerrainDelta {
+                replace: false,
+                changed: vec![
+                    TileSnapshot {
+                        q: -3,
+                        r: -4,
+                        x: -8_870,
+                        y: -6_144,
+                        radius: 1024,
+                        terrain: Terrain::Cliff,
+                        height: 4_212,
+                        substrate: Substrate::Rock,
+                        water_depth: 0,
+                        discharge: 0,
+                    },
+                    TileSnapshot {
+                        q: -2,
+                        r: -4,
+                        x: -7_096,
+                        y: -6_144,
+                        radius: 1024,
+                        terrain: Terrain::DeepWater,
+                        height: -37,
+                        substrate: Substrate::Sand,
+                        water_depth: 41,
+                        discharge: 7,
+                    },
+                ],
+            }),
             resources: Some(ResourcesDelta {
                 replace: false,
                 changed: vec![
