@@ -535,15 +535,15 @@ Data or fixture; inspect keys before loading the full file.
 
 - SurfaceFamily:15, TerrainSurface:17, TERRAIN_SURFACE:42, surfaceSource:268, TerrainSurfaces:297, clampDetail:371, injectVertex:375, injectFragment:388
 
-### `src/rendering/three/transportGeometry.ts` — 185 lines / 6.5 KiB
+### `src/rendering/three/transportGeometry.ts` — 191 lines / 6.8 KiB
 
-- TransportGeometrySet:7, CurvedTransportGeometry:17, createTransportGeometry:23, pipeBodyGeometry:36, pipeCouplingGeometry:43, portalFrameGeometry:54, portalStripeGeometry:65, beltFrameGeometry:72, beltTreadGeometry:82, createCurvedTransportGeometry:94, quadraticPoint:133, quadraticTangent:145
-- mergeAndDispose:156, isTransportKind:164, transportScale:177
+- TransportGeometrySet:7, CurvedTransportGeometry:17, createTransportGeometry:23, pipeBodyGeometry:36, pipeCouplingGeometry:43, portalFrameGeometry:54, portalStripeGeometry:65, beltFrameGeometry:72, beltTreadGeometry:82, createCurvedTransportGeometry:94, quadraticPoint:139, quadraticTangent:151
+- mergeAndDispose:162, isTransportKind:170, transportScale:183
 
-### `src/rendering/three/worldInstances.ts` — 1975 lines / 66.1 KiB
+### `src/rendering/three/worldInstances.ts` — 2006 lines / 67.1 KiB
 
-- PowerWireLink:66, FIELD_RESOURCE_SHAPES:72, WAYFINDER_VISUAL_SCALE:81, WorldInstanceLayer:83, normalizeAngle:1679, outputIndicatorGeometry:1683, hasDirectionalOutput:1689, connectedTransportLinks:1709, transportRun:1758, powerWireLinks:1774, footprintDistance:1809, poleWireHeight:1826
-- wirePoint:1833, fieldVisualColor:1850, fieldShade:1859, SphereGeometryCompat:1868, machineMaterialFor:1874, machinePartColor:1890, plumeFor:1915, plumeOriginHeight:1934, positiveFraction:1946, markInstancesDirty:1950, adjacentFootprintPairs:1955
+- PowerWireLink:66, FIELD_RESOURCE_SHAPES:72, WAYFINDER_VISUAL_SCALE:81, WorldInstanceLayer:83, normalizeAngle:1705, isCollinearTransportTurn:1710, outputIndicatorGeometry:1714, hasDirectionalOutput:1720, connectedTransportLinks:1740, transportRun:1789, powerWireLinks:1805, footprintDistance:1840
+- poleWireHeight:1857, wirePoint:1864, fieldVisualColor:1881, fieldShade:1890, SphereGeometryCompat:1899, machineMaterialFor:1905, machinePartColor:1921, plumeFor:1946, plumeOriginHeight:1965, positiveFraction:1977, markInstancesDirty:1981, adjacentFootprintPairs:1986
 
 
 ## Browser UI
@@ -678,9 +678,9 @@ Data or fixture; inspect keys before loading the full file.
 
 - FakeClassList:55, element:103, harness:139
 
-### `tests/visualDepth.test.ts` — 1658 lines / 54.1 KiB
+### `tests/visualDepth.test.ts` — 1801 lines / 58.2 KiB
 
-- heading:87, turnedBy:91, settle:97, surfaceBody:1432, uniformValue:1438, compileTerrain:1448, minimalSnapshot:1462, beltDefinition:1545, entity:1561
+- heading:88, turnedBy:92, settle:98, surfaceBody:1575, uniformValue:1581, compileTerrain:1591, minimalSnapshot:1605, beltDefinition:1688, entity:1704
 
 ### `tests/worldParameters.test.ts` — 155 lines / 5.0 KiB
 

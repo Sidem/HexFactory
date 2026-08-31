@@ -24,6 +24,7 @@ import type {
   SurfaceDefinition,
   Terrain,
 } from "../src/core/types";
+import { TRANSPORT_DIRECTIONS } from "../src/core/directions";
 import {
   BUILDING_SHAPES,
   partsFor,
@@ -1002,6 +1003,148 @@ describe("Visual Depth terrain and quality contracts", () => {
 
     layer.dispose();
     for (const material of materials.materials) material.dispose();
+  });
+
+  it("joins every input and output heading for belts and pipes", () => {
+    const materials = createWorldMaterials();
+    const pipe = {
+      ...beltDefinition(),
+      id: 3,
+      key: "pipe",
+      name: "Pipe",
+      transport_medium: "fluid" as const,
+    };
+    const layer = new WorldInstanceLayer(
+      {
+        boundaries: [],
+        surfaces: [],
+        version: 1,
+        items: [],
+        recipes: [],
+        requests: [],
+        buildings: [beltDefinition(), pipe],
+      },
+      materials,
+    );
+    const snapshot = minimalSnapshot();
+    let id = 1;
+    for (const [mediumIndex, definition] of [
+      beltDefinition(),
+      pipe,
+    ].entries()) {
+      for (const incoming of TRANSPORT_DIRECTIONS) {
+        for (const outgoing of TRANSPORT_DIRECTIONS) {
+          const targetQ =
+            mediumIndex * 2_000 + incoming.index * 100 + outgoing.index * 5;
+          const targetR = mediumIndex * 2_000;
+          const targetId = id + 1;
+          snapshot.buildings.push(
+            entity(
+              id,
+              definition.id,
+              "belt",
+              targetQ - incoming.q,
+              targetR - incoming.r,
+              incoming.index,
+              targetId,
+            ),
+            entity(
+              targetId,
+              definition.id,
+              "belt",
+              targetQ,
+              targetR,
+              outgoing.index,
+            ),
+          );
+          id += 2;
+        }
+      }
+    }
+    layer.setSnapshot(snapshot, new Map(), 0);
+
+    const instanceCount = (name: string): number => {
+      let count = 0;
+      layer.group.traverse((object) => {
+        if (object.name === name && object instanceof InstancedMesh)
+          count += object.count;
+      });
+      return count;
+    };
+    const pairsPerMedium = TRANSPORT_DIRECTIONS.length ** 2;
+    const collinearTargets = TRANSPORT_DIRECTIONS.length * 2;
+    const curvedTargets = pairsPerMedium - collinearTargets;
+    expect(instanceCount("transport-connections")).toBe(pairsPerMedium);
+    expect(instanceCount("fluid-pipe-connections")).toBe(pairsPerMedium);
+    expect(instanceCount("transport-rails")).toBe(
+      pairsPerMedium + collinearTargets,
+    );
+    expect(instanceCount("fluid-pipes")).toBe(
+      pairsPerMedium + collinearTargets,
+    );
+    expect(instanceCount("transport-curve-rails")).toBe(curvedTargets);
+    expect(instanceCount("fluid-pipe-curve-bodies")).toBe(curvedTargets);
+
+    layer.dispose();
+    for (const material of materials.materials) material.dispose();
+  });
+
+  it("keeps closed turning loops connected when no segment stays straight", () => {
+    for (const medium of ["solid", "fluid"] as const) {
+      const materials = createWorldMaterials();
+      const definition = {
+        ...beltDefinition(),
+        transport_medium: medium,
+      };
+      const layer = new WorldInstanceLayer(
+        {
+          boundaries: [],
+          surfaces: [],
+          version: 1,
+          items: [],
+          recipes: [],
+          requests: [],
+          buildings: [definition],
+        },
+        materials,
+      );
+      const snapshot = minimalSnapshot();
+      snapshot.buildings.push(
+        entity(1, definition.id, "belt", 0, 0, 0, 2),
+        entity(2, definition.id, "belt", 1, 0, 2, 3),
+        entity(3, definition.id, "belt", 0, 1, 4, 1),
+      );
+      layer.setSnapshot(snapshot, new Map(), 0);
+
+      const count = (name: string): number => {
+        let total = 0;
+        layer.group.traverse((object) => {
+          if (object.name === name && object instanceof InstancedMesh)
+            total += object.count;
+        });
+        return total;
+      };
+      expect(
+        count(
+          medium === "fluid"
+            ? "fluid-pipe-connections"
+            : "transport-connections",
+        ),
+      ).toBe(3);
+      expect(
+        count(
+          medium === "fluid"
+            ? "fluid-pipe-curve-bodies"
+            : "transport-curve-rails",
+        ),
+      ).toBe(3);
+      expect(
+        count(medium === "fluid" ? "fluid-pipes" : "transport-rails"),
+      ).toBe(0);
+
+      layer.dispose();
+      for (const material of materials.materials) material.dispose();
+    }
   });
 
   it("draws one sagging instanced wire for every native pole link", () => {

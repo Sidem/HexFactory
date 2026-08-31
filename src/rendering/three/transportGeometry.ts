@@ -93,13 +93,14 @@ function beltTreadGeometry(): BufferGeometry {
  * cached geometry per relative heading to be instanced at every matching junction. */
 export function createCurvedTransportGeometry(
   turnAngle: number,
+  halfExtent = 0.46,
+  medium: "solid" | "fluid" = "solid",
 ): CurvedTransportGeometry {
-  const half = 0.46;
   const start = {
-    x: -Math.cos(turnAngle) * half,
-    z: Math.sin(turnAngle) * half,
+    x: -Math.cos(turnAngle) * halfExtent,
+    z: Math.sin(turnAngle) * halfExtent,
   };
-  const end = { x: half, z: 0 };
+  const end = { x: halfExtent, z: 0 };
   const frameParts: BufferGeometry[] = [];
   const segments = 10;
   for (let segment = 0; segment < segments; segment += 1) {
@@ -108,21 +109,26 @@ export function createCurvedTransportGeometry(
     const dx = to.x - from.x;
     const dz = to.z - from.z;
     const length = Math.hypot(dx, dz);
-    const part = beltFrameGeometry();
+    const part = medium === "fluid" ? pipeBodyGeometry() : beltFrameGeometry();
     part.scale((length + 0.025) / 0.92, 1, 1);
     part.rotateY(Math.atan2(-dz, dx));
     part.translate((from.x + to.x) / 2, 0, (from.z + to.z) / 2);
     frameParts.push(part);
   }
 
-  const detailParts = Array.from({ length: 7 }, (_, index) => {
-    const t = (index + 0.5) / 7;
+  const detailCount = medium === "fluid" ? 5 : 7;
+  const detailParts = Array.from({ length: detailCount }, (_, index) => {
+    const t = (index + 0.5) / detailCount;
     const point = quadraticPoint(start, end, t);
     const tangent = quadraticTangent(start, end, t);
-    const tread = new BoxGeometry(0.075, 0.055, 0.34);
-    tread.rotateY(Math.atan2(-tangent.z, tangent.x));
-    tread.translate(point.x, 0.07, point.z);
-    return tread;
+    const detail =
+      medium === "fluid"
+        ? new CylinderGeometry(0.18, 0.18, 0.075, 12)
+        : new BoxGeometry(0.075, 0.055, 0.34);
+    if (medium === "fluid") detail.rotateZ(Math.PI / 2);
+    detail.rotateY(Math.atan2(-tangent.z, tangent.x));
+    detail.translate(point.x, medium === "fluid" ? 0 : 0.07, point.z);
+    return detail;
   });
   return {
     frame: mergeAndDispose(frameParts),

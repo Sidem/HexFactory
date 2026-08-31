@@ -23,7 +23,7 @@ import type {
   ItemDefinition,
   ResourceSnapshot,
 } from "../../core/types";
-import { CORNER_START, TRANSPORT_DIRECTIONS } from "../../core/directions";
+import { TRANSPORT_DIRECTIONS } from "../../core/directions";
 import { MAX_UNDERPASS_SPAN } from "../../core/definitions";
 import { cargoTravel, stallMark, trimOf } from "../buildingLook";
 import { BUILDING_COLORS } from "../FactoryRenderer";
@@ -85,7 +85,7 @@ export class WorldInstanceLayer {
   readonly geometryLibrary = new PartGeometryLibrary();
   private readonly transportGeometry = createTransportGeometry();
   private readonly curvedTransportGeometry = new Map<
-    number,
+    string,
     CurvedTransportGeometry
   >();
   private readonly definitions: ReadonlyMap<number, BuildingDefinition>;
@@ -554,12 +554,7 @@ export class WorldInstanceLayer {
     for (const link of connected) {
       if (link.to.kind !== "belt") continue;
       incomingTargets.add(link.to.id);
-      // A belt at a vertex heading keeps its straight two-row deck whatever feeds it: the curve
-      // geometry is authored for the one-row period and would fall short of the seam.
-      if (
-        link.to.orientation >= CORNER_START ||
-        Math.abs(this.transportTurn(link)) < 0.01
-      )
+      if (isCollinearTransportTurn(this.transportTurn(link)))
         straightInputTargets.add(link.to.id);
     }
     const straightBelts = belts.filter(
@@ -640,7 +635,7 @@ export class WorldInstanceLayer {
         markInstancesDirty(links);
         markInstancesDirty(linkTreads);
         this.staticGroup.add(links, linkTreads);
-        this.addTransportCurves(solidLinks);
+        this.addTransportCurves(solidLinks, "solid");
       }
     }
     if (pipes.length) {
@@ -662,7 +657,7 @@ export class WorldInstanceLayer {
           const center = axialToPixel(building, 1, { x: 0, y: 0 });
           position.set(
             center.x,
-            this.groundHeight(building.q, building.r) + 0.29,
+            this.groundHeight(building.q, building.r) + PIPE_RIDE_HEIGHT,
             center.y,
           );
           quaternion.setFromAxisAngle(
@@ -682,9 +677,10 @@ export class WorldInstanceLayer {
         this.staticGroup.add(bodies, couplings);
       }
 
-      const fluidRuns = connected
-        .filter(({ medium }) => medium === "fluid")
-        .flatMap((link) => this.transportDeckRuns(link));
+      const fluidLinks = connected.filter(({ medium }) => medium === "fluid");
+      const fluidRuns = fluidLinks.flatMap((link) =>
+        this.transportDeckRuns(link),
+      );
       if (fluidRuns.length) {
         const bodies = new InstancedMesh(
           this.geometry.pipe,
@@ -716,6 +712,7 @@ export class WorldInstanceLayer {
         markInstancesDirty(couplings);
         this.staticGroup.add(bodies, couplings);
       }
+      this.addTransportCurves(fluidLinks, "fluid");
     }
 
     const portals = transport.filter(
@@ -815,14 +812,15 @@ export class WorldInstanceLayer {
     const toGround = this.groundById.get(link.to.id) ?? 0.07;
     const fromInset = this.transportLinkInset(link.from);
     const toInset = this.transportLinkInset(link.to);
+    const rideHeight = link.medium === "fluid" ? PIPE_RIDE_HEIGHT : DECK_HEIGHT;
     const start = new Vector3(
       a.x + direction.x * fromInset,
-      fromGround + DECK_HEIGHT,
+      fromGround + rideHeight,
       a.z + direction.z * fromInset,
     );
     const end = new Vector3(
       b.x - direction.x * toInset,
-      toGround + DECK_HEIGHT,
+      toGround + rideHeight,
       b.z - direction.z * toInset,
     );
     if (link.steps === 1) return [{ start, end }];
@@ -857,49 +855,67 @@ export class WorldInstanceLayer {
 
   /** Every incoming branch gets its own centre curve into the target belt. That keeps a merge
    * legible without asking presentation to choose one predecessor as the "real" lane. */
-  private addTransportCurves(links: readonly TransportLink[]): void {
-    const buckets = new Map<number, EntitySnapshot[]>();
+  private addTransportCurves(
+    links: readonly TransportLink[],
+    medium: "solid" | "fluid",
+  ): void {
+    const buckets = new Map<
+      string,
+      {
+        turn: number;
+        halfExtent: number;
+        buildings: EntitySnapshot[];
+      }
+    >();
     for (const link of links) {
       const { to } = link;
       if (to.kind !== "belt") continue;
-      if (to.orientation >= CORNER_START) continue;
       const turn = this.transportTurn(link);
-      if (Math.abs(turn) < 0.01) continue;
-      const key = Math.round(turn * 1_000_000) / 1_000_000;
+      if (isCollinearTransportTurn(turn)) continue;
+      const halfExtent = this.transportLinkInset(to);
+      const roundedTurn = Math.round(turn * 1_000_000) / 1_000_000;
+      const key = `${medium}:${roundedTurn}:${halfExtent}`;
       const bucket = buckets.get(key);
-      if (bucket) bucket.push(to);
-      else buckets.set(key, [to]);
+      if (bucket) bucket.buildings.push(to);
+      else buckets.set(key, { turn: roundedTurn, halfExtent, buildings: [to] });
     }
     if (!buckets.size) return;
 
     const group = new Group();
-    group.name = "transport-curves";
-    for (const [turn, buildings] of buckets) {
-      let geometry = this.curvedTransportGeometry.get(turn);
+    group.name = medium === "fluid" ? "fluid-pipe-curves" : "transport-curves";
+    for (const [key, { turn, halfExtent, buildings }] of buckets) {
+      let geometry = this.curvedTransportGeometry.get(key);
       if (!geometry) {
-        geometry = createCurvedTransportGeometry(turn);
-        this.curvedTransportGeometry.set(turn, geometry);
+        geometry = createCurvedTransportGeometry(turn, halfExtent, medium);
+        this.curvedTransportGeometry.set(key, geometry);
       }
       const frame = new InstancedMesh(
         geometry.frame,
         this.materials.machine,
         buildings.length,
       );
-      frame.name = "transport-curve-rails";
+      frame.name =
+        medium === "fluid"
+          ? "fluid-pipe-curve-bodies"
+          : "transport-curve-rails";
       frame.castShadow = true;
       const treads = new InstancedMesh(
         geometry.detail,
         this.materials.machineDark,
         buildings.length,
       );
-      treads.name = "transport-curve-treads";
+      treads.name =
+        medium === "fluid"
+          ? "fluid-pipe-curve-couplings"
+          : "transport-curve-treads";
       treads.castShadow = true;
       for (const [index, building] of buildings.entries()) {
         const center = this.pointById.get(building.id)!;
         this.scratchMatrix.compose(
           this.scratchPosition.set(
             center.x,
-            (this.groundById.get(building.id) ?? 0.07) + 0.23,
+            (this.groundById.get(building.id) ?? 0.07) +
+              (medium === "fluid" ? PIPE_RIDE_HEIGHT : DECK_HEIGHT),
             center.z,
           ),
           this.scratchQuaternion.setFromAxisAngle(
@@ -909,9 +925,17 @@ export class WorldInstanceLayer {
           this.scratchScale.set(1, 1, 1),
         );
         frame.setMatrixAt(index, this.scratchMatrix);
-        frame.setColorAt(index, this.scratchColor.set(BUILDING_COLORS.belt));
+        frame.setColorAt(
+          index,
+          this.scratchColor.set(
+            medium === "fluid" ? "#2d8f91" : BUILDING_COLORS.belt,
+          ),
+        );
         treads.setMatrixAt(index, this.scratchMatrix);
-        treads.setColorAt(index, this.scratchColor.set("#102b3a"));
+        treads.setColorAt(
+          index,
+          this.scratchColor.set(medium === "fluid" ? "#b9ebe4" : "#102b3a"),
+        );
       }
       markInstancesDirty(frame);
       markInstancesDirty(treads);
@@ -1659,6 +1683,8 @@ const LOCAL_X = new Vector3(1, 0, 0);
 const MACHINE_BASE_SCALE = 1.12;
 /** Where a transport deck rides above the ground beneath it. */
 const DECK_HEIGHT = 0.23;
+/** Pipe bodies ride slightly above an open belt deck, matching their larger circular section. */
+const PIPE_RIDE_HEIGHT = 0.29;
 /** Where a carried item rides: sitting on the treads of the deck below it, not floating over them. */
 const CARGO_RIDE_HEIGHT = 0.46;
 /**
@@ -1678,6 +1704,11 @@ interface TransportLink {
 
 function normalizeAngle(angle: number): number {
   return Math.atan2(Math.sin(angle), Math.cos(angle));
+}
+
+/** A reversed heading shares the same undirected deck axis, so it needs no degenerate U-curve. */
+function isCollinearTransportTurn(turn: number): boolean {
+  return Math.abs(Math.sin(turn)) < 0.01;
 }
 
 function outputIndicatorGeometry(): ConeGeometry {
