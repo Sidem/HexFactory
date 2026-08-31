@@ -183,6 +183,34 @@ pub(super) fn migrate<'a>(json: &'a str, target_version: u16) -> Result<Cow<'a, 
         version = 35;
     }
 
+    // Fluid Logistics. Definitions now distinguish loose fluid from solid cargo. Every belt-kind
+    // entity already in a v35 factory is grandfathered by stable id, preserving the old line while
+    // newly placed belts obey the medium split. The original checksum is verified before Core
+    // applies this set; the next save hashes it as current state.
+    if version == 35 && target_version >= 36 {
+        if let Some(object) = value.as_object_mut() {
+            object.insert("save_version".into(), Value::from(36));
+            if object.get("definition_version") == Some(&Value::from(26)) {
+                object.insert("definition_version".into(), Value::from(27));
+            }
+            if object.get("technology_version") == Some(&Value::from(15)) {
+                object.insert("technology_version".into(), Value::from(16));
+            }
+            if let Some(state) = object.get_mut("state").and_then(Value::as_object_mut) {
+                let ids = state
+                    .get("entities")
+                    .and_then(Value::as_array)
+                    .into_iter()
+                    .flatten()
+                    .filter(|entity| entity.get("kind") == Some(&Value::from("belt")))
+                    .filter_map(|entity| entity.get("id").cloned())
+                    .collect();
+                state.insert("legacy_fluid_belts".into(), Value::Array(ids));
+            }
+        }
+        version = 36;
+    }
+
     if version == target_version {
         return Ok(Cow::Owned(serde_json::to_string(&value).map_err(
             |error| format!("migrated save could not be written: {error}"),
@@ -704,5 +732,19 @@ mod tests {
         assert!(value["state"].get("output_routes").is_none());
         assert_eq!(value["definition_version"], 26);
         assert_eq!(value["technology_version"], 15);
+    }
+
+    #[test]
+    fn version_thirty_five_grandfathers_only_existing_transport_ids() {
+        let json = r#"{"save_version":35,"definition_version":26,"technology_version":15,"state":{"entities":[{"id":7,"kind":"belt","definition_id":2},{"id":8,"kind":"container","definition_id":4},{"id":11,"kind":"belt","definition_id":26}]}}"#;
+        let migrated = migrate(json, 36).expect("migrated save");
+        let value: Value = serde_json::from_str(&migrated).expect("migrated json");
+        assert_eq!(value["save_version"], 36);
+        assert_eq!(value["definition_version"], 27);
+        assert_eq!(value["technology_version"], 16);
+        assert_eq!(
+            value["state"]["legacy_fluid_belts"],
+            serde_json::json!([7, 11])
+        );
     }
 }

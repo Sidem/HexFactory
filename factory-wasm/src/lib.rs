@@ -134,7 +134,7 @@ const SAVE_PREFIX: &str = "HXF1\n";
 /// exactly the legacy behaviour: all products leave from the building's facing. The checksum
 /// contribution is guarded on emptiness, so the 34 -> 35 migration can verify the original run
 /// before adding no state at all.
-const SAVE_VERSION: u16 = 35;
+const SAVE_VERSION: u16 = 36;
 /// Bumped to 6 for World Parameters. `WorldParams` is now part of a run's identity — it is in the
 /// save envelope and in the checksum — so a version-5 envelope carries no answer to the question
 /// "which world is this" and is rejected rather than assumed to be the default.
@@ -452,6 +452,10 @@ struct ItemDefinition {
     /// player's ordinary `item_id → quantity` map rather than a stored array of slots, so the save
     /// format, the checksum inputs, and every ordering guarantee are unchanged by it.
     stack_size: u32,
+    /// Loose bulk liquid. It may occupy native machine stock and pipe cargo, but it does not enter
+    /// a player's pack or a newly built solid belt. Filled barrels are ordinary non-fluid items.
+    #[serde(default)]
+    fluid: bool,
     /// Energy one unit releases when burned. Fuel is a property of the item, never an entry in a
     /// recipe's `inputs`: naming a fuel in a recipe would force one recipe per fuel and hardcode
     /// the bootstrap path, where this way coal and charcoal are the same recipe at different
@@ -614,6 +618,14 @@ struct BuildingDefinition {
     /// hex.
     #[serde(default)]
     underpass_span: Option<u32>,
+    /// Which cargo family a belt-kind transport carries. Existing definitions default to solid;
+    /// pipes reuse the compiled graph and arbitration with a fluid-only acceptance boundary.
+    #[serde(default)]
+    transport_medium: TransportMedium,
+    /// Optional exact filter for a container. Tanks name one loose fluid; an ordinary shelf omits
+    /// the field and remains general storage.
+    #[serde(default)]
+    accepted_item_ids: Option<Vec<ItemId>>,
     /// Where this definition sits on its own upgrade ladder. Presentation reads it for trim; the
     /// simulation only ever compares it, and never branches on it.
     #[serde(default)]
@@ -702,6 +714,14 @@ enum BuildingKind {
     /// A support deck on shallow water. Terrain stays water; this entity is what permits a
     /// transport building to occupy an otherwise unbuildable ford.
     Bridge,
+}
+
+#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+enum TransportMedium {
+    #[default]
+    Solid,
+    Fluid,
 }
 
 /// Whether a building of this kind could ever take a delivered item — whatever it holds, whatever
@@ -2230,6 +2250,10 @@ struct Core {
     /// Per-entity, per-product outlet choices keyed by stable entity id. Empty means the legacy
     /// facing outlet for every product. Real saved state; compiled graph edges remain derived.
     output_routes: BTreeMap<u32, BTreeMap<ItemId, OutputRoute>>,
+    /// Stable ids of belt-kind entities created before fluid transport existed. They retain the
+    /// old accept-any-cargo behavior so a migrated factory keeps running; no new placement enters
+    /// this set. Saved and checksummed because it changes transfer eligibility.
+    legacy_fluid_belts: BTreeSet<u32>,
     ground_items: Vec<GroundItem>,
     next_ground_item_id: u32,
     graph: Vec<Links>,
@@ -2411,6 +2435,7 @@ impl Core {
             flora_regrowth: BTreeSet::new(),
             entities: Vec::new(),
             output_routes: BTreeMap::new(),
+            legacy_fluid_belts: BTreeSet::new(),
             ground_items: Vec::new(),
             next_ground_item_id: 1,
             graph: Vec::new(),
@@ -2536,6 +2561,86 @@ impl Core {
             .max(1)
     }
 
+    fn is_fluid(&self, item: ItemId) -> bool {
+        self.item_definition(item)
+            .is_some_and(|definition| definition.fluid)
+    }
+
+    fn transport_medium(&self, index: usize) -> TransportMedium {
+        self.building_definition(self.entities[index].placed.definition_id)
+            .map_or(TransportMedium::Solid, |definition| {
+                definition.transport_medium
+            })
+    }
+
+    fn transport_accepts(&self, index: usize, item: ItemId) -> bool {
+        // Saved pre-pipe transport remains a working compatibility line. The migration records
+        // exactly those stable ids; newly placed belts never enter this set.
+        if self.legacy_fluid_belts.contains(&self.entities[index].id) {
+            return true;
+        }
+        match self.transport_medium(index) {
+            TransportMedium::Solid => !self.is_fluid(item),
+            TransportMedium::Fluid => self.is_fluid(item),
+        }
+    }
+
+    /// Whether a transport entity can ever hand an item to this target. Capacity and current stock
+    /// stay dynamic; this only removes permanently dead joins such as a fresh belt into a pipe or a
+    /// solid belt into a water-only tank.
+    fn transport_target_compatible(&self, source: usize, target: usize) -> bool {
+        if self.entities[source].kind != BuildingKind::Belt {
+            return true;
+        }
+        let Some(target_definition) =
+            self.building_definition(self.entities[target].placed.definition_id)
+        else {
+            return false;
+        };
+        if self.entities[target].kind == BuildingKind::Belt {
+            return self.definitions.items.iter().any(|item| {
+                self.transport_accepts(source, item.id) && self.transport_accepts(target, item.id)
+            });
+        }
+        target_definition
+            .accepted_item_ids
+            .as_ref()
+            .is_none_or(|accepted| {
+                accepted
+                    .iter()
+                    .any(|&item| self.transport_accepts(source, item))
+            })
+    }
+
+    /// The placement-time half of `transport_target_compatible`: the source has a definition but
+    /// no stable entity id yet, while an existing target may still be a grandfathered liquid belt.
+    fn prospective_transport_target_compatible(
+        &self,
+        source: &BuildingDefinition,
+        target: usize,
+    ) -> bool {
+        let source_accepts = |item: ItemId| match source.transport_medium {
+            TransportMedium::Solid => !self.is_fluid(item),
+            TransportMedium::Fluid => self.is_fluid(item),
+        };
+        let Some(target_definition) =
+            self.building_definition(self.entities[target].placed.definition_id)
+        else {
+            return false;
+        };
+        if self.entities[target].kind == BuildingKind::Belt {
+            return self
+                .definitions
+                .items
+                .iter()
+                .any(|item| source_accepts(item.id) && self.transport_accepts(target, item.id));
+        }
+        target_definition
+            .accepted_item_ids
+            .as_ref()
+            .is_none_or(|accepted| accepted.iter().any(|&item| source_accepts(item)))
+    }
+
     /// How many slots an inventory occupies: one per part-filled stack of each item. This is the
     /// whole of the carrying rule — the inventory itself stays an `item_id → quantity` map, so
     /// nothing about the save format, the checksum, or transfer ordering changes with it.
@@ -2589,6 +2694,13 @@ impl Core {
     /// that adds to the player's inventory has to ask, which is what makes capacity a real
     /// constraint rather than a number on the interface.
     fn player_can_carry(&self, additions: &BTreeMap<ItemId, u32>) -> bool {
+        if !self.creative
+            && additions
+                .iter()
+                .any(|(&item, &quantity)| quantity > 0 && self.is_fluid(item))
+        {
+            return false;
+        }
         let mut prospective = self.player.inventory.clone();
         add_inventory(&mut prospective, additions);
         self.slots_used(&prospective) <= self.player.carry_slots
@@ -2597,6 +2709,9 @@ impl Core {
     /// How many more of one item the player can take. A part-filled stack absorbs its remainder for
     /// free; past that, each free slot is worth a whole stack.
     fn player_room_for(&self, item_id: ItemId) -> u32 {
+        if !self.creative && self.is_fluid(item_id) {
+            return 0;
+        }
         let stack = self.stack_size(item_id);
         let held = self.player.inventory.get(&item_id).copied().unwrap_or(0);
         let free_slots = self
@@ -2624,6 +2739,10 @@ impl Core {
         let mut carried = BTreeMap::new();
         let mut spilled = BTreeMap::new();
         for (&item, &quantity) in additions {
+            if !self.creative && self.is_fluid(item) {
+                spilled.insert(item, quantity);
+                continue;
+            }
             let stack = self.stack_size(item);
             let held = prospective.get(&item).copied().unwrap_or(0);
             let free_slots = self
@@ -3386,6 +3505,9 @@ impl Core {
             // refuse it spends arbitration on a delivery that can never land, and draws the player
             // a connected line that silently is not one.
             if never_accepts_deliveries(self.entities[target].kind) {
+                return false;
+            }
+            if !self.transport_target_compatible(index, target) {
                 return false;
             }
             let to = &self.entities[target].placed;
@@ -4733,7 +4855,12 @@ impl Core {
     fn accepts_item(&self, target: usize, item_id: ItemId) -> bool {
         let entity = &self.entities[target];
         match entity.kind {
-            BuildingKind::Belt | BuildingKind::Container | BuildingKind::Consumer => true,
+            BuildingKind::Belt => self.transport_accepts(target, item_id),
+            BuildingKind::Container => self
+                .building_definition(entity.placed.definition_id)
+                .and_then(|definition| definition.accepted_item_ids.as_ref())
+                .is_none_or(|ids| ids.contains(&item_id)),
+            BuildingKind::Consumer => true,
             BuildingKind::Composer => {
                 let Some(recipe) = entity.placed.recipe_id.and_then(|id| self.recipe(id)) else {
                     return false;
@@ -6386,7 +6513,18 @@ impl Core {
                         .map(|value| value.name.clone())
                         .unwrap_or_else(|| "that building".into());
                     return Err(format!(
-                        "this belt would deliver into the {name} at {cell_q}, {cell_r}, which never takes items"
+                        "this {} would deliver into the {name} at {cell_q}, {cell_r}, which never takes items",
+                        definition.name.to_lowercase()
+                    ));
+                }
+                if !self.prospective_transport_target_compatible(definition, target) {
+                    let name = self
+                        .building_definition(blocked.placed.definition_id)
+                        .map(|value| value.name.clone())
+                        .unwrap_or_else(|| "that building".into());
+                    return Err(format!(
+                        "the {} and {name} carry incompatible cargo",
+                        definition.name.to_lowercase()
                     ));
                 }
             }
@@ -6509,8 +6647,20 @@ impl Core {
             .building_definition(definition_id)
             .ok_or_else(|| format!("unknown building definition {definition_id}"))?;
         let routed = definition.kind == BuildingKind::Belt;
+        let paired_underpass = definition.underpass_span.is_some() && from != to;
         let name = definition.name.clone();
         let cells = self.drag_route(from, to, definition_id, orientation, recipe_id);
+        if paired_underpass {
+            let preview = self.line_preview(from, to, definition_id, orientation, recipe_id);
+            if preview.len() != 2 || preview.iter().any(|cell| !cell.legal) {
+                return Err(preview
+                    .iter()
+                    .find_map(|cell| cell.reason.clone())
+                    .unwrap_or_else(|| {
+                        "both underpass portals must be clear and affordable".into()
+                    }));
+            }
+        }
         let before = self.events.len();
         let mut placed = 0usize;
         let mut last_error = None;
@@ -6532,7 +6682,9 @@ impl Core {
             (0, Some(error)) => Err(error),
             (0, None) => Err("nothing to build along that drag".into()),
             (count, reason) => {
-                self.events.push(if count == 1 {
+                self.events.push(if paired_underpass && count == 2 {
+                    format!("Placed {name} pair")
+                } else if count == 1 {
                     format!("Placed {name}")
                 } else {
                     format!("Placed {count} × {name}")
@@ -6666,6 +6818,34 @@ impl Core {
             return Vec::new();
         };
         let axis = definition.orientation_axis;
+        if let Some(span) = definition.underpass_span.filter(|_| from != to) {
+            // One drag places the two portals, never a carpet of underpass entities. The endpoint
+            // snaps to the closest reachable heading/length, so a pointer does not need pixel-
+            // perfect axial alignment; the native preview publishes the exact snapped pair.
+            let target_world = axial_world(to.0, to.1);
+            let best = axis
+                .range()
+                .filter(|&heading| {
+                    definition
+                        .gates_at(heading)
+                        .into_iter()
+                        .flatten()
+                        .all(|required| self.researched.contains(&required))
+                })
+                .flat_map(|heading| {
+                    let (dq, dr) = TRANSPORT_DIRECTIONS[usize::from(heading)];
+                    (2..=span).map(move |steps| {
+                        let candidate = (from.0 + dq * steps as i32, from.1 + dr * steps as i32);
+                        let world = axial_world(candidate.0, candidate.1);
+                        let dx = i64::from(world.0 - target_world.0);
+                        let dy = i64::from(world.1 - target_world.1);
+                        ((dx * dx + dy * dy, steps, heading), candidate)
+                    })
+                })
+                .min_by_key(|(key, _)| *key)
+                .map(|(_, candidate)| candidate);
+            return best.map_or_else(|| vec![from], |end| vec![from, end]);
+        }
         if definition.kind != BuildingKind::Belt || axis == OrientationAxis::Corner || from == to {
             return line_between(from, to, axis);
         }
@@ -6909,6 +7089,7 @@ impl Core {
         let entity = self.entities.remove(index);
         self.deposit_links.remove(&entity.id);
         self.output_routes.remove(&entity.id);
+        self.legacy_fluid_belts.remove(&entity.id);
         self.dirty.removed.insert(entity.id);
         self.dirty.chunks = true;
         let name = self
@@ -7015,6 +7196,9 @@ impl Core {
         item_id: ItemId,
         quantity: u32,
     ) -> Result<(), String> {
+        if !self.creative && self.is_fluid(item_id) {
+            return Err("loose fluid needs a pipe or a barrel".into());
+        }
         let index = self.hand_transfer_target(q, r, "withdraw")?;
         let stock = if stock == StockKind::Auto {
             self.stock_kind_for_item(index, item_id)
@@ -7282,6 +7466,9 @@ impl Core {
         item_id: ItemId,
         quantity: u32,
     ) -> Result<(), String> {
+        if !self.creative && self.is_fluid(item_id) {
+            return Err("loose fluid needs a pipe or a barrel".into());
+        }
         if self.player.hand.is_some() {
             return Err("your hand is already holding a stack".into());
         }
@@ -8531,6 +8718,12 @@ impl Core {
                 hash_u32(&mut hash, u32::MAX);
             }
         }
+        if !self.legacy_fluid_belts.is_empty() {
+            hash_u32(&mut hash, u32::MAX - 32);
+            for &entity_id in &self.legacy_fluid_belts {
+                hash_u32(&mut hash, entity_id);
+            }
+        }
         for (&item, &quantity) in &self.delivered_by_item {
             hash_u32(&mut hash, u32::from(item));
             hash_u64(&mut hash, quantity);
@@ -8597,6 +8790,7 @@ impl Core {
             tiles: self.tiles.values().cloned().collect(),
             entities: self.entities.clone(),
             output_routes: self.output_routes.clone(),
+            legacy_fluid_belts: self.legacy_fluid_belts.clone(),
             player: self.player.clone(),
             pending_gather: self.pending_gather,
             researched: self.researched.clone(),
@@ -8655,6 +8849,11 @@ impl Core {
             .and_then(serde_json::Value::as_u64)
             .and_then(|version| u16::try_from(version).ok())
             .ok_or("save has no valid world version")?;
+        let original_save_version = original
+            .get("save_version")
+            .and_then(serde_json::Value::as_u64)
+            .and_then(|version| u16::try_from(version).ok())
+            .ok_or("save has no valid save version")?;
         let legacy_component_bill = matches!(migrated, std::borrow::Cow::Owned(_));
         let envelope: SaveEnvelope = serde_json::from_str(&migrated)
             .map_err(|error| format!("malformed HXF1 save: {error}"))?;
@@ -8689,6 +8888,7 @@ impl Core {
             &envelope.state,
             legacy_component_bill,
         )?;
+        let restored_legacy_fluid_belts = envelope.state.legacy_fluid_belts.clone();
         core.seed = envelope.state.seed;
         core.world_params = envelope.state.world_params;
         // The lattice and the bootstrap table are derived from exactly these two, so they are
@@ -8714,6 +8914,9 @@ impl Core {
         core.undo_stack.clear();
         core.entities = envelope.state.entities;
         core.output_routes = envelope.state.output_routes;
+        if original_save_version >= SAVE_VERSION {
+            core.legacy_fluid_belts = restored_legacy_fluid_belts.clone();
+        }
         // A save records entities in stable id order; sorting makes that an invariant of the loaded
         // core rather than a property of the file. Entity order is not a simulation input — the
         // checksum and every arbitration order sort by id — so this cannot change a result.
@@ -8767,6 +8970,11 @@ impl Core {
         core.events = vec!["HXF1 save restored".into()];
         if core.checksum_for_world(original_world) != envelope.checksum {
             return Err("save checksum does not match its native state".into());
+        }
+        // A v35 checksum knew nothing about this compatibility set. Apply it only after that
+        // original state has passed tamper detection; the next v36 save hashes the new fact.
+        if original_save_version < SAVE_VERSION {
+            core.legacy_fluid_belts = restored_legacy_fluid_belts;
         }
         // Verify saved facts before rebuilding derived topology and route caches.
         core.compile_graph();
@@ -8825,6 +9033,8 @@ struct SavedState {
     entities: Vec<Entity>,
     #[serde(default)]
     output_routes: BTreeMap<u32, BTreeMap<ItemId, OutputRoute>>,
+    #[serde(default)]
+    legacy_fluid_belts: BTreeSet<u32>,
     player: PlayerState,
     /// The hex a swing in flight is working. Optional and defaulted, because a save written before
     /// a harvest cost work has no swing to carry and reads back as an idle player — and because
@@ -10134,6 +10344,26 @@ fn validate_definitions(definitions: &DefinitionsInput) -> Result<(), String> {
                 ));
             }
         }
+        if building.transport_medium != TransportMedium::Solid
+            && building.kind != BuildingKind::Belt
+        {
+            return Err(format!(
+                "building {} has a transport medium but is not transport",
+                building.id
+            ));
+        }
+        if let Some(ids) = &building.accepted_item_ids {
+            if building.kind != BuildingKind::Container
+                || ids.is_empty()
+                || ids.iter().collect::<BTreeSet<_>>().len() != ids.len()
+                || ids.iter().any(|id| !item_ids.contains(id))
+            {
+                return Err(format!(
+                    "building {} has an invalid storage filter",
+                    building.id
+                ));
+            }
+        }
         // Splitting, merging, and spanning are all rules about compiled transport edges, and a
         // building that is not transport compiles none.
         if (building.splits || building.merges || building.underpass_span.is_some())
@@ -10669,6 +10899,14 @@ fn validate_saved_state(
         .any(|entity_id| !entity_ids.contains(entity_id))
     {
         return Err("save contains output routes for an unknown entity".into());
+    }
+    if state.legacy_fluid_belts.iter().any(|id| {
+        !state
+            .entities
+            .iter()
+            .any(|entity| entity.id == *id && entity.kind == BuildingKind::Belt)
+    }) {
+        return Err("save contains an invalid legacy fluid belt".into());
     }
     let (carry, reach) = research_bonuses(technologies, &state.researched);
     let skills = state.skills.bonuses(technologies);
@@ -17335,9 +17573,17 @@ mod tests {
         );
         let (definitions, _, _) = catalogs();
         let mut restored = Core::from_save(&definitions, &technologies, &scenarios, &json).unwrap();
-        assert_eq!(old.checksum(), restored.checksum());
         assert_eq!(old.entities, restored.entities);
         assert_eq!(old.insight, restored.insight);
+        let old_belts: BTreeSet<_> = old
+            .entities
+            .iter()
+            .filter(|entity| entity.kind == BuildingKind::Belt)
+            .map(|entity| entity.id)
+            .collect();
+        assert_eq!(restored.legacy_fluid_belts, old_belts);
+        old.legacy_fluid_belts = old_belts;
+        assert_eq!(old.checksum(), restored.checksum());
         old.tick_many(97);
         restored.tick_many(97);
         assert_eq!(old.checksum(), restored.checksum());
@@ -22955,6 +23201,125 @@ mod tests {
             vec![crossed],
             "an underpass with no partner is a belt"
         );
+    }
+
+    #[test]
+    fn one_underpass_drag_places_only_a_clear_atomic_pair_around_the_crossing() {
+        let mut core = empty_world("new-game");
+        core.set_creative(true);
+        core.player.build_range = 1 << 20;
+        set_player_hex(&mut core, 0, 0);
+        let crossed = add_test_belt(&mut core, 3, 0, 1);
+        core.compile_graph();
+
+        let preview = core.line_preview((2, 0), (4, 0), 26, 0, None);
+        assert_eq!(
+            preview
+                .iter()
+                .map(|cell| (cell.q, cell.r))
+                .collect::<Vec<_>>(),
+            vec![(2, 0), (4, 0)],
+            "the occupied middle is a tunnel span, not a placement"
+        );
+        assert!(preview.iter().all(|cell| cell.legal));
+        core.place_line((2, 0), (4, 0), 26, 0, None).unwrap();
+
+        let entrance = core.entity_at(2, 0).unwrap();
+        let exit = core.entity_at(4, 0).unwrap();
+        assert_eq!(core.entity_at(3, 0), Some(index_of(&core, crossed)));
+        assert_eq!(core.entities[entrance].placed.orientation, 0);
+        assert_eq!(core.entities[exit].placed.orientation, 0);
+        assert_eq!(core.graph[entrance].primary(), Some(exit));
+    }
+
+    #[test]
+    fn fresh_belts_and_pipes_keep_solids_and_fluids_apart_and_tanks_are_filtered() {
+        let mut core = empty_world("new-game");
+        let belt_id = add_test_entity(&mut core, 0, 0, 2, 0);
+        let pipe_id = add_test_entity(&mut core, 1, 0, 32, 0);
+        let water_tank_id = add_test_entity(&mut core, 2, 0, 34, 0);
+        let oil_tank_id = add_test_entity(&mut core, 3, 0, 35, 0);
+        let belt = index_of(&core, belt_id);
+        let pipe = index_of(&core, pipe_id);
+        let water_tank = index_of(&core, water_tank_id);
+        let oil_tank = index_of(&core, oil_tank_id);
+
+        assert!(core.can_accept(
+            belt,
+            Cargo {
+                item_id: 1,
+                quantity: 1
+            }
+        ));
+        assert!(!core.can_accept(
+            belt,
+            Cargo {
+                item_id: 10,
+                quantity: 1
+            }
+        ));
+        assert!(!core.can_accept(
+            pipe,
+            Cargo {
+                item_id: 1,
+                quantity: 1
+            }
+        ));
+        assert!(core.can_accept(
+            pipe,
+            Cargo {
+                item_id: 10,
+                quantity: 1
+            }
+        ));
+        assert!(core.can_accept(
+            water_tank,
+            Cargo {
+                item_id: 10,
+                quantity: 1
+            }
+        ));
+        assert!(!core.can_accept(
+            water_tank,
+            Cargo {
+                item_id: 28,
+                quantity: 1
+            }
+        ));
+        assert!(core.can_accept(
+            oil_tank,
+            Cargo {
+                item_id: 28,
+                quantity: 1
+            }
+        ));
+        assert!(!core.can_accept(
+            oil_tank,
+            Cargo {
+                item_id: 10,
+                quantity: 1
+            }
+        ));
+
+        core.compile_graph();
+        assert!(link_ids(&core, belt_id).is_empty());
+        assert_eq!(link_ids(&core, pipe_id), vec![water_tank_id]);
+        put_cargo(&mut core, pipe_id, 10);
+        core.transfer_cargo();
+        assert_eq!(
+            core.entities[water_tank].inventory.get(&10),
+            Some(&1),
+            "a pipe hands loose water into the filtered tank"
+        );
+
+        core.legacy_fluid_belts.insert(belt_id);
+        assert!(core.can_accept(
+            belt,
+            Cargo {
+                item_id: 10,
+                quantity: 1
+            }
+        ));
     }
 
     /// A drag routes on all twelve headings, and takes the two-row period when it pays.

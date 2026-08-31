@@ -36,6 +36,7 @@ const LANDMARKS: Record<string, readonly [number, number]> = {
   "grid-engineering": [915, 465],
   "steam-works": [1130, 465],
   "fired-masonry": [760, 480],
+  "subsurface-piping": [560, 535],
 };
 
 export interface ResearchNode {

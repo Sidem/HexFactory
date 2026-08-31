@@ -589,7 +589,7 @@ const BUILD_GROUPS: {
     key: "transport",
     title: "Transport",
     blurb:
-      "Move cargo. A belt runs along a hex edge, or — once Corner Transport is in — along one of the six vertex headings between them, spanning two rows for twice the price.",
+      "Drag from source to destination. Belts carry solids and sealed barrels; pipes carry loose water and crude. Paired underpasses cross an occupied lane without mixing it.",
     holds: ({ kind }) => BUILD_GROUP_BY_KIND[kind] === "transport",
   },
   {
@@ -1540,7 +1540,12 @@ function fillBuildCard(
   if (definition.splits) labels.push("Fans out");
   if (definition.merges) labels.push("Takes in turn");
   if (definition.underpass_span !== undefined)
-    labels.push(`Spans ${definition.underpass_span}`);
+    labels.push(`Drag pair · spans ${definition.underpass_span}`);
+  if (definition.transport_medium === "fluid") labels.push("Fluids only");
+  if (definition.accepted_item_ids?.length === 1) {
+    const item = itemById(definition.accepted_item_ids[0]);
+    labels.push(`${item?.name ?? "Filtered"} only`);
+  }
   const chipNodes = syncChildren(chips, labels, () => {
     const chip = document.createElement("span");
     chip.className = "build-chip";
@@ -1974,7 +1979,7 @@ function stockCompartments(building: EntitySnapshot): StockCompartment[] {
       stock: "inventory",
       label: "Storage",
       accepts: true,
-      expected: [],
+      expected: definition?.accepted_item_ids ?? [],
       entries: building.inventory,
     });
   else {
@@ -2114,7 +2119,7 @@ function renderInspectorActions(building: EntitySnapshot | undefined): void {
         const item = itemById(entry.item_id);
         const slotTooltip =
           item && filled
-            ? `${label}: ${itemTooltip(item, item.name, { count: entry.quantity })}`
+            ? `${label}: ${itemTooltip(item, item.name, { count: entry.quantity })}${item.fluid ? "\nLoose fluid — use a pipe or barrel station" : ""}`
             : item
               ? `Empty ${label.toLowerCase()} slot for ${item.name}\n${item.description}`
               : `Empty ${label.toLowerCase()} slot`;
@@ -4275,6 +4280,12 @@ function stackGesture(event: MouseEvent): void {
   }
 
   if (!Number.isInteger(itemId) || itemId <= 0 || quantity <= 0) return;
+  if (source === "building" && itemById(itemId)?.fluid) {
+    showFeedback(
+      "Loose fluid moves through pipes. Use a barrel station before handling it as an item.",
+    );
+    return;
+  }
   if (event.shiftKey) {
     const quickQuantity =
       event.ctrlKey || event.metaKey
@@ -4452,6 +4463,12 @@ for (const id of ["inventory", "inspector-actions"]) {
     const itemId = Number(slot.dataset.itemId);
     const available = Number(slot.dataset.quantity) || 0;
     if (!Number.isInteger(itemId) || itemId <= 0 || available <= 0) return;
+    if (source === "building" && itemById(itemId)?.fluid) {
+      showFeedback(
+        "Loose fluid cannot be lifted by hand — connect a pipe or empty it into a barrel.",
+      );
+      return;
+    }
     stackDrag = {
       pointerId: event.pointerId,
       source,
@@ -5169,10 +5186,16 @@ async function refreshDragPreview(): Promise<void> {
       if (!dragBuild) break;
       renderer.setDragPath(cells);
       const legal = cells.filter((cell) => cell.legal).length;
+      const definition =
+        erasing || typeof tool !== "number"
+          ? undefined
+          : host.definitions.buildings.find(({ id }) => id === tool);
       required<HTMLElement>("placement-value").textContent = erasing
         ? `Remove ${legal} of ${cells.length}`
-        : (cells.find((cell) => !cell.legal && cell.reason)?.reason ??
-          `Build ${legal} of ${cells.length}`);
+        : definition?.underpass_span !== undefined && legal === 2
+          ? `Build paired portals · ${definition.underpass_span}-hex reach`
+          : (cells.find((cell) => !cell.legal && cell.reason)?.reason ??
+            `Build ${legal} of ${cells.length}`);
       if (dragBuild.to.q === to.q && dragBuild.to.r === to.r) break;
     }
   } catch (error) {

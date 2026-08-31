@@ -1,5 +1,5 @@
 {
-  "version": 26,
+  "version": 27,
   "items": [
     {
       "id": 1,
@@ -106,8 +106,10 @@
       "name": "Water",
       "color": "#4aa8d8",
       "icon": "droplet",
-      "description": "Pumped from a basin and belted like anything else, for now.",
-      "stack_size": 20
+      "description": "Pumped from a basin as loose fluid. Route it through pipes or seal ten units in a water barrel; fresh belts reject it.",
+      "stack_size": 20,
+      "fluid": true,
+      "production_routes": []
     },
     {
       "id": 11,
@@ -271,8 +273,10 @@
       "name": "Crude oil",
       "color": "#9e82b6",
       "icon": "droplet",
-      "description": "Finite lowland oil deposit. A powered oil well extracts it; hands and ordinary extractors cannot. Travels as abstract belt units, not barrels or a pressure network.",
+      "description": "Finite lowland oil deposit. A powered oil well extracts it as loose fluid; route it through pipes or seal ten units in an oil barrel.",
       "stack_size": 40,
+      "fluid": true,
+      "production_routes": [],
       "extract_steps": 20,
       "extraction_building_id": 29,
       "fuel_value": 80
@@ -304,6 +308,43 @@
       "icon": "grains",
       "description": "Bitumen-bound aggregate. Two units pave one hex over a gravel base in Ground works, for 50% faster walking. Stored ready to lay; not an upper floor.",
       "stack_size": 40
+    },
+    {
+      "id": 32,
+      "key": "empty-barrel",
+      "name": "Empty barrel",
+      "color": "#a9b5bd",
+      "icon": "barrel",
+      "description": "A reusable sealed drum. A barrel station fills it with ten units of water or crude oil and returns it when emptied.",
+      "stack_size": 10,
+      "production_routes": [20]
+    },
+    {
+      "id": 33,
+      "key": "water-barrel",
+      "name": "Water barrel",
+      "color": "#4aa8d8",
+      "icon": "barrel",
+      "description": "Ten units of water sealed for belt transport. Empty it at a barrel station to recover both the water and reusable drum.",
+      "stack_size": 10
+    },
+    {
+      "id": 34,
+      "key": "oil-barrel",
+      "name": "Oil barrel",
+      "color": "#9e82b6",
+      "icon": "barrel",
+      "description": "Ten units of crude oil sealed for belt transport. Empty it at a barrel station beside the consuming pipe network.",
+      "stack_size": 10
+    },
+    {
+      "id": 35,
+      "key": "pipe-section",
+      "name": "Pipe section",
+      "color": "#68b7b0",
+      "icon": "pipe",
+      "description": "Iron tube and couplings for one fluid-pipe segment. A corner heading covers twice the ground and takes two sections.",
+      "stack_size": 20
     }
   ],
   "recipes": [
@@ -679,6 +720,76 @@
       ],
       "output": { "item_id": 31, "quantity": 4 },
       "duration": 20
+    },
+    {
+      "id": 20,
+      "key": "empty-barrel",
+      "name": "Form empty barrel",
+      "description": "Roll and seal two iron plates into one reusable barrel.",
+      "category": "assembly",
+      "inputs": [{ "item_id": 11, "quantity": 2 }],
+      "output": { "item_id": 32, "quantity": 1 },
+      "duration": 8
+    },
+    {
+      "id": 21,
+      "key": "pipe-sections",
+      "name": "Form pipe sections",
+      "description": "Roll one iron plate into two coupled pipe sections.",
+      "category": "assembly",
+      "inputs": [{ "item_id": 11, "quantity": 1 }],
+      "output": { "item_id": 35, "quantity": 2 },
+      "duration": 6
+    },
+    {
+      "id": 22,
+      "key": "fill-water-barrel",
+      "name": "Fill water barrel",
+      "description": "Seal ten units of piped water in one empty barrel for belt transport.",
+      "category": "barreling",
+      "inputs": [
+        { "item_id": 32, "quantity": 1 },
+        { "item_id": 10, "quantity": 10 }
+      ],
+      "output": { "item_id": 33, "quantity": 1 },
+      "duration": 10
+    },
+    {
+      "id": 23,
+      "key": "empty-water-barrel",
+      "name": "Empty water barrel",
+      "description": "Return one reusable barrel and ten units of loose water for a pipe network.",
+      "category": "barreling",
+      "inputs": [{ "item_id": 33, "quantity": 1 }],
+      "output": { "item_id": 32, "quantity": 1 },
+      "co_products": [{ "item_id": 10, "quantity": 10 }],
+      "cost_allocation": [10, 90],
+      "duration": 8
+    },
+    {
+      "id": 24,
+      "key": "fill-oil-barrel",
+      "name": "Fill oil barrel",
+      "description": "Seal ten units of piped crude oil in one empty barrel for belt transport.",
+      "category": "barreling",
+      "inputs": [
+        { "item_id": 32, "quantity": 1 },
+        { "item_id": 28, "quantity": 10 }
+      ],
+      "output": { "item_id": 34, "quantity": 1 },
+      "duration": 10
+    },
+    {
+      "id": 25,
+      "key": "empty-oil-barrel",
+      "name": "Empty oil barrel",
+      "description": "Return one reusable barrel and ten units of loose crude oil for a pipe network.",
+      "category": "barreling",
+      "inputs": [{ "item_id": 34, "quantity": 1 }],
+      "output": { "item_id": 32, "quantity": 1 },
+      "co_products": [{ "item_id": 28, "quantity": 10 }],
+      "cost_allocation": [10, 90],
+      "duration": 8
     }
   ],
   "buildings": [
@@ -1172,7 +1283,7 @@
       "key": "boiler",
       "name": "Boiler",
       "kind": "boiler",
-      "description": "Burns fuel and water into steam for an adjacent turbine. Belt water in; this is not a fluid network.",
+      "description": "Burns fuel and piped water into steam for an adjacent turbine. Aim a pipe at its footprint and keep the water input buffered.",
       "icon": "BLR",
       "capacity": 24,
       "construction_cost": [
@@ -1489,7 +1600,7 @@
       "key": "underpass",
       "name": "Underpass",
       "kind": "belt",
-      "description": "Carries a lane beneath whatever stands in its way. Place two facing the same heading within four hexes of each other and the first drops cargo to the second, passing under everything between. Alone it behaves as an ordinary belt.",
+      "description": "Drag from entrance to exit to place one atomic portal pair. Cargo dives beneath up to four occupied hexes while the crossing lane stays independent; a click still places one ordinary endpoint.",
       "icon": "UND",
       "orientation_axis": "any",
       "underpass_span": 4,
@@ -1573,7 +1684,7 @@
       "icon": "WRK",
       "capacity": 24,
       "recipe_category": "manual-workshop",
-      "recipe_ids": [1, 8, 11, 12, 15, 16],
+      "recipe_ids": [1, 8, 11, 12, 15, 16, 20, 21],
       "manual_work": true,
       "duration_multiplier": 4,
       "construction_cost": [
@@ -1603,7 +1714,7 @@
       "kind": "extractor",
       "icon": "OIL",
       "source_category": "oil-extraction",
-      "description": "A powered well for finite lowland oil deposits. Produces belt-carried crude units, not barrels. Supply electricity and run the outlet toward a refinery. Built from existing metalwork; no oil is needed to obtain the first oil.",
+      "description": "A powered well for finite lowland oil deposits. Produces loose crude oil: supply electricity and run a pipe from its outlet toward a tank or refinery. Built from existing metalwork; no oil is needed to obtain the first oil.",
       "cadence": 20,
       "capacity": 24,
       "extract_radius": 1,
@@ -1663,6 +1774,115 @@
         { "item_id": 14, "quantity": 8 }
       ],
       "unlock_technology_id": 22,
+      "placement_rule": "ground",
+      "buildable": true,
+      "blocks_movement": true,
+      "footprint": [
+        { "q": 0, "r": 0 },
+        { "q": -1, "r": 0 }
+      ]
+    },
+    {
+      "id": 32,
+      "key": "pipe",
+      "name": "Pipe",
+      "kind": "belt",
+      "description": "Carries one unit of loose water or crude oil per segment and tick. Drag from a source toward a consumer; solids and filled barrels stay on belts.",
+      "icon": "PIP",
+      "orientation_axis": "any",
+      "transport_medium": "fluid",
+      "construction_cost": [{ "item_id": 35, "quantity": 1 }],
+      "corner_construction_cost": [{ "item_id": 35, "quantity": 2 }],
+      "corner_technology_id": 11,
+      "unlock_technology_id": 7,
+      "placement_rule": "ground",
+      "buildable": true,
+      "blocks_movement": false,
+      "footprint": [{ "q": 0, "r": 0 }]
+    },
+    {
+      "id": 33,
+      "key": "pipe-underpass",
+      "name": "Pipe underpass",
+      "kind": "belt",
+      "description": "Drag from entrance to exit to place an atomic pair. Loose fluid dives beneath up to four occupied hexes; the crossing lane stays independent.",
+      "icon": "PUN",
+      "orientation_axis": "any",
+      "transport_medium": "fluid",
+      "underpass_span": 4,
+      "construction_cost": [
+        { "item_id": 35, "quantity": 2 },
+        { "item_id": 11, "quantity": 2 },
+        { "item_id": 6, "quantity": 2 }
+      ],
+      "corner_construction_cost": [
+        { "item_id": 35, "quantity": 3 },
+        { "item_id": 11, "quantity": 2 },
+        { "item_id": 6, "quantity": 2 }
+      ],
+      "corner_technology_id": 11,
+      "unlock_technology_id": 23,
+      "placement_rule": "ground",
+      "buildable": true,
+      "blocks_movement": false,
+      "footprint": [{ "q": 0, "r": 0 }]
+    },
+    {
+      "id": 34,
+      "key": "water-tank",
+      "name": "Water tank",
+      "kind": "container",
+      "description": "Buffers up to 120 units of loose water and nothing else. Aim its outlet toward a pipe; use barrels when the route must ride a belt.",
+      "icon": "WTK",
+      "capacity": 120,
+      "accepted_item_ids": [10],
+      "construction_cost": [
+        { "item_id": 11, "quantity": 10 },
+        { "item_id": 19, "quantity": 2 },
+        { "item_id": 14, "quantity": 8 }
+      ],
+      "unlock_technology_id": 7,
+      "placement_rule": "ground",
+      "buildable": true,
+      "blocks_movement": true,
+      "footprint": [{ "q": 0, "r": 0 }]
+    },
+    {
+      "id": 35,
+      "key": "oil-tank",
+      "name": "Oil tank",
+      "kind": "container",
+      "description": "Buffers up to 120 units of loose crude oil and nothing else. It accepts pipes, not filled barrels or unrelated stock.",
+      "icon": "OTK",
+      "capacity": 120,
+      "accepted_item_ids": [28],
+      "construction_cost": [
+        { "item_id": 11, "quantity": 12 },
+        { "item_id": 19, "quantity": 2 },
+        { "item_id": 14, "quantity": 8 }
+      ],
+      "unlock_technology_id": 21,
+      "placement_rule": "ground",
+      "buildable": true,
+      "blocks_movement": true,
+      "footprint": [{ "q": 0, "r": 0 }]
+    },
+    {
+      "id": 36,
+      "key": "barrel-station",
+      "name": "Barrel station",
+      "kind": "composer",
+      "description": "Fills or empties reusable water and oil barrels. Route loose contents by pipe and sealed barrels by belt; assign separate output ports when emptying.",
+      "icon": "BAR",
+      "capacity": 40,
+      "recipe_category": "barreling",
+      "power_draw": 4,
+      "construction_cost": [
+        { "item_id": 11, "quantity": 8 },
+        { "item_id": 19, "quantity": 2 },
+        { "item_id": 20, "quantity": 2 }
+      ],
+      "unlock_technology_id": 7,
       "placement_rule": "ground",
       "buildable": true,
       "blocks_movement": true,

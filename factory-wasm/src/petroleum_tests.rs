@@ -130,7 +130,12 @@ fn petroleum_joint_outputs_and_reserved_jobs_are_refunded_and_dirty_tracked() {
     assert_eq!(factory.core.entities[index].reserved_inputs[&28], 4);
     assert_eq!(factory.core.entities[index].output_inventory[&30], 2);
     factory.core.erase(2, 0).unwrap();
-    assert_eq!(factory.core.player.inventory[&28], 4);
+    assert_eq!(factory.core.player.inventory.get(&28), None);
+    assert!(factory
+        .core
+        .ground_items
+        .iter()
+        .any(|item| item.item_id == 28 && item.quantity == 4));
     assert_eq!(factory.core.player.inventory[&29], 2);
     assert_eq!(factory.core.player.inventory[&30], 2);
 }

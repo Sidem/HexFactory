@@ -265,6 +265,13 @@ technologies may add `carry_slots_bonus`; together they are the whole carrying r
 the current count and the loader accepts anything from the earned scenario-plus-research floor up to
 `MAX_CARRY_SLOTS`, because creative mode may widen it further.
 
+Items also declare whether they are loose fluid. A belt definition's `transport_medium` is either
+solid (the default) or fluid, and the existing native compiled graph moves both without a second
+tick or a host-side network. Fresh solid belts refuse loose water and crude oil; pipes refuse solid
+items. Filled barrels are ordinary sealed items and therefore ride belts. Containers may publish an
+`accepted_item_ids` filter, which makes the water and oil tanks single-fluid stores rather than
+generic inventory. Standard-mode player carry refuses loose fluid; barrelled fluid remains portable.
+
 Erasing a player-built entity uses one fixed refund policy: return 100% of its construction cost,
 stored inventories, and reserved recipe inputs. In-transit cargo does not teleport into the pack:
 it becomes a timed ground item at the removed entity's anchor. Native splits the refund in item-id
@@ -353,8 +360,8 @@ reachability selects a usable unlocked route and the balance fixture prices each
 whole batch. Definition cycles are refused rather than recursively priced.
 
 An asphalt ground record preserves the gravel base's actual paid bill and adds the top layer's bill.
-Strip recovers both; creative construction cannot create a refund. No new floor layer or fluid state
-is implied by the road or by the belt-carried petroleum item units.
+Strip recovers both; creative construction cannot create a refund. No new floor layer or world-fluid
+state is implied by the road; loose petroleum is now routed by the transport-medium rule above.
 
 Every release since has followed the same shape, and the shape is the contract rather than the list:
 a release advances only the envelopes it actually changes, verifies the original checksum **before**
@@ -365,6 +372,12 @@ checksum. A repriced bill is a one-time revaluation and not a loop, because the 
 rebuild cost. A file whose envelope number is not the expected one is left alone rather than
 relabelled. Derived availability is never saved or hashed. The per-release detail behind each of
 those is in the git history of this file and in `save_migrations.rs`.
+
+Sealed Routes advances save 35 to 36, definitions 26 to 27 and technologies 15 to 16. Migration
+records the stable IDs of existing belt-kind entities in `legacy_fluid_belts` only after the old
+checksum verifies. That sparse, checksummed compatibility set lets an old liquid belt keep running,
+but a newly placed belt cannot accept loose fluid. Removing a grandfathered belt removes its ID; no
+replacement belt inherits the exception. Scenarios 7, world 10 and wire 19 are unchanged.
 
 Rust serializes `HXF1` plus JSON containing save/definition/technology/scenario versions, seed,
 generated chunks and resource quantities, player and inventory, research, blueprint/entity IDs,
@@ -590,7 +603,10 @@ defect it prevents; a change that contradicts one needs an argument, not an over
   the first partner within `MAX_UNDERPASS_SPAN`, and the exit is simply the underpass that found no
   partner ahead. The crossed cells stay singly occupied, buildable, and connected to their own lane,
   so the pair adds a crossing without adding a coordinate. Grade separation is presentation plus that
-  one arm; do not give the covered cells a second occupancy or a height of their own.
+  one arm; do not give the covered cells a second occupancy or a height of their own. Placement is
+  likewise one bounded operation: dragging an underpass resolves the nearest valid heading and span,
+  previews only the two portals, checks both endpoints, and places the pair atomically. A click may
+  still place a lone endpoint, which behaves as an ordinary belt or pipe until paired.
 - An upgrade edits the entity in place and never replaces it, which is what preserves contents,
   orientation, and connections without special handling. `validate_upgrade_ladders` pins kind,
   recipe category, footprint, and axis across every step, so the command does not have to re-ask

@@ -137,6 +137,10 @@ export class ContactSheetRenderer {
     this.progressGeometry.dispose();
     this.transportGeometry.belt.dispose();
     this.transportGeometry.beltDetail.dispose();
+    this.transportGeometry.pipe.dispose();
+    this.transportGeometry.pipeDetail.dispose();
+    this.transportGeometry.portal.dispose();
+    this.transportGeometry.portalDetail.dispose();
     this.transportGeometry.bridge.dispose();
     for (const material of this.materials.values()) material.dispose();
     this.renderer.dispose();
@@ -195,7 +199,9 @@ export class ContactSheetRenderer {
       const geometry =
         definition.kind === "bridge"
           ? this.transportGeometry.bridge
-          : this.transportGeometry.belt;
+          : definition.transport_medium === "fluid"
+            ? this.transportGeometry.pipe
+            : this.transportGeometry.belt;
       const deck = new Mesh(
         geometry,
         this.material(`body:${baseColour}`, baseColour),
@@ -208,8 +214,19 @@ export class ContactSheetRenderer {
       this.model.add(deck);
       if (definition.kind === "belt") {
         const treads = new Mesh(
-          this.transportGeometry.beltDetail,
-          this.material("belt-treads", colour ? "#102b3a" : "#343a38"),
+          definition.transport_medium === "fluid"
+            ? this.transportGeometry.pipeDetail
+            : this.transportGeometry.beltDetail,
+          this.material(
+            definition.transport_medium === "fluid"
+              ? "pipe-couplings"
+              : "belt-treads",
+            colour
+              ? definition.transport_medium === "fluid"
+                ? "#b9ebe4"
+                : "#102b3a"
+              : "#343a38",
+          ),
         );
         treads.position.y = 0.22;
         treads.scale.set(x, y, z);

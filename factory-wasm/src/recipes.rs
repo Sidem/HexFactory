@@ -28,19 +28,22 @@ impl RecipeDefinition {
 
 impl DefinitionsInput {
     pub(super) fn production_routes(&self, item: ItemId) -> Vec<&RecipeDefinition> {
-        let mut routes: Vec<_> = self
-            .recipes
-            .iter()
-            .filter(|recipe| recipe.yield_of(item) > 0)
-            .collect();
-        let order = self
+        let authored = self
             .items
             .iter()
             .find(|value| value.id == item)
             .and_then(|value| value.production_routes.as_ref());
+        let mut routes: Vec<_> = self
+            .recipes
+            .iter()
+            .filter(|recipe| recipe.yield_of(item) > 0)
+            // An explicit list is both order and policy. Recovery recipes may return a barrel and
+            // its contents without becoming a manufacturing route or creating an economic cycle.
+            .filter(|recipe| authored.is_none_or(|ids| ids.contains(&recipe.id)))
+            .collect();
         routes.sort_by_key(|recipe| {
             (
-                order
+                authored
                     .and_then(|ids| ids.iter().position(|id| *id == recipe.id))
                     .unwrap_or(0),
                 recipe.id,
@@ -147,17 +150,22 @@ pub(super) fn validate_routes(definitions: &DefinitionsInput) -> Result<(), Stri
     }
     for item in &definitions.items {
         let producers: BTreeSet<_> = definitions
-            .production_routes(item.id)
+            .recipes
             .iter()
+            .filter(|recipe| recipe.yield_of(item.id) > 0)
             .map(|recipe| recipe.id)
             .collect();
-        if producers.len() > 1 || item.production_routes.is_some() {
-            let ids = item.production_routes.as_deref().unwrap_or(&[]);
-            if ids.len() != producers.len()
-                || ids.iter().copied().collect::<BTreeSet<_>>() != producers
-            {
+        if producers.len() > 1 && item.production_routes.is_none() {
+            return Err(format!(
+                "item {} requires an explicit production route policy",
+                item.id
+            ));
+        }
+        if let Some(ids) = item.production_routes.as_deref() {
+            let selected: BTreeSet<_> = ids.iter().copied().collect();
+            if ids.len() != selected.len() || !selected.is_subset(&producers) {
                 return Err(format!(
-                    "item {} requires an explicit production route order",
+                    "item {} requires a valid explicit production route policy",
                     item.id
                 ));
             }
@@ -246,7 +254,7 @@ mod tests {
         definitions.recipes.push(preferred);
         assert!(validate_routes(&definitions)
             .unwrap_err()
-            .contains("route order"));
+            .contains("route policy"));
         definitions
             .items
             .iter_mut()

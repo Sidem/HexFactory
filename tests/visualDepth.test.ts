@@ -669,6 +669,15 @@ describe("Visual Depth terrain and quality contracts", () => {
     );
     geometry.belt.dispose();
     geometry.beltDetail.dispose();
+    expect(geometry.pipe.getAttribute("position").count).toBeGreaterThan(24);
+    expect(geometry.pipeDetail.getAttribute("position").count).toBeGreaterThan(
+      24,
+    );
+    expect(geometry.portal.getAttribute("position").count).toBeGreaterThan(24);
+    geometry.pipe.dispose();
+    geometry.pipeDetail.dispose();
+    geometry.portal.dispose();
+    geometry.portalDetail.dispose();
     geometry.bridge.dispose();
 
     const curve = createCurvedTransportGeometry(Math.PI / 3);
@@ -681,6 +690,54 @@ describe("Visual Depth terrain and quality contracts", () => {
     ).toBeGreaterThan(0.4);
     curve.frame.dispose();
     curve.detail.dispose();
+  });
+
+  it("draws fluid pipes as coupled conduits and underpasses as guarded portal pairs", () => {
+    const materials = createWorldMaterials();
+    const underpass = {
+      ...beltDefinition(),
+      id: 33,
+      key: "pipe-underpass",
+      name: "Pipe underpass",
+      transport_medium: "fluid" as const,
+      underpass_span: 4,
+    };
+    const layer = new WorldInstanceLayer(
+      {
+        boundaries: [],
+        surfaces: [],
+        version: 1,
+        items: [],
+        recipes: [],
+        requests: [],
+        buildings: [underpass],
+      },
+      materials,
+    );
+    const snapshot = minimalSnapshot();
+    snapshot.buildings.push(
+      entity(1, 33, "belt", 0, 0, 0, 2),
+      entity(2, 33, "belt", 2, 0, 0),
+    );
+    layer.setSnapshot(snapshot, new Map(), 0);
+
+    expect(layer.group.getObjectByName("fluid-pipes")).toBeInstanceOf(
+      InstancedMesh,
+    );
+    expect(
+      layer.group.getObjectByName("fluid-pipe-connections"),
+    ).toBeInstanceOf(InstancedMesh);
+    const portals = layer.group.getObjectByName(
+      "underpass-portals",
+    ) as InstancedMesh;
+    const caution = layer.group.getObjectByName(
+      "underpass-caution-panels",
+    ) as InstancedMesh;
+    expect(portals.count).toBe(2);
+    expect(caution.count).toBe(2);
+
+    layer.dispose();
+    for (const material of materials.materials) material.dispose();
   });
 
   it("points transport geometry along the native heading instead of ninety degrees across it", () => {

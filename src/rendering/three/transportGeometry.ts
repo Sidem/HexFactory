@@ -1,4 +1,4 @@
-import { BoxGeometry, type BufferGeometry } from "three";
+import { BoxGeometry, CylinderGeometry, type BufferGeometry } from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 
 import { CORNER_START } from "../../core/directions";
@@ -7,6 +7,10 @@ import type { BuildingKind } from "../../core/types";
 export interface TransportGeometrySet {
   readonly belt: BufferGeometry;
   readonly beltDetail: BufferGeometry;
+  readonly pipe: BufferGeometry;
+  readonly pipeDetail: BufferGeometry;
+  readonly portal: BufferGeometry;
+  readonly portalDetail: BufferGeometry;
   readonly bridge: BufferGeometry;
 }
 
@@ -20,8 +24,48 @@ export function createTransportGeometry(): TransportGeometrySet {
   return {
     belt: beltFrameGeometry(),
     beltDetail: beltTreadGeometry(),
+    pipe: pipeBodyGeometry(),
+    pipeDetail: pipeCouplingGeometry(),
+    portal: portalFrameGeometry(),
+    portalDetail: portalStripeGeometry(),
     bridge: new BoxGeometry(0.92, 0.13, 1.25),
   };
+}
+
+/** A closed round conduit, clearly narrower and taller than the open belt deck beside it. */
+function pipeBodyGeometry(): BufferGeometry {
+  const body = new CylinderGeometry(0.13, 0.13, 0.92, 12);
+  body.rotateZ(Math.PI / 2);
+  return body;
+}
+
+/** Two oversized collars make segment boundaries and flow direction readable at world scale. */
+function pipeCouplingGeometry(): BufferGeometry {
+  const collars = [-0.34, 0.34].map((x) => {
+    const collar = new CylinderGeometry(0.18, 0.18, 0.09, 12);
+    collar.rotateZ(Math.PI / 2);
+    collar.translate(x, 0, 0);
+    return collar;
+  });
+  return mergeAndDispose(collars);
+}
+
+/** Guard walls and a header around an underpass mouth; the lane itself descends between them. */
+function portalFrameGeometry(): BufferGeometry {
+  const left = new BoxGeometry(0.48, 0.24, 0.08);
+  const right = new BoxGeometry(0.48, 0.24, 0.08);
+  const header = new BoxGeometry(0.12, 0.12, 0.58);
+  left.translate(0.12, 0.12, -0.3);
+  right.translate(0.12, 0.12, 0.3);
+  header.translate(0.3, 0.28, 0);
+  return mergeAndDispose([left, right, header]);
+}
+
+/** High-contrast cap on the tunnel mouth, echoing the caution panel in the supplied reference. */
+function portalStripeGeometry(): BufferGeometry {
+  const stripe = new BoxGeometry(0.135, 0.035, 0.42);
+  stripe.translate(0.305, 0.35, 0);
+  return stripe;
 }
 
 /** A conveyor reads as two raised rails around a recessed moving bed, even when it carries nothing. */

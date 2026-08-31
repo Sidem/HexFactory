@@ -49,7 +49,7 @@ This is permanent and is not a scope item.
 
 ## Where the project stands
 
-The engine arc, the generator arc, and the shipped milestones through **v0.44.0 Emblems and Clarity** are
+The engine arc, the generator arc, and the shipped milestones through **v0.45.0 Sealed Routes** are
 present in this tree. A run today looks like this: land beside a hub in a world chosen by preset
 or by raw parameters, walk out under fog across rivers and coastline — on the keys, or by
 **clicking a selected hex a second time** and watching the route native found — find **fields** of
@@ -58,7 +58,7 @@ materials rather than scattered cells, cross rivers on **bridges**, gather from 
 thin and regrow, fill the hub's posted **requests** for insight and
 its staged founding **contract** for hub growth — completing Prove the line grants belts, storage,
 extractors and on-site power — research the remaining technologies, and build a
-powered, automated line of buildings and nineteen recipes across industrial and primitive stations — including
+powered, automated line of buildings and 26 recipes across industrial and primitive stations — including
 belt lines that **split**, **merge**, climb the two-row period on the same belt definition once it is
 researched, and **pass under** the lanes they cross. Fence a yard, or research Fired Masonry and
 raise brick and concrete walls — **straight across hexes now**, anchored on lattice vertices, so a
@@ -77,12 +77,12 @@ catalog shows which one moved rather than hiding the row:
 
 | Envelope              | Version |
 | --------------------- | ------: |
-| `HXF1` save           |      34 |
-| Definitions           |      26 |
-| Technologies          |      15 |
+| `HXF1` save           |      36 |
+| Definitions           |      27 |
+| Technologies          |      16 |
 | Scenarios             |       7 |
 | World generator       |      10 |
-| Wire (snapshot delta) |      18 |
+| Wire (snapshot delta) |      19 |
 
 **Current measured capacity.** The v0.43 audit puts the complete 6,144-entity Three.js browser frame
 at 32.3% of 60 Hz on Low, 33.5% on Medium, and 33.9% on High on the reference desktop at
@@ -98,9 +98,7 @@ qualification run that was outstanding is withdrawn rather than pending. See
 exists; read the section a milestone names when you need the reasoning behind a rule you are about
 to change.
 
-**Latest delivery: v0.44.0 Emblems and Clarity.** Every buildable machine, recipe category and research branch now has an original stroke emblem drawn to one published contract, replacing the three-letter text stamps; the build catalogue gained a search box and a scroll affordance, the guide names material a hand can gather before it names a machine built from it, and the hub inspector says what to do rather than repeating mission control's prose. See [the release record](EMBLEMS-RECORD.md) for verification and limits. Flowing water is next; supported floors moved behind Living Lattice on 2026-08-29 so the player learns one level before the game asks them to think in levels.
-
-Post-release maintenance adds native per-product output ports without assigning the next release number: a player selects a product and an exterior side of a specific footprint tile, and item-filtered compiled edges move joint outputs separately. Legacy buildings retain their facing outlet until edited. Save 35 and wire 19 carry the checksummed routes and their effective snapshot ports; definition, technology, scenario and world envelopes remain unchanged.
+**Latest delivery: v0.45.0 Sealed Routes.** Loose water and crude oil now travel through pipes, while belts carry solids and reusable sealed barrels. Filtered water and oil tanks buffer the two fluids, and one barrel station fills or empties either barrel. A belt or pipe underpass is drawn entrance-to-exit as one atomic pair, leaving every crossed cell available to its own lane. This was the user's explicit early delivery of the former pipes horizon item; it does not reorder the numbered phase table. Flowing water remains next.
 
 ### Current assessment — 2026-08-29
 
@@ -154,10 +152,10 @@ playtest gate was withdrawn. Treat the task logic as validated and the lived pac
 
 **Resources, recipes and extraction.** The chains are legible compressions of reality: ore to plate,
 plate to mechanisms and steel; wood to timber; clay and limestone through brick/cement into concrete;
-crude through a joint-output refinery into bitumen, useful fuel and asphalt. Water on belts, unitless
-oil and instant electrical adjacency are explicit abstractions. They are acceptable at this scale
-because they create readable routing and backpressure without pretending to be fluid simulation;
-pipes remain the later point where that bargain changes.
+crude through a joint-output refinery into bitumen, useful fuel and asphalt. Loose water and crude
+use pipes; filled barrels let either cross a solid-logistics route without making belts universal.
+Quantities stay integer and pressure is not yet simulated. Those abstractions are acceptable at this
+scale because they create readable routing and backpressure without pretending to model hydraulics.
 
 Keep the generic Extractor as the starter and keep its native component shared. Water already earns
 a Pump and petroleum earns an Oil well because their placement, depletion and factory stories differ.
@@ -169,16 +167,16 @@ the factory.
 
 ## What to do next
 
-Phases 1 to 7 are **shipped**, through v0.44.0. Read the ledger for what they delivered. The rest of the approved sequence follows in order.
+Phases 1 to 7 are **shipped**, and the user-requested pipe infrastructure shipped between rows 7 and 8 as v0.45.0 without reordering the approved sequence. Read the ledger for what each release delivered.
 
-| Order | Work                                    | Scope and dependency                                                                                                                                                                               |
-| ----- | --------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 7     | Icon pass and integrated validation     | **Shipped as v0.44.0.** The emblem library covers buildings, recipe categories and branches under one contract; accessibility and the measured-capacity position are stated in the release record. |
-| 8     | Flowing water                           | Water becomes an entity that sits on the ground and runs downhill, instead of a terrain band. Reads the phase 3 grades; supersedes the old fluid-network and water-reshaping horizon entries.      |
-| 9     | Living Lattice                          | Animals, biomatter and waste as one ecological system. Reuses phase 4's joint-output costing. Brief below.                                                                                         |
-| 10    | Supported floors and vertical transport | Support classes, the first upper floor, stairs, belt lifts and a layer view, standing on phase 3's grades. Needs the beams and concrete phase 3 and 4 produce.                                     |
-| 11    | The primitive human                     | The player gains needs and attributes. Depends on flowing water and Living Lattice for a food supply worth automating, and revises the skills budget rather than sitting beside it.                |
-| 12    | Regional Discovery                      | The play half of regional variation: survey tools, distant sites, outposts. Brief below.                                                                                                           |
+| Order | Work                                    | Scope and dependency                                                                                                                                                                          |
+| ----- | --------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 7     | Icon pass and integrated validation     | **Shipped as v0.44.0.** The emblem library covers buildings, recipe categories and branches under one contract; accessibility and the measured-capacity position are stated in the ledger.    |
+| 8     | Flowing water                           | Water becomes an entity that sits on the ground and runs downhill, instead of a terrain band. Reads the phase 3 grades; supersedes the old fluid-network and water-reshaping horizon entries. |
+| 9     | Living Lattice                          | Animals, biomatter and waste as one ecological system. Reuses phase 4's joint-output costing. Brief below.                                                                                    |
+| 10    | Supported floors and vertical transport | Support classes, the first upper floor, stairs, belt lifts and a layer view, standing on phase 3's grades. Needs the beams and concrete phase 3 and 4 produce.                                |
+| 11    | The primitive human                     | The player gains needs and attributes. Depends on flowing water and Living Lattice for a food supply worth automating, and revises the skills budget rather than sitting beside it.           |
+| 12    | Regional Discovery                      | The play half of regional variation: survey tools, distant sites, outposts. Brief below.                                                                                                      |
 
 These are delivery phases, not a single giant release, and a phase may ship as several versions.
 Do not start a later row in parallel with an earlier one unless the user changes priority; an unmet
@@ -382,7 +380,7 @@ named levels, and never acquires implicit connections above or below.
   construction and interaction all resolve the correct level — no reaching through a ceiling because
   the axial distance happens to be small.
 - **Power and utilities:** adjacent axial positions on different floors do not connect implicitly.
-  Define explicit risers; pipes adopt them when fluid networks exist.
+  Define explicit risers; shipped ground-level pipes will need their own visible riser definition.
 - **Editing view:** active-floor selection, hide/fade above, ghosted context below, layer-aware
   selection and clearly marked shaft destinations. Picking intersects the selected logical plane and
   never derives authoritative height from a rendered mesh. Warnings and controls stay usable with
@@ -541,10 +539,9 @@ shared prerequisites do not bring their entire feature families forward.
   deterministic function of tick and position, never a runtime roll.
 - **A day cycle, and solar with it.** A presentation and simulation change at once, chosen for what
   it does to the game's feel rather than smuggled in as a power source.
-- **Pipes.** A pressure-and-flow transport model for water and oil, sharing the underpass arm the
-  belt already uses — pipes inherit it for free when they land. This is what is left of the old
-  fluid-networks entry once row 9 takes the water itself: row 9 makes water a thing in the world,
-  and this makes it a thing a factory routes.
+- **Pressure and flow.** v0.45 ships deterministic one-unit pipe transport through the compiled
+  graph. A later pressure model may deepen that system only when it creates readable routing choices;
+  it is no longer a prerequisite for keeping loose fluid off belts.
 - **Organic tileables.** The later half of the art generator: systems that produce tileable textures
   and shapes so a hex lattice reads as organic terrain and organic objects. Row 5 takes the paved
   surfaces out of this entry early; what remains is terrain and organic objects. Same invariants —
@@ -563,6 +560,7 @@ both test suites say so.
 One line per release, newest first. The reasoning behind a shipped rule lives in the git history of
 this file and in the code that implements it; what follows is the index.
 
+- **v0.45.0** Sealed Routes — Pipes carry loose water and crude oil through the native compiled transport graph; belts carry solids and sealed water/oil barrels. Water and oil tanks accept only their named fluid, and a powered barrel station fills and empties reusable barrels without making recovery recipes into production-cost loops. Belt and pipe underpasses use the same one-drag, two-portal placement: endpoints are checked atomically and crossed cells retain their own occupancy and lane. Existing save-35 factories grandfather only their already placed belts for legacy liquid transport. Save 36 / definitions 27 / technologies 16; scenarios 7, world 10 and wire 19 unchanged.
 - **v0.44.0** Emblems and Clarity — One emblem library under a published contract: 32×32, `currentColor`, straight-on elevation, ink inside 3–29 on a shared ground line, no baked colour and no baked text. It covers every buildable machine, every recipe category and all twelve branches, and a tier resolves to its base drawing with the rank as a UI badge, so the three-letter stamps are gone from the catalogue, the dock and the recipe rows. The build catalogue gained a search that looks past progressive disclosure, the tool shelf gained a scroll affordance, the guide names hand-gatherable material before the machine built from it, and the hub inspector says what to do instead of repeating the stage brief. Presentation only: no emblem key reaches a save, a checksum, a native definition or the wire, and every envelope is unchanged at save 34 / definitions 26 / technologies 15 / scenarios 7 / world 10 / wire 18.
 - **v0.43.0** Closer Views and Field Survey — The scene camera orbits in twelve 30-degree stops rather than six 60-degree ones, at the same turning rate, and zooms in to 4× so one machine and the hexes under it can be read. Field Survey is a third one-point skill: it opens a second ring of chunks around wherever the player reaches, derived from the purchased set rather than stored beside it, and paid out the moment it is learned. Save 34 / technologies 15; definitions, scenarios, world and wire unchanged, and a version-33 save simply gains the skill unlearned.
 - **v0.42.0** Straight Walls and Yards — Boundaries move from canonical hex edges to the vertex lattice: a segment is a chord of one hex between two of its corners, twelve headings run dead straight, and off-heading runs staircase to the far end within half a hex. A rectangular yard closes from two picked corners, and Ground works takes the same two corners to pave every hex the rectangle touches. Every v0.37/v0.39 boundary loads in place through a `direction` alias with no migration pass. Save 33 / wire 18; definitions, technologies, scenarios and world unchanged.

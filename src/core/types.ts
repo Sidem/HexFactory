@@ -50,6 +50,8 @@ export interface ItemDefinition {
   description: string;
   /** How many of this item fill one carried slot. The rule itself lives in Rust. */
   stack_size: number;
+  /** Loose liquid: pipe cargo and machine stock, never a fresh belt or player-carried stack. */
+  fluid?: boolean;
   /** Energy one unit releases when burned, for an item that is fuel. */
   fuel_value?: number;
   /** Ticks between one unit of regrowth and the next, for a resource that is flora. */
@@ -135,6 +137,10 @@ export interface BuildingDefinition {
   merges?: boolean;
   /** How many hexes this building's output may pass over before it binds to its partner. */
   underpass_span?: number;
+  /** Cargo family for a belt-kind transport. Omitted means an ordinary solid belt. */
+  transport_medium?: "solid" | "fluid";
+  /** Exact contents of a filtered container such as a water or oil tank. */
+  accepted_item_ids?: number[];
   /** Where this definition sits on its own upgrade ladder. Absent means the base tier. */
   tier?: number;
   /** The definition an `upgrade` turns this one into, if it has a next tier. */

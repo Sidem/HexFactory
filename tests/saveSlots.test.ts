@@ -249,6 +249,35 @@ describe("compatibility", () => {
     expect(compatibility(unknown, current).compatible).toBe(false);
   });
 
+  it("offers save 35 to the Sealed Routes migration", () => {
+    const current: CurrentBuild = {
+      ...build,
+      versions: {
+        save: 36,
+        world: 10,
+        definitions: 27,
+        technology: 16,
+      },
+      scenarios: build.scenarios.map((scenario) => ({
+        ...scenario,
+        version: 7,
+      })),
+    };
+    const previous = parseHxf1(
+      envelope({
+        save_version: 35,
+        world_generator_version: 10,
+        definition_version: 26,
+        technology_version: 15,
+        scenario_version: 7,
+      }),
+    )!;
+    expect(compatibility(previous, current)).toEqual({
+      compatible: true,
+      mismatches: [],
+    });
+  });
+
   it("names every number that would make native refuse the load", () => {
     const parsed = parseHxf1(
       envelope({

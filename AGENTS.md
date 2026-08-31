@@ -4,17 +4,17 @@ HexFactory is a browser factory-automation game. Player experience is the tiebre
 native ownership, sparse cost, and measured claims exist to keep a large living factory responsive
 and trustworthy.
 
-Current release: **v0.44.0 Emblems and Clarity** — one emblem library, under a contract published at
-the top of `src/rendering/emblems.ts`, draws every buildable machine, recipe category and research
-branch; the build catalogue gained search and a shelf affordance, and the guide and hub inspector
-say what to do rather than repeating prose. Presentation only: no emblem key reaches a save, a
-checksum, a native definition or the wire. Post-release maintenance adds native per-product output
-ports for joint-output buildings without assigning a new release number. Current envelopes are save
-35, definitions 26, technologies 15, scenarios 7, world 10, wire 19; save 34 migrates by adding an
-empty route map, preserving the previous facing outlet and checksum.
+Current release: **v0.45.0 Sealed Routes** — belts carry solids and sealed barrels, while pipes carry
+loose water and crude oil through the same native compiled graph. Water and oil tanks are filtered
+stores; a barrel station fills and empties reusable barrels. Belt and pipe underpasses are placed as
+one atomic entrance-to-exit drag while the crossed cells keep their own occupancy and lane. Current
+envelopes are save 36, definitions 27, technologies 16, scenarios 7, world 10, wire 19; save 35
+grandfathers only its existing belts for legacy liquid cargo, preserving old factories without
+letting newly placed belts accept loose fluid.
 
 Next work is the numbered phase table in `docs/HEXFACTORY-PLAN.md#what-to-do-next`: flowing water.
-Release numbers after v0.44.0 are unassigned. Do not reorder those phases without the user. On
+The user explicitly brought pipes forward without reordering that table. Release numbers after
+v0.45.0 are unassigned. Do not reorder those phases without the user. On
 2026-08-29 the user moved supported floors and vertical transport from row 7 to row 10, behind
 flowing water and Living Lattice, so the player learns the shipped ground-level systems before the
 game asks them to think in levels.
@@ -104,8 +104,8 @@ next work is `docs/HEXFACTORY-PLAN.md`; measured evidence is `docs/BENCHMARKS.md
 `docs/ART.md`; the retrieval index is `docs/AGENT-MAP.md`; this file is the entrypoint. A shipped
 milestone collapses to one ledger line in the plan and its brief is deleted — the detail lives in
 git history and in the code. At most one release record may exist at a time, for the milestone
-currently in flight; it is deleted when the next one ships. Today that is
-`docs/EMBLEMS-RECORD.md`. `README.md` is the only player-facing document.
+currently in flight; it is deleted when the next one ships. Today there is none: v0.45.0 is shipped
+and its detail lives in the ledger and git history. `README.md` is the only player-facing document.
 
 ## Evidence behind the context policy
 

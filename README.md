@@ -79,13 +79,21 @@ drawn emblem, so a card is recognised rather than read. An upgraded machine show
 with its rank beside it. The build catalogue gained a search that finds a machine whether or not you
 have unlocked it yet, the tool bar now shows when it has more slots off the edge, and the guide names
 something you can actually pick up before it names the machine built from it. Existing saves keep the
-same versions. See the [release record](docs/EMBLEMS-RECORD.md) for verification and limits.
+same versions.
 
 Post-release maintenance adds a **Product outputs** map to buildings that make cargo. Pick a
 product, then click an outside arrow on the exact footprint tile and side where it should leave.
 Joint products such as bitumen and refined fuel can now feed separate belts, and item-coloured
 arrows on the building keep those outlets visible in the world. Existing buildings keep their old
 facing outlet until you change one.
+
+**Sealed Routes (v0.45.0)** separates bulk fluid from solid logistics. Loose water and crude oil
+travel through round pipes; ordinary belts carry solids and sealed reusable water/oil barrels.
+Filtered tanks buffer one fluid each, and the barrel station fills or empties both barrel types.
+For a crossing, select a belt or pipe underpass and drag from entrance to exit: the preview shows
+only the two guarded portals, placement checks them together, and the cells between stay available
+to the lane being crossed. Existing liquid belts keep working when an older save migrates, but new
+belts follow the sealed-route rule.
 
 ## Controls
 
@@ -110,6 +118,9 @@ facing outlet until you change one.
   grid. With a belt or other single-hex building selected, **drag across the map to lay a whole run
   at once** — it routes itself, turning where the drag turns, and the preview shows exactly which
   cells it will use and where it stops. `E` selects erase, and dragging with it removes a run.
+- Belts carry solid items and filled barrels; pipes carry loose water and crude oil. For either
+  underpass, drag directly from its entrance to its exit. The middle of the preview is deliberately
+  empty because it remains available for the crossing lane.
 - `R` rotates the pending or selected building clockwise; `Shift+R` rotates it counter-clockwise.
   `Q` copies whatever is under the cursor, and `Ctrl`+`Z` takes back the last thing you built.
   Some definitions occupy multiple cells; those are placed one at a time. The grid appears during

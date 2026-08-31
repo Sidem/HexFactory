@@ -1,5 +1,5 @@
 {
-  "version": 15,
+  "version": 16,
   "technologies": [
     {
       "id": 1,
@@ -92,10 +92,15 @@
       "id": 7,
       "key": "hydrology",
       "name": "Hydrology",
-      "description": "Unlock the pump, so a basin becomes a reason to build beside it.",
+      "description": "Unlock the pump, fluid pipes, water tanks and barrel handling. Loose water leaves the basin through pipes; sealed barrels may ride belts.",
       "prerequisites": [5],
       "cost": 12,
-      "effects": [{ "kind": "unlock_building", "building_id": 11 }],
+      "effects": [
+        { "kind": "unlock_building", "building_id": 11 },
+        { "kind": "unlock_building", "building_id": 32 },
+        { "kind": "unlock_building", "building_id": 34 },
+        { "kind": "unlock_building", "building_id": 36 }
+      ],
       "branch": "plumbing",
       "stage": "workshops"
     },
@@ -136,7 +141,7 @@
       "id": 10,
       "key": "steam-works",
       "name": "Steam Works",
-      "description": "Unlock the boiler and turbine pair. Water rides belts; this is not a fluid network.",
+      "description": "Unlock the boiler and turbine pair. The boiler burns fuel and drinks piped water; the adjacent turbine turns that steam into grid power.",
       "prerequisites": [7, 8],
       "cost": 10,
       "effects": [
@@ -222,7 +227,7 @@
       "id": 17,
       "key": "grade-separation",
       "name": "Grade Separation",
-      "description": "Unlock the underpass. A pair of them carries a lane beneath up to four hexes of anything already built, so two belt lines can finally cross.",
+      "description": "Unlock the belt underpass. Drag once from entrance to exit to carry a lane beneath up to four hexes while the crossing belt stays flat and independent.",
       "prerequisites": [16, 11],
       "cost": 12,
       "effects": [{ "kind": "unlock_building", "building_id": 26 }],
@@ -248,12 +253,13 @@
       "id": 21,
       "key": "petroleum-processing",
       "name": "Petroleum Processing",
-      "description": "Find a lowland oil deposit, power a well and refine crude into bitumen plus fuel. Route each product through its own refinery footprint port. Oil travels as belt cargo; pipes are not required.",
+      "description": "Find a lowland oil deposit, power a well and pipe crude through an oil tank to a refinery. Route bitumen and fuel through their own refinery ports.",
       "prerequisites": [5, 8],
       "cost": 16,
       "effects": [
         { "kind": "unlock_building", "building_id": 29 },
-        { "kind": "unlock_building", "building_id": 30 }
+        { "kind": "unlock_building", "building_id": 30 },
+        { "kind": "unlock_building", "building_id": 35 }
       ],
       "branch": "chemistry",
       "stage": "industrial-systems"
@@ -270,6 +276,17 @@
         { "kind": "unlock_surface", "surface_id": 6 }
       ],
       "branch": "infrastructure",
+      "stage": "industrial-systems"
+    },
+    {
+      "id": 23,
+      "key": "subsurface-piping",
+      "name": "Subsurface Piping",
+      "description": "Unlock paired pipe underpasses. Drag one entrance-to-exit gesture to cross an occupied belt or pipe without mixing either flow.",
+      "prerequisites": [7, 17],
+      "cost": 6,
+      "effects": [{ "kind": "unlock_building", "building_id": 33 }],
+      "branch": "plumbing",
       "stage": "industrial-systems"
     }
   ],
@@ -313,7 +330,7 @@
     {
       "key": "plumbing",
       "name": "Plumbing",
-      "description": "Water collection; current water travels as belt cargo, not in pipes.",
+      "description": "Fluid collection, pipes, tanks and reusable barrels.",
       "order": 6
     },
     {

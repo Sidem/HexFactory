@@ -25,6 +25,7 @@ export type SilhouetteKey =
   | "cutting"
   | "crushing"
   | "refining"
+  | "barreling"
   | "asphalt-mixing"
   | "oil-extraction"
   | "primitive-smelting"
@@ -56,6 +57,7 @@ export function silhouetteOf(
     return "oil-extraction";
   if (kind === "composer") {
     if (recipeCategory === "refining") return "refining";
+    if (recipeCategory === "barreling") return "barreling";
     if (recipeCategory === "asphalt-mixing") return "asphalt-mixing";
     if (recipeCategory === "primitive-smelting") return "primitive-smelting";
     if (recipeCategory === "manual-workshop") return "manual-workshop";
@@ -265,6 +267,29 @@ export const BUILDING_SHAPES: Record<SilhouetteKey, readonly ShapePart[]> = {
       material: "dark",
     },
     { part: "aperture", x: -0.25, y: -0.03, scale: 0.055, glow: SURVEY },
+  ],
+  barreling: [
+    { part: "vessel", x: -0.17, y: 0.04, scale: 0.22, material: "dark" },
+    { part: "vessel", x: 0.17, y: 0.04, scale: 0.22, material: "dark" },
+    {
+      part: "band",
+      x: -0.17,
+      y: 0.04,
+      scale: 0.2,
+      count: 3,
+      material: "brass",
+    },
+    { part: "band", x: 0.17, y: 0.04, scale: 0.2, count: 3, material: "brass" },
+    {
+      part: "stack",
+      x: 0,
+      y: -0.16,
+      scale: 0.13,
+      rotation: Math.PI,
+      phase: "rise",
+      material: "brass",
+    },
+    { part: "aperture", x: 0, y: -0.3, scale: 0.065, glow: WATER },
   ],
   smelting: [
     { part: "vessel", x: 0, y: 0.02, scale: 0.34 },

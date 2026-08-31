@@ -741,7 +741,7 @@ it("budgets personal skill points separately from factory insight", () => {
     fixture.budget.skill_points,
   );
   expect(fixture.budget.skill_milestones).toBe(3);
-  expect(fixture.budget.research_cost).toBe(156);
+  expect(fixture.budget.research_cost).toBe(162);
   expect(fixture.budget.project_insight).toBe(706);
 });
 

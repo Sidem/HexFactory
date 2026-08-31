@@ -99,6 +99,7 @@ describe("data-defined content", () => {
       "fired-masonry",
       "petroleum-processing",
       "asphalt-roads",
+      "subsurface-piping",
     ]);
     expect(
       technologies.skills.find(({ key }) => key === "expanded-pack"),
@@ -263,6 +264,7 @@ describe("data-defined content", () => {
     expect([...categories].sort()).toEqual([
       "asphalt-mixing",
       "assembly",
+      "barreling",
       "crushing",
       "cutting",
       "firing",
@@ -334,6 +336,8 @@ describe("data-defined content", () => {
       "frame",
       "transport-kit",
       "iron-wire",
+      "empty-barrel",
+      "pipe-sections",
     ]);
     for (const patch of [
       { recipe_ids: [] },

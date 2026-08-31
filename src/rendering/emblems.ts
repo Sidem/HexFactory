@@ -100,6 +100,15 @@ const BUILDINGS: Record<string, string> = {
     '<path d="M6 28V10a4 4 0 0 1 8 0v18M6 15h8M6 21h8M18 28V13a4 4 0 0 1 8 0v15M18 19h8M14 12h4M3 28h26M10 6V3"/>',
   "asphalt-mixer":
     '<path d="M8 8h16l-3 11H11L8 8ZM11 3h10l3 5M16 19v3M10 22h12l2 5H8l2-5M3 28h26"/>',
+  pipe: '<path d="M3 13h17v6H3zM20 11h5v10h-5zM25 14h4v6h-4M6 13V9m-2 0h4"/>',
+  "pipe-underpass":
+    '<path d="M3 16h7l3 7h6l3-7h7M10 16l2-5h8l2 5M13 23v4m6-4v4M4 28h24"/>',
+  "water-tank":
+    '<path d="M7 9h18v18H7zM7 14h18M10 9V5h12v4M4 28h24M16 17c2 2.5 3 4 3 5.2a3 3 0 0 1-6 0c0-1.2 1-2.7 3-5.2Z"/>',
+  "oil-tank":
+    '<path d="M7 9h18v18H7zM7 14h18M10 9V5h12v4M4 28h24M16 17c2 2.5 3 4 3 5.2a3 3 0 0 1-6 0c0-1.2 1-2.7 3-5.2Z"/>',
+  "barrel-station":
+    '<path d="M5 11h13v16H5zM7 15h9m-9 7h9M21 8h6v15h-6zM18 13h3m-3 6h3M4 28h24M24 8V4"/>',
 };
 
 /**
@@ -121,6 +130,8 @@ const RECIPE_CATEGORIES: Record<string, string> = {
     '<path d="M11 28V10a5 5 0 0 1 10 0v18M11 15h10M11 20h10M4 28h24M21 12h6M21 17h6M21 22h6M16 5V3"/>',
   "asphalt-mixing":
     '<circle cx="20" cy="8" r="1.6"/><circle cx="24" cy="13" r="1.6"/><circle cx="19" cy="15" r="1.6"/><path d="M4 27h24M7 21h18l-2 6H9zM11 4c-2 3-3 4-3 6a3 3 0 0 0 6 0c0-2-1-3-3-6Z"/>',
+  barreling:
+    '<path d="M8 5h11l2 4v14l-2 4H8l-2-4V9l2-4Zm-2 6h15M6 21h15M24 8v16m-2-3 2 3 3-3"/>',
 };
 
 /**

@@ -237,15 +237,17 @@ export function validateDefinitions(
       recipeOutputs(recipe).some((output) => output.item_id === item.id),
     );
     const routes = item.production_routes;
+    if (producers.length > 1 && routes === undefined)
+      throw new TypeError(
+        `item ${item.id} requires an explicit production route policy`,
+      );
     if (
-      (producers.length > 1 || routes !== undefined) &&
-      (!routes ||
-        routes.length !== producers.length ||
-        new Set(routes).size !== routes.length ||
+      routes !== undefined &&
+      (new Set(routes).size !== routes.length ||
         routes.some((id) => !producers.some((recipe) => recipe.id === id)))
     )
       throw new TypeError(
-        `item ${item.id} requires an explicit production route order`,
+        `item ${item.id} requires a valid explicit production route policy`,
       );
     if (
       item.extraction_building_id !== undefined &&
@@ -421,6 +423,25 @@ export function validateDefinitions(
           `building ${building.id} needs a span in 1..=${MAX_UNDERPASS_SPAN}`,
         );
     }
+    if (
+      building.transport_medium !== undefined &&
+      (building.kind !== "belt" ||
+        !["solid", "fluid"].includes(building.transport_medium))
+    )
+      throw new TypeError(
+        `building ${building.id} has an invalid transport medium`,
+      );
+    if (
+      building.accepted_item_ids !== undefined &&
+      (building.kind !== "container" ||
+        building.accepted_item_ids.length === 0 ||
+        new Set(building.accepted_item_ids).size !==
+          building.accepted_item_ids.length ||
+        building.accepted_item_ids.some((id) => !itemIds.has(id)))
+    )
+      throw new TypeError(
+        `building ${building.id} has an invalid storage filter`,
+      );
     // Splitting, merging, and spanning are all rules about compiled transport edges, and a
     // building that is not transport compiles none.
     if (

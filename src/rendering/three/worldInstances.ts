@@ -96,6 +96,10 @@ export class WorldInstanceLayer {
     footprintLink: new BoxGeometry(1, 1, 1),
     belt: this.transportGeometry.belt,
     beltDetail: this.transportGeometry.beltDetail,
+    pipe: this.transportGeometry.pipe,
+    pipeDetail: this.transportGeometry.pipeDetail,
+    portal: this.transportGeometry.portal,
+    portalDetail: this.transportGeometry.portalDetail,
     bridge: this.transportGeometry.bridge,
     ore: new OctahedronGeometry(1, 0),
     lump: new IcosahedronGeometry(1, 0),
@@ -530,8 +534,21 @@ export class WorldInstanceLayer {
     scale: Vector3,
     color: Color,
   ): void {
-    const belts = snapshot.buildings.filter(({ kind }) => kind === "belt");
-    const connected = connectedTransportLinks(snapshot.buildings);
+    const transport = snapshot.buildings.filter(({ kind }) => kind === "belt");
+    const mediumOf = (building: EntitySnapshot): "solid" | "fluid" =>
+      this.definitions.get(building.definition_id)?.transport_medium === "fluid"
+        ? "fluid"
+        : "solid";
+    const belts = transport.filter(
+      (building) => mediumOf(building) === "solid",
+    );
+    const pipes = transport.filter(
+      (building) => mediumOf(building) === "fluid",
+    );
+    const connected = connectedTransportLinks(
+      snapshot.buildings,
+      this.definitions,
+    );
     const incomingTargets = new Set<number>();
     const straightInputTargets = new Set<number>();
     for (const link of connected) {
@@ -546,6 +563,11 @@ export class WorldInstanceLayer {
         straightInputTargets.add(link.to.id);
     }
     const straightBelts = belts.filter(
+      (building) =>
+        !incomingTargets.has(building.id) ||
+        straightInputTargets.has(building.id),
+    );
+    const straightPipes = pipes.filter(
       (building) =>
         !incomingTargets.has(building.id) ||
         straightInputTargets.has(building.id),
@@ -585,7 +607,8 @@ export class WorldInstanceLayer {
         this.staticGroup.add(frame, treads);
       }
 
-      const runs = connected.flatMap((link) => this.transportDeckRuns(link));
+      const solidLinks = connected.filter(({ medium }) => medium === "solid");
+      const runs = solidLinks.flatMap((link) => this.transportDeckRuns(link));
       if (runs.length) {
         const links = new InstancedMesh(
           this.geometry.belt,
@@ -617,9 +640,126 @@ export class WorldInstanceLayer {
         markInstancesDirty(links);
         markInstancesDirty(linkTreads);
         this.staticGroup.add(links, linkTreads);
-        this.addTransportCurves(connected);
+        this.addTransportCurves(solidLinks);
       }
     }
+    if (pipes.length) {
+      if (straightPipes.length) {
+        const bodies = new InstancedMesh(
+          this.geometry.pipe,
+          this.materials.machine,
+          straightPipes.length,
+        );
+        bodies.name = "fluid-pipes";
+        bodies.castShadow = true;
+        const couplings = new InstancedMesh(
+          this.geometry.pipeDetail,
+          this.materials.machine,
+          straightPipes.length,
+        );
+        couplings.name = "fluid-pipe-couplings";
+        for (const [index, building] of straightPipes.entries()) {
+          const center = axialToPixel(building, 1, { x: 0, y: 0 });
+          position.set(
+            center.x,
+            this.groundHeight(building.q, building.r) + 0.29,
+            center.y,
+          );
+          quaternion.setFromAxisAngle(
+            WORLD_UP,
+            directionAngle(building.orientation),
+          );
+          const [x, y, z] = transportScale(building.kind, building.orientation);
+          scale.set(x, y, z);
+          matrix.compose(position, quaternion, scale);
+          bodies.setMatrixAt(index, matrix);
+          bodies.setColorAt(index, color.set("#2d8f91"));
+          couplings.setMatrixAt(index, matrix);
+          couplings.setColorAt(index, color.set("#b9ebe4"));
+        }
+        markInstancesDirty(bodies);
+        markInstancesDirty(couplings);
+        this.staticGroup.add(bodies, couplings);
+      }
+
+      const fluidRuns = connected
+        .filter(({ medium }) => medium === "fluid")
+        .flatMap((link) => this.transportDeckRuns(link));
+      if (fluidRuns.length) {
+        const bodies = new InstancedMesh(
+          this.geometry.pipe,
+          this.materials.machine,
+          fluidRuns.length,
+        );
+        bodies.name = "fluid-pipe-connections";
+        bodies.castShadow = true;
+        const couplings = new InstancedMesh(
+          this.geometry.pipeDetail,
+          this.materials.machine,
+          fluidRuns.length,
+        );
+        couplings.name = "fluid-pipe-connection-couplings";
+        const delta = new Vector3();
+        for (const [index, { start, end }] of fluidRuns.entries()) {
+          delta.subVectors(end, start);
+          const length = delta.length();
+          position.copy(start).add(end).multiplyScalar(0.5);
+          quaternion.setFromUnitVectors(LOCAL_X, delta.normalize());
+          scale.set(length / 0.92, 1, 1);
+          matrix.compose(position, quaternion, scale);
+          bodies.setMatrixAt(index, matrix);
+          bodies.setColorAt(index, color.set("#2d8f91"));
+          couplings.setMatrixAt(index, matrix);
+          couplings.setColorAt(index, color.set("#b9ebe4"));
+        }
+        markInstancesDirty(bodies);
+        markInstancesDirty(couplings);
+        this.staticGroup.add(bodies, couplings);
+      }
+    }
+
+    const portals = transport.filter(
+      (building) =>
+        this.definitions.get(building.definition_id)?.underpass_span !==
+        undefined,
+    );
+    if (portals.length) {
+      const frames = new InstancedMesh(
+        this.geometry.portal,
+        this.materials.machineDark,
+        portals.length,
+      );
+      frames.name = "underpass-portals";
+      frames.castShadow = true;
+      const stripes = new InstancedMesh(
+        this.geometry.portalDetail,
+        this.materials.machine,
+        portals.length,
+      );
+      stripes.name = "underpass-caution-panels";
+      for (const [index, building] of portals.entries()) {
+        const center = axialToPixel(building, 1, { x: 0, y: 0 });
+        position.set(
+          center.x,
+          this.groundHeight(building.q, building.r) + 0.12,
+          center.y,
+        );
+        quaternion.setFromAxisAngle(
+          WORLD_UP,
+          directionAngle(building.orientation),
+        );
+        scale.set(1, 1, 1);
+        matrix.compose(position, quaternion, scale);
+        frames.setMatrixAt(index, matrix);
+        frames.setColorAt(index, color.set("#59636a"));
+        stripes.setMatrixAt(index, matrix);
+        stripes.setColorAt(index, color.set("#f4c542"));
+      }
+      markInstancesDirty(frames);
+      markInstancesDirty(stripes);
+      this.staticGroup.add(frames, stripes);
+    }
+
     const bridges = snapshot.buildings.filter(({ kind }) => kind === "bridge");
     if (bridges.length) {
       const mesh = new InstancedMesh(
@@ -1533,6 +1673,7 @@ interface TransportLink {
   readonly fromCell: { q: number; r: number };
   readonly to: EntitySnapshot;
   readonly steps: number;
+  readonly medium: "solid" | "fluid";
 }
 
 function normalizeAngle(angle: number): number {
@@ -1567,6 +1708,7 @@ function hasDirectionalOutput(kind: EntitySnapshot["kind"]): boolean {
  */
 function connectedTransportLinks(
   buildings: readonly EntitySnapshot[],
+  definitions: ReadonlyMap<number, BuildingDefinition>,
 ): TransportLink[] {
   const byId = new Map(buildings.map((building) => [building.id, building]));
   return buildings.flatMap((from) => {
@@ -1586,11 +1728,25 @@ function connectedTransportLinks(
       if (!id) return [];
       const to = byId.get(id);
       if (!to || (from.kind !== "belt" && to.kind !== "belt")) return [];
+      const fromMedium =
+        from.kind === "belt" &&
+        definitions.get(from.definition_id)?.transport_medium === "fluid"
+          ? "fluid"
+          : "solid";
+      const toMedium =
+        to.kind === "belt" &&
+        definitions.get(to.definition_id)?.transport_medium === "fluid"
+          ? "fluid"
+          : "solid";
+      // Two transport families may cross, but never draw a joined seam into one another.
+      if (from.kind === "belt" && to.kind === "belt" && fromMedium !== toMedium)
+        return [];
+      const medium = from.kind === "belt" ? fromMedium : toMedium;
       const key = `${fromCell.q},${fromCell.r}>${id}`;
       if (seen.has(key)) return [];
       seen.add(key);
       const steps = transportRun(fromCell, to);
-      return steps === null ? [] : [{ from, fromCell, to, steps }];
+      return steps === null ? [] : [{ from, fromCell, to, steps, medium }];
     });
   });
 }

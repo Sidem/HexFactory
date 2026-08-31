@@ -1125,6 +1125,380 @@
           ]
         }
       ]
+    },
+    {
+      "recipe": "empty-barrel",
+      "default_for": ["empty-barrel"],
+      "inputs": [
+        {
+          "item": "iron-plate",
+          "quantity": 2
+        }
+      ],
+      "outputs": [
+        {
+          "item": "empty-barrel",
+          "quantity": 1
+        }
+      ],
+      "cost_allocation_percent": [100],
+      "raw": [
+        {
+          "item": "ore",
+          "quantity_milli": 4000
+        }
+      ],
+      "whole_batch_raw": [
+        {
+          "item": "ore",
+          "quantity": 4
+        }
+      ],
+      "whole_batch_fuel_energy": 160,
+      "source_machines": [],
+      "machines": [
+        {
+          "building": "composer",
+          "research": ["automated-extraction", "composition"],
+          "duration": 8,
+          "grid_energy": 64,
+          "fuel_energy": 0,
+          "outputs_per_minute": [
+            {
+              "item": "empty-barrel",
+              "quantity_milli": 75000
+            }
+          ]
+        },
+        {
+          "building": "manual-workshop",
+          "research": [],
+          "duration": 32,
+          "grid_energy": 0,
+          "fuel_energy": 0,
+          "outputs_per_minute": [
+            {
+              "item": "empty-barrel",
+              "quantity_milli": 18750
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "recipe": "pipe-sections",
+      "default_for": ["pipe-section"],
+      "inputs": [
+        {
+          "item": "iron-plate",
+          "quantity": 1
+        }
+      ],
+      "outputs": [
+        {
+          "item": "pipe-section",
+          "quantity": 2
+        }
+      ],
+      "cost_allocation_percent": [100],
+      "raw": [
+        {
+          "item": "ore",
+          "quantity_milli": 2000
+        }
+      ],
+      "whole_batch_raw": [
+        {
+          "item": "ore",
+          "quantity": 2
+        }
+      ],
+      "whole_batch_fuel_energy": 80,
+      "source_machines": [],
+      "machines": [
+        {
+          "building": "composer",
+          "research": ["automated-extraction", "composition"],
+          "duration": 6,
+          "grid_energy": 48,
+          "fuel_energy": 0,
+          "outputs_per_minute": [
+            {
+              "item": "pipe-section",
+              "quantity_milli": 200000
+            }
+          ]
+        },
+        {
+          "building": "manual-workshop",
+          "research": [],
+          "duration": 24,
+          "grid_energy": 0,
+          "fuel_energy": 0,
+          "outputs_per_minute": [
+            {
+              "item": "pipe-section",
+              "quantity_milli": 50000
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "recipe": "fill-water-barrel",
+      "default_for": ["water-barrel"],
+      "inputs": [
+        {
+          "item": "empty-barrel",
+          "quantity": 1
+        },
+        {
+          "item": "water",
+          "quantity": 10
+        }
+      ],
+      "outputs": [
+        {
+          "item": "water-barrel",
+          "quantity": 1
+        }
+      ],
+      "cost_allocation_percent": [100],
+      "raw": [
+        {
+          "item": "ore",
+          "quantity_milli": 4000
+        },
+        {
+          "item": "water",
+          "quantity_milli": 10000
+        }
+      ],
+      "whole_batch_raw": [
+        {
+          "item": "ore",
+          "quantity": 4
+        },
+        {
+          "item": "water",
+          "quantity": 10
+        }
+      ],
+      "whole_batch_fuel_energy": 160,
+      "source_machines": [],
+      "machines": [
+        {
+          "building": "barrel-station",
+          "research": [
+            "automated-extraction",
+            "material-processing",
+            "hydrology"
+          ],
+          "duration": 10,
+          "grid_energy": 40,
+          "fuel_energy": 0,
+          "outputs_per_minute": [
+            {
+              "item": "water-barrel",
+              "quantity_milli": 60000
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "recipe": "empty-water-barrel",
+      "default_for": [],
+      "inputs": [
+        {
+          "item": "water-barrel",
+          "quantity": 1
+        }
+      ],
+      "outputs": [
+        {
+          "item": "empty-barrel",
+          "quantity": 1
+        },
+        {
+          "item": "water",
+          "quantity": 10
+        }
+      ],
+      "cost_allocation_percent": [10, 90],
+      "raw": [
+        {
+          "item": "ore",
+          "quantity_milli": 4000
+        },
+        {
+          "item": "water",
+          "quantity_milli": 10000
+        }
+      ],
+      "whole_batch_raw": [
+        {
+          "item": "ore",
+          "quantity": 4
+        },
+        {
+          "item": "water",
+          "quantity": 10
+        }
+      ],
+      "whole_batch_fuel_energy": 160,
+      "source_machines": [],
+      "machines": [
+        {
+          "building": "barrel-station",
+          "research": [
+            "automated-extraction",
+            "material-processing",
+            "hydrology"
+          ],
+          "duration": 8,
+          "grid_energy": 32,
+          "fuel_energy": 0,
+          "outputs_per_minute": [
+            {
+              "item": "empty-barrel",
+              "quantity_milli": 75000
+            },
+            {
+              "item": "water",
+              "quantity_milli": 750000
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "recipe": "fill-oil-barrel",
+      "default_for": ["oil-barrel"],
+      "inputs": [
+        {
+          "item": "empty-barrel",
+          "quantity": 1
+        },
+        {
+          "item": "crude-oil",
+          "quantity": 10
+        }
+      ],
+      "outputs": [
+        {
+          "item": "oil-barrel",
+          "quantity": 1
+        }
+      ],
+      "cost_allocation_percent": [100],
+      "raw": [
+        {
+          "item": "ore",
+          "quantity_milli": 4000
+        },
+        {
+          "item": "crude-oil",
+          "quantity_milli": 10000
+        }
+      ],
+      "whole_batch_raw": [
+        {
+          "item": "ore",
+          "quantity": 4
+        },
+        {
+          "item": "crude-oil",
+          "quantity": 10
+        }
+      ],
+      "whole_batch_fuel_energy": 160,
+      "source_machines": ["oil-well"],
+      "machines": [
+        {
+          "building": "barrel-station",
+          "research": [
+            "automated-extraction",
+            "material-processing",
+            "hydrology"
+          ],
+          "duration": 10,
+          "grid_energy": 40,
+          "fuel_energy": 0,
+          "outputs_per_minute": [
+            {
+              "item": "oil-barrel",
+              "quantity_milli": 60000
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "recipe": "empty-oil-barrel",
+      "default_for": [],
+      "inputs": [
+        {
+          "item": "oil-barrel",
+          "quantity": 1
+        }
+      ],
+      "outputs": [
+        {
+          "item": "empty-barrel",
+          "quantity": 1
+        },
+        {
+          "item": "crude-oil",
+          "quantity": 10
+        }
+      ],
+      "cost_allocation_percent": [10, 90],
+      "raw": [
+        {
+          "item": "ore",
+          "quantity_milli": 4000
+        },
+        {
+          "item": "crude-oil",
+          "quantity_milli": 10000
+        }
+      ],
+      "whole_batch_raw": [
+        {
+          "item": "ore",
+          "quantity": 4
+        },
+        {
+          "item": "crude-oil",
+          "quantity": 10
+        }
+      ],
+      "whole_batch_fuel_energy": 160,
+      "source_machines": ["oil-well"],
+      "machines": [
+        {
+          "building": "barrel-station",
+          "research": [
+            "automated-extraction",
+            "material-processing",
+            "hydrology"
+          ],
+          "duration": 8,
+          "grid_energy": 32,
+          "fuel_energy": 0,
+          "outputs_per_minute": [
+            {
+              "item": "empty-barrel",
+              "quantity_milli": 75000
+            },
+            {
+              "item": "crude-oil",
+              "quantity_milli": 750000
+            }
+          ]
+        }
+      ]
     }
   ],
   "boundaries": [
@@ -1714,8 +2088,8 @@
     }
   ],
   "reference": {
-    "definition_version": 26,
-    "technology_version": 15,
+    "definition_version": 27,
+    "technology_version": 16,
     "ticks_per_second": 10,
     "player_ticks_per_second": 30,
     "gather_cooldown_steps": 15,
@@ -2096,6 +2470,44 @@
       "recipe": "iron-wire",
       "ticks_per_cycle": 6,
       "output_item": "iron-wire",
+      "output_per_cycle": 2,
+      "per_minute_milli": 200000,
+      "inputs_per_minute": [
+        {
+          "item": "iron-plate",
+          "quantity_milli": 100000
+        }
+      ],
+      "power_draw": 8,
+      "grid_energy_per_cycle": 48,
+      "grid_energy_per_minute_milli": 4800000,
+      "fuel_energy_per_cycle": 0,
+      "fuel_energy_per_minute_milli": 0
+    },
+    {
+      "building": "composer",
+      "recipe": "empty-barrel",
+      "ticks_per_cycle": 8,
+      "output_item": "empty-barrel",
+      "output_per_cycle": 1,
+      "per_minute_milli": 75000,
+      "inputs_per_minute": [
+        {
+          "item": "iron-plate",
+          "quantity_milli": 150000
+        }
+      ],
+      "power_draw": 8,
+      "grid_energy_per_cycle": 64,
+      "grid_energy_per_minute_milli": 4800000,
+      "fuel_energy_per_cycle": 0,
+      "fuel_energy_per_minute_milli": 0
+    },
+    {
+      "building": "composer",
+      "recipe": "pipe-sections",
+      "ticks_per_cycle": 6,
+      "output_item": "pipe-section",
       "output_per_cycle": 2,
       "per_minute_milli": 200000,
       "inputs_per_minute": [
@@ -2600,6 +3012,46 @@
       "fuel_energy_per_minute_milli": 0
     },
     {
+      "building": "manual-workshop",
+      "manual_work": true,
+      "recipe": "empty-barrel",
+      "ticks_per_cycle": 32,
+      "output_item": "empty-barrel",
+      "output_per_cycle": 1,
+      "per_minute_milli": 18750,
+      "inputs_per_minute": [
+        {
+          "item": "iron-plate",
+          "quantity_milli": 37500
+        }
+      ],
+      "power_draw": 0,
+      "grid_energy_per_cycle": 0,
+      "grid_energy_per_minute_milli": 0,
+      "fuel_energy_per_cycle": 0,
+      "fuel_energy_per_minute_milli": 0
+    },
+    {
+      "building": "manual-workshop",
+      "manual_work": true,
+      "recipe": "pipe-sections",
+      "ticks_per_cycle": 24,
+      "output_item": "pipe-section",
+      "output_per_cycle": 2,
+      "per_minute_milli": 50000,
+      "inputs_per_minute": [
+        {
+          "item": "iron-plate",
+          "quantity_milli": 25000
+        }
+      ],
+      "power_draw": 0,
+      "grid_energy_per_cycle": 0,
+      "grid_energy_per_minute_milli": 0,
+      "fuel_energy_per_cycle": 0,
+      "fuel_energy_per_minute_milli": 0
+    },
+    {
       "building": "oil-well",
       "recipe": null,
       "ticks_per_cycle": 20,
@@ -2652,6 +3104,90 @@
       "power_draw": 6,
       "grid_energy_per_cycle": 120,
       "grid_energy_per_minute_milli": 3600000,
+      "fuel_energy_per_cycle": 0,
+      "fuel_energy_per_minute_milli": 0
+    },
+    {
+      "building": "barrel-station",
+      "recipe": "fill-water-barrel",
+      "ticks_per_cycle": 10,
+      "output_item": "water-barrel",
+      "output_per_cycle": 1,
+      "per_minute_milli": 60000,
+      "inputs_per_minute": [
+        {
+          "item": "empty-barrel",
+          "quantity_milli": 60000
+        },
+        {
+          "item": "water",
+          "quantity_milli": 600000
+        }
+      ],
+      "power_draw": 4,
+      "grid_energy_per_cycle": 40,
+      "grid_energy_per_minute_milli": 2400000,
+      "fuel_energy_per_cycle": 0,
+      "fuel_energy_per_minute_milli": 0
+    },
+    {
+      "building": "barrel-station",
+      "recipe": "empty-water-barrel",
+      "ticks_per_cycle": 8,
+      "output_item": "empty-barrel",
+      "output_per_cycle": 1,
+      "per_minute_milli": 75000,
+      "inputs_per_minute": [
+        {
+          "item": "water-barrel",
+          "quantity_milli": 75000
+        }
+      ],
+      "power_draw": 4,
+      "grid_energy_per_cycle": 32,
+      "grid_energy_per_minute_milli": 2400000,
+      "fuel_energy_per_cycle": 0,
+      "fuel_energy_per_minute_milli": 0
+    },
+    {
+      "building": "barrel-station",
+      "recipe": "fill-oil-barrel",
+      "ticks_per_cycle": 10,
+      "output_item": "oil-barrel",
+      "output_per_cycle": 1,
+      "per_minute_milli": 60000,
+      "inputs_per_minute": [
+        {
+          "item": "empty-barrel",
+          "quantity_milli": 60000
+        },
+        {
+          "item": "crude-oil",
+          "quantity_milli": 600000
+        }
+      ],
+      "power_draw": 4,
+      "grid_energy_per_cycle": 40,
+      "grid_energy_per_minute_milli": 2400000,
+      "fuel_energy_per_cycle": 0,
+      "fuel_energy_per_minute_milli": 0
+    },
+    {
+      "building": "barrel-station",
+      "recipe": "empty-oil-barrel",
+      "ticks_per_cycle": 8,
+      "output_item": "empty-barrel",
+      "output_per_cycle": 1,
+      "per_minute_milli": 75000,
+      "inputs_per_minute": [
+        {
+          "item": "oil-barrel",
+          "quantity_milli": 75000
+        }
+      ],
+      "power_draw": 4,
+      "grid_energy_per_cycle": 32,
+      "grid_energy_per_minute_milli": 2400000,
       "fuel_energy_per_cycle": 0,
       "fuel_energy_per_minute_milli": 0
     }
@@ -2724,6 +3260,11 @@
           "building": "asphalt-mixer",
           "power_draw": 6,
           "machines": 3
+        },
+        {
+          "building": "barrel-station",
+          "power_draw": 4,
+          "machines": 5
         }
       ]
     },
@@ -2794,6 +3335,11 @@
           "building": "asphalt-mixer",
           "power_draw": 6,
           "machines": 2
+        },
+        {
+          "building": "barrel-station",
+          "power_draw": 4,
+          "machines": 3
         }
       ]
     },
@@ -2864,6 +3410,11 @@
           "building": "asphalt-mixer",
           "power_draw": 6,
           "machines": 4
+        },
+        {
+          "building": "barrel-station",
+          "power_draw": 4,
+          "machines": 6
         }
       ]
     },
@@ -2934,6 +3485,11 @@
           "building": "asphalt-mixer",
           "power_draw": 6,
           "machines": 6
+        },
+        {
+          "building": "barrel-station",
+          "power_draw": 4,
+          "machines": 10
         }
       ]
     }
@@ -3454,6 +4010,70 @@
       "fuel_energy_milli": 0,
       "machine_ticks_milli": 9125,
       "effort_milli": 625
+    },
+    {
+      "item": "empty-barrel",
+      "depth": 2,
+      "raw": [
+        {
+          "item": "ore",
+          "quantity_milli": 4000
+        }
+      ],
+      "raw_units_milli": 4000,
+      "fuel_energy_milli": 160000,
+      "machine_ticks_milli": 28000,
+      "effort_milli": 5000
+    },
+    {
+      "item": "water-barrel",
+      "depth": 3,
+      "raw": [
+        {
+          "item": "ore",
+          "quantity_milli": 4000
+        },
+        {
+          "item": "water",
+          "quantity_milli": 10000
+        }
+      ],
+      "raw_units_milli": 14000,
+      "fuel_energy_milli": 160000,
+      "machine_ticks_milli": 38000,
+      "effort_milli": 15000
+    },
+    {
+      "item": "oil-barrel",
+      "depth": 3,
+      "raw": [
+        {
+          "item": "ore",
+          "quantity_milli": 4000
+        },
+        {
+          "item": "crude-oil",
+          "quantity_milli": 10000
+        }
+      ],
+      "raw_units_milli": 14000,
+      "fuel_energy_milli": 160000,
+      "machine_ticks_milli": 38000,
+      "effort_milli": 15000
+    },
+    {
+      "item": "pipe-section",
+      "depth": 2,
+      "raw": [
+        {
+          "item": "ore",
+          "quantity_milli": 1000
+        }
+      ],
+      "raw_units_milli": 1000,
+      "fuel_energy_milli": 40000,
+      "machine_ticks_milli": 8000,
+      "effort_milli": 1250
     }
   ],
   "buildings": [
@@ -4776,6 +5396,225 @@
       "batch_units": 47,
       "batch_fuel_energy": 1760,
       "machine_ticks": 298
+    },
+    {
+      "building": "pipe",
+      "kind": "belt",
+      "tier": 0,
+      "unlock_technology": "hydrology",
+      "direct": [
+        {
+          "item": "pipe-section",
+          "quantity": 1
+        }
+      ],
+      "depth": 2,
+      "raw": [
+        {
+          "item": "ore",
+          "quantity_milli": 1000
+        }
+      ],
+      "raw_units_milli": 1000,
+      "fuel_energy_milli": 40000,
+      "effort_milli": 1250,
+      "batch": [
+        {
+          "item": "ore",
+          "quantity": 2
+        }
+      ],
+      "batch_units": 2,
+      "batch_fuel_energy": 80,
+      "machine_ticks": 16
+    },
+    {
+      "building": "pipe-underpass",
+      "kind": "belt",
+      "tier": 0,
+      "unlock_technology": "subsurface-piping",
+      "direct": [
+        {
+          "item": "pipe-section",
+          "quantity": 2
+        },
+        {
+          "item": "iron-plate",
+          "quantity": 2
+        },
+        {
+          "item": "stone",
+          "quantity": 2
+        }
+      ],
+      "depth": 2,
+      "raw": [
+        {
+          "item": "ore",
+          "quantity_milli": 6000
+        },
+        {
+          "item": "stone",
+          "quantity_milli": 2000
+        }
+      ],
+      "raw_units_milli": 8000,
+      "fuel_energy_milli": 240000,
+      "effort_milli": 9500,
+      "batch": [
+        {
+          "item": "ore",
+          "quantity": 6
+        },
+        {
+          "item": "stone",
+          "quantity": 2
+        }
+      ],
+      "batch_units": 8,
+      "batch_fuel_energy": 240,
+      "machine_ticks": 36
+    },
+    {
+      "building": "water-tank",
+      "kind": "container",
+      "tier": 0,
+      "unlock_technology": "hydrology",
+      "direct": [
+        {
+          "item": "iron-plate",
+          "quantity": 10
+        },
+        {
+          "item": "gear",
+          "quantity": 2
+        },
+        {
+          "item": "brick",
+          "quantity": 8
+        }
+      ],
+      "depth": 2,
+      "raw": [
+        {
+          "item": "ore",
+          "quantity_milli": 28000
+        },
+        {
+          "item": "clay",
+          "quantity_milli": 5333
+        }
+      ],
+      "raw_units_milli": 33333,
+      "fuel_energy_milli": 1333333,
+      "effort_milli": 41667,
+      "batch": [
+        {
+          "item": "ore",
+          "quantity": 28
+        },
+        {
+          "item": "clay",
+          "quantity": 6
+        }
+      ],
+      "batch_units": 34,
+      "batch_fuel_energy": 1360,
+      "machine_ticks": 192
+    },
+    {
+      "building": "oil-tank",
+      "kind": "container",
+      "tier": 0,
+      "unlock_technology": "petroleum-processing",
+      "direct": [
+        {
+          "item": "iron-plate",
+          "quantity": 12
+        },
+        {
+          "item": "gear",
+          "quantity": 2
+        },
+        {
+          "item": "brick",
+          "quantity": 8
+        }
+      ],
+      "depth": 2,
+      "raw": [
+        {
+          "item": "ore",
+          "quantity_milli": 32000
+        },
+        {
+          "item": "clay",
+          "quantity_milli": 5333
+        }
+      ],
+      "raw_units_milli": 37333,
+      "fuel_energy_milli": 1493333,
+      "effort_milli": 46667,
+      "batch": [
+        {
+          "item": "ore",
+          "quantity": 32
+        },
+        {
+          "item": "clay",
+          "quantity": 6
+        }
+      ],
+      "batch_units": 38,
+      "batch_fuel_energy": 1520,
+      "machine_ticks": 212
+    },
+    {
+      "building": "barrel-station",
+      "kind": "composer",
+      "tier": 0,
+      "unlock_technology": "hydrology",
+      "direct": [
+        {
+          "item": "iron-plate",
+          "quantity": 8
+        },
+        {
+          "item": "gear",
+          "quantity": 2
+        },
+        {
+          "item": "frame",
+          "quantity": 2
+        }
+      ],
+      "depth": 2,
+      "raw": [
+        {
+          "item": "ore",
+          "quantity_milli": 28000
+        },
+        {
+          "item": "wood",
+          "quantity_milli": 2000
+        }
+      ],
+      "raw_units_milli": 30000,
+      "fuel_energy_milli": 1120000,
+      "effort_milli": 37000,
+      "batch": [
+        {
+          "item": "ore",
+          "quantity": 28
+        },
+        {
+          "item": "wood",
+          "quantity": 2
+        }
+      ],
+      "batch_units": 30,
+      "batch_fuel_energy": 1120,
+      "machine_ticks": 188
     }
   ],
   "curve": [
@@ -4816,6 +5655,22 @@
       "follows": "smelter",
       "relation": "kind",
       "effort_milli": 57167,
+      "follows_effort_milli": 11000,
+      "holds": true
+    },
+    {
+      "building": "barrel-station",
+      "follows": "kiln",
+      "relation": "kind",
+      "effort_milli": 37000,
+      "follows_effort_milli": 10500,
+      "holds": true
+    },
+    {
+      "building": "barrel-station",
+      "follows": "smelter",
+      "relation": "kind",
+      "effort_milli": 37000,
       "follows_effort_milli": 11000,
       "holds": true
     },
@@ -4897,6 +5752,46 @@
       "relation": "kind",
       "effort_milli": 32000,
       "follows_effort_milli": 11000,
+      "holds": true
+    },
+    {
+      "building": "pipe-underpass",
+      "follows": "belt",
+      "relation": "kind",
+      "effort_milli": 9500,
+      "follows_effort_milli": 750,
+      "holds": true
+    },
+    {
+      "building": "pipe-underpass",
+      "follows": "merger",
+      "relation": "kind",
+      "effort_milli": 9500,
+      "follows_effort_milli": 6500,
+      "holds": true
+    },
+    {
+      "building": "pipe-underpass",
+      "follows": "pipe",
+      "relation": "kind",
+      "effort_milli": 9500,
+      "follows_effort_milli": 1250,
+      "holds": true
+    },
+    {
+      "building": "pipe-underpass",
+      "follows": "splitter",
+      "relation": "kind",
+      "effort_milli": 9500,
+      "follows_effort_milli": 6500,
+      "holds": true
+    },
+    {
+      "building": "pipe-underpass",
+      "follows": "underpass",
+      "relation": "kind",
+      "effort_milli": 9500,
+      "follows_effort_milli": 8500,
       "holds": true
     },
     {
@@ -5011,7 +5906,7 @@
       "guaranteed_hexes": 53,
       "nearest_generated": 11,
       "reachable": true,
-      "required_by": 31
+      "required_by": 42
     },
     {
       "material": "crystal",
@@ -5043,7 +5938,7 @@
       "guaranteed_hexes": 37,
       "nearest_generated": 12,
       "reachable": true,
-      "required_by": 13
+      "required_by": 14
     },
     {
       "material": "sand",
@@ -5059,7 +5954,7 @@
       "guaranteed_hexes": 14,
       "nearest_generated": 15,
       "reachable": true,
-      "required_by": 9
+      "required_by": 11
     },
     {
       "material": "wood",
@@ -5067,7 +5962,7 @@
       "guaranteed_hexes": 47,
       "nearest_generated": 8,
       "reachable": true,
-      "required_by": 21
+      "required_by": 22
     },
     {
       "material": "water",
@@ -5075,7 +5970,7 @@
       "guaranteed_hexes": 0,
       "nearest_generated": 3,
       "reachable": true,
-      "required_by": 1
+      "required_by": 3
     },
     {
       "material": "limestone",
@@ -5091,7 +5986,7 @@
       "guaranteed_hexes": 0,
       "nearest_generated": 28,
       "reachable": true,
-      "required_by": 2
+      "required_by": 4
     }
   ],
   "extraction": [
@@ -6651,14 +7546,14 @@
     "skill_cost": 3,
     "project_insight": 706,
     "raw_project_insight": 85,
-    "research_cost": 156,
+    "research_cost": 162,
     "granted_technologies": [
       "field-logistics",
       "automated-extraction",
       "storage-planning",
       "on-site-power"
     ],
-    "surplus": 550,
-    "surplus_ratio_milli": 4526
+    "surplus": 544,
+    "surplus_ratio_milli": 4358
   }
 }

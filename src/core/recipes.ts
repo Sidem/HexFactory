@@ -30,7 +30,7 @@ export function productionRoutes(
   const order = definitions.items.find(
     (value) => value.id === item,
   )?.production_routes;
-  return order
+  return order !== undefined
     ? order
         .map((id) => producers.find((recipe) => recipe.id === id)!)
         .filter(Boolean)
