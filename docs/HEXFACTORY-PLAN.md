@@ -501,8 +501,13 @@ partially activated physical model.
    source so the opening no longer depends on whatever the seed placed at coordinate zero. Three
    representative seeds and reordered prior queries pin that choice; cached and uncached physical
    ground agree. Production still constructs `GroundSpine::legacy`, `terra` is still absent from the
-   wasm artifact, and no compatibility envelope has moved. The remaining work in this slice is the
-   content, wire, renderer, picking and one-way activation bundle above.
+   wasm artifact, and no compatibility envelope has moved. The inactive
+   `src/rendering/three/heightfieldTerrain.ts` prerequisite now builds deterministic continuous
+   ground from explicit native samples, keeps water separate, adds cliff/frontier skirts and
+   raycasts the visible surface back to an axial cell. It is not imported by the live renderer, so
+   wire 19, the shipped prisms and logical-plane picking are unchanged. The remaining work in this
+   slice is footprint/cadence/opening content, the native height wire, renderer integration and the
+   one-way activation bundle above.
 
 4. **Sparse disturbed water.** Add water departure state, active-region equilibrium, frontier
    boundaries, pumps, flood/drain commands and save/load/checksum coverage. Re-measure the active

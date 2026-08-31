@@ -24,10 +24,12 @@ scale contract and is read by nothing that ships; `factory_wasm::terra` is the d
 is compiled out of the wasm artifact; `factory_wasm::ground_spine` separates generated bed,
 substrate, initial hydrology and finished ground behind a legacy-unit adapter and surveyed-chunk
 cache. Slice 3 development has prepared a native-only physical source and a deterministic dry
-valley-shelf origin; production still selects the legacy source, and the physical source remains
-compiled out of wasm with `terra`. The new physical model is still not live — the shipped 1 m² cell
-and seven presentation bands remain the game's ground until the slice-3 compatibility activation,
-and the two must not be mixed. Pipes were
+valley-shelf origin, plus an inactive TypeScript heightfield core that turns native-published
+samples into deterministic continuous ground, separate water, cliff/frontier skirts and ray-based
+axial picks. Production still selects the legacy source, the physical source remains compiled out
+of wasm with `terra`, and `ThreeFactoryRenderer` still uses the shipped prisms and logical plane.
+The new physical model is still not live — the shipped 1 m² cell and seven presentation bands remain
+the game's ground until the slice-3 compatibility activation, and the two must not be mixed. Pipes were
 brought forward and the ground rework
 was requested outright; neither reorders the table. Release numbers after v0.46.0 are unassigned. Do
 not reorder those phases without the user. On 2026-08-29 the user moved supported floors and vertical

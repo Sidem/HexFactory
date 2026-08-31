@@ -525,6 +525,11 @@ Data or fixture; inspect keys before loading the full file.
 
 - GroundMeshes:56, perimeter:192, colorFor:204
 
+### `src/rendering/three/heightfieldTerrain.ts` — 449 lines / 13.0 KiB
+
+- HeightfieldSubstrate:34, HeightfieldSample:41, HeightfieldOptions:49, HeightfieldGeometryBuild:56, HeightfieldPick:65, ViewportRect:71, buildHeightfieldGeometry:90, heightfieldHeightAt:216, pickHeightfieldRay:229, pickHeightfieldAt:238, pickFromIntersection:255, validSample:264
+- compareCells:280, cellKey:287, cellCentre:291, groundCorner:296, waterCorner:342, cornerPoint:361, mean:375, modulo:379, GeometryWriter:383, fixed:446
+
 ### `src/rendering/three/machineMeshes.ts` — 369 lines / 12.5 KiB
 
 - MACHINE_VISUAL_SCALE:38, MACHINE_BODY_GIRTH:50, MACHINE_SILHOUETTE_SCALE:57, MachinePartInstance:87, PartGeometryLibrary:102, geometryKey:126, buildPartGeometry:131, collectMachineParts:157, machinePartMatrix:205, partScale:274, chamberGeometry:309, rotorGeometry:315
@@ -676,6 +681,10 @@ Data or fixture; inspect keys before loading the full file.
 ### `tests/guidance.test.ts` — 529 lines / 17.7 KiB
 
 - shippedScenario:29, boardFor:50, snapshotAt:79
+
+### `tests/heightfieldTerrain.test.ts` — 180 lines / 5.2 KiB
+
+- dispose:174
 
 ### `tests/host.test.ts` — 2010 lines / 75.7 KiB
 

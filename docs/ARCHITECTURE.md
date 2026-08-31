@@ -648,6 +648,14 @@ defect it prevents; a change that contradicts one needs an argument, not an over
   The constructor and `terra` remain compiled out of wasm, and running `Core` still constructs
   `GroundSpine::legacy`; this is preparation for the one reviewed compatibility bundle, not a hidden
   mixed-scale world.
+- **The Phase 8 heightfield renderer is prepared without becoming the live renderer.**
+  `heightfieldTerrain.ts` consumes an explicit set of native-published samples, sorts them into a
+  query-order-independent build, shares averaged corners across ordinary slopes, keeps water in a
+  separate geometry, and emits vertical faces only at declared cliffs and the surveyed frontier.
+  Its picker raycasts that visible surface before translating x/z back to an axial cell; native
+  remains the legality authority. The module and its focused tests are an activation prerequisite:
+  wire 19 publishes no physical samples, `ThreeFactoryRenderer` does not import it, and the shipped
+  prism renderer and logical-plane picker remain live until all compatibility envelopes move.
 - **An earthworks selection is resolved in three passes, and the footprint survives a refusal.**
   `ground_transaction` runs `ground_resolve` per cell, which records a `blocked` reason on the hex in
   the way instead of aborting the whole edit; then `ground_footprint`, which publishes every selected
