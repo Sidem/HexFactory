@@ -14,11 +14,19 @@ save 36, definitions 27, technologies 16, scenarios 7, world 10, wire 19. Save 3
 only its existing belts for legacy liquid cargo.
 
 Next work is the numbered phase table in `docs/HEXFACTORY-PLAN.md#what-to-do-next`: flowing water.
-Pipes were brought forward and the ground rework was requested outright; neither reorders that
-table. Release numbers after v0.46.0 are unassigned. Do not reorder those phases without the user. On
-2026-08-29 the user moved supported floors and vertical transport from row 7 to row 10, behind
-flowing water and Living Lattice, so the player learns the shipped ground-level systems before the
-game asks them to think in levels.
+On 2026-08-31 the user approved the Phase 8 scale break detailed in that brief: one construction hex
+becomes 25 m², generated altitude becomes physical native height, drainage shapes valleys before
+rivers are placed, and building footprints are reauthored around the new scale. The first slice is a
+native survey/prototype, not a production toggle; **it is delivered in v0.46.0** and the next work is
+slice 2, the production ground spine behind the old presentation. `factory_wasm::scale` states the
+scale contract and is read by nothing that ships; `factory_wasm::terra` is the drainage prototype and
+is compiled out of the wasm artifact. Neither is a live model — the shipped 1 m² cell and seven
+presentation bands remain the game's ground until slice 3, and the two must not be mixed. Pipes were
+brought forward and the ground rework
+was requested outright; neither reorders the table. Release numbers after v0.46.0 are unassigned. Do
+not reorder those phases without the user. On 2026-08-29 the user moved supported floors and vertical
+transport from row 7 to row 10, behind flowing water and Living Lattice, so the player learns the
+shipped ground-level systems before the game asks them to think in levels.
 
 ## Localize before reading
 
@@ -91,6 +99,8 @@ remain the authority.
 - `npm run test:run` / `npm run test:rust`
 - `npm run bench` / `npm run bench:browser` — measured capacity, outside CI
 - `npm run survey` / `npm run balance` — native measurement, outside CI
+- `npm run terra` — the Phase 8 drainage prototype's survey, outside CI; `--coast` samples a
+  shoreline, because the origin is wherever the seed put it and is often seabed
 - `npm run quality` — complete local gate
 
 Fixture updates remain deliberate review points:

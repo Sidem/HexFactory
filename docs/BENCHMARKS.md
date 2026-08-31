@@ -12,6 +12,84 @@ evidence of a speedup over the previous release. The full capacity records below
 This section is the surviving procedure and limitation record; the shipped release itself has
 collapsed to its one ledger line in `HEXFACTORY-PLAN.md`.
 
+## Phase 8 slice 1 — the pre-rescale baseline and the drainage prototype — v0.46.0
+
+Phase 8 replaces a 1 m² presentation-band cell with a 25 m² cell carrying signed absolute height in
+0.25 m quanta. Slice 1 ships no production toggle: `factory_wasm::scale` is declared and inert, and
+`factory_wasm::terra` is compiled out of the wasm artifact entirely. What slice 1 does ship is this
+record, so that the slices which do move the envelope have something to be compared against.
+
+### The world as it stands, before anything moves
+
+Seed 1213486160, `npm run survey`, at each preset's landform radius. Bands in per mille of hexes:
+
+| preset      | hexes     | DeepWater | ShallowWater | Shore | Lowland | Hills | Highland | Cliff | purity | rivers        |
+| ----------- | --------- | --------- | ------------ | ----- | ------- | ----- | -------- | ----- | ------ | ------------- |
+| continental | 1,771,777 | 0         | 30           | 61    | 302     | 354   | 238      | 12    | 987    | 45,604 in 129 |
+| archipelago | 111,169   | 19        | 91           | 190   | 317     | 142   | 202      | 35    | 979    | none          |
+| highlands   | 1,771,777 | 0         | 35           | 0     | 113     | 410   | 416      | 23    | 994    | 63,110 in 144 |
+| basin       | 1,771,777 | 4         | 41           | 198   | 524     | 211   | 16       | 2     | 991    | 40,103 in 98  |
+
+`npm run balance` at definitions v27 / technologies v16: guaranteed opening walks of ore 9–14, wood
+9–14, coal 15–25, stone 15–25, clay 15–25, limestone 18–32, copper-ore 25–40; first smelter at 53
+gathers and 130 machine ticks; first power at 36 gathers; the `new-game/foundry` contract at 110
+gathers. `npm run bench` xlarge (512 lines, 6,144 entities): 284.8 µs tick, 1,534.7 µs frame,
+17,675 delta bytes. **These are the numbers the rescale has to be judged against**, because every
+one of them is quoted in metres, in walking time, or in cells whose physical size is about to change
+by five in linear scale.
+
+### The drainage prototype
+
+`npm run terra`. Native only. Two samples at the same seed, because where a sample is taken decides
+what it can say:
+
+| sample             | provinces | elevation      | walkable ‰ | buildable ‰ | channel ‰ | springs | lakes | lake cells | to sea        | to lake | cycles | uphill |
+| ------------------ | --------- | -------------- | ---------- | ----------- | --------- | ------- | ----- | ---------- | ------------- | ------- | ------ | ------ |
+| inland, centre 0,0 | 81        | 659.7–1130.5 m | 996        | 616         | 30        | 88      | 1,409 | 3,967      | 0 / 5,184     | 4,459   | 0      | 0      |
+| coastal, `--coast` | 81        | −160.2–179.7 m | 1000       | 888         | 27        | 43      | 1,370 | 7,089      | 2,499 / 5,184 | 2,674   | 0      | 0      |
+
+Solve cost is 5–6 ms per province, 460–486 ms for 81 provinces, 1.3 M cells.
+
+**What holds.** Zero cycles and zero uphill edges in both samples, and zero unterminated walks: the
+drainage invariants are not tuned in, they follow from defining head as a pure global field and flow
+as steepest descent on it under a total coordinate order. Query-order independence, seam agreement
+from either province, and a bounded per-cell province cost are asserted by the module's own tests.
+No frontier basins in either sample — every depression resolved inside its budget.
+
+**What the numbers say to slice 2.**
+
+1. **Sample the coast, not the origin.** The inland sample reports 0 walks to the sea, which reads
+   as a drainage failure and is not one: there is no sea in it. At this seed the origin is 300 m
+   under water and the default survey square is upland. `survey_at` and `--coast` exist because a
+   statistic about river mouths taken where there is no coast is not a weak result, it is a wrong
+   one.
+2. **Closed basins are set by the noise octaves, not by the drainage.** 1,409 lakes over 81
+   provinces is one closed basin per ~950 cells. Real humid landscapes outside karst and glaciated
+   terrain have essentially none. They sit at the lattice corners of the value-noise octaves, on the
+   interfluves that no valley cross-section reaches.
+3. **Springs are rare — about one per province.** `CHANNEL_CLASS_MIN` puts the first visible channel
+   at ~5 ha of catchment, which is physically defensible and probably too austere for a world a
+   player is meant to find water in.
+
+**A measured negative result, kept because it cost a round and would otherwise be retried.** The
+obvious fix for (2) is to carve the whole flow tree rather than only its channel-class threads, so
+the interfluves slope toward some watercourse instead of being left to noise. Implemented and
+measured, this made things **worse**: lakes rose 2.1× (1,409 → 3,016) and lake cells 3.1× (3,967 →
+12,197), with solve cost doubling to 12 ms per province. The cause is that incision subtracts a
+**constant depth per class**, so a thread crossing rising ground leaves a flat-bottomed trench with
+a lip — it manufactures closed basins faster than the lateral shaping removes them. The change was
+reverted. The version that would work is a **graded long profile**: propagate an absolute descending
+floor elevation down the tree instead of subtracting a constant. That changes what `head` means and
+requires floor elevations to agree across province seams, so it belongs to the slice that moves the
+envelope, not to the prototype.
+
+An earlier round of the same kind is worth recording for the same reason: carrying the height field
+in whole 0.25 m quanta produced 32,694 micro-lakes, because 216 per mille of neighbour pairs were
+**exactly** equal — an integer quarter-metre field over gentle ground is flat almost everywhere, and
+every flat's coordinate-minimum becomes a pit. Carrying the field internally in milli-quanta and
+publishing whole quanta cut that 23×, to the 1,409 above. **Any later stage that rounds height to
+quanta before resolving depressions will bring all 32,694 back.**
+
 Capacity is measured, never asserted, and the measurement orders the work. Every number here was
 produced by the committed harness; the raw reports live in `docs/benchmarks/` and are the source for
 any table that was trimmed out of this document.

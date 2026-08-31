@@ -29,6 +29,18 @@ use runtime::RuntimeIndex;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod balance;
 
+/// The Phase 8 physical scale contract. Declared and tested, and read by nothing that ships in
+/// v0.46 — see the module docs for why it is inert until the ground spine moves.
+pub mod scale;
+
+/// The Phase 8 drainage-first world prototype.
+///
+/// Native only, like `balance` and `survey`: slice 1 of the phase is a prototype with no production
+/// toggle, and compiling it out of the wasm artifact is what makes that structural instead of a
+/// promise.
+#[cfg(not(target_arch = "wasm32"))]
+pub mod terra;
+
 type ItemId = u16;
 type RecipeId = u16;
 type DefinitionId = u16;

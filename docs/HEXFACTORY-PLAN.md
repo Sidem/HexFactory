@@ -171,14 +171,14 @@ the factory.
 
 Phases 1 to 7 are **shipped**, and the user-requested pipe infrastructure shipped between rows 7 and 8 as v0.45.0 without reordering the approved sequence. Read the ledger for what each release delivered.
 
-| Order | Work                                    | Scope and dependency                                                                                                                                                                          |
-| ----- | --------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 7     | Icon pass and integrated validation     | **Shipped as v0.44.0.** The emblem library covers buildings, recipe categories and branches under one contract; accessibility and the measured-capacity position are stated in the ledger.    |
-| 8     | Flowing water                           | Water becomes an entity that sits on the ground and runs downhill, instead of a terrain band. Reads the phase 3 grades; supersedes the old fluid-network and water-reshaping horizon entries. |
-| 9     | Living Lattice                          | Animals, biomatter and waste as one ecological system. Reuses phase 4's joint-output costing. Brief below.                                                                                    |
-| 10    | Supported floors and vertical transport | Support classes, the first upper floor, stairs, belt lifts and a layer view, standing on phase 3's grades. Needs the beams and concrete phase 3 and 4 produce.                                |
-| 11    | The primitive human                     | The player gains needs and attributes. Depends on flowing water and Living Lattice for a food supply worth automating, and revises the skills budget rather than sitting beside it.           |
-| 12    | Regional Discovery                      | The play half of regional variation: survey tools, distant sites, outposts. Brief below.                                                                                                      |
+| Order | Work                                    | Scope and dependency                                                                                                                                                                                                                                  |
+| ----- | --------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 7     | Icon pass and integrated validation     | **Shipped as v0.44.0.** The emblem library covers buildings, recipe categories and branches under one contract; accessibility and the measured-capacity position are stated in the ledger.                                                            |
+| 8     | Flowing water                           | Rebuilds world scale, physical altitude, drainage-shaped landforms and machine footprints before water becomes a sparse native layer that floods, drains and erodes the ground. Supersedes the old fluid-network and water-reshaping horizon entries. |
+| 9     | Living Lattice                          | Animals, biomatter and waste as one ecological system. Reuses phase 4's joint-output costing. Brief below.                                                                                                                                            |
+| 10    | Supported floors and vertical transport | Support classes, the first upper floor, stairs, belt lifts and a layer view, standing on phase 3's grades. Needs the beams and concrete phase 3 and 4 produce.                                                                                        |
+| 11    | The primitive human                     | The player gains needs and attributes. Depends on flowing water and Living Lattice for a food supply worth automating, and revises the skills budget rather than sitting beside it.                                                                   |
+| 12    | Regional Discovery                      | The play half of regional variation: survey tools, distant sites, outposts. Brief below.                                                                                                                                                              |
 
 These are delivery phases, not a single giant release, and a phase may ship as several versions.
 Do not start a later row in parallel with an earlier one unless the user changes priority; an unmet
@@ -246,49 +246,281 @@ snapshot moved.
 Asked for on 2026-08-28: water should stop being a property of a cell and become its own thing —
 infinite sources that sit **on top of** a tile and run downhill into lower ones, in the spirit of
 Minecraft's water. This supersedes the **Fluid networks** and **Water reshaping** entries on the
-horizon list, which described the same ambition in weaker terms.
+horizon list, which described the same ambition in weaker terms. On 2026-08-31 the user approved a
+larger correction: realistic mountains, valleys, springs and rivers cannot be built on the shipped
+one-square-metre cell and seven-band presentation height. Phase 8 therefore owns the necessary scale,
+altitude, footprint and rendering break. This expands row 8; it does not reorder the numbered table.
 
-Today water is a terrain band. `ShallowWater` is a 1 m/s ford, deep water blocks, both are pinned by
-`fixtures/terrain-passability.json`, a pump draws from the band and never depletes it, and the water
-a factory moves is a belted item that says so. The change is that a water **level** becomes native,
-saved, checksummed state layered over the grade, and passability becomes a question about that level
-rather than about the band identity. Row 5's grades are what it runs on: water goes to the lower
-grade, and a cut or a fill now floods or drains.
+### The scale contract
 
-**Four constraints decide whether this can be built at all**, and they are not negotiable by the
-implementation:
+These are one physical system, not independent tuning knobs:
 
-- **It is not a cellular automaton.** The architecture refuses a per-cell world kernel and this must
-  not smuggle one in. Water advances as a sparse **active front**: only cells whose level changed
-  this tick are scheduled, and a settled pond costs nothing. This is the same shape Living Lattice
-  plans for populations, and the two should share it.
-- **Spreading water may never generate a chunk.** `generated_chunks` is a checksum input, so water
-  that ran off the surveyed edge and pulled new world into existence would make the world a function
-  of the player's plumbing. Flow stops at the survey frontier. Say so in the model, not in a comment.
-- **The ocean is not simulated.** `basin` holds a standing body of 7,360 hexes; running that as an
-  entity front is exactly the per-cell cost the architecture exists to avoid. Standing water at or
-  below sea level stays static and cheap. The entity model covers water the player creates,
-  disturbs, or pumps — a spring, a channel, a flooded cut, a drained pond. That is the honest scope
-  line and it should be written into the definition rather than discovered later.
-- **Conservation is not claimed, but termination is.** An infinite source is infinite by definition,
-  so this system does not conserve volume and must not pretend to. What it must guarantee is that
-  every flow reaches a fixed point in bounded steps from any starting state — otherwise a player
-  builds a perpetual front and the tick never settles. Minecraft's rule that two adjacent sources
-  make a third is the specific thing to be careful with: on six neighbours it behaves differently
-  than on four, and it is the rule that lets a player manufacture an ocean. Decide it deliberately,
-  with the level count and the maximum spread distance both bounded and both stated.
+- **One construction hex is 25 m².** The existing axial integer lattice and pointy-top topology stay;
+  the physical interpretation changes by five in linear scale, so neighbouring centres stand about
+  5.37 m apart. Do not multiply `HEX_X`, `HEX_Y` or saved axial coordinates by five. Retune every
+  metre-derived rate and reach against the new conversion instead.
+- **One native height quantum is 0.25 m.** Generated bed elevation is a signed absolute integer with
+  sea level at zero. A 2,000 m summit is ordinary data, not a special terrain enum. Use a type wide
+  enough for continental relief and arithmetic before narrowing anything for the wire.
+- **Earthworks name metres.** Raise and Lower retain the shipped three depth buttons, now 0.5, 1.0
+  and 1.5 m (two, four and six height quanta). Store the sparse earthwork delta as at least `i16`;
+  the first content limit is ±8 m from the generated bed, not the storage limit. Cut and fill remain
+  an integer volume ledger: one quarter-metre cell layer is one spoil unit, representing 6.25 m³.
+- **Movement and construction stop sharing one threshold.** Walking reads slope, true steps, surface
+  and water depth. A multi-cell building needs a pad within one height quantum unless its foundation
+  class explicitly says otherwise. Retaining walls, foundations and stairs create the exceptions;
+  `MAX_BUILD_STEP = MAX_WALK_STEP` does not survive this phase.
+- **Feature wavelengths become hierarchical.** Local relief spans tens to hundreds of cells,
+  valleys and massifs span hundreds to thousands, and a regional structure may exceed the shipped
+  `MAX_FEATURE_CELL = 1024`. Keep the unbounded pure query contract; do not allocate a continent to
+  answer one cell.
 
-What moves with it: `terrain_at` keeps its band, but movement legality, route cost, building
-legality and the pump all read the water level instead of the band; the passability fixture and both
-languages move together; the generator's oceans and rivers become **initial** water rather than
-terrain identity, which is a world-generator version bump and a save migration; and the renderer
-gains a surface that sits above the grade rather than a tinted prism.
+The shipped scale ledger remains history. When this phase activates, its fixed 25 m² contract
+supersedes the 1 m² contract globally; physical scale is not another custom world slider.
 
-**Acceptance.** A source placed on a slope reaches the same fixed point from a save/load in the
-middle of the flow, and the checksum proves it. A flooded cut drains when reopened. No flow
-generates a chunk, proven by a test that walks water to the frontier. The capacity ladder is
-re-measured with a large active front, and the claim is the measured tier and nothing beyond it. The
-pump draws from player-made water as readily as from a river, and says which it is drawing from.
+### Native ground model
+
+Split the four facts the current `Terrain` band conflates:
+
+```text
+generated bed elevation + earthwork delta + erosion/deposition delta = finished ground elevation
+surface/substrate material                                           = separate derived identity
+water depth, surface and discharge                                   = separate hydrology
+resource field                                                       = already separate
+```
+
+The generated bed, substrate and initial hydrology are pure functions of generator version, seed,
+world parameters and coordinate. Cache them as derived data only. The earthwork delta, erosion
+delta, departures from initial water equilibrium and non-zero erosion accumulators are native,
+saved and checksummed. Never save a generated height per world cell merely because a renderer needs
+it, and never duplicate the height generator in TypeScript.
+
+`DeepWater`, `ShallowWater`, `Shore`, `Lowland`, `Hills`, `Highland` and `Cliff` cease to be one
+simulation union. Preserve player-readable material families — water, sand, meadow, soil and rock —
+but derive movement and building legality from finished height, substrate and water. A cliff is a
+slope or exposed rock face; a shore is a material/moisture relationship; neither is an altitude
+number disguised as a colour.
+
+The native snapshot must publish newly surveyed height chunks once, in a bounded integer array with
+material data, then keep player edits sparse. Extend the binary wire deliberately and measure it.
+The host may build meshes from native-published heights; it may not invent or independently sample
+simulation elevation.
+
+### Drainage shapes the world
+
+Do not add flow to the shipped ridge-noise rivers. Generate drainage first and fit the terrain to
+it:
+
+1. Partition macro-scale space into deterministic bounded drainage provinces independent of
+   `generated_chunks`. Province ownership, halo and border outlets must be coordinate-derived so
+   query order and survey direction cannot affect a result.
+2. Build a hierarchical directed drainage graph inside each province. Coastal or lower parent
+   outlets are roots; wet high leaves are spring candidates; branches merge and never form a cycle.
+3. Accumulate an integer discharge class downstream from springs and catchment area. Discharge sets
+   channel width, depth, pump replenishment and erosion strength; it is not a visual-only number.
+4. Resolve flats and real basins with a deterministic integer depression/watershed pass suitable for
+   a six-neighbour grid. Preserve selected closed basins as lakes; give every other drainage path a
+   non-increasing head to its declared outlet. Ties use a total coordinate order.
+5. Carve channel beds and valley profiles around the graph, then add geological relief and fine
+   surface variation without reversing the drainage. The generated world should already look old:
+   mature valley and channel erosion is part of the derived bed.
+6. Derive springs, rivers, lakes and oceans as **initial hydrology**, not terrain bands and not saved
+   entities. The world is unbounded, but each derived query and province build is bounded.
+
+The landing no longer shrinks the elevation wavelengths to force a toy sample of every band beside
+the hub. Pick a deterministic buildable valley shelf, keep the immediate construction pad safe, and
+guarantee opening materials through plausible local geology and outcrops. Report actual walk metres
+and time in the balance survey; do not preserve the old 14/25/40-hex windows by accident.
+
+Before production activation, add a native survey that reports at least elevation range, slope
+histogram, closed basins, spring count, drainage cycles, uphill edges, river width/discharge classes,
+water coverage, nearest opening materials and generation cost. Pin representative seeds and every
+preset. No generator tuning claim ships without that committed evidence.
+
+### Water is equilibrium plus sparse disturbance
+
+A spring is a boundary condition with finite rated discharge, not a cell that injects a new water
+item forever. Generated rivers carry a stable flow field. Their animated surface can move while the
+simulation is settled and costs no tick work.
+
+The player creates sparse hydrology state only by changing the equilibrium: cutting a channel,
+raising a dam, opening an outlet, pumping a finite pond, diverting a spring, flooding a pad or
+draining a basin. Such a change schedules a bounded **active region**. Native resolves water depth,
+surface and discharge to a fixed point, then removes the region from the schedule. No full-world or
+permanent per-cell water kernel is allowed.
+
+- Spreading water may never insert a gameplay chunk into `generated_chunks`. Initial hydrology may
+  query derived macro data; disturbed flow stops at the surveyed frontier against a deterministic
+  boundary flux and resumes only when player survey exposes the next region.
+- Oceans and untouched large rivers are derived boundary conditions, not millions of running water
+  entities. Only disturbed cells need saved departure state.
+- Source discharge creates water and terminal ocean/frontier outlets remove it, so global volume
+  conservation is not claimed. Local transfers between those boundaries must not duplicate or lose
+  depth, and every active solve must terminate within an explicit cell and iteration budget.
+- Do not implement the Minecraft rule that neighbouring sources manufacture another source. Springs
+  are generator identity or an explicit future construction, never an emergent adjacency trick.
+- A pump draws against local available depth and replenishing discharge. It can drain a finite pond,
+  run sustainably on a sufficient river, and report the named source and limiting rate. Loose water
+  in the existing pipe network remains factory cargo after extraction; pipe transport does not
+  become a hydraulic pressure simulation in this phase.
+
+Movement cost, wading, construction, bridges, pumps and route search read water depth from the same
+native predicate. Replace `fixtures/terrain-passability.json` with fixtures that pin substrate,
+slope and water-depth cases in both languages rather than mapping one terrain word to one answer.
+
+### Slow live erosion
+
+The initial world owns geological-age erosion. Live erosion exists to let an old factory observe a
+river gradually answer what the player built; it is not another fast terrain tool.
+
+At a coarse deterministic geomorphic epoch, process only surveyed flowing-water edges with non-zero
+discharge. Incoming and outgoing flow directions identify curvature. Integer bank stress grows on
+the outside of a bend from discharge, curvature and substrate erodibility; the inner/downstream side
+receives deposition. When a threshold is crossed, move one 0.25 m bed quantum, debit the accumulator
+and re-resolve only the affected hydrology region. Stable coordinate order decides simultaneous
+changes. Rock, paving, vegetation and retaining structures modify resistance through data.
+
+Save only non-zero stress and erosion/deposition deltas. A straight settled reach has no per-tick
+work. Tune epochs and thresholds from a committed accelerated harness first; ordinary play should
+need a long observation before an unprotected bank moves, while the harness can prove the same
+sequence quickly. Erosion may expose or bury a surface resource only through an explicit rule; do
+not silently mutate deposit identity as a side effect of lowering ground.
+
+### Physical footprints and cadence
+
+The scale change is incomplete while thirty of the thirty-five shipped buildings remain one-cell
+props. Reauthor definitions and meshes as one catalogue, preserving readable routing space:
+
+- one cell: belts, pipes, poles, bridge sections, underpasses, splitters, mergers and genuinely
+  small equipment;
+- one or two cells: manual workshop, container, pump and primitive furnace;
+- two or three cells: extractor, cutter, crusher, smelter, kiln, boiler and turbine;
+- up to seven cells: tanks, oil well, asphalt mixer, barrel station and larger generators;
+- seven to nineteen cells: refinery, landing hub and later structural process plants.
+
+Raise the definition footprint ceiling only with rotation, placement, port, upgrade, erase, snapshot
+and capacity coverage. Separate the occupied foundation from a service/upgrade envelope, overhead
+clearance and foundation class. A turbine rotor may reserve clearance without making every cell
+solid. An upgrade either stays inside an envelope reserved at initial placement or performs one
+atomic enlarged-footprint legality check; it never silently overlaps a neighbour or moves a port.
+
+Audit every rule whose unit was secretly “hexes”: player speed and radius, hand gathering,
+construction reach, extractor discs, pole coverage, belts, pipes, bridge spans, underpasses, roads,
+walking search bounds, opening guarantees and camera zoom. Preserve the stated 3 m/s walk and 5 m/s
+run by changing world-units per player step. Hand gathering no longer inherits an extractor's
+one-hex disc. A belt currently moves one 5.37 m segment per 0.1 s after the rescale; introduce bounded
+integer transit cadence rather than relabelling that as a believable 54 m/s conveyor. Re-run balance
+and journey measurements after these changes; do not tune by prose.
+
+### Renderer, camera and picking
+
+Replace isolated terrain prisms with a continuous chunk height mesh built from native-published
+integer samples. Ordinary neighbouring heights blend into slopes; explicit cliffs, excavations and
+retaining faces receive vertical skirts. Water is a separate surface at its native level. Add a
+distant aggregated terrain LOD before claiming mountain scale: a peak the camera cannot show until
+the player stands on it has not solved sense of place.
+
+The camera follows the player's finished height and keeps near/far planes, fog and orbit useful from
+valley floor to summit. The fixed logical-plane picker cannot survive large relief. Raycast the
+native-derived visible height mesh to obtain x/z, resolve that point to the axial cell, and let native
+legality remain authoritative; renderer interpolation never becomes saved truth. Overlays,
+buildings, boundaries, cargo and the player all use one `height_at` route so nothing floats over a
+cut or buries itself in a slope.
+
+### Compatibility boundary
+
+This is an intentional new-world boundary. Do not automatically enlarge a v0.46 factory: new
+footprints can overlap, the old generated bands contain no recoverable drainage history, and a
+coordinate-preserving load would pretend otherwise. Keep the save catalogue able to identify and
+explain a legacy-scale file. Choose either a frozen legacy viewer/runtime or a clear refusal with an
+export path before activation; do not maintain two live physical scales inside one simulation.
+
+Activation requires deliberate save, world-generator, definitions, wire and scenario version
+changes together with both lockfiles and fixtures. Release numbers remain unassigned. State the
+supported migration window in player-facing text before the bump, as already required by the entry
+work above.
+
+### Implementation order
+
+Each numbered slice ends in a clean commit and keeps production behaviour valid. Do not push a
+partially activated physical model.
+
+1. **Baseline and prototype, no production toggle.** — **delivered in v0.46.0.** Record the current
+   survey, balance, capacity, opening journey and representative screenshots. Add fixed scale
+   constants and a native test-only prototype for absolute height, drainage provinces, spring graph,
+   depression handling and the new survey. It must prove query-order independence and drainage
+   invariants before any envelope moves.
+
+   The baseline and the prototype's measurements are in
+   [`BENCHMARKS.md`](BENCHMARKS.md#phase-8-slice-1--the-pre-rescale-baseline-and-the-drainage-prototype--v0460).
+   `factory_wasm::scale` holds the scale contract, declared and read by nothing that ships;
+   `factory_wasm::terra` holds the prototype and is `#[cfg(not(target_arch = "wasm32"))]`, so "no
+   production toggle" is a property of the artifact rather than a promise. `npm run terra` reports
+   it. Its sixteen tests assert query-order independence, seam agreement from either side, acyclic
+   drainage with non-increasing head, terminating walks and a bounded per-cell province cost; two
+   surveys of 81 provinces each report zero cycles, zero uphill edges and zero unterminated walks.
+
+   Two carried findings, both measured rather than argued:
+   - **Depressions are made by the height field, not resolved badly by the drainage pass.** They sit
+     at the value-noise octave corners on interfluves no valley cross-section reaches. Carving the
+     whole flow tree to fix that made them 2.1× worse, because a constant-depth cut across rising
+     ground manufactures a trench with a lip. Slice 2 wants a **graded long profile** — an absolute
+     descending floor elevation propagated down the tree — which changes what head means and needs
+     seam floor elevations to agree, so it could not be prototyped without moving the envelope.
+   - **The height field must not be rounded to quanta before depressions are resolved.** Doing so
+     put 216 per mille of neighbour pairs at exactly equal height and produced 32,694 micro-lakes.
+     The prototype carries the field in milli-quanta internally and publishes whole quanta.
+
+   Screenshots were **not** committed: the renderer runs without `preserveDrawingBuffer`, so a
+   page-side canvas capture returns an empty buffer, and turning it on for a baseline would change
+   production rendering. The visual baseline is instead reproducible — `npm run dev`, the committed
+   `New game` save at seed 1213486160, continental, save 36 / world 10 / definitions 27 /
+   technology 16 / scenario 7. It shows what the phase is correcting: within one screen of the
+   landing hub the shipped generator packs a pond, a sand flat, forest, meadow and cliff faces, a toy
+   sample of every band, at a scale where a 1 m cell makes a "cliff" a knee-high step.
+
+2. **Production ground spine behind the old presentation.** Introduce the separated native types,
+   derived caches and full-vs-cached oracles. Thread finished elevation through walking, placement,
+   ground transactions and snapshots while fixtures prove shipped worlds still behave identically.
+   This slice is infrastructure only and does not reinterpret existing saves.
+3. **Content and renderer activation.** Reauthor footprints and metre-derived cadence, build the
+   heightfield/water renderer and height-aware picking, retune the opening, then switch new worlds to
+   the 25 m² generator at the declared compatibility boundary. Move every envelope and fixture in
+   one reviewed activation; validate desktop and mobile journeys before production.
+4. **Sparse disturbed water.** Add water departure state, active-region equilibrium, frontier
+   boundaries, pumps, flood/drain commands and save/load/checksum coverage. Re-measure the active
+   front and the settled-world zero-work case.
+5. **Geomorphic epochs.** Add curvature, resistance, bank stress, deposition and local reflow with
+   an accelerated deterministic harness. Ship only after protected infrastructure and finite work
+   bounds are visible and tested.
+
+The first implementing agent starts at slice 1. It must not “get ahead” by putting a flowing-water
+front on the old band elevations; the prototype exists to falsify the scale and drainage model
+cheaply before the save boundary makes it expensive.
+
+### Acceptance
+
+- The same seed, parameters and coordinate return the same bed, substrate, spring, drainage edge and
+  initial water regardless of chunk generation or query order. Cached and uncached forms match.
+- Every river edge has non-increasing hydraulic head, the directed drainage graph has no cycle, each
+  non-lake path reaches its declared outlet, and every retained lake reports its spill level.
+- Representative presets contain kilometre-scale valleys and mountain relief without miniature
+  highland/lowland oscillation inside the landing pad. The opening journey and resource access pass
+  committed balance gates in metres and time.
+- A source and a player-made channel reach the same fixed point across mid-flow save/load; a flooded
+  cut drains when reopened; a finite pond can be pumped dry; an adequate river replenishes within
+  its rated discharge.
+- Neither initial hydrology queries nor disturbed flow insert gameplay chunks. Every command,
+  region, wire payload and solver has an explicit bound.
+- A bend erodes the outside bank and deposits inside in the accelerated harness; a straight reach,
+  a dry cell and a protected bank do not. Save/load and checksum preserve the epoch sequence.
+- All reauthored footprints rotate, place, upgrade, connect, erase and refund without overlap or
+  port movement. Ordinary-zoom silhouettes and service clearances are legible.
+- Terrain, water, player, structures and overlays agree on height. Picking a visible high or low
+  cell names that cell, and native legality remains the final answer.
+- `npm run survey`, `npm run balance`, `npm run bench`, `npm run bench:browser` and `npm run quality`
+  record the release evidence. Production is pushed only after the new-world catalogue message,
+  desktop/mobile browser checks and GitHub Pages verification pass.
 
 ## Phase 9 — Living Lattice
 
