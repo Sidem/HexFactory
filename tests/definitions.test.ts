@@ -162,6 +162,68 @@ describe("data-defined content", () => {
     expect(() => validateDefinitions(broken)).toThrow(/not a higher tier/);
   });
 
+  it("bounds a footprint at one readable building and lets a tier only grow", () => {
+    // The complete two-ring hexagon: the ceiling both sides enforce, and the largest structure the
+    // physical catalogue asks for.
+    const disc = (radius: number): { q: number; r: number }[] => {
+      const cells: { q: number; r: number }[] = [];
+      for (let q = -radius; q <= radius; q += 1)
+        for (let r = -radius; r <= radius; r += 1)
+          if (Math.abs(q) <= radius && Math.abs(q + r) <= radius)
+            cells.push({ q, r });
+      return cells;
+    };
+    expect(disc(2)).toHaveLength(19);
+
+    const withFootprint = (
+      key: string,
+      footprint: { q: number; r: number }[],
+    ): Definitions => {
+      const edited = structuredClone(typedDefinitions);
+      const target = edited.buildings.find((building) => building.key === key);
+      expect(target, `${key} is in the catalogue`).toBeDefined();
+      if (target) target.footprint = footprint;
+      return edited;
+    };
+
+    expect(() =>
+      validateDefinitions(withFootprint("extractor-ii", disc(2))),
+    ).not.toThrow();
+    expect(() =>
+      validateDefinitions(
+        withFootprint("extractor-ii", [...disc(2), { q: 3, r: 0 }]),
+      ),
+    ).toThrow(/invalid footprint/);
+    // Two lobes with a gap between them would leave walkable ground inside a building.
+    expect(() =>
+      validateDefinitions(
+        withFootprint("extractor-ii", [
+          { q: 0, r: 0 },
+          { q: 3, r: 0 },
+        ]),
+      ),
+    ).toThrow(/disconnected pieces/);
+
+    // A tier may take more ground than the one below it; it may never step off ground it already
+    // stands on, which is what would strand a belt against a hex the building no longer occupies.
+    expect(() =>
+      validateDefinitions(
+        withFootprint("extractor-ii", [
+          { q: 0, r: 0 },
+          { q: 1, r: 0 },
+        ]),
+      ),
+    ).not.toThrow();
+    expect(() =>
+      validateDefinitions(
+        withFootprint("extractor", [
+          { q: 0, r: 0 },
+          { q: 1, r: 0 },
+        ]),
+      ),
+    ).toThrow(/off a cell it stands on/);
+  });
+
   it("lets only a single-cell definition claim the two-row period", () => {
     const belt = typedDefinitions.buildings.find(({ key }) => key === "belt");
     expect(belt?.orientation_axis).toBe("any");

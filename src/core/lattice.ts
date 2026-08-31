@@ -43,7 +43,8 @@ export const CORNER_NAMES: readonly string[] = [
   "Northwest",
 ];
 
-const DIRECTIONS: readonly (readonly [number, number])[] = [
+/** The six edge steps, in native's order. Native's `DIRECTIONS`. */
+export const DIRECTIONS: readonly (readonly [number, number])[] = [
   [1, 0],
   [0, 1],
   [-1, 1],

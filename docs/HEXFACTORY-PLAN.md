@@ -505,9 +505,20 @@ partially activated physical model.
    `src/rendering/three/heightfieldTerrain.ts` prerequisite now builds deterministic continuous
    ground from explicit native samples, keeps water separate, adds cliff/frontier skirts and
    raycasts the visible surface back to an axial cell. It is not imported by the live renderer, so
-   wire 19, the shipped prisms and logical-plane picking are unchanged. The remaining work in this
-   slice is footprint/cadence/opening content, the native height wire, renderer integration and the
-   one-way activation bundle above.
+   wire 19, the shipped prisms and logical-plane picking are unchanged.
+
+   The definition footprint ceiling now stands at the complete two-ring hexagon, nineteen cells, on
+   both sides of the boundary, and a footprint must be one contiguous shape. An upgrade takes the
+   plan's atomic branch rather than a reserved envelope: a ladder step may only grow onto cells the
+   tier below did not hold, and `upgrade` judges the whole enlarged footprint — occupancy, the
+   player, boundaries, terrain and the grade across every cell — in one refusal before anything is
+   charged or written. A port cannot be lost by growing, because an output ray binds to the first
+   cell off the footprint and growth into an occupied cell is what the check refuses. Rotation,
+   placement, occupancy, erase, snapshot and the definition validators are covered at nineteen
+   cells; the shipped catalogue is untouched, and no envelope moved. Foundation class, the service
+   envelope and overhead clearance stay with the activation bundle, since each adds definition and
+   save surface. The remaining work in this slice is footprint/cadence/opening content, the native
+   height wire, renderer integration and the one-way activation bundle above.
 
 4. **Sparse disturbed water.** Add water departure state, active-region equilibrium, frontier
    boundaries, pumps, flood/drain commands and save/load/checksum coverage. Re-measure the active

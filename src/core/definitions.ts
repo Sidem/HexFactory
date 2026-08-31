@@ -1,4 +1,5 @@
 import { validateSkills } from "./skills";
+import { DIRECTIONS } from "./lattice";
 import { productionRoutes, recipeOutputs } from "./recipes";
 import type {
   BuildingDefinition,
@@ -20,6 +21,41 @@ export function supportsRecipe(
       ? building.recipe_ids.includes(recipe.id)
       : building.recipe_category === recipe.category)
   );
+}
+
+/**
+ * The most cells a definition's footprint may claim: the complete two-ring hexagon. Native's
+ * `MAX_FOOTPRINT_CELLS`.
+ *
+ * Nineteen is the largest structure Phase 8's physical catalogue asks for, and it is a shape rather
+ * than a round number, so a definition that reaches the ceiling is still one readable building. The
+ * host mirrors the bound because it draws a preview cell and an occupancy key per footprint cell
+ * too; a definition file may not make either of those unbounded on this side either.
+ */
+const MAX_FOOTPRINT_CELLS = 19;
+
+/**
+ * True when every cell of a definition's footprint is reachable from its anchor through the six
+ * edge steps. Native's `footprint_is_contiguous`.
+ *
+ * Asked of the authored offsets only. Rotation by whole sixths is a symmetry of this lattice, so a
+ * contiguous footprint stays contiguous at every heading, and translating it to a placement anchor
+ * cannot separate it either.
+ */
+function footprintIsContiguous(cells: ReadonlySet<string>): boolean {
+  const reached = new Set(["0,0"]);
+  const frontier: [number, number][] = [[0, 0]];
+  for (let cell = frontier.pop(); cell; cell = frontier.pop()) {
+    for (const [dq, dr] of DIRECTIONS) {
+      const step: [number, number] = [cell[0] + dq!, cell[1] + dr!];
+      const key = `${step[0]},${step[1]}`;
+      if (cells.has(key) && !reached.has(key)) {
+        reached.add(key);
+        frontier.push(step);
+      }
+    }
+  }
+  return reached.size === cells.size;
 }
 
 const KINDS = new Set([
@@ -295,11 +331,19 @@ export function validateDefinitions(
     if (
       footprint.size !== building.footprint.length ||
       !footprint.has("0,0") ||
+      footprint.size > MAX_FOOTPRINT_CELLS ||
       building.footprint.some(
         ({ q, r }) => !Number.isInteger(q) || !Number.isInteger(r),
       )
     )
       throw new TypeError(`building ${building.id} has an invalid footprint`);
+    // One building is one connected thing. Two lobes with a gap between them would still occupy
+    // every cell, but the gap would read as walkable ground inside a building, and reach, routing
+    // and the ground pad would all be measuring a shape the player cannot see as one machine.
+    if (!footprintIsContiguous(footprint))
+      throw new TypeError(
+        `building ${building.id} has a footprint in disconnected pieces`,
+      );
     // A machine that runs recipes needs a category, and one that does not must not claim one.
     if ((building.kind === "composer") !== Boolean(building.recipe_category))
       throw new TypeError(
@@ -487,10 +531,10 @@ export function validateDefinitions(
 }
 
 /**
- * An upgrade may only grow a building into a taller version of itself. Kind, recipe category,
- * footprint, and orientation axis are all pinned across a step, which is what lets the command
- * preserve contents, orientation, and connections without asking whether any of them still apply.
- * The strictly increasing tier is what keeps a ladder finite.
+ * An upgrade may only grow a building into a taller version of itself. Kind, recipe category and
+ * orientation axis are pinned across a step, and the footprint may only grow, which is what lets
+ * the command preserve contents, orientation, and connections without asking whether any of them
+ * still apply. The strictly increasing tier is what keeps a ladder finite.
  */
 function validateUpgradeLadders(buildings: BuildingDefinition[]): void {
   const byId = new Map(buildings.map((building) => [building.id, building]));
@@ -521,14 +565,15 @@ function validateUpgradeLadders(buildings: BuildingDefinition[]): void {
       throw new TypeError(
         `building ${building.id} upgrades to ${next.id}, which cannot be constructed`,
       );
-    const cells = (definition: BuildingDefinition): string =>
-      definition.footprint
-        .map(({ q, r }) => `${q},${r}`)
-        .sort()
-        .join(" ");
-    if (cells(next) !== cells(building))
+    // A tier may take more ground; it may never give up ground it already stands on. Growing into
+    // free cells leaves every existing cell, and therefore every connection bound to one, exactly
+    // where it was — native refuses the upgrade unless the new cells are empty, so an output ray
+    // that used to leave the footprint at some cell still leaves it at the same one. Shrinking or
+    // sliding would strand a belt against a hex the building no longer occupies.
+    const cells = new Set(next.footprint.map(({ q, r }) => `${q},${r}`));
+    if (building.footprint.some(({ q, r }) => !cells.has(`${q},${r}`)))
       throw new TypeError(
-        `building ${building.id} upgrades to a different footprint, which would move its connections`,
+        `building ${building.id} upgrades off a cell it stands on, which would move its connections`,
       );
   }
 }

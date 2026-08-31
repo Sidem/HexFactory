@@ -247,6 +247,18 @@ const EXTRACT_RADIUS: i32 = 1;
 /// `deposit_candidates` walks the whole disc, and a definition file is not allowed to make that
 /// walk unbounded.
 const MAX_EXTRACT_RADIUS: u32 = 4;
+/// The most cells a definition's footprint may claim: the complete two-ring hexagon.
+///
+/// Nineteen is the largest structure Phase 8's physical catalogue asks for — a refinery, the
+/// landing hub, a structural process plant — and it is a shape rather than a round number, so a
+/// definition that reaches the ceiling is still something a player can read as one building. The
+/// bound exists because every cell is a key in the occupancy index, a preview cell, and a
+/// footprint entry on the wire; a definition file is not allowed to make any of those unbounded.
+///
+/// Nothing shipped is near it. The catalogue's largest building is the three-cell hub, and this
+/// ceiling moves before the catalogue does precisely so raising it is not part of the change that
+/// reauthors thirty buildings.
+const MAX_FOOTPRINT_CELLS: usize = 19;
 /// Hexes around the hub forced to lowland so the landing is always a buildable clearing.
 const LANDING_CLEAR_RADIUS: i32 = 7;
 /// World units the player covers per player step at full intent (1000). That is the **run**:
@@ -7339,6 +7351,78 @@ impl Core {
         Ok(())
     }
 
+    /// One atomic legality check for the cells a taller tier would newly occupy.
+    ///
+    /// This is the alternative to reserving an envelope at initial placement: nothing is held
+    /// empty in advance, so the moment of growth is the moment the ground has to be proved. It
+    /// asks of the new cells exactly what `placement_legality` asks of a fresh site — free of
+    /// buildings, free of the player, buildable terrain, no boundary through the shape — and it
+    /// asks the level-pad question of the *whole* enlarged footprint, because a machine that grew
+    /// onto a slope is as unstandable as one placed there.
+    ///
+    /// Refusing here also protects the ports. An output ray leaves the anchor and skips the
+    /// building's own cells, so a longer footprint changes where it first meets something else —
+    /// unless the ground it grew onto was empty, which is what this refuses to assume.
+    fn upgrade_growth_legality(
+        &self,
+        next: &BuildingDefinition,
+        current: &[Coordinate],
+        grown: &[Coordinate],
+    ) -> Result<(), String> {
+        let held: BTreeSet<(i32, i32)> = current.iter().map(|cell| (cell.q, cell.r)).collect();
+        let growth: Vec<Coordinate> = grown
+            .iter()
+            .copied()
+            .filter(|cell| !held.contains(&(cell.q, cell.r)))
+            .collect();
+        if growth.is_empty() {
+            return Ok(());
+        }
+        if self.boundary_crosses_footprint(grown) {
+            return Err("A boundary crosses this building footprint; remove it first".into());
+        }
+        for cell in &growth {
+            if self.entity_at(cell.q, cell.r).is_some() {
+                return Err(format!(
+                    "{} needs more room than this one has; clear the hexes beside it",
+                    next.name
+                ));
+            }
+            let (cell_x, cell_y) = axial_world(cell.q, cell.r);
+            if circles_overlap(
+                self.player.x,
+                self.player.y,
+                PLAYER_RADIUS,
+                cell_x,
+                cell_y,
+                BUILDING_RADIUS,
+            ) {
+                return Err("the player blocks this footprint".into());
+            }
+            // Only the definition's own water rule, not the belt-on-a-bridge exemption: a bridge
+            // carries transport it does not own, and growing a machine over one would take the
+            // crossing away from the line already using it.
+            let shallow_support = next.placement_rule == PlacementRule::Shallows
+                && self.terrain_at(cell.q, cell.r) == Terrain::ShallowWater;
+            if self.terrain_blocks_construction(cell.q, cell.r) && !shallow_support {
+                return Err("environment blocks construction".into());
+            }
+        }
+        let elevations: Vec<_> = grown
+            .iter()
+            .map(|cell| self.ground_elevation_at(cell.q, cell.r))
+            .collect();
+        if let (Some(low), Some(high)) = (
+            elevations.iter().min().copied(),
+            elevations.iter().max().copied(),
+        ) {
+            if high - low > MAX_BUILD_STEP {
+                return Err("This ground is too uneven; level a pad for this footprint".into());
+            }
+        }
+        Ok(())
+    }
+
     fn upgrade(&mut self, q: i32, r: i32) -> Result<(), String> {
         if !self.within_build_range_of_target(q, r) {
             return Err("upgrade target is outside build range".into());
@@ -7376,13 +7460,29 @@ impl Core {
                 ));
             }
         }
+        // A taller tier may claim more ground than the one standing here. Judge the whole enlarged
+        // footprint once, before anything is charged or written: the ladder guarantees the cells it
+        // already occupies are kept, so what is left to prove is that the new ones are free, legal
+        // and level enough to stand on together with the old. Every refusal below leaves the
+        // building exactly as it was.
+        let current_cells = self.entity_footprint(&self.entities[index]);
+        let grown = self.footprint_for(
+            PlacedBuilding {
+                definition_id: next_id,
+                ..self.entities[index].placed
+            },
+            orientation,
+        );
+        self.upgrade_growth_legality(&next, &current_cells, &grown)?;
         // Netted per item, so the two halves of the price never travel through the pack. A player
         // upgrading with a full pack is charged the difference and asked to carry the difference,
         // which is what an in-place edit actually costs them.
         let old_links = self.graph_links_by_id();
-        let changed_cells = self
-            .entity_footprint(&self.entities[index])
-            .into_iter()
+        // Both footprints, because the graph has to forget rays that used to cross a cell the
+        // building now covers as surely as it has to recompile the ones that touched it before.
+        let changed_cells: BTreeSet<(i32, i32)> = current_cells
+            .iter()
+            .chain(grown.iter())
             .map(|cell| (cell.q, cell.r))
             .collect();
         self.charge_difference(next.cost_at(orientation), &refund)?;
@@ -10266,9 +10366,20 @@ fn validate_definitions(definitions: &DefinitionsInput) -> Result<(), String> {
             .collect();
         if footprint.len() != building.footprint.len()
             || !footprint.contains(&(0, 0))
-            || footprint.len() > 7
+            || footprint.len() > MAX_FOOTPRINT_CELLS
         {
             return Err(format!("building {} has an invalid footprint", building.id));
+        }
+        // One building is one connected thing. Two lobes with a gap between them would still map
+        // every cell into the occupancy index, but reach, routing and the ground pad would all be
+        // measuring a shape the player cannot see as a single machine — and the gap cell would be
+        // walkable ground inside a building. Contiguity is cheap to state here and impossible to
+        // recover later, once a save holds the disconnected entity.
+        if !footprint_is_contiguous(&footprint) {
+            return Err(format!(
+                "building {} has a footprint in disconnected pieces",
+                building.id
+            ));
         }
         // No shipped definition needs a multi-cell corner-heading footprint yet. Keep the narrow
         // rule until a real definition asks for the extra path and can test it. The test is "may
@@ -10465,9 +10576,15 @@ fn validate_upgrade_ladders(definitions: &DefinitionsInput) -> Result<(), String
             .collect();
         let next_footprint: BTreeSet<_> =
             next.footprint.iter().map(|cell| (cell.q, cell.r)).collect();
-        if footprint != next_footprint {
+        // A tier may take more ground; it may never give up ground it already stands on. Growing
+        // into free cells leaves every existing cell, and therefore every connection bound to one,
+        // exactly where it was — `upgrade` refuses unless the new cells are empty, so an output ray
+        // that used to leave the footprint at some cell still leaves it at the same one. Shrinking
+        // or sliding would strand a belt against a hex the building no longer occupies, which is
+        // the failure this rule has always been about.
+        if !footprint.is_subset(&next_footprint) {
             return Err(format!(
-                "building {} upgrades to a different footprint, which would move its connections",
+                "building {} upgrades off a cell it stands on, which would move its connections",
                 building.id
             ));
         }
@@ -11152,6 +11269,27 @@ fn world_direction(direction: u8) -> (i16, i16) {
         (500, -866),
     ];
     WORLD_DIRECTIONS[usize::from(direction % 6)]
+}
+
+/// True when every cell of a definition's footprint is reachable from its anchor through the six
+/// edge steps.
+///
+/// Asked of the authored offsets only. Rotation by whole sixths is a symmetry of this lattice, so
+/// a contiguous footprint stays contiguous at every heading a definition may face, and translation
+/// to a placement anchor cannot separate it either. Checking the definition once is therefore the
+/// same as checking every placement of it.
+fn footprint_is_contiguous(cells: &BTreeSet<(i32, i32)>) -> bool {
+    let mut reached = BTreeSet::from([(0, 0)]);
+    let mut frontier = vec![(0, 0)];
+    while let Some((q, r)) = frontier.pop() {
+        for (dq, dr) in DIRECTIONS {
+            let step = (q + dq, r + dr);
+            if cells.contains(&step) && reached.insert(step) {
+                frontier.push(step);
+            }
+        }
+    }
+    reached.len() == cells.len()
 }
 
 fn rotate_coordinate(mut coordinate: Coordinate, turns: u8) -> Coordinate {
@@ -19895,6 +20033,242 @@ mod tests {
         core.erase(-2, 0).unwrap();
         assert!(core.entity_at(-2, 0).is_none());
         assert!(core.entity_at(-2, -1).is_none());
+    }
+
+    /// Every cell within `radius` steps of the anchor, as definition-relative offsets.
+    fn disc_offsets(radius: i32) -> Vec<(i32, i32)> {
+        let mut cells = Vec::new();
+        for q in -radius..=radius {
+            for r in -radius..=radius {
+                if axial_distance((0, 0), (q, r)) <= radius {
+                    cells.push((q, r));
+                }
+            }
+        }
+        cells
+    }
+
+    /// Give a live definition a footprint the shipped catalogue does not contain.
+    ///
+    /// Phase 8 reauthors thirty buildings into multi-cell plants; the machinery that has to hold
+    /// them is being proved here first, against shapes no `definitions.json` carries yet. Editing
+    /// the catalogue in the Core is what `a_footprint_needs_ground_no_steeper_than_a_walk_can_climb`
+    /// already does, and it keeps the shipped file the subject of its own tests.
+    fn set_test_footprint(core: &mut Core, definition_id: DefinitionId, cells: &[(i32, i32)]) {
+        core.definitions
+            .buildings
+            .iter_mut()
+            .find(|building| building.id == definition_id)
+            .expect("a building to reshape")
+            .footprint = cells.iter().map(|&(q, r)| Coordinate { q, r }).collect();
+    }
+
+    /// The two-ring hexagon is the largest shape a definition may claim, and standing one is not a
+    /// special case: all nineteen cells enter the occupancy index, the snapshot publishes all
+    /// nineteen, and an erase aimed at the rim takes the whole building.
+    #[test]
+    fn a_nineteen_cell_footprint_occupies_publishes_and_erases_as_one_building() {
+        let mut core = game("new-game");
+        core.researched.extend([1, 2, 3]);
+        stock_for(&mut core, 3, 1);
+        core.player.build_range = 1 << 20;
+        set_player_hex(&mut core, 0, 6);
+        let cells = disc_offsets(2);
+        assert_eq!(cells.len(), MAX_FOOTPRINT_CELLS);
+        set_test_footprint(&mut core, 3, &cells);
+
+        core.place(-4, 0, 3, 0, Some(1)).unwrap();
+        let index = core.entity_at(-4, 0).expect("the plant stands");
+        for &(q, r) in &cells {
+            assert_eq!(
+                core.entity_at(-4 + q, r),
+                Some(index),
+                "cell ({q}, {r}) belongs to the plant"
+            );
+        }
+        let published = core
+            .snapshot()
+            .buildings
+            .into_iter()
+            .find(|entity| entity.definition_id == 3)
+            .expect("the plant is published");
+        assert_eq!(published.footprint.len(), MAX_FOOTPRINT_CELLS);
+
+        // The rim, not the anchor: an erase names a hex the player can see, and every hex the
+        // building covers is that building.
+        core.erase(-6, 0).unwrap();
+        assert!(cells
+            .iter()
+            .all(|&(q, r)| core.entity_at(-4 + q, r).is_none()));
+    }
+
+    /// A multi-cell footprint turns with its heading. Rotation by whole sixths is the only turn
+    /// this lattice has, which is why the validator keeps the twelve-heading transport axis
+    /// single-cell: a thirty-degree turn is not a symmetry of the grid and could not land a second
+    /// cell on a hex at all.
+    #[test]
+    fn a_multi_cell_footprint_turns_with_its_heading() {
+        let mut core = game("new-game");
+        core.researched.extend([1, 2, 3]);
+        core.player.build_range = 1 << 20;
+        set_player_hex(&mut core, 0, 6);
+        let offsets = [(0, 0), (1, 0), (2, 0), (0, 1)];
+        set_test_footprint(&mut core, 3, &offsets);
+
+        let mut shapes: BTreeSet<Vec<(i32, i32)>> = BTreeSet::new();
+        for orientation in 0..6u8 {
+            stock_for(&mut core, 3, 1);
+            core.place(-4, 0, 3, orientation, Some(1)).unwrap();
+            let index = core.entity_at(-4, 0).expect("the plant stands");
+            let standing: Vec<(i32, i32)> = core
+                .entity_footprint(&core.entities[index])
+                .into_iter()
+                .map(|cell| (cell.q, cell.r))
+                .collect();
+            let expected: Vec<(i32, i32)> = offsets
+                .iter()
+                .map(|&(q, r)| {
+                    let turned = rotate_coordinate(Coordinate { q, r }, orientation);
+                    (-4 + turned.q, turned.r)
+                })
+                .collect();
+            assert_eq!(standing, expected, "heading {orientation}");
+            let mut sorted = standing;
+            sorted.sort();
+            shapes.insert(sorted);
+            core.erase(-4, 0).unwrap();
+        }
+        assert_eq!(shapes.len(), 6, "six headings, six distinct shapes");
+    }
+
+    /// The ceiling and the contiguity rule are properties of the catalogue, so they are checked
+    /// where a definition file is read rather than where a building is placed.
+    #[test]
+    fn a_definition_footprint_may_not_pass_the_ceiling_or_arrive_in_pieces() {
+        let shaped = |cells: Vec<(i32, i32)>| {
+            let mut definitions: DefinitionsInput = serde_json::from_str(DEFINITIONS).unwrap();
+            definitions
+                .buildings
+                .iter_mut()
+                .find(|building| building.id == 3)
+                .expect("the composer")
+                .footprint = cells
+                .into_iter()
+                .map(|(q, r)| Coordinate { q, r })
+                .collect();
+            definitions
+        };
+
+        assert_eq!(validate_definitions(&shaped(disc_offsets(2))), Ok(()));
+
+        let mut oversized = disc_offsets(2);
+        // Contiguous, and one cell past the ceiling: the shape is legal and only the size is not.
+        oversized.push((3, 0));
+        assert!(validate_definitions(&shaped(oversized))
+            .unwrap_err()
+            .contains("invalid footprint"));
+
+        assert!(validate_definitions(&shaped(vec![(0, 0), (3, 0)]))
+            .unwrap_err()
+            .contains("disconnected pieces"));
+    }
+
+    /// A taller tier may take more ground than the one it replaces, and it keeps every port it
+    /// had.
+    ///
+    /// That falls out of the growth rule rather than being enforced a second time. An output ray
+    /// binds to the first cell off the footprint, so the only growth that could take a port away
+    /// is growth into the very hex the ray binds at — and that hex is occupied by the thing being
+    /// fed, which is exactly what the check refuses. A building can gain an adjacency by getting
+    /// bigger; it cannot lose one.
+    #[test]
+    fn an_upgrade_grows_onto_free_ground_and_keeps_the_port_it_had() {
+        let mut core = game("new-game");
+        core.researched.extend([1, 2, 12]);
+        for item_id in [1, 3, 6, 11, 16, 19, 20] {
+            core.player.inventory.insert(item_id, 60);
+        }
+        core.player.carry_slots = 99;
+        core.player.build_range = 1 << 20;
+        set_player_hex(&mut core, 3, 2);
+        set_test_footprint(&mut core, 19, &[(0, 0), (0, 1)]);
+
+        stock_for(&mut core, 2, 1);
+        core.place(3, 0, 1, 0, None).unwrap();
+        core.place(4, 0, 2, 0, None).unwrap();
+        let extractor = core.entity_at(3, 0).expect("the extractor stands");
+        let belt = core.entity_at(4, 0).expect("the belt stands");
+        let fed = core.entities[belt].id;
+        assert_eq!(
+            core.graph[extractor].primary(),
+            Some(belt),
+            "the extractor feeds the belt in front of it"
+        );
+
+        core.upgrade(3, 0).unwrap();
+        let extractor = core.entity_at(3, 0).expect("the deeper extractor stands");
+        assert_eq!(core.entities[extractor].placed.definition_id, 19);
+        assert_eq!(
+            core.entity_at(3, 1),
+            Some(extractor),
+            "the taller tier took the free hex beside it"
+        );
+        let target = core.graph[extractor]
+            .primary()
+            .expect("it is still feeding something");
+        assert_eq!(
+            core.entities[target].id, fed,
+            "and it is the same belt it was feeding"
+        );
+    }
+
+    /// The growth check is one atomic question asked before anything is charged or written. A tier
+    /// that cannot fit leaves the building, the neighbour in its way and the player's pack exactly
+    /// as they were.
+    #[test]
+    fn an_upgrade_that_cannot_fit_changes_nothing_at_all() {
+        let mut core = game("new-game");
+        core.researched.extend([1, 2, 12]);
+        for item_id in [1, 3, 6, 11, 16, 19, 20] {
+            core.player.inventory.insert(item_id, 60);
+        }
+        core.player.carry_slots = 99;
+        reach(&mut core);
+        set_player_hex(&mut core, 3, 2);
+        set_test_footprint(&mut core, 19, &[(0, 0), (1, 0)]);
+
+        stock_for(&mut core, 2, 1);
+        core.place(3, 0, 1, 0, None).unwrap();
+        core.place(4, 0, 2, 0, None).unwrap();
+        let extractor = core.entity_at(3, 0).expect("the extractor stands");
+        let belt = core.entity_at(4, 0).expect("the belt stands");
+        let before = core.player.inventory.clone();
+
+        let refusal = core.upgrade(3, 0).unwrap_err();
+        assert!(refusal.contains("needs more room"), "{refusal}");
+        assert_eq!(core.entities[extractor].placed.definition_id, 1);
+        assert_eq!(
+            core.entity_at(4, 0),
+            Some(belt),
+            "the neighbour is untouched"
+        );
+        assert_eq!(
+            core.player.inventory, before,
+            "a refused upgrade is not charged"
+        );
+
+        // Ground the pair could not stand on together is the same refusal, asked of the whole
+        // enlarged footprint rather than of the cell being grown onto.
+        core.erase(4, 0).unwrap();
+        core.set_creative(true);
+        reach(&mut core);
+        for _ in 0..MAX_GRADE_STEPS {
+            core.edit_ground(&ground_edit(4, 0, GroundAction::Lower))
+                .unwrap();
+        }
+        let refusal = core.upgrade(3, 0).unwrap_err();
+        assert!(refusal.contains("level a pad"), "{refusal}");
+        assert_eq!(core.entities[extractor].placed.definition_id, 1);
     }
 
     #[test]
