@@ -25,9 +25,17 @@ import { GRADE_STEP_HEIGHT } from "../surfaceLook";
 import type { WorldMaterials } from "./materials";
 import { TERRAIN_STYLE, visualHeight } from "./terrainStyle";
 
-const WORLD_FLOOR = -0.34;
+/** The underside every column is drawn down to. Nothing below it is ground the player can see. */
+export const WORLD_FLOOR = -0.34;
 /** How thick a laid surface reads. Thin enough to be a skin, thick enough to catch the key light. */
 const SURFACE_CAP_DEPTH = 0.05;
+/**
+ * How far the pick ray steps down the landform. A step advances less than a fifth of a hex across
+ * the ground at this camera's tilt, so no column is stepped over between two samples.
+ */
+const PICK_STEP = 0.12;
+/** Bisections that place the entry point once a step has landed inside the drawn ground. */
+const PICK_REFINEMENTS = 12;
 const ADJACENCY_DIRECTIONS = TRANSPORT_DIRECTIONS.slice(0, 6);
 /** Exact circumradius for the public pointy-top axial projection. A smaller or rotated prism leaves
  * triangular holes where three cells meet; height may vary, but the logical plane is closed. */
@@ -52,6 +60,28 @@ export interface TerrainBuild {
   readonly cells: readonly TerrainCell[];
   readonly cellByKey: ReadonlyMap<string, TerrainCell>;
   readonly geometries: readonly BufferGeometry[];
+  /** Scene height of the tallest drawn column. A pick ray meets nothing above it. */
+  readonly ceiling: number;
+}
+
+/** A scene-space ray, as the camera hands one over. */
+export interface TerrainRay {
+  readonly origin: Point3;
+  readonly direction: Point3;
+}
+
+/** Where a ray met the drawn landform, and which cell owns the surface it met. */
+export interface TerrainPick {
+  readonly cell: TerrainCell;
+  readonly x: number;
+  readonly z: number;
+  readonly height: number;
+}
+
+interface Point3 {
+  readonly x: number;
+  readonly y: number;
+  readonly z: number;
 }
 
 /**
@@ -112,6 +142,89 @@ export function buildTerrainMeshes(
     cells,
     cellByKey: new Map(cells.map((cell) => [cellKey(cell.q, cell.r), cell])),
     geometries: [column, frontier.geometry, ...(caps ? [caps.geometry] : [])],
+    ceiling: cells.reduce(
+      (highest, cell) => Math.max(highest, cell.height),
+      WORLD_FLOOR,
+    ),
+  };
+}
+
+/**
+ * Name the cell whose drawn surface a ray meets first.
+ *
+ * The old picker intersected the flat logical plane, which is only where a cell stands when the
+ * landform is flat. This camera looks down at about forty degrees, so a column standing a cliff and
+ * three graded steps above its neighbour draws more than a hex away from the plane point beneath
+ * it: the player clicked the top of the rise and native was handed the cell in front of it.
+ *
+ * The columns are a height field, so the ray is marched rather than intersected against geometry.
+ * A sample is inside the ground when its cell is surveyed and the ray has fallen to or below that
+ * cell's walked surface, which is true for a flank as well as a cap — the face of a rise belongs to
+ * the cell it is the face of. The march starts at the tallest column and ends at the floor every
+ * column is drawn down to, so its cost follows the relief rather than the size of the world, and
+ * nothing here becomes simulation truth: native still decides what the named cell allows.
+ */
+export function pickTerrainCell(
+  build: TerrainBuild,
+  ray: TerrainRay,
+): TerrainPick | null {
+  const { origin, direction } = ray;
+  if (!(direction.y < 0)) return null;
+  const descent = -direction.y;
+  const start = Math.max(0, (origin.y - build.ceiling) / descent);
+  const end = (origin.y - WORLD_FLOOR) / descent;
+  if (end <= start) return null;
+  if (groundSample(build, ray, start))
+    return surfacePoint(build, ray, start, start);
+  const steps = Math.ceil((end - start) / PICK_STEP);
+  let outside = start;
+  for (let step = 1; step <= steps; step += 1) {
+    const distance = start + ((end - start) * step) / steps;
+    if (groundSample(build, ray, distance))
+      return surfacePoint(build, ray, outside, distance);
+    outside = distance;
+  }
+  return null;
+}
+
+/** The surveyed cell containing this point, when the point has reached its drawn surface. */
+function groundSample(
+  build: TerrainBuild,
+  { origin, direction }: TerrainRay,
+  distance: number,
+): TerrainCell | null {
+  const x = origin.x + direction.x * distance;
+  const y = origin.y + direction.y * distance;
+  const z = origin.z + direction.z * distance;
+  const { q, r } = pixelToAxial({ x, y: z }, 1, { x: 0, y: 0 });
+  const cell = build.cellByKey.get(cellKey(q, r));
+  return cell && y <= cell.height ? cell : null;
+}
+
+/** Close the last step onto the surface, so a rim is named by the cell the ray actually entered. */
+function surfacePoint(
+  build: TerrainBuild,
+  ray: TerrainRay,
+  outside: number,
+  inside: number,
+): TerrainPick {
+  let low = outside;
+  let high = inside;
+  let cell = groundSample(build, ray, inside)!;
+  for (let refinement = 0; refinement < PICK_REFINEMENTS; refinement += 1) {
+    const middle = (low + high) / 2;
+    const sample = groundSample(build, ray, middle);
+    if (sample) {
+      high = middle;
+      cell = sample;
+    } else low = middle;
+  }
+  const { origin, direction } = ray;
+  return {
+    cell,
+    x: origin.x + direction.x * high,
+    z: origin.z + direction.z * high,
+    height: origin.y + direction.y * high,
   };
 }
 

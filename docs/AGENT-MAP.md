@@ -506,13 +506,13 @@ Data or fixture; inspect keys before loading the full file.
 
 - ContactSheetRenderer:41, contactPartColour:284, fakeEntity:295
 
-### `src/rendering/three/HexSceneCamera.ts` — 277 lines / 9.7 KiB
+### `src/rendering/three/HexSceneCamera.ts` — 292 lines / 10.0 KiB
 
-- HexSceneCamera:39, clamp:274
+- HexSceneCamera:46, clamp:289
 
-### `src/rendering/three/ThreeFactoryRenderer.ts` — 541 lines / 17.1 KiB
+### `src/rendering/three/ThreeFactoryRenderer.ts` — 565 lines / 17.8 KiB
 
-- ThreeFactoryRenderer:43, smooth:532, percentile95:536
+- ThreeFactoryRenderer:48, smooth:556, percentile95:560
 
 ### `src/rendering/three/boundaryMeshes.ts` — 296 lines / 9.5 KiB
 
@@ -556,9 +556,10 @@ Data or fixture; inspect keys before loading the full file.
 
 - QualitySettings:3, QUALITY_SETTINGS:12, GRAPHICS_STORAGE_KEY:39, parseGraphicsProfile:41, defaultGraphicsProfile:47
 
-### `src/rendering/three/terrainMeshes.ts` — 283 lines / 10.2 KiB
+### `src/rendering/three/terrainMeshes.ts` — 396 lines / 14.4 KiB
 
-- HEX_RADIUS:34, TerrainCell:36, TerrainBuild:50, buildTerrainMeshes:61, surfaceCaps:131, terrainAt:172, cellKey:180, stableVariation:184, surveyedCells:192, frontierLines:249
+- WORLD_FLOOR:29, HEX_RADIUS:42, TerrainCell:44, TerrainBuild:58, TerrainRay:68, TerrainPick:74, buildTerrainMeshes:91, pickTerrainCell:167, groundSample:191, surfacePoint:205, surfaceCaps:244, terrainAt:285
+- cellKey:293, stableVariation:297, surveyedCells:305, frontierLines:362
 
 ### `src/rendering/three/terrainStyle.ts` — 30 lines / 1.2 KiB
 
@@ -715,9 +716,9 @@ Data or fixture; inspect keys before loading the full file.
 
 - FakeClassList:55, element:103, harness:139
 
-### `tests/visualDepth.test.ts` — 1801 lines / 58.2 KiB
+### `tests/visualDepth.test.ts` — 1911 lines / 62.6 KiB
 
-- heading:88, turnedBy:92, settle:98, surfaceBody:1575, uniformValue:1581, compileTerrain:1591, minimalSnapshot:1605, beltDefinition:1688, entity:1704
+- heading:90, turnedBy:94, settle:100, surfaceBody:1685, uniformValue:1691, compileTerrain:1701, minimalSnapshot:1715, beltDefinition:1798, entity:1814
 
 ### `tests/worldParameters.test.ts` — 155 lines / 5.0 KiB
 

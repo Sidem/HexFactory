@@ -65,7 +65,8 @@ remain the authority.
   `src/core/snapshotWire.ts`. Identity-bearing numbers must stay within JavaScript's exact range.
 - Derived indexes and caches are never saved, hashed, or checksummed. Rebuild them after the source
   state changes and pin them against the uncached/full implementation.
-- Presentation never becomes simulation truth. Picking uses the logical axial plane. Generated
+- Presentation never becomes simulation truth. Picking names the cell whose drawn surface the
+  pointer is over, and native still decides what that cell allows. Generated
   terrain height is still visual; only the integer grade a player paid for is simulation, and it is
   native's. Lists containing controls are keyed and patched in place.
 - No performance or scale claim without a committed measurement from the relevant harness.

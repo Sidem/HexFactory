@@ -46,7 +46,7 @@ import {
   pavingStyle,
   UNKNOWN_PAVING,
 } from "../src/rendering/three/pavingSurface";
-import { SURFACE_LOOK } from "../src/rendering/surfaceLook";
+import { GRADE_STEP_HEIGHT, SURFACE_LOOK } from "../src/rendering/surfaceLook";
 import {
   HEX_RING_START,
   RANGE_RING_WIDTH,
@@ -59,6 +59,8 @@ import {
 import {
   buildTerrainMeshes,
   HEX_RADIUS,
+  pickTerrainCell,
+  terrainAt,
 } from "../src/rendering/three/terrainMeshes";
 import {
   TERRAIN_STYLE,
@@ -1568,6 +1570,114 @@ describe("Terrain surfaces", () => {
     // An unrecognised surface still draws as worked earth rather than as nothing.
     expect(pavingStyle("no-such-surface")).toBe(UNKNOWN_PAVING);
     expect(pavingStyle(undefined)).toBe(UNKNOWN_PAVING);
+  });
+});
+
+describe("picking the drawn landform", () => {
+  it("names the raised cell the pointer is over, where the plane picker names its neighbour", () => {
+    const snapshot = minimalSnapshot();
+    snapshot.terrain = [
+      { q: 0, r: 0, x: 0, y: 0, radius: WORLD_SCALE, terrain: "cliff" },
+    ];
+    snapshot.ground = [{ q: 0, r: 0, surface: 0, elevation: 3, paid: [] }];
+    const materials = createWorldMaterials();
+    const built = buildTerrainMeshes(snapshot, materials);
+    const raised = terrainAt(built.cellByKey, 0, 0);
+    expect(raised).toBeDefined();
+    expect(raised?.height).toBeCloseTo(
+      visualHeight("cliff") + 3 * GRADE_STEP_HEIGHT,
+      6,
+    );
+    expect(built.ceiling).toBeCloseTo(raised?.height ?? 0, 6);
+
+    const camera = new HexSceneCamera();
+    camera.resize(1280, 800);
+    camera.recenter({ x: 0, y: 0 });
+    // The screen point where the top of the rise is actually drawn. That is what the player aims at.
+    const screen = camera.projectScene(
+      raised?.x ?? 0,
+      raised?.height ?? 0,
+      raised?.z ?? 0,
+    );
+    const hit = pickTerrainCell(built, camera.rayAt(screen.x, screen.y));
+    expect(hit?.cell.q).toBe(0);
+    expect(hit?.cell.r).toBe(0);
+    expect(hit?.height).toBeCloseTo(raised?.height ?? 0, 2);
+    // The bug this replaces: a column standing a cliff and three graded steps up draws more than a
+    // hex away from the plane point beneath it, so the old picker handed native the cell in front.
+    expect(camera.axialAt(screen.x, screen.y)).not.toEqual({ q: 0, r: 0 });
+
+    for (const geometry of built.geometries) geometry.dispose();
+    for (const material of materials.materials) material.dispose();
+  });
+
+  it("names the low cell in front of a rise rather than the rise behind it", () => {
+    const snapshot = minimalSnapshot();
+    snapshot.terrain = [
+      { q: 0, r: 0, x: 0, y: 0, radius: WORLD_SCALE, terrain: "cliff" },
+    ];
+    snapshot.ground = [{ q: 0, r: 0, surface: 0, elevation: 3, paid: [] }];
+    const materials = createWorldMaterials();
+    const built = buildTerrainMeshes(snapshot, materials);
+    // `(0, 1)` sits toward the camera at this orbit, so its surface is drawn clear of the cliff.
+    const low = terrainAt(built.cellByKey, 0, 1);
+    expect(low?.terrain).toBe("lowland");
+
+    const camera = new HexSceneCamera();
+    camera.resize(1280, 800);
+    camera.recenter({ x: 0, y: 0 });
+    const screen = camera.projectScene(
+      low?.x ?? 0,
+      low?.height ?? 0,
+      low?.z ?? 0,
+    );
+    const hit = pickTerrainCell(built, camera.rayAt(screen.x, screen.y));
+    expect(hit?.cell.q).toBe(0);
+    expect(hit?.cell.r).toBe(1);
+
+    for (const geometry of built.geometries) geometry.dispose();
+    for (const material of materials.materials) material.dispose();
+  });
+
+  it("agrees with the plane picker everywhere the ground is flat", () => {
+    const snapshot = minimalSnapshot();
+    snapshot.terrain = [];
+    const materials = createWorldMaterials();
+    const built = buildTerrainMeshes(snapshot, materials);
+    expect(built.cells.length).toBeGreaterThan(0);
+    const camera = new HexSceneCamera();
+    camera.resize(1280, 800);
+    camera.recenter({ x: 0, y: 0 });
+    for (const cell of built.cells) {
+      const screen = camera.projectScene(cell.x, cell.height, cell.z);
+      const hit = pickTerrainCell(built, camera.rayAt(screen.x, screen.y));
+      expect({ q: hit?.cell.q, r: hit?.cell.r }).toEqual({
+        q: cell.q,
+        r: cell.r,
+      });
+      expect(camera.axialAt(screen.x, screen.y)).toEqual({
+        q: cell.q,
+        r: cell.r,
+      });
+    }
+
+    for (const geometry of built.geometries) geometry.dispose();
+    for (const material of materials.materials) material.dispose();
+  });
+
+  it("meets nothing over fog, so the logical plane stays pointable there", () => {
+    const snapshot = minimalSnapshot();
+    const materials = createWorldMaterials();
+    const built = buildTerrainMeshes(snapshot, materials);
+    const camera = new HexSceneCamera();
+    camera.resize(1280, 800);
+    camera.recenter({ x: 0, y: 0 });
+    // Far outside the one published chunk: unsurveyed ground has no landform to meet.
+    const screen = camera.projectScene(40, 0, 40);
+    expect(pickTerrainCell(built, camera.rayAt(screen.x, screen.y))).toBeNull();
+
+    for (const geometry of built.geometries) geometry.dispose();
+    for (const material of materials.materials) material.dispose();
   });
 });
 

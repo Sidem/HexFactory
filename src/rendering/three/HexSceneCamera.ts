@@ -1,4 +1,11 @@
-import { OrthographicCamera, Plane, Raycaster, Vector2, Vector3 } from "three";
+import {
+  OrthographicCamera,
+  Plane,
+  Raycaster,
+  Vector2,
+  Vector3,
+  type Ray,
+} from "three";
 import { pixelToAxial, type AxialCoordinate } from "@hexlife/embed/hex";
 
 import type { WorldPoint } from "../../core/types";
@@ -213,15 +220,23 @@ export class HexSceneCamera {
     };
   }
 
-  /** Ground intersection, deliberately ignoring terrain and machine meshes. */
-  groundAt(screenX: number, screenY: number): Vector3 {
+  /**
+   * The picking ray for a canvas point, in scene space. The returned ray belongs to the camera's
+   * own raycaster, so a caller reads it before asking for the next one.
+   */
+  rayAt(screenX: number, screenY: number): Ray {
     const ndc = new Vector2(
       (screenX / this.width) * 2 - 1,
       1 - (screenY / this.height) * 2,
     );
     this.raycaster.setFromCamera(ndc, this.camera);
+    return this.raycaster.ray;
+  }
+
+  /** Ground intersection, deliberately ignoring terrain and machine meshes. */
+  groundAt(screenX: number, screenY: number): Vector3 {
     return (
-      this.raycaster.ray.intersectPlane(this.ground, new Vector3()) ??
+      this.rayAt(screenX, screenY).intersectPlane(this.ground, new Vector3()) ??
       new Vector3()
     );
   }

@@ -306,8 +306,14 @@ silently dropped about once a second.
 `FactoryRenderer` is the replaceable world boundary. Visual Depth v0.25 supplies its production
 implementation with Three.js: an orthographic scene camera at a fixed tilt, twelve discrete
 30-degree orbits, bounded zoom, native-snapshot-driven instance buckets, and scene overlays. Picking
-intersects the unchanged logical axial plane and converts through the public
-`@hexlife/embed/hex` geometry; rendered terrain height never enters a command. Native-resolved drag
+marches the pointer ray down the drawn height field and names the cell whose surface it meets,
+because a column standing a cliff and three graded steps above its neighbour draws more than a hex
+away from the plane point beneath it — the player clicked the top of the rise and native was handed
+the cell in front of it. The march runs over the terrain build's own cell map between the tallest
+column and the floor every column is drawn down to, so it costs about twenty lookups rather than one
+per instance, and fog with no landform keeps the logical plane so it stays pointable. The named cell
+is still only a coordinate converted through the public `@hexlife/embed/hex` geometry; rendered
+height never enters a command, and native remains the final answer on legality. Native-resolved drag
 cells, twelve transport headings, and native chunk coverage are consumed rather than reconstructed.
 
 An orbit remains an integer in `[0, 11]` and moves the instant the key is pressed; only the drawn

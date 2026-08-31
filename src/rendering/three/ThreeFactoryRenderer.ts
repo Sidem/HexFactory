@@ -34,7 +34,12 @@ import { HexSceneCamera } from "./HexSceneCamera";
 import { createWorldMaterials, type WorldMaterials } from "./materials";
 import { SpatialOverlays, type SpatialOverlayState } from "./overlays";
 import { QUALITY_SETTINGS } from "./quality";
-import { buildTerrainMeshes, type TerrainBuild } from "./terrainMeshes";
+import {
+  buildTerrainMeshes,
+  pickTerrainCell,
+  type TerrainBuild,
+  type TerrainPick,
+} from "./terrainMeshes";
 import { BoundaryMeshes } from "./boundaryMeshes";
 import { GroundMeshes } from "./groundMeshes";
 import { WorldInstanceLayer } from "./worldInstances";
@@ -278,8 +283,13 @@ export class ThreeFactoryRenderer implements FactoryRenderer {
     return this.gridToggled;
   }
 
+  /**
+   * The cell whose drawn surface the pointer is over. Unsurveyed ground has no landform to meet,
+   * so the fog keeps the logical plane and stays pointable.
+   */
   pick(clientX: number, clientY: number): AxialCoordinate {
-    this.syncLayout();
+    const hit = this.pickTerrain(clientX, clientY);
+    if (hit) return { q: hit.cell.q, r: hit.cell.r };
     return this.camera.axialAt(
       clientX - this.layout.left,
       clientY - this.layout.top,
@@ -287,7 +297,12 @@ export class ThreeFactoryRenderer implements FactoryRenderer {
   }
 
   pickWorld(clientX: number, clientY: number): WorldPoint {
-    this.syncLayout();
+    const hit = this.pickTerrain(clientX, clientY);
+    if (hit)
+      return {
+        x: Math.round(hit.x * WORLD_SCALE),
+        y: Math.round(hit.z * WORLD_SCALE),
+      };
     return this.camera.worldAt(
       clientX - this.layout.left,
       clientY - this.layout.top,
@@ -433,6 +448,15 @@ export class ThreeFactoryRenderer implements FactoryRenderer {
     this.ground.dispose();
     for (const material of this.materials.materials) material.dispose();
     this.renderer.dispose();
+  }
+
+  private pickTerrain(clientX: number, clientY: number): TerrainPick | null {
+    this.syncLayout();
+    if (!this.terrain) return null;
+    return pickTerrainCell(
+      this.terrain,
+      this.camera.rayAt(clientX - this.layout.left, clientY - this.layout.top),
+    );
   }
 
   private rebuildTerrain(snapshot: FactorySnapshot): void {

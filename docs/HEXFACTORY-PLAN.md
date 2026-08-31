@@ -517,8 +517,20 @@ partially activated physical model.
    placement, occupancy, erase, snapshot and the definition validators are covered at nineteen
    cells; the shipped catalogue is untouched, and no envelope moved. Foundation class, the service
    envelope and overhead clearance stay with the activation bundle, since each adds definition and
-   save surface. The remaining work in this slice is footprint/cadence/opening content, the native
-   height wire, renderer integration and the one-way activation bundle above.
+   save surface.
+
+   Picking is now height-aware and live. The shipped renderer marches the pointer ray down the drawn
+   height field over the terrain build's own cell map, between the tallest column and the floor every
+   column is drawn down to, and names the cell whose surface it meets — a flank included, since the
+   face of a rise belongs to the rise. This fixes a bug the graded ground already had: at this
+   camera's tilt a column standing a cliff and three steps above its neighbour draws more than a hex
+   away from the plane point beneath it, so aiming at the top of a rise handed native the cell in
+   front of it. Fog keeps the logical plane so unsurveyed ground stays pointable, the march costs
+   about twenty map lookups rather than one test per instance, and nothing about it is simulation
+   truth: native still answers for legality. Wire 19 and every other envelope are unchanged.
+
+   The remaining work in this slice is footprint/cadence/opening content, the native height wire,
+   heightfield/water renderer integration and the one-way activation bundle above.
 
 4. **Sparse disturbed water.** Add water departure state, active-region equilibrium, frontier
    boundaries, pumps, flood/drain commands and save/load/checksum coverage. Re-measure the active
