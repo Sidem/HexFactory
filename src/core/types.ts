@@ -1070,18 +1070,30 @@ export interface GroundCell {
 
 export type GroundAction = "pave" | "clear" | "raise" | "lower" | "level";
 /**
- * `rect` is drawn on the world rather than on the axial grid: two lattice vertices, and every hex
- * the rectangle between them touches. It shares its anchors and its snapping with the walled yard,
- * so a floor and the wall around it land on exactly the same rectangle.
+ * Six modes over two anchors. `rect` and `frame` are drawn on the world rather than on the axial
+ * grid: two lattice vertices, and every hex the rectangle between them touches. They share their
+ * anchors and their snapping with the walled yard, so a floor and the wall around it land on exactly
+ * the same rectangle. `disc` and `ring` are dragged from a centre hex out to a rim hex, so the
+ * radius is a distance the player counts on the map rather than a number typed into a field.
+ *
+ * `frame` and `ring` are the hex-adjacency perimeters of `rect` and `disc` — the cells of the fill
+ * that touch something outside it. Deriving an outline from its own fill is what keeps it one hex
+ * thick at every size, with no rounding rule that could disagree with the fill's.
  */
-export type GroundShape = "cell" | "path" | "rect";
+export type GroundShape = "cell" | "path" | "rect" | "frame" | "disc" | "ring";
+
+/** Which grade a {@link GroundAction} of `level` evens onto. Ignored by every other verb. */
+export type GroundReference = "first" | "lowest" | "highest";
 
 export interface GroundEdit {
   q: number;
   r: number;
   to_q: number;
   to_r: number;
-  /** Which corner of `q, r` a `rect` is anchored on. The other shapes name whole hexes. */
+  /**
+   * Which corner of `q, r` a `rect` or `frame` is anchored on. The other shapes name whole hexes,
+   * and `disc`/`ring` read `to_q, to_r` as a rim hex rather than a second anchor.
+   */
   corner: number;
   to_corner: number;
   shape: GroundShape;
@@ -1092,6 +1104,12 @@ export interface GroundEdit {
    * the host says the player has seen the warning, so covering can never be an accident.
    */
   cover: boolean;
+  /**
+   * How many steps one raise or lower moves the ground, clamped natively to `1..=MAX_GRADE_STEPS`.
+   * A cell without room for the whole depth takes what it has room for rather than refusing.
+   */
+  steps: number;
+  reference: GroundReference;
 }
 
 /** One cell of a ground preview, resolved by the same native transaction that will commit it. */
@@ -1105,9 +1123,18 @@ export interface GroundPreviewCell {
   covers: boolean;
   /** True where the finished grade leaves a step no walk can climb. */
   retained: boolean;
+  /**
+   * Why this one cell cannot take the edit, if it cannot. One obstacle no longer refuses the whole
+   * selection: the rest of the footprint is resolved and drawn around it.
+   */
+  blocked: string | null;
 }
 
 export interface GroundPreview {
+  /**
+   * Every selected cell, whatever the outcome. A refusal keeps its footprint — that picture is how
+   * the player works out what to change.
+   */
   cells: GroundPreviewCell[];
   changes: number;
   cost: Ingredient[];
@@ -1118,5 +1145,8 @@ export interface GroundPreview {
   spoil: number;
   covers: number;
   retaining: number;
+  /** How many selected cells carry a `blocked` reason and will be passed over. */
+  blocked: number;
+  /** Set only when the edit as a whole cannot proceed — material, research, or the spoil ledger. */
   error: string | null;
 }

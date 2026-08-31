@@ -7,6 +7,7 @@ import type {
   GroundAction,
   GroundEdit,
   GroundPreview,
+  GroundReference,
   GroundShape,
   Ingredient,
   NativeInputCommand,
@@ -51,29 +52,117 @@ const ACTIONS: readonly ActionSpec[] = [
     action: "raise",
     icon: "▲",
     label: "Raise",
-    hint: "Fill one step, using spoil from ground cut elsewhere. Nothing is raised out of nothing.",
+    hint: "Fill by the chosen depth, using spoil from ground cut elsewhere. Nothing is raised out of nothing, and a hex without room for the whole depth takes what it has room for.",
     verb: "Raise {n}",
   },
   {
     action: "lower",
     icon: "▼",
     label: "Lower",
-    hint: "Cut one step. What comes out goes on the spoil heap, ready to fill somewhere else. One cut takes a cliff face down and the hex walks like any other.",
+    hint: "Cut by the chosen depth. What comes out goes on the spoil heap, ready to fill somewhere else. One cut takes a cliff face down and the hex walks like any other.",
     verb: "Lower {n}",
   },
   {
     action: "level",
     icon: "═",
     label: "Level",
-    hint: "Even every selected hex onto the grade of the first one picked, cutting and filling to match.",
+    hint: "Even every selected hex onto one grade, cutting and filling to match. Choose which grade below.",
     verb: "Level {n}",
   },
 ];
 
-const SHAPES: readonly { value: GroundShape; label: string }[] = [
-  { value: "cell", label: "One hex" },
-  { value: "path", label: "Line of hexes" },
-  { value: "rect", label: "Rectangle" },
+/** The verbs whose depth is a number the player chooses rather than a fixed single step. */
+const DEEP: readonly GroundAction[] = ["raise", "lower"];
+
+interface ShapeSpec {
+  readonly base: ShapeBase;
+  readonly icon: string;
+  readonly label: string;
+  readonly hint: string;
+  /** What this shape sends when it is filled, and when it is outlined. */
+  readonly filled: GroundShape;
+  readonly outline: GroundShape | null;
+  /** Whether the two anchors are lattice vertices rather than whole hexes. */
+  readonly vertices: boolean;
+  /** What to say once the first anchor is down and the second one is still moving. */
+  readonly finish: string;
+}
+
+type ShapeBase = "cell" | "path" | "rect" | "circle";
+
+/**
+ * Four shapes and one modifier, rather than six buttons.
+ *
+ * An outline is the perimeter of its own fill on exactly the same two anchors, so a floor and the
+ * kerb around it — or a plaza and its rim — are the same drag with one toggle flipped. Presenting
+ * them as six peers would hide that, and would make a player who had already framed the yard they
+ * wanted re-drag it to floor it. A hex and a line have no interior, so for them the toggle has
+ * nothing to say and goes away.
+ */
+const SHAPES: readonly ShapeSpec[] = [
+  {
+    base: "cell",
+    icon: "⬢",
+    label: "Hex",
+    hint: "One hex, on its own.",
+    filled: "cell",
+    outline: null,
+    vertices: false,
+    finish: "",
+  },
+  {
+    base: "path",
+    icon: "╱",
+    label: "Line",
+    hint: "A straight run of hexes between two you pick.",
+    filled: "path",
+    outline: null,
+    vertices: false,
+    finish: "Choose the far end",
+  },
+  {
+    base: "rect",
+    icon: "▭",
+    label: "Rectangle",
+    hint: "A true rectangle drawn between two hex corners, taking in every hex it touches — the same rectangle a walled yard is drawn on.",
+    filled: "rect",
+    outline: "frame",
+    vertices: true,
+    finish: "Choose the opposite corner",
+  },
+  {
+    base: "circle",
+    icon: "◯",
+    label: "Circle",
+    hint: "A disc measured from its centre out to a hex on its rim, so the radius is a distance you count on the map.",
+    filled: "disc",
+    outline: "ring",
+    vertices: false,
+    finish: "Choose a hex on the rim",
+  },
+];
+
+/** Which grade a level evens onto, in the order a site is usually worked. */
+const REFERENCES: readonly {
+  value: GroundReference;
+  label: string;
+  hint: string;
+}[] = [
+  {
+    value: "first",
+    label: "First picked",
+    hint: "Match the grade of the hex the selection started on.",
+  },
+  {
+    value: "lowest",
+    label: "Lowest",
+    hint: "Cut everything down to the deepest hex in the selection. Spoil comes out.",
+  },
+  {
+    value: "highest",
+    label: "Highest",
+    hint: "Fill everything up to the highest hex in the selection. Spoil goes in.",
+  },
 ];
 
 const cornerOptions = CORNER_NAMES.map(
@@ -90,10 +179,16 @@ export class GroundTool {
   private action: GroundAction = "pave";
   private surface: number;
   private cover = false;
+  private base: ShapeBase = "cell";
+  /** Take the perimeter of the shape rather than the whole of it. Ignored where there is no inside. */
+  private outline = false;
+  /** How many steps one raise or lower moves the ground. Native clamps it; the tray offers 1–3. */
+  private depth = 1;
+  private reference: GroundReference = "first";
   /**
-   * Both ends of the selection. A hex or a line is anchored on hexes and the corner is ignored; a
-   * rectangle is anchored on two lattice vertices, the same two a wall would be drawn between, so a
-   * yard and the fence around it can be laid on exactly the same rectangle.
+   * Both ends of the selection. A hex, a line or a circle is anchored on hexes and the corner is
+   * ignored; a rectangle is anchored on two lattice vertices, the same two a wall would be drawn
+   * between, so a yard and the fence around it can be laid on exactly the same rectangle.
    */
   private start: BoundaryAnchor | null = null;
   private target: BoundaryAnchor | null = null;
@@ -108,7 +203,12 @@ export class GroundTool {
   private readonly opener: HTMLButtonElement;
   private readonly actions: HTMLElement;
   private readonly palette: HTMLElement;
-  private readonly shape: HTMLSelectElement;
+  private readonly shapes: HTMLElement;
+  private readonly outlineBox: HTMLElement;
+  private readonly outlineInput: HTMLInputElement;
+  private readonly grade: HTMLElement;
+  private readonly depthRow: HTMLElement;
+  private readonly referenceRow: HTMLElement;
   private readonly q: HTMLInputElement;
   private readonly r: HTMLInputElement;
   private readonly toQ: HTMLInputElement;
@@ -128,6 +228,7 @@ export class GroundTool {
   private readonly coverInput: HTMLInputElement;
   private readonly coverText: HTMLElement;
   private readonly retaining: HTMLElement;
+  private readonly obstructed: HTMLElement;
 
   constructor(
     root: HTMLElement,
@@ -147,11 +248,27 @@ export class GroundTool {
       ).join("")}</div>
       <div class="ground-palette" role="group" aria-label="Surface material" data-palette></div>
       <p data-hint></p>
-      <div class="ground-fields"><label>Selection<select data-shape>${SHAPES.map(
-        (shape) => `<option value="${shape.value}">${shape.label}</option>`,
-      ).join(
-        "",
-      )}</select></label><label>Grade limit<input value="±3 steps" readonly tabindex="-1" aria-label="Each hex may be cut or filled at most three steps from its own natural grade"></label></div>
+      <div class="ground-shapes" role="group" aria-label="Shape of the selection">${SHAPES.map(
+        (shape) =>
+          `<button type="button" data-shape="${shape.base}" aria-pressed="false" title="${shape.hint}"><span aria-hidden="true">${shape.icon}</span>${shape.label}</button>`,
+      ).join("")}</div>
+      <label class="ground-outline" data-outline hidden><input type="checkbox" data-outline-input><span><b>Outline only</b>Take just the hexes on the edge of the shape, one hex thick, on the very same two anchors.</span></label>
+      <div class="ground-grade" data-grade hidden>
+        <div class="ground-choice" data-depth hidden role="group" aria-label="How far each hex moves">
+          <span>Depth</span>${[1, 2, 3]
+            .map(
+              (steps) =>
+                `<button type="button" data-depth-steps="${steps}" aria-pressed="false" title="Move each hex ${steps} step${steps === 1 ? "" : "s"}, as far as its own ±3 limit allows">${steps}</button>`,
+            )
+            .join("")}<small>step limit ±3</small>
+        </div>
+        <div class="ground-choice" data-reference hidden role="group" aria-label="Which grade to level onto">
+          <span>Match</span>${REFERENCES.map(
+            (entry) =>
+              `<button type="button" data-reference="${entry.value}" aria-pressed="false" title="${entry.hint}">${entry.label}</button>`,
+          ).join("")}
+        </div>
+      </div>
       <details class="ground-precise"><summary>Precise selection</summary><div class="ground-fields ground-target">
         <label>From Q<input data-q type="number" step="1" min="-100000" max="100000" value="0"></label>
         <label>From R<input data-r type="number" step="1" min="-100000" max="100000" value="0"></label>
@@ -165,9 +282,10 @@ export class GroundTool {
       <p class="ground-status" data-status role="status" aria-live="polite"></p>
       <p class="ground-bill" data-bill></p>
       <p class="ground-retaining" data-retaining hidden></p>
+      <p class="ground-obstructed" data-obstructed hidden></p>
       <label class="ground-cover" data-cover hidden><input type="checkbox" data-cover-input><span data-cover-text></span></label>
       <div class="ground-panel-actions"><button type="button" data-apply disabled>Apply</button><button type="button" data-clear>New selection</button><button type="button" data-undo title="Undo the last ground works edit (Ctrl+Z while this tool is open)">Undo</button></div>
-      <small class="ground-help">Click a hex to start, and for a line click again to finish it. A rectangle is drawn between two hex corners, and takes in every hex it touches. R cycles the work, Shift+R goes back, Delete jumps to Strip. Esc cancels a selection; Esc again exits. Nothing is spent, dug or recovered before Apply.</small>`;
+      <small class="ground-help">Click to start a selection, then click again to finish it. R cycles the work and Shift+R goes back; [ and ] cycle the shape, \\ toggles the outline, − and = set the depth, and Delete jumps to Strip. Esc cancels a selection; Esc again exits. Nothing is spent, dug or recovered before Apply.</small>`;
     const get = <T extends HTMLElement>(selector: string): T =>
       root.querySelector<T>(selector)!;
     root.addEventListener("keydown", (event) => {
@@ -179,7 +297,12 @@ export class GroundTool {
     });
     this.actions = get(".ground-actions");
     this.palette = get("[data-palette]");
-    this.shape = get("[data-shape]");
+    this.shapes = get(".ground-shapes");
+    this.outlineBox = get("[data-outline]");
+    this.outlineInput = get("[data-outline-input]");
+    this.grade = get("[data-grade]");
+    this.depthRow = get("[data-depth]");
+    this.referenceRow = get("[data-reference]");
     this.q = get("[data-q]");
     this.r = get("[data-r]");
     this.toQ = get("[data-to-q]");
@@ -201,6 +324,7 @@ export class GroundTool {
     this.coverInput = get("[data-cover-input]");
     this.coverText = get("[data-cover-text]");
     this.retaining = get("[data-retaining]");
+    this.obstructed = get("[data-obstructed]");
     this.buildPalette();
     this.opener.addEventListener("click", () =>
       this.opened ? this.close() : this.open(),
@@ -223,9 +347,30 @@ export class GroundTool {
       )?.dataset.action;
       if (action) this.selectAction(action as GroundAction);
     });
-    this.shape.addEventListener("change", () => {
-      this.syncFields();
-      this.clear();
+    this.shapes.addEventListener("click", (event) => {
+      const base = (event.target as HTMLElement).closest<HTMLElement>(
+        "[data-shape]",
+      )?.dataset.shape;
+      if (base) this.selectShape(base as ShapeBase);
+    });
+    // Flipping the outline keeps the anchors: the player has already said where, and is now saying
+    // how much of it. Re-picking the same two corners to floor a yard they just framed is exactly
+    // the busywork the toggle exists to remove.
+    this.outlineInput.addEventListener("change", () => {
+      this.outline = this.outlineInput.checked;
+      this.refresh();
+    });
+    this.depthRow.addEventListener("click", (event) => {
+      const steps = (event.target as HTMLElement).closest<HTMLElement>(
+        "[data-depth-steps]",
+      )?.dataset.depthSteps;
+      if (steps) this.setDepth(Number(steps));
+    });
+    this.referenceRow.addEventListener("click", (event) => {
+      const reference = (event.target as HTMLElement).closest<HTMLElement>(
+        "[data-reference]",
+      )?.dataset.reference;
+      if (reference) this.setReference(reference as GroundReference);
     });
     for (const input of [this.q, this.r, this.toQ, this.toR])
       input.addEventListener("input", () => this.readCoordinates());
@@ -259,6 +404,16 @@ export class GroundTool {
 
   get active(): boolean {
     return this.opened;
+  }
+
+  private get spec(): ShapeSpec {
+    return SHAPES.find((entry) => entry.base === this.base) ?? SHAPES[0]!;
+  }
+
+  /** The mode actually on the wire: a shape, plus whether only its perimeter was asked for. */
+  private get shape(): GroundShape {
+    const spec = this.spec;
+    return (this.outline && spec.outline) || spec.filled;
   }
 
   open(): void {
@@ -304,6 +459,51 @@ export class GroundTool {
     this.selectAction("clear");
   }
 
+  /** `[` and `]` walk the four shapes, the way `R` walks the verbs. */
+  cycleShape(reverse: boolean): void {
+    const index = SHAPES.findIndex((entry) => entry.base === this.base);
+    const next = (index + (reverse ? SHAPES.length - 1 : 1)) % SHAPES.length;
+    this.selectShape(SHAPES[next]!.base);
+  }
+
+  /** `\` flips fill and outline without disturbing the anchors already down. */
+  toggleOutline(): void {
+    if (!this.spec.outline) return;
+    this.outline = !this.outline;
+    this.outlineInput.checked = this.outline;
+    this.refresh();
+  }
+
+  /** `−` and `=` set how far a raise or lower moves the ground. */
+  nudgeDepth(by: number): void {
+    if (!DEEP.includes(this.action)) return;
+    this.setDepth(this.depth + by);
+  }
+
+  private selectShape(base: ShapeBase): void {
+    if (base === this.base) return;
+    this.base = base;
+    // A vertex anchor and a hex anchor are not the same point, and a circle reads its second anchor
+    // as a rim rather than as a corner, so the anchors do not survive a change of shape.
+    this.syncFields();
+    this.clear();
+  }
+
+  private setDepth(steps: number): void {
+    const depth = Math.min(3, Math.max(1, steps));
+    if (depth === this.depth) return;
+    this.depth = depth;
+    this.syncFields();
+    this.refresh();
+  }
+
+  private setReference(reference: GroundReference): void {
+    if (reference === this.reference) return;
+    this.reference = reference;
+    this.syncFields();
+    this.refresh();
+  }
+
   clear(): void {
     this.start = null;
     this.target = null;
@@ -319,14 +519,12 @@ export class GroundTool {
     cell: { q: number; r: number },
     point: WorldPoint,
   ): BoundaryAnchor {
-    return this.shape.value === "rect"
-      ? nearestVertex(point)
-      : { ...cell, corner: 0 };
+    return this.spec.vertices ? nearestVertex(point) : { ...cell, corner: 0 };
   }
 
   pick(cell: { q: number; r: number }, point: WorldPoint): void {
     const anchor = this.anchorAt(cell, point);
-    if (this.shape.value !== "cell" && this.choosingEnd) {
+    if (this.base !== "cell" && this.choosingEnd) {
       this.target = anchor;
       this.choosingEnd = false;
     } else {
@@ -335,7 +533,7 @@ export class GroundTool {
       this.coverInput.checked = false;
       this.start = anchor;
       this.target = anchor;
-      this.choosingEnd = this.shape.value !== "cell";
+      this.choosingEnd = this.base !== "cell";
     }
     this.writeCoordinates();
     this.refresh();
@@ -345,7 +543,7 @@ export class GroundTool {
     if (!this.opened || !this.choosingEnd) return;
     const anchor = this.anchorAt(cell, point);
     if (
-      this.shape.value === "rect"
+      this.spec.vertices
         ? sameVertex(this.target, anchor)
         : this.target?.q === anchor.q && this.target.r === anchor.r
     )
@@ -355,11 +553,43 @@ export class GroundTool {
     this.refresh();
   }
 
-  /** Which precise-selection controls belong to the shape on the table. */
+  /** Which controls belong to the shape and the verb on the table, and which are pressed. */
   private syncFields(): void {
-    const rect = this.shape.value === "rect";
-    for (const field of this.cornerFields) field.hidden = !rect;
-    this.cornerFields[0]?.parentElement?.classList.toggle("vertices", rect);
+    const spec = this.spec;
+    for (const button of this.shapes.querySelectorAll<HTMLElement>(
+      "[data-shape]",
+    ))
+      button.setAttribute(
+        "aria-pressed",
+        String(button.dataset.shape === this.base),
+      );
+    // A hex and a line are already one hex thick, so there is nothing for the toggle to take away.
+    this.outlineBox.hidden = !spec.outline;
+    this.outlineInput.checked = this.outline && !!spec.outline;
+    const deep = DEEP.includes(this.action);
+    const levelling = this.action === "level";
+    this.depthRow.hidden = !deep;
+    this.referenceRow.hidden = !levelling;
+    this.grade.hidden = !deep && !levelling;
+    for (const button of this.depthRow.querySelectorAll<HTMLElement>(
+      "[data-depth-steps]",
+    ))
+      button.setAttribute(
+        "aria-pressed",
+        String(Number(button.dataset.depthSteps) === this.depth),
+      );
+    for (const button of this.referenceRow.querySelectorAll<HTMLElement>(
+      "[data-reference]",
+    ))
+      button.setAttribute(
+        "aria-pressed",
+        String(button.dataset.reference === this.reference),
+      );
+    for (const field of this.cornerFields) field.hidden = !spec.vertices;
+    this.cornerFields[0]?.parentElement?.classList.toggle(
+      "vertices",
+      spec.vertices,
+    );
   }
 
   /** Push the picked anchors back into the number fields, so both ways in agree. */
@@ -411,6 +641,7 @@ export class GroundTool {
     this.palette.hidden = action !== "pave";
     this.hint.textContent =
       ACTIONS.find((spec) => spec.action === action)?.hint ?? "";
+    this.syncFields();
     this.refresh();
   }
 
@@ -493,7 +724,7 @@ export class GroundTool {
       corner: Number(this.corner.value),
     };
     this.target =
-      this.shape.value === "cell"
+      this.base === "cell"
         ? this.start
         : {
             q: Number(this.toQ.value),
@@ -506,7 +737,7 @@ export class GroundTool {
 
   private edit(): GroundEdit | null {
     if (!this.start || !this.target) return null;
-    const target = this.shape.value === "cell" ? this.start : this.target;
+    const target = this.base === "cell" ? this.start : this.target;
     return {
       q: this.start.q,
       r: this.start.r,
@@ -514,10 +745,12 @@ export class GroundTool {
       to_q: target.q,
       to_r: target.r,
       to_corner: target.corner,
-      shape: this.shape.value as GroundShape,
+      shape: this.shape,
       definition_id: this.surface,
       action: this.action,
       cover: this.cover,
+      steps: this.depth,
+      reference: this.reference,
     };
   }
 
@@ -552,11 +785,12 @@ export class GroundTool {
     this.bill.textContent = "";
     this.move.hidden = true;
     this.retaining.hidden = true;
+    this.obstructed.hidden = true;
     this.drawSpoil(this.snapshot?.spoil ?? 0);
     // A rectangle is pinned to lattice vertices, so the pins go up the moment the first corner is
     // taken — before there is any rectangle to price, and the same pins a wall would be drawn on.
     this.renderer.setBoundaryAnchors(
-      !this.opened || !this.start || this.shape.value !== "rect"
+      !this.opened || !this.start || !this.spec.vertices
         ? []
         : sameVertex(this.start, this.target)
           ? [this.start]
@@ -565,20 +799,30 @@ export class GroundTool {
     if (!this.start || !this.opened) {
       this.coverBox.hidden = true;
       this.status.classList.remove("blocked");
-      this.status.textContent =
-        this.shape.value === "cell"
-          ? "Click the hex to work."
-          : this.shape.value === "rect"
-            ? "Click one corner of the rectangle, then the opposite one. Every hex it touches is taken in, up to 32 at a time."
-            : this.action === "level"
-              ? "Click the hex whose grade everything else should match, then the far end."
-              : "Click the first hex, then the far end. Up to 32 hexes at a time.";
+      this.status.textContent = this.opening();
       this.renderer.setGroundPreview(null);
       return;
     }
     this.status.textContent = "Checking the ground…";
     this.requested = true;
     if (!this.pending) void this.resolve();
+  }
+
+  /** What to ask for before there is anything selected, in the words of the shape on the table. */
+  private opening(): string {
+    const bound = "Up to 64 hexes at a time.";
+    switch (this.base) {
+      case "cell":
+        return "Click the hex to work.";
+      case "path":
+        return this.action === "level"
+          ? "Click the hex whose grade everything else should match, then the far end."
+          : `Click the first hex, then the far end. ${bound}`;
+      case "rect":
+        return `Click one corner, then the opposite one. Every hex the rectangle touches is taken in${this.outline ? ", and only its edge is worked" : ""}. ${bound}`;
+      default:
+        return `Click the centre, then a hex on the rim${this.outline ? ". Only the rim itself is worked" : ""}. ${bound}`;
+    }
   }
 
   private async resolve(): Promise<void> {
@@ -631,17 +875,19 @@ export class GroundTool {
     }
     this.retaining.hidden = preview.retaining === 0;
     this.retaining.textContent = `${preview.retaining} hex${preview.retaining === 1 ? "" : "es"} would be left too steep to walk onto from one side. Cut the ground beside it to keep the way open.`;
+    // One obstacle in a selection is a note beside the work, not a refusal of it: native passes the
+    // hex over and grades the rest. Naming the first one gives the player somewhere to look.
+    const stuck = preview.cells.find((cell) => cell.blocked);
+    this.obstructed.hidden = preview.blocked === 0 || !stuck;
+    if (stuck)
+      this.obstructed.textContent = `${preview.blocked} hex${preview.blocked === 1 ? " is" : "es are"} passed over. Hex ${stuck.q}, ${stuck.r}: ${stuck.blocked}.`;
     this.status.textContent =
       preview.error ??
       (this.choosingEnd
-        ? `${edit.shape === "rect" ? "Choose the opposite corner" : "Choose the far end"}. ${preview.changes} hex${preview.changes === 1 ? "" : "es"} would change.`
+        ? `${this.spec.finish}. ${preview.changes} hex${preview.changes === 1 ? "" : "es"} would change.`
         : preview.changes === 0
           ? "This ground already matches. Nothing to spend, dig or recover."
-          : `${preview.changes} hex${preview.changes === 1 ? "" : "es"} will change. ${
-              edit.shape === "rect"
-                ? `Rectangle ${CORNER_NAMES[edit.corner ?? 0]?.toLowerCase() ?? ""} of ${edit.q}, ${edit.r} → ${CORNER_NAMES[edit.to_corner ?? 0]?.toLowerCase() ?? ""} of ${edit.to_q}, ${edit.to_r}.`
-                : `Hex ${edit.q}, ${edit.r}${edit.shape === "cell" ? "" : ` → ${edit.to_q}, ${edit.to_r}`}.`
-            }`);
+          : `${preview.changes} hex${preview.changes === 1 ? "" : "es"} will change. ${this.where(edit)}`);
     this.status.classList.toggle("blocked", !!preview.error);
     // A refused edit was never priced — native stops before the bill — so quoting one here would be
     // inventing a number. The refusal is the whole answer until it is dealt with.
@@ -655,11 +901,37 @@ export class GroundTool {
               : "No materials needed"
         }${preview.refund.length ? ` · Recover ${this.names(preview.refund)}` : ""}`;
     const spec = ACTIONS.find((entry) => entry.action === this.action);
-    this.apply.textContent = (spec?.verb ?? "Apply {n}").replace(
-      "{n}",
-      preview.changes
-        ? `${preview.changes} hex${preview.changes === 1 ? "" : "es"}`
-        : "selection",
-    );
+    const depth = DEEP.includes(this.action)
+      ? ` by ${this.depth} step${this.depth === 1 ? "" : "s"}`
+      : this.action === "level"
+        ? ` to the ${REFERENCES.find((entry) => entry.value === this.reference)?.label.toLowerCase() ?? ""}`
+        : "";
+    this.apply.textContent =
+      (spec?.verb ?? "Apply {n}").replace(
+        "{n}",
+        preview.changes
+          ? `${preview.changes} hex${preview.changes === 1 ? "" : "es"}`
+          : "selection",
+      ) + depth;
+  }
+
+  /** Where the selection sits, said the way the shape that made it was drawn. */
+  private where(edit: GroundEdit): string {
+    switch (this.base) {
+      case "cell":
+        return `Hex ${edit.q}, ${edit.r}.`;
+      case "rect":
+        return `${this.outline ? "Frame" : "Rectangle"} ${CORNER_NAMES[edit.corner]?.toLowerCase() ?? ""} of ${edit.q}, ${edit.r} → ${CORNER_NAMES[edit.to_corner]?.toLowerCase() ?? ""} of ${edit.to_q}, ${edit.to_r}.`;
+      case "circle": {
+        const radius = Math.max(
+          Math.abs(edit.to_q - edit.q),
+          Math.abs(edit.to_r - edit.r),
+          Math.abs(edit.to_q - edit.q + edit.to_r - edit.r),
+        );
+        return `${this.outline ? "Ring" : "Disc"} of radius ${radius} around ${edit.q}, ${edit.r}.`;
+      }
+      default:
+        return `Hex ${edit.q}, ${edit.r} → ${edit.to_q}, ${edit.to_r}.`;
+    }
   }
 }

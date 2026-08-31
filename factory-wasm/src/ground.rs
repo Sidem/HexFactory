@@ -57,12 +57,27 @@ pub(super) enum GroundAction {
     Pave,
     /// Strip the surface back to untreated ground, recovering exactly what was paid.
     Clear,
-    /// One step of fill on every selected cell.
+    /// Fill every selected cell by [`GroundEdit::steps`].
     Raise,
-    /// One step of cut on every selected cell.
+    /// Cut every selected cell by [`GroundEdit::steps`].
     Lower,
-    /// Even every selected cell onto the first cell's finished grade.
+    /// Even every selected cell onto one grade, chosen by [`GroundEdit::reference`].
     Level,
+}
+
+/// Which grade a [`GroundAction::Level`] evens onto.
+///
+/// The datum is the whole decision in levelling, and before this it was implicit in the order the
+/// player happened to click. Naming it turns three separate gestures into one control: `Lowest`
+/// cuts everything down and fills the spoil heap, `Highest` fills everything up and spends it, and
+/// `First` keeps the datum the player picked by hand when neither extreme is what they meant.
+#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub(super) enum GroundReference {
+    #[default]
+    First,
+    Lowest,
+    Highest,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
@@ -74,6 +89,12 @@ pub(super) enum GroundShape {
     /// the rectangle touches. It shares its anchors and its snapping with the walled yard, so a
     /// floor and the wall around it land on exactly the same rectangle.
     Rect,
+    /// The one-hex-thick outline of [`GroundShape::Rect`], on exactly the same two anchors.
+    Frame,
+    /// Every hex within the distance from the centre `q, r` out to the rim hex `to_q, to_r`.
+    Disc,
+    /// The one-hex-thick outline of [`GroundShape::Disc`] — the hexes at exactly the rim distance.
+    Ring,
 }
 
 #[derive(Clone, Deserialize)]
@@ -91,6 +112,16 @@ pub(super) struct GroundEdit {
     pub shape: GroundShape,
     pub definition_id: DefinitionId,
     pub action: GroundAction,
+    /// How many steps one raise or lower moves the ground, clamped to `1..=MAX_GRADE_STEPS`.
+    ///
+    /// Defaulted rather than required so an edit written before this field existed still means what
+    /// it meant: one step. A cell that cannot take the whole depth takes what it can and says so,
+    /// which is what makes a terrace one gesture instead of three.
+    #[serde(default)]
+    pub steps: u8,
+    /// Which grade a level evens onto. Ignored by every other verb.
+    #[serde(default)]
+    pub reference: GroundReference,
     /// Explicit confirmation that covering a resource field is intended. Never defaulted true: a
     /// deposit the player cannot see again is exactly the decision that has to be deliberate.
     #[serde(default)]
@@ -117,11 +148,11 @@ fn hexes_touching_rect(rect: ((i32, i32), (i32, i32))) -> Result<Vec<(i32, i32)>
     let r_max = (y1 + radius).div_euclid(hex_y) + 1;
     let columns = (x1 - x0 + 2 * half_x) / hex_x + 3;
     // Bounded before anything is scanned, let alone priced, so an accidental drag across the map is
-    // refused rather than walked.
+    // refused rather than walked. This is the *scan* bound, deliberately looser than the selection
+    // bound: an outline may be drawn round a rectangle far larger than its own filled area, and the
+    // count that has to stay small is the one that gets priced.
     if (r_max - r_min + 1).saturating_mul(columns) > MAX_GROUND_CELLS as i64 * 16 {
-        return Err(format!(
-            "Select at most {MAX_GROUND_CELLS} hexes of ground at a time"
-        ));
+        return Err("That rectangle is too large to select. Drag a smaller one".into());
     }
     let mut cells = Vec::new();
     for r in r_min..=r_max {
@@ -145,8 +176,64 @@ fn hexes_touching_rect(rect: ((i32, i32), (i32, i32))) -> Result<Vec<(i32, i32)>
     Ok(cells)
 }
 
+/// The one-hex-thick outline of a filled selection: every cell of it with a neighbour outside it.
+///
+/// Outlines are derived from their filled shape rather than drawn by their own geometry, which is
+/// what makes them exactly one hex thick for *every* shape and every size, with no rounding rule of
+/// their own to disagree with the fill's. A shape already one hex wide is its own outline, which is
+/// the right answer rather than a special case.
+fn perimeter(cells: &[(i32, i32)]) -> Vec<(i32, i32)> {
+    let inside: BTreeSet<(i32, i32)> = cells.iter().copied().collect();
+    cells
+        .iter()
+        .copied()
+        .filter(|&(q, r)| {
+            DIRECTIONS
+                .iter()
+                .any(|&(dq, dr)| !inside.contains(&(q + dq, r + dr)))
+        })
+        .collect()
+}
+
+/// The hexes of a disc or its rim, centred on `centre` and reaching `rim`.
+///
+/// Both are bounded by arithmetic rather than by a scan: a disc of radius `n` is `1 + 3n(n + 1)`
+/// hexes and its rim is `6n`, so the refusal is decided before a single cell is enumerated.
+fn ground_circle(
+    centre: (i32, i32),
+    rim: (i32, i32),
+    filled: bool,
+) -> Result<Vec<(i32, i32)>, String> {
+    let radius = i64::from(axial_distance(centre, rim));
+    let count = if filled {
+        1 + 3 * radius * (radius + 1)
+    } else if radius == 0 {
+        1
+    } else {
+        6 * radius
+    };
+    if count > MAX_GROUND_CELLS as i64 {
+        return Err(format!(
+            "That {} is too wide: select at most {MAX_GROUND_CELLS} hexes of ground at a time",
+            if filled { "circle" } else { "ring" }
+        ));
+    }
+    let radius = radius as i32;
+    let mut cells = Vec::new();
+    for dq in -radius..=radius {
+        for dr in (-radius).max(-dq - radius)..=radius.min(-dq + radius) {
+            // On the rim, the cube distance is the largest of the three axes, so this is the same
+            // predicate `perimeter` would reach by a different road.
+            if filled || dq.abs().max(dr.abs()).max((dq + dr).abs()) == radius {
+                cells.push((centre.0 + dq, centre.1 + dr));
+            }
+        }
+    }
+    Ok(cells)
+}
+
 /// One cell of the preview, as the host draws it.
-#[derive(Clone, Copy, Debug, Serialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
 pub(super) struct GroundPreviewCell {
     pub q: i32,
     pub r: i32,
@@ -161,6 +248,12 @@ pub(super) struct GroundPreviewCell {
     pub covers: bool,
     /// Whether this cell would be left standing behind an unwalkable step.
     pub retained: bool,
+    /// Why this one cell cannot take the edit, if it cannot.
+    ///
+    /// A per-cell refusal, so an obstacle stops being a reason to erase the selection around it.
+    /// The cells that *can* take the edit still resolve, are still priced, and are still applied;
+    /// this one is drawn in the refusal colour with its own reason attached.
+    pub blocked: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, PartialEq, Eq)]
@@ -178,6 +271,8 @@ pub(super) struct GroundPreview {
     pub covers: usize,
     /// How many finished edges would be too steep to walk.
     pub retaining: usize,
+    /// How many selected cells cannot take this edit and are skipped.
+    pub blocked: usize,
     pub error: Option<String>,
 }
 
@@ -329,7 +424,7 @@ impl Core {
         let cells: Vec<(i32, i32)> = match edit.shape {
             GroundShape::Cell => vec![(edit.q, edit.r)],
             GroundShape::Path => hex_line_any((edit.q, edit.r), (edit.to_q, edit.to_r)),
-            GroundShape::Rect => {
+            GroundShape::Rect | GroundShape::Frame => {
                 if edit.corner >= 6 || edit.to_corner >= 6 {
                     return Err("Ground target is outside the supported coordinate range".into());
                 }
@@ -337,13 +432,26 @@ impl Core {
                     (edit.q, edit.r, edit.corner),
                     (edit.to_q, edit.to_r, edit.to_corner),
                 )?;
-                hexes_touching_rect(rect)?
+                let filled = hexes_touching_rect(rect)?;
+                if matches!(edit.shape, GroundShape::Frame) {
+                    perimeter(&filled)
+                } else {
+                    filled
+                }
             }
+            GroundShape::Disc | GroundShape::Ring => ground_circle(
+                (edit.q, edit.r),
+                (edit.to_q, edit.to_r),
+                matches!(edit.shape, GroundShape::Disc),
+            )?,
         };
         if cells.len() as u64 > MAX_GROUND_CELLS {
             return Err(format!(
                 "Select at most {MAX_GROUND_CELLS} hexes of ground at a time"
             ));
+        }
+        if cells.is_empty() {
+            return Err("That selection covers no ground".into());
         }
         Ok(cells)
     }
@@ -411,6 +519,12 @@ impl Core {
         Ok(())
     }
 
+    /// One selection, in three passes: resolve every cell, draw the footprint, then ask the
+    /// questions that are about the selection as a whole.
+    ///
+    /// The order is the whole point. The footprint is published between the two, so it is published
+    /// whatever either says — a refused selection that disappears is a selection the player cannot
+    /// correct, and every refusal below names a hex they can only find by looking at it.
     fn ground_transaction(&self, edit: &GroundEdit) -> GroundTransaction {
         let mut transaction = GroundTransaction {
             preview: GroundPreview {
@@ -423,6 +537,7 @@ impl Core {
                 spoil: self.spoil,
                 covers: 0,
                 retaining: 0,
+                blocked: 0,
                 error: None,
             },
             undo: GroundUndo {
@@ -433,193 +548,274 @@ impl Core {
             },
             inventory: self.player.inventory.clone(),
         };
-        let result = (|| -> Result<(), String> {
-            let cells = Self::ground_cells(edit)?;
-            let grading = matches!(
-                edit.action,
-                GroundAction::Raise | GroundAction::Lower | GroundAction::Level
-            );
-            let definition = if matches!(edit.action, GroundAction::Pave) {
-                Some(
-                    self.surface_definition(edit.definition_id)
-                        .ok_or("Unknown surface material")?,
-                )
-            } else {
-                None
-            };
-            if let Some(id) = definition.and_then(|surface| surface.unlock_technology_id) {
-                if !self.creative && !self.researched.contains(&id) {
-                    return Err(format!(
-                        "Research {} before laying this surface",
-                        self.technology(id)
-                            .map_or("the required technology", |technology| technology
-                                .name
-                                .as_str())
-                    ));
-                }
+        // The one refusal that has no footprint to draw: the selection did not resolve to cells at
+        // all, so there is nothing to say it about.
+        let cells = match Self::ground_cells(edit) {
+            Ok(cells) => cells,
+            Err(error) => {
+                transaction.preview.error = Some(error);
+                return transaction;
             }
-            // The first cell of the selection is the grade every other cell is evened onto. Naming
-            // the reference by the click that started the drag is what makes levelling a decision
-            // the player can see before they make it, rather than an average they have to guess.
-            let target = self.ground_elevation_at(cells[0].0, cells[0].1);
-
-            let mut cut = 0i64;
-            let mut fill = 0i64;
-            for &cell in &cells {
-                let before = self.ground.get(&cell).cloned();
-                let natural = natural_elevation(self.terrain_at(cell.0, cell.1));
-                let current = before.as_ref().map_or(0, |c| c.elevation);
-                let mut next = before.clone().unwrap_or(GroundCell {
-                    q: cell.0,
-                    r: cell.1,
-                    surface: 0,
-                    elevation: 0,
-                    paid: Vec::new(),
-                });
-                match edit.action {
-                    GroundAction::Pave => {
-                        let definition = definition.expect("pave definition");
-                        if next.surface == definition.id {
-                            continue;
-                        }
-                        if let Some(base) = definition.base_surface_id {
-                            if next.surface != base {
-                                return Err(format!(
-                                    "Lay {} on hex {}, {} first; this road needs a prepared base",
-                                    self.surface_definition(base)
-                                        .map_or("the base surface", |surface| surface
-                                            .name
-                                            .as_str()),
-                                    cell.0,
-                                    cell.1
-                                ));
-                            }
-                        }
-                        next.surface = definition.id;
-                        next.paid = if self.creative {
-                            Vec::new()
-                        } else {
-                            let mut paid = BTreeMap::new();
-                            if definition.base_surface_id.is_some() {
-                                add_ingredients(&mut paid, &next.paid);
-                            }
-                            add_ingredients(&mut paid, &definition.construction_cost);
-                            ingredients(&paid)
-                        };
-                    }
-                    GroundAction::Clear => {
-                        next.surface = 0;
-                        next.paid = Vec::new();
-                    }
-                    GroundAction::Raise => next.elevation = current.saturating_add(1),
-                    GroundAction::Lower => next.elevation = current.saturating_sub(1),
-                    GroundAction::Level => {
-                        let wanted = i64::from(target) - i64::from(natural);
-                        next.elevation = wanted
-                            .clamp(i64::from(-MAX_GRADE_STEPS), i64::from(MAX_GRADE_STEPS))
-                            as i8;
-                    }
-                }
-                if grading && next.elevation.abs() > MAX_GRADE_STEPS {
-                    return Err(format!(
-                        "Hex {}, {} is already cut or filled the full {MAX_GRADE_STEPS} steps",
-                        cell.0, cell.1
-                    ));
-                }
-                let after = (!next.is_untouched()).then_some(next);
-                if before == after {
-                    continue;
-                }
-                self.ground_site_check(cell, grading)
-                    .map_err(|reason| format!("Hex {}, {}: {reason}", cell.0, cell.1))?;
-                let step = i64::from(after.as_ref().map_or(0, |c| c.elevation))
-                    - i64::from(before.as_ref().map_or(0, |c| c.elevation));
-                if step > 0 {
-                    fill += step;
-                } else {
-                    cut -= step;
-                }
-                transaction.undo.before.push((cell, before));
-                transaction.undo.after.push((cell, after));
-            }
-            transaction.preview.changes = transaction.undo.after.len();
-            transaction.preview.cut = cut as u32;
-            transaction.preview.fill = fill as u32;
-            // Fill is dug, never conjured. Spoil is the one ledger that makes evening the ground an
-            // exchange instead of a wish: to raise anything, something else has to come down.
-            let spoil = i64::try_from(self.spoil).unwrap_or(i64::MAX) + cut - fill;
-            if spoil < 0 {
-                return Err(format!(
-                    "Not enough spoil: this needs {fill} and you have {}. Cut ground somewhere to raise it here",
-                    self.spoil
-                ));
-            }
-            transaction.undo.spoil_after = spoil as u64;
-            transaction.preview.spoil = spoil as u64;
-            self.ground_finish(edit, &cells, &mut transaction)?;
-            Ok(())
-        })();
-        transaction.preview.error = result.err();
+        };
+        let mut blocked = BTreeMap::new();
+        let resolved = self.ground_resolve(edit, &cells, &mut transaction, &mut blocked);
+        let after: BTreeMap<(i32, i32), Option<GroundCell>> =
+            transaction.undo.after.iter().cloned().collect();
+        self.ground_footprint(&cells, &after, &blocked, &mut transaction);
+        transaction.preview.error = match resolved {
+            Err(error) => Some(error),
+            Ok(()) => self
+                .ground_confirm(edit, &cells, &after, &mut transaction)
+                .err(),
+        };
         transaction
     }
 
-    /// Draw the picture and the bill from the resolved change set, then check what the finished
-    /// ground would mean for deposits, for the player's own footing, and for the pack.
-    fn ground_finish(
+    /// Turn the selection into a change set, one cell at a time.
+    ///
+    /// A cell that cannot take the edit is recorded and skipped rather than aborting the pass: an
+    /// obstacle in a thirty-hex yard used to erase the other twenty-nine, which made every large
+    /// selection a guessing game about which hex was the problem. Only a refusal about the *edit* —
+    /// the material, the research, the spoil ledger — stops the whole thing, because none of those
+    /// can be answered by grading fewer hexes.
+    fn ground_resolve(
         &self,
         edit: &GroundEdit,
         cells: &[(i32, i32)],
         transaction: &mut GroundTransaction,
+        blocked: &mut BTreeMap<(i32, i32), String>,
     ) -> Result<(), String> {
-        let after: BTreeMap<(i32, i32), Option<GroundCell>> =
-            transaction.undo.after.iter().cloned().collect();
-        let finished = |cell: (i32, i32)| -> (DefinitionId, i32) {
-            match after.get(&cell) {
-                Some(entry) => (
-                    entry.as_ref().map_or(0, |c| c.surface),
-                    natural_elevation(self.terrain_at(cell.0, cell.1))
-                        + i32::from(entry.as_ref().map_or(0, |c| c.elevation)),
-                ),
-                None => (
-                    self.surface_at(cell.0, cell.1),
-                    self.ground_elevation_at(cell.0, cell.1),
-                ),
+        let grading = matches!(
+            edit.action,
+            GroundAction::Raise | GroundAction::Lower | GroundAction::Level
+        );
+        let definition = if matches!(edit.action, GroundAction::Pave) {
+            Some(
+                self.surface_definition(edit.definition_id)
+                    .ok_or("Unknown surface material")?,
+            )
+        } else {
+            None
+        };
+        if let Some(id) = definition.and_then(|surface| surface.unlock_technology_id) {
+            if !self.creative && !self.researched.contains(&id) {
+                return Err(format!(
+                    "Research {} before laying this surface",
+                    self.technology(id)
+                        .map_or("the required technology", |technology| technology
+                            .name
+                            .as_str())
+                ));
             }
+        }
+        // Zero is what a host that predates the depth control sends, and one step is what it meant.
+        let steps = i32::from(edit.steps.clamp(1, MAX_GRADE_STEPS as u8));
+        let limit = i32::from(MAX_GRADE_STEPS);
+        // The grade every other cell is evened onto. Naming the datum explicitly is what makes
+        // levelling a decision the player can see before they make it: the lowest cell fills the
+        // spoil heap, the highest spends it, and the first one picked is their own eye.
+        let target = match edit.reference {
+            GroundReference::First => self.ground_elevation_at(cells[0].0, cells[0].1),
+            GroundReference::Lowest => cells
+                .iter()
+                .map(|&(q, r)| self.ground_elevation_at(q, r))
+                .min()
+                .unwrap_or(0),
+            GroundReference::Highest => cells
+                .iter()
+                .map(|&(q, r)| self.ground_elevation_at(q, r))
+                .max()
+                .unwrap_or(0),
         };
 
-        // A cliff coming down in this very selection has stopped being a wall by the time the
-        // footing checks below run, and one going back up has become one again. Asking the
-        // committed map instead would price the player's escape route against ground they are in
-        // the middle of moving.
-        let finished_blocks = |cell: (i32, i32)| -> bool {
-            let terrain = self.terrain_at(cell.0, cell.1);
-            if !terrain.blocks_movement() {
-                return false;
+        let mut cut = 0i64;
+        let mut fill = 0i64;
+        for &cell in cells {
+            let before = self.ground.get(&cell).cloned();
+            let natural = natural_elevation(self.terrain_at(cell.0, cell.1));
+            let current = i32::from(before.as_ref().map_or(0, |c| c.elevation));
+            let mut next = before.clone().unwrap_or(GroundCell {
+                q: cell.0,
+                r: cell.1,
+                surface: 0,
+                elevation: 0,
+                paid: Vec::new(),
+            });
+            match edit.action {
+                GroundAction::Pave => {
+                    let definition = definition.expect("pave definition");
+                    if next.surface == definition.id {
+                        continue;
+                    }
+                    if let Some(base) = definition.base_surface_id {
+                        if next.surface != base {
+                            blocked.insert(
+                                cell,
+                                format!(
+                                    "Lay {} here first; this road needs a prepared base",
+                                    self.surface_definition(base)
+                                        .map_or("the base surface", |surface| surface
+                                            .name
+                                            .as_str())
+                                ),
+                            );
+                            continue;
+                        }
+                    }
+                    next.surface = definition.id;
+                    next.paid = if self.creative {
+                        Vec::new()
+                    } else {
+                        let mut paid = BTreeMap::new();
+                        if definition.base_surface_id.is_some() {
+                            add_ingredients(&mut paid, &next.paid);
+                        }
+                        add_ingredients(&mut paid, &definition.construction_cost);
+                        ingredients(&paid)
+                    };
+                }
+                GroundAction::Clear => {
+                    next.surface = 0;
+                    next.paid = Vec::new();
+                }
+                // A depth the cell cannot take in full is taken as far as it goes. Clamping rather
+                // than refusing is what lets one gesture terrace mixed ground: the cells with room
+                // move, the ones already at the bound say so, and the bound itself never moves.
+                GroundAction::Raise | GroundAction::Lower => {
+                    let wanted = if matches!(edit.action, GroundAction::Raise) {
+                        (current + steps).min(limit)
+                    } else {
+                        (current - steps).max(-limit)
+                    };
+                    if wanted == current {
+                        blocked.insert(
+                            cell,
+                            format!("Already cut or filled the full {MAX_GRADE_STEPS} steps"),
+                        );
+                        continue;
+                    }
+                    next.elevation = wanted as i8;
+                }
+                GroundAction::Level => {
+                    let wanted = i64::from(target) - i64::from(natural);
+                    next.elevation =
+                        wanted.clamp(i64::from(-MAX_GRADE_STEPS), i64::from(MAX_GRADE_STEPS)) as i8;
+                }
             }
-            if terrain != Terrain::Cliff {
-                return true;
+            let after = (!next.is_untouched()).then_some(next);
+            if before == after {
+                continue;
             }
-            let delta = match after.get(&cell) {
-                Some(entry) => entry.as_ref().map_or(0, |c| c.elevation),
-                None => self.ground.get(&cell).map_or(0, |c| c.elevation),
-            };
-            delta >= 0
-        };
+            if let Err(reason) = self.ground_site_check(cell, grading) {
+                blocked.insert(cell, reason);
+                continue;
+            }
+            let step = i64::from(after.as_ref().map_or(0, |c| c.elevation))
+                - i64::from(before.as_ref().map_or(0, |c| c.elevation));
+            if step > 0 {
+                fill += step;
+            } else {
+                cut -= step;
+            }
+            transaction.undo.before.push((cell, before));
+            transaction.undo.after.push((cell, after));
+        }
+        transaction.preview.changes = transaction.undo.after.len();
+        transaction.preview.cut = cut as u32;
+        transaction.preview.fill = fill as u32;
+        // Nothing at all can be done and something is in the way: then the obstacle *is* the
+        // answer, and it is spoken as the selection's refusal rather than left as a tint on one
+        // hex nobody has a reason to look at.
+        if transaction.preview.changes == 0 {
+            if let Some((cell, reason)) = cells
+                .iter()
+                .find_map(|cell| blocked.get(cell).map(|reason| (cell, reason)))
+            {
+                return Err(format!("Hex {}, {}: {reason}", cell.0, cell.1));
+            }
+        }
+        // Fill is dug, never conjured. Spoil is the one ledger that makes evening the ground an
+        // exchange instead of a wish: to raise anything, something else has to come down.
+        let spoil = i64::try_from(self.spoil).unwrap_or(i64::MAX) + cut - fill;
+        if spoil < 0 {
+            return Err(format!(
+                "Not enough spoil: this needs {fill} and you have {}. Cut ground somewhere to raise it here",
+                self.spoil
+            ));
+        }
+        transaction.undo.spoil_after = spoil as u64;
+        transaction.preview.spoil = spoil as u64;
+        Ok(())
+    }
 
+    /// The surface and finished grade a hex would be left with, reading the pending change set
+    /// before the committed map so a preview never prices itself against ground it is moving.
+    fn ground_finished(
+        &self,
+        after: &BTreeMap<(i32, i32), Option<GroundCell>>,
+        cell: (i32, i32),
+    ) -> (DefinitionId, i32) {
+        match after.get(&cell) {
+            Some(entry) => (
+                entry.as_ref().map_or(0, |c| c.surface),
+                natural_elevation(self.terrain_at(cell.0, cell.1))
+                    + i32::from(entry.as_ref().map_or(0, |c| c.elevation)),
+            ),
+            None => (
+                self.surface_at(cell.0, cell.1),
+                self.ground_elevation_at(cell.0, cell.1),
+            ),
+        }
+    }
+
+    /// A cliff coming down in this very selection has stopped being a wall by the time the footing
+    /// checks run, and one going back up has become one again.
+    fn ground_finished_blocks(
+        &self,
+        after: &BTreeMap<(i32, i32), Option<GroundCell>>,
+        cell: (i32, i32),
+    ) -> bool {
+        let terrain = self.terrain_at(cell.0, cell.1);
+        if !terrain.blocks_movement() {
+            return false;
+        }
+        if terrain != Terrain::Cliff {
+            return true;
+        }
+        let delta = match after.get(&cell) {
+            Some(entry) => entry.as_ref().map_or(0, |c| c.elevation),
+            None => self.ground.get(&cell).map_or(0, |c| c.elevation),
+        };
+        delta >= 0
+    }
+
+    /// Draw the picture: every selected hex, at the grade it would finish on, with what is about to
+    /// happen to it — or why nothing is.
+    fn ground_footprint(
+        &self,
+        cells: &[(i32, i32)],
+        after: &BTreeMap<(i32, i32), Option<GroundCell>>,
+        blocked: &BTreeMap<(i32, i32), String>,
+        transaction: &mut GroundTransaction,
+    ) {
         let mut retaining = 0usize;
         for &cell in cells {
-            let (surface, elevation) = finished(cell);
+            let (surface, elevation) = self.ground_finished(after, cell);
             let covers = surface != 0 && self.field_at(cell.0, cell.1).is_some();
             if covers {
                 transaction.preview.covers += 1;
             }
             let retained = DIRECTIONS.iter().any(|&(dq, dr)| {
                 let neighbour = (cell.0 + dq, cell.1 + dr);
-                !finished_blocks(neighbour)
-                    && (elevation - finished(neighbour).1).abs() > MAX_WALK_STEP
+                !self.ground_finished_blocks(after, neighbour)
+                    && (elevation - self.ground_finished(after, neighbour).1).abs() > MAX_WALK_STEP
             });
             if retained {
                 retaining += 1;
+            }
+            let reason = blocked.get(&cell).cloned();
+            if reason.is_some() {
+                transaction.preview.blocked += 1;
             }
             transaction.preview.cells.push(GroundPreviewCell {
                 q: cell.0,
@@ -633,9 +829,21 @@ impl Core {
                 ) - i32::from(self.ground.get(&cell).map_or(0, |c| c.elevation)),
                 covers,
                 retained,
+                blocked: reason,
             });
         }
         transaction.preview.retaining = retaining;
+    }
+
+    /// What the finished ground would mean for deposits, for the player's own footing, and for the
+    /// pack. Every question here is about the selection as a whole, so every answer refuses it whole.
+    fn ground_confirm(
+        &self,
+        edit: &GroundEdit,
+        cells: &[(i32, i32)],
+        after: &BTreeMap<(i32, i32), Option<GroundCell>>,
+        transaction: &mut GroundTransaction,
+    ) -> Result<(), String> {
         if transaction.preview.covers > 0 && !edit.cover {
             return Err(format!(
                 "{} selected hex{} hold{} a deposit. Confirm covering to seal it: it stops being reachable until the surface comes up",
@@ -645,7 +853,7 @@ impl Core {
             ));
         }
         for &cell in cells {
-            if finished(cell).0 != 0 && self.extractor_draws_from(cell) {
+            if self.ground_finished(after, cell).0 != 0 && self.extractor_draws_from(cell) {
                 return Err(format!(
                     "Hex {}, {} is being worked by an extractor. Relocate it before covering the deposit",
                     cell.0, cell.1
@@ -656,10 +864,11 @@ impl Core {
         // hex is checked, and only its six edges: a full reachability sweep would price thinking
         // about a route, and the pit that traps somebody is always the one under their feet.
         let standing = world_to_axial(self.player.x, self.player.y);
-        let (_, here) = finished(standing);
+        let (_, here) = self.ground_finished(after, standing);
         let escapes = DIRECTIONS.iter().any(|&(dq, dr)| {
             let neighbour = (standing.0 + dq, standing.1 + dr);
-            !finished_blocks(neighbour) && (here - finished(neighbour).1).abs() <= MAX_WALK_STEP
+            !self.ground_finished_blocks(after, neighbour)
+                && (here - self.ground_finished(after, neighbour).1).abs() <= MAX_WALK_STEP
         });
         if !escapes {
             return Err("That grade would leave you with no way out of this hex".into());
@@ -806,6 +1015,7 @@ impl Core {
                 spoil: undo.spoil_before,
                 covers: 0,
                 retaining: 0,
+                blocked: 0,
                 error: None,
             },
             undo: GroundUndo {

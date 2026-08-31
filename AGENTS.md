@@ -4,17 +4,18 @@ HexFactory is a browser factory-automation game. Player experience is the tiebre
 native ownership, sparse cost, and measured claims exist to keep a large living factory responsive
 and trustworthy.
 
-Current release: **v0.45.0 Sealed Routes** — belts carry solids and sealed barrels, while pipes carry
-loose water and crude oil through the same native compiled graph. Water and oil tanks are filtered
-stores; a barrel station fills and empties reusable barrels. Belt and pipe underpasses are placed as
-one atomic entrance-to-exit drag while the crossed cells keep their own occupancy and lane. Current
-envelopes are save 36, definitions 27, technologies 16, scenarios 7, world 10, wire 19; save 35
-grandfathers only its existing belts for legacy liquid cargo, preserving old factories without
-letting newly placed belts accept loose fluid.
+Current release: **v0.46.0 Shaped Ground** — an earthworks selection is a shape and two anchors, not
+a heap of hexes: hex, line, rectangle and circle, with one outline modifier that reuses the anchors
+already placed. An outline is the hex-adjacency perimeter of its own fill, so it is one hex thick at
+every size; the ceiling is 64 hexes. Raise and Lower take a depth of one to three steps, and Level
+evens onto a datum the player names. A refused edit keeps its footprint drawn and names the hex in
+the way rather than erasing the selection. Presentation and RPC only: every envelope is unchanged at
+save 36, definitions 27, technologies 16, scenarios 7, world 10, wire 19. Save 35 still grandfathers
+only its existing belts for legacy liquid cargo.
 
 Next work is the numbered phase table in `docs/HEXFACTORY-PLAN.md#what-to-do-next`: flowing water.
-The user explicitly brought pipes forward without reordering that table. Release numbers after
-v0.45.0 are unassigned. Do not reorder those phases without the user. On
+Pipes were brought forward and the ground rework was requested outright; neither reorders that
+table. Release numbers after v0.46.0 are unassigned. Do not reorder those phases without the user. On
 2026-08-29 the user moved supported floors and vertical transport from row 7 to row 10, behind
 flowing water and Living Lattice, so the player learns the shipped ground-level systems before the
 game asks them to think in levels.
@@ -104,7 +105,7 @@ next work is `docs/HEXFACTORY-PLAN.md`; measured evidence is `docs/BENCHMARKS.md
 `docs/ART.md`; the retrieval index is `docs/AGENT-MAP.md`; this file is the entrypoint. A shipped
 milestone collapses to one ledger line in the plan and its brief is deleted — the detail lives in
 git history and in the code. At most one release record may exist at a time, for the milestone
-currently in flight; it is deleted when the next one ships. Today there is none: v0.45.0 is shipped
+currently in flight; it is deleted when the next one ships. Today there is none: v0.46.0 is shipped
 and its detail lives in the ledger and git history. `README.md` is the only player-facing document.
 
 ## Evidence behind the context policy

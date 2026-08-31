@@ -64,8 +64,10 @@ export function encodeCommand(command: NativeInputCommand): EncodedCommand {
     case "undo_boundary":
       return { opcode: 31, args: [] };
 
-    // Two corners, a shape, a surface and one verb. What the grade becomes, what it costs, what it
+    // Two anchors, a shape, a surface and one verb. What the grade becomes, what it costs, what it
     // buries and whether anything is left stranded are all native's — the host names a selection.
+    // Every shape rides the same two anchors, so switching between a floor and the kerb around it,
+    // or between a disc and its rim, changes one field and never the gesture that produced them.
     // `cover` is carried rather than defaulted because sealing a deposit is the one change here the
     // player cannot walk back by looking at it, so it only ever travels as a deliberate yes.
     case "ground_edit":
@@ -75,7 +77,10 @@ export function encodeCommand(command: NativeInputCommand): EncodedCommand {
         ) ||
         ![command.corner, command.to_corner].every(
           (n) => Number.isInteger(n) && n >= 0 && n <= 5,
-        )
+        ) ||
+        !Number.isInteger(command.steps) ||
+        command.steps < 1 ||
+        command.steps > 8
       )
         throw new RangeError("Invalid ground target");
       return {
@@ -87,10 +92,14 @@ export function encodeCommand(command: NativeInputCommand): EncodedCommand {
           command.to_q,
           command.to_r,
           command.to_corner,
-          { cell: 0, path: 1, rect: 2 }[command.shape],
+          { cell: 0, path: 1, rect: 2, frame: 3, disc: 4, ring: 5 }[
+            command.shape
+          ],
           command.definition_id,
           { pave: 0, clear: 1, raise: 2, lower: 3, level: 4 }[command.action],
           command.cover ? 1 : 0,
+          command.steps,
+          { first: 0, lowest: 1, highest: 2 }[command.reference],
         ],
       };
     case "undo_ground":

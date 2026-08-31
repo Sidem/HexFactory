@@ -274,6 +274,8 @@ fn petroleum_roads_require_research_and_base_and_refund_both_layers() {
         definition_id: 6,
         shape: GroundShape::Cell,
         action: GroundAction::Pave,
+        steps: 1,
+        reference: GroundReference::First,
         cover: false,
     };
     assert!(core

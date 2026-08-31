@@ -95,6 +95,124 @@
   color: var(--ink);
 }
 
+/* The shape row is the verb row's twin — same segmented bar, same press — because "what to do" and
+ * "where to do it" are two answers of the same weight, and a player who has learned one row has
+ * already learned the other. */
+.ground-shapes {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 4px;
+  margin-top: 10px;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  background: #0b1714;
+}
+.ground-shapes button {
+  display: grid;
+  justify-items: center;
+  gap: 2px;
+  min-height: 48px;
+  padding: 6px 2px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+}
+.ground-shapes button span {
+  font-size: 16px;
+  line-height: 1;
+}
+.ground-shapes button:hover {
+  background: var(--panel-hover);
+  color: var(--ink);
+}
+.ground-shapes button[aria-pressed="true"] {
+  border-color: #6d9f81;
+  background: #23483c;
+  color: var(--ink);
+}
+
+/* An outline rides the same two anchors as its fill, so it is a modifier on the shape rather than a
+ * shape of its own. It sits directly under the row it modifies and vanishes where there is no
+ * inside to leave out. */
+.ground-outline {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: start;
+  gap: 9px;
+  margin-top: 8px;
+  padding: 9px 11px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel-card);
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--muted);
+  cursor: pointer;
+}
+.ground-outline[hidden] {
+  display: none;
+}
+.ground-outline input {
+  width: 18px;
+  height: 18px;
+  margin: 1px 0 0;
+  accent-color: #6d9f81;
+}
+.ground-outline b {
+  display: block;
+  color: var(--ink);
+}
+
+/* Depth and datum answer "how much" for exactly the verbs that have an answer, and share one slot
+ * so choosing a verb never makes the tray jump under the pointer. */
+.ground-grade {
+  margin-top: 10px;
+}
+.ground-grade[hidden] {
+  display: none;
+}
+.ground-choice {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  color: var(--muted);
+}
+.ground-choice[hidden] {
+  display: none;
+}
+.ground-choice > span {
+  min-width: 46px;
+}
+.ground-choice > small {
+  color: #7f978b;
+  font-size: 10px;
+}
+.ground-choice button {
+  min-height: 34px;
+  padding: 4px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel-card);
+  color: var(--muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+.ground-choice button:hover {
+  background: var(--panel-hover);
+  color: var(--ink);
+}
+.ground-choice button[aria-pressed="true"] {
+  border-color: #6d9f81;
+  background: #23483c;
+  color: var(--ink);
+}
+
 /* The palette is a shop shelf: name, what it buys, what it costs, in that order, on one card. */
 .ground-palette {
   display: grid;
@@ -300,6 +418,17 @@
   display: none;
 }
 
+/* A hex the edit will pass over is a note beside the work, not a refusal of it, so it is quieter
+ * than the retaining warning and never takes the status line. */
+.ground-obstructed {
+  margin: 0 0 8px;
+  color: #d9a09a;
+  font-size: 11px;
+}
+.ground-obstructed[hidden] {
+  display: none;
+}
+
 .ground-panel-actions {
   display: flex;
   flex-wrap: wrap;
@@ -335,7 +464,8 @@
   .ground-panel header {
     margin-bottom: 10px;
   }
-  .ground-actions button {
+  .ground-actions button,
+  .ground-shapes button {
     min-height: 48px;
   }
 }

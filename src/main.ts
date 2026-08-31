@@ -4786,13 +4786,31 @@ window.addEventListener("keydown", (event) => {
     else boundaryTool.selectRemoval();
     return;
   }
+  // The earthworks tray answers three questions — what work, what shape, how much — so each gets a
+  // key rather than a trip to the panel. The brackets and backslash sit together under one hand and
+  // are the only unclaimed keys near it; the digits belong to the hotbar.
   if (
     groundTool.active &&
-    ["Escape", "KeyR", "Delete", "Backspace"].includes(event.code)
+    [
+      "Escape",
+      "KeyR",
+      "Delete",
+      "Backspace",
+      "BracketLeft",
+      "BracketRight",
+      "Backslash",
+      "Minus",
+      "Equal",
+    ].includes(event.code)
   ) {
     event.preventDefault();
     if (event.code === "Escape") groundTool.escape();
     else if (event.code === "KeyR") groundTool.cycleAction(event.shiftKey);
+    else if (event.code === "BracketLeft") groundTool.cycleShape(true);
+    else if (event.code === "BracketRight") groundTool.cycleShape(false);
+    else if (event.code === "Backslash") groundTool.toggleOutline();
+    else if (event.code === "Minus") groundTool.nudgeDepth(-1);
+    else if (event.code === "Equal") groundTool.nudgeDepth(1);
     else groundTool.selectStrip();
     return;
   }

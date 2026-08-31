@@ -95,6 +95,16 @@ only the two guarded portals, placement checks them together, and the cells betw
 to the lane being crossed. Existing liquid belts keep working when an older save migrates, but new
 belts follow the sealed-route rule.
 
+**Shaped Ground (v0.46.0)** rebuilds how you choose the ground you are working. Pick a shape — a
+single hex, a line, a rectangle or a circle — then place two anchors; a rectangle is named by its
+corners and a circle by its centre and any hex on the rim. Tick **Outline only** and the same two
+anchors give you a frame or a ring one hex thick, so you can kerb a yard without repaving it. Raise
+and Lower now take a depth of one to three steps in one go, and Level asks which grade to even onto:
+the first hex you picked, the lowest in the selection, or the highest. `[` and `]` cycle the shape,
+`\` toggles the outline, and `−` and `=` set the depth. The ghost also tells you more: cuts are
+visible from above instead of hiding under the ground they cut, and an edit the game refuses keeps
+its whole shape on screen with the blocking hex marked in red and named in the tray.
+
 ## Controls
 
 - The default hotbar starts with the manual workshop and primitive furnace. Existing pinned bars

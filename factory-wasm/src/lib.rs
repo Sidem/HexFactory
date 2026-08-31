@@ -315,9 +315,15 @@ const MAX_WALK_STEP: i32 = 2;
 /// pad earns its keep the moment somebody terraces, where a full cut beside untouched ground is a
 /// three-step face and refuses.
 const MAX_BUILD_STEP: i32 = MAX_WALK_STEP;
-/// How many hexes one ground edit may cover. The same bound area boundary edits use, for the same
-/// reason: a preview is priced before it is drawn, and a stray drag must be refused, not costed.
-const MAX_GROUND_CELLS: u64 = 32;
+/// How many hexes one ground edit may cover. A preview is priced before it is drawn, so a stray
+/// drag must be refused rather than costed.
+///
+/// Sixty-four rather than the thirty-two boundary edits use, because a ground selection and a wall
+/// selection are not the same size of thing: a walled yard is a rectangle's *edge*, and the floor
+/// inside it is the rectangle's area. A 6×6 yard is thirty-six hexes, so the old bound refused to
+/// floor a yard it would happily wall. Sixty-four also gives the circular selections room to be
+/// worth having — a radius-4 disc is sixty-one hexes and a radius-10 ring is sixty.
+const MAX_GROUND_CELLS: u64 = 64;
 /// The gait an autonomous walk travels at, as a movement intent.
 ///
 /// Full intent — the run — rather than the 0.6 the unmodified movement keys ask for. A player
@@ -24603,6 +24609,8 @@ mod tests {
             shape: GroundShape::Cell,
             definition_id: 2,
             action,
+            steps: 1,
+            reference: GroundReference::First,
             cover: false,
         }
     }
@@ -24747,6 +24755,199 @@ mod tests {
         assert_eq!(core.spoil, 0);
         assert!(core.ground.is_empty(), "level ground leaves the overlay");
         assert_eq!(core.checksum(), checksum, "the ledger balances to zero");
+    }
+
+    /// The selection modes, and the one property that makes an outline an outline: it is exactly
+    /// the hexes of its own filled shape that touch something outside it. Deriving the outline from
+    /// the fill rather than drawing it with geometry of its own is what makes it one hex thick at
+    /// every size, with no rounding rule that could disagree with the fill's.
+    #[test]
+    fn an_outlined_ground_selection_is_the_rim_of_its_own_filled_shape() {
+        let mut core = ground_world();
+        core.set_creative(true);
+        reach(&mut core);
+        let cells = |edit: &GroundEdit| -> Vec<(i32, i32)> {
+            let preview = core.ground_preview(edit);
+            assert_eq!(preview.error, None);
+            preview.cells.iter().map(|cell| (cell.q, cell.r)).collect()
+        };
+
+        // A circle is dragged from its centre out to a rim hex, so its radius is a distance the
+        // player can count on the map rather than a number typed into a field.
+        let disc = GroundEdit {
+            to_q: 2,
+            shape: GroundShape::Disc,
+            ..ground_edit(0, 0, GroundAction::Pave)
+        };
+        let filled = cells(&disc);
+        let rim = cells(&GroundEdit {
+            shape: GroundShape::Ring,
+            ..disc.clone()
+        });
+        assert_eq!(filled.len(), 19, "1 + 3n(n + 1) hexes at radius two");
+        assert_eq!(rim.len(), 12, "6n hexes at radius two");
+        assert!(rim.iter().all(|&cell| axial_distance((0, 0), cell) == 2));
+
+        // A rectangle and its frame share both anchors, so a floor and the kerb round it are the
+        // same drag with one button changed.
+        let rect = GroundEdit {
+            to_q: 3,
+            to_r: 3,
+            corner: 4,
+            to_corner: 1,
+            shape: GroundShape::Rect,
+            ..ground_edit(0, 0, GroundAction::Pave)
+        };
+        let area = cells(&rect);
+        let frame = cells(&GroundEdit {
+            shape: GroundShape::Frame,
+            ..rect.clone()
+        });
+        assert!(
+            area.len() > frame.len(),
+            "this rectangle has an interior to leave out: {} vs {}",
+            area.len(),
+            frame.len()
+        );
+
+        for (fill, outline) in [(filled, rim), (area, frame)] {
+            let inside: BTreeSet<(i32, i32)> = fill.iter().copied().collect();
+            let edge: BTreeSet<(i32, i32)> = fill
+                .iter()
+                .copied()
+                .filter(|&(q, r)| {
+                    DIRECTIONS
+                        .iter()
+                        .any(|&(dq, dr)| !inside.contains(&(q + dq, r + dr)))
+                })
+                .collect();
+            assert_eq!(outline.into_iter().collect::<BTreeSet<_>>(), edge);
+        }
+
+        // Both circular modes are bounded by arithmetic rather than by a scan, so an over-wide drag
+        // is refused before a single hex is enumerated.
+        let wide = core.ground_preview(&GroundEdit { to_q: 5, ..disc });
+        assert!(wide.error.unwrap().contains("too wide"));
+        assert!(wide.cells.is_empty());
+    }
+
+    /// What a selection has to do when it cannot be applied: stay on screen, and say which hex is
+    /// the problem. One obstacle used to erase the whole footprint it was standing in, which left
+    /// the player a refusal and no picture of what it was about.
+    #[test]
+    fn a_refused_ground_selection_still_draws_its_footprint_and_names_the_hex_in_the_way() {
+        let mut core = ground_world();
+        core.set_creative(true);
+        reach(&mut core);
+        core.write_overlay(2, 0, WOOD, 9, 14);
+
+        let lower = GroundEdit {
+            to_q: 4,
+            shape: GroundShape::Path,
+            ..ground_edit(0, 0, GroundAction::Lower)
+        };
+        let preview = core.ground_preview(&lower);
+        assert_eq!(preview.error, None, "one obstacle no longer refuses four");
+        assert_eq!(preview.cells.len(), 5, "the footprint is drawn whole");
+        assert_eq!(preview.blocked, 1);
+        assert_eq!(preview.changes, 4);
+        let stuck = preview
+            .cells
+            .iter()
+            .find(|cell| (cell.q, cell.r) == (2, 0))
+            .unwrap();
+        assert!(stuck
+            .blocked
+            .as_deref()
+            .is_some_and(|reason| reason.contains("deposit")));
+        assert_eq!(stuck.change, 0, "a blocked hex moves no ground");
+        core.edit_ground(&lower).unwrap();
+        assert_eq!(core.spoil, 4);
+        assert_eq!(core.ground_elevation_at(2, 0), 0, "the deposit sat still");
+
+        // A refusal about the selection as a whole keeps its footprint too: that picture is how the
+        // player works out where the spoil has to come from.
+        let starved = core.ground_preview(&GroundEdit {
+            steps: 3,
+            ..GroundEdit {
+                action: GroundAction::Raise,
+                ..lower.clone()
+            }
+        });
+        assert!(starved.error.unwrap().contains("spoil"));
+        assert_eq!(starved.cells.len(), 5);
+
+        // Depth is one number rather than three gestures, and a hex without room for the whole cut
+        // takes what it has room for instead of refusing the pass.
+        let deep = GroundEdit {
+            steps: 3,
+            ..ground_edit(3, 0, GroundAction::Lower)
+        };
+        assert_eq!(core.ground_preview(&deep).cut, 2, "clamped, not refused");
+        core.edit_ground(&deep).unwrap();
+        assert_eq!(core.ground_elevation_at(3, 0), -i32::from(MAX_GRADE_STEPS));
+        assert!(core
+            .edit_ground(&deep)
+            .unwrap_err()
+            .contains("full 3 steps"));
+    }
+
+    /// Levelling names its datum. The same three hexes even onto the lowest, the highest, or the
+    /// one the drag started on, and the spoil ledger is what tells the three apart.
+    #[test]
+    fn levelling_evens_onto_the_datum_the_player_names() {
+        let mut core = ground_world();
+        core.set_creative(true);
+        reach(&mut core);
+        // A stepped profile: 0, -1, -2 across three hexes.
+        core.edit_ground(&ground_edit(1, 0, GroundAction::Lower))
+            .unwrap();
+        core.edit_ground(&GroundEdit {
+            steps: 2,
+            ..ground_edit(2, 0, GroundAction::Lower)
+        })
+        .unwrap();
+        assert_eq!(core.spoil, 3);
+
+        let level = GroundEdit {
+            to_q: 2,
+            shape: GroundShape::Path,
+            action: GroundAction::Level,
+            ..ground_edit(0, 0, GroundAction::Level)
+        };
+        let lowest = core.ground_preview(&GroundEdit {
+            reference: GroundReference::Lowest,
+            ..level.clone()
+        });
+        assert_eq!(lowest.error, None);
+        assert_eq!((lowest.cut, lowest.fill), (3, 0), "down to the deepest cut");
+        assert_eq!(lowest.spoil, 6, "and the heap keeps what came out");
+
+        let highest = core.ground_preview(&GroundEdit {
+            reference: GroundReference::Highest,
+            ..level.clone()
+        });
+        assert_eq!(
+            (highest.cut, highest.fill),
+            (0, 3),
+            "up to the untouched hex"
+        );
+        assert_eq!(highest.spoil, 0, "which spends the heap instead");
+
+        // The default is still the hex the drag started on, so an edit written before this control
+        // existed means exactly what it meant.
+        let first = core.ground_preview(&level);
+        assert_eq!((first.cut, first.fill), (0, 3));
+
+        core.edit_ground(&GroundEdit {
+            reference: GroundReference::Lowest,
+            ..level
+        })
+        .unwrap();
+        for q in 0..=2 {
+            assert_eq!(core.ground_elevation_at(q, 0), -2);
+        }
+        assert_eq!(core.spoil, 6);
     }
 
     /// The route search prices travel time, so a longer prepared way beats a shorter raw one, and a

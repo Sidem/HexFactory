@@ -632,6 +632,18 @@ defect it prevents; a change that contradicts one needs an argument, not an over
   `Core::terrain_blocks_movement` / `terrain_blocks_construction` in Rust or `bandAt` in TypeScript,
   never through `blocks_movement` or `TERRAIN_INFO` directly — those two still state the band, which
   is what a legend and a pinned fixture are for.
+- **An earthworks selection is resolved in three passes, and the footprint survives a refusal.**
+  `ground_transaction` runs `ground_resolve` per cell, which records a `blocked` reason on the hex in
+  the way instead of aborting the whole edit; then `ground_footprint`, which publishes every selected
+  cell whatever its outcome; then `ground_confirm`, which applies the whole-selection gates — cover,
+  extractor, escape route, price. The order is the contract: a preview that native will refuse still
+  draws its shape and names the hex responsible, because a selection that vanishes at the moment it
+  is rejected tells the player nothing about what to fix. Selection shapes are native truth
+  (`GroundShape`, up to `MAX_GROUND_CELLS` = 64 hexes), and an outline is defined as the hex-adjacency
+  perimeter of its own fill — `frame = perimeter(rect)`, `ring = perimeter(disc)` — so it is one hex
+  thick at every size with no rounding rule of its own. The bright rim the renderer draws around a
+  ghost is the same perimeter computed host-side and is pure presentation: it decides where to draw a
+  line, never what native grades.
 - Snapshot deltas cross to the host in the binary wire format, encoded by `factory-wasm/src/wire.rs`
   and decoded by `src/core/snapshotWire.ts`. The decoder's contract is that it produces exactly what
   `JSON.parse(snapshot_delta_json())` produced — the same keys, the same omissions, `null` where

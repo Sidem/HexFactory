@@ -1901,7 +1901,7 @@ it("carries bounded boundary transactions as two lattice vertices", () => {
   ).toThrow(/boundary/);
 });
 
-it("carries ground selections as two corners, a verb and a deliberate cover", () => {
+it("carries ground selections as two anchors, a verb, a depth and a deliberate cover", () => {
   // Native has no numeric opcode decoder: the switch in `encodeCommand` is the whole contract for
   // what a ground edit looks like on the wire, so it is pinned here rather than inferred from Rust.
   expect(
@@ -1917,11 +1917,36 @@ it("carries ground selections as two corners, a verb and a deliberate cover", ()
       definition_id: 4,
       action: "level",
       cover: true,
+      steps: 1,
+      reference: "highest",
     }),
   ).toEqual({
     opcode: 32,
-    args: [-2, 1, 3, 2, 3, 0, 2, 4, 4, 1],
+    args: [-2, 1, 3, 2, 3, 0, 2, 4, 4, 1, 1, 2],
   });
+  // Every shape rides those same two anchors, so a fill and its outline differ by one field. The
+  // codes are pinned because an outline silently decoding as its fill would pave what it meant to
+  // edge, at the player's expense.
+  expect(
+    (["cell", "path", "rect", "frame", "disc", "ring"] as const).map(
+      (shape) =>
+        encodeCommand({
+          type: "ground_edit",
+          q: 0,
+          r: 0,
+          corner: 0,
+          to_q: 2,
+          to_r: 0,
+          to_corner: 0,
+          shape,
+          definition_id: 1,
+          action: "pave",
+          cover: false,
+          steps: 1,
+          reference: "first",
+        }).args[6],
+    ),
+  ).toEqual([0, 1, 2, 3, 4, 5]);
   // `cover` travels, never defaults: sealing a deposit is the one ground change a player cannot
   // walk back by looking at it, so an unconfirmed edit must reach native as an explicit no.
   expect(
@@ -1937,8 +1962,10 @@ it("carries ground selections as two corners, a verb and a deliberate cover", ()
       definition_id: 1,
       action: "pave",
       cover: false,
-    }).args[9],
-  ).toBe(0);
+      steps: 3,
+      reference: "first",
+    }).args.slice(9),
+  ).toEqual([0, 3, 0]);
   expect(encodeCommand({ type: "undo_ground" })).toEqual({
     opcode: 33,
     args: [],
@@ -1956,6 +1983,27 @@ it("carries ground selections as two corners, a verb and a deliberate cover", ()
       definition_id: 1,
       action: "lower",
       cover: false,
+      steps: 1,
+      reference: "first",
+    }),
+  ).toThrow(/ground/i);
+  // A depth is a count of steps, not a free number: a fractional or absent one would reach native
+  // as a clamp rather than as the refusal it is.
+  expect(() =>
+    encodeCommand({
+      type: "ground_edit",
+      q: 0,
+      r: 0,
+      corner: 0,
+      to_q: 0,
+      to_r: 0,
+      to_corner: 0,
+      shape: "cell",
+      definition_id: 1,
+      action: "lower",
+      cover: false,
+      steps: 0,
+      reference: "first",
     }),
   ).toThrow(/ground/i);
 });
