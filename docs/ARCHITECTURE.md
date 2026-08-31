@@ -632,6 +632,15 @@ defect it prevents; a change that contradicts one needs an argument, not an over
   `Core::terrain_blocks_movement` / `terrain_blocks_construction` in Rust or `bandAt` in TypeScript,
   never through `blocks_movement` or `TERRAIN_INFO` directly — those two still state the band, which
   is what a legend and a pinned fixture are for.
+- **The Phase 8 ground spine is typed before it is physical.** `GroundSpine` separates generated bed,
+  substrate, initial hydrology and presentation; `FinishedGround` keeps earthwork, erosion and the
+  prepared surface distinct and is the one route to finished elevation and access. Its current
+  source is a legacy adapter, so it produces the shipped band steps and the seven-band presentation
+  unchanged; no physical scale constant is read until the slice-3 compatibility boundary. The
+  cache contains surveyed chunks only, falls back to the uncached source when its world identity no
+  longer matches the Core, and is rebuilt rather than saved, hashed or checksummed. The uncached
+  source is the cache oracle, and `fixtures/terrain-passability.json` pins the adapter on both sides
+  of the host boundary.
 - **An earthworks selection is resolved in three passes, and the footprint survives a refusal.**
   `ground_transaction` runs `ground_resolve` per cell, which records a `blocked` reason on the hex in
   the way instead of aborting the whole edit; then `ground_footprint`, which publishes every selected

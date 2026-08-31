@@ -17,11 +17,14 @@ Next work is the numbered phase table in `docs/HEXFACTORY-PLAN.md#what-to-do-nex
 On 2026-08-31 the user approved the Phase 8 scale break detailed in that brief: one construction hex
 becomes 25 m², generated altitude becomes physical native height, drainage shapes valleys before
 rivers are placed, and building footprints are reauthored around the new scale. The first slice is a
-native survey/prototype, not a production toggle; **it is delivered in v0.46.0** and the next work is
-slice 2, the production ground spine behind the old presentation. `factory_wasm::scale` states the
+native survey/prototype, not a production toggle; **it is delivered in v0.46.0**. Slice 2 now supplies
+the typed production ground spine behind the old presentation, and the next work is slice 3, content
+and renderer activation at the declared compatibility boundary. `factory_wasm::scale` states the
 scale contract and is read by nothing that ships; `factory_wasm::terra` is the drainage prototype and
-is compiled out of the wasm artifact. Neither is a live model — the shipped 1 m² cell and seven
-presentation bands remain the game's ground until slice 3, and the two must not be mixed. Pipes were
+is compiled out of the wasm artifact; `factory_wasm::ground_spine` separates generated bed,
+substrate, initial hydrology and finished ground behind a legacy-unit adapter and surveyed-chunk
+cache. The new physical model is still not live — the shipped 1 m² cell and seven presentation bands
+remain the game's ground until slice 3, and the two must not be mixed. Pipes were
 brought forward and the ground rework
 was requested outright; neither reorders the table. Release numbers after v0.46.0 are unassigned. Do
 not reorder those phases without the user. On 2026-08-29 the user moved supported floors and vertical

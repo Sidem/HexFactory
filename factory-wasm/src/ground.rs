@@ -306,16 +306,22 @@ fn ingredients(items: &BTreeMap<ItemId, u32>) -> Vec<Ingredient> {
 /// it for that reason — a ford is a wet hex, not a canyon, and giving a river a real depth would
 /// have walled off every bank in the world the moment this shipped.
 pub(super) fn natural_elevation(terrain: Terrain) -> i32 {
-    match terrain {
-        Terrain::DeepWater => -1,
-        Terrain::ShallowWater | Terrain::Shore | Terrain::Lowland => 0,
-        Terrain::Hills => 1,
-        Terrain::Highland => 2,
-        Terrain::Cliff => 3,
-    }
+    legacy_band_elevation(terrain)
 }
 
 impl Core {
+    /// The pure generated facts through the cache when it matches this Core, otherwise through the
+    /// full oracle. This is the only route from running simulation to generated ground.
+    pub(super) fn generated_ground_at(&self, q: i32, r: i32) -> GeneratedGround {
+        self.ground_spine.generated_from(
+            &self.world_params,
+            self.seed,
+            self.scenario.generated_environment,
+            q,
+            r,
+        )
+    }
+
     pub(super) fn surface_definition(&self, id: DefinitionId) -> Option<&SurfaceDefinition> {
         self.definitions.surfaces.iter().find(|d| d.id == id)
     }
@@ -335,10 +341,22 @@ impl Core {
             .map_or(UNTREATED_MOVEMENT, |d| d.movement)
     }
 
+    /// The separated facts for this finished cell. The erosion delta is zero until geomorphic
+    /// epochs exist, but it is a distinct input now so no later implementation can quietly fold it
+    /// into what the player cut or filled.
+    pub(super) fn finished_ground_at(&self, q: i32, r: i32) -> FinishedGround {
+        let cell = self.ground.get(&(q, r));
+        FinishedGround {
+            generated: self.generated_ground_at(q, r),
+            earthwork: GroundDelta::new(i16::from(cell.map_or(0, |cell| cell.elevation))),
+            erosion: GroundDelta::default(),
+            surface: cell.map_or(0, |cell| cell.surface),
+        }
+    }
+
     /// The finished height of this hex: the generated band plus whatever has been cut or filled.
     pub(super) fn ground_elevation_at(&self, q: i32, r: i32) -> i32 {
-        natural_elevation(self.terrain_at(q, r))
-            + i32::from(self.ground.get(&(q, r)).map_or(0, |cell| cell.elevation))
+        self.finished_ground_at(q, r).elevation().get()
     }
 
     /// Whether the cliff on this hex has been quarried away.
@@ -352,8 +370,7 @@ impl Core {
     /// first cut brings the face level with the ground beside it, which is the same fact the player
     /// can see in the diorama before they pay for it.
     pub(super) fn cliff_quarried(&self, q: i32, r: i32) -> bool {
-        self.terrain_at(q, r) == Terrain::Cliff
-            && self.ground.get(&(q, r)).map_or(0, |cell| cell.elevation) < 0
+        self.finished_ground_at(q, r).cliff_quarried()
     }
 
     /// Whether the terrain on this hex stops the player's body, as the finished ground leaves it.
@@ -362,12 +379,12 @@ impl Core {
     /// band table has ever claimed. Everything that walks, routes, drops or builds asks this
     /// instead, because a quarried cliff is a wall only in the table.
     pub(super) fn terrain_blocks_movement(&self, q: i32, r: i32) -> bool {
-        self.terrain_at(q, r).blocks_movement() && !self.cliff_quarried(q, r)
+        self.finished_ground_at(q, r).blocks_movement()
     }
 
     /// The construction half of the same rule.
     pub(super) fn terrain_blocks_construction(&self, q: i32, r: i32) -> bool {
-        self.terrain_at(q, r).blocks_construction() && !self.cliff_quarried(q, r)
+        self.finished_ground_at(q, r).blocks_construction()
     }
 
     /// Whether the step between two neighbouring hexes is too steep to walk.
@@ -632,7 +649,7 @@ impl Core {
         let mut fill = 0i64;
         for &cell in cells {
             let before = self.ground.get(&cell).cloned();
-            let natural = natural_elevation(self.terrain_at(cell.0, cell.1));
+            let natural = self.generated_ground_at(cell.0, cell.1).bed.get();
             let current = i32::from(before.as_ref().map_or(0, |c| c.elevation));
             let mut next = before.clone().unwrap_or(GroundCell {
                 q: cell.0,
@@ -754,17 +771,17 @@ impl Core {
         &self,
         after: &BTreeMap<(i32, i32), Option<GroundCell>>,
         cell: (i32, i32),
-    ) -> (DefinitionId, i32) {
+    ) -> FinishedGround {
         match after.get(&cell) {
-            Some(entry) => (
-                entry.as_ref().map_or(0, |c| c.surface),
-                natural_elevation(self.terrain_at(cell.0, cell.1))
-                    + i32::from(entry.as_ref().map_or(0, |c| c.elevation)),
-            ),
-            None => (
-                self.surface_at(cell.0, cell.1),
-                self.ground_elevation_at(cell.0, cell.1),
-            ),
+            Some(entry) => FinishedGround {
+                generated: self.generated_ground_at(cell.0, cell.1),
+                earthwork: GroundDelta::new(i16::from(
+                    entry.as_ref().map_or(0, |cell| cell.elevation),
+                )),
+                erosion: GroundDelta::default(),
+                surface: entry.as_ref().map_or(0, |cell| cell.surface),
+            },
+            None => self.finished_ground_at(cell.0, cell.1),
         }
     }
 
@@ -775,18 +792,7 @@ impl Core {
         after: &BTreeMap<(i32, i32), Option<GroundCell>>,
         cell: (i32, i32),
     ) -> bool {
-        let terrain = self.terrain_at(cell.0, cell.1);
-        if !terrain.blocks_movement() {
-            return false;
-        }
-        if terrain != Terrain::Cliff {
-            return true;
-        }
-        let delta = match after.get(&cell) {
-            Some(entry) => entry.as_ref().map_or(0, |c| c.elevation),
-            None => self.ground.get(&cell).map_or(0, |c| c.elevation),
-        };
-        delta >= 0
+        self.ground_finished(after, cell).blocks_movement()
     }
 
     /// Draw the picture: every selected hex, at the grade it would finish on, with what is about to
@@ -800,7 +806,9 @@ impl Core {
     ) {
         let mut retaining = 0usize;
         for &cell in cells {
-            let (surface, elevation) = self.ground_finished(after, cell);
+            let finished = self.ground_finished(after, cell);
+            let surface = finished.surface;
+            let elevation = finished.elevation().get();
             let covers = surface != 0 && self.field_at(cell.0, cell.1).is_some();
             if covers {
                 transaction.preview.covers += 1;
@@ -808,7 +816,8 @@ impl Core {
             let retained = DIRECTIONS.iter().any(|&(dq, dr)| {
                 let neighbour = (cell.0 + dq, cell.1 + dr);
                 !self.ground_finished_blocks(after, neighbour)
-                    && (elevation - self.ground_finished(after, neighbour).1).abs() > MAX_WALK_STEP
+                    && (elevation - self.ground_finished(after, neighbour).elevation().get()).abs()
+                        > MAX_WALK_STEP
             });
             if retained {
                 retaining += 1;
@@ -853,7 +862,7 @@ impl Core {
             ));
         }
         for &cell in cells {
-            if self.ground_finished(after, cell).0 != 0 && self.extractor_draws_from(cell) {
+            if self.ground_finished(after, cell).surface != 0 && self.extractor_draws_from(cell) {
                 return Err(format!(
                     "Hex {}, {} is being worked by an extractor. Relocate it before covering the deposit",
                     cell.0, cell.1
@@ -864,11 +873,12 @@ impl Core {
         // hex is checked, and only its six edges: a full reachability sweep would price thinking
         // about a route, and the pit that traps somebody is always the one under their feet.
         let standing = world_to_axial(self.player.x, self.player.y);
-        let (_, here) = self.ground_finished(after, standing);
+        let here = self.ground_finished(after, standing).elevation().get();
         let escapes = DIRECTIONS.iter().any(|&(dq, dr)| {
             let neighbour = (standing.0 + dq, standing.1 + dr);
             !self.ground_finished_blocks(after, neighbour)
-                && (here - self.ground_finished(after, neighbour).1).abs() <= MAX_WALK_STEP
+                && (here - self.ground_finished(after, neighbour).elevation().get()).abs()
+                    <= MAX_WALK_STEP
         });
         if !escapes {
             return Err("That grade would leave you with no way out of this hex".into());

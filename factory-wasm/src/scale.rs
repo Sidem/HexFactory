@@ -7,9 +7,10 @@
 //!
 //! **This module is inert in v0.46.** Slice 1 of the phase is a baseline and a prototype with no
 //! production toggle, so these constants are declared, derived and tested but not yet read by
-//! placement, walking, generation or the wire. Slice 2 threads them through the native ground
-//! spine; slice 3 activates them at the compatibility boundary. Until then the shipped 1 m² cell
-//! and the seven presentation bands remain the live model, and the two must not be mixed.
+//! placement, walking, generation or the wire. Slice 2 threads typed ground through the native
+//! simulation behind a legacy-unit adapter; slice 3 activates these physical conversions at the
+//! compatibility boundary. Until then the shipped 1 m² cell and the seven presentation bands
+//! remain the live model, and the two must not be mixed.
 //!
 //! Every value is an integer in a named unit. Millimetres carry linear measure, because the height
 //! quantum is 250 mm and the cell spacing is 5,373 mm — both exact in millimetres and both

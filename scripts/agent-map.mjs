@@ -13,8 +13,8 @@ const routes = [
   ],
   [
     "Ground grading, paving and roads",
-    "factory-wasm/src/ground.rs; src/ui/ground.ts; src/rendering/three/pavingSurface.ts",
-    "GroundEdit, ground_transaction, GroundTool, PavingSurface",
+    "factory-wasm/src/ground_spine.rs; factory-wasm/src/ground.rs; src/ui/ground.ts; src/rendering/three/pavingSurface.ts",
+    "GroundSpine, FinishedGround, GroundEdit, ground_transaction, GroundTool, PavingSurface",
   ],
   [
     "Native tick, determinism",

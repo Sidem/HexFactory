@@ -8,6 +8,7 @@ use wasm_bindgen::prelude::*;
 
 mod boundaries;
 mod ground;
+mod ground_spine;
 #[cfg(test)]
 mod petroleum_tests;
 mod recipes;
@@ -15,6 +16,7 @@ mod runtime;
 mod save_migrations;
 use boundaries::*;
 use ground::*;
+use ground_spine::*;
 mod skills;
 use skills::*;
 /// The binary encoding the snapshot delta crosses the worker boundary in.
@@ -30,7 +32,8 @@ use runtime::RuntimeIndex;
 pub mod balance;
 
 /// The Phase 8 physical scale contract. Declared and tested, and read by nothing that ships in
-/// v0.46 — see the module docs for why it is inert until the ground spine moves.
+/// v0.46 — slice 2 introduces the typed ground spine behind legacy units, while slice 3 activates
+/// these conversions at the compatibility boundary.
 pub mod scale;
 
 /// The Phase 8 drainage-first world prototype.
@@ -2247,6 +2250,10 @@ struct Core {
     /// bootstrap table cached. Derived state under the same rule as `deposit_links`: never saved,
     /// never hashed, never checksummed, and rebuilt whenever the world it is derived from changes.
     fields: WorldFields,
+    /// Generated bed, substrate and initial hydrology behind the current presentation. Derived
+    /// from the same world identity as `fields`, cached only for surveyed chunks, and never saved,
+    /// hashed or checksummed. The uncached source is its oracle.
+    ground_spine: GroundSpine,
     generated_chunks: BTreeSet<(i32, i32)>,
     tiles: BTreeMap<(i32, i32), TileState>,
     /// Deposit references resolved per extractor entity id, so a running extractor never scans the
@@ -2406,6 +2413,7 @@ impl Core {
         };
         world_params.validate(definitions)?;
         let fields = WorldFields::new(&world_params, seed);
+        let ground_spine = GroundSpine::legacy(&world_params, seed, scenario.generated_environment);
         // A world whose opening cannot be placed is refused here rather than papered over. It is
         // the one generator failure a validator cannot see — `validate` is asked before a seed
         // exists — and shipping it would mean a run that cannot reach its own first extractor.
@@ -2426,6 +2434,7 @@ impl Core {
             seed,
             world_params,
             fields,
+            ground_spine,
             boundaries: BTreeMap::new(),
             boundary_hash_cache: RefCell::new(None),
             boundary_undo: Vec::new(),
@@ -3306,6 +3315,8 @@ impl Core {
         if !self.generated_chunks.insert((chunk_q, chunk_r)) {
             return;
         }
+        self.ground_spine
+            .cache_chunk(chunk_q, chunk_r, self.scenario.chunk_size);
         // New tiles can cover an existing extractor, so every resolved deposit reference is stale —
         // and so is every extractor status derived from one. The two must be invalidated together:
         // dropping the entity marks would make snapshot correctness depend on generated deposits
@@ -3341,13 +3352,7 @@ impl Core {
     }
 
     fn terrain_at(&self, q: i32, r: i32) -> Terrain {
-        terrain_at(
-            &self.world_params,
-            self.seed,
-            q,
-            r,
-            self.scenario.generated_environment,
-        )
+        self.generated_ground_at(q, r).presentation
     }
 
     /// What is naturally on this hex, if anything is reachable.
@@ -8918,6 +8923,8 @@ impl Core {
             .iter()
             .map(|coordinate| (coordinate.q, coordinate.r))
             .collect();
+        core.ground_spine
+            .rebuild_cache(&core.generated_chunks, core.scenario.chunk_size);
         core.tiles = envelope
             .state
             .tiles
@@ -15450,6 +15457,22 @@ mod tests {
                 entry.buildable,
                 !band.blocks_construction(),
                 "{band:?} buildability disagrees with the fixture"
+            );
+            let finished = FinishedGround {
+                generated: GeneratedGround::from_legacy_band(band),
+                earthwork: GroundDelta::default(),
+                erosion: GroundDelta::default(),
+                surface: 0,
+            };
+            assert_eq!(
+                entry.passable,
+                !finished.blocks_movement(),
+                "{band:?} changed while passing through the ground spine"
+            );
+            assert_eq!(
+                entry.buildable,
+                !finished.blocks_construction(),
+                "{band:?} changed while passing through the ground spine"
             );
         }
     }

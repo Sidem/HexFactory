@@ -479,10 +479,16 @@ partially activated physical model.
    landing hub the shipped generator packs a pond, a sand flat, forest, meadow and cliff faces, a toy
    sample of every band, at a scale where a 1 m cell makes a "cliff" a knee-high step.
 
-2. **Production ground spine behind the old presentation.** Introduce the separated native types,
-   derived caches and full-vs-cached oracles. Thread finished elevation through walking, placement,
-   ground transactions and snapshots while fixtures prove shipped worlds still behave identically.
-   This slice is infrastructure only and does not reinterpret existing saves.
+2. **Production ground spine behind the old presentation.** — **implemented after v0.46.0; not a
+   physical-model activation.** `factory_wasm::ground_spine` separates generated bed, substrate,
+   initial hydrology, earthwork, erosion and prepared surface into native types. Its legacy source is
+   the full oracle; a derived cache contains surveyed chunks only, is rebuilt on load and is never
+   saved or checksummed. `FinishedGround` now supplies elevation and access to walking, placement,
+   ground transactions and their previews/snapshots. The cross-language passability fixture and the
+   existing save/checksum/delta tests pass through that route, proving current worlds retain their
+   old bands, grades and envelopes. The source identity guard falls back to the full oracle rather
+   than serving a stale cache if a test or migration replaces the generator behind a Core. Save 36,
+   definitions 27, technologies 16, scenarios 7, world 10 and wire 19 remain unchanged.
 3. **Content and renderer activation.** Reauthor footprints and metre-derived cadence, build the
    heightfield/water renderer and height-aware picking, retune the opening, then switch new worlds to
    the 25 m² generator at the declared compatibility boundary. Move every envelope and fixture in
@@ -494,9 +500,10 @@ partially activated physical model.
    an accelerated deterministic harness. Ship only after protected infrastructure and finite work
    bounds are visible and tested.
 
-The first implementing agent starts at slice 1. It must not “get ahead” by putting a flowing-water
-front on the old band elevations; the prototype exists to falsify the scale and drainage model
-cheaply before the save boundary makes it expensive.
+The next implementing agent starts at slice 3. It must move the declared compatibility envelopes as
+one activation and must not put a flowing-water front on the old band elevations; the prototype and
+ground spine exist to keep the scale, drainage and running predicates independently testable before
+the save boundary makes mistakes expensive.
 
 ### Acceptance
 
