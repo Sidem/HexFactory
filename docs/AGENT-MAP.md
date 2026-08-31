@@ -271,20 +271,20 @@ Data or fixture; inspect keys before loading the full file.
 
 Data or fixture; inspect keys before loading the full file.
 
-### `src/main.ts` — 6179 lines / 224.9 KiB
+### `src/main.ts` — 6180 lines / 224.9 KiB
 
-- currentBuild:151, dragOwnsPointer:490, loadHotbar:636, sanitiseSlot:664, saveHotbar:672, checkpointContext:687, evaluateRun:717, beginRun:734, renderRun:741, update:787, refreshLandingHub:887, syncStandingSelection:905
-- renderHomeReadout:924, sameCarry:944, itemById:959, paintChip:973, renderInventory:992, renderCreative:1103, renderHotbarSlots:1201, assignHotbarSlot:1284, pinToHotbar:1297, renderHotbar:1321, catalogueVisible:1348, buildMatches:1365
-- renderBuildScope:1381, renderBuildPanel:1392, createBuildCard:1445, heldOrientationFor:1473, paintBuildingEmblem:1487, fillBuildCard:1500, renderIngredientRow:1571, fillIngredients:1602, renderCardRecipes:1638, describeRecipe:1694, machinesForRecipe:1717, itemsMatching:1728
-- recipeMatches:1746, renderRecipePanel:1756, renderRecipeGroup:1784, createLookupRow:1798, fillLookupRow:1808, technologyReach:1859, renderTechnologies:1888, paintHexFace:1897, setMeter:1908, setItemGlyph:1923, stockCompartments:1966, renderInspectorActions:2039
-- renderInspectorLoad:2148, renderOutputRouting:2156, panelsFitAbreast:2339, offerPackBeside:2359, renderInspector:2373, renderInspectorHub:2606, renderInspectorSwitch:2759, renderInspectorTier:2797, costSummary:2842, recipeChoices:2854, fillRecipeOptions:2863, renderInspectorRecipe:2886
-- renderRecipePicker:2913, renderContract:2935, renderRequests:3028, renderProjectCatalogue:3084, renderNextAction:3137, showFeedback:3145, setMuted:3161, setReducedMotion:3177, setGraphicsProfile:3188, loadReducedMotion:3199, syncSessionInputs:3207, selectTool:3221
-- enqueue:3237, refreshHoverPreview:3246, syncHoverWithCamera:3257, flushHoverPreview:3269, previewItemLook:3537, previewSeed:3575, requestWorldPreview:3592, drawWorldPreview:3599, titleScenarioKey:3664, showTitleScenario:3671, applyPreviewRepair:3681, showWorldParams:3692
-- syncWorldInputs:3724, setRunName:3769, showCreativeNote:3778, setTitleOpen:3789, openTitleScreen:3793, closeTitleScreen:3807, switchTitleTab:3814, offerSaveFile:4033, stackGesture:4242, stackSlots:4388, stackDropRefusal:4405, paintStackDropTargets:4423
-- endStackDrag:4435, currentMovementIntent:4589, orbitView:4595, eraseBuilding:4613, heldStock:4648, eraseLine:4667, deleteBuildingUnderCursorOrSelected:4728, draggableTool:5160, recipeFor:5172, refreshDragPreview:5189, endDrag:5226, rotateUnderCursorOrPending:5240
-- pickToolUnderCursor:5257, buildingAt:5277, setOrientation:5286, orientationRange:5310, orientationAllowed:5332, rotateNewBuilding:5352, stopAiming:5372, sendAim:5389, togglePanel:5409, renderTerrainLegend:5424, frame:5444, triggerAutoSave:5502
-- markSaved:5544, updateContinueState:5577, renderSaveSlots:5628, renderTitleSaveSlots:5632, paintSaveSlotList:5641, loadSlot:5702, handleSaveSlotClick:5731, downloadTextFile:5780, exportTextFile:5808, exportSlotFile:5847, exportCurrentSave:5858, exportAllSaves:5875
-- openSaveFilePicker:5896, importSaveFiles:5901, isTypingTarget:5966, isKeyboardFocusedControl:5981, isPointerActivatedControl:5991, titleCase:6013, reportWorkerError:6017, closePanels:6026
+- currentBuild:152, dragOwnsPointer:491, loadHotbar:637, sanitiseSlot:665, saveHotbar:673, checkpointContext:688, evaluateRun:718, beginRun:735, renderRun:742, update:788, refreshLandingHub:888, syncStandingSelection:906
+- renderHomeReadout:925, sameCarry:945, itemById:960, paintChip:974, renderInventory:993, renderCreative:1104, renderHotbarSlots:1202, assignHotbarSlot:1285, pinToHotbar:1298, renderHotbar:1322, catalogueVisible:1349, buildMatches:1366
+- renderBuildScope:1382, renderBuildPanel:1393, createBuildCard:1446, heldOrientationFor:1474, paintBuildingEmblem:1488, fillBuildCard:1501, renderIngredientRow:1572, fillIngredients:1603, renderCardRecipes:1639, describeRecipe:1695, machinesForRecipe:1718, itemsMatching:1729
+- recipeMatches:1747, renderRecipePanel:1757, renderRecipeGroup:1785, createLookupRow:1799, fillLookupRow:1809, technologyReach:1860, renderTechnologies:1889, paintHexFace:1898, setMeter:1909, setItemGlyph:1924, stockCompartments:1967, renderInspectorActions:2040
+- renderInspectorLoad:2149, renderOutputRouting:2157, panelsFitAbreast:2340, offerPackBeside:2360, renderInspector:2374, renderInspectorHub:2607, renderInspectorSwitch:2760, renderInspectorTier:2798, costSummary:2843, recipeChoices:2855, fillRecipeOptions:2864, renderInspectorRecipe:2887
+- renderRecipePicker:2914, renderContract:2936, renderRequests:3029, renderProjectCatalogue:3085, renderNextAction:3138, showFeedback:3146, setMuted:3162, setReducedMotion:3178, setGraphicsProfile:3189, loadReducedMotion:3200, syncSessionInputs:3208, selectTool:3222
+- enqueue:3238, refreshHoverPreview:3247, syncHoverWithCamera:3258, flushHoverPreview:3270, previewItemLook:3538, previewSeed:3576, requestWorldPreview:3593, drawWorldPreview:3600, titleScenarioKey:3665, showTitleScenario:3672, applyPreviewRepair:3682, showWorldParams:3693
+- syncWorldInputs:3725, setRunName:3770, showCreativeNote:3779, setTitleOpen:3790, openTitleScreen:3794, closeTitleScreen:3808, switchTitleTab:3815, offerSaveFile:4034, stackGesture:4243, stackSlots:4389, stackDropRefusal:4406, paintStackDropTargets:4424
+- endStackDrag:4436, currentMovementIntent:4590, orbitView:4596, eraseBuilding:4614, heldStock:4649, eraseLine:4668, deleteBuildingUnderCursorOrSelected:4729, draggableTool:5161, recipeFor:5173, refreshDragPreview:5190, endDrag:5227, rotateUnderCursorOrPending:5241
+- pickToolUnderCursor:5258, buildingAt:5278, setOrientation:5287, orientationRange:5311, orientationAllowed:5333, rotateNewBuilding:5353, stopAiming:5373, sendAim:5390, togglePanel:5410, renderTerrainLegend:5425, frame:5445, triggerAutoSave:5503
+- markSaved:5545, updateContinueState:5578, renderSaveSlots:5629, renderTitleSaveSlots:5633, paintSaveSlotList:5642, loadSlot:5703, handleSaveSlotClick:5732, downloadTextFile:5781, exportTextFile:5809, exportSlotFile:5848, exportCurrentSave:5859, exportAllSaves:5876
+- openSaveFilePicker:5897, importSaveFiles:5902, isTypingTarget:5967, isKeyboardFocusedControl:5982, isPointerActivatedControl:5992, titleCase:6014, reportWorkerError:6018, closePanels:6027
 
 ### `src/vite-env.d.ts` — 2 lines / 0.0 KiB
 

@@ -1,0 +1,1084 @@
+/*
+ * Forgeglass
+ *
+ * HexFactory's interface is a machine the player operates, not a website floating over the world.
+ * The surfaces below share one material vocabulary: graphite glass for structure, mint for systems,
+ * brass for intent and progress, and a shallow physical press for every control. The layout rules
+ * remain in styles.css; this final layer gives every route — title, HUD, workspaces and tool trays —
+ * the same finish without moving simulation state into presentation.
+ */
+
+:root {
+  font-family:
+    "Bahnschrift", "Aptos", "Segoe UI Variable", "Segoe UI", ui-sans-serif,
+    system-ui, sans-serif;
+  color: #edf7f3;
+  background: #06100f;
+  --ink: #edf7f3;
+  --muted: #91aaa4;
+  --line: #344d47;
+  --panel: #0c1918e8;
+  --panel-solid: #0c1918;
+  --panel-card: #12221fe8;
+  --panel-hover: #192f2a;
+  --panel-active: #203c34;
+  --gold: #f2c66d;
+  --mint: #72e0bb;
+  --danger: #ff817d;
+  --forge-cyan: #78c7d7;
+  --forge-deep: #071210;
+  --forge-edge: #49635d;
+  --forge-edge-soft: #263d38;
+  --forge-shadow: #020706cc;
+  --forge-raised:
+    inset 0 1px 0 #ffffff0c, inset 0 -1px 0 #0008, 0 8px 22px #02070666;
+  --forge-pressed:
+    inset 0 2px 6px #000a, inset 0 -1px 0 #ffffff09, 0 2px 8px #02070655;
+}
+
+body {
+  background:
+    radial-gradient(circle at 18% -15%, #1d5a4c33, transparent 38%),
+    linear-gradient(145deg, #071210, #040b0a 72%);
+}
+
+button,
+select,
+input {
+  border-color: var(--forge-edge-soft);
+  border-radius: 10px;
+  background: linear-gradient(180deg, #172a27 0%, #10201e 100%);
+  box-shadow: inset 0 1px 0 #ffffff0a;
+}
+
+button {
+  transition:
+    border-color 140ms ease,
+    background 140ms ease,
+    color 140ms ease,
+    box-shadow 140ms ease,
+    transform 100ms ease;
+}
+
+button:hover:not(:disabled),
+button.active {
+  border-color: #6b8d84;
+  background: linear-gradient(180deg, #203a35 0%, #172d29 100%);
+  box-shadow:
+    inset 0 1px 0 #ffffff14,
+    0 6px 18px #02070666;
+}
+
+button:active:not(:disabled) {
+  transform: translateY(1px) scale(0.985);
+  box-shadow: var(--forge-pressed);
+}
+
+button:focus-visible,
+select:focus-visible,
+input:focus-visible,
+canvas:focus-visible,
+summary:focus-visible {
+  outline: 2px solid var(--mint);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 4px #72e0bb20;
+}
+
+select,
+input {
+  min-height: 38px;
+}
+
+kbd {
+  border-color: #536e67;
+  border-bottom-width: 2px;
+  border-radius: 5px;
+  background: linear-gradient(#142421, #0b1715);
+  box-shadow: 0 1px 2px #0009;
+}
+
+/* The top instrument cluster: identity, intent, then resources and utilities. */
+.app-shell {
+  grid-template-rows: 68px minmax(0, 1fr);
+}
+
+.command-bar {
+  grid-template-columns: 178px minmax(330px, 1fr) auto;
+  gap: 14px;
+  padding: 8px 14px;
+  border-bottom: 1px solid #526b642e;
+  background: linear-gradient(180deg, #101f1df7 0%, #091514f3 100%);
+  box-shadow:
+    inset 0 -1px 0 #000b,
+    0 10px 32px #020706aa;
+}
+
+.command-bar::after {
+  position: absolute;
+  right: 0;
+  bottom: -1px;
+  left: 0;
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    transparent 5%,
+    #72e0bb66 32%,
+    #f2c66d66 68%,
+    transparent 95%
+  );
+  content: "";
+  pointer-events: none;
+}
+
+.brand {
+  gap: 10px;
+}
+
+.brand-mark {
+  width: 40px;
+  height: 40px;
+  filter: drop-shadow(0 3px 8px #000b) drop-shadow(0 0 8px #72e0bb20);
+}
+
+.brand strong {
+  font-size: 1rem;
+  letter-spacing: 0.01em;
+}
+
+.brand small {
+  color: #819c95;
+  font-size: 0.55rem;
+  letter-spacing: 0.18em;
+}
+
+.mission-strip {
+  min-height: 48px;
+  padding: 7px 12px 6px 15px;
+  overflow: hidden;
+  border-color: #526860;
+  border-radius: 12px;
+  background:
+    radial-gradient(circle at 0 50%, #f2c66d18, transparent 34%),
+    linear-gradient(180deg, #152623ec, #0d1b19ec);
+  box-shadow: var(--forge-raised);
+}
+
+.mission-strip::before {
+  position: absolute;
+  top: 8px;
+  bottom: 8px;
+  left: 5px;
+  width: 3px;
+  border-radius: 3px;
+  background: linear-gradient(var(--gold), #b78938);
+  box-shadow: 0 0 10px #f2c66d66;
+  content: "";
+}
+
+.mission-strip:hover,
+.mission-strip:focus-visible,
+.mission-strip[aria-expanded="true"] {
+  border-color: var(--gold);
+  background:
+    radial-gradient(circle at 0 50%, #f2c66d26, transparent 38%),
+    linear-gradient(180deg, #1b302bec, #11231fec);
+}
+
+.mission-kicker,
+.section-kicker {
+  color: #e9bd65;
+  font-size: 0.56rem;
+  letter-spacing: 0.17em;
+}
+
+.mission-progress,
+.item-chip-meter,
+.inspect-meter-track {
+  background: #06100f;
+  box-shadow:
+    inset 0 1px 3px #000c,
+    inset 0 0 0 1px #2a403b;
+}
+
+.command-actions {
+  gap: 6px;
+  padding: 3px;
+  border: 1px solid #263b36;
+  border-radius: 14px;
+  background: #07121088;
+  box-shadow: inset 0 1px 4px #000b;
+}
+
+.resource-chip,
+.icon-button.utility-button {
+  border-color: #3d554f;
+  background: linear-gradient(180deg, #172824, #0e1d1b);
+  box-shadow: var(--forge-raised);
+}
+
+.resource-chip {
+  min-height: 42px;
+  padding: 0.38rem 0.68rem;
+}
+
+.resource-chip .hud-chip-icon,
+.utility-icon {
+  color: var(--mint);
+  filter: drop-shadow(0 0 7px #72e0bb42);
+}
+
+.resource-chip:hover .hud-chip-icon,
+.utility-button:hover .utility-icon,
+.resource-chip[aria-expanded="true"] .hud-chip-icon,
+.utility-button[aria-expanded="true"] .utility-icon {
+  color: #a5f3d6;
+}
+
+.hud-chip-copy small,
+.utility-label {
+  color: #8fa7a1;
+  letter-spacing: 0.11em;
+}
+
+/* Workspaces use the same shell and a sticky command header. */
+.glass-panel,
+.boundary-panel,
+.ground-panel,
+.confirm-dialog {
+  border-color: var(--forge-edge);
+  background: linear-gradient(
+    145deg,
+    #112220f4 0%,
+    #091514ee 58%,
+    #0b1917f4 100%
+  );
+  box-shadow:
+    inset 0 1px 0 #ffffff10,
+    inset 0 0 0 1px #0005,
+    0 22px 64px var(--forge-shadow);
+  backdrop-filter: blur(22px) saturate(118%);
+}
+
+.glass-panel {
+  padding: 16px;
+  border-radius: 16px;
+  scrollbar-color: #557169 #08110f;
+}
+
+.title-modal::after {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  box-shadow: inset 0 0 34px #72e0bb08;
+  content: "";
+  pointer-events: none;
+}
+
+.glass-panel.open {
+  animation: forge-panel-in 150ms ease-out;
+}
+
+.panel-heading {
+  position: sticky;
+  top: -16px;
+  z-index: 4;
+  align-items: center;
+  margin: -16px -16px 12px;
+  padding: 14px 16px 11px;
+  border-bottom: 1px solid #38514a99;
+  background: linear-gradient(180deg, #112321fa, #0d1b19f4);
+  backdrop-filter: blur(18px);
+}
+
+.panel-heading::after,
+.research-header::after {
+  position: absolute;
+  right: 16px;
+  bottom: -1px;
+  left: 16px;
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    var(--gold),
+    #72e0bb66 45%,
+    transparent 90%
+  );
+  content: "";
+  opacity: 0.62;
+}
+
+.panel-heading h2 {
+  margin-top: 4px;
+  font-size: 1.12rem;
+  letter-spacing: -0.025em;
+}
+
+.panel-close {
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
+  color: #b9cdc6;
+  box-shadow: var(--forge-raised);
+}
+
+.panel-copy,
+.next-action-detail {
+  color: #b5c9c3;
+}
+
+.panel-link,
+.quest-objective,
+.build-card,
+.recipe-row,
+.inspect-empty,
+.inspect-identity,
+.inspect-place,
+.inspect-field,
+.inspect-machine,
+.inventory-slot,
+.run-row,
+.ground-outline,
+.ground-palette button,
+.boundary-palette button {
+  border: 1px solid #2c443e;
+  border-radius: 11px;
+  background: linear-gradient(145deg, #132521df, #0a1715e8);
+  box-shadow:
+    inset 0 1px 0 #ffffff08,
+    0 5px 14px #0207063d;
+}
+
+.quest-objective {
+  margin-top: 8px;
+  padding: 12px;
+}
+
+.quest-objective .section-kicker,
+.inspect-kind {
+  color: #d5ad61;
+}
+
+.build-card {
+  padding: 11px 12px;
+}
+
+.build-card:hover,
+.recipe-row:hover {
+  border-color: #66847b;
+  background: linear-gradient(145deg, #19302ade, #0d1d1ae8);
+  box-shadow:
+    inset 0 1px 0 #ffffff0d,
+    0 8px 20px #02070666;
+}
+
+.build-card.active,
+.recipe-row.chosen {
+  border-color: var(--gold);
+  background:
+    radial-gradient(circle at 0 0, #f2c66d1c, transparent 36%),
+    linear-gradient(145deg, #21362e, #101e1b);
+  box-shadow:
+    inset 0 0 0 1px #f2c66d22,
+    0 8px 22px #02070677;
+}
+
+.build-card.locked {
+  filter: saturate(0.7);
+  opacity: 0.58;
+}
+
+.build-chip,
+.inspect-chip,
+.inspect-status {
+  border-color: #456159;
+  background: linear-gradient(180deg, #1a302b, #11211e);
+  box-shadow: inset 0 1px 0 #ffffff0c;
+}
+
+.build-stamp,
+.item-chip-glyph {
+  box-shadow:
+    inset 0 0 0 1px
+      color-mix(
+        in srgb,
+        var(--emblem-color, var(--item-color, #78c7d7)) 50%,
+        transparent
+      ),
+    0 3px 10px #02070666;
+}
+
+.inventory-slot {
+  border-style: dashed;
+}
+
+.inventory-slot.filled {
+  border-style: solid;
+}
+
+.primary-action,
+.field-actions .primary-action,
+.title-start-btn {
+  border-color: #d5ad55;
+  background: linear-gradient(180deg, #64501f 0%, #3f3216 100%);
+  color: #fff3cf;
+  box-shadow:
+    inset 0 1px 0 #fff1b942,
+    inset 0 -1px 0 #0008,
+    0 7px 20px #08060388;
+}
+
+.primary-action:hover:not(:disabled),
+.field-actions .primary-action:hover:not(:disabled),
+.title-start-btn:hover:not(:disabled) {
+  border-color: #ffe09a;
+  background: linear-gradient(180deg, #796129, #4a3a19);
+}
+
+/* The permanent world chrome forms three quiet islands: guidance, navigation and construction. */
+.view-actions {
+  top: 12px;
+  left: 12px;
+  gap: 5px;
+  padding: 4px;
+  border: 1px solid #304942;
+  border-radius: 13px;
+  background: #071210b8;
+  box-shadow:
+    inset 0 1px 5px #000a,
+    0 10px 28px #02070666;
+  backdrop-filter: blur(14px);
+}
+
+.view-actions button,
+.view-actions .view-button {
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+}
+
+.view-actions button:hover,
+.view-actions button[aria-expanded="true"] {
+  border-color: #536f67;
+  background: linear-gradient(#1c332e, #12231f);
+  box-shadow: var(--forge-pressed);
+}
+
+.next-step {
+  top: 72px;
+  left: 12px;
+  width: min(340px, calc(100% - 340px));
+  padding: 11px 14px 12px 16px;
+  overflow: hidden;
+  border-color: #526a63;
+  border-radius: 14px;
+  background:
+    radial-gradient(circle at 0 0, #f2c66d16, transparent 46%),
+    linear-gradient(145deg, #10211fef, #091614ed);
+  box-shadow:
+    var(--forge-raised),
+    0 18px 46px #02070688;
+}
+
+.next-step::before {
+  position: absolute;
+  top: 10px;
+  bottom: 10px;
+  left: 5px;
+  width: 3px;
+  border-radius: 2px;
+  background: var(--gold);
+  box-shadow: 0 0 10px #f2c66d55;
+  content: "";
+}
+
+.next-step:hover,
+.next-step[aria-expanded="true"] {
+  border-color: var(--gold);
+  transform: translateY(-1px);
+}
+
+.minimap-frame {
+  right: 12px;
+  bottom: 12px;
+  gap: 7px;
+  padding: 7px;
+  border-color: #48625b;
+  border-radius: 15px;
+  background: linear-gradient(145deg, #10211fee, #081412ed);
+  box-shadow:
+    inset 0 1px 0 #ffffff0c,
+    0 18px 45px #02070699;
+}
+
+#minimap {
+  border-radius: 10px;
+  box-shadow:
+    inset 0 0 0 1px #6d8b82,
+    inset 0 0 28px #0009;
+}
+
+.home-compass {
+  border-color: #d3aa50;
+  background: linear-gradient(#46391c, #241d10);
+  box-shadow:
+    inset 0 1px 0 #fff0af26,
+    0 2px 6px #0009;
+}
+
+.build-dock {
+  bottom: 12px;
+  padding: 5px;
+  border-color: #536b64;
+  border-radius: 16px;
+  background: linear-gradient(180deg, #122320f3, #091513f2);
+  box-shadow:
+    inset 0 1px 0 #ffffff10,
+    inset 0 -1px 0 #000a,
+    0 20px 56px #020706c4;
+  backdrop-filter: blur(22px) saturate(118%);
+}
+
+.field-actions {
+  gap: 4px;
+  margin-right: 5px;
+  padding-right: 5px;
+  border-right-color: #405b54;
+}
+
+.tool-shelf {
+  gap: 4px;
+}
+
+.build-dock .tool-shelf button,
+.rotate-button,
+.field-actions button {
+  height: 66px;
+  border-color: #324a44;
+  border-radius: 10px;
+  background: linear-gradient(160deg, #182b27, #0d1b19);
+  box-shadow: var(--forge-raised);
+}
+
+.build-dock .tool-shelf button:hover:not(:disabled),
+.rotate-button:hover:not(:disabled),
+.field-actions button:hover:not(:disabled) {
+  border-color: #708d84;
+  background: linear-gradient(160deg, #233c36, #132622);
+  transform: translateY(-1px);
+}
+
+.tool-shelf button.active,
+.build-dock .hotbar-slot.active {
+  border-color: var(--gold);
+  background:
+    radial-gradient(circle at 50% 0, #f2c66d28, transparent 55%),
+    linear-gradient(180deg, #413719, #231f13);
+  box-shadow:
+    var(--forge-pressed),
+    inset 0 -2px var(--gold);
+  transform: translateY(1px);
+}
+
+.build-dock .hotbar-slot.empty {
+  border-style: dashed;
+  background: #091513b5;
+  box-shadow: inset 0 1px 5px #000b;
+}
+
+.hotbar-key {
+  top: 4px;
+  left: 5px;
+  display: grid;
+  min-width: 14px;
+  height: 14px;
+  place-items: center;
+  border: 1px solid #405951;
+  border-radius: 4px;
+  background: #08110f;
+  color: #85a097;
+  box-shadow: 0 1px 3px #000a;
+}
+
+.hotbar-slot.active .hotbar-key {
+  border-color: #cfa74f;
+  color: #ffe8ad;
+}
+
+.tool-shelf small,
+.rotate-button small,
+.field-actions small {
+  color: #a9beb7;
+}
+
+/* Title: a confident game front door, with the menu and working area visibly separated. */
+.title-screen {
+  isolation: isolate;
+  padding: 22px;
+  background:
+    radial-gradient(circle at 76% 16%, #2b796455, transparent 34%),
+    radial-gradient(circle at 12% 82%, #8f6b2833, transparent 32%),
+    linear-gradient(145deg, #071311f8, #020706fb 72%);
+  backdrop-filter: blur(18px) saturate(115%);
+}
+
+.title-screen::before {
+  position: absolute;
+  z-index: -1;
+  inset: 0;
+  background-image:
+    linear-gradient(
+      30deg,
+      #72e0bb08 12%,
+      transparent 12.5%,
+      transparent 87%,
+      #72e0bb08 87.5%
+    ),
+    linear-gradient(
+      150deg,
+      #72e0bb08 12%,
+      transparent 12.5%,
+      transparent 87%,
+      #72e0bb08 87.5%
+    );
+  background-position:
+    0 0,
+    0 0;
+  background-size: 52px 90px;
+  content: "";
+  mask-image: radial-gradient(circle at center, #000, transparent 82%);
+}
+
+.title-modal {
+  position: relative;
+  width: min(1040px, calc(100vw - 44px));
+  max-height: min(760px, calc(100vh - 44px));
+  overflow: hidden;
+  border-color: #5d766f;
+  border-radius: 20px;
+  background: linear-gradient(145deg, #10211ff6, #081412f7 62%, #0b1917f5);
+  box-shadow:
+    inset 0 1px 0 #ffffff14,
+    0 34px 110px #000d,
+    0 0 70px #72e0bb0c;
+}
+
+.title-header {
+  min-height: 82px;
+  padding: 16px 26px;
+  border-bottom-color: #375049;
+  background:
+    radial-gradient(circle at 0 50%, #f2c66d10, transparent 30%),
+    linear-gradient(180deg, #10201ef8, #0a1715f8);
+}
+
+.title-brand {
+  gap: 16px;
+}
+
+.title-brand-mark {
+  width: 58px;
+  height: 58px;
+  filter: drop-shadow(0 4px 10px #000b) drop-shadow(0 0 12px #72e0bb24);
+}
+
+.title-heading {
+  font-size: 1.7rem;
+  font-weight: 760;
+  letter-spacing: -0.035em;
+}
+
+.title-tagline {
+  color: #9bb2ac;
+  font-size: 0.74rem;
+  letter-spacing: 0.045em;
+}
+
+.title-body {
+  grid-template-columns: 250px minmax(0, 1fr);
+}
+
+.title-nav {
+  gap: 11px;
+  padding: 18px;
+  border-right-color: #334b45;
+  background: linear-gradient(160deg, #0c1a18, #06110f 72%);
+  box-shadow: inset -10px 0 28px #0004;
+}
+
+.title-hero-action,
+.title-tab,
+.title-new-game-form .choice-card,
+.mode-card {
+  border-color: #3a554e;
+  border-radius: 11px;
+  background: linear-gradient(150deg, #172b27, #0e1d1a);
+  box-shadow: var(--forge-raised);
+}
+
+.title-hero-action {
+  padding: 13px 14px;
+}
+
+.title-hero-action:hover:not(:disabled),
+.title-new-game-form .choice-card:hover {
+  border-color: var(--gold);
+  background: linear-gradient(150deg, #243a32, #13251f);
+  box-shadow:
+    inset 0 1px 0 #ffffff12,
+    0 9px 22px #0007;
+}
+
+.title-tab {
+  min-height: 42px;
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+}
+
+.title-tab:hover {
+  border-color: #334e47;
+  background: #142521;
+}
+
+.title-tab.active {
+  border-color: #52756a;
+  background:
+    linear-gradient(90deg, #72e0bb1c, transparent 88%),
+    linear-gradient(150deg, #1b322c, #11211e);
+  color: #98f0d1;
+  box-shadow:
+    inset 3px 0 var(--mint),
+    inset 0 1px 0 #ffffff0b;
+}
+
+.title-resume-tab {
+  border-color: #735d2d;
+  background:
+    linear-gradient(90deg, #f2c66d1a, transparent 80%),
+    linear-gradient(150deg, #292717, #171b13);
+  color: #f4cc78;
+}
+
+.title-badge {
+  border: 1px solid #3b6056;
+  background: #112a24;
+  box-shadow: inset 0 1px 0 #ffffff0a;
+}
+
+.title-comfort-dock {
+  border-top-color: #2e443e;
+}
+
+.title-views {
+  padding: 24px 26px;
+  background:
+    radial-gradient(circle at 100% 0, #72e0bb0b, transparent 40%),
+    linear-gradient(145deg, #10201df7, #0a1715fa);
+}
+
+.title-view-header h3 {
+  font-size: 1.18rem;
+  letter-spacing: -0.02em;
+}
+
+.title-save-slots {
+  gap: 8px;
+  padding: 2px 7px 2px 2px;
+}
+
+.save-slot {
+  gap: 7px;
+  padding: 6px;
+  border: 1px solid #2d4640;
+  border-radius: 12px;
+  background: linear-gradient(145deg, #142622dc, #0a1715e6);
+  box-shadow:
+    inset 0 1px 0 #ffffff08,
+    0 6px 16px #02070644;
+}
+
+.save-slot:last-child {
+  padding-bottom: 6px;
+  border-bottom: 1px solid #2d4640;
+}
+
+.save-slot:has(.save-slot-select[aria-pressed="true"]),
+.save-slot.selected {
+  border-color: #6a8b81;
+  background:
+    radial-gradient(circle at 0 0, #72e0bb14, transparent 42%),
+    linear-gradient(145deg, #19302a, #0c1b18);
+  box-shadow:
+    inset 3px 0 var(--mint),
+    0 8px 20px #02070666;
+}
+
+.save-slot-select {
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+}
+
+.save-slot.selected .save-slot-select,
+.save-slot-select[aria-pressed="true"] {
+  border-color: transparent;
+}
+
+.save-slot-actions {
+  align-self: center;
+}
+
+.save-slot-load {
+  border-color: #637d75;
+  color: #dff3eb;
+}
+
+.save-slot-delete {
+  color: #e7aaa6;
+}
+
+.title-new-game-form .choice-card:has(input:checked),
+.mode-card:has(.switch-input:checked) {
+  border-color: var(--gold);
+  background:
+    radial-gradient(circle at 0 0, #f2c66d18, transparent 42%),
+    linear-gradient(145deg, #283627, #121f1b);
+  box-shadow:
+    inset 3px 0 var(--gold),
+    0 8px 22px #02070666;
+}
+
+.title-footer {
+  padding: 11px 26px;
+  border-top-color: #344c46;
+  background: #06110ff2;
+}
+
+.title-link {
+  color: #83e4c3;
+}
+
+/* The specialist tools share Forgeglass even though they deliberately sit outside the panel rails. */
+.boundary-panel,
+.ground-panel {
+  border-top-width: 1px;
+  border-radius: 16px;
+}
+
+.boundary-panel::before,
+.ground-panel::before {
+  position: absolute;
+  top: 0;
+  right: 18px;
+  left: 18px;
+  height: 2px;
+  border-radius: 2px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    var(--tool-accent),
+    transparent
+  );
+  content: "";
+}
+
+.boundary-panel {
+  --tool-accent: #d7a85d;
+}
+
+.ground-panel {
+  --tool-accent: #79c5a4;
+}
+
+.boundary-panel header,
+.ground-panel header {
+  background: linear-gradient(180deg, #10211ffa, #0c1918f5);
+}
+
+.boundary-actions,
+.ground-actions,
+.ground-shapes {
+  border-color: #2e4640;
+  background: #06110fb8;
+  box-shadow: inset 0 2px 7px #000b;
+}
+
+.boundary-actions button[aria-pressed="true"],
+.ground-actions button[aria-pressed="true"],
+.ground-shapes button[aria-pressed="true"],
+.ground-choice button[aria-pressed="true"] {
+  box-shadow: var(--forge-pressed);
+}
+
+@keyframes forge-panel-in {
+  from {
+    opacity: 0;
+    transform: translateY(7px) scale(0.99);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (max-width: 1080px) {
+  .command-bar {
+    grid-template-columns: 162px minmax(250px, 1fr) auto;
+    gap: 9px;
+  }
+
+  .build-dock {
+    max-width: calc(100% - 220px);
+    left: calc(50% - 98px);
+  }
+}
+
+@media (max-width: 720px) {
+  .app-shell {
+    grid-template-rows: 60px minmax(0, 1fr);
+  }
+
+  .command-bar {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    gap: 7px;
+    padding: 7px 8px;
+  }
+
+  .command-actions {
+    border: 0;
+    padding: 0;
+    background: transparent;
+    box-shadow: none;
+  }
+
+  .resource-chip {
+    min-width: 34px;
+    min-height: 36px;
+    justify-content: center;
+    padding: 0.34rem 0.45rem;
+  }
+
+  .glass-panel {
+    border-radius: 14px;
+  }
+
+  .title-screen {
+    padding: 0;
+  }
+
+  .title-modal {
+    width: 100vw;
+    height: 100dvh;
+    max-height: 100dvh;
+    border-radius: 0;
+  }
+
+  .title-header {
+    min-height: 70px;
+    padding: 11px 16px;
+  }
+
+  .title-brand-mark {
+    width: 48px;
+    height: 48px;
+  }
+
+  .title-heading {
+    font-size: 1.38rem;
+  }
+
+  .title-body {
+    grid-template-columns: 1fr;
+  }
+
+  .title-nav {
+    padding: 10px 14px;
+    border-right: 0;
+    border-bottom: 1px solid #334b45;
+    box-shadow: inset 0 -8px 22px #0003;
+  }
+
+  .title-nav-tabs {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+  }
+
+  .title-tab {
+    justify-content: center;
+    padding: 8px 6px;
+    text-align: center;
+  }
+
+  .title-badge {
+    margin-left: 4px;
+  }
+
+  .title-hero-action,
+  .title-comfort-dock {
+    display: none;
+  }
+
+  .title-views {
+    padding: 17px 16px;
+  }
+
+  .build-dock {
+    right: 8px;
+    bottom: 8px;
+    left: 8px;
+    max-width: none;
+    transform: none;
+  }
+
+  .build-dock .tool-shelf button,
+  .rotate-button,
+  .field-actions button {
+    height: 52px;
+    border-radius: 9px;
+  }
+}
+
+@media (max-width: 480px) {
+  .title-header {
+    min-height: 62px;
+  }
+
+  .title-brand-mark {
+    width: 42px;
+    height: 42px;
+  }
+
+  .title-tagline,
+  .title-footer span:first-child {
+    display: none;
+  }
+
+  .title-nav-tabs {
+    gap: 4px;
+  }
+
+  .title-tab {
+    gap: 5px;
+    font-size: 0.7rem;
+  }
+
+  .title-footer {
+    justify-content: flex-end;
+    gap: 18px;
+    padding: 9px 16px;
+  }
+
+  .save-slot {
+    grid-template-columns: 1fr;
+  }
+
+  .save-slot-actions {
+    justify-content: flex-start;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .glass-panel.open {
+    animation: none;
+  }
+}

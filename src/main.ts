@@ -141,6 +141,7 @@ import {
   type RepairChoice,
 } from "./ui/worldPreview";
 import "./styles.css";
+import "./theme.css";
 
 type Tool = "inspect" | "erase" | "rotate" | "upgrade" | number;
 
