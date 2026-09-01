@@ -138,11 +138,9 @@ impl GeneratedGround {
         } else {
             Substrate::Meadow
         };
-        let wet_neighbour = DIRECTIONS.iter().any(|&(dq, dr)| {
-            terra
-                .water(source.0 + dq, source.1 + dr)
-                .is_wet()
-        });
+        let wet_neighbour = DIRECTIONS
+            .iter()
+            .any(|&(dq, dr)| terra.water(source.0 + dq, source.1 + dr).is_wet());
         let presentation = if depth_quanta >= crate::scale::WADE_LIMIT_QUANTA {
             Terrain::DeepWater
         } else if depth_quanta > 0 {

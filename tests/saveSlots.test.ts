@@ -281,7 +281,7 @@ describe("compatibility", () => {
   it("names every number that would make native refuse the load", () => {
     const parsed = parseHxf1(
       envelope({
-        save_version: 9,
+        save_version: SAVE_VERSION + 1,
         definition_version: 9,
         scenario_key: "gone",
       }),
@@ -289,13 +289,28 @@ describe("compatibility", () => {
     const result = compatibility(parsed, build);
     expect(result.compatible).toBe(false);
     expect(describeMismatches(result.mismatches)).toContain(
-      `Save format is 9; this build is ${SAVE_VERSION}.`,
+      `Save format is ${SAVE_VERSION + 1}; this build is ${SAVE_VERSION}.`,
     );
     expect(describeMismatches(result.mismatches)).toContain(
       "Definitions is 9; this build is 10.",
     );
     expect(describeMismatches(result.mismatches)).toContain(
       "Scenario “gone” is not in this build.",
+    );
+  });
+
+  it("gives a legacy-scale factory the export path before irrelevant catalogue mismatches", () => {
+    const parsed = parseHxf1(
+      envelope({
+        save_version: 36,
+        definition_version: 9,
+        scenario_key: "gone",
+      }),
+    )!;
+    const result = compatibility(parsed, build);
+    expect(result.compatible).toBe(false);
+    expect(describeMismatches(result.mismatches)).toBe(
+      "This factory was built at one square metre per hex. The ground is a different scale now; export the file to keep a copy.",
     );
   });
 

@@ -1667,22 +1667,14 @@ fn access(economy: &Economy) -> Vec<MaterialAccess> {
 }
 
 /// Something can stand here, and what it stands on is not a cliff or a basin.
-fn standable(
-    params: &WorldParams,
-    seed: u32,
-    cell: (i32, i32),
-    spine: &GroundSpine,
-) -> bool {
+fn standable(params: &WorldParams, seed: u32, cell: (i32, i32), spine: &GroundSpine) -> bool {
     let _ = (params, seed);
     !spine.presentation_at(cell.0, cell.1).blocks_movement()
 }
 
 /// What the bootstrap pass promised, per material: the walk to the nearest hex of the guaranteed
 /// patch, and how many hexes that patch holds.
-fn guaranteed_patches(
-    fields: &WorldFields,
-    spine: &GroundSpine,
-) -> BTreeMap<ItemId, (u32, u32)> {
+fn guaranteed_patches(fields: &WorldFields, spine: &GroundSpine) -> BTreeMap<ItemId, (u32, u32)> {
     fields
         .guarantees(spine)
         .into_iter()

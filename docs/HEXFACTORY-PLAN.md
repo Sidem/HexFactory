@@ -541,9 +541,17 @@ partially activated physical model.
    native height samples on wire 20, draws a continuous landform, and puts items on a 5.37 m belt
    cadence (wire 21). New worlds now construct `GroundSpine::physical` and `terra` is in the wasm
    artifact. Save 37 / world 11 / definitions 28; a save 36 file is refused as the old 1 m² scale
-   with an export path. Opening retune is in progress: the default seed opens, but about forty
-   native tests still assume the old landing platter, 1-step grades, or a loadable pre-37 save.
-   Do not push until those tests and `npm run quality` are green.
+   with an export path. The opening no longer asks the translated physical valley shelf to expose a
+   miniature set of legacy presentation bands: each guaranteed material may force one derived dry
+   outcrop while retaining its authored yield, radius and water-proximity policy. The natural site
+   lattices are now 18 / 24 / 20 / 18 cells across the four presets, sparse enough to keep fields
+   below 22% of sampled land and extractor purity above 950 per mille while all four presets still
+   open on ten representative seeds. The native activation suite is green at 293 tests; old-band
+   movement rules use an explicit compatibility fixture, and pre-save-37 integration cases now pin
+   the export refusal instead of pretending to resume at the physical scale. Desktop and mobile
+   journey validation and the remaining definition surfaces below still stand between this local
+   activation bundle and a push; the complete local quality gate is green at 333 TypeScript and 293
+   Rust tests, including the Wasm and production builds.
 
 4. **Sparse disturbed water.** Add water departure state, active-region equilibrium, frontier
    boundaries, pumps, flood/drain commands and save/load/checksum coverage. Re-measure the active

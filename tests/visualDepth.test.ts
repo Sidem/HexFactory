@@ -47,7 +47,7 @@ import {
   pavingStyle,
   UNKNOWN_PAVING,
 } from "../src/rendering/three/pavingSurface";
-import { GRADE_STEP_HEIGHT, SURFACE_LOOK } from "../src/rendering/surfaceLook";
+import { SURFACE_LOOK } from "../src/rendering/surfaceLook";
 import {
   HEX_RING_START,
   RANGE_RING_WIDTH,
@@ -1579,14 +1579,14 @@ describe("picking the drawn landform", () => {
   it("names the raised cell the pointer is over, where the plane picker names its neighbour", () => {
     const snapshot = minimalSnapshot();
     snapshot.terrain = [cliffTile(0, 0), ...surveyedTiles().slice(1)];
-    snapshot.ground = [{ q: 0, r: 0, surface: 0, elevation: 3, paid: [] }];
+    snapshot.ground = [{ q: 0, r: 0, surface: 0, elevation: 32, paid: [] }];
     const materials = createWorldMaterials();
     const built = buildTerrainMeshes(snapshot, materials);
     const raised = terrainAt(built.cellByKey, 0, 0);
     expect(raised).toBeDefined();
-    // Native's generated bed for a cliff band plus the three steps the player paid to raise it,
+    // Native's generated bed for a cliff band plus the full eight-metre physical earthwork limit,
     // added in native's own unit and converted once.
-    expect(raised?.height).toBeCloseTo(6 * GRADE_STEP_HEIGHT, 6);
+    expect(raised?.height).toBeCloseTo(35 * HEIGHT_UNIT_HEIGHT, 6);
     expect(built.ceiling).toBeCloseTo(raised?.height ?? 0, 6);
 
     const camera = new HexSceneCamera();
@@ -1602,8 +1602,8 @@ describe("picking the drawn landform", () => {
     expect(hit?.cell.q).toBe(0);
     expect(hit?.cell.r).toBe(0);
     expect(hit?.height).toBeCloseTo(raised?.height ?? 0, 2);
-    // The bug this replaces: a column standing a cliff and three graded steps up draws more than a
-    // hex away from the plane point beneath it, so the old picker handed native the cell in front.
+    // The bug this replaces: a column standing at the earthwork ceiling draws more than a hex away
+    // from the plane point beneath it, so the old picker handed native the cell in front.
     expect(camera.axialAt(screen.x, screen.y)).not.toEqual({ q: 0, r: 0 });
 
     for (const geometry of built.geometries) geometry.dispose();
@@ -1769,7 +1769,7 @@ describe("one height route", () => {
     const built = buildTerrainMeshes(snapshot, materials);
 
     const cell = terrainAt(built.cellByKey, 0, 0);
-    expect(cell?.height).toBeCloseTo(3 * GRADE_STEP_HEIGHT, 6);
+    expect(cell?.height).toBeCloseTo(3 * HEIGHT_UNIT_HEIGHT, 6);
     expect(heightAt(built.cellByKey, 0, 0)).toBe(cell?.height);
     expect(heightAtWorld(built.cellByKey, { x: 0, y: 0 })).toBe(cell?.height);
     // Fog is the logical plane: nothing is drawn there, so nothing standing there is lifted off it.

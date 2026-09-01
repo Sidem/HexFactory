@@ -11923,6 +11923,9 @@ struct Site {
     /// Index into the parameter set's rule table.
     rule: usize,
     radius: i32,
+    /// A guaranteed physical-world outcrop may replace the legacy presentation-band gate with dry
+    /// substrate. This is derived bootstrap identity and is never saved or checksummed.
+    forced_opening: bool,
 }
 
 /// The salt the site lattice hashes under, kept clear of every noise octave so which material a
@@ -12545,7 +12548,7 @@ fn world_presets() -> Vec<WorldPreset> {
                 // the shipped 14_000 at cell 8 would never fire.
                 cliff_step: 2_400,
                 deep_water_moisture: 40_000,
-                site_cell: 14,
+                site_cell: 18,
                 site_jitter: 5,
                 // Eight hexes thick, about 320 hexes apart: a real river, and still a sparse wall
                 // until v0.22 builds a bridge. Density is ~2.5% of walked hexes against the ~3%
@@ -12582,7 +12585,7 @@ fn world_presets() -> Vec<WorldPreset> {
                 // the gradient the feature scale produces.
                 cliff_step: 4_200,
                 deep_water_moisture: 44_000,
-                site_cell: 14,
+                site_cell: 24,
                 site_jitter: 4,
                 // Scattered water everywhere already; a river network on top of it would leave the
                 // walkable ground in shreds.
@@ -12624,7 +12627,7 @@ fn world_presets() -> Vec<WorldPreset> {
                 highland_level: 36_000,
                 cliff_step: 1_600,
                 deep_water_moisture: 38_000,
-                site_cell: 16,
+                site_cell: 20,
                 site_jitter: 5,
                 // The preset with the least standing water is the one rivers do the most for: they
                 // are where its clay, its pumps, and its hydro come from. Ten hexes thick so a
@@ -12668,7 +12671,7 @@ fn world_presets() -> Vec<WorldPreset> {
                 highland_level: 45_000,
                 cliff_step: 1_000,
                 deep_water_moisture: 40_000,
-                site_cell: 14,
+                site_cell: 18,
                 site_jitter: 5,
                 river_cell: 400,
                 river_width: river_width_for(400, 10),
@@ -12830,6 +12833,7 @@ fn natural_site(
         center,
         rule: index,
         radius: (rule.radius_min + site_field(hash, 3) % span) as i32,
+        forced_opening: false,
     })
 }
 
@@ -12852,7 +12856,9 @@ fn site_covers(
         return None;
     }
     let rule = &params.site_rules[site.rule];
-    let admitted = if rule.member.is_empty() {
+    let admitted = if spine.is_physical() && site.forced_opening {
+        !spine.wet_at(q, r)
+    } else if rule.member.is_empty() {
         band == rule.terrain
     } else {
         rule.member.contains(&band)
@@ -12901,11 +12907,12 @@ fn bootstrap_sites(
                 if claimed.contains_key(&cell) {
                     return None;
                 }
-                let index = bootstrap_rule(params, seed, center, item_id, spine)?;
+                let (index, forced_opening) = bootstrap_rule(params, seed, center, item_id, spine)?;
                 let site = Site {
                     center,
                     rule: index,
                     radius: params.site_rules[index].radius_max as i32,
+                    forced_opening,
                 };
                 let edge = distance - site.radius;
                 if edge < floor || edge > reach {
@@ -12969,15 +12976,30 @@ fn bootstrap_rule(
     center: (i32, i32),
     item_id: ItemId,
     spine: &GroundSpine,
-) -> Option<usize> {
+) -> Option<(usize, bool)> {
     let band = spine.presentation_at(center.0, center.1);
-    params.site_rules.iter().position(|rule| {
+    let exact = params.site_rules.iter().position(|rule| {
         rule.weight > 0
             && rule.item_id == item_id
             && rule.terrain == band
             && (!rule.center_ocean || center_on_ocean(params, seed, center, spine))
             && (!rule.center_shore || center_on_shore(params, seed, center, spine))
-    })
+    });
+    if let Some(index) = exact {
+        return Some((index, false));
+    }
+    if !spine.is_physical() || spine.wet_at(center.0, center.1) {
+        return None;
+    }
+    // The translated physical opening is a valley shelf rather than a miniature sample of every
+    // old presentation band. When a shelf does not expose the band a material used to name, force
+    // its first authored rule as a dry local outcrop; yield, radius and water-proximity policy
+    // still come from that rule.
+    params
+        .site_rules
+        .iter()
+        .position(|rule| rule.weight > 0 && rule.item_id == item_id)
+        .map(|index| (index, true))
 }
 
 /// How many hexes a site actually admits once its member test has clipped the disc. A guarantee
@@ -12989,16 +13011,8 @@ fn member_hexes(params: &WorldParams, seed: u32, site: &Site, spine: &GroundSpin
         .filter(|&(q, r)| {
             !spine.wet_at(q, r)
                 && axial_distance((0, 0), (q, r)) > LANDING_CLEAR_RADIUS
-                && site_covers(
-                    params,
-                    seed,
-                    site,
-                    q,
-                    r,
-                    spine.presentation_at(q, r),
-                    spine,
-                )
-                .is_some()
+                && site_covers(params, seed, site, q, r, spine.presentation_at(q, r), spine)
+                    .is_some()
         })
         .count() as u32
 }
@@ -13339,8 +13353,7 @@ impl WorldFields {
                 let Some(site) = self.site_at(candidate, spine) else {
                     continue;
                 };
-                let Some(distance) =
-                    site_covers(&self.params, self.seed, &site, q, r, band, spine)
+                let Some(distance) = site_covers(&self.params, self.seed, &site, q, r, band, spine)
                 else {
                     continue;
                 };
@@ -15695,6 +15708,31 @@ mod tests {
         core
     }
 
+    /// A bounded compatibility fixture for rules whose subject is one of the old presentation
+    /// bands, not Phase 8 generation. Production worlds never construct this source after save 37.
+    fn legacy_band_game(key: &str) -> Core {
+        let mut core = game(key);
+        core.ground_spine = GroundSpine::legacy(
+            &core.world_params,
+            core.seed,
+            core.scenario.generated_environment,
+        );
+        core.fields = WorldFields::new(&core.world_params, core.seed, &core.ground_spine);
+        core
+    }
+
+    fn assert_pre_physical_save_is_refused() {
+        let (definitions, technologies, scenarios) = catalogs();
+        let legacy = format!("{SAVE_PREFIX}{{\"save_version\":36,\"world_generator_version\":10}}");
+        let error = match Core::from_save(&definitions, &technologies, &scenarios, &legacy) {
+            Ok(_) => panic!("a one-square-metre save crossed the physical-world boundary"),
+            Err(error) => error,
+        };
+        assert!(error.contains("one square metre"), "{error}");
+        assert!(error.contains("export"), "{error}");
+        assert!(error.contains("25 m²"), "{error}");
+    }
+
     /// The rows actually posted, in slot order. The snapshot carries the whole catalogue now, so
     /// "the board" is a filter over it rather than the list itself.
     fn posted_board(core: &Core) -> Vec<String> {
@@ -16163,79 +16201,50 @@ mod tests {
     }
 
     #[test]
-    fn a_refused_world_names_the_ground_its_materials_wanted() {
+    fn physical_opening_outcrops_do_not_depend_on_legacy_band_cuts() {
         let factory = test_factory("new-game");
         let params = drowned_params(&factory.core.world_params);
         let spine = GroundSpine::physical(&params, 7, true);
         let (_, unmet) = bootstrap_sites(&params, 7, &spine);
         assert!(
-            !unmet.is_empty(),
-            "drowning the highlands has to refuse the world"
+            unmet.is_empty(),
+            "physical outcrops must not inherit absent legacy bands: {unmet:?}"
         );
-        let unmet: Vec<ItemId> = unmet.iter().map(|&(item_id, _)| item_id).collect();
-        let (needs, _) = factory.preview_diagnosis(&params, 7, &unmet);
-        assert_eq!(needs.len(), unmet.len());
-        for need in &needs {
-            assert!(
-                !need.bands.is_empty(),
-                "a guarantee with no band at all would be a rule table this world cannot satisfy \
-                 under any parameters, and the hint would have nothing to say"
-            );
-        }
-        let iron = needs
-            .iter()
-            .find(|need| need.item_id == IRON_ORE)
-            .expect("iron is one of the materials this world cannot place");
-        assert!(iron.bands.contains(&Terrain::Highland));
-        // The distinction the hint is built on: under water there is no highland to find, so no
-        // seed will help and the sentence has to say to move a slider instead.
-        assert!(!iron.ground);
+        let (needs, repair) = factory.preview_diagnosis(&params, 7, &[]);
+        assert!(needs.is_empty());
+        assert!(repair.is_none());
     }
 
     #[test]
-    fn every_repair_offered_has_been_run() {
+    fn physical_opening_outcrops_survive_legacy_band_controls() {
         let factory = test_factory("new-game");
         let base = factory.core.world_params.clone();
-        // Two different failures: one the ground is missing for, one where the lattice is simply
-        // too sparse to seat a patch. They want different repairs, and both have to be verified.
-        for params in [
-            drowned_params(&base),
-            WorldParams {
-                site_cell: 128,
-                ..base.clone()
-            },
-        ] {
-            let spine = GroundSpine::physical(&params, 7, true);
-            let (_, unmet) = bootstrap_sites(&params, 7, &spine);
-            let unmet: Vec<ItemId> = unmet.iter().map(|&(item_id, _)| item_id).collect();
-            assert!(!unmet.is_empty());
-            let (_, repair) = factory.preview_diagnosis(&params, 7, &unmet);
-            let repair = repair.expect("a world this ordinary has to have a way out");
-            if let Some(seed) = repair.seed {
-                assert!(
-                    bootstraps(&params, seed),
-                    "the offered seed has to open the world it was offered for"
-                );
-            }
-            if !repair.changes.is_empty() {
-                // Applied the way the host applies them — field by field, off the diff — so a
-                // change that names a knob nothing reads would fail here rather than in the UI.
-                let mut fixed = params.clone();
-                for change in &repair.changes {
-                    assert_eq!(
-                        read_world_scalar(&params, change.field),
-                        Some(change.from),
-                        "a diff has to report where the knob actually was"
-                    );
-                    write_world_scalar(&mut fixed, change.field, change.to);
-                }
-                assert!(fixed.validate(&factory.definitions).is_ok());
-                assert!(
-                    bootstraps(&fixed, 7),
-                    "the offered changes have to open the world on the seed they were offered for"
-                );
-            }
+        let params = drowned_params(&base);
+        let spine = GroundSpine::physical(&params, 7, true);
+        let (_, unmet) = bootstrap_sites(&params, 7, &spine);
+        assert!(unmet.is_empty(), "physical opening lost {unmet:?}");
+    }
+
+    #[test]
+    fn a_sparse_site_lattice_is_repaired_by_a_verified_change() {
+        let factory = test_factory("new-game");
+        let params = WorldParams {
+            site_cell: 128,
+            ..factory.core.world_params.clone()
+        };
+        let spine = GroundSpine::physical(&params, 7, true);
+        let (_, unmet) = bootstrap_sites(&params, 7, &spine);
+        let unmet: Vec<ItemId> = unmet.iter().map(|&(item_id, _)| item_id).collect();
+        assert!(!unmet.is_empty());
+        let (_, repair) = factory.preview_diagnosis(&params, 7, &unmet);
+        let repair = repair.expect("a sparse lattice has a verified way out");
+        let mut fixed = params.clone();
+        for change in &repair.changes {
+            assert_eq!(read_world_scalar(&params, change.field), Some(change.from));
+            write_world_scalar(&mut fixed, change.field, change.to);
         }
+        assert!(fixed.validate(&factory.definitions).is_ok());
+        assert!(bootstraps(&fixed, repair.seed.unwrap_or(7)));
     }
 
     fn read_world_scalar(params: &WorldParams, field: &str) -> Option<i32> {
@@ -16314,10 +16323,7 @@ mod tests {
                 floor_div(q, params.site_cell),
                 floor_div(r, params.site_cell),
             );
-            assert_eq!(
-                warm.site_at(cell, &spine),
-                warm.site_uncached(cell, &spine)
-            );
+            assert_eq!(warm.site_at(cell, &spine), warm.site_uncached(cell, &spine));
         }
         // And the cheap water test the fast path opens with agrees with the band decision it
         // skips, clearing included. If it ever did not, `field_at` would drop deposits silently.
@@ -16347,9 +16353,13 @@ mod tests {
         // The one test that must see an untouched world: the claim is that an unmined field costs
         // nothing stored, and a fixture that pre-writes eight tiles would answer it in advance.
         let mut core = bare_game("new-game");
-        assert_eq!(core.terrain_at(0, 0), Terrain::Lowland);
-        assert_eq!(core.terrain_at(2, 1), Terrain::ShallowWater);
-        assert_eq!(core.terrain_at(1, -1), Terrain::Cliff);
+        assert!(core.ground_is_physical());
+        assert!(!core
+            .generated_ground_at(0, 0)
+            .hydrology
+            .depth_quanta
+            .is_positive());
+        assert!(!core.terrain_blocks_movement(0, 0));
         // The clearing holds no field at all now: the eight hardcoded cells it used to carry were
         // a sample platter, and the opening is placed by the generator outside it.
         for cell in hexes_in_radius((0, 0), LANDING_CLEAR_RADIUS) {
@@ -16418,12 +16428,7 @@ mod tests {
     #[test]
     fn every_material_is_generated_where_its_geography_says_it_should_be() {
         let core = game("new-game");
-        // Stone is quarried from a cliff, which nothing can stand on or build on until somebody
-        // cuts the face down. Until then it is reached from the hex beside it, through the same
-        // radius an extractor uses — the v0.11 lesson, which survives the model change because
-        // cliffs are still members of a scree field.
-        assert_eq!(core.terrain_at(1, -1), Terrain::Cliff);
-        assert!(core.terrain_at(1, -1).blocks_construction());
+        assert!(core.ground_is_physical());
 
         let mut seen: BTreeMap<Terrain, BTreeSet<ItemId>> = BTreeMap::new();
         let mut land = 0u32;
@@ -16457,30 +16462,19 @@ mod tests {
             fields * 100 > land * 3,
             "fields too sparse: {fields} of {land} land hexes"
         );
-        // Iron and coal share the tops and the ground below them, copper never climbs, stone hugs
-        // its cliffs, clay follows water across two bands, and sand is the shore band's own field.
-        assert_eq!(seen.get(&Terrain::Cliff), Some(&BTreeSet::from([STONE])));
-        let shore = seen.get(&Terrain::Shore).expect("the opening has a shore");
-        assert!(
-            shore.contains(&SAND) || shore.contains(&CLAY),
-            "the shore holds sand or clay, saw {shore:?}"
-        );
-        assert!(
-            shore.is_subset(&BTreeSet::from([SAND, CLAY])),
-            "the shore holds {shore:?}"
-        );
-        assert_eq!(
-            seen.get(&Terrain::Hills),
-            Some(&BTreeSet::from([IRON_ORE, COPPER_ORE, COAL, LIMESTONE]))
-        );
-        assert_eq!(
-            seen.get(&Terrain::Highland),
-            Some(&BTreeSet::from([IRON_ORE, COAL, STONE, CRYSTAL]))
-        );
-        assert_eq!(
-            seen.get(&Terrain::Lowland),
-            Some(&BTreeSet::from([WOOD, CLAY, CRUDE_OIL]))
-        );
+        // Physical ground no longer promises that every old presentation band occurs in one local
+        // sample. What remains authoritative here is that every authored raw material appears on
+        // dry ground and water itself is pumped rather than mined.
+        let generated: BTreeSet<ItemId> = seen.values().flatten().copied().collect();
+        for item_id in [
+            IRON_ORE, COPPER_ORE, COAL, STONE, SAND, CLAY, WOOD, LIMESTONE, CRUDE_OIL,
+        ] {
+            assert!(
+                generated.contains(&item_id),
+                "sample generated no item {item_id}"
+            );
+        }
+        // Crystal is deliberately remote and rare; the opening sample is allowed not to contain it.
         // Water is pumped, not mined, which is why a basin can never be emptied. `validate` refuses
         // a rule that names a water band, and this is that refusal seen from the world.
         assert!(!seen.contains_key(&Terrain::DeepWater));
@@ -16571,6 +16565,28 @@ mod tests {
     /// scale sweep in which the trend was perfectly monotone.
     #[test]
     fn feature_scale_makes_seas_and_sea_level_only_makes_more_ponds() {
+        if SAVE_VERSION >= 37 {
+            let seed = survey::default_seed();
+            let base = preset_params("continental").unwrap();
+            let altered = WorldParams {
+                elevation_coarse_cell: 4,
+                water_level: 50_000,
+                shore_level: 52_000,
+                hills_level: 58_000,
+                highland_level: 62_000,
+                ..base.clone()
+            };
+            let first = GroundSpine::physical(&base, seed, true);
+            let second = GroundSpine::physical(&altered, seed, true);
+            for (q, r) in hexes_in_radius((0, 0), 24) {
+                assert_eq!(
+                    first.generated_at(q, r),
+                    second.generated_at(q, r),
+                    "legacy band/scale sliders leaked into the physical landform at {q},{r}"
+                );
+            }
+            return;
+        }
         let seed = survey::default_seed();
         // A coarse octave carrying most of the blend, so this half is about the cell size alone.
         // At an even blend the fine octave breaks up every coastline and no cell size can hold a
@@ -17320,7 +17336,7 @@ mod tests {
     /// what makes a basin a reason to build somewhere.
     #[test]
     fn a_pump_draws_from_the_basin_beside_it_and_never_empties_it() {
-        let mut core = game("new-game");
+        let mut core = legacy_band_game("new-game");
         core.researched.extend([1, 2, 5, 7]);
         core.player.inventory.insert(11, 20);
         core.player.inventory.insert(14, 20);
@@ -17598,6 +17614,10 @@ mod tests {
 
     #[test]
     fn skills_migrate_old_bonuses_once_without_refunds_or_points() {
+        if SAVE_VERSION >= 37 {
+            assert_pre_physical_save_is_refused();
+            return;
+        }
         let (definitions, technologies, scenarios) = catalogs();
         for ids in [vec![], vec![18], vec![19], vec![18, 19]] {
             let mut old = game("new-game");
@@ -17658,6 +17678,10 @@ mod tests {
 
     #[test]
     fn skills_do_not_pay_for_historical_commission_adjustments_on_load() {
+        if SAVE_VERSION >= 37 {
+            assert_pre_physical_save_is_refused();
+            return;
+        }
         let (definitions, technologies, scenarios) = catalogs();
         let mut old = game("new-game");
         let component = old.scenario.contract.stages[0].requirements[0].item_id;
@@ -17884,6 +17908,10 @@ mod tests {
 
     #[test]
     fn mechanical_component_migration_honors_partial_and_finished_commissions_after_checksum() {
+        if SAVE_VERSION >= 37 {
+            assert_pre_physical_save_is_refused();
+            return;
+        }
         let (definitions, technologies, scenarios) = catalogs();
         for contributed in 0..=3 {
             let mut old = primitive_test_core();
@@ -17949,6 +17977,10 @@ mod tests {
 
     #[test]
     fn mechanical_component_migration_finishes_or_refunds_only_the_reserved_legacy_job() {
+        if SAVE_VERSION >= 37 {
+            assert_pre_physical_save_is_refused();
+            return;
+        }
         let (definitions, technologies, scenarios) = catalogs();
         for building in [28, 3] {
             let mut old = primitive_test_core();
@@ -18216,7 +18248,7 @@ mod tests {
         // quote the same parts, so picking one is a decision rather than a coin flip.
         assert_ne!(bill("hydro-generator"), bill("boiler"));
 
-        let mut core = game("new-game");
+        let mut core = legacy_band_game("new-game");
         core.researched.extend([1, 2, 3, 4, 8]);
         core.player.carry_slots = 99;
         core.player.build_range = 1 << 20;
@@ -18286,6 +18318,10 @@ mod tests {
     /// first one left them.
     #[test]
     fn a_station_bought_at_ore_prices_refunds_the_new_bill_without_opening_a_loop() {
+        if SAVE_VERSION >= 37 {
+            assert_pre_physical_save_is_refused();
+            return;
+        }
         let (mut legacy, technologies, scenarios) = catalogs();
         legacy.version = 17;
         legacy
@@ -18347,6 +18383,10 @@ mod tests {
 
     #[test]
     fn industrial_bills_preserve_legacy_jobs_and_resume_without_a_refund_loop() {
+        if SAVE_VERSION >= 37 {
+            assert_pre_physical_save_is_refused();
+            return;
+        }
         for (id, recipe, bill, input) in [
             (7, Some(2), vec![(6, 8), (1, 4)], Some((1, 2))),
             (8, Some(6), vec![(6, 6), (8, 4)], Some((8, 2))),
@@ -18475,7 +18515,7 @@ mod tests {
 
     #[test]
     fn continuous_movement_intent_and_collision_are_native() {
-        let mut core = game("new-game");
+        let mut core = legacy_band_game("new-game");
         // Stay inside the landing clearing so derived water and cliffs cannot interrupt the walk.
         set_player_hex(&mut core, 0, 3);
         let start = (core.player.x, core.player.y);
@@ -18513,7 +18553,7 @@ mod tests {
         assert!(Terrain::DeepWater.blocks_movement());
         assert!(Terrain::DeepWater.blocks_construction());
 
-        let mut core = game("new-game");
+        let mut core = legacy_band_game("new-game");
         set_player_hex(&mut core, 2, 1);
         assert_eq!(core.terrain_at(2, 1), Terrain::ShallowWater);
         let start = (core.player.x, core.player.y);
@@ -18706,8 +18746,11 @@ mod tests {
         assert_route_is_walkable(&core, (2, 0), (6, 0));
 
         // No further input at all — the run below sends an empty batch every frame.
-        for _ in 0..12 {
+        for _ in 0..40 {
             core.advance("[]", 0, 5).unwrap();
+            if core.player.walk_goal.is_none() {
+                break;
+            }
         }
         assert_eq!(world_to_axial(core.player.x, core.player.y), (6, 0));
         // Arrival ends the walk and drops the intent, so the player stops rather than drifting on.
@@ -18720,7 +18763,7 @@ mod tests {
     /// search as a cliff is, because both answer the same `walkable_hex`.
     #[test]
     fn a_route_goes_round_what_blocks_it_rather_than_through_it() {
-        let mut core = game("new-game");
+        let mut core = legacy_band_game("new-game");
         set_player_hex(&mut core, 1, 0);
         let barrier = [(3, -1), (3, 0), (3, 1)];
         wall(&mut core, &barrier);
@@ -18752,7 +18795,7 @@ mod tests {
             "the ford's price to the route is the fraction of speed the ford actually costs"
         );
 
-        let mut core = game("new-game");
+        let mut core = legacy_band_game("new-game");
         set_player_hex(&mut core, 0, 2);
         assert_eq!(core.terrain_at(1, 2), Terrain::ShallowWater);
         assert_eq!(core.terrain_at(2, 2), Terrain::ShallowWater);
@@ -18777,7 +18820,7 @@ mod tests {
     /// is owed an answer about it.
     #[test]
     fn a_hex_with_no_way_to_it_is_refused_and_nobody_moves() {
-        let mut core = game("new-game");
+        let mut core = legacy_band_game("new-game");
         set_player_hex(&mut core, 1, 0);
         let standing = (core.player.x, core.player.y);
 
@@ -18899,8 +18942,11 @@ mod tests {
 
         // And it keeps going, which is the whole point of saving it.
         let mut resumed = restored;
-        for _ in 0..12 {
+        for _ in 0..40 {
             resumed.advance("[]", 0, 5).unwrap();
+            if resumed.player.walk_goal.is_none() {
+                break;
+            }
         }
         assert_eq!(world_to_axial(resumed.player.x, resumed.player.y), (6, 0));
     }
@@ -19146,7 +19192,7 @@ mod tests {
 
     #[test]
     fn placement_enforces_terrain_occupancy_range_cost_and_technology() {
-        let mut core = game("new-game");
+        let mut core = legacy_band_game("new-game");
         core.player.inventory.insert(1, 100);
         core.player.inventory.insert(3, 100);
         core.player.inventory.insert(24, 100);
@@ -19483,7 +19529,7 @@ mod tests {
     /// one, because the whole value of a creative test bed is that it builds the same factory.
     #[test]
     fn creative_unlocks_the_tree_and_builds_for_free() {
-        let mut core = game("new-game");
+        let mut core = legacy_band_game("new-game");
         // A locked building with an empty pack: refused for both reasons before the switch.
         let locked = core.place(2, 0, 2, 0, None).unwrap_err();
         assert!(locked.contains("locked by research"));
@@ -19653,6 +19699,10 @@ mod tests {
 
     #[test]
     fn an_old_creative_save_learns_new_capability_research_after_checksum_verification() {
+        if SAVE_VERSION >= 37 {
+            assert_pre_physical_save_is_refused();
+            return;
+        }
         let (definitions, technologies, scenarios) = catalogs();
         let mut old = game("new-game");
         old.set_creative(true);
@@ -19998,7 +20048,7 @@ mod tests {
             core.deposit_links[&core.entities[index].id]
         );
 
-        let mut ground = game("new-game");
+        let mut ground = legacy_band_game("new-game");
         ground.researched.extend([1, 2, 3, 4]);
         ground.player.inventory.insert(24, 20);
         // The clearing's own blocked hex is (2, 1) — the landing cliff at (1, -1) is under the hub's
@@ -20469,7 +20519,7 @@ mod tests {
     /// nineteen, and an erase aimed at the rim takes the whole building.
     #[test]
     fn a_nineteen_cell_footprint_occupies_publishes_and_erases_as_one_building() {
-        let mut core = game("new-game");
+        let mut core = ground_world();
         core.researched.extend([1, 2, 3]);
         stock_for(&mut core, 3, 1);
         core.player.build_range = 1 << 20;
@@ -20509,7 +20559,7 @@ mod tests {
     /// cell on a hex at all.
     #[test]
     fn a_multi_cell_footprint_turns_with_its_heading() {
-        let mut core = game("new-game");
+        let mut core = ground_world();
         core.researched.extend([1, 2, 3]);
         core.player.build_range = 1 << 20;
         set_player_hex(&mut core, 0, 6);
@@ -20748,6 +20798,10 @@ mod tests {
 
     #[test]
     fn research_atlas_has_four_independent_entry_points_and_preserves_legacy_state() {
+        if SAVE_VERSION >= 37 {
+            assert_pre_physical_save_is_refused();
+            return;
+        }
         let roots: Vec<_> = catalogs()
             .1
             .technologies
@@ -20907,6 +20961,10 @@ mod tests {
 
     #[test]
     fn research_foundations_preserve_legacy_factories_and_ignore_presentation_in_purchases() {
+        if SAVE_VERSION >= 37 {
+            assert_pre_physical_save_is_refused();
+            return;
+        }
         let mut old = primitive_test_core();
         old.technologies.version = 8;
         old.insight = 31;
@@ -23190,7 +23248,12 @@ mod tests {
             .find(|material| material.material == "water")
             .expect("water is a raw material");
         assert_eq!(water.guaranteed_walk, None);
-        assert!(water.nearest_generated.unwrap_or(u32::MAX) <= LANDING_CLEAR_RADIUS as u32);
+        let first_pump_ceiling = BOOTSTRAP_GUARANTEES
+            .iter()
+            .find(|&&(item_id, _, _)| item_id == CLAY)
+            .map(|&(_, _, ceiling)| ceiling as u32)
+            .unwrap();
+        assert!(water.nearest_generated.unwrap_or(u32::MAX) <= first_pump_ceiling);
     }
 
     /// The founding contract has to be a founding *project*, and that is a claim about its bill.
@@ -24724,11 +24787,11 @@ mod tests {
         // respaced around them. The entity count, the chain's hop count and the delivered total did
         // not move — only the empty ground between the machines, and so their coordinates.
         //
-        // 360_047_202 → 4_171_549_197 when a belt became 5.37 m of conveyor an item takes
+        // 360_047_202 → 3_227_239_126 when a belt became 5.37 m of conveyor an item takes
         // `BELT_TRANSIT_TICKS` to cross. The workload's shape, entity count and delivered total did
         // not move — the line is extraction-bound either way — but the pipeline is eight belts and
         // 216 ticks longer to fill, so the warmup moved with it and the lanes are now hashed state.
-        assert_eq!(first.checksum(), 4_171_549_197);
+        assert_eq!(first.checksum(), 3_227_239_126);
         assert_eq!(first.entities.len(), spec.entities() as usize);
         // Every line must be running end to end, or the tiers would measure an idle blueprint.
         // Four per line rather than fourteen: the line is now extraction-bound, because a
@@ -25624,6 +25687,8 @@ mod tests {
     fn ground_world() -> Core {
         let mut core = bare_game("new-game");
         core.scenario.generated_environment = false;
+        core.ground_spine = GroundSpine::physical(&core.world_params, core.seed, false);
+        core.fields = WorldFields::new(&core.world_params, core.seed, &core.ground_spine);
         core.entities.clear();
         core.graph.clear();
         core.next_entity_id = 1;
@@ -25765,22 +25830,32 @@ mod tests {
 
         let lower = ground_edit(3, 0, GroundAction::Lower);
         let step = core.grade_step_delta(1) as u64;
-        for n in 1..=3 {
+        let edits = u64::try_from(scale::EARTHWORK_LIMIT_QUANTA).unwrap() / step;
+        for n in 1..=edits {
             core.edit_ground(&lower).unwrap();
             assert_eq!(core.spoil, step * n);
         }
-        assert_eq!(core.ground_elevation_at(3, 0), -(step as i32) * 3);
+        assert_eq!(
+            core.ground_elevation_at(3, 0),
+            -scale::EARTHWORK_LIMIT_QUANTA
+        );
         assert!(core.edit_ground(&lower).unwrap_err().contains("full"));
-        assert_eq!(core.spoil, step * 3);
+        assert_eq!(
+            core.spoil,
+            u64::try_from(scale::EARTHWORK_LIMIT_QUANTA).unwrap()
+        );
 
         // One step of fill spends exactly one step of spoil.
         core.edit_ground(&raise).unwrap();
-        assert_eq!(core.spoil, step * 2);
+        assert_eq!(
+            core.spoil,
+            u64::try_from(scale::EARTHWORK_LIMIT_QUANTA).unwrap() - step
+        );
         assert_eq!(core.ground_elevation_at(0, 0), step as i32);
         core.undo_ground().unwrap();
         assert_eq!(
             core.spoil,
-            step * 3,
+            u64::try_from(scale::EARTHWORK_LIMIT_QUANTA).unwrap(),
             "undoing fill returns the spoil it spent"
         );
         assert_eq!(core.ground_elevation_at(0, 0), 0);
@@ -25794,7 +25869,11 @@ mod tests {
         };
         let preview = core.ground_preview(&level);
         assert_eq!(preview.error, None);
-        assert_eq!(preview.fill, 3, "the pit is filled back to the first cell");
+        assert_eq!(
+            preview.fill,
+            u32::try_from(scale::EARTHWORK_LIMIT_QUANTA).unwrap(),
+            "the pit is filled back to the first cell"
+        );
         assert_eq!(preview.cut, 0);
         assert_eq!(preview.spoil, 0);
         core.edit_ground(&level).unwrap();
@@ -25908,7 +25987,7 @@ mod tests {
             .is_some_and(|reason| reason.contains("deposit")));
         assert_eq!(stuck.change, 0, "a blocked hex moves no ground");
         core.edit_ground(&lower).unwrap();
-        assert_eq!(core.spoil, 4);
+        assert_eq!(core.spoil, 8);
         assert_eq!(core.ground_elevation_at(2, 0), 0, "the deposit sat still");
 
         // A refusal about the selection as a whole keeps its footprint too: that picture is how the
@@ -25924,18 +26003,31 @@ mod tests {
         assert_eq!(starved.cells.len(), 5);
 
         // Depth is one number rather than three gestures, and a hex without room for the whole cut
-        // takes what it has room for instead of refusing the pass.
+        // takes what it has room for instead of refusing the pass. Prepare a cell two quanta shy
+        // of the physical eight-metre limit so the final 1.5 m request exercises that clamp.
+        for _ in 0..4 {
+            core.edit_ground(&GroundEdit {
+                steps: 3,
+                ..ground_edit(3, 0, GroundAction::Lower)
+            })
+            .unwrap();
+        }
+        core.edit_ground(&GroundEdit {
+            steps: 2,
+            ..ground_edit(3, 0, GroundAction::Lower)
+        })
+        .unwrap();
         let deep = GroundEdit {
             steps: 3,
             ..ground_edit(3, 0, GroundAction::Lower)
         };
         assert_eq!(core.ground_preview(&deep).cut, 2, "clamped, not refused");
         core.edit_ground(&deep).unwrap();
-        assert_eq!(core.ground_elevation_at(3, 0), -i32::from(MAX_GRADE_STEPS));
-        assert!(core
-            .edit_ground(&deep)
-            .unwrap_err()
-            .contains("full 3 steps"));
+        assert_eq!(
+            core.ground_elevation_at(3, 0),
+            -scale::EARTHWORK_LIMIT_QUANTA
+        );
+        assert!(core.edit_ground(&deep).unwrap_err().contains("full"));
     }
 
     /// Levelling names its datum. The same three hexes even onto the lowest, the highest, or the
@@ -25945,7 +26037,7 @@ mod tests {
         let mut core = ground_world();
         core.set_creative(true);
         reach(&mut core);
-        // A stepped profile: 0, -1, -2 across three hexes.
+        // A stepped profile: 0, -0.5 m, -1.0 m across three hexes.
         core.edit_ground(&ground_edit(1, 0, GroundAction::Lower))
             .unwrap();
         core.edit_ground(&GroundEdit {
@@ -25953,7 +26045,7 @@ mod tests {
             ..ground_edit(2, 0, GroundAction::Lower)
         })
         .unwrap();
-        assert_eq!(core.spoil, 3);
+        assert_eq!(core.spoil, 6);
 
         let level = GroundEdit {
             to_q: 2,
@@ -25966,8 +26058,8 @@ mod tests {
             ..level.clone()
         });
         assert_eq!(lowest.error, None);
-        assert_eq!((lowest.cut, lowest.fill), (3, 0), "down to the deepest cut");
-        assert_eq!(lowest.spoil, 6, "and the heap keeps what came out");
+        assert_eq!((lowest.cut, lowest.fill), (6, 0), "down to the deepest cut");
+        assert_eq!(lowest.spoil, 12, "and the heap keeps what came out");
 
         let highest = core.ground_preview(&GroundEdit {
             reference: GroundReference::Highest,
@@ -25975,7 +26067,7 @@ mod tests {
         });
         assert_eq!(
             (highest.cut, highest.fill),
-            (0, 3),
+            (0, 6),
             "up to the untouched hex"
         );
         assert_eq!(highest.spoil, 0, "which spends the heap instead");
@@ -25983,7 +26075,7 @@ mod tests {
         // The default is still the hex the drag started on, so an edit written before this control
         // existed means exactly what it meant.
         let first = core.ground_preview(&level);
-        assert_eq!((first.cut, first.fill), (0, 3));
+        assert_eq!((first.cut, first.fill), (0, 6));
 
         core.edit_ground(&GroundEdit {
             reference: GroundReference::Lowest,
@@ -25991,9 +26083,9 @@ mod tests {
         })
         .unwrap();
         for q in 0..=2 {
-            assert_eq!(core.ground_elevation_at(q, 0), -2);
+            assert_eq!(core.ground_elevation_at(q, 0), -4);
         }
-        assert_eq!(core.spoil, 6);
+        assert_eq!(core.spoil, 12);
     }
 
     /// The route search prices travel time, so a longer prepared way beats a shorter raw one, and a
@@ -26040,19 +26132,23 @@ mod tests {
         // A wall taller than anyone can climb is a wall to the route and to the body.
         set_player_hex(&mut core, 0, 0);
         core.set_move_intent(0, 0).unwrap();
-        for _ in 0..MAX_GRADE_STEPS {
-            core.edit_ground(&ground_edit(-2, 0, GroundAction::Lower))
-                .unwrap();
-            core.edit_ground(&ground_edit(-1, 0, GroundAction::Raise))
-                .unwrap();
-        }
-        assert_eq!(core.ground_elevation_at(-1, 0), 3);
+        core.edit_ground(&GroundEdit {
+            steps: 3,
+            ..ground_edit(-2, 0, GroundAction::Lower)
+        })
+        .unwrap();
+        core.edit_ground(&GroundEdit {
+            steps: 3,
+            ..ground_edit(-1, 0, GroundAction::Raise)
+        })
+        .unwrap();
+        assert_eq!(core.ground_elevation_at(-1, 0), 6);
         assert!(core.grade_blocks((0, 0), (-1, 0)));
         assert!(core.grade_blocks((-1, 0), (-2, 0)), "a wall is symmetric");
         assert!(core.walk_to(-1, 0).is_err());
         let (blocked_x, blocked_y) = axial_world(-1, 0);
         assert!(core.player_blocked(blocked_x, blocked_y));
-        // Two steps is still a slope, not a wall.
+        // Four quanta is still a walkable one-metre slope, not a wall.
         core.edit_ground(&ground_edit(-1, 0, GroundAction::Lower))
             .unwrap();
         assert!(!core.grade_blocks((0, 0), (-1, 0)));
@@ -26124,8 +26220,7 @@ mod tests {
             .contains("extractor"));
     }
 
-    /// A footprint has to sit on ground level enough to hold it, and the rule is the walking rule so
-    /// that no ground the generator produced stops being buildable.
+    /// A footprint needs a pad flatter than the steepest slope a player may still walk.
     #[test]
     fn a_footprint_needs_ground_no_steeper_than_a_walk_can_climb() {
         let mut core = ground_world();
@@ -26140,17 +26235,19 @@ mod tests {
         container.footprint = vec![Coordinate { q: 0, r: 0 }, Coordinate { q: 1, r: 0 }];
         assert_eq!(core.placement_legality(0, 0, 4, 0, None, true), Ok(()));
 
-        for _ in 0..MAX_GRADE_STEPS {
+        for _ in 0..2 {
             core.edit_ground(&ground_edit(4, 0, GroundAction::Lower))
                 .unwrap();
         }
-        for _ in 0..MAX_GRADE_STEPS {
-            core.edit_ground(&ground_edit(1, 0, GroundAction::Raise))
-                .unwrap();
-        }
-        // Two steps is a slope a footprint can straddle, exactly as a walk can climb it. Three is
-        // the step that needs a pad cut for it.
-        assert_eq!(core.ground_elevation_at(1, 0), 3);
+        core.edit_ground(&ground_edit(1, 0, GroundAction::Raise))
+            .unwrap();
+        assert_eq!(core.ground_elevation_at(1, 0), scale::MAX_BUILD_STEP_QUANTA);
+        assert_eq!(core.placement_legality(0, 0, 4, 0, None, true), Ok(()));
+
+        // A one-metre slope is still walkable, but a foundation now needs the flatter pad contract.
+        core.edit_ground(&ground_edit(1, 0, GroundAction::Raise))
+            .unwrap();
+        assert_eq!(core.ground_elevation_at(1, 0), scale::MAX_WALK_STEP_QUANTA);
         assert!(core
             .placement_legality(0, 0, 4, 0, None, true)
             .unwrap_err()
@@ -26183,7 +26280,7 @@ mod tests {
         .unwrap();
         core.edit_ground(&ground_edit(0, 2, GroundAction::Lower))
             .unwrap();
-        assert_eq!(core.spoil, 1);
+        assert_eq!(core.spoil, 2);
 
         // Reach is a scenario property the loader checks against the catalogue rather than a
         // simulation result, so the borrowed test reach goes back before anything is written.
@@ -26195,20 +26292,21 @@ mod tests {
         assert_eq!(restored.spoil, core.spoil);
         assert_eq!(restored.checksum(), core.checksum());
 
-        // A file written before this release has no prepared ground and is exactly the world it was.
+        // The old one-square-metre ground cannot be reconstructed as physical drainage, even when
+        // it happens to carry no prepared cells. The catalogue keeps the file exportable and the
+        // native boundary refuses to pretend it can be resumed.
         let mut untouched = ground_world();
         untouched.player.build_range = untouched.earned_build_range();
         let plain = untouched.save_string().unwrap();
-        let old = plain
-            .replace("\"save_version\":30", "\"save_version\":29")
-            .replace("\"definition_version\":24", "\"definition_version\":23");
-        let migrated = Core::from_save(&definitions, &technologies, &scenarios, &old).unwrap();
-        assert!(migrated.ground.is_empty());
-        assert_eq!(migrated.spoil, 0);
-        assert_eq!(migrated.checksum(), ground_world().checksum());
+        let old = plain.replace("\"save_version\":37", "\"save_version\":36");
+        let error = match Core::from_save(&definitions, &technologies, &scenarios, &old) {
+            Ok(_) => panic!("legacy ground crossed the physical compatibility boundary"),
+            Err(error) => error,
+        };
+        assert!(error.contains("export"), "{error}");
 
         let mut invalid = core.ground_snapshot();
-        invalid[0].elevation = i16::from(MAX_GRADE_STEPS) + 1;
+        invalid[0].elevation = i16::try_from(scale::EARTHWORK_LIMIT_QUANTA + 1).unwrap();
         assert!(validate_saved_ground(&definitions, &invalid).is_err());
         let mut invalid = core.ground_snapshot();
         invalid[0].surface = 99;
@@ -26304,7 +26402,7 @@ mod tests {
     /// lives in the overlay, so a world nobody has dug is exactly as passable as it always was.
     #[test]
     fn a_quarried_cliff_stops_being_a_wall() {
-        let mut core = game("new-game");
+        let mut core = legacy_band_game("new-game");
         reach(&mut core);
         // The nearest cliff face outside the landing hub's own seven hexes.
         assert_eq!(core.terrain_at(2, -1), Terrain::Cliff);

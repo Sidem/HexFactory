@@ -753,8 +753,7 @@ impl Core {
                 }
                 GroundAction::Level => {
                     let wanted = i64::from(target) - i64::from(natural);
-                    next.elevation =
-                        wanted.clamp(i64::from(-limit), i64::from(limit)) as i16;
+                    next.elevation = wanted.clamp(i64::from(-limit), i64::from(limit)) as i16;
                 }
             }
             let after = (!next.is_untouched()).then_some(next);

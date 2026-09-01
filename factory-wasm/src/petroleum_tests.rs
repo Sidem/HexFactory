@@ -450,6 +450,17 @@ fn petroleum_road_journeys_keep_gravel_useful_and_make_long_routes_faster() {
 
 #[test]
 fn petroleum_loading_pre_masonry_world_does_not_require_new_limestone_guarantee() {
+    if SAVE_VERSION >= 37 {
+        let (core, scenarios) = test_core();
+        let legacy = format!("{SAVE_PREFIX}{{\"save_version\":36,\"world_generator_version\":10}}");
+        let error =
+            match Core::from_save(&core.definitions, &core.technologies, &scenarios, &legacy) {
+                Ok(_) => panic!("a one-square-metre save crossed the physical-world boundary"),
+                Err(error) => error,
+            };
+        assert!(error.contains("export"), "{error}");
+        return;
+    }
     let (catalog, _) = test_core();
     let scenarios: ScenariosInput =
         serde_json::from_str(include_str!("../../src/data/scenarios.json")).unwrap();
