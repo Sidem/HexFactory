@@ -18,23 +18,22 @@ On 2026-08-31 the user approved the Phase 8 scale break detailed in that brief: 
 becomes 25 m², generated altitude becomes physical native height, drainage shapes valleys before
 rivers are placed, and building footprints are reauthored around the new scale. The first slice is a
 native survey/prototype, not a production toggle; **it is delivered in v0.46.0**. Slice 2 now supplies
-the typed production ground spine behind the old presentation, and the next work is slice 3, content
-and renderer activation at the declared compatibility boundary. `factory_wasm::scale` states the
-scale contract; belt cadence now reads it, and nothing else that ships does. `factory_wasm::terra` is the drainage prototype and
-is compiled out of the wasm artifact; `factory_wasm::ground_spine` separates generated bed,
-substrate, initial hydrology and finished ground behind a legacy-unit adapter and surveyed-chunk
-cache. Slice 3 development has prepared a native-only physical source and a deterministic dry
-valley-shelf origin, plus an inactive TypeScript heightfield core that turns native-published
-samples into deterministic continuous ground, separate water, cliff/frontier skirts and ray-based
-axial picks. Production still selects the legacy source, the physical source remains compiled out
-of wasm with `terra`, and `ThreeFactoryRenderer` still uses the shipped prisms and logical plane.
-The new physical model is still not live — the shipped 1 m² cell and seven presentation bands remain
-the game's ground until the slice-3 compatibility activation, and the two must not be mixed. Pipes were
-brought forward and the ground rework
-was requested outright; neither reorders the table. Release numbers after v0.46.0 are unassigned. Do
-not reorder those phases without the user. On 2026-08-29 the user moved supported floors and vertical
-transport from row 7 to row 10, behind flowing water and Living Lattice, so the player learns the
-shipped ground-level systems before the game asks them to think in levels.
+the typed production ground spine behind the old presentation. Slice 3 is the current work: content
+and renderer activation at the declared compatibility boundary. Local commits through `deddf52`
+have activated the physical source, native height samples, continuous landform, height-aware
+picking, physical footprints and metre-derived belt cadence together at save 37 / world 11 /
+definitions 28 / scenarios 8 / wire 21. `factory_wasm::terra` is now in the wasm artifact, new worlds
+select `GroundSpine::physical`, and save 36 is refused with an export path because its 1 m² scale
+cannot be resumed as 25 m² ground. The complete local quality gate is green at 333 TypeScript and
+293 Rust tests. This activation is not finished or pushed: the next agent must add foundation class,
+service/upgrade envelope and overhead-clearance definition surfaces as one coordinated compatibility
+change, then validate the desktop and mobile journeys. Do not start slice 4 or push the partial
+activation. The unrelated untracked `belt-cadence-demo.png` belongs to the user and must stay out of
+commits. Pipes were brought forward and the ground rework was requested outright; neither reorders
+the table. Release numbers after v0.46.0 are unassigned. Do not reorder those phases without the
+user. On 2026-08-29 the user moved supported floors and vertical transport from row 7 to row 10,
+behind flowing water and Living Lattice, so the player learns the shipped ground-level systems
+before the game asks them to think in levels.
 
 ## Localize before reading
 

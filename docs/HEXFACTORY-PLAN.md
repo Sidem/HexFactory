@@ -560,10 +560,13 @@ partially activated physical model.
    an accelerated deterministic harness. Ship only after protected infrastructure and finite work
    bounds are visible and tested.
 
-The next implementing agent starts at slice 3. It must move the declared compatibility envelopes as
-one activation and must not put a flowing-water front on the old band elevations; the prototype and
-ground spine exist to keep the scale, drainage and running predicates independently testable before
-the save boundary makes mistakes expensive.
+The next implementing agent finishes slice 3 from local commit `deddf52`. Add foundation class, the
+service/upgrade envelope and overhead clearance as one coordinated definition/save change;
+then run and record the desktop and mobile journeys against the physical opening. Keep
+`belt-cadence-demo.png` untracked. Do not start slice 4 or push until those surfaces and journeys are
+complete and the activation has been reviewed. The flowing-water front must never run on the old
+band elevations; the prototype and ground spine keep the scale, drainage and running predicates
+independently testable now that the save boundary makes mistakes expensive.
 
 ### Acceptance
 
