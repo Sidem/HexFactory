@@ -2418,6 +2418,10 @@ struct Core {
     /// `boundary_hash_cache`: never saved, never hashed, and the uncached walk is its oracle.
     ground_hash_cache: RefCell<Option<u32>>,
     ground_undo: Vec<GroundUndo>,
+    /// Water that has left the depth the generator publishes, and only that. An untouched world
+    /// carries none: the ocean, the lakes and the rivers are answers `terra` computes, not saved
+    /// entities. See `hydrology` for why departure rather than depth is the thing stored.
+    water: hydrology::DisturbedWater,
     /// Excavated material held for fill, in whole steps of one hex.
     ///
     /// Cut adds, fill spends, and nothing else touches it. Making raising ground *cost* something
@@ -2627,6 +2631,7 @@ impl Core {
             ground: BTreeMap::new(),
             ground_hash_cache: RefCell::new(None),
             ground_undo: Vec::new(),
+            water: hydrology::DisturbedWater::new(),
             spoil: 0,
             generated_chunks: BTreeSet::new(),
             tiles: BTreeMap::new(),
@@ -9382,6 +9387,14 @@ impl Core {
             hash_u32(&mut hash, u32::MAX - 30);
             hash_u32(&mut hash, self.ground_state_hash());
         }
+        // Guarded on the same rule once more. Disturbed water is the departure set and nothing else,
+        // so a world at its generated equilibrium hashes what it hashed before this field existed,
+        // and every save 38 file keeps the checksum it was written with. The envelope moves when a
+        // player can first create a departure, not when native learns to carry one.
+        if !self.water.is_empty() {
+            hash_u32(&mut hash, u32::MAX - 33);
+            self.water.hash_into(&mut hash);
+        }
         self.skills.hash(&mut hash);
         hash
     }
@@ -9419,6 +9432,7 @@ impl Core {
             creative: self.creative,
             boundaries: self.boundary_snapshot(),
             ground: self.ground_snapshot(),
+            water: self.water.cells(),
             spoil: self.spoil,
             ground_items: self.ground_items.clone(),
             next_ground_item_id: self.next_ground_item_id,
@@ -9574,6 +9588,7 @@ impl Core {
             .into_iter()
             .map(|cell| ((cell.q, cell.r), cell))
             .collect();
+        core.water = hydrology::DisturbedWater::from_cells(&envelope.state.water);
         core.spoil = envelope.state.spoil;
         core.ground_items = envelope.state.ground_items;
         core.next_ground_item_id = envelope.state.next_ground_item_id.max(
@@ -9638,6 +9653,11 @@ struct SavedState {
     boundaries: Vec<Boundary>,
     #[serde(default)]
     ground: Vec<GroundCell>,
+    /// Cells whose water has left the generated equilibrium. Defaulted, because a file written
+    /// before water could be disturbed describes a world that never departed from it — which is
+    /// exactly an empty set, not a missing one.
+    #[serde(default)]
+    water: Vec<hydrology::WaterCell>,
     #[serde(default)]
     spoil: u64,
     seed: u32,
@@ -11503,6 +11523,7 @@ fn validate_saved_state(
 ) -> Result<(), String> {
     validate_saved_boundaries(definitions, &state.boundaries)?;
     validate_saved_ground(definitions, &state.ground)?;
+    hydrology::validate_saved_water(&state.water)?;
     validate_skill_state(technologies, &state.skills)?;
     let item_ids: BTreeSet<_> = definitions.items.iter().map(|value| value.id).collect();
     let technology_ids: BTreeSet<_> = technologies

@@ -416,13 +416,35 @@ impl Core {
     /// [`Terrain::blocks_movement`] is the rule for ground nobody has worked, and that is all the
     /// band table has ever claimed. Everything that walks, routes, drops or builds asks this
     /// instead, because a quarried cliff is a wall only in the table.
+    ///
+    /// On the physical source the water half of that table is a *picture of the generated
+    /// equilibrium*, and Phase 8 lets the player change it. So the band is overruled by
+    /// `water_depth_at`, in both directions: a drained deep-water cell is walkable even though its
+    /// band still reads `DeepWater`, and a flooded meadow is not, even though its band still reads
+    /// `Lowland`. The legacy source keeps the band's answer exactly — a 1 m² world has no depth to
+    /// measure and [`scale::WADE_LIMIT_QUANTA`] would mean nothing in its units.
     pub(super) fn terrain_blocks_movement(&self, q: i32, r: i32) -> bool {
-        self.finished_ground_at(q, r).blocks_movement()
+        let finished = self.finished_ground_at(q, r);
+        if !self.ground_is_physical() {
+            return finished.blocks_movement();
+        }
+        if self.water_depth_of(finished.generated, q, r) >= scale::WADE_LIMIT_QUANTA {
+            return true;
+        }
+        !finished.generated.presentation.is_water() && finished.blocks_movement()
     }
 
-    /// The construction half of the same rule.
+    /// The construction half of the same rule. Any standing water at all refuses a foundation,
+    /// which is what the band said when a ford was the shallowest water the game could describe.
     pub(super) fn terrain_blocks_construction(&self, q: i32, r: i32) -> bool {
-        self.finished_ground_at(q, r).blocks_construction()
+        let finished = self.finished_ground_at(q, r);
+        if !self.ground_is_physical() {
+            return finished.blocks_construction();
+        }
+        if self.water_depth_of(finished.generated, q, r) > 0 {
+            return true;
+        }
+        !finished.generated.presentation.is_water() && finished.blocks_construction()
     }
 
     /// Whether the step between two neighbouring hexes is too steep to walk.

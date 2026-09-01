@@ -126,6 +126,28 @@ impl DisturbedWater {
         self.cells.iter()
     }
 
+    /// The departure set as a file carries it, in key order.
+    pub(super) fn cells(&self) -> Vec<WaterCell> {
+        self.cells
+            .iter()
+            .map(|(&(q, r), delta)| WaterCell {
+                q,
+                r,
+                departure: delta.get(),
+            })
+            .collect()
+    }
+
+    /// Restore a departure set. A zero is dropped rather than kept, so a hand-edited file cannot
+    /// introduce a cell the running store would never have written.
+    pub(super) fn from_cells(cells: &[WaterCell]) -> Self {
+        let mut water = Self::new();
+        for cell in cells {
+            water.set(cell.q, cell.r, WaterDelta::new(cell.departure));
+        }
+        water
+    }
+
     /// The checksum contribution, in the map's own key order so it cannot depend on how the water
     /// got there.
     pub(super) fn hash_into(&self, hash: &mut u32) {
@@ -136,6 +158,36 @@ impl DisturbedWater {
             hash_i32(hash, i32::from(delta.get()));
         }
     }
+}
+
+/// One saved departure, as the file carries it.
+///
+/// A cell identified by its coordinates and nothing else, on the same rule `ResourceSnapshot`
+/// follows: a `u64` packed from two `i32`s is past the range a JSON number carries exactly, and
+/// whole columns of a field once collapsed onto one value because of it.
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub(super) struct WaterCell {
+    pub(super) q: i32,
+    pub(super) r: i32,
+    /// Signed quanta away from the depth the generator publishes here.
+    pub(super) departure: i16,
+}
+
+/// Refuse a departure set no running solve could have written.
+///
+/// The same shape as `validate_saved_ground`: one identity per cell, and every departure inside the
+/// storage guard. A file that fails this is rejected rather than clamped, because a clamped file is
+/// a file whose checksum no longer describes it.
+pub(super) fn validate_saved_water(saved: &[WaterCell]) -> Result<(), String> {
+    let mut seen = BTreeSet::new();
+    for cell in saved {
+        if !seen.insert((cell.q, cell.r))
+            || i32::from(cell.departure).abs() > DEPARTURE_LIMIT_QUANTA
+        {
+            return Err("Invalid saved water identity or departure".into());
+        }
+    }
+    Ok(())
 }
 
 /// What the solver is allowed to ask the world.
@@ -436,6 +488,68 @@ pub(super) fn settle<F: WaterField>(
     }
 
     report
+}
+
+/// The running world, answering the solver's four questions and nothing more.
+///
+/// Every one of them is a fact the Core already publishes. `bed_quanta` is the finished ground the
+/// player walks on — generated bed plus earthwork plus erosion — because water stands on what was
+/// dug, not on what was generated. `surveyed` is `generated_chunks` itself rather than a second
+/// account of it, which is what makes "hydrology cannot grow the world" true by construction: the
+/// only set the solver can read is the one the player has already opened.
+impl WaterField for Core {
+    fn bed_quanta(&self, q: i32, r: i32) -> i32 {
+        self.ground_elevation_at(q, r)
+    }
+
+    fn equilibrium_depth(&self, q: i32, r: i32) -> i32 {
+        self.generated_ground_at(q, r).hydrology.depth_quanta
+    }
+
+    fn surveyed(&self, q: i32, r: i32) -> bool {
+        let size = self.scenario.chunk_size;
+        self.generated_chunks
+            .contains(&(floor_div(q, size), floor_div(r, size)))
+    }
+
+    /// Standing water whose surface is at or below the datum. That is the whole definition of the
+    /// ocean here — the plan's rule is that static water at or below sea level stays static, and
+    /// deriving it from the published surface means no second flag can drift away from it.
+    fn ocean(&self, q: i32, r: i32) -> bool {
+        let hydrology = self.generated_ground_at(q, r).hydrology;
+        hydrology.depth_quanta > 0 && hydrology.surface.get() <= crate::scale::SEA_LEVEL_QUANTA
+    }
+}
+
+impl Core {
+    /// The one native water predicate. Movement, construction, wading, route search and pumps read
+    /// this and never a terrain band: the band is a picture of the generated equilibrium, and the
+    /// player is allowed to have changed it.
+    pub(super) fn water_depth_at(&self, q: i32, r: i32) -> i32 {
+        self.water_depth_of(self.generated_ground_at(q, r), q, r)
+    }
+
+    /// The same answer when the caller already holds the generated facts, so a legality check costs
+    /// one trip through the surveyed cache rather than two.
+    pub(super) fn water_depth_of(&self, generated: GeneratedGround, q: i32, r: i32) -> i32 {
+        (generated.hydrology.depth_quanta + i32::from(self.water.delta_at(q, r).get())).max(0)
+    }
+
+    /// Where the water's top surface stands, in the same absolute quanta as the ground.
+    pub(super) fn water_surface_at(&self, q: i32, r: i32) -> i32 {
+        self.ground_elevation_at(q, r) + self.water_depth_at(q, r)
+    }
+
+    /// Settle a disturbance and keep whatever it leaves behind.
+    ///
+    /// The departure set is lifted out for the solve so the field the solver reads is the finished
+    /// ground and the generated equilibrium, never a half-updated copy of its own answer.
+    pub(super) fn settle_water(&mut self, seeds: &[(i32, i32)]) -> SettleReport {
+        let mut water = std::mem::take(&mut self.water);
+        let report = settle(&*self, &mut water, seeds);
+        self.water = water;
+        report
+    }
 }
 
 #[cfg(test)]
@@ -821,6 +935,212 @@ mod tests {
                 "a settled cell holds no negative depth at {q},{r}"
             );
         }
+    }
+
+    /// A real opening world on the physical source, surveyed around the landing shelf.
+    fn physical_core() -> Core {
+        let definitions =
+            serde_json::from_str(include_str!("../../src/data/definitions.json")).unwrap();
+        let technologies =
+            serde_json::from_str(include_str!("../../src/data/technologies.json")).unwrap();
+        let scenarios: ScenariosInput =
+            serde_json::from_str(include_str!("../../src/data/scenarios.json")).unwrap();
+        let core = Core::new(
+            &definitions,
+            &technologies,
+            &scenarios.scenarios[0],
+            None,
+            None,
+        )
+        .unwrap();
+        assert!(
+            core.ground_is_physical(),
+            "the opening is the physical world"
+        );
+        assert!(
+            !core.generated_chunks.is_empty(),
+            "the opening surveys the shelf it starts on"
+        );
+        core
+    }
+
+    /// A surveyed cell the band calls dry land, on ground the player could stand on.
+    fn dry_cell(core: &Core) -> (i32, i32) {
+        let size = core.scenario.chunk_size;
+        core.generated_chunks
+            .iter()
+            .flat_map(|&(chunk_q, chunk_r)| hexes_in_chunk(chunk_q, chunk_r, size))
+            .find(|&(q, r)| {
+                let generated = core.generated_ground_at(q, r);
+                generated.hydrology.depth_quanta == 0 && !generated.presentation.is_water()
+            })
+            .expect("the opening shelf is dry")
+    }
+
+    /// Survey outward from the origin until a surveyed cell holds inland deep water, and name it.
+    fn survey_out_to_deep_water(core: &mut Core) -> Option<(i32, i32)> {
+        let size = core.scenario.chunk_size;
+        for ring in 0..=12 {
+            for dq in -ring..=ring {
+                for dr in (-ring).max(-dq - ring)..=ring.min(-dq + ring) {
+                    core.generate_chunk(dq, dr);
+                    let found = hexes_in_chunk(dq, dr, size).find(|&(q, r)| {
+                        core.generated_ground_at(q, r).presentation == Terrain::DeepWater
+                            && !core.ocean(q, r)
+                    });
+                    if found.is_some() {
+                        return found;
+                    }
+                }
+            }
+        }
+        None
+    }
+
+    #[test]
+    fn a_flooded_meadow_stops_the_walk_its_own_band_would_allow() {
+        let mut core = physical_core();
+        let (q, r) = dry_cell(&core);
+        assert!(!core.terrain_blocks_movement(q, r));
+        assert!(!core.terrain_blocks_construction(q, r));
+
+        // A ford: deep enough to refuse a foundation, shallow enough to wade.
+        core.water.set(
+            q,
+            r,
+            WaterDelta::new(i16::try_from(crate::scale::WADE_LIMIT_QUANTA - 1).unwrap()),
+        );
+        assert!(
+            !core.terrain_blocks_movement(q, r),
+            "water under the wade limit is a ford"
+        );
+        assert!(
+            core.terrain_blocks_construction(q, r),
+            "any standing water refuses a foundation"
+        );
+
+        core.water.set(
+            q,
+            r,
+            WaterDelta::new(i16::try_from(crate::scale::WADE_LIMIT_QUANTA).unwrap()),
+        );
+        assert!(
+            core.terrain_blocks_movement(q, r),
+            "the band still says meadow; the predicate is the answer"
+        );
+        assert!(
+            !core.generated_ground_at(q, r).presentation.is_water(),
+            "the flood did not rewrite the generated band"
+        );
+    }
+
+    #[test]
+    fn a_drained_cell_is_walkable_though_its_band_still_says_water() {
+        let mut core = physical_core();
+        // The opening shelf is deliberately dry, so the surveyed rings hold no deep water at all.
+        // Walk chunks outward until the generator offers an inland one — the landing site is a
+        // translation of an unbounded source, so "there is water somewhere out there" is a property
+        // of the generator rather than of this seed's luck.
+        let (q, r) = survey_out_to_deep_water(&mut core)
+            .expect("the physical generator puts inland deep water within reach of the opening");
+        assert!(core.terrain_blocks_movement(q, r));
+        let depth = core.water_depth_at(q, r);
+        core.water
+            .set(q, r, WaterDelta::new(i16::try_from(-depth).unwrap()));
+        assert_eq!(core.water_depth_at(q, r), 0);
+        assert!(
+            !core.terrain_blocks_movement(q, r),
+            "a drained cell is ground, whatever the band draws"
+        );
+    }
+
+    #[test]
+    fn the_water_predicate_and_the_solver_agree_on_the_finished_bed() {
+        let mut core = physical_core();
+        let (q, r) = dry_cell(&core);
+        core.water.set(q, r, WaterDelta::new(6));
+        assert_eq!(core.water_depth_at(q, r), 6);
+        assert_eq!(
+            core.water_surface_at(q, r),
+            core.ground_elevation_at(q, r) + 6,
+            "water stands on the ground the player finished, not on the generated bed"
+        );
+        assert_eq!(
+            WaterField::bed_quanta(&core, q, r),
+            core.ground_elevation_at(q, r),
+            "the solver reads the same bed the predicate does"
+        );
+    }
+
+    #[test]
+    fn settling_never_surveys_a_chunk() {
+        let mut core = physical_core();
+        let (q, r) = dry_cell(&core);
+        core.water.set(q, r, WaterDelta::new(40));
+        let surveyed = core.generated_chunks.clone();
+        let report = core.settle_water(&[(q, r)]);
+        assert!(report.cells > 0);
+        assert_eq!(
+            core.generated_chunks, surveyed,
+            "a hydrology solve may never insert a gameplay chunk"
+        );
+    }
+
+    #[test]
+    fn a_departure_is_saved_checksummed_and_restored() {
+        let mut core = physical_core();
+        let baseline = core.checksum();
+        let (q, r) = dry_cell(&core);
+        core.water.set(q, r, WaterDelta::new(5));
+        assert_ne!(
+            core.checksum(),
+            baseline,
+            "disturbed water is a checksum input"
+        );
+        core.water.set(q, r, WaterDelta::new(0));
+        assert_eq!(
+            core.checksum(),
+            baseline,
+            "a world back at its equilibrium hashes as one that never left it"
+        );
+
+        core.water.set(q, r, WaterDelta::new(5));
+        let saved = core.save_string().expect("the world saves");
+        let restored: SaveEnvelope = serde_json::from_str(
+            saved
+                .strip_prefix(SAVE_PREFIX)
+                .expect("the save carries its prefix"),
+        )
+        .expect("the save parses");
+        assert_eq!(restored.state.water, vec![WaterCell { q, r, departure: 5 }]);
+        assert_eq!(
+            DisturbedWater::from_cells(&restored.state.water),
+            core.water
+        );
+    }
+
+    #[test]
+    fn a_saved_departure_past_the_guard_is_refused() {
+        let past = [WaterCell {
+            q: 0,
+            r: 0,
+            departure: i16::try_from(DEPARTURE_LIMIT_QUANTA + 1).unwrap(),
+        }];
+        assert!(validate_saved_water(&past).is_err());
+        let twice = [
+            WaterCell {
+                q: 2,
+                r: -1,
+                departure: 3,
+            },
+            WaterCell {
+                q: 2,
+                r: -1,
+                departure: -3,
+            },
+        ];
+        assert!(validate_saved_water(&twice).is_err());
+        assert!(validate_saved_water(&twice[..1]).is_ok());
     }
 
     #[test]
