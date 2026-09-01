@@ -104,6 +104,25 @@ export function encodeCommand(command: NativeInputCommand): EncodedCommand {
       };
     case "undo_ground":
       return { opcode: 33, args: [] };
+    case "water_edit":
+      if (
+        ![command.q, command.r].every(
+          (n) => Number.isInteger(n) && Math.abs(n) <= 100000,
+        ) ||
+        !Number.isInteger(command.quanta) ||
+        command.quanta < 1 ||
+        command.quanta > 32
+      )
+        throw new RangeError("Invalid water target");
+      return {
+        opcode: 35,
+        args: [
+          command.q,
+          command.r,
+          { flood: 0, drain: 1 }[command.action],
+          command.quanta,
+        ],
+      };
 
     case "move_intent":
       if (

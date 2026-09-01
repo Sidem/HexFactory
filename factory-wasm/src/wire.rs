@@ -118,7 +118,8 @@ pub(crate) const WIRE_MAGIC: [u8; 4] = *b"HXFD";
 /// tile and is published once; what the player moved is a signed overlay the host adds, the same
 /// way it adds earthwork to generated height. A version-21 decoder would stop at spoil and its
 /// "consumed the whole buffer" assertion is exactly what catches the new group, which is why the
-/// version moves rather than the overlay being smuggled in.
+/// version moves rather than the overlay being smuggled in. Pump entities may also carry their
+/// resolved source cell and its depth/discharge rate under an entity presence bit.
 pub(crate) const WIRE_VERSION: u8 = 22;
 
 /// Which optional groups the buffer carries, in the order they are written.
@@ -160,27 +161,29 @@ mod group {
 /// The low seven bits are therefore the *common* flags on purpose: anything an ordinary belt sets
 /// has to stay under `1 << 7` or every belt pays for the ordering.
 mod entity_flag {
-    pub(super) const RECIPE_ID: u16 = 1 << 0;
-    pub(super) const SCENARIO_OWNED: u16 = 1 << 1;
-    pub(super) const CARGO: u16 = 1 << 2;
-    pub(super) const FUEL_CHARGE: u16 = 1 << 3;
-    pub(super) const FUEL_REQUIRED: u16 = 1 << 4;
-    pub(super) const NEXT_ID: u16 = 1 << 5;
-    pub(super) const POWER_SATISFIED: u16 = 1 << 6;
-    pub(super) const POWER_DEMAND: u16 = 1 << 7;
-    pub(super) const POWER_CHARGE: u16 = 1 << 8;
-    pub(super) const POWER_CAPACITY: u16 = 1 << 9;
+    pub(super) const RECIPE_ID: u32 = 1 << 0;
+    pub(super) const SCENARIO_OWNED: u32 = 1 << 1;
+    pub(super) const CARGO: u32 = 1 << 2;
+    pub(super) const FUEL_CHARGE: u32 = 1 << 3;
+    pub(super) const FUEL_REQUIRED: u32 = 1 << 4;
+    pub(super) const NEXT_ID: u32 = 1 << 5;
+    pub(super) const POWER_SATISFIED: u32 = 1 << 6;
+    pub(super) const POWER_DEMAND: u32 = 1 << 7;
+    pub(super) const POWER_CHARGE: u32 = 1 << 8;
+    pub(super) const POWER_CAPACITY: u32 = 1 << 9;
     /// The outputs after the first, which only a splitter ever has. A flag rather than an always-
     /// written length, because every other entity in the world would otherwise pay a byte to say
     /// it has none.
-    pub(super) const BRANCH_IDS: u16 = 1 << 10;
-    pub(super) const INPUT_INVENTORY: u16 = 1 << 11;
-    pub(super) const FUEL_INVENTORY: u16 = 1 << 12;
-    pub(super) const OUTPUT_INVENTORY: u16 = 1 << 13;
-    pub(super) const OUTPUT_ROUTES: u16 = 1 << 14;
+    pub(super) const BRANCH_IDS: u32 = 1 << 10;
+    pub(super) const INPUT_INVENTORY: u32 = 1 << 11;
+    pub(super) const FUEL_INVENTORY: u32 = 1 << 12;
+    pub(super) const OUTPUT_INVENTORY: u32 = 1 << 13;
+    pub(super) const OUTPUT_ROUTES: u32 = 1 << 14;
     /// Items still crossing a belt hex. High, so an idle belt — which is most belts most of the
     /// time — pays nothing for the lane it is not carrying.
-    pub(super) const LANE: u16 = 1 << 15;
+    pub(super) const LANE: u32 = 1 << 15;
+    /// A pump's resolved source cell and its limiting native rate.
+    pub(super) const WATER_SOURCE: u32 = 1 << 16;
 }
 
 /// Set on a group whose list replaces the host's rather than patching it.
@@ -689,7 +692,7 @@ fn write_entities(writer: &mut Writer, entities: &[EntitySnapshot], tick: u64) {
         writer.u8(kind_code(entity.kind));
         writer.u8(entity.orientation);
 
-        let mut flags = 0u16;
+        let mut flags = 0u32;
         if entity.recipe_id.is_some() {
             flags |= entity_flag::RECIPE_ID;
         }
@@ -737,6 +740,9 @@ fn write_entities(writer: &mut Writer, entities: &[EntitySnapshot], tick: u64) {
         }
         if entity.power_capacity != 0 {
             flags |= entity_flag::POWER_CAPACITY;
+        }
+        if entity.water_source.is_some() {
+            flags |= entity_flag::WATER_SOURCE;
         }
         writer.uvarint(u64::from(flags));
 
@@ -804,6 +810,13 @@ fn write_entities(writer: &mut Writer, entities: &[EntitySnapshot], tick: u64) {
         }
         if entity.power_capacity != 0 {
             writer.uvarint(u64::from(entity.power_capacity));
+        }
+        if let Some(source) = entity.water_source {
+            writer.svarint(i64::from(source.q - entity.q));
+            writer.svarint(i64::from(source.r - entity.r));
+            writer.uvarint(u64::from(source.available));
+            writer.u8(source.discharge);
+            writer.uvarint(u64::from(source.rate));
         }
         // Against the entity's own hex, so the single-cell footprint every belt and machine has
         // costs two bytes rather than two full coordinates.
@@ -1322,7 +1335,7 @@ pub(crate) mod decode {
             let definition_id = reader.uvarint() as DefinitionId;
             let kind = kind_of(reader.u8());
             let orientation = reader.u8();
-            let flags = reader.uvarint() as u16;
+            let flags = reader.uvarint() as u32;
             let recipe_id =
                 (flags & entity_flag::RECIPE_ID != 0).then(|| reader.uvarint() as RecipeId);
             let cargo = (flags & entity_flag::CARGO != 0).then(|| Cargo {
@@ -1425,6 +1438,14 @@ pub(crate) mod decode {
             } else {
                 0
             };
+            let water_source =
+                (flags & entity_flag::WATER_SOURCE != 0).then(|| crate::WaterSourceSnapshot {
+                    q: q + reader.svarint() as i32,
+                    r: r + reader.svarint() as i32,
+                    available: reader.uvarint() as u32,
+                    discharge: reader.u8(),
+                    rate: reader.uvarint() as u32,
+                });
             let cells = reader.count();
             let footprint = (0..cells)
                 .map(|_| Coordinate {
@@ -1448,6 +1469,7 @@ pub(crate) mod decode {
                 fuel_inventory,
                 output_inventory,
                 output_routes,
+                water_source,
                 progress,
                 progress_total,
                 fuel_charge,

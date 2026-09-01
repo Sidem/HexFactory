@@ -696,6 +696,33 @@
               <button id="creative-clear" type="button">Clear pack</button>
             </div>
             <div class="creative-grant">
+              <span class="section-kicker">Shape water</span>
+              <p class="creative-note">
+                Select a surveyed hex, then flood or drain a bounded depth.
+                Native settles the affected region exactly as it does after an
+                earthwork or pump draw.
+              </p>
+              <div class="creative-slots">
+                <label
+                  >Depth (0.25 m quanta)
+                  <input
+                    id="creative-water-depth"
+                    type="number"
+                    min="1"
+                    max="32"
+                    step="1"
+                    value="1"
+                  />
+                </label>
+                <button id="creative-flood" type="button">
+                  Flood selected
+                </button>
+                <button id="creative-drain" type="button">
+                  Drain selected
+                </button>
+              </div>
+            </div>
+            <div class="creative-grant">
               <span class="section-kicker">Give materials</span>
               <p class="creative-note">
                 A stack is that item's own stack size. Anything that will not
@@ -1010,6 +1037,11 @@
                     </div>
                     <span id="inspect-power-amount"></span>
                   </div>
+                  <p
+                    class="inspect-water-source"
+                    id="inspect-water-source"
+                    hidden
+                  ></p>
                   <div class="inspect-facing-row">
                     <div
                       class="inspect-compass"

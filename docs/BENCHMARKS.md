@@ -90,6 +90,21 @@ every flat's coordinate-minimum becomes a pit. Carrying the field internally in 
 publishing whole quanta cut that 23×, to the 1,409 above. **Any later stage that rounds height to
 quanta before resolving depressions will bring all 32,694 back.**
 
+## Phase 8 slice 4 — sparse disturbed water
+
+`npm run water`, release-native on Windows, seed 1213486160. The committed
+[raw report](benchmarks/phase8-water.json) is produced by the same native `Core` production runs.
+A maximum command disturbance of 32 depth quanta reached a fixed point over 41 active cells in 53
+sweeps and 40 transfers; 31 quanta reached the surveyed frontier and were retained against their
+named continuation cells. The solve took 385 µs in this run. That is a one-run local latency datum,
+not a cross-machine performance claim.
+
+The settled case advanced 100,000 ordinary simulation ticks in 4,036 µs with neither a water dirty
+mark nor any change to the departure set. The important measurement is the two false fields, not the
+timer: a settled world schedules zero water solves and resends zero water groups. Water work is paid
+by the bounded command, earthwork, pump draw or newly surveyed frontier that woke it; there is no
+per-cell standing-water tick.
+
 Capacity is measured, never asserted, and the measurement orders the work. Every number here was
 produced by the committed harness; the raw reports live in `docs/benchmarks/` and are the source for
 any table that was trimmed out of this document.

@@ -486,6 +486,16 @@ export interface OutputRouteSnapshot extends AxialCoordinate {
   target_id?: number | null;
 }
 
+/** The native-resolved water cell a pump draws, including the rate that limits it. */
+export interface WaterSourceSnapshot extends AxialCoordinate {
+  /** Standing depth for finite water, or the current river depth. */
+  available: number;
+  /** Zero for a finite pond; non-zero for a replenishing river source. */
+  discharge: number;
+  /** Maximum source withdrawals per simulation tick. */
+  rate: number;
+}
+
 export interface EntitySnapshot extends AxialCoordinate {
   id: number;
   definition_id: number;
@@ -512,6 +522,8 @@ export interface EntitySnapshot extends AxialCoordinate {
   output_inventory?: Ingredient[];
   /** Effective route for every product, including unchanged legacy-facing defaults. */
   output_routes?: OutputRouteSnapshot[];
+  /** Present on a pump while a native-resolved water cell remains in reach. */
+  water_source?: WaterSourceSnapshot | null;
   progress: number;
   progress_total: number;
   /**
@@ -820,6 +832,14 @@ export type NativeInputCommand =
   | { type: "undo_boundary" }
   | ({ type: "ground_edit" } & GroundEdit)
   | { type: "undo_ground" }
+  /** Creative-only bounded water disturbance; native resolves and settles the affected region. */
+  | {
+      type: "water_edit";
+      q: number;
+      r: number;
+      action: "flood" | "drain";
+      quanta: number;
+    }
   | { type: "move_intent"; x: number; y: number }
   /**
    * Point the player at a world position — the point under the cursor. The host sends the target

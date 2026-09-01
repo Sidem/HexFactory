@@ -1,4 +1,4 @@
-import type { Terrain } from "./types";
+import type { Substrate, Terrain } from "./types";
 
 /**
  * One terrain band as the host needs it: what to call it, what it is good for, whether the player
@@ -100,6 +100,31 @@ export const TERRAIN_ORDER: Terrain[] = [
 export function terrainAccess(info: TerrainInfo): string {
   if (!info.passable) return "Impassable";
   return info.buildable ? "Buildable" : "Walkable";
+}
+
+/**
+ * The physical access envelope copied for host explanation and pinned against native by the shared
+ * fixture. Native remains authoritative for a particular cell; this names the slope/water cases
+ * without treating its presentation band as the answer.
+ */
+export function physicalAccess(
+  substrate: Substrate,
+  slope: number,
+  waterDepth: number,
+): Pick<TerrainInfo, "passable" | "buildable"> {
+  // Exhaustive today even though substrate does not yet modify access. When resistance does, this
+  // switch is the review point rather than a silently ignored new material.
+  switch (substrate) {
+    case "sand":
+    case "meadow":
+    case "soil":
+    case "rock":
+      break;
+  }
+  return {
+    passable: slope <= 4 && waterDepth < 4,
+    buildable: slope <= 2 && waterDepth === 0,
+  };
 }
 
 /**

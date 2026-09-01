@@ -678,7 +678,14 @@ defect it prevents; a change that contradicts one needs an argument, not an over
   `ground` and `spoil` already use, so a save-38 file resumes on the checksum it was written with.
   The snapshot publishes the same overlay the file does, as a trailing wire group: the tile still
   carries the generated depth, and the renderer adds the departure exactly as native does, so a
-  flood and a drain are drawn on the water surface the player walks.
+  flood and a drain are drawn on the water surface the player walks. Frontier flux is retained as
+  departure on the first unsurveyed cell and resumes only when survey publishes its chunk; the solve
+  still cannot generate world. Pumps resolve one named source cell. Finite water loses one depth
+  quantum per item and settles locally; a river's discharge class is its replenishing withdrawals
+  per tick, with stable entity id deciding contention. The pump snapshot publishes that cell, depth,
+  discharge and limiting rate. Creative flood/drain commands are limited to a surveyed in-range cell
+  and 1–32 quanta. Wading, route cost, bridge siting, construction, pumping and hydro generation all
+  read the same depth predicate.
 - **The drawn height field is the picker, and it is still not simulation truth.**
   `heightfieldTerrain.ts` consumes native-published samples, sorts them into a
   query-order-independent build, shares averaged corners across ordinary slopes, keeps water in a

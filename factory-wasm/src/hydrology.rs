@@ -68,6 +68,21 @@ pub(super) const SETTLE_SWEEP_BUDGET: u32 = 1_024;
 /// through [`SettleReport::clamped`] rather than wrapping an integer.
 pub(super) const DEPARTURE_LIMIT_QUANTA: i32 = 16_000;
 
+/// The largest explicit flood or drain one command may request: eight metres of standing water.
+///
+/// The ground tool uses the same physical ceiling. Keeping the command bounded independently of
+/// the storage guard means a forged input cannot turn the generous corruption fence above into a
+/// gameplay-sized allocation or a long-running solve.
+pub(super) const WATER_COMMAND_LIMIT_QUANTA: u16 = 32;
+
+/// One bounded request to move standing water at a named surveyed cell.
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub(super) enum WaterAction {
+    Flood,
+    Drain,
+}
+
 /// Departure from the generated equilibrium depth at one cell, in height quanta.
 ///
 /// Signed, because a drained cut and a flooded one are the same kind of fact. Zero is not stored:
@@ -282,7 +297,7 @@ impl ActiveRegion {
 }
 
 /// What one solve did, in numbers a benchmark and a test can both read.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(super) struct SettleReport {
     /// Cells in the active region.
     pub(super) cells: usize,
@@ -292,6 +307,9 @@ pub(super) struct SettleReport {
     pub(super) transfers: u64,
     /// Quanta that left the world at the ocean or the surveyed frontier.
     pub(super) outflow_quanta: i64,
+    /// Water waiting just beyond the surveyed frontier, keyed by the first unsurveyed cell it
+    /// enters. Core stores this as an unsurveyed departure and resumes it when that chunk opens.
+    pub(super) frontier: BTreeMap<(i32, i32), i32>,
     /// True when the region reached a fixed point inside every budget.
     pub(super) settled: bool,
     /// True when [`ACTIVE_CELL_BUDGET`] truncated the region.
@@ -412,6 +430,9 @@ fn sweep<F: WaterField>(
         *depth.get_mut(&(q, r)).expect("the cell is in the region") -= quanta;
         if boundary {
             report.outflow_quanta += i64::from(quanta);
+            if !field.surveyed(to.0, to.1) {
+                *report.frontier.entry(to).or_default() += quanta;
+            }
         } else {
             *depth
                 .get_mut(&to)
@@ -586,9 +607,61 @@ impl Core {
     pub(super) fn settle_water(&mut self, seeds: &[(i32, i32)]) -> SettleReport {
         let mut water = std::mem::take(&mut self.water);
         let report = settle(&*self, &mut water, seeds);
+        // Frontier flux is not discarded. Its target is deliberately still unsurveyed, so adding
+        // it needs no bed or equilibrium query: departure changes by exactly the quanta crossing
+        // the edge. The cell stays invisible until generation publishes its bed, then
+        // `generate_chunk` resumes the solve from it.
+        for (&(q, r), &quanta) in &report.frontier {
+            let departure = i32::from(water.delta_at(q, r).get()) + quanta;
+            let bounded = departure.clamp(-DEPARTURE_LIMIT_QUANTA, DEPARTURE_LIMIT_QUANTA);
+            water.set(
+                q,
+                r,
+                WaterDelta::new(
+                    i16::try_from(bounded).expect("frontier departure is clamped to an i16"),
+                ),
+            );
+        }
         self.water = water;
         self.dirty.water = true;
         report
+    }
+
+    /// Apply one explicit, bounded flood or drain and settle the region it wakes.
+    pub(super) fn edit_water(
+        &mut self,
+        q: i32,
+        r: i32,
+        action: WaterAction,
+        quanta: u16,
+    ) -> Result<SettleReport, String> {
+        if !self.ground_is_physical() {
+            return Err("water edits require physical ground".into());
+        }
+        if quanta == 0 || quanta > WATER_COMMAND_LIMIT_QUANTA {
+            return Err(format!(
+                "water depth must be in 1..={WATER_COMMAND_LIMIT_QUANTA} quanta"
+            ));
+        }
+        if !WaterField::surveyed(self, q, r) {
+            return Err("water target is outside the surveyed world".into());
+        }
+        let current = self.water_depth_at(q, r);
+        let change = match action {
+            WaterAction::Flood => i32::from(quanta),
+            WaterAction::Drain => -current.min(i32::from(quanta)),
+        };
+        if change == 0 {
+            return Err("there is no water there to drain".into());
+        }
+        let departure = i32::from(self.water.delta_at(q, r).get()) + change;
+        let departure = departure.clamp(-DEPARTURE_LIMIT_QUANTA, DEPARTURE_LIMIT_QUANTA);
+        self.water.set(
+            q,
+            r,
+            WaterDelta::new(i16::try_from(departure).expect("water command is bounded")),
+        );
+        Ok(self.settle_water(&[(q, r)]))
     }
 }
 
@@ -810,6 +883,11 @@ mod tests {
         assert_eq!(
             report.outflow_quanta, 8,
             "water above the generated equilibrium runs off the surveyed edge"
+        );
+        assert_eq!(
+            report.frontier.values().copied().sum::<i32>(),
+            8,
+            "frontier outflow is named for later survey rather than discarded"
         );
         assert_eq!(
             water.delta_at(0, 0).get(),
@@ -1127,6 +1205,113 @@ mod tests {
         assert_eq!(
             core.generated_chunks, surveyed,
             "a hydrology solve may never insert a gameplay chunk"
+        );
+    }
+
+    #[test]
+    fn flood_and_drain_commands_are_bounded_and_never_survey() {
+        let mut core = physical_core();
+        let (q, r) = dry_cell(&core);
+        let surveyed = core.generated_chunks.clone();
+        assert!(core
+            .edit_water(q, r, WaterAction::Flood, WATER_COMMAND_LIMIT_QUANTA + 1)
+            .unwrap_err()
+            .contains("1..="));
+        let report = core.edit_water(q, r, WaterAction::Flood, 3).unwrap();
+        assert!(report.cells > 0);
+        assert_eq!(core.generated_chunks, surveyed);
+        assert!(core.dirty.water);
+
+        core.creative = true;
+        (core.player.x, core.player.y) = axial_world(q, r);
+        core.apply_commands(&format!(
+            r#"[{{"type":"water_edit","q":{q},"r":{r},"action":"flood","quanta":1}}]"#
+        ))
+        .unwrap();
+        assert!(
+            core.events
+                .iter()
+                .any(|event| event.starts_with("Water settled over")),
+            "the JSON command reaches the bounded native edit"
+        );
+    }
+
+    #[test]
+    fn wading_and_route_cost_read_disturbed_depth_not_the_band() {
+        let mut core = physical_core();
+        let (q, r) = dry_cell(&core);
+        assert!(!core.shallow_water_at(q, r));
+        core.water.set(q, r, WaterDelta::new(1));
+        assert!(core.shallow_water_at(q, r), "a flooded meadow is a ford");
+        let climb =
+            (core.ground_elevation_at(q, r) - core.ground_elevation_at(q - 1, r)).max(0) as u32;
+        assert_eq!(
+            core.walk_step_cost((q - 1, r), q, r),
+            WALK_SHALLOW_COST + climb * WALK_CLIMB_COST,
+            "the water part of route cost is the ford cost"
+        );
+        let depth = crate::scale::WADE_LIMIT_QUANTA;
+        core.water
+            .set(q, r, WaterDelta::new(i16::try_from(depth).unwrap()));
+        assert!(
+            !core.walkable_hex(q, r),
+            "deep disturbed water stops the route"
+        );
+    }
+
+    #[test]
+    fn a_finite_pump_draw_moves_depth_and_a_river_draw_obeys_its_rate() {
+        let mut core = physical_core();
+        let (q, r) = dry_cell(&core);
+        core.water.set(q, r, WaterDelta::new(1));
+        let finite = WaterSourceSnapshot {
+            q,
+            r,
+            available: 1,
+            discharge: 0,
+            rate: 1,
+        };
+        assert!(core.draw_pump_source(finite));
+        assert_eq!(core.water_depth_at(q, r), 0, "the finite cell ran dry");
+
+        let river = WaterSourceSnapshot {
+            q,
+            r,
+            available: 4,
+            discharge: 1,
+            rate: 1,
+        };
+        assert!(core.draw_pump_source(river));
+        assert!(
+            !core.draw_pump_source(river),
+            "one discharge class grants one withdrawal in the tick"
+        );
+        core.water_draws.clear();
+        assert!(
+            core.draw_pump_source(river),
+            "the source replenishes next tick"
+        );
+    }
+
+    #[test]
+    fn surveying_a_frontier_departure_resumes_the_water_without_opening_another_chunk() {
+        let mut core = physical_core();
+        let size = core.scenario.chunk_size;
+        let chunk = (20, -11);
+        let target = (chunk.0 * size, chunk.1 * size);
+        assert!(!core.generated_chunks.contains(&chunk));
+        core.water.set(target.0, target.1, WaterDelta::new(3));
+        core.dirty.water = false;
+        let before = core.generated_chunks.len();
+        core.generate_chunk(chunk.0, chunk.1);
+        assert!(
+            core.dirty.water,
+            "survey ran the waiting departure through the solve"
+        );
+        assert_eq!(
+            core.generated_chunks.len(),
+            before + 1,
+            "the resumed solve did not survey past its new frontier"
         );
     }
 

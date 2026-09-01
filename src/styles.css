@@ -1524,6 +1524,13 @@ canvas {
 #inspect-power-fill {
   background: var(--gold);
 }
+
+.inspect-water-source {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.75rem;
+  line-height: 1.35;
+}
 .inspect-meter span:last-child {
   color: #d7e5df;
   font-size: 0.68rem;

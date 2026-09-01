@@ -2569,6 +2569,15 @@ function renderInspector(): void {
       banks ? (building.power_capacity ?? 0) : (building.power_demand ?? 0),
       banks || Boolean(building.power_demand),
     );
+    const waterSource = required<HTMLElement>("inspect-water-source");
+    waterSource.hidden = building.kind !== "pump" || !building.water_source;
+    if (building.kind === "pump" && building.water_source) {
+      const source = building.water_source;
+      waterSource.textContent =
+        source.discharge > 0
+          ? `River source ${source.q},${source.r} · class ${source.discharge} · limit ${source.rate}/tick`
+          : `Finite water ${source.q},${source.r} · ${source.available} depth quantum${source.available === 1 ? "" : "s"} left`;
+    }
     for (const spoke of required<HTMLElement>("inspect-compass").children) {
       const tick = spoke as HTMLElement;
       tick.classList.toggle(
@@ -3936,6 +3945,31 @@ creativeSlotsInput.addEventListener("change", () => {
 creativeClear.addEventListener("click", () => {
   enqueue({ type: "discard" });
 });
+for (const [id, action] of [
+  ["creative-flood", "flood"],
+  ["creative-drain", "drain"],
+] as const) {
+  required<HTMLButtonElement>(id).addEventListener("click", () => {
+    if (!selected) {
+      showFeedback("Select a surveyed hex first");
+      return;
+    }
+    const quanta = Number(
+      required<HTMLInputElement>("creative-water-depth").value,
+    );
+    if (!Number.isSafeInteger(quanta) || quanta < 1 || quanta > 32) {
+      showFeedback("Water depth must be 1–32 quanta");
+      return;
+    }
+    enqueue({
+      type: "water_edit",
+      q: selected.q,
+      r: selected.r,
+      action,
+      quanta,
+    });
+  });
+}
 creativeItems.addEventListener("click", (event) => {
   const button = (event.target as HTMLElement).closest("button");
   if (!button) return;

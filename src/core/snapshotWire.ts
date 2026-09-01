@@ -142,6 +142,7 @@ const ENTITY_FLAG = {
   outputInventory: 1 << 13,
   outputRoutes: 1 << 14,
   lane: 1 << 15,
+  waterSource: 1 << 16,
 } as const;
 
 const PATCH_REPLACE = 1 << 0;
@@ -685,6 +686,16 @@ function readBuildings(reader: Reader, tick: number): BuildingsPatch {
       (flags & ENTITY_FLAG.powerCharge) !== 0 ? reader.uvarint() : 0;
     const power_capacity =
       (flags & ENTITY_FLAG.powerCapacity) !== 0 ? reader.uvarint() : 0;
+    const water_source =
+      (flags & ENTITY_FLAG.waterSource) !== 0
+        ? {
+            q: q + reader.svarint(),
+            r: r + reader.svarint(),
+            available: reader.uvarint(),
+            discharge: reader.u8(),
+            rate: reader.uvarint(),
+          }
+        : null;
     const cells = reader.uvarint();
     const footprint = new Array<{ q: number; r: number }>(cells);
     for (let cell = 0; cell < cells; cell += 1) {
@@ -720,6 +731,7 @@ function readBuildings(reader: Reader, tick: number): BuildingsPatch {
     if (power_demand !== 0) entity.power_demand = power_demand;
     if (power_charge !== 0) entity.power_charge = power_charge;
     if (power_capacity !== 0) entity.power_capacity = power_capacity;
+    if (water_source) entity.water_source = water_source;
     // Same rule: absent rather than an empty array, because an empty list is what every entity
     // that is not a splitter has, and native skips it for exactly that reason.
     if (branch_ids.length > 0) entity.branch_ids = branch_ids;

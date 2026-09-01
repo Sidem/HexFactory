@@ -1,0 +1,14 @@
+{
+  "seed": 1213486160,
+  "command_quanta": 32,
+  "active_cells": 41,
+  "sweeps": 53,
+  "transfers": 40,
+  "frontier_quanta": 31,
+  "settled": true,
+  "active_micros": 385,
+  "quiet_ticks": 100000,
+  "quiet_micros": 4036,
+  "quiet_water_dirty": false,
+  "quiet_state_changed": false
+}

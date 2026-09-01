@@ -1,9 +1,62 @@
-[
-  { "terrain": "deep_water", "passable": false, "buildable": false },
-  { "terrain": "shallow_water", "passable": true, "buildable": false },
-  { "terrain": "shore", "passable": true, "buildable": true },
-  { "terrain": "lowland", "passable": true, "buildable": true },
-  { "terrain": "hills", "passable": true, "buildable": true },
-  { "terrain": "highland", "passable": true, "buildable": true },
-  { "terrain": "cliff", "passable": false, "buildable": false }
-]
+{
+  "bands": [
+    { "terrain": "deep_water", "passable": false, "buildable": false },
+    { "terrain": "shallow_water", "passable": true, "buildable": false },
+    { "terrain": "shore", "passable": true, "buildable": true },
+    { "terrain": "lowland", "passable": true, "buildable": true },
+    { "terrain": "hills", "passable": true, "buildable": true },
+    { "terrain": "highland", "passable": true, "buildable": true },
+    { "terrain": "cliff", "passable": false, "buildable": false }
+  ],
+  "physical": [
+    {
+      "substrate": "soil",
+      "slope": 0,
+      "water_depth": 0,
+      "passable": true,
+      "buildable": true
+    },
+    {
+      "substrate": "sand",
+      "slope": 2,
+      "water_depth": 0,
+      "passable": true,
+      "buildable": true
+    },
+    {
+      "substrate": "rock",
+      "slope": 3,
+      "water_depth": 0,
+      "passable": true,
+      "buildable": false
+    },
+    {
+      "substrate": "soil",
+      "slope": 5,
+      "water_depth": 0,
+      "passable": false,
+      "buildable": false
+    },
+    {
+      "substrate": "soil",
+      "slope": 0,
+      "water_depth": 1,
+      "passable": true,
+      "buildable": false
+    },
+    {
+      "substrate": "sand",
+      "slope": 0,
+      "water_depth": 3,
+      "passable": true,
+      "buildable": false
+    },
+    {
+      "substrate": "rock",
+      "slope": 0,
+      "water_depth": 4,
+      "passable": false,
+      "buildable": false
+    }
+  ]
+}

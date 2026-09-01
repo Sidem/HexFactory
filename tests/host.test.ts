@@ -41,6 +41,7 @@ import {
 import {
   bandAt,
   cliffQuarried,
+  physicalAccess,
   TERRAIN_INFO,
   TERRAIN_ORDER,
   terrainAccess,
@@ -51,6 +52,7 @@ import type {
   FactorySnapshot,
   FactorySnapshotDelta,
   ResourceSnapshot,
+  Substrate,
   Terrain,
   Technologies,
   WorldParams,
@@ -336,6 +338,24 @@ describe("bounded host input", () => {
       opcode: 22,
       args: [6, -2],
     });
+    expect(
+      encodeCommand({
+        type: "water_edit",
+        q: 4,
+        r: -1,
+        action: "drain",
+        quanta: 8,
+      }),
+    ).toEqual({ opcode: 35, args: [4, -1, 1, 8] });
+    expect(() =>
+      encodeCommand({
+        type: "water_edit",
+        q: 0,
+        r: 0,
+        action: "flood",
+        quanta: 33,
+      }),
+    ).toThrow("Invalid water target");
   });
 
   it("halves a transfer without ever asking for nothing", () => {
@@ -1370,11 +1390,17 @@ describe("availability and expanded snapshot adapter", () => {
     // The host draws impassable ground as one category, so it holds a copy of a rule native owns.
     // A copy drifts; this is what stops it. Rust asserts the same file against
     // `Terrain::blocks_movement` and `Terrain::blocks_construction`.
-    const entries = passabilityFixture as {
-      terrain: Terrain;
-      passable: boolean;
-      buildable: boolean;
-    }[];
+    const fixture = passabilityFixture as {
+      bands: { terrain: Terrain; passable: boolean; buildable: boolean }[];
+      physical: {
+        substrate: Substrate;
+        slope: number;
+        water_depth: number;
+        passable: boolean;
+        buildable: boolean;
+      }[];
+    };
+    const entries = fixture.bands;
     expect(entries.map(({ terrain }) => terrain)).toEqual(TERRAIN_ORDER);
     for (const entry of entries) {
       const band = TERRAIN_INFO[entry.terrain];
@@ -1397,6 +1423,12 @@ describe("availability and expanded snapshot adapter", () => {
       passable: true,
       buildable: false,
     });
+    for (const entry of fixture.physical) {
+      expect(
+        physicalAccess(entry.substrate, entry.slope, entry.water_depth),
+        `${entry.substrate}/${entry.slope}/${entry.water_depth}`,
+      ).toEqual({ passable: entry.passable, buildable: entry.buildable });
+    }
 
     const renderer = readFileSync(
       new URL("../src/rendering/CanvasFactoryRenderer.ts", import.meta.url),

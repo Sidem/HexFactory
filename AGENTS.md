@@ -17,9 +17,9 @@ unchanged across the scale break, so the stated figures moved instead — a 15 m
 5 m/s ford. The reasoning is on the constant in `factory-wasm/src/lib.rs`.
 
 Next work is the numbered phase table in `docs/HEXFACTORY-PLAN.md#what-to-do-next`. Phase 8, flowing
-water, is in flight: the user approved its scale break on 2026-08-31, slices 1 to 3 are complete, green
-and pushed, and **slice 4 — sparse disturbed water — is in progress**. The plan's slice-4 note says
-what has landed and what remains. Pipes were brought
+water, is in flight: the user approved its scale break on 2026-08-31, slices 1 to 4 are complete and
+green, and **slice 5 — geomorphic epochs — is next**. The plan's slice-4 record says what sparse
+disturbed water landed and the slice-5 brief owns live erosion. Pipes were brought
 forward and the ground rework was requested outright; neither reorders the table. Release numbers after
 v0.46.0 are unassigned. Do not reorder those phases without the user. On 2026-08-29 the user moved
 supported floors and vertical transport from row 7 to row 10, behind flowing water and Living Lattice,
@@ -99,6 +99,7 @@ remain the authority.
 - `npm run survey` / `npm run balance` — native measurement, outside CI
 - `npm run terra` — the Phase 8 drainage prototype's survey, outside CI; `--coast` samples a
   shoreline, because the origin is wherever the seed put it and is often seabed
+- `npm run water` — Phase 8's bounded active-water and settled-world measurement, outside CI
 - `npm run quality` — complete local gate
 
 Fixture updates remain deliberate review points:

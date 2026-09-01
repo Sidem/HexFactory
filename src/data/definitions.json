@@ -1254,7 +1254,7 @@
       "key": "pump",
       "name": "Pump",
       "kind": "pump",
-      "description": "Draws water from a basin it stands beside. The basin never runs dry.",
+      "description": "Draws from the named water cell beside it. Finite ponds drain; a river replenishes up to its rated discharge.",
       "icon": "PMP",
       "cadence": 2,
       "capacity": 12,

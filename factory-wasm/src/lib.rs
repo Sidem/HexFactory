@@ -12,9 +12,8 @@ mod ground_spine;
 /// Phase 8 slice 4: departure from generated water equilibrium, and the bounded solve that settles
 /// it.
 ///
-/// Movement, construction, earthwork and the snapshot already read it. The rest of the slice — the
-/// flood and drain commands and the pumps — is what will take the remaining allowance off; what is
-/// under it now is reporting the solve already produces and nothing has yet asked to see.
+/// Movement, construction, earthwork, pumps, bounded flood/drain commands and the snapshot all read
+/// it. Frontier departure waits without claiming world and resumes when survey exposes its chunk.
 #[allow(dead_code)]
 mod hydrology;
 #[cfg(test)]
@@ -1694,6 +1693,20 @@ struct ResourceSnapshot {
     initial_quantity: u32,
 }
 
+/// The water cell a pump has resolved, and the native rate that limits it.
+///
+/// `discharge` zero names finite standing water: `available` is the depth left and pumping moves
+/// the departure. A non-zero discharge names a replenishing river and is the number of withdrawals
+/// that cell can supply per tick, arbitrated by stable entity id.
+#[derive(Clone, Copy, Debug, Serialize, PartialEq, Eq)]
+struct WaterSourceSnapshot {
+    q: i32,
+    r: i32,
+    available: u32,
+    discharge: u8,
+    rate: u32,
+}
+
 /// Why a machine is doing what it is doing, as the inspector says it.
 ///
 /// This is a closed set, and naming it as one is what lets the binary wire carry a byte where JSON
@@ -1777,6 +1790,10 @@ struct EntitySnapshot {
     /// inspector never has to reconstruct where a multi-cell building's facing exits its hull.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     output_routes: Vec<OutputRouteSnapshot>,
+    /// Present only on a pump with standing water in reach. It names the cell the deterministic
+    /// resolver chose and the limiting rate the tick enforces.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    water_source: Option<WaterSourceSnapshot>,
     progress: u32,
     progress_total: u32,
     /// Energy the machine is holding, and what one craft of its recipe costs. Both are published
@@ -2220,6 +2237,14 @@ enum InputCommand {
         edit: GroundEdit,
     },
     UndoGround,
+    /// Creative hydrology probe: move a bounded depth at one surveyed cell, then let native settle
+    /// it. Earthworks and pumps use the same internal edit path without becoming host-side loops.
+    WaterEdit {
+        q: i32,
+        r: i32,
+        action: hydrology::WaterAction,
+        quanta: u16,
+    },
     MoveIntent {
         x: i16,
         y: i16,
@@ -2432,6 +2457,9 @@ struct Core {
     /// carries none: the ocean, the lakes and the rivers are answers `terra` computes, not saved
     /// entities. See `hydrology` for why departure rather than depth is the thing stored.
     water: hydrology::DisturbedWater,
+    /// Rated river withdrawals already granted this tick, by source cell. Derived tick-local
+    /// arbitration: cleared before each machine pass, never saved or checksummed.
+    water_draws: BTreeMap<(i32, i32), u32>,
     /// Excavated material held for fill, in whole steps of one hex.
     ///
     /// Cut adds, fill spends, and nothing else touches it. Making raising ground *cost* something
@@ -2642,6 +2670,7 @@ impl Core {
             ground_hash_cache: RefCell::new(None),
             ground_undo: Vec::new(),
             water: hydrology::DisturbedWater::new(),
+            water_draws: BTreeMap::new(),
             spoil: 0,
             generated_chunks: BTreeSet::new(),
             tiles: BTreeMap::new(),
@@ -3430,12 +3459,53 @@ impl Core {
         }
     }
 
-    /// Whether open water sits inside the caller's data-defined reach. Terrain is a pure function
-    /// of the seed, so this needs no generated tile and works at the frontier.
-    fn water_within_reach(&self, q: i32, r: i32, radius: i32) -> bool {
+    /// The one water source a pump resolves inside its data-defined reach.
+    ///
+    /// Nearest wins, then tile key. The answer names finite standing water by remaining depth and
+    /// a river by its replenishing discharge class. Physical sources must be surveyed: a pump may
+    /// not draw through fog, and querying one never claims a gameplay chunk.
+    fn pump_source_within_reach(&self, q: i32, r: i32, radius: i32) -> Option<WaterSourceSnapshot> {
         hexes_in_radius((q, r), radius)
             .into_iter()
-            .any(|(cell_q, cell_r)| self.terrain_at(cell_q, cell_r).is_water())
+            .filter(|&(cell_q, cell_r)| {
+                let size = self.scenario.chunk_size;
+                self.generated_chunks
+                    .contains(&(floor_div(cell_q, size), floor_div(cell_r, size)))
+                    && self.water_depth_at(cell_q, cell_r) > 0
+            })
+            .min_by_key(|&(cell_q, cell_r)| {
+                (axial_distance((q, r), (cell_q, cell_r)), cell_q, cell_r)
+            })
+            .map(|(cell_q, cell_r)| {
+                let generated = self.generated_ground_at(cell_q, cell_r);
+                let available = self.water_depth_of(generated, cell_q, cell_r) as u32;
+                let discharge = generated.hydrology.discharge_class;
+                WaterSourceSnapshot {
+                    q: cell_q,
+                    r: cell_r,
+                    available,
+                    discharge,
+                    rate: if discharge == 0 {
+                        available.min(1)
+                    } else {
+                        u32::from(discharge)
+                    },
+                }
+            })
+    }
+
+    /// Whether open water sits inside the caller's data-defined reach.
+    ///
+    /// The legacy band fixture keeps its old answer. Every running physical world reads actual
+    /// depth, so a drained lake stops a pump and a flooded meadow can site one.
+    fn water_within_reach(&self, q: i32, r: i32, radius: i32) -> bool {
+        if self.ground_is_physical() {
+            self.pump_source_within_reach(q, r, radius).is_some()
+        } else {
+            hexes_in_radius((q, r), radius)
+                .into_iter()
+                .any(|(cell_q, cell_r)| self.terrain_at(cell_q, cell_r).is_water())
+        }
     }
 
     /// The deposit an extractor draws from this tick, resolved from its cached candidate list
@@ -3577,6 +3647,26 @@ impl Core {
         }
         self.ground_spine
             .cache_chunk(chunk_q, chunk_r, self.scenario.chunk_size);
+        // A departure may be waiting on the far side of the old surveyed frontier. It was stored
+        // without asking for this chunk's bed; now the player has opened the chunk, the bed exists
+        // in the surveyed cache and the same bounded solver can continue from the first cells the
+        // flux entered. Merely querying water still cannot reach this path — only survey does.
+        let size = self.scenario.chunk_size;
+        let resumed: Vec<(i32, i32)> = self
+            .water
+            .iter()
+            .map(|(&(q, r), _)| (q, r))
+            .filter(|&(q, r)| floor_div(q, size) == chunk_q && floor_div(r, size) == chunk_r)
+            .collect();
+        if !resumed.is_empty() {
+            let report = self.settle_water(&resumed);
+            if !report.settled {
+                self.events.push(format!(
+                    "Water front paused at its bound after {} cells",
+                    report.cells
+                ));
+            }
+        }
         // New tiles can cover an existing extractor, so every resolved deposit reference is stale —
         // and so is every extractor status derived from one. The two must be invalidated together:
         // dropping the entity marks would make snapshot correctness depend on generated deposits
@@ -3590,7 +3680,6 @@ impl Core {
         // was the only payload: a plain lowland tile now carries an elevation, a substrate and a
         // water depth that nothing else in the frame can supply.
         self.dirty.terrain.push((chunk_q, chunk_r));
-        let size = self.scenario.chunk_size;
         for local_r in 0..size {
             for local_q in 0..size {
                 let q = chunk_q * size + local_q;
@@ -4698,6 +4787,7 @@ impl Core {
             // Fill the grid, then spend it. Both halves of power happen before any machine moves,
             // so no machine can be paid out of energy a later machine in the same tick produced.
             self.distribute_power();
+            self.water_draws.clear();
             self.advance_machines();
             self.transfer_cargo();
             self.tick += 1;
@@ -4873,9 +4963,11 @@ impl Core {
         }
     }
 
-    /// A pump draws from the basin it stands beside. Water is the one source in the game that is
-    /// not finite: there is no overlay entry to write down and nothing to deplete, so a pump is an
-    /// extractor without the deposit rather than a special case of one.
+    /// Draw one loose-water item from the source this pump names.
+    ///
+    /// A river's discharge class is its replenishing per-tick allowance. Stable machine order
+    /// arbitrates pumps sharing it. Standing water has no allowance: one item removes one depth
+    /// quantum, then the bounded solve lets the surrounding pond answer the draw.
     fn advance_pump(&mut self, index: usize) {
         let (q, r, definition_id) = {
             let placed = self.entities[index].placed;
@@ -4894,8 +4986,26 @@ impl Core {
         let radius = definition
             .and_then(|value| value.extract_radius)
             .unwrap_or(PUMP_RADIUS as u32) as i32;
-        if !self.water_within_reach(q, r, radius) {
+        let source = if self.ground_is_physical() {
+            self.pump_source_within_reach(q, r, radius)
+        } else {
+            None
+        };
+        if self.ground_is_physical() && source.is_none()
+            || !self.ground_is_physical() && !self.water_within_reach(q, r, radius)
+        {
             self.entities[index].progress = 0;
+            return;
+        }
+        if source.is_some_and(|source| {
+            source.discharge > 0
+                && self
+                    .water_draws
+                    .get(&(source.q, source.r))
+                    .copied()
+                    .unwrap_or(0)
+                    >= u32::from(source.discharge)
+        }) {
             return;
         }
         let add = self.power_progress(index, 1);
@@ -4906,12 +5016,50 @@ impl Core {
         if self.entities[index].progress < cadence {
             return;
         }
+        if source.is_some_and(|source| !self.draw_pump_source(source)) {
+            // Hold completed work rather than burning another tick of power. The next tick clears
+            // river arbitration and the lowest stable id asks first again.
+            return;
+        }
         *self.entities[index]
             .output_inventory
             .entry(item_id)
             .or_default() += 1;
         self.entities[index].progress = 0;
         *self.produced.entry(item_id).or_default() += 1;
+    }
+
+    fn draw_pump_source(&mut self, source: WaterSourceSnapshot) -> bool {
+        if source.discharge > 0 {
+            let drawn = self.water_draws.entry((source.q, source.r)).or_default();
+            if *drawn >= u32::from(source.discharge) {
+                return false;
+            }
+            *drawn += 1;
+            return true;
+        }
+        if self.water_depth_at(source.q, source.r) <= 0 {
+            return false;
+        }
+        let departure = i32::from(self.water.delta_at(source.q, source.r).get()) - 1;
+        self.water.set(
+            source.q,
+            source.r,
+            hydrology::WaterDelta::new(
+                i16::try_from(departure).expect("one pump draw fits the water store"),
+            ),
+        );
+        let report = self.settle_water(&[(source.q, source.r)]);
+        if !report.settled {
+            self.events.push(format!(
+                "Pump water paused at its bound after {} cells",
+                report.cells
+            ));
+        }
+        // Any pump, route or hydro source may now resolve a different answer.
+        self.mark_all_entities_dirty();
+        self.replan_walk();
+        true
     }
 
     fn fuel_value(&self, item_id: ItemId) -> u32 {
@@ -6151,7 +6299,7 @@ impl Core {
     /// The surface does not modify the ford. Shallows are a 5 m/s crawl in `player_step` regardless,
     /// and pretending a decked river bank crosses faster would be the search inventing a preference.
     fn walk_step_cost(&self, from: (i32, i32), q: i32, r: i32) -> u32 {
-        let base = if self.terrain_at(q, r) == Terrain::ShallowWater {
+        let base = if self.shallow_water_at(q, r) {
             WALK_SHALLOW_COST
         } else {
             WALK_STEP_COST * UNTREATED_MOVEMENT / self.movement_factor_at(q, r)
@@ -6393,7 +6541,18 @@ impl Core {
 
     fn shallows_at(&self, x: i32, y: i32) -> bool {
         let (q, r) = world_to_axial(x, y);
-        self.terrain_at(q, r) == Terrain::ShallowWater
+        self.shallow_water_at(q, r)
+    }
+
+    /// The wading half of the one native water predicate. Physical water is shallow by depth,
+    /// including a flood on a meadow and excluding a drained river band; the legacy fixture keeps
+    /// its presentation-only rule.
+    fn shallow_water_at(&self, q: i32, r: i32) -> bool {
+        if !self.ground_is_physical() {
+            return self.terrain_at(q, r) == Terrain::ShallowWater;
+        }
+        let depth = self.water_depth_at(q, r);
+        depth > 0 && depth < scale::WADE_LIMIT_QUANTA
     }
 
     fn player_blocked(&self, x: i32, y: i32) -> bool {
@@ -6823,11 +6982,10 @@ impl Core {
             ) {
                 return Err("the player blocks this footprint".into());
             }
-            let terrain = self.terrain_at(cell.q, cell.r);
             let shallow_support = definition.placement_rule == PlacementRule::Shallows
-                && terrain == Terrain::ShallowWater;
+                && self.shallow_water_at(cell.q, cell.r);
             let bridged_transport = definition.kind == BuildingKind::Belt
-                && terrain == Terrain::ShallowWater
+                && self.shallow_water_at(cell.q, cell.r)
                 && self.bridge_at(cell.q, cell.r);
             if self.terrain_blocks_construction(cell.q, cell.r)
                 && !shallow_support
@@ -6838,9 +6996,8 @@ impl Core {
         }
         for cell in &envelope {
             self.reservation_conflict(cell.q, cell.r, definition.kind, None, false)?;
-            let terrain = self.terrain_at(cell.q, cell.r);
             let shallow_support = definition.placement_rule == PlacementRule::Shallows
-                && terrain == Terrain::ShallowWater;
+                && self.shallow_water_at(cell.q, cell.r);
             if self.terrain_blocks_construction(cell.q, cell.r) && !shallow_support {
                 return Err("environment blocks construction".into());
             }
@@ -6905,9 +7062,7 @@ impl Core {
                 return Err("wind turbines must stand on hills or highland".into());
             }
         }
-        if definition.placement_rule == PlacementRule::Shallows
-            && self.terrain_at(q, r) != Terrain::ShallowWater
-        {
+        if definition.placement_rule == PlacementRule::Shallows && !self.shallow_water_at(q, r) {
             return Err("bridges require shallow water".into());
         }
         if definition.kind == BuildingKind::Composer {
@@ -8626,6 +8781,27 @@ impl Core {
                 InputCommand::UndoBoundary => self.undo_boundary(),
                 InputCommand::GroundEdit { edit } => self.edit_ground(&edit),
                 InputCommand::UndoGround => self.undo_ground(),
+                InputCommand::WaterEdit {
+                    q,
+                    r,
+                    action,
+                    quanta,
+                } => {
+                    if !self.creative {
+                        Err("water edits are available in creative mode".into())
+                    } else if !self.within_build_range_of_target(q, r) {
+                        Err("water target is out of build range".into())
+                    } else {
+                        self.edit_water(q, r, action, quanta).map(|report| {
+                            self.mark_all_entities_dirty();
+                            self.replan_walk();
+                            self.events.push(format!(
+                                "Water settled over {} cells in {} sweeps",
+                                report.cells, report.sweeps
+                            ));
+                        })
+                    }
+                }
                 InputCommand::MoveIntent { x, y } => self.set_move_intent(x, y),
                 InputCommand::Aim { x, y } => self.set_aim(x, y),
                 InputCommand::Gather => self.gather(),
@@ -8865,19 +9041,28 @@ impl Core {
     fn entity_snapshot(&mut self, index: usize) -> EntitySnapshot {
         // Resolving through the cached candidate list rather than scanning the tile map is what
         // keeps this O(1) in world size. The cache is derived state, so filling it changes nothing.
-        let deposit_available = match self.entities[index].kind {
-            BuildingKind::Extractor => self.extractor_deposit(index).is_some(),
-            // A pump's "deposit" is the basin it stands beside, which never empties, so the only
-            // question is whether one is in reach at all.
+        let (deposit_available, water_source) = match self.entities[index].kind {
+            BuildingKind::Extractor => (self.extractor_deposit(index).is_some(), None),
+            // A physical pump names its current source. A finite pond can disappear from this
+            // answer; a river keeps its depth and publishes its discharge rate.
             BuildingKind::Pump => {
                 let placed = self.entities[index].placed;
                 let radius = self
                     .building_definition(placed.definition_id)
                     .and_then(|definition| definition.extract_radius)
                     .unwrap_or(PUMP_RADIUS as u32) as i32;
-                self.water_within_reach(placed.q, placed.r, radius)
+                let source = self
+                    .ground_is_physical()
+                    .then(|| self.pump_source_within_reach(placed.q, placed.r, radius))
+                    .flatten();
+                (
+                    source.is_some()
+                        || !self.ground_is_physical()
+                            && self.water_within_reach(placed.q, placed.r, radius),
+                    source,
+                )
             }
-            _ => false,
+            _ => (false, None),
         };
         let inventory = if self.entities[index].kind == BuildingKind::Container {
             self.stock_snapshot(index, StockKind::Inventory)
@@ -8956,6 +9141,7 @@ impl Core {
             fuel_inventory,
             output_inventory,
             output_routes,
+            water_source,
             progress: entity.progress,
             progress_total,
             fuel_charge: entity.fuel_charge,
@@ -13902,6 +14088,96 @@ fn hash_u64(hash: &mut u32, value: u64) {
     hash_bytes(hash, &value.to_le_bytes());
 }
 
+/// Reproducible Phase 8 disturbed-water measurement.
+///
+/// The active case records the solver's own bounded work counters. The quiet case advances a
+/// settled world and checks that no water dirty mark or state change appears: settled water has no
+/// scheduled kernel, so its measured water work is exactly zero rather than a small per-cell cost.
+#[cfg(not(target_arch = "wasm32"))]
+pub mod water_bench {
+    use super::*;
+    use std::time::Instant;
+
+    #[derive(Debug, Serialize)]
+    pub struct Report {
+        pub seed: u32,
+        pub command_quanta: u16,
+        pub active_cells: usize,
+        pub sweeps: u32,
+        pub transfers: u64,
+        pub frontier_quanta: i64,
+        pub settled: bool,
+        pub active_micros: u128,
+        pub quiet_ticks: u32,
+        pub quiet_micros: u128,
+        pub quiet_water_dirty: bool,
+        pub quiet_state_changed: bool,
+    }
+
+    pub fn run() -> Report {
+        const SEED: u32 = 1_213_486_160;
+        const QUIET_TICKS: u32 = 100_000;
+        let definitions: DefinitionsInput =
+            serde_json::from_str(include_str!("../../src/data/definitions.json")).unwrap();
+        let technologies: TechnologiesInput =
+            serde_json::from_str(include_str!("../../src/data/technologies.json")).unwrap();
+        let scenarios: ScenariosInput =
+            serde_json::from_str(include_str!("../../src/data/scenarios.json")).unwrap();
+        let scenario = scenarios
+            .scenarios
+            .iter()
+            .find(|scenario| scenario.key == "new-game")
+            .unwrap();
+        let mut core = Core::new(&definitions, &technologies, scenario, Some(SEED), None).unwrap();
+        let size = core.scenario.chunk_size;
+        let (q, r) = core
+            .generated_chunks
+            .iter()
+            .flat_map(|&(chunk_q, chunk_r)| hexes_in_chunk(chunk_q, chunk_r, size))
+            .find(|&(q, r)| {
+                let ground = core.generated_ground_at(q, r);
+                ground.hydrology.depth_quanta == 0
+                    && !ground.presentation.is_water()
+                    && !core.terrain_blocks_movement(q, r)
+            })
+            .expect("the opening shelf contains dry ground");
+        let started = Instant::now();
+        let active = core
+            .edit_water(
+                q,
+                r,
+                hydrology::WaterAction::Flood,
+                hydrology::WATER_COMMAND_LIMIT_QUANTA,
+            )
+            .unwrap();
+        let active_micros = started.elapsed().as_micros();
+
+        core.dirty.water = false;
+        let before = core.water.clone();
+        let quiet_started = Instant::now();
+        core.tick_many(QUIET_TICKS);
+        let quiet_micros = quiet_started.elapsed().as_micros();
+        Report {
+            seed: SEED,
+            command_quanta: hydrology::WATER_COMMAND_LIMIT_QUANTA,
+            active_cells: active.cells,
+            sweeps: active.sweeps,
+            transfers: active.transfers,
+            frontier_quanta: active.outflow_quanta,
+            settled: active.settled,
+            active_micros,
+            quiet_ticks: QUIET_TICKS,
+            quiet_micros,
+            quiet_water_dirty: core.dirty.water,
+            quiet_state_changed: core.water != before,
+        }
+    }
+
+    pub fn format(report: &Report) -> String {
+        serde_json::to_string_pretty(report).expect("water benchmark serializes")
+    }
+}
+
 /// Deterministic headless capacity measurement.
 ///
 /// The roadmap gates finer dirty tracking, any renderer decision, and every scale claim behind
@@ -16322,6 +16598,19 @@ mod tests {
             passable: bool,
             buildable: bool,
         }
+        #[derive(Deserialize)]
+        struct PhysicalEntry {
+            substrate: String,
+            slope: i32,
+            water_depth: i32,
+            passable: bool,
+            buildable: bool,
+        }
+        #[derive(Deserialize)]
+        struct PassabilityFixture {
+            bands: Vec<PassabilityEntry>,
+            physical: Vec<PhysicalEntry>,
+        }
 
         const BANDS: [Terrain; 7] = [
             Terrain::DeepWater,
@@ -16346,10 +16635,14 @@ mod tests {
             }
         }
 
-        let fixture: Vec<PassabilityEntry> =
+        let fixture: PassabilityFixture =
             serde_json::from_str(include_str!("../../fixtures/terrain-passability.json")).unwrap();
-        assert_eq!(fixture.len(), BANDS.len(), "a band has no fixture entry");
-        for (index, (entry, band)) in fixture.iter().zip(BANDS).enumerate() {
+        assert_eq!(
+            fixture.bands.len(),
+            BANDS.len(),
+            "a band has no fixture entry"
+        );
+        for (index, (entry, band)) in fixture.bands.iter().zip(BANDS).enumerate() {
             assert_eq!(entry.terrain, band, "fixture is in declaration order");
             // `world_preview_bytes` sends a band as its position in this list and nothing else, so
             // the row a host reads a preview byte through is pinned to the cast that wrote it.
@@ -16379,6 +16672,28 @@ mod tests {
                 entry.buildable,
                 !finished.blocks_construction(),
                 "{band:?} changed while passing through the ground spine"
+            );
+        }
+        assert!(
+            fixture.physical.iter().any(|entry| entry.water_depth > 0)
+                && fixture.physical.iter().any(|entry| entry.slope > 0),
+            "physical cases must exercise both halves of access"
+        );
+        for entry in fixture.physical {
+            // Substrate is deliberately present even though it does not block today. Adding a
+            // resistance rule later must move this exhaustive match and both fixture readers.
+            match entry.substrate.as_str() {
+                "soil" | "sand" | "meadow" | "rock" => {}
+                other => panic!("unknown substrate {other}"),
+            }
+            assert_eq!(
+                entry.passable,
+                entry.slope <= scale::MAX_WALK_STEP_QUANTA
+                    && entry.water_depth < scale::WADE_LIMIT_QUANTA
+            );
+            assert_eq!(
+                entry.buildable,
+                entry.slope <= scale::MAX_BUILD_STEP_QUANTA && entry.water_depth == 0
             );
         }
     }
@@ -23194,6 +23509,7 @@ mod tests {
                         fuel_inventory: Vec::new(),
                         output_inventory: Vec::new(),
                         output_routes: Vec::new(),
+                        water_source: None,
                         progress: 0,
                         progress_total: 0,
                         fuel_charge: 0,
@@ -23258,6 +23574,7 @@ mod tests {
                         fuel_inventory: Vec::new(),
                         output_inventory: Vec::new(),
                         output_routes: Vec::new(),
+                        water_source: None,
                         progress: 0,
                         progress_total: 0,
                         fuel_charge: 0,
@@ -23314,6 +23631,15 @@ mod tests {
                             direction: 5,
                             target_id: Some(7),
                         }],
+                        // Synthetic every-field case: pins signed source offsets and the finite /
+                        // replenishing rate payload without adding another entity to the fixture.
+                        water_source: Some(WaterSourceSnapshot {
+                            q: -3,
+                            r: 8,
+                            available: 12,
+                            discharge: 3,
+                            rate: 3,
+                        }),
                         progress: 17,
                         progress_total: 40,
                         fuel_charge: 250,
