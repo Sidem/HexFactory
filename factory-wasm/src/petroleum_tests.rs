@@ -12,7 +12,11 @@ fn test_core() -> (Core, ScenariosInput) {
     scenario.buildings.clear();
     scenario.resources.clear();
     scenario.initial_inventory.clear();
-    scenario.player_spawn = Coordinate { q: 0, r: 0 };
+    // Petroleum machines stand on real ground now — a refinery alone covers nineteen hexes — so
+    // the player waits well clear of every plot and reaches it from there. Neither reach nor where
+    // someone happens to be standing is what these tests are about.
+    scenario.player_spawn = Coordinate { q: 0, r: 8 };
+    scenario.build_range = 32;
     let mut core = Core::new(&definitions, &technologies, scenario, None, None).unwrap();
     core.set_creative(true);
     core.power_unmetered = true;
@@ -151,14 +155,16 @@ fn refinery_products_leave_independent_exterior_footprint_ports_and_round_trip()
         .unwrap()
         .id;
     core.place(2, 0, 30, 0, Some(18)).unwrap();
-    core.place(3, 0, container, 0, None).unwrap();
-    core.place(0, 1, container, 0, None).unwrap();
+    // The refinery covers every hex within two of its anchor, so its ports are on that rim and the
+    // buildings they feed stand a hex beyond it.
+    core.place(5, 0, container, 0, None).unwrap();
+    core.place(-1, 2, container, 0, None).unwrap();
     assert_eq!(
         core.set_output_route(2, 0, 29, 2, 0, 3).unwrap_err(),
         "output port is on an internal footprint seam"
     );
-    core.set_output_route(2, 0, 29, 2, 0, 0).unwrap();
-    core.set_output_route(1, 0, 30, 1, 0, 2).unwrap();
+    core.set_output_route(2, 0, 29, 4, 0, 0).unwrap();
+    core.set_output_route(0, 1, 30, 0, 1, 2).unwrap();
     let refinery = at(&core, 2, 0);
     core.entities[refinery].output_inventory.insert(29, 2);
     core.entities[refinery].output_inventory.insert(30, 2);
@@ -169,25 +175,25 @@ fn refinery_products_leave_independent_exterior_footprint_ports_and_round_trip()
         vec![
             OutputRouteSnapshot {
                 item_id: 29,
-                q: 2,
+                q: 4,
                 r: 0,
                 direction: 0,
-                target_id: Some(core.entities[at(&core, 3, 0)].id),
+                target_id: Some(core.entities[at(&core, 5, 0)].id),
             },
             OutputRouteSnapshot {
                 item_id: 30,
-                q: 1,
-                r: 0,
+                q: 0,
+                r: 1,
                 direction: 2,
-                target_id: Some(core.entities[at(&core, 0, 1)].id),
+                target_id: Some(core.entities[at(&core, -1, 2)].id),
             },
         ]
     );
     for _ in 0..4 {
         core.transfer_cargo();
     }
-    assert_eq!(core.entities[at(&core, 3, 0)].inventory.get(&29), Some(&2));
-    assert_eq!(core.entities[at(&core, 0, 1)].inventory.get(&30), Some(&2));
+    assert_eq!(core.entities[at(&core, 5, 0)].inventory.get(&29), Some(&2));
+    assert_eq!(core.entities[at(&core, -1, 2)].inventory.get(&30), Some(&2));
     assert!(core.entities[refinery].output_inventory.is_empty());
 
     let save = core.save_string().unwrap();
@@ -205,11 +211,14 @@ fn refinery_products_leave_independent_exterior_footprint_ports_and_round_trip()
 fn petroleum_powered_chain_routes_both_products_and_makes_asphalt() {
     let (mut core, _) = test_core();
     core.power_unmetered = false;
-    core.write_overlay(-2, 1, CRUDE_OIL, 40, 40);
-    core.place(-2, 1, 29, 0, None).unwrap();
-    core.place(0, 1, 30, 0, Some(18)).unwrap();
-    core.place(1, 1, 24, 0, None).unwrap();
-    core.place(3, 1, 31, 0, Some(19)).unwrap();
+    // The same chain as before, spaced around what each machine now stands on: the well's five
+    // hexes hand east into the refinery's nineteen, which hand east into the splitter, which feeds
+    // the mixer ahead of it and the burner beside it. Every link is still one hex of contact.
+    core.write_overlay(-5, 1, CRUDE_OIL, 40, 40);
+    core.place(-5, 1, 29, 0, None).unwrap();
+    core.place(-1, 1, 30, 0, Some(18)).unwrap();
+    core.place(2, 1, 24, 0, None).unwrap();
+    core.place(4, 0, 31, 0, Some(19)).unwrap();
     let generator = core
         .definitions
         .buildings
@@ -231,16 +240,19 @@ fn petroleum_powered_chain_routes_both_products_and_makes_asphalt() {
         .find(|building| building.key == "container")
         .unwrap()
         .id;
-    core.place(1, 2, generator, 0, None).unwrap();
-    core.place(0, -1, pole, 0, None).unwrap();
+    core.place(2, 2, generator, 0, None).unwrap();
+    // Two poles reach the whole line: the western one lights the well and the refinery, the eastern
+    // one the splitter, the mixer and the burner, and they are five hexes apart against a reach of
+    // six.
+    core.place(-2, -1, pole, 0, None).unwrap();
     core.place(2, 0, pole, 0, None).unwrap();
-    core.place(4, 1, container, 0, None).unwrap();
-    let mixer = at(&core, 3, 1);
-    let burner = at(&core, 1, 2);
+    core.place(6, 0, container, 0, None).unwrap();
+    let mixer = at(&core, 4, 0);
+    let burner = at(&core, 2, 2);
     core.entities[mixer].input_inventory.insert(17, 18);
     core.entities[burner].fuel_inventory.insert(COAL, 4);
     core.advance_ticks(1200);
-    let stored = &core.entities[at(&core, 4, 1)].inventory;
+    let stored = &core.entities[at(&core, 6, 0)].inventory;
     assert!(
         stored.get(&31).copied().unwrap_or(0) >= 8,
         "a powered well/refinery/splitter/mixer line must deliver asphalt: {}",

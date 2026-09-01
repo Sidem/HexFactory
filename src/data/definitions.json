@@ -244,7 +244,7 @@
       "name": "Iron wire",
       "color": "#9fb0ba",
       "icon": "wire",
-      "description": "Drawn iron. A poorer conductor than copper, which is why first-generation power equipment is bulky \u2014 but it comes from the ore under the landing site instead of an expedition to the copper band.",
+      "description": "Drawn iron. A poorer conductor than copper, which is why first-generation power equipment is bulky — but it comes from the ore under the landing site instead of an expedition to the copper band.",
       "stack_size": 20
     },
     {
@@ -473,7 +473,7 @@
       "id": 7,
       "key": "charcoal",
       "name": "Char wood",
-      "description": "Pyrolyse six wood into charcoal. The kiln burns most of the charge to cook the rest, so charcoal is denser than the wood it came from \u2014 never richer.",
+      "description": "Pyrolyse six wood into charcoal. The kiln burns most of the charge to cook the rest, so charcoal is denser than the wood it came from — never richer.",
       "category": "firing",
       "inputs": [
         {
@@ -702,9 +702,22 @@
       "name": "Refine crude oil",
       "description": "Separate four crude oil into two bitumen and two refined fuel. Both products share the output buffer but may leave through separate chosen footprint ports. Cost allocation: bitumen 50%, fuel 50% of the whole batch.",
       "category": "refining",
-      "inputs": [{ "item_id": 28, "quantity": 4 }],
-      "output": { "item_id": 29, "quantity": 2 },
-      "co_products": [{ "item_id": 30, "quantity": 2 }],
+      "inputs": [
+        {
+          "item_id": 28,
+          "quantity": 4
+        }
+      ],
+      "output": {
+        "item_id": 29,
+        "quantity": 2
+      },
+      "co_products": [
+        {
+          "item_id": 30,
+          "quantity": 2
+        }
+      ],
       "cost_allocation": [50, 50],
       "duration": 30
     },
@@ -715,10 +728,19 @@
       "description": "Bind three gravel with one bitumen into four asphalt. Lay it over a gravel base in Ground works; no curing timer.",
       "category": "asphalt-mixing",
       "inputs": [
-        { "item_id": 17, "quantity": 3 },
-        { "item_id": 29, "quantity": 1 }
+        {
+          "item_id": 17,
+          "quantity": 3
+        },
+        {
+          "item_id": 29,
+          "quantity": 1
+        }
       ],
-      "output": { "item_id": 31, "quantity": 4 },
+      "output": {
+        "item_id": 31,
+        "quantity": 4
+      },
       "duration": 20
     },
     {
@@ -727,8 +749,16 @@
       "name": "Form empty barrel",
       "description": "Roll and seal two iron plates into one reusable barrel.",
       "category": "assembly",
-      "inputs": [{ "item_id": 11, "quantity": 2 }],
-      "output": { "item_id": 32, "quantity": 1 },
+      "inputs": [
+        {
+          "item_id": 11,
+          "quantity": 2
+        }
+      ],
+      "output": {
+        "item_id": 32,
+        "quantity": 1
+      },
       "duration": 8
     },
     {
@@ -737,8 +767,16 @@
       "name": "Form pipe sections",
       "description": "Roll one iron plate into two coupled pipe sections.",
       "category": "assembly",
-      "inputs": [{ "item_id": 11, "quantity": 1 }],
-      "output": { "item_id": 35, "quantity": 2 },
+      "inputs": [
+        {
+          "item_id": 11,
+          "quantity": 1
+        }
+      ],
+      "output": {
+        "item_id": 35,
+        "quantity": 2
+      },
       "duration": 6
     },
     {
@@ -748,10 +786,19 @@
       "description": "Seal ten units of piped water in one empty barrel for belt transport.",
       "category": "barreling",
       "inputs": [
-        { "item_id": 32, "quantity": 1 },
-        { "item_id": 10, "quantity": 10 }
+        {
+          "item_id": 32,
+          "quantity": 1
+        },
+        {
+          "item_id": 10,
+          "quantity": 10
+        }
       ],
-      "output": { "item_id": 33, "quantity": 1 },
+      "output": {
+        "item_id": 33,
+        "quantity": 1
+      },
       "duration": 10
     },
     {
@@ -760,9 +807,22 @@
       "name": "Empty water barrel",
       "description": "Return one reusable barrel and ten units of loose water for a pipe network.",
       "category": "barreling",
-      "inputs": [{ "item_id": 33, "quantity": 1 }],
-      "output": { "item_id": 32, "quantity": 1 },
-      "co_products": [{ "item_id": 10, "quantity": 10 }],
+      "inputs": [
+        {
+          "item_id": 33,
+          "quantity": 1
+        }
+      ],
+      "output": {
+        "item_id": 32,
+        "quantity": 1
+      },
+      "co_products": [
+        {
+          "item_id": 10,
+          "quantity": 10
+        }
+      ],
       "cost_allocation": [10, 90],
       "duration": 8
     },
@@ -773,10 +833,19 @@
       "description": "Seal ten units of piped crude oil in one empty barrel for belt transport.",
       "category": "barreling",
       "inputs": [
-        { "item_id": 32, "quantity": 1 },
-        { "item_id": 28, "quantity": 10 }
+        {
+          "item_id": 32,
+          "quantity": 1
+        },
+        {
+          "item_id": 28,
+          "quantity": 10
+        }
       ],
-      "output": { "item_id": 34, "quantity": 1 },
+      "output": {
+        "item_id": 34,
+        "quantity": 1
+      },
       "duration": 10
     },
     {
@@ -785,9 +854,22 @@
       "name": "Empty oil barrel",
       "description": "Return one reusable barrel and ten units of loose crude oil for a pipe network.",
       "category": "barreling",
-      "inputs": [{ "item_id": 34, "quantity": 1 }],
-      "output": { "item_id": 32, "quantity": 1 },
-      "co_products": [{ "item_id": 28, "quantity": 10 }],
+      "inputs": [
+        {
+          "item_id": 34,
+          "quantity": 1
+        }
+      ],
+      "output": {
+        "item_id": 32,
+        "quantity": 1
+      },
+      "co_products": [
+        {
+          "item_id": 28,
+          "quantity": 10
+        }
+      ],
       "cost_allocation": [10, 90],
       "duration": 8
     }
@@ -798,7 +880,7 @@
       "key": "extractor",
       "name": "Extractor",
       "kind": "extractor",
-      "description": "Harvests every field cell within one hex and emits one item at a time. Slower than your own hands on the same material \u2014 but it never stops, and you can walk away. Built from plate, a gear and timber, all of which a primitive furnace and workshop already make.",
+      "description": "Harvests every field cell within one hex and emits one item at a time. Slower than your own hands on the same material — but it never stops, and you can walk away. Built from plate, a gear and timber, all of which a primitive furnace and workshop already make.",
       "icon": "EXT",
       "cadence": 5,
       "capacity": 12,
@@ -827,6 +909,10 @@
       "footprint": [
         {
           "q": 0,
+          "r": 0
+        },
+        {
+          "q": 1,
           "r": 0
         }
       ]
@@ -897,8 +983,12 @@
           "r": 0
         },
         {
+          "q": 1,
+          "r": 0
+        },
+        {
           "q": 0,
-          "r": -1
+          "r": 1
         }
       ]
     },
@@ -963,12 +1053,28 @@
           "r": 0
         },
         {
+          "q": 1,
+          "r": 0
+        },
+        {
           "q": 0,
           "r": 1
         },
         {
           "q": -1,
           "r": 1
+        },
+        {
+          "q": -1,
+          "r": 0
+        },
+        {
+          "q": 0,
+          "r": -1
+        },
+        {
+          "q": 1,
+          "r": -1
         }
       ]
     },
@@ -1000,6 +1106,14 @@
         {
           "q": 0,
           "r": 0
+        },
+        {
+          "q": 1,
+          "r": 0
+        },
+        {
+          "q": 0,
+          "r": 1
         }
       ]
     },
@@ -1035,6 +1149,14 @@
         {
           "q": 0,
           "r": 0
+        },
+        {
+          "q": 1,
+          "r": 0
+        },
+        {
+          "q": 0,
+          "r": 1
         }
       ]
     },
@@ -1069,6 +1191,10 @@
       "footprint": [
         {
           "q": 0,
+          "r": 0
+        },
+        {
+          "q": 1,
           "r": 0
         }
       ]
@@ -1105,6 +1231,14 @@
         {
           "q": 0,
           "r": 0
+        },
+        {
+          "q": 1,
+          "r": 0
+        },
+        {
+          "q": 0,
+          "r": 1
         }
       ]
     },
@@ -1141,6 +1275,10 @@
       "footprint": [
         {
           "q": 0,
+          "r": 0
+        },
+        {
+          "q": 1,
           "r": 0
         }
       ]
@@ -1182,7 +1320,7 @@
       "key": "burner-generator",
       "name": "Burner generator",
       "kind": "generator",
-      "description": "Burns any fuel item into electricity. Holds 12 fuel \u2014 feed it by belt or by hand. Wound with iron wire, which is why it is bulky and why first power needs no copper.",
+      "description": "Burns any fuel item into electricity. Holds 12 fuel — feed it by belt or by hand. Wound with iron wire, which is why it is bulky and why first power needs no copper.",
       "icon": "BRN",
       "capacity": 12,
       "power_output": 20,
@@ -1209,6 +1347,18 @@
         {
           "q": 0,
           "r": 0
+        },
+        {
+          "q": 1,
+          "r": 0
+        },
+        {
+          "q": 0,
+          "r": 1
+        },
+        {
+          "q": 1,
+          "r": 1
         }
       ]
     },
@@ -1217,7 +1367,7 @@
       "key": "wind-turbine",
       "name": "Wind turbine",
       "kind": "generator",
-      "description": "Fuel-free power on hills and highland \u2014 the same ground the ore sits on.",
+      "description": "Fuel-free power on hills and highland — the same ground the ore sits on.",
       "icon": "WND",
       "capacity": 0,
       "power_output": 12,
@@ -1240,6 +1390,14 @@
         {
           "q": 0,
           "r": 0
+        },
+        {
+          "q": 1,
+          "r": 0
+        },
+        {
+          "q": 0,
+          "r": 1
         }
       ]
     },
@@ -1248,7 +1406,7 @@
       "key": "hydro-generator",
       "name": "Hydro generator",
       "kind": "generator",
-      "description": "High output at a basin edge. Scarce, because the shore is scarce. A rotor and its gearing, braced on a frame \u2014 the river turns it, so nothing here is fired and nothing is laid in brick.",
+      "description": "High output at a basin edge. Scarce, because the shore is scarce. A rotor and its gearing, braced on a frame — the river turns it, so nothing here is fired and nothing is laid in brick.",
       "icon": "HYD",
       "capacity": 0,
       "power_output": 24,
@@ -1275,6 +1433,22 @@
         {
           "q": 0,
           "r": 0
+        },
+        {
+          "q": 1,
+          "r": -1
+        },
+        {
+          "q": 1,
+          "r": 0
+        },
+        {
+          "q": 0,
+          "r": 1
+        },
+        {
+          "q": -1,
+          "r": 1
         }
       ]
     },
@@ -1304,6 +1478,14 @@
         {
           "q": 0,
           "r": 0
+        },
+        {
+          "q": 1,
+          "r": 0
+        },
+        {
+          "q": 0,
+          "r": 1
         }
       ]
     },
@@ -1334,6 +1516,14 @@
       "footprint": [
         {
           "q": 0,
+          "r": 0
+        },
+        {
+          "q": 1,
+          "r": 0
+        },
+        {
+          "q": 2,
           "r": 0
         }
       ]
@@ -1381,6 +1571,14 @@
         {
           "q": 0,
           "r": 0
+        },
+        {
+          "q": 1,
+          "r": 0
+        },
+        {
+          "q": 0,
+          "r": 1
         }
       ]
     },
@@ -1414,6 +1612,10 @@
       "footprint": [
         {
           "q": 0,
+          "r": 0
+        },
+        {
+          "q": 1,
           "r": 0
         }
       ]
@@ -1672,6 +1874,10 @@
         {
           "q": 0,
           "r": 0
+        },
+        {
+          "q": 1,
+          "r": 0
         }
       ]
     },
@@ -1680,7 +1886,7 @@
       "key": "manual-workshop",
       "name": "Manual Workshop",
       "kind": "composer",
-      "description": "Stand beside this bench, load ingredients, and choose Work one batch. Make timber, transport kits, components, gears, frames, and drawn iron wire at four times industrial craft time \u2014 every part the first extractor, composer, generator and pole are billed in. Walking or gathering pauses work; dismantling recovers reserved ingredients.",
+      "description": "Stand beside this bench, load ingredients, and choose Work one batch. Make timber, transport kits, components, gears, frames, and drawn iron wire at four times industrial craft time — every part the first extractor, composer, generator and pole are billed in. Walking or gathering pauses work; dismantling recovers reserved ingredients.",
       "icon": "WRK",
       "capacity": 24,
       "recipe_category": "manual-workshop",
@@ -1704,6 +1910,10 @@
         {
           "q": 0,
           "r": 0
+        },
+        {
+          "q": 1,
+          "r": 0
         }
       ]
     },
@@ -1722,15 +1932,45 @@
       "output_item_id": 28,
       "power_draw": 6,
       "construction_cost": [
-        { "item_id": 11, "quantity": 6 },
-        { "item_id": 19, "quantity": 2 },
-        { "item_id": 20, "quantity": 2 }
+        {
+          "item_id": 11,
+          "quantity": 6
+        },
+        {
+          "item_id": 19,
+          "quantity": 2
+        },
+        {
+          "item_id": 20,
+          "quantity": 2
+        }
       ],
       "unlock_technology_id": 21,
       "placement_rule": "resource",
       "buildable": true,
       "blocks_movement": true,
-      "footprint": [{ "q": 0, "r": 0 }]
+      "footprint": [
+        {
+          "q": 0,
+          "r": 0
+        },
+        {
+          "q": 1,
+          "r": -1
+        },
+        {
+          "q": 1,
+          "r": 0
+        },
+        {
+          "q": 0,
+          "r": 1
+        },
+        {
+          "q": -1,
+          "r": 1
+        }
+      ]
     },
     {
       "id": 30,
@@ -1743,18 +1983,104 @@
       "recipe_category": "refining",
       "power_draw": 8,
       "construction_cost": [
-        { "item_id": 11, "quantity": 8 },
-        { "item_id": 19, "quantity": 3 },
-        { "item_id": 20, "quantity": 3 },
-        { "item_id": 14, "quantity": 6 }
+        {
+          "item_id": 11,
+          "quantity": 8
+        },
+        {
+          "item_id": 19,
+          "quantity": 3
+        },
+        {
+          "item_id": 20,
+          "quantity": 3
+        },
+        {
+          "item_id": 14,
+          "quantity": 6
+        }
       ],
       "unlock_technology_id": 21,
       "placement_rule": "ground",
       "buildable": true,
       "blocks_movement": true,
       "footprint": [
-        { "q": 0, "r": 0 },
-        { "q": -1, "r": 0 }
+        {
+          "q": 0,
+          "r": 0
+        },
+        {
+          "q": 1,
+          "r": 0
+        },
+        {
+          "q": 0,
+          "r": 1
+        },
+        {
+          "q": -1,
+          "r": 1
+        },
+        {
+          "q": -1,
+          "r": 0
+        },
+        {
+          "q": 0,
+          "r": -1
+        },
+        {
+          "q": 1,
+          "r": -1
+        },
+        {
+          "q": 2,
+          "r": 0
+        },
+        {
+          "q": 2,
+          "r": -1
+        },
+        {
+          "q": 2,
+          "r": -2
+        },
+        {
+          "q": 1,
+          "r": -2
+        },
+        {
+          "q": 0,
+          "r": -2
+        },
+        {
+          "q": -1,
+          "r": -1
+        },
+        {
+          "q": -2,
+          "r": 0
+        },
+        {
+          "q": -2,
+          "r": 1
+        },
+        {
+          "q": -2,
+          "r": 2
+        },
+        {
+          "q": -1,
+          "r": 2
+        },
+        {
+          "q": 0,
+          "r": 2
+        },
+        {
+          "q": 1,
+          "r": 1
+        }
       ]
     },
     {
@@ -1768,18 +2094,52 @@
       "recipe_category": "asphalt-mixing",
       "power_draw": 6,
       "construction_cost": [
-        { "item_id": 11, "quantity": 10 },
-        { "item_id": 19, "quantity": 3 },
-        { "item_id": 20, "quantity": 3 },
-        { "item_id": 14, "quantity": 8 }
+        {
+          "item_id": 11,
+          "quantity": 10
+        },
+        {
+          "item_id": 19,
+          "quantity": 3
+        },
+        {
+          "item_id": 20,
+          "quantity": 3
+        },
+        {
+          "item_id": 14,
+          "quantity": 8
+        }
       ],
       "unlock_technology_id": 22,
       "placement_rule": "ground",
       "buildable": true,
       "blocks_movement": true,
       "footprint": [
-        { "q": 0, "r": 0 },
-        { "q": -1, "r": 0 }
+        {
+          "q": 0,
+          "r": 0
+        },
+        {
+          "q": 1,
+          "r": -1
+        },
+        {
+          "q": 1,
+          "r": 0
+        },
+        {
+          "q": 0,
+          "r": 1
+        },
+        {
+          "q": -1,
+          "r": 1
+        },
+        {
+          "q": -1,
+          "r": 0
+        }
       ]
     },
     {
@@ -1791,14 +2151,29 @@
       "icon": "PIP",
       "orientation_axis": "any",
       "transport_medium": "fluid",
-      "construction_cost": [{ "item_id": 35, "quantity": 1 }],
-      "corner_construction_cost": [{ "item_id": 35, "quantity": 2 }],
+      "construction_cost": [
+        {
+          "item_id": 35,
+          "quantity": 1
+        }
+      ],
+      "corner_construction_cost": [
+        {
+          "item_id": 35,
+          "quantity": 2
+        }
+      ],
       "corner_technology_id": 11,
       "unlock_technology_id": 7,
       "placement_rule": "ground",
       "buildable": true,
       "blocks_movement": false,
-      "footprint": [{ "q": 0, "r": 0 }]
+      "footprint": [
+        {
+          "q": 0,
+          "r": 0
+        }
+      ]
     },
     {
       "id": 33,
@@ -1811,21 +2186,44 @@
       "transport_medium": "fluid",
       "underpass_span": 4,
       "construction_cost": [
-        { "item_id": 35, "quantity": 2 },
-        { "item_id": 11, "quantity": 2 },
-        { "item_id": 6, "quantity": 2 }
+        {
+          "item_id": 35,
+          "quantity": 2
+        },
+        {
+          "item_id": 11,
+          "quantity": 2
+        },
+        {
+          "item_id": 6,
+          "quantity": 2
+        }
       ],
       "corner_construction_cost": [
-        { "item_id": 35, "quantity": 3 },
-        { "item_id": 11, "quantity": 2 },
-        { "item_id": 6, "quantity": 2 }
+        {
+          "item_id": 35,
+          "quantity": 3
+        },
+        {
+          "item_id": 11,
+          "quantity": 2
+        },
+        {
+          "item_id": 6,
+          "quantity": 2
+        }
       ],
       "corner_technology_id": 11,
       "unlock_technology_id": 23,
       "placement_rule": "ground",
       "buildable": true,
       "blocks_movement": false,
-      "footprint": [{ "q": 0, "r": 0 }]
+      "footprint": [
+        {
+          "q": 0,
+          "r": 0
+        }
+      ]
     },
     {
       "id": 34,
@@ -1837,15 +2235,53 @@
       "capacity": 120,
       "accepted_item_ids": [10],
       "construction_cost": [
-        { "item_id": 11, "quantity": 10 },
-        { "item_id": 19, "quantity": 2 },
-        { "item_id": 14, "quantity": 8 }
+        {
+          "item_id": 11,
+          "quantity": 10
+        },
+        {
+          "item_id": 19,
+          "quantity": 2
+        },
+        {
+          "item_id": 14,
+          "quantity": 8
+        }
       ],
       "unlock_technology_id": 7,
       "placement_rule": "ground",
       "buildable": true,
       "blocks_movement": true,
-      "footprint": [{ "q": 0, "r": 0 }]
+      "footprint": [
+        {
+          "q": 0,
+          "r": 0
+        },
+        {
+          "q": 1,
+          "r": 0
+        },
+        {
+          "q": 0,
+          "r": 1
+        },
+        {
+          "q": -1,
+          "r": 1
+        },
+        {
+          "q": -1,
+          "r": 0
+        },
+        {
+          "q": 0,
+          "r": -1
+        },
+        {
+          "q": 1,
+          "r": -1
+        }
+      ]
     },
     {
       "id": 35,
@@ -1857,15 +2293,53 @@
       "capacity": 120,
       "accepted_item_ids": [28],
       "construction_cost": [
-        { "item_id": 11, "quantity": 12 },
-        { "item_id": 19, "quantity": 2 },
-        { "item_id": 14, "quantity": 8 }
+        {
+          "item_id": 11,
+          "quantity": 12
+        },
+        {
+          "item_id": 19,
+          "quantity": 2
+        },
+        {
+          "item_id": 14,
+          "quantity": 8
+        }
       ],
       "unlock_technology_id": 21,
       "placement_rule": "ground",
       "buildable": true,
       "blocks_movement": true,
-      "footprint": [{ "q": 0, "r": 0 }]
+      "footprint": [
+        {
+          "q": 0,
+          "r": 0
+        },
+        {
+          "q": 1,
+          "r": 0
+        },
+        {
+          "q": 0,
+          "r": 1
+        },
+        {
+          "q": -1,
+          "r": 1
+        },
+        {
+          "q": -1,
+          "r": 0
+        },
+        {
+          "q": 0,
+          "r": -1
+        },
+        {
+          "q": 1,
+          "r": -1
+        }
+      ]
     },
     {
       "id": 36,
@@ -1878,17 +2352,44 @@
       "recipe_category": "barreling",
       "power_draw": 4,
       "construction_cost": [
-        { "item_id": 11, "quantity": 8 },
-        { "item_id": 19, "quantity": 2 },
-        { "item_id": 20, "quantity": 2 }
+        {
+          "item_id": 11,
+          "quantity": 8
+        },
+        {
+          "item_id": 19,
+          "quantity": 2
+        },
+        {
+          "item_id": 20,
+          "quantity": 2
+        }
       ],
       "unlock_technology_id": 7,
       "placement_rule": "ground",
       "buildable": true,
       "blocks_movement": true,
       "footprint": [
-        { "q": 0, "r": 0 },
-        { "q": -1, "r": 0 }
+        {
+          "q": 0,
+          "r": 0
+        },
+        {
+          "q": 1,
+          "r": -1
+        },
+        {
+          "q": 1,
+          "r": 0
+        },
+        {
+          "q": 0,
+          "r": 1
+        },
+        {
+          "q": -1,
+          "r": 1
+        }
       ]
     }
   ],
@@ -2347,7 +2848,12 @@
       "movement": 150,
       "unlock_technology_id": 22,
       "base_surface_id": 2,
-      "construction_cost": [{ "item_id": 31, "quantity": 2 }]
+      "construction_cost": [
+        {
+          "item_id": 31,
+          "quantity": 2
+        }
+      ]
     }
   ]
 }

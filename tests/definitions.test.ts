@@ -5,6 +5,7 @@ import {
   supportsRecipe,
   validateTechnologies,
 } from "../src/core/definitions";
+import { TRANSPORT_DIRECTIONS } from "../src/core/directions";
 import { recipeOutputs } from "../src/core/recipes";
 import type { Definitions, Technologies } from "../src/core/types";
 import definitions from "../src/data/definitions.json";
@@ -68,7 +69,7 @@ describe("data-defined content", () => {
     ).toBe("resource");
     expect(
       definitions.buildings.find(({ key }) => key === "composer")?.footprint,
-    ).toHaveLength(2);
+    ).toHaveLength(3);
     // Every item draws with a glyph the icon set actually has, rather than falling back to ore.
     for (const item of definitions.items)
       expect(isItemIconKey(item.icon), `${item.key} icon`).toBe(true);
@@ -147,7 +148,15 @@ describe("data-defined content", () => {
       expect(next, `${building.key} names a real next tier`).toBeDefined();
       expect(next?.kind).toBe(building.kind);
       expect(next?.tier ?? 0).toBeGreaterThan(building.tier ?? 0);
-      expect(next?.footprint).toEqual(building.footprint);
+      // A tier may take more ground; it may never give up ground it stands on, because every
+      // connection is bound to a cell and a shrinking footprint would strand one.
+      const grown = new Set(
+        (next?.footprint ?? []).map(({ q, r }) => `${q},${r}`),
+      );
+      for (const { q, r } of building.footprint)
+        expect(grown.has(`${q},${r}`), `${building.key} keeps ${q},${r}`).toBe(
+          true,
+        );
     }
     // Reach is the flagship upgrade, so it has to actually grow.
     const extractor = buildings.find(({ key }) => key === "extractor");
@@ -218,10 +227,90 @@ describe("data-defined content", () => {
       validateDefinitions(
         withFootprint("extractor", [
           { q: 0, r: 0 },
-          { q: 1, r: 0 },
+          { q: -1, r: 0 },
         ]),
       ),
     ).toThrow(/off a cell it stands on/);
+  });
+
+  it("gives every shipped building a footprint in its physical size band", () => {
+    // The bands the phase authored the catalogue to, in cells. They are here rather than in prose
+    // because the point of the rescale is that a hex is 25 m²: a smelter that still claims one cell
+    // is a smelter the size of a garden shed, and nothing but a test notices that in a diff.
+    const bands: Record<string, readonly [number, number]> = {
+      // Transport and small equipment: one cell, and the routing space between machines is what
+      // the rest of the catalogue growing is meant to leave readable.
+      belt: [1, 1],
+      splitter: [1, 1],
+      merger: [1, 1],
+      underpass: [1, 1],
+      pipe: [1, 1],
+      "pipe-underpass": [1, 1],
+      pole: [1, 1],
+      "pole-ii": [1, 1],
+      "pole-iii": [1, 1],
+      bridge: [1, 1],
+      consumer: [1, 1],
+      // Hand-scale equipment.
+      container: [1, 2],
+      "container-ii": [1, 2],
+      pump: [1, 2],
+      "primitive-furnace": [1, 2],
+      "manual-workshop": [1, 2],
+      // Process machines.
+      extractor: [2, 3],
+      "extractor-ii": [2, 3],
+      cutter: [2, 3],
+      crusher: [2, 3],
+      smelter: [2, 3],
+      kiln: [2, 3],
+      boiler: [2, 3],
+      "steam-turbine": [2, 3],
+      composer: [2, 3],
+      // Vessels, wells and generators.
+      "wind-turbine": [2, 7],
+      "burner-generator": [2, 7],
+      "hydro-generator": [2, 7],
+      "oil-well": [2, 7],
+      "barrel-station": [2, 7],
+      "asphalt-mixer": [2, 7],
+      "water-tank": [2, 7],
+      "oil-tank": [2, 7],
+      // Structural plant.
+      "landing-hub": [7, 19],
+      refinery: [7, 19],
+    };
+    const keys = typedDefinitions.buildings.map(({ key }) => key);
+    expect(Object.keys(bands).sort()).toEqual([...keys].sort());
+
+    for (const building of typedDefinitions.buildings) {
+      const [low, high] = bands[building.key]!;
+      const size = building.footprint.length;
+      expect(
+        size,
+        `${building.key} spans ${size} cells`,
+      ).toBeGreaterThanOrEqual(low);
+      expect(size, `${building.key} spans ${size} cells`).toBeLessThanOrEqual(
+        high,
+      );
+      // Every cell distinct, the anchor present, and one connected shape — the same three things
+      // native refuses on, checked here so a bad shape fails in the catalogue rather than in a save.
+      const cells = new Set(building.footprint.map(({ q, r }) => `${q},${r}`));
+      expect(cells.size).toBe(size);
+      expect(cells.has("0,0")).toBe(true);
+      const reached = new Set(["0,0"]);
+      const queue = [{ q: 0, r: 0 }];
+      while (queue.length) {
+        const { q, r } = queue.pop()!;
+        for (const step of TRANSPORT_DIRECTIONS.slice(0, 6)) {
+          const key = `${q + step.q},${r + step.r}`;
+          if (!cells.has(key) || reached.has(key)) continue;
+          reached.add(key);
+          queue.push({ q: q + step.q, r: r + step.r });
+        }
+      }
+      expect(reached.size, `${building.key} is one connected shape`).toBe(size);
+    }
   });
 
   it("lets only a single-cell definition claim the two-row period", () => {

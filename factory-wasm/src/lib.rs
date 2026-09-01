@@ -13420,8 +13420,15 @@ pub mod capacity {
     /// `delta_bytes` means: it is now the binary wire payload the game ships rather than the JSON
     /// one, so the two figures are not comparable across the boundary between schema 3 and 4.
     pub const REPORT_SCHEMA: u32 = 4;
-    /// Lines sit three rows apart so one line's two-cell composer cannot touch the next.
+    /// Lines sit three rows apart so one line's three-cell composer cannot touch the next.
     const ROW_PITCH: i32 = 3;
+    /// How far east of its anchor each multi-cell machine in the workload reaches, so the line is
+    /// spaced by the catalogue's own footprints rather than by a remembered one-cell world.
+    const EXTRACTOR_CELLS: i32 = 2;
+    const COMPOSER_CELLS: i32 = 2;
+    /// The first belt of a line, and so the workload's rotate target. It is a belt rather than the
+    /// extractor it sits beside, because rotating a source is a different edit to rotating a link.
+    const EDIT_TARGET_Q: i32 = EXTRACTOR_CELLS;
     /// Large enough that no deposit empties inside a measured run, so every tier measures the same
     /// steady state rather than a decaying one.
     const DEPOSIT_QUANTITY: u32 = 1_000_000;
@@ -13627,15 +13634,20 @@ pub mod capacity {
                 quantity: DEPOSIT_QUANTITY,
             });
             buildings.push(placed(0, r, EXTRACTOR, None));
-            for q in 1..=spec.belt_span as i32 {
+            // Machines stand on more than their anchor now, so the line is laid out from each
+            // one's eastern edge rather than from its anchor. The belt span, the building count
+            // and the order of the chain are unchanged; only the empty ground between them moved.
+            let belt_start = EXTRACTOR_CELLS;
+            for q in belt_start..belt_start + spec.belt_span as i32 {
                 buildings.push(placed(q, r, BELT, None));
             }
-            let composer_q = spec.belt_span as i32 + 1;
+            let composer_q = belt_start + spec.belt_span as i32;
             buildings.push(placed(composer_q, r, COMPOSER, Some(COMPONENT_RECIPE)));
-            buildings.push(placed(composer_q + 1, r, BELT, None));
-            buildings.push(placed(composer_q + 2, r, CONTAINER, None));
-            buildings.push(placed(composer_q + 3, r, BELT, None));
-            buildings.push(placed(composer_q + 4, r, CONSUMER, None));
+            let tail_q = composer_q + COMPOSER_CELLS;
+            buildings.push(placed(tail_q, r, BELT, None));
+            buildings.push(placed(tail_q + 1, r, CONTAINER, None));
+            buildings.push(placed(tail_q + 2, r, BELT, None));
+            buildings.push(placed(tail_q + 3, r, CONSUMER, None));
         }
         ScenarioDefinition {
             id: 1,
@@ -13858,7 +13870,7 @@ pub mod capacity {
         phase(clock, budget, edits, || {
             for edit in 0..edits {
                 // Spread edits across lines so no single component stays warm in cache.
-                core.rotate(1, edit_row(spec, edit), false)
+                core.rotate(EDIT_TARGET_Q, edit_row(spec, edit), false)
                     .expect("capacity belt rotates");
             }
         })
@@ -13878,7 +13890,7 @@ pub mod capacity {
         let targets: Vec<(usize, u32)> = (0..edits)
             .map(|edit| {
                 let index = core
-                    .entity_at(1, edit_row(spec, edit))
+                    .entity_at(EDIT_TARGET_Q, edit_row(spec, edit))
                     .expect("capacity belt exists");
                 (index, core.entities[index].id)
             })
@@ -15099,7 +15111,9 @@ mod tests {
             set_player_hex(&mut core, 0, 0);
             core.place(3, 0, 1, 0, None).unwrap();
             let extractor = extractor_index(&core);
-            core.place(3 + 4, 0, definition_id, 0, None).unwrap();
+            // Four hexes from the ground the extractor stands on, which is its eastern cell rather
+            // than its anchor now that a machine covers more than one hex.
+            core.place(4 + 4, 0, definition_id, 0, None).unwrap();
             let pole = core
                 .entities
                 .iter()
@@ -17013,8 +17027,8 @@ mod tests {
         core.player.inventory.insert(1, 40);
         core.player.inventory.insert(6, 40);
         stock_for(&mut core, 7, 1);
-        core.place(0, 5, 7, 0, Some(5)).unwrap();
-        let steel = core.entity_at(0, 5).unwrap();
+        core.place(0, 6, 7, 0, Some(5)).unwrap();
+        let steel = core.entity_at(0, 6).unwrap();
         core.entities[steel].inventory.insert(11, 2);
         core.entities[steel].inventory.insert(5, 2);
         core.tick_many(30);
@@ -17835,20 +17849,21 @@ mod tests {
     fn manual_workshop_permit_is_exclusive_and_blocked_starts_leave_state_unchanged() {
         let mut core = primitive_test_core();
         core.place(0, 4, 28, 0, Some(8)).unwrap();
-        core.place(-1, 4, 28, 0, Some(8)).unwrap();
+        // Two benches, side by side rather than overlapping: a workshop stands on two hexes.
+        core.place(-2, 4, 28, 0, Some(8)).unwrap();
         core.store(0, 4, 9, 2).unwrap();
-        core.store(-1, 4, 9, 2).unwrap();
+        core.store(-2, 4, 9, 2).unwrap();
         core.set_enabled(0, 4, true).unwrap();
         core.tick_many(5);
         let first = core.entity_at(0, 4).unwrap();
-        core.set_enabled(-1, 4, true).unwrap();
+        core.set_enabled(-2, 4, true).unwrap();
         assert!(core.entities[first].disabled);
         core.tick_many(24);
         assert_eq!(core.entities[first].progress, 5);
-        let second = core.entity_at(-1, 4).unwrap();
+        let second = core.entity_at(-2, 4).unwrap();
         core.entities[second].output_inventory.insert(16, 24);
         let before = core.checksum();
-        assert!(core.set_enabled(-1, 4, true).unwrap_err().contains("full"));
+        assert!(core.set_enabled(-2, 4, true).unwrap_err().contains("full"));
         assert_eq!(core.checksum(), before);
     }
 
@@ -17980,7 +17995,9 @@ mod tests {
         core.researched.extend([1, 2, 3, 4, 8]);
         core.player.carry_slots = 99;
         core.player.build_range = 1 << 20;
-        set_player_hex(&mut core, 3, 1);
+        // Well clear of every plot below, because a station now covers several hexes and someone
+        // standing on one of them is a placement failure rather than a priced bill.
+        set_player_hex(&mut core, 0, 8);
         let round_trip = |core: &mut Core, definition_id: DefinitionId, q: i32, r: i32, recipe| {
             core.player.inventory.clear();
             stock_for(core, definition_id, 1);
@@ -17998,7 +18015,8 @@ mod tests {
         };
         round_trip(&mut core, 1, 3, 0, None);
         round_trip(&mut core, 4, 0, 3, None);
-        round_trip(&mut core, 3, -2, 0, Some(1));
+        // West of the hub's own seven hexes, which the composer's three would otherwise reach into.
+        round_trip(&mut core, 3, -3, 0, Some(1));
         // The pole and the burner go wherever the clearing has room; their bills are the subject
         // here, not their geometry.
         for (definition_id, recipe) in [(7, Some(2)), (8, Some(6)), (9, Some(8)), (10, Some(9))] {
@@ -18220,9 +18238,9 @@ mod tests {
         powered.researched.extend([1, 2, 3]);
         stock_for(&mut powered, 3, 1);
         *powered.player.inventory.entry(11).or_insert(0) += 1;
-        powered.place(-2, 0, 3, 0, Some(16)).unwrap();
-        let composer = powered.entity_at(-2, 0).unwrap();
-        powered.store(-2, 0, 11, 1).unwrap();
+        powered.place(-3, 1, 3, 0, Some(16)).unwrap();
+        let composer = powered.entity_at(-3, 1).unwrap();
+        powered.store(-3, 1, 11, 1).unwrap();
         powered.tick_many(6);
         assert_eq!(
             powered.entities[composer].output_inventory.get(&25),
@@ -18455,10 +18473,12 @@ mod tests {
     #[test]
     fn a_click_walks_the_player_to_the_hex_it_named() {
         let mut core = game("new-game");
-        set_player_hex(&mut core, 1, 0);
+        // Outside the hub's seven hexes: the hub blocks movement, so a player standing inside it
+        // would be measuring collision rather than walking.
+        set_player_hex(&mut core, 2, 0);
         core.walk_to(6, 0).unwrap();
         assert_eq!(core.player.walk_goal, Some(Coordinate { q: 6, r: 0 }));
-        assert_route_is_walkable(&core, (1, 0), (6, 0));
+        assert_route_is_walkable(&core, (2, 0), (6, 0));
 
         // No further input at all — the run below sends an empty batch every frame.
         for _ in 0..12 {
@@ -18636,7 +18656,8 @@ mod tests {
     fn a_walk_is_hashed_saved_and_resumed() {
         let (definitions, technologies, scenarios) = catalogs();
         let mut core = game("new-game");
-        set_player_hex(&mut core, 1, 0);
+        // Outside the hub's seven hexes, so the walk being saved is a walk rather than a collision.
+        set_player_hex(&mut core, 2, 0);
         let idle = core.checksum();
         core.walk_to(6, 0).unwrap();
         assert_ne!(
@@ -19278,7 +19299,7 @@ mod tests {
 
         // Placement's other rules are untouched: creative is free, not lawless.
         assert!(core
-            .place(1, -1, 2, 0, None)
+            .place(2, 1, 2, 0, None)
             .unwrap_err()
             .contains("environment"));
     }
@@ -19590,7 +19611,8 @@ mod tests {
         for definition_id in [3, 4] {
             let mut core = game("new-game");
             core.set_creative(true);
-            set_player_hex(&mut core, 1, 3);
+            // Clear of the composer's three hexes, which reach south and east of their anchor.
+            set_player_hex(&mut core, 2, 2);
             core.place(0, 3, definition_id, 0, (definition_id == 3).then_some(1))
                 .unwrap();
             let target = core.entity_at(0, 3).unwrap();
@@ -19599,9 +19621,10 @@ mod tests {
             } else {
                 core.entities[target].placed.recipe_id = None;
             }
-            assert!(core.placement_legality(0, 4, 2, 4, None, false).is_ok());
-            core.place(0, 4, 2, 4, None).unwrap();
-            let belt = core.entity_at(0, 4).unwrap();
+            // The belt comes in from the north-west, on ground neither footprint stands on.
+            assert!(core.placement_legality(0, 2, 2, 1, None, false).is_ok());
+            core.place(0, 2, 2, 1, None).unwrap();
+            let belt = core.entity_at(0, 2).unwrap();
             assert_eq!(core.graph[belt].primary(), Some(target));
         }
     }
@@ -19753,11 +19776,12 @@ mod tests {
         let mut ground = game("new-game");
         ground.researched.extend([1, 2, 3, 4]);
         ground.player.inventory.insert(24, 20);
-        // The landing cliff sits on (1, -1); the neighbouring lowland hex stays buildable.
-        assert_eq!(ground.terrain_at(1, -1), Terrain::Cliff);
-        ground.place(0, -1, 2, 0, None).unwrap();
+        // The clearing's own blocked hex is (2, 1) — the landing cliff at (1, -1) is under the hub's
+        // seven hexes now — and the lowland beside it stays buildable.
+        assert!(ground.terrain_blocks_construction(2, 1));
+        ground.place(2, 0, 2, 0, None).unwrap();
         assert!(ground
-            .place(1, -1, 2, 0, None)
+            .place(2, 1, 2, 0, None)
             .unwrap_err()
             .contains("environment"));
     }
@@ -20146,7 +20170,7 @@ mod tests {
         let mut core = game("new-game");
         core.researched.extend([1, 2, 3]);
         stock_for(&mut core, 3, 1);
-        core.place(-2, 0, 3, 0, Some(1)).unwrap();
+        core.place(-3, 1, 3, 0, Some(1)).unwrap();
         let composer = core
             .snapshot()
             .buildings
@@ -20155,14 +20179,18 @@ mod tests {
             .unwrap();
         assert_eq!(
             composer.footprint,
-            vec![Coordinate { q: -2, r: 0 }, Coordinate { q: -2, r: -1 }]
+            vec![
+                Coordinate { q: -3, r: 1 },
+                Coordinate { q: -2, r: 1 },
+                Coordinate { q: -3, r: 2 }
+            ]
         );
         assert!(core
-            .place(-2, -1, 2, 0, None)
+            .place(-2, 1, 2, 0, None)
             .unwrap_err()
             .contains("footprint"));
-        core.erase(-2, -1).unwrap();
-        assert!(core.entity_at(-2, 0).is_none());
+        core.erase(-3, 2).unwrap();
+        assert!(core.entity_at(-3, 1).is_none());
     }
 
     /// A one-hex build reach still reaches a two-cell machine from the far lobe, even when the
@@ -20173,14 +20201,14 @@ mod tests {
         let mut core = game("new-game");
         core.researched.extend([1, 2, 3]);
         stock_for(&mut core, 3, 1);
-        core.place(-2, 0, 3, 0, Some(1)).unwrap();
+        core.place(-3, 1, 3, 0, Some(1)).unwrap();
         // One hex of world-unit reach: beside the far cell, out of range of the anchor alone.
         core.player.build_range = HEX_X as u32;
-        set_player_hex(&mut core, -2, -2);
-        assert!(core.entity_at(-2, 0).is_some());
-        core.erase(-2, 0).unwrap();
-        assert!(core.entity_at(-2, 0).is_none());
-        assert!(core.entity_at(-2, -1).is_none());
+        set_player_hex(&mut core, -3, 3);
+        assert!(core.entity_at(-3, 1).is_some());
+        core.erase(-3, 1).unwrap();
+        assert!(core.entity_at(-3, 1).is_none());
+        assert!(core.entity_at(-3, 2).is_none());
     }
 
     /// Every cell within `radius` steps of the anchor, as definition-relative offsets.
@@ -20339,13 +20367,16 @@ mod tests {
         core.player.carry_slots = 99;
         core.player.build_range = 1 << 20;
         set_player_hex(&mut core, 3, 2);
-        set_test_footprint(&mut core, 19, &[(0, 0), (0, 1)]);
+        // A superset of the extractor's own two hexes, growing south onto free ground.
+        set_test_footprint(&mut core, 19, &[(0, 0), (1, 0), (0, 1)]);
 
         stock_for(&mut core, 2, 1);
         core.place(3, 0, 1, 0, None).unwrap();
-        core.place(4, 0, 2, 0, None).unwrap();
+        // The extractor stands on (3, 0) and (4, 0), so the hex its output ray binds at is the
+        // first one past its own eastern cell.
+        core.place(5, 0, 2, 0, None).unwrap();
         let extractor = core.entity_at(3, 0).expect("the extractor stands");
-        let belt = core.entity_at(4, 0).expect("the belt stands");
+        let belt = core.entity_at(5, 0).expect("the belt stands");
         let fed = core.entities[belt].id;
         assert_eq!(
             core.graph[extractor].primary(),
@@ -20383,20 +20414,21 @@ mod tests {
         core.player.carry_slots = 99;
         reach(&mut core);
         set_player_hex(&mut core, 3, 2);
-        set_test_footprint(&mut core, 19, &[(0, 0), (1, 0)]);
+        // A superset of the extractor's own two hexes, growing east into the belt it feeds.
+        set_test_footprint(&mut core, 19, &[(0, 0), (1, 0), (2, 0)]);
 
         stock_for(&mut core, 2, 1);
         core.place(3, 0, 1, 0, None).unwrap();
-        core.place(4, 0, 2, 0, None).unwrap();
+        core.place(5, 0, 2, 0, None).unwrap();
         let extractor = core.entity_at(3, 0).expect("the extractor stands");
-        let belt = core.entity_at(4, 0).expect("the belt stands");
+        let belt = core.entity_at(5, 0).expect("the belt stands");
         let before = core.player.inventory.clone();
 
         let refusal = core.upgrade(3, 0).unwrap_err();
         assert!(refusal.contains("needs more room"), "{refusal}");
         assert_eq!(core.entities[extractor].placed.definition_id, 1);
         assert_eq!(
-            core.entity_at(4, 0),
+            core.entity_at(5, 0),
             Some(belt),
             "the neighbour is untouched"
         );
@@ -20407,11 +20439,11 @@ mod tests {
 
         // Ground the pair could not stand on together is the same refusal, asked of the whole
         // enlarged footprint rather than of the cell being grown onto.
-        core.erase(4, 0).unwrap();
+        core.erase(5, 0).unwrap();
         core.set_creative(true);
         reach(&mut core);
         for _ in 0..MAX_GRADE_STEPS {
-            core.edit_ground(&ground_edit(4, 0, GroundAction::Lower))
+            core.edit_ground(&ground_edit(5, 0, GroundAction::Lower))
                 .unwrap();
         }
         let refusal = core.upgrade(3, 0).unwrap_err();
@@ -20724,18 +20756,12 @@ mod tests {
             };
             index = next;
         }
+        // The chain is the same chain, one hop shorter at two of its links: the extractor stands on
+        // (-3, 0) and the cutter on (0, 1), so the belts that used to occupy those hexes are gone
+        // and the machines hand straight to what follows them.
         assert_eq!(
             path,
-            vec![
-                (-4, 0),
-                (-3, 0),
-                (-2, 0),
-                (-2, 1),
-                (-1, 1),
-                (0, 1),
-                (1, 1),
-                (2, 1)
-            ]
+            vec![(-4, 0), (-2, 0), (-2, 1), (-1, 1), (1, 1), (2, 1), (3, 1)]
         );
         core.tick_many(400);
         let produced = core.produced.get(&WOOD).copied().unwrap_or(0);
@@ -20778,11 +20804,11 @@ mod tests {
         let index = core
             .entities
             .iter()
-            .position(|entity| (entity.placed.q, entity.placed.r) == (-3, 0))
+            .position(|entity| (entity.placed.q, entity.placed.r) == (-2, 0))
             .unwrap();
         let old_links = core.graph_links_by_id();
         let id = core.entities[index].id;
-        let changed_cells = BTreeSet::from([(-3, 0)]);
+        let changed_cells = BTreeSet::from([(-2, 0)]);
         core.entities[index].placed.orientation = 1;
 
         let recompiled =
@@ -21073,9 +21099,10 @@ mod tests {
         stock_for(&mut core, 4, 1);
         set_player_hex(&mut core, 1, 3);
         core.place(0, 4, 3, 0, Some(1)).unwrap();
-        core.place(1, 4, 4, 0, None).unwrap();
+        // Past the composer's own three hexes, which reach east and south of its anchor.
+        core.place(2, 4, 4, 0, None).unwrap();
         let composer = core.entity_at(0, 4).unwrap();
-        let store = core.entity_at(1, 4).unwrap();
+        let store = core.entity_at(2, 4).unwrap();
         let capacity = core.building_definition(3).unwrap().capacity.unwrap();
 
         core.player.inventory.clear();
@@ -21115,7 +21142,7 @@ mod tests {
         // and per-item there would make a tier-one crate hold every item in the game at capacity.
         let shelf = core.building_definition(4).unwrap().capacity.unwrap();
         core.player.inventory.insert(11, shelf);
-        core.store_into(1, 4, StockKind::Inventory, 11, shelf)
+        core.store_into(2, 4, StockKind::Inventory, 11, shelf)
             .unwrap();
         assert!(!core.can_accept(
             store,
@@ -21182,18 +21209,24 @@ mod tests {
         stock_for(&mut core, 13, 1);
         core.player.inventory.insert(5, 16);
         core.player.inventory.insert(24, 8);
-        set_player_hex(&mut core, 3, 1);
-        core.place(3, 0, 1, 3, None).unwrap();
-        core.place(2, 0, 2, 3, None).unwrap();
-        core.place(1, 0, 3, 3, Some(1)).unwrap();
-        let composer = core.entity_at(1, 0).unwrap();
+        set_player_hex(&mut core, 4, 2);
+        // The same westward line, laid out around what each machine now stands on. The hub covers
+        // every hex within one of the origin, so the line starts three further east and the
+        // composer hands into the hub's eastern rim, which is what closes the stage. An extractor
+        // is placed on its deposit rather than beside it, so the ore is written under the anchor
+        // it moved to: this is a test about stages, not about where a generator puts iron.
+        core.write_overlay(6, 0, 1, 2, 48);
+        core.place(6, 0, 1, 3, None).unwrap();
+        core.place(4, 0, 2, 3, None).unwrap();
+        core.place(3, 0, 3, 3, Some(1)).unwrap();
+        let composer = core.entity_at(3, 0).unwrap();
         core.entities[composer]
             .input_inventory
             .extend([(11, 1), (19, 1)]);
-        set_player_hex(&mut core, 6, 0);
-        let pole = try_place_near(&mut core, (3, 0), 12);
+        set_player_hex(&mut core, 5, 2);
+        let pole = try_place_near(&mut core, (6, 0), 12);
         let burner = try_place_near(&mut core, pole, 13);
-        try_place_near(&mut core, (1, 0), 12);
+        try_place_near(&mut core, (3, 0), 12);
         let _ = burner;
         if let Some(burner) = core
             .entities
@@ -21616,7 +21649,7 @@ mod tests {
     }
 
     /// A delivery is in range of the landing hub when the player stands beside *any* cell it
-    /// occupies. The hub is three hexes; measuring from the anchor alone made the far lobes
+    /// occupies. The hub is seven hexes; measuring from the anchor alone made the far lobes
     /// decorative — you could stand next to them and still be told to walk closer.
     #[test]
     fn hub_delivery_reaches_from_every_footprint_cell() {
@@ -21630,8 +21663,12 @@ mod tests {
             core.entity_footprint(hub),
             vec![
                 Coordinate { q: 0, r: 0 },
+                Coordinate { q: 1, r: 0 },
                 Coordinate { q: 0, r: 1 },
                 Coordinate { q: -1, r: 1 },
+                Coordinate { q: -1, r: 0 },
+                Coordinate { q: 0, r: -1 },
+                Coordinate { q: 1, r: -1 },
             ]
         );
 
@@ -23126,7 +23163,7 @@ mod tests {
         // The clearing generates nothing since v0.21, so the deposit the extractor further down
         // stands on is written here rather than found. Same reasoning as `TEST_FIELD`: this is a
         // test about which marks a delta carries, not about where a generator puts iron.
-        factory.core.write_overlay(3, 0, 1, 48, 48);
+        factory.core.write_overlay(6, 0, 1, 48, 48);
         let surveyed_at_start = factory.core.generated_chunks.len();
 
         // Establish the baseline exactly as the worker does on its first frame.
@@ -23183,13 +23220,16 @@ mod tests {
         check(&mut factory, "restocking the player");
 
         // Construction: inserted entities, recompiled transport, and per-chunk entity counts.
-        set_player_hex(&mut factory.core, 3, 1);
+        // The build site stands off the hub's seven hexes: the composer's three would otherwise
+        // reach into them. The line still runs west and the composer still hands into the hub's
+        // eastern rim; only the empty ground between the machines moved.
+        set_player_hex(&mut factory.core, 4, 2);
         check(&mut factory, "walking to the build site");
-        factory.core.place(3, 0, 1, 3, None).unwrap();
+        factory.core.place(6, 0, 1, 3, None).unwrap();
         check(&mut factory, "placing an extractor");
-        factory.core.place(2, 0, 2, 3, None).unwrap();
+        factory.core.place(4, 0, 2, 3, None).unwrap();
         check(&mut factory, "placing a belt");
-        factory.core.place(1, 0, 3, 3, Some(1)).unwrap();
+        factory.core.place(3, 0, 3, 3, Some(1)).unwrap();
         check(&mut factory, "placing a composer");
 
         // The factory running: machine progress, cargo transfer, hub deliveries, and victory.
@@ -23201,14 +23241,14 @@ mod tests {
 
         // Edits against a live blueprint, including orientations that split and rejoin components.
         for turn in 0..6 {
-            factory.core.rotate(2, 0, false).unwrap();
+            factory.core.rotate(4, 0, false).unwrap();
             check(&mut factory, &format!("rotating a belt, turn {turn}"));
         }
-        factory.core.erase(2, 0).unwrap();
+        factory.core.erase(4, 0).unwrap();
         check(&mut factory, "erasing a belt");
         factory.core.advance(IDLE, 5, 0).unwrap();
         check(&mut factory, "ticking with the belt gone");
-        factory.core.place(2, 0, 2, 3, None).unwrap();
+        factory.core.place(4, 0, 2, 3, None).unwrap();
         check(&mut factory, "replacing the belt");
 
         // Cutting flora and letting it grow back. Regrowth is the one thing that changes a deposit
@@ -23814,8 +23854,10 @@ mod tests {
         let mut core = empty_world("new-game");
         let belt_id = add_test_entity(&mut core, 0, 0, 2, 0);
         let pipe_id = add_test_entity(&mut core, 1, 0, 32, 0);
-        let water_tank_id = add_test_entity(&mut core, 2, 0, 34, 0);
-        let oil_tank_id = add_test_entity(&mut core, 3, 0, 35, 0);
+        // A tank covers every hex within one of its anchor, so the two of them stand three apart
+        // and the pipe hands into the western rim of the first rather than into its anchor.
+        let water_tank_id = add_test_entity(&mut core, 3, 0, 34, 0);
+        let oil_tank_id = add_test_entity(&mut core, 6, 0, 35, 0);
         let belt = index_of(&core, belt_id);
         let pipe = index_of(&core, pipe_id);
         let water_tank = index_of(&core, water_tank_id);
@@ -24019,7 +24061,9 @@ mod tests {
         }
         ore.player.carry_slots = 99;
         let before = ore.player.inventory.clone();
-        set_player_hex(&mut ore, 3, 1);
+        // Clear of the ground the deeper tier grows onto: it takes (3, 1) as well as the two hexes
+        // the first tier stands on.
+        set_player_hex(&mut ore, 4, 1);
         ore.place(3, 0, 1, 0, None).unwrap();
         ore.upgrade(3, 0).unwrap();
         assert_eq!(
@@ -24040,7 +24084,8 @@ mod tests {
         core.researched.extend([1, 2, 12]);
         stock_for(&mut core, 1, 1);
         stock_for(&mut core, 19, 1);
-        set_player_hex(&mut core, 3, 1);
+        // Clear of the ground the deeper tier grows onto.
+        set_player_hex(&mut core, 4, 1);
         core.place(3, 0, 1, 0, None).unwrap();
 
         let shallow = core.entity_at(3, 0).unwrap();
@@ -24255,7 +24300,11 @@ mod tests {
         // entered the checksum. The workload's shape, entity count, and delivered total did not move.
         // Petroleum roads adds the oil site rule and world generator 10; the transport workload
         // and its delivered total remain unchanged.
-        assert_eq!(first.checksum(), 1_951_253_762);
+        //
+        // 1_951_253_762 → 360_047_202 when machines took their physical footprints and the line was
+        // respaced around them. The entity count, the chain's hop count and the delivered total did
+        // not move — only the empty ground between the machines, and so their coordinates.
+        assert_eq!(first.checksum(), 360_047_202);
         assert_eq!(first.entities.len(), spec.entities() as usize);
         // Every line must be running end to end, or the tiers would measure an idle blueprint.
         // Four per line rather than fourteen: the line is now extraction-bound, because a
@@ -25831,13 +25880,14 @@ mod tests {
     fn a_quarried_cliff_stops_being_a_wall() {
         let mut core = game("new-game");
         reach(&mut core);
-        assert_eq!(core.terrain_at(1, -1), Terrain::Cliff);
-        assert!(core.terrain_blocks_movement(1, -1));
-        assert!(core.terrain_blocks_construction(1, -1));
-        assert!(!core.walkable_hex(1, -1));
+        // The nearest cliff face outside the landing hub's own seven hexes.
+        assert_eq!(core.terrain_at(2, -1), Terrain::Cliff);
+        assert!(core.terrain_blocks_movement(2, -1));
+        assert!(core.terrain_blocks_construction(2, -1));
+        assert!(!core.walkable_hex(2, -1));
         assert_eq!(core.spoil, 0);
 
-        let pave = core.ground_preview(&ground_edit(1, -1, GroundAction::Pave));
+        let pave = core.ground_preview(&ground_edit(2, -1, GroundAction::Pave));
         assert!(
             pave.error
                 .as_deref()
@@ -25846,25 +25896,25 @@ mod tests {
             pave.error
         );
 
-        core.edit_ground(&ground_edit(1, -1, GroundAction::Lower))
+        core.edit_ground(&ground_edit(2, -1, GroundAction::Lower))
             .unwrap();
-        assert!(core.cliff_quarried(1, -1));
-        assert_eq!(core.terrain_at(1, -1), Terrain::Cliff);
+        assert!(core.cliff_quarried(2, -1));
+        assert_eq!(core.terrain_at(2, -1), Terrain::Cliff);
         assert_eq!(
-            core.ground_elevation_at(1, -1),
+            core.ground_elevation_at(2, -1),
             natural_elevation(Terrain::Highland)
         );
-        assert!(!core.terrain_blocks_movement(1, -1));
-        assert!(!core.terrain_blocks_construction(1, -1));
-        assert!(core.walkable_hex(1, -1));
+        assert!(!core.terrain_blocks_movement(2, -1));
+        assert!(!core.terrain_blocks_construction(2, -1));
+        assert!(core.walkable_hex(2, -1));
         // Quarried rock leaves as spoil, on the same ledger every other cut pays into.
         assert_eq!(core.spoil, 1);
 
         // Undo is the edit run backwards, so the wall comes back and takes its spoil with it.
         core.undo_ground().unwrap();
-        assert!(!core.cliff_quarried(1, -1));
-        assert!(core.terrain_blocks_movement(1, -1));
-        assert!(core.terrain_blocks_construction(1, -1));
+        assert!(!core.cliff_quarried(2, -1));
+        assert!(core.terrain_blocks_movement(2, -1));
+        assert!(core.terrain_blocks_construction(2, -1));
         assert_eq!(core.spoil, 0);
         assert!(core.ground.is_empty());
     }

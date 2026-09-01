@@ -178,7 +178,19 @@ export function collectMachineParts(
     );
     center.x /= centers.length;
     center.y /= centers.length;
-    const footprintScale = 1 + Math.min(2, cells.length - 1) * 0.18;
+    // How big a machine looks follows how far its plot actually reaches, not how many hexes it
+    // happens to be made of. Counting cells and capping at three was readable while nothing stood
+    // on more than a hex or two; against a nineteen-hex refinery it drew the same silhouette as a
+    // pair. Reach is measured from the plot's own centre, so a compact ring and a long line of the
+    // same count read differently, which is what the player is looking at. The coefficient is
+    // tuned so a plot's silhouette grows to cover most of it while leaving the rim cells showing:
+    // the service clearance stays visible, which is the thing the player reads a plot for.
+    const reach = Math.max(
+      ...centers.map((point) =>
+        Math.hypot(point.x - center.x, point.y - center.y),
+      ),
+    );
+    const footprintScale = 1 + reach * 0.9;
     const buildingGround = Math.max(
       ...cells.map((cell) => groundHeight(cell.q, cell.r)),
     );

@@ -11,7 +11,7 @@
       "world_preset": "continental",
       "chunk_size": 8,
       "generated_environment": true,
-      "player_spawn": { "q": 1, "r": 0 },
+      "player_spawn": { "q": 1, "r": 1 },
       "player_facing": 0,
       "build_range": 5,
       "carry_slots": 8,
@@ -98,13 +98,6 @@
           "scenario_owned": true
         },
         {
-          "q": -3,
-          "r": 0,
-          "definition_id": 2,
-          "orientation": 0,
-          "scenario_owned": true
-        },
-        {
           "q": -2,
           "r": 0,
           "definition_id": 2,
@@ -127,21 +120,21 @@
           "scenario_owned": true
         },
         {
-          "q": 0,
+          "q": 1,
           "r": 1,
           "definition_id": 2,
           "orientation": 0,
           "scenario_owned": true
         },
         {
-          "q": 1,
+          "q": 2,
           "r": 1,
           "definition_id": 4,
           "orientation": 0,
           "scenario_owned": true
         },
         {
-          "q": 2,
+          "q": 3,
           "r": 1,
           "definition_id": 5,
           "orientation": 0,
@@ -162,7 +155,7 @@
           "scenario_owned": true
         },
         {
-          "q": -4,
+          "q": -5,
           "r": -1,
           "definition_id": 14,
           "orientation": 0,
