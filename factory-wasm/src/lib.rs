@@ -9,6 +9,15 @@ use wasm_bindgen::prelude::*;
 mod boundaries;
 mod ground;
 mod ground_spine;
+/// Phase 8 slice 4: departure from generated water equilibrium, and the bounded solve that settles
+/// it.
+///
+/// Nothing that ships reads it yet, which is what the `dead_code` allowance says out loud. It is on
+/// the module rather than on its items so that wiring the first caller takes the whole allowance
+/// off in one edit, and anything the activation leaves behind shows up as a warning instead of
+/// hiding under a permanent per-item exemption.
+#[allow(dead_code)]
+mod hydrology;
 #[cfg(test)]
 mod petroleum_tests;
 mod recipes;
