@@ -22,6 +22,10 @@ export const HEIGHT_UNIT_HEIGHT =
       // the shipped grade already draws, so a legacy world's relief is exactly what it was.
       GRADE_STEP_HEIGHT;
 
+/** Physical metres represented by one native height unit, derived from the same scale fixture. */
+export const HEIGHT_UNIT_METRES =
+  (HEIGHT_UNIT_HEIGHT * sceneScale.cell_circumradius_mm) / 1000;
+
 /**
  * The height difference that draws as a vertical face rather than an ordinary blended slope.
  *

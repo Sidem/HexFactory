@@ -54,6 +54,7 @@ export interface Ingredient {
 }
 
 export interface ItemDefinition {
+  erosion_resistance?: number;
   id: number;
   key: string;
   name: string;
@@ -1083,6 +1084,7 @@ export interface NativeFactory {
 
 export type BoundaryFamily = "fence" | "wall";
 export interface BoundaryDefinition {
+  erosion_resistance?: number;
   id: number;
   key: string;
   name: string;
@@ -1139,6 +1141,7 @@ export interface BoundaryPreview {
 
 /** One surface a hex can be finished with. `movement` is a percentage of untreated ground. */
 export interface SurfaceDefinition {
+  erosion_resistance?: number;
   unlock_technology_id?: number;
   base_surface_id?: number;
   id: number;
@@ -1161,6 +1164,8 @@ export interface GroundCell {
   surface: number;
   /** Steps above or below the hex's natural grade, bounded by native's `MAX_GRADE_STEPS`. */
   elevation: number;
+  /** Slow live erosion (negative) or deposition (positive), separate from paid earthwork. */
+  erosion?: number;
   paid: Ingredient[];
 }
 

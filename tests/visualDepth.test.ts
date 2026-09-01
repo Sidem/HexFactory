@@ -1386,7 +1386,12 @@ describe("Terrain surfaces", () => {
       "hfWorld = ( modelMatrix * hfInstanced ).xyz;",
     );
     expect(shader.fragmentShader).toContain("void hfSurface()");
+    expect(shader.fragmentShader).toContain("void hfRelief()");
+    expect(shader.fragmentShader).toContain("hfRelief();");
     expect(shader.fragmentShader).toContain("diffuseColor.rgb *= hfAlbedo;");
+    expect(shader.fragmentShader).toContain(
+      "hfFrontier < 0.999 && hfHash12( floor( gl_FragCoord.xy ) )",
+    );
     expect(shader.fragmentShader).toContain(
       "roughnessFactor = clamp( hfRough, 0.04, 1.0 );",
     );

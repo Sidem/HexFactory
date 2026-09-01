@@ -1,5 +1,5 @@
 {
-  "version": 29,
+  "version": 30,
   "items": [
     {
       "id": 1,
@@ -97,6 +97,7 @@
       "stack_size": 30,
       "fuel_value": 40,
       "regrowth_ticks": 450,
+      "erosion_resistance": 4,
       "hand_gather_steps": 15,
       "extract_steps": 10
     },
@@ -2677,6 +2678,7 @@
       "description": "Two rails mark a boundary and block walking and transport across its edge. Leaves both hexes free. Make timber at the manual workshop.",
       "family": "fence",
       "gate": false,
+      "erosion_resistance": 16,
       "construction_cost": [
         {
           "item_id": 16,
@@ -2691,6 +2693,7 @@
       "description": "A manual, unpowered crossing. Built open; close it when the edge is clear. Timber and iron wire are both made at the manual workshop.",
       "family": "fence",
       "gate": true,
+      "erosion_resistance": 16,
       "construction_cost": [
         {
           "item_id": 16,
@@ -2709,6 +2712,7 @@
       "description": "A solid boarded wall. It still leaves both hexes free, but you cannot see through it. Four lengths of timber from the manual workshop.",
       "family": "wall",
       "gate": false,
+      "erosion_resistance": 65535,
       "construction_cost": [
         {
           "item_id": 16,
@@ -2723,6 +2727,7 @@
       "description": "Timber posts and iron wire. See through the enclosure; still blocks walking and transport. Wire is drawn at the manual workshop.",
       "family": "fence",
       "gate": false,
+      "erosion_resistance": 24,
       "construction_cost": [
         {
           "item_id": 16,
@@ -2741,6 +2746,7 @@
       "description": "A see-through manual crossing. Built open. Timber and iron wire are both made at the manual workshop.",
       "family": "fence",
       "gate": true,
+      "erosion_resistance": 24,
       "construction_cost": [
         {
           "item_id": 16,
@@ -2759,6 +2765,7 @@
       "description": "Fired brick set in cement. The first masonry enclosure: opaque, oil-free, and it leaves both hexes free.",
       "family": "wall",
       "gate": false,
+      "erosion_resistance": 65535,
       "unlock_technology_id": 20,
       "construction_cost": [
         {
@@ -2778,6 +2785,7 @@
       "description": "A masonry doorway with a manual, unpowered leaf. Built open. Research Fired Masonry; brick and cement come from the kiln.",
       "family": "wall",
       "gate": true,
+      "erosion_resistance": 65535,
       "unlock_technology_id": 20,
       "construction_cost": [
         {
@@ -2801,6 +2809,7 @@
       "description": "A poured industrial enclosure. Two concrete, which now means cement, aggregate, sand and water.",
       "family": "wall",
       "gate": false,
+      "erosion_resistance": 65535,
       "unlock_technology_id": 20,
       "construction_cost": [
         {
@@ -2817,6 +2826,7 @@
       "name": "Compacted earth",
       "description": "Tamped dirt, no materials needed. A tenth faster than raw ground and the cheapest way to learn where your paths actually run.",
       "movement": 110,
+      "erosion_resistance": 65535,
       "construction_cost": []
     },
     {
@@ -2825,6 +2835,7 @@
       "name": "Gravel yard",
       "description": "Crushed stone spread and rolled flat. A fifth faster than raw ground. Crush stone into gravel at the manual workshop.",
       "movement": 120,
+      "erosion_resistance": 65535,
       "construction_cost": [
         {
           "item_id": 17,
@@ -2838,6 +2849,7 @@
       "name": "Timber decking",
       "description": "Planks laid over the ground. A quarter faster than raw ground, and made from wood you already cut.",
       "movement": 125,
+      "erosion_resistance": 65535,
       "construction_cost": [
         {
           "item_id": 16,
@@ -2851,6 +2863,7 @@
       "name": "Brick pavers",
       "description": "Fired brick set in a bed of sand. A quarter faster than raw ground, and it does not rot underfoot.",
       "movement": 125,
+      "erosion_resistance": 65535,
       "construction_cost": [
         {
           "item_id": 14,
@@ -2864,6 +2877,7 @@
       "name": "Concrete slab",
       "description": "Poured and cured. A durable oil-free yard with 30% faster walking than raw ground.",
       "movement": 130,
+      "erosion_resistance": 65535,
       "construction_cost": [
         {
           "item_id": 21,
@@ -2877,6 +2891,7 @@
       "name": "Asphalt road",
       "description": "A fast logistics road, not a structural floor. Lay over a gravel yard: the base stays paid into the road and comes back when stripped. Two asphalt per hex; 50% faster than raw ground.",
       "movement": 150,
+      "erosion_resistance": 65535,
       "unlock_technology_id": 22,
       "base_surface_id": 2,
       "construction_cost": [

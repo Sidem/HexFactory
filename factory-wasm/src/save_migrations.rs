@@ -252,6 +252,20 @@ pub(super) fn migrate<'a>(json: &'a str, target_version: u16) -> Result<Cow<'a, 
         version = 40;
     }
 
+    // Version 41 adds slow live erosion. A version-40 world has neither an erosion delta nor bank
+    // stress: both fields default to zero/empty, and both checksum paths are guarded on non-zero
+    // state, so the original file verifies unchanged. Definitions move because paving, vegetation
+    // and retaining boundaries now author their resistance explicitly.
+    if version == 40 && target_version >= 41 {
+        if let Some(object) = value.as_object_mut() {
+            object.insert("save_version".into(), Value::from(41));
+            if object.get("definition_version") == Some(&Value::from(29)) {
+                object.insert("definition_version".into(), Value::from(30));
+            }
+        }
+        version = 41;
+    }
+
     if version == target_version {
         return Ok(Cow::Owned(serde_json::to_string(&value).map_err(
             |error| format!("migrated save could not be written: {error}"),

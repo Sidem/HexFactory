@@ -388,6 +388,7 @@ fn petroleum_roads_require_research_and_base_and_refund_both_layers() {
                                 r,
                                 surface,
                                 elevation: 0,
+                                erosion: 0,
                                 paid: vec![],
                             },
                         );

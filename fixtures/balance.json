@@ -2088,7 +2088,7 @@
     }
   ],
   "reference": {
-    "definition_version": 29,
+    "definition_version": 30,
     "technology_version": 16,
     "ticks_per_second": 10,
     "player_ticks_per_second": 30,

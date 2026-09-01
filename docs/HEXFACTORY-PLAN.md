@@ -77,16 +77,16 @@ catalog shows which one moved rather than hiding the row:
 
 | Envelope              | Version |
 | --------------------- | ------: |
-| `HXF1` save           |      39 |
-| Definitions           |      29 |
+| `HXF1` save           |      41 |
+| Definitions           |      30 |
 | Technologies          |      16 |
 | Scenarios             |       8 |
-| World generator       |      11 |
-| Wire (snapshot delta) |      22 |
+| World generator       |      12 |
+| Wire (snapshot delta) |      23 |
 
-These are the Phase 8 activation numbers, on `main` and not yet carrying a release number. Save 36
-and below is the old 1 m² world and is refused with an export path rather than migrated; save 37 and
-38 advance by stamp onto 39.
+These are the completed Phase 8 numbers, on `main` and not yet carrying a release number. Save 36
+and below is the old 1 m² world and is refused with an export path rather than migrated; save 37
+advances by stamp to 38, 38 to 39, 39 to 40, and 40 adopts empty live-erosion state at 41.
 
 **Current measured capacity.** The v0.43 audit puts the complete 6,144-entity Three.js browser frame
 at 32.3% of 60 Hz on Low, 33.5% on Medium, and 33.9% on High on the reference desktop at
@@ -104,7 +104,7 @@ to change.
 
 **Last release: v0.46.0 Shaped Ground.** Earthworks are selected as a shape rather than a heap of hexes: hex, line, rectangle and circle, each with an outline modifier that reuses the two anchors already placed, plus a depth of one to three steps and a levelling datum the player names. A refused selection keeps its footprint on screen and points at the hex in the way instead of disappearing.
 
-**On `main` since, unreleased: the Phase 8 scale break.** One construction hex is 25 m², altitude is physical native height, and buildings, belts and the renderer were reauthored around it. Slices 1 to 4 of the phase below are complete; slice 5 is the next work.
+**On `main` since, unreleased: the complete Phase 8 scale break.** One construction hex is 25 m², altitude is physical native height, drainage and sparse water answer the ground, and slow bounded geomorphic epochs let surveyed rivers answer what the player built. The next approved work is row 9, Living Lattice.
 
 ### Current assessment — 2026-08-29
 
@@ -174,16 +174,37 @@ the factory.
 
 ## What to do next
 
+### Start here next session — completed before row 8 slice 5
+
+The test reduction the user asked for is **done and pushed** (660 tests to 323; `npm run quality`
+green), and this corrective pass is complete:
+
+1. **Done — slope shading contrast.** The world read flat, and measurement says it was a shading
+   problem, not a generation one: 53.5 m of relief was already in view. The correction lives in
+   `src/rendering/three/terrainSurface.ts`. Do **not** retune generation amplitude — that was tried
+   and rejected on the measurement.
+2. **Done — frontier fade at the survey rim.** The same renderer path now dissolves the hard edge
+   where the surveyed set ends.
+3. **Done — altitude in the tile inspector.** The readout beside `#inspect-q` / `#inspect-r` in
+   `index.html` is filled from `src/main.ts`. Its source is `TerrainSnapshot.height` plus the matching
+   `GroundCell.elevation` overlay, with live erosion kept as its separate native overlay: 250 mm per
+   quantum and sea level at zero. `src/rendering/three/terrainMeshes.ts` sums the same fields for the
+   drawn surface, and `sceneScale` owns the shared conversion rather than a second constant.
+
+Two corrections to the analysis this work came from remain measured facts: the material map is
+**not** ">99% Lowland" (world 11 measured Hills at 889 per mille), and the landing site flattens far
+less than that analysis claimed.
+
 Phases 1 to 7 are **shipped**, and the user-requested pipe infrastructure shipped between rows 7 and 8 as v0.45.0 without reordering the approved sequence. Read the ledger for what each release delivered.
 
-| Order | Work                                    | Scope and dependency                                                                                                                                                                                                                                                                                             |
-| ----- | --------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 7     | Icon pass and integrated validation     | **Shipped as v0.44.0.** The emblem library covers buildings, recipe categories and branches under one contract; accessibility and the measured-capacity position are stated in the ledger.                                                                                                                       |
-| 8     | Flowing water                           | **In flight — slices 1–4 complete, unreleased; slice 5 is next.** The scale break, physical altitude, drainage-shaped landforms, reauthored footprints and sparse disturbed water are live; slow geomorphic epochs are the remaining work. Supersedes the old fluid-network and water-reshaping horizon entries. |
-| 9     | Living Lattice                          | Animals, biomatter and waste as one ecological system. Reuses phase 4's joint-output costing. Brief below.                                                                                                                                                                                                       |
-| 10    | Supported floors and vertical transport | Support classes, the first upper floor, stairs, belt lifts and a layer view, standing on phase 3's grades. Needs the beams and concrete phase 3 and 4 produce.                                                                                                                                                   |
-| 11    | The primitive human                     | The player gains needs and attributes. Depends on flowing water and Living Lattice for a food supply worth automating, and revises the skills budget rather than sitting beside it.                                                                                                                              |
-| 12    | Regional Discovery                      | The play half of regional variation: survey tools, distant sites, outposts. Brief below.                                                                                                                                                                                                                         |
+| Order | Work                                    | Scope and dependency                                                                                                                                                                                                                                                |
+| ----- | --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 7     | Icon pass and integrated validation     | **Shipped as v0.44.0.** The emblem library covers buildings, recipe categories and branches under one contract; accessibility and the measured-capacity position are stated in the ledger.                                                                          |
+| 8     | Flowing water                           | **Complete on `main`, unreleased.** The scale break, physical altitude, drainage-shaped landforms, reauthored footprints, sparse disturbed water and slow bounded geomorphic epochs are live. Supersedes the old fluid-network and water-reshaping horizon entries. |
+| 9     | Living Lattice                          | Animals, biomatter and waste as one ecological system. Reuses phase 4's joint-output costing. Brief below.                                                                                                                                                          |
+| 10    | Supported floors and vertical transport | Support classes, the first upper floor, stairs, belt lifts and a layer view, standing on phase 3's grades. Needs the beams and concrete phase 3 and 4 produce.                                                                                                      |
+| 11    | The primitive human                     | The player gains needs and attributes. Depends on flowing water and Living Lattice for a food supply worth automating, and revises the skills budget rather than sitting beside it.                                                                                 |
+| 12    | Regional Discovery                      | The play half of regional variation: survey tools, distant sites, outposts. Brief below.                                                                                                                                                                            |
 
 These are delivery phases, not a single giant release, and a phase may ship as several versions.
 Do not start a later row in parallel with an earlier one unless the user changes priority; an unmet
@@ -216,29 +237,6 @@ why the row leads with clarity as well as icons; items 2 and 4 belong to row 10 
    discovering it from a disabled Load button.
 4. Add a deterministic stacked-floor/lift capacity tier and rerun Low, Medium and High before a
    floor release. The current 6,144-entity record is already near the desktop gate.
-
-### Start here next session — three items, then back to row 8 slice 5
-
-Left unfinished on 2026-09-01. The test reduction the user asked for is **done and pushed**
-(660 tests to 323; `npm run quality` green), so nothing below is blocked.
-
-1. **Slope shading contrast.** The world reads flat, and measurement says it is a shading problem,
-   not a generation one: 53.5 m of relief is already in view. Fix it in
-   `src/rendering/three/terrainSurface.ts` (with `terrainStyle.ts` for the palette). Do **not**
-   retune generation amplitude — that was tried and rejected on the measurement.
-2. **Frontier fade at the survey rim.** Discovery no longer opens jagged, but the rim is still a
-   hard edge. Fade it where the surveyed set ends, in the same renderer path.
-3. **Altitude in the tile inspector.** The inspect panel prints q and r only. Add a third readout
-   beside them: `index.html` around line 993 (`.inspect-coord`, `#inspect-q` / `#inspect-r`), filled
-   in `src/main.ts` near line 2477. The number is `TerrainSnapshot.height` plus the matching
-   `GroundCell.elevation` overlay, both in native height units at 250 mm per quantum, sea level at
-   zero — `src/rendering/three/terrainMeshes.ts:210` already sums exactly that pair. Show metres,
-   signed, one decimal. Do not invent a second conversion constant; the quantum is in
-   `factory-wasm/src/scale.rs` and reaches the host through `sceneScale`.
-
-Two corrections to the analysis this work came from, both measured, so they are not re-derived:
-the material map is **not** ">99% Lowland" (world 11 measured Hills at 889 per mille), and the
-landing site flattens far less than that analysis claimed.
 
 Rows 5 and 6 (both shipped), flowing water and the primitive human were added on 2026-08-28 at the
 user's direction. Their direction and priority are approved; the costs, rates and tuning hypotheses
@@ -538,9 +536,27 @@ partially activated physical model.
    resumable frontier boundaries, finite and replenishing pumps, bounded creative flood/drain
    commands and save/load/checksum coverage share one native depth predicate. The active front and
    settled-world zero-work case are recorded in [`BENCHMARKS.md`](BENCHMARKS.md).
-5. **Geomorphic epochs.** Add curvature, resistance, bank stress, deposition and local reflow with
-   an accelerated deterministic harness. Ship only after protected infrastructure and finite work
-   bounds are visible and tested.
+5. **Geomorphic epochs — complete.** Curvature, data-authored resistance, sparse bank stress,
+   one-quantum erosion/deposition and bounded local reflow run on a coarse deterministic cadence.
+   The accelerated native harness and protected-infrastructure tests pin the same sequence.
+
+#### Slice 5 complete
+
+Slice 5 completes Phase 8 at save 41 / definitions 30 / world 12 / wire 23:
+
+- Once per 36,000 ticks, native inspects at most 256 surveyed chunks, 65,536 generated cells and
+  4,096 wet river edges in a deterministic rotating coordinate window. Straight reaches do no work;
+  at most 64 bends can move one 0.25 m quantum in one epoch, and the existing bounded water solver
+  reflows only from the changed cells.
+- Outside-bank stress is sparse, validated, saved and checksummed. Earthwork and erosion remain
+  separate native facts and separate wire fields; the renderer sums them only for presentation.
+  A save-40 world adopts empty stress and erosion without changing its verified checksum.
+- Substrate, living wood, prepared surfaces and boundary definitions author resistance. Paving,
+  masonry walls and occupied infrastructure protect their bank; an erosion event never silently
+  changes deposit identity.
+- `npm run erosion` accelerates the exact production epoch path. At seed 1213486160 over 121
+  surveyed chunks, 1,086 flowing edges produced 117 bends; the first bank moved after eight
+  accelerated epochs, the pass stayed below every bound, and save/load preserved its checksum.
 
 #### Slice 4 complete
 

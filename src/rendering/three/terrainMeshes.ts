@@ -200,11 +200,17 @@ export function buildTerrainMeshes(
 /** One published tile joined with whatever earthwork and water the player has moved on top of it. */
 function terrainCell(
   tile: TerrainSnapshot,
-  ground: { readonly elevation: number; readonly surface: number } | undefined,
+  ground:
+    | {
+        readonly elevation: number;
+        readonly erosion?: number;
+        readonly surface: number;
+      }
+    | undefined,
   water: { readonly departure: number } | undefined,
 ): TerrainCell {
   const world = axialToPixel(tile, WORLD_SCALE, { x: 0, y: 0 });
-  const elevation = ground?.elevation ?? 0;
+  const elevation = (ground?.elevation ?? 0) + (ground?.erosion ?? 0);
   // Generated bed and paid-for earthwork are the same unit and native sums them, so the host does
   // too. Everything that stands on the terrain follows from this one number.
   const height = (tile.height + elevation) * HEIGHT_UNIT_HEIGHT;

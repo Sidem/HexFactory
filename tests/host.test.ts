@@ -1655,14 +1655,14 @@ describe("availability and expanded snapshot adapter", () => {
     expect(snapshot.player.action_cooldown_total).toBeGreaterThan(0);
   });
 
-  it("names every surveyed hex, including the band native does not send", () => {
+  it("names every surveyed hex from the physical terrain payload", () => {
     const main = readFileSync(
       new URL("../src/main.ts", import.meta.url),
       "utf8",
     );
-    // Lowland is the default surveyed fill and is deliberately omitted from the terrain group, so
-    // a surveyed hex with no entry is lowland — not an unknown tile and not a hole in the world.
-    expect(main).toContain('?.terrain ?? "lowland"');
+    // Physical ground publishes every surveyed cell because height has no implicit lowland value.
+    expect(main).toContain("const terrainSample = surveyed");
+    expect(main).toContain("const terrain = terrainSample?.terrain");
     for (const band of TERRAIN_ORDER) {
       expect(TERRAIN_INFO[band].name, band).toBeTruthy();
       expect(TERRAIN_INFO[band].note, band).toBeTruthy();
@@ -1670,7 +1670,7 @@ describe("availability and expanded snapshot adapter", () => {
     // A field hex leads with what is on it. Band potentials stay on empty ground.
     const inspectorStart = main.indexOf("function renderInspector(");
     expect(main.indexOf("if (resource)", inspectorStart)).toBeLessThan(
-      main.indexOf('?.terrain ?? "lowland"', inspectorStart),
+      main.indexOf("const terrainSample", inspectorStart),
     );
   });
 
@@ -1690,6 +1690,9 @@ describe("availability and expanded snapshot adapter", () => {
     // The heading is the hex, not the active tool. Coordinates are a labelled chip.
     expect(html).toContain('id="inspect-title"');
     expect(html).toContain('id="inspect-q"');
+    expect(html).toContain('id="inspect-alt"');
+    expect(main).toContain("terrainSample.height + grade");
+    expect(main).toContain("* HEIGHT_UNIT_METRES");
     expect(html).toContain('id="inspect-compass"');
     expect(html).toContain('id="inspect-output-products"');
     expect(html).toContain('id="inspect-output-ports"');

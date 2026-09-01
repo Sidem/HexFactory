@@ -40,7 +40,7 @@ import type {
  */
 
 const MAGIC = 0x48584644; // "HXFD"
-const VERSION = 22;
+const VERSION = 23;
 
 /** Wire code is the index. Pinned against Rust by `fixtures/snapshot-delta-wire.json`. */
 const KINDS: BuildingKind[] = [
@@ -422,8 +422,16 @@ export function decodeSnapshotDelta(buffer: ArrayBuffer): FactorySnapshotDelta {
       r: reader.svarint(),
       surface: reader.uvarint(),
       elevation: reader.svarint(),
+      erosion: 0,
       paid: reader.ingredients(),
     }));
+    const erosionCount = reader.uvarint();
+    for (let entry = 0; entry < erosionCount; entry += 1) {
+      const index = reader.uvarint();
+      if (index >= count)
+        throw new Error("Snapshot delta erosion index is out of range");
+      delta.ground[index]!.erosion = reader.svarint();
+    }
   }
   if (has(GROUP.spoil)) delta.spoil = reader.uvarint();
   if (has(GROUP.water)) {

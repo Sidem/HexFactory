@@ -305,6 +305,18 @@ impl GroundSpine {
         matches!(self.source, GroundSource::Physical { .. })
     }
 
+    /// Generated drainage destination in world coordinates. Live erosion may read it only after
+    /// checking that both ends are surveyed; this pure oracle never opens a gameplay chunk.
+    pub(super) fn downstream_at(&self, q: i32, r: i32) -> Option<(i32, i32)> {
+        match &self.source {
+            GroundSource::Legacy => None,
+            GroundSource::Physical { terra, origin } => terra
+                .borrow_mut()
+                .downstream(q + origin.0, r + origin.1)
+                .map(|(down_q, down_r)| (down_q - origin.0, down_r - origin.1)),
+        }
+    }
+
     pub(super) fn presentation_at(&self, q: i32, r: i32) -> Terrain {
         self.generated_at(q, r).presentation
     }

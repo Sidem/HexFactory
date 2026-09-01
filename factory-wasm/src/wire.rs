@@ -120,7 +120,11 @@ pub(crate) const WIRE_MAGIC: [u8; 4] = *b"HXFD";
 /// "consumed the whole buffer" assertion is exactly what catches the new group, which is why the
 /// version moves rather than the overlay being smuggled in. Pump entities may also carry their
 /// resolved source cell and its depth/discharge rate under an entity presence bit.
-pub(crate) const WIRE_VERSION: u8 = 22;
+///
+/// Version 23 keeps natural erosion separate from the paid earthwork delta. Because almost every
+/// prepared cell has zero erosion, the ground group writes only non-zero erosion as indexed sparse
+/// entries after the ordinary cells; an untouched factory does not pay one zero byte per cell.
+pub(crate) const WIRE_VERSION: u8 = 23;
 
 /// Which optional groups the buffer carries, in the order they are written.
 mod group {
@@ -533,6 +537,14 @@ pub(crate) fn encode_delta(delta: &SnapshotDelta) -> Vec<u8> {
             writer.uvarint(u64::from(cell.surface));
             writer.svarint(i64::from(cell.elevation));
             writer.ingredients(&cell.paid);
+        }
+        writer.uvarint(ground.iter().filter(|cell| cell.erosion != 0).count() as u64);
+        for (index, cell) in ground.iter().enumerate() {
+            if cell.erosion == 0 {
+                continue;
+            }
+            writer.uvarint(index as u64);
+            writer.svarint(i64::from(cell.erosion));
         }
     }
     if let Some(spoil) = delta.spoil {
@@ -1195,15 +1207,22 @@ pub(crate) mod decode {
                 .collect()
         });
         let ground = has(group::GROUND).then(|| {
-            (0..reader.count())
+            let mut cells: Vec<_> = (0..reader.count())
                 .map(|_| crate::GroundCell {
                     q: reader.svarint() as i32,
                     r: reader.svarint() as i32,
                     surface: reader.uvarint() as u16,
                     elevation: reader.svarint() as i16,
+                    erosion: 0,
                     paid: reader.ingredients(),
                 })
-                .collect()
+                .collect();
+            for _ in 0..reader.count() {
+                let index = reader.uvarint() as usize;
+                assert!(index < cells.len(), "erosion index names a ground cell");
+                cells[index].erosion = reader.svarint() as i16;
+            }
+            cells
         });
         let spoil = has(group::SPOIL).then(|| reader.uvarint());
         let water = has(group::WATER).then(|| {

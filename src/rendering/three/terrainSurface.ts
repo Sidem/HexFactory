@@ -120,8 +120,10 @@ export const TERRAIN_SURFACE: Record<Terrain, TerrainSurface> = {
 };
 
 const VERTEX_PARS = /* glsl */ `
+attribute float frontierFade;
 varying vec3 hfWorld;
 varying vec3 hfNormal;
+varying float hfFrontier;
 `;
 
 /**
@@ -135,6 +137,7 @@ vec4 hfInstanced = vec4( transformed, 1.0 );
 	hfInstanced = instanceMatrix * hfInstanced;
 #endif
 hfWorld = ( modelMatrix * hfInstanced ).xyz;
+hfFrontier = frontierFade;
 `;
 
 const FRAGMENT_COMMON = /* glsl */ `
@@ -151,6 +154,7 @@ uniform float hfWave;
 uniform float hfSparkle;
 varying vec3 hfWorld;
 varying vec3 hfNormal;
+varying float hfFrontier;
 
 vec3 hfAlbedo;
 float hfRough;
@@ -160,6 +164,15 @@ ${NOISE_GLSL}
 /** How much of this fragment is the flat cap rather than the prism's flank. */
 float hfCap() {
 	return smoothstep( 0.35, 0.85, hfNormal.y );
+}
+
+/** Stronger relief cue from the continuous surface normal; generation height is not retuned. */
+void hfRelief() {
+	// Vertex normals are unit inputs; interpolation can only shorten them, which slightly
+	// strengthens the cue at a triangle edge and avoids a normalize + pow on every fragment.
+	float slope = smoothstep( 0.015, 0.62, clamp( 1.0 - hfNormal.y, 0.0, 1.0 ) );
+	hfAlbedo = mix( hfAlbedo, hfFlank, slope * 0.46 );
+	hfAlbedo *= 1.0 - slope * 0.24;
 }
 
 /** Exposed earth under the cap, banded by world height so no two prisms wear the same strata. */
@@ -395,7 +408,7 @@ export function injectFragment(source: string, family: SurfaceFamily): string {
       // The instance colour is a luminance jitter, so the pattern keeps its own hue.
       .replace(
         "#include <color_fragment>",
-        "#include <color_fragment>\nhfSurface();\ndiffuseColor.rgb *= hfAlbedo;",
+        "#include <color_fragment>\nhfSurface();\nhfRelief();\ndiffuseColor.rgb *= hfAlbedo;",
       )
       .replace(
         "#include <roughnessmap_fragment>",
@@ -409,6 +422,13 @@ export function injectFragment(source: string, family: SurfaceFamily): string {
       .replace(
         "#include <emissivemap_fragment>",
         "#include <emissivemap_fragment>\ntotalEmissiveRadiance = hfAlbedo * hfFill + hfGlow;",
+      )
+      // Opaque dither keeps draw ordering and shadows stable while the last two survey rings
+      // dissolve into fog. Interior fragments take the cheap branch and never evaluate the hash;
+      // the native surveyed set and pick surface remain exact.
+      .replace(
+        "#include <opaque_fragment>",
+        "#include <opaque_fragment>\nif ( hfFrontier < 0.999 && hfHash12( floor( gl_FragCoord.xy ) ) > clamp( hfFrontier, 0.0, 1.0 ) ) discard;",
       )
   );
 }

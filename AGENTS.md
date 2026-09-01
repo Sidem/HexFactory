@@ -7,10 +7,11 @@ and trustworthy.
 Current release: **v0.46.0 Shaped Ground** — an earthworks selection is a shape and two anchors, not a
 heap of hexes. Its detail is one ledger line in the plan.
 
-On `main` since, unreleased: **the Phase 8 scale break.** One construction hex is 25 m², altitude is
+On `main` since, unreleased: **Phase 8, flowing water.** One construction hex is 25 m², altitude is
 physical native height, drainage shapes valleys before rivers are placed, and footprints, belt cadence,
-the renderer and picking were reauthored around the new scale. Every envelope moved together to save
-40, definitions 29, technologies 16, scenarios 8, world 12, wire 22. A save at 36 or below is the old
+the renderer and picking were reauthored around the new scale. Sparse disturbed water and coarse live
+erosion now complete that ground model. The current envelopes are save 41, definitions 30,
+technologies 16, scenarios 8, world 12 and wire 23. A save at 36 or below is the old
 1 m² world and is refused with an export path rather than migrated; save 37 advances by stamp, save 38
 by stamp onto 39, and 39 by stamp onto 40. World 12 then refuses every pre-40 file on its own: the
 substrate rule now reads the slope a cell sits on rather than an elevation the continental field
@@ -19,12 +20,10 @@ an older envelope names ground this build does not lay down. Export is the path 
 unchanged across the scale break, so the stated figures moved instead — a 15 m/s walk, a 25 m/s run, a
 5 m/s ford. The reasoning is on the constant in `factory-wasm/src/lib.rs`.
 
-Next work is the numbered phase table in `docs/HEXFACTORY-PLAN.md#what-to-do-next`. Phase 8, flowing
-water, is in flight: the user approved its scale break on 2026-08-31, slices 1 to 4 are complete and
-green, and **slice 5 — geomorphic epochs — is next**. The plan's slice-4 record says what sparse
-disturbed water landed and the slice-5 brief owns live erosion. Pipes were brought
-forward and the ground rework was requested outright; neither reorders the table. Release numbers after
-v0.46.0 are unassigned. Do not reorder those phases without the user. On 2026-08-29 the user moved
+Next work is the numbered phase table in `docs/HEXFACTORY-PLAN.md#what-to-do-next`. Phase 8 is complete
+and green on `main`; **row 9 — Living Lattice — is next**. Pipes were brought forward and the ground
+rework was requested outright; neither reorders the table. Release numbers after v0.46.0 are
+unassigned. Do not reorder those phases without the user. On 2026-08-29 the user moved
 supported floors and vertical transport from row 7 to row 10, behind flowing water and Living Lattice,
 so the player learns the shipped ground-level systems before the game asks them to think in levels.
 

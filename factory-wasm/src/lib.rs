@@ -7,6 +7,7 @@ use std::collections::{BTreeMap, BTreeSet, BinaryHeap};
 use wasm_bindgen::prelude::*;
 
 mod boundaries;
+mod geomorphology;
 mod ground;
 mod ground_spine;
 /// Phase 8 slice 4: departure from generated water equilibrium, and the bounded solve that settles
@@ -159,7 +160,10 @@ const SAVE_PREFIX: &str = "HXF1\n";
 /// Version 40 carries no new saved field at all — it moves because the world under the save did.
 /// The stamp advances so the ladder is complete and the file reaches the world-generator check,
 /// which is where a player is told to export it. See [`WORLD_GENERATOR_VERSION`].
-const SAVE_VERSION: u16 = 40;
+///
+/// Version 41 carries sparse live-erosion deltas and outside-bank stress. Both default to nothing,
+/// so a version-40 factory verifies before adopting the new catalogue resistance data.
+const SAVE_VERSION: u16 = 41;
 /// Bumped to 6 for World Parameters. `WorldParams` is now part of a run's identity — it is in the
 /// save envelope and in the checksum — so a version-5 envelope carries no answer to the question
 /// "which world is this" and is rejected rather than assumed to be the default.
@@ -536,6 +540,10 @@ struct ItemDefinition {
     /// which is what makes wood renewable while every ore field is finite.
     #[serde(default)]
     regrowth_ticks: Option<u32>,
+    /// Root and cover resistance when this item is a living field resource. Ordinary cargo leaves
+    /// it at zero; geomorphology reads it only while a non-empty field stands on the bank.
+    #[serde(default)]
+    erosion_resistance: u16,
     /// Player-clock steps between hand gathers of this item. Absent means the hand cannot take it
     /// at all: water is pumped, signal crystal is extracted. Fifteen is wood, and no material is
     /// faster — that is the restated invariant `fixtures/balance.json` pins.
@@ -2471,6 +2479,9 @@ struct Core {
     /// carries none: the ocean, the lakes and the rivers are answers `terra` computes, not saved
     /// entities. See `hydrology` for why departure rather than depth is the thing stored.
     water: hydrology::DisturbedWater,
+    /// Outside-bank stress accumulated only at coarse geomorphic epochs. Sparse saved state; a
+    /// straight or untouched world carries none.
+    bank_stress: geomorphology::BankStress,
     /// Rated river withdrawals already granted this tick, by source cell. Derived tick-local
     /// arbitration: cleared before each machine pass, never saved or checksummed.
     water_draws: BTreeMap<(i32, i32), u32>,
@@ -2684,6 +2695,7 @@ impl Core {
             ground_hash_cache: RefCell::new(None),
             ground_undo: Vec::new(),
             water: hydrology::DisturbedWater::new(),
+            bank_stress: geomorphology::BankStress::new(),
             water_draws: BTreeMap::new(),
             spoil: 0,
             generated_chunks: BTreeSet::new(),
@@ -4831,6 +4843,7 @@ impl Core {
             self.advance_machines();
             self.transfer_cargo();
             self.tick += 1;
+            self.advance_geomorphology();
             self.regrow_flora();
             self.advance_ground_items();
         }
@@ -9632,6 +9645,10 @@ impl Core {
             hash_u32(&mut hash, u32::MAX - 33);
             self.water.hash_into(&mut hash);
         }
+        if !self.bank_stress.is_empty() {
+            hash_u32(&mut hash, u32::MAX - 34);
+            self.bank_stress.hash_into(&mut hash);
+        }
         self.skills.hash(&mut hash);
         hash
     }
@@ -9670,6 +9687,7 @@ impl Core {
             boundaries: self.boundary_snapshot(),
             ground: self.ground_snapshot(),
             water: self.water.cells(),
+            bank_stress: self.bank_stress.cells(),
             spoil: self.spoil,
             ground_items: self.ground_items.clone(),
             next_ground_item_id: self.next_ground_item_id,
@@ -9829,6 +9847,7 @@ impl Core {
             .map(|cell| ((cell.q, cell.r), cell))
             .collect();
         core.water = hydrology::DisturbedWater::from_cells(&envelope.state.water);
+        core.bank_stress = geomorphology::BankStress::from_cells(&envelope.state.bank_stress);
         core.spoil = envelope.state.spoil;
         core.ground_items = envelope.state.ground_items;
         core.next_ground_item_id = envelope.state.next_ground_item_id.max(
@@ -9898,6 +9917,9 @@ struct SavedState {
     /// exactly an empty set, not a missing one.
     #[serde(default)]
     water: Vec<hydrology::WaterCell>,
+    /// Non-zero outside-bank stress. Version 40 had none and therefore defaults to the empty set.
+    #[serde(default)]
+    bank_stress: Vec<geomorphology::StressCell>,
     #[serde(default)]
     spoil: u64,
     seed: u32,
@@ -11770,6 +11792,7 @@ fn validate_saved_state(
     validate_saved_boundaries(definitions, &state.boundaries)?;
     validate_saved_ground(definitions, &state.ground)?;
     hydrology::validate_saved_water(&state.water)?;
+    geomorphology::validate_saved_stress(&state.bank_stress)?;
     validate_skill_state(technologies, &state.skills)?;
     let item_ids: BTreeSet<_> = definitions.items.iter().map(|value| value.id).collect();
     let technology_ids: BTreeSet<_> = technologies
@@ -14218,6 +14241,90 @@ pub mod water_bench {
 
     pub fn format(report: &Report) -> String {
         serde_json::to_string_pretty(report).expect("water benchmark serializes")
+    }
+}
+
+/// Reproducible accelerated proof of the exact coarse geomorphic sequence production runs hourly.
+#[cfg(not(target_arch = "wasm32"))]
+pub mod erosion_bench {
+    use super::*;
+    use std::time::Instant;
+
+    #[derive(Debug, Serialize)]
+    pub struct Report {
+        pub seed: u32,
+        pub epoch_ticks: u64,
+        pub chunk_budget: usize,
+        pub cell_budget: usize,
+        pub edge_budget: usize,
+        pub change_budget: usize,
+        pub surveyed_chunks: usize,
+        pub accelerated_epochs: u32,
+        pub chunks: usize,
+        pub cells: usize,
+        pub edges: usize,
+        pub bends: usize,
+        pub stressed_banks: usize,
+        pub changes: usize,
+        pub truncated: bool,
+        pub elapsed_micros: u128,
+        pub save_load_checksum_stable: bool,
+    }
+
+    pub fn run() -> Report {
+        const SEED: u32 = 1_213_486_160;
+        const MAX_ACCELERATED_EPOCHS: u32 = 512;
+        let definitions: DefinitionsInput =
+            serde_json::from_str(include_str!("../../src/data/definitions.json")).unwrap();
+        let technologies: TechnologiesInput =
+            serde_json::from_str(include_str!("../../src/data/technologies.json")).unwrap();
+        let scenarios: ScenariosInput =
+            serde_json::from_str(include_str!("../../src/data/scenarios.json")).unwrap();
+        let scenario = scenarios
+            .scenarios
+            .iter()
+            .find(|scenario| scenario.key == "new-game")
+            .unwrap();
+        let mut core = Core::new(&definitions, &technologies, scenario, Some(SEED), None).unwrap();
+        // Measurement-only survey window: production still opens chunks only through player survey.
+        for chunk_r in -5..=5 {
+            for chunk_q in -5..=5 {
+                core.generate_chunk(chunk_q, chunk_r);
+            }
+        }
+        let started = Instant::now();
+        let mut report = geomorphology::EpochReport::default();
+        let mut epochs = 0;
+        while epochs < MAX_ACCELERATED_EPOCHS && report.changes == 0 {
+            report = core.run_geomorphic_epoch();
+            epochs += 1;
+        }
+        let elapsed_micros = started.elapsed().as_micros();
+        let saved = core.save_string().unwrap();
+        let restored = Core::from_save(&definitions, &technologies, &scenarios, &saved).unwrap();
+        Report {
+            seed: SEED,
+            epoch_ticks: geomorphology::EPOCH_TICKS,
+            chunk_budget: geomorphology::CHUNK_BUDGET,
+            cell_budget: geomorphology::CELL_BUDGET,
+            edge_budget: geomorphology::EDGE_BUDGET,
+            change_budget: geomorphology::CHANGE_BUDGET,
+            surveyed_chunks: core.generated_chunks.len(),
+            accelerated_epochs: epochs,
+            chunks: report.chunks,
+            cells: report.cells,
+            edges: report.edges,
+            bends: report.bends,
+            stressed_banks: report.stressed_banks,
+            changes: report.changes,
+            truncated: report.truncated,
+            elapsed_micros,
+            save_load_checksum_stable: restored.checksum() == core.checksum(),
+        }
+    }
+
+    pub fn format(report: &Report) -> String {
+        serde_json::to_string_pretty(report).expect("erosion benchmark serializes")
     }
 }
 
@@ -22880,6 +22987,7 @@ mod tests {
                     r: -3,
                     surface: 4,
                     elevation: 0,
+                    erosion: 1,
                     paid: vec![Ingredient {
                         item_id: 15,
                         quantity: 1,
@@ -22890,6 +22998,7 @@ mod tests {
                     r: 0,
                     surface: 0,
                     elevation: -2,
+                    erosion: 0,
                     paid: Vec::new(),
                 },
             ]),
@@ -26448,5 +26557,62 @@ mod tests {
         assert!(core.terrain_blocks_construction(2, -1));
         assert_eq!(core.spoil, 0);
         assert!(core.ground.is_empty());
+    }
+
+    #[test]
+    fn geomorphic_state_round_trips_and_keeps_the_next_epoch_deterministic() {
+        let (definitions, technologies, scenarios) = catalogs();
+        let scenario = scenarios
+            .scenarios
+            .iter()
+            .find(|scenario| scenario.key == "new-game")
+            .unwrap();
+        let mut first = Core::new(&definitions, &technologies, scenario, None, None).unwrap();
+        first.ground.insert(
+            (0, 0),
+            GroundCell {
+                q: 0,
+                r: 0,
+                surface: 0,
+                elevation: 0,
+                erosion: -1,
+                paid: Vec::new(),
+            },
+        );
+        first.bank_stress = geomorphology::BankStress::from_cells(&[geomorphology::StressCell {
+            q: 2,
+            r: -1,
+            stress: 17,
+        }]);
+        let saved = first.save_string().unwrap();
+        let mut restored =
+            Core::from_save(&definitions, &technologies, &scenarios, &saved).unwrap();
+        assert_eq!(restored.checksum(), first.checksum());
+        assert_eq!(restored.ground, first.ground);
+        assert_eq!(restored.bank_stress, first.bank_stress);
+
+        let first_epoch = first.run_geomorphic_epoch();
+        let restored_epoch = restored.run_geomorphic_epoch();
+        assert_eq!(restored_epoch, first_epoch);
+        assert_eq!(restored.checksum(), first.checksum());
+    }
+
+    #[test]
+    fn save_40_adopts_empty_geomorphology_without_changing_its_checksum() {
+        let (definitions, technologies, scenarios) = catalogs();
+        let scenario = scenarios
+            .scenarios
+            .iter()
+            .find(|scenario| scenario.key == "new-game")
+            .unwrap();
+        let core = Core::new(&definitions, &technologies, scenario, None, None).unwrap();
+        let save_41 = core.save_string().unwrap();
+        let save_40 = save_41
+            .replacen("\"save_version\":41", "\"save_version\":40", 1)
+            .replacen("\"definition_version\":30", "\"definition_version\":29", 1)
+            .replacen(",\"bank_stress\":[]", "", 1);
+        let restored = Core::from_save(&definitions, &technologies, &scenarios, &save_40).unwrap();
+        assert!(restored.bank_stress.is_empty());
+        assert_eq!(restored.checksum(), core.checksum());
     }
 }

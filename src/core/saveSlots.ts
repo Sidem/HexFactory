@@ -35,7 +35,7 @@
 // elevation nearly every cell clears, and a river cuts a valley rather than a trough. No new field
 // is saved. The stamp advances so the ladder reaches native's world-generator check, which is what
 // refuses a v39 world and tells the player to export it.
-export const SAVE_VERSION = 40;
+export const SAVE_VERSION = 41;
 export const SAVE_CATALOG_KEY = "hexfactory:saves:v1";
 export const LEGACY_SAVE_PREFIX = "hexfactory:hxf1:";
 export const HXF1_PREFIX = "HXF1\n";
@@ -217,6 +217,7 @@ export function compatibility(
     // format. The rung exists so the format ladder stays continuous; the world stamp below is what
     // actually turns a pre-40 file away.
     [40, 29, 16],
+    [41, 30, 16],
   ];
   if (envelope.saveVersion <= 36 && build.versions.save >= 37) {
     mismatches.push({

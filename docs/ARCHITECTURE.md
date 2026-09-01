@@ -695,6 +695,14 @@ defect it prevents; a change that contradicts one needs an argument, not an over
   discharge and limiting rate. Creative flood/drain commands are limited to a surveyed in-range cell
   and 1–32 quanta. Wading, route cost, bridge siting, construction, pumping and hydro generation all
   read the same depth predicate.
+- **Live erosion is a sparse geomorphic epoch, never a terrain tick.** Once per in-game hour,
+  `geomorphology.rs` considers only surveyed wet generated-flow edges with non-zero discharge, in
+  stable coordinate order. Curvature loads the outside bank; substrate, living vegetation, paving,
+  occupied cells and boundary resistance decide how much accumulates. Stress and erosion/deposition
+  store only non-zero departures. One epoch reads at most 4,096 edges and moves at most 64 bank
+  quanta, after which the existing bounded water solver resumes from only those cells. Straight,
+  dry and protected reaches do not move. Earthwork remains the paid grade and erosion remains its
+  own delta in saves, checksums and wire 23; presentation may sum them but cannot rewrite either.
 - **The drawn height field is the picker, and it is still not simulation truth.**
   `heightfieldTerrain.ts` consumes native-published samples, sorts them into a
   query-order-independent build, shares averaged corners across ordinary slopes, keeps water in a

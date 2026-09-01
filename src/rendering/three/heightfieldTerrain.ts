@@ -136,6 +136,7 @@ export function buildHeightfieldGeometry(
       );
     cellByKey.set(key, sample);
   }
+  const frontierByKey = frontierFactors(cells, cellByKey);
 
   const ground = new GeometryWriter("substrate");
   const water = new GeometryWriter("discharge");
@@ -143,6 +144,7 @@ export function buildHeightfieldGeometry(
   const frontier = new GeometryWriter("substrate");
 
   for (const cell of cells) {
+    const frontierFade = frontierByKey.get(cellKey(cell.q, cell.r)) ?? 1;
     const substrate = SUBSTRATE_CODE[cell.substrate];
     const centre = cellCentre(cell, cell.height);
     for (let corner = 0; corner < DIRECTIONS.length; corner += 1) {
@@ -159,7 +161,14 @@ export function buildHeightfieldGeometry(
         options.cliffThreshold,
       );
       // Winding is counter-clockwise when viewed from above, so generated normals face +Y.
-      ground.triangle(centre, second, first, substrate, cell.look);
+      ground.triangle(
+        centre,
+        second,
+        first,
+        substrate,
+        cell.look,
+        frontierFade,
+      );
 
       if (cell.waterDepth > 0) {
         const waterCentre = cellCentre(cell, cell.waterHeight);
@@ -171,6 +180,7 @@ export function buildHeightfieldGeometry(
           waterFirst,
           cell.dischargeClass,
           cell.waterLook,
+          frontierFade,
         );
       }
     }
@@ -195,6 +205,7 @@ export function buildHeightfieldGeometry(
           { ...first, y: first.y - frontierDepth },
           substrate,
           cell.look,
+          0.22,
         );
         continue;
       }
@@ -226,6 +237,10 @@ export function buildHeightfieldGeometry(
         { ...first, y: neighbourFirst.y },
         substrate,
         cell.look,
+        Math.min(
+          frontierFade,
+          frontierByKey.get(cellKey(neighbour.q, neighbour.r)) ?? 1,
+        ),
       );
     }
   }
@@ -248,6 +263,39 @@ export function buildHeightfieldGeometry(
     cells,
     cellByKey,
   };
+}
+
+/**
+ * Three presentation rings at the surveyed edge. The geometry still ends at the exact native
+ * frontier; this only gives its fragments a deterministic dissolve weight so discovery reads as a
+ * horizon rather than a cut-out board.
+ */
+function frontierFactors(
+  cells: readonly HeightfieldSample[],
+  cellByKey: ReadonlyMap<string, HeightfieldSample>,
+): ReadonlyMap<string, number> {
+  const rim = new Set<string>();
+  for (const cell of cells) {
+    if (
+      DIRECTIONS.some(
+        ({ q, r }) => !cellByKey.has(cellKey(cell.q + q, cell.r + r)),
+      )
+    )
+      rim.add(cellKey(cell.q, cell.r));
+  }
+  const factors = new Map<string, number>();
+  for (const cell of cells) {
+    const key = cellKey(cell.q, cell.r);
+    if (rim.has(key)) {
+      factors.set(key, 0.42);
+      continue;
+    }
+    const besideRim = DIRECTIONS.some(({ q, r }) =>
+      rim.has(cellKey(cell.q + q, cell.r + r)),
+    );
+    factors.set(key, besideRim ? 0.76 : 1);
+  }
+  return factors;
 }
 
 /** Native's exact cell-centre answer used by buildings, overlays and the player. */
@@ -433,6 +481,7 @@ function modulo(value: number, divisor: number): number {
 class GeometryWriter {
   readonly #positions: number[] = [];
   readonly #channels: number[] = [];
+  readonly #frontier: number[] = [];
   readonly #indicesByBucket = new Map<number, number[]>();
   readonly #vertices = new Map<string, number>();
 
@@ -444,6 +493,7 @@ class GeometryWriter {
     third: Point3,
     channel: number,
     bucket: number = channel,
+    frontier: number = 1,
   ): void {
     let indices = this.#indicesByBucket.get(bucket);
     if (!indices) {
@@ -451,9 +501,9 @@ class GeometryWriter {
       this.#indicesByBucket.set(bucket, indices);
     }
     indices.push(
-      this.vertex(first, channel),
-      this.vertex(second, channel),
-      this.vertex(third, channel),
+      this.vertex(first, channel, frontier),
+      this.vertex(second, channel, frontier),
+      this.vertex(third, channel, frontier),
     );
   }
 
@@ -464,9 +514,10 @@ class GeometryWriter {
     fourth: Point3,
     channel: number,
     bucket: number = channel,
+    frontier: number = 1,
   ): void {
-    this.triangle(first, second, third, channel, bucket);
-    this.triangle(first, third, fourth, channel, bucket);
+    this.triangle(first, second, third, channel, bucket, frontier);
+    this.triangle(first, third, fourth, channel, bucket, frontier);
   }
 
   finish(): { geometry: BufferGeometry; buckets: GeometryBuckets } {
@@ -478,6 +529,10 @@ class GeometryWriter {
     geometry.setAttribute(
       this.channelName,
       new Float32BufferAttribute(this.#channels, 1),
+    );
+    geometry.setAttribute(
+      "frontierFade",
+      new Float32BufferAttribute(this.#frontier, 1),
     );
     // Sorted so a given world produces a given index buffer, whatever order the samples arrived in.
     const buckets = [...this.#indicesByBucket.keys()].sort((a, b) => a - b);
@@ -504,14 +559,15 @@ class GeometryWriter {
     return { geometry, buckets };
   }
 
-  private vertex(point: Point3, channel: number): number {
-    const key = `${fixed(point.x)},${fixed(point.y)},${fixed(point.z)},${channel}`;
+  private vertex(point: Point3, channel: number, frontier: number): number {
+    const key = `${fixed(point.x)},${fixed(point.y)},${fixed(point.z)},${channel},${frontier}`;
     const existing = this.#vertices.get(key);
     if (existing !== undefined) return existing;
     const index = this.#positions.length / 3;
     this.#vertices.set(key, index);
     this.#positions.push(point.x, point.y, point.z);
     this.#channels.push(channel);
+    this.#frontier.push(frontier);
     return index;
   }
 }

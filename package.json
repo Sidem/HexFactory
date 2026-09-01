@@ -21,6 +21,7 @@
     "balance": "cargo run --release --manifest-path factory-wasm/Cargo.toml --bin balance --",
     "terra": "cargo run --release --manifest-path factory-wasm/Cargo.toml --bin terra --",
     "water": "cargo run --release --manifest-path factory-wasm/Cargo.toml --bin water --",
+    "erosion": "cargo run --release --manifest-path factory-wasm/Cargo.toml --bin erosion --",
     "bench:browser": "npm run build:wasm:bench && vite",
     "agent:map": "node scripts/agent-map.mjs",
     "agent:map:check": "node scripts/agent-map.mjs --check",

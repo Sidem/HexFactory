@@ -71,6 +71,7 @@ import {
   TERRAIN_ORDER,
   terrainAccess,
 } from "./core/terrain";
+import { HEIGHT_UNIT_METRES } from "./rendering/sceneScale";
 import {
   CORNER_START,
   DIRECTION_NAMES,
@@ -2430,17 +2431,26 @@ function renderInspector(): void {
     field.hidden = true;
   }
 
-  const terrain = surveyed
-    ? (snapshot.terrain.find(
+  const terrainSample = surveyed
+    ? snapshot.terrain.find(
         ({ q, r }) => q === selected?.q && r === selected?.r,
-      )?.terrain ?? "lowland")
+      )
     : undefined;
+  const terrain = terrainSample?.terrain;
   // The band says what the generator drew; the grade on top of it says what the player has since
   // made of the hex. Only the pair answers "can I stand here", which is the question this panel is
   // being asked, so a quarried cliff stops reading Impassable the moment its face is down.
-  const grade =
-    snapshot.ground.find(({ q, r }) => q === selected?.q && r === selected?.r)
-      ?.elevation ?? 0;
+  const ground = snapshot.ground.find(
+    ({ q, r }) => q === selected?.q && r === selected?.r,
+  );
+  const grade = (ground?.elevation ?? 0) + (ground?.erosion ?? 0);
+  const altitude = terrainSample
+    ? (terrainSample.height + grade) * HEIGHT_UNIT_METRES
+    : undefined;
+  required<HTMLElement>("inspect-alt").textContent =
+    altitude === undefined
+      ? "—"
+      : `${altitude >= 0 ? "+" : "−"}${Math.abs(altitude).toFixed(1)} m`;
   const band = terrain ? bandAt(terrain, grade) : undefined;
 
   if (building) {

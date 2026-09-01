@@ -29,6 +29,9 @@ pub(super) struct BoundaryDefinition {
     #[serde(default)]
     pub family: BoundaryFamily,
     pub gate: bool,
+    /// Resistance applied when this boundary lies between flowing water and its bank.
+    #[serde(default)]
+    pub erosion_resistance: u16,
     #[serde(default)]
     pub unlock_technology_id: Option<TechnologyId>,
     pub construction_cost: Vec<Ingredient>,
@@ -431,6 +434,14 @@ impl Core {
 
     fn boundary_definition(&self, id: DefinitionId) -> Option<&BoundaryDefinition> {
         self.definitions.boundaries.iter().find(|d| d.id == id)
+    }
+
+    pub(super) fn boundary_erosion_resistance(&self, q: i32, r: i32, direction: u8) -> u16 {
+        Segment::new(q, r, direction)
+            .ok()
+            .and_then(|segment| self.boundaries.get(&segment))
+            .and_then(|boundary| self.boundary_definition(boundary.definition_id))
+            .map_or(0, |definition| definition.erosion_resistance)
     }
 
     /// Memoizes a pure digest of source records. Cache presence is never saved or hashed;

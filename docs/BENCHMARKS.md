@@ -105,6 +105,23 @@ timer: a settled world schedules zero water solves and resends zero water groups
 by the bounded command, earthwork, pump draw or newly surveyed frontier that woke it; there is no
 per-cell standing-water tick.
 
+## Phase 8 slice 5 — geomorphic epochs
+
+`npm run erosion`, release-native on Windows, seed 1213486160. The committed
+[raw report](benchmarks/phase8-erosion.json) drives the same `Core::run_geomorphic_epoch` production
+path without waiting the ordinary 36,000-tick cadence. Across 121 explicitly surveyed measurement
+chunks, one epoch inspected 121 chunks, 7,744 generated cells and 1,086 wet flowing edges, finding
+117 bends. The first outside bank moved one 0.25 m quantum after eight accelerated epochs; the
+paired inside bank received one quantum, then the existing bounded water solve reflowed from those
+cells.
+
+The pass took 308,590 µs for all eight accelerated epochs in this one run. This is a local tuning
+datum, not a cross-machine performance claim. The structural bounds are the claim: at most 256
+surveyed chunks, 65,536 generated cells, 4,096 wet flowing edges and 64 bank changes per epoch, in a
+deterministic rotating coordinate window. This run reached none of those bounds (`truncated: false`,
+one change), and save/load reproduced its checksum. Ordinary play pays no geomorphic work between
+hourly epochs; straight, dry and protected reaches do no change work at an epoch either.
+
 ## Ground you can see — what "the world looks flat" turned out to measure
 
 Seed 1213486160, `npm run terra` and `npm run survey`, world generator 12.

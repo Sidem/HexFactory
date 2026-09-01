@@ -114,6 +114,29 @@ describe("physical heightfield terrain", () => {
     dispose(built);
   });
 
+  it("carries a three-ring dissolve weight into the terrain shader", () => {
+    const samples: HeightfieldSample[] = [];
+    for (let q = -2; q <= 2; q += 1) {
+      for (let r = -2; r <= 2; r += 1) {
+        if (Math.max(Math.abs(q), Math.abs(r), Math.abs(q + r)) <= 2)
+          samples.push(dry(q, r, 0));
+      }
+    }
+    const built = buildHeightfieldGeometry(samples, { cliffThreshold: 1 });
+    const weights = [
+      ...built.ground.getAttribute("frontierFade").array,
+    ] as number[];
+    for (const expected of [0.42, 0.76, 1])
+      expect(weights.some((value) => Math.abs(value - expected) < 1e-5)).toBe(
+        true,
+      );
+    expect([...built.frontier.getAttribute("frontierFade").array]).toEqual(
+      expect.arrayContaining([expect.closeTo(0.22, 5)]),
+    );
+
+    dispose(built);
+  });
+
   it("builds water as its own native-level surface", () => {
     const wet: HeightfieldSample = {
       ...dry(0, 0, -0.5, "sand"),

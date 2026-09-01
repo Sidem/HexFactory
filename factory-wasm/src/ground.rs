@@ -22,6 +22,10 @@ pub(super) struct SurfaceDefinition {
     /// quantity the tick touches: `player_step` multiplies by it and `walk_step_cost` divides by it,
     /// and a float here would put the route search and the player's own feet on different arithmetic.
     pub movement: u32,
+    /// Bank resistance contributed by this finish. `u16::MAX` is deliberate protection: a paved
+    /// yard must be repaired by the player, never silently undercut by the coarse erosion model.
+    #[serde(default)]
+    pub erosion_resistance: u16,
     pub construction_cost: Vec<Ingredient>,
     #[serde(default)]
     pub unlock_technology_id: Option<TechnologyId>,
@@ -39,14 +43,18 @@ pub(super) struct GroundCell {
     /// Steps of cut (negative) or fill (positive) against the generated bed, bounded by the
     /// active ground source's content limit.
     pub elevation: i16,
+    /// Slow live erosion or deposition, kept separate from the grade the player paid for. Zero is
+    /// the compatibility spelling for every save written before geomorphic epochs existed.
+    #[serde(default)]
+    pub erosion: i16,
     /// The surface bill actually paid. Sandbox paving never becomes a material source, on the same
     /// rule as a boundary's `paid`.
     pub paid: Vec<Ingredient>,
 }
 
 impl GroundCell {
-    fn is_untouched(&self) -> bool {
-        self.surface == 0 && self.elevation == 0
+    pub(super) fn is_untouched(&self) -> bool {
+        self.surface == 0 && self.elevation == 0 && self.erosion == 0
     }
 }
 
@@ -353,15 +361,14 @@ impl Core {
             .map_or(UNTREATED_MOVEMENT, |d| d.movement)
     }
 
-    /// The separated facts for this finished cell. The erosion delta is zero until geomorphic
-    /// epochs exist, but it is a distinct input now so no later implementation can quietly fold it
-    /// into what the player cut or filled.
+    /// The separated facts for this finished cell. Earthwork is what the player paid for; erosion
+    /// is what a later geomorphic epoch moved. Neither is allowed to impersonate the other.
     pub(super) fn finished_ground_at(&self, q: i32, r: i32) -> FinishedGround {
         let cell = self.ground.get(&(q, r));
         FinishedGround {
             generated: self.generated_ground_at(q, r),
             earthwork: GroundDelta::new(cell.map_or(0, |cell| cell.elevation)),
-            erosion: GroundDelta::default(),
+            erosion: GroundDelta::new(cell.map_or(0, |cell| cell.erosion)),
             surface: cell.map_or(0, |cell| cell.surface),
         }
     }
@@ -489,6 +496,12 @@ impl Core {
             hash_i32(&mut hash, cell.r);
             hash_u32(&mut hash, u32::from(cell.surface));
             hash_i32(&mut hash, i32::from(cell.elevation));
+            // Guarded so a pre-41 ground cell with no live erosion hashes exactly as it did when
+            // written. The migration verifies that checksum before the next save adopts this fact.
+            if cell.erosion != 0 {
+                hash_u32(&mut hash, u32::MAX - 1);
+                hash_i32(&mut hash, i32::from(cell.erosion));
+            }
             hash_u32(&mut hash, cell.paid.len() as u32);
             for i in &cell.paid {
                 hash_u32(&mut hash, u32::from(i.item_id));
@@ -729,6 +742,7 @@ impl Core {
                 r: cell.1,
                 surface: 0,
                 elevation: 0,
+                erosion: 0,
                 paid: Vec::new(),
             });
             match edit.action {
@@ -1209,6 +1223,7 @@ pub(super) fn validate_saved_ground(
     for cell in saved {
         if !seen.insert((cell.q, cell.r))
             || i32::from(cell.elevation.abs()) > scale::EARTHWORK_LIMIT_QUANTA
+            || i32::from(cell.erosion).abs() > geomorphology::EROSION_LIMIT_QUANTA
         {
             return Err("Invalid saved ground identity or grade".into());
         }

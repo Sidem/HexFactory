@@ -46,9 +46,10 @@ describe("binary snapshot delta", () => {
         r: -3,
         surface: 4,
         elevation: 0,
+        erosion: 1,
         paid: [{ item_id: 15, quantity: 1 }],
       },
-      { q: -1, r: 0, surface: 0, elevation: -2, paid: [] },
+      { q: -1, r: 0, surface: 0, elevation: -2, erosion: 0, paid: [] },
     ]);
     expect(decoded.spoil).toBe(6);
 
@@ -129,7 +130,7 @@ describe("binary snapshot delta", () => {
 
   it("refuses a buffer it cannot prove it understands", () => {
     expect(fixture.magic).toBe("HXFD");
-    expect(fixture.version).toBe(22);
+    expect(fixture.version).toBe(23);
 
     const good = new Uint8Array(
       bytesOf(fixture.cases[0]!.bytes as unknown as string),

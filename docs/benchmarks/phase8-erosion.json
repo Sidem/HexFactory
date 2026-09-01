@@ -1,0 +1,19 @@
+{
+  "seed": 1213486160,
+  "epoch_ticks": 36000,
+  "chunk_budget": 256,
+  "cell_budget": 65536,
+  "edge_budget": 4096,
+  "change_budget": 64,
+  "surveyed_chunks": 121,
+  "accelerated_epochs": 8,
+  "chunks": 121,
+  "cells": 7744,
+  "edges": 1086,
+  "bends": 117,
+  "stressed_banks": 113,
+  "changes": 1,
+  "truncated": false,
+  "elapsed_micros": 308590,
+  "save_load_checksum_stable": true
+}
