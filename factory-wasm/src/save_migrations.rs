@@ -225,6 +225,19 @@ pub(super) fn migrate<'a>(json: &'a str, target_version: u16) -> Result<Cow<'a, 
         version = 38;
     }
 
+    // Version 39 lets an earthwork move the water standing beside it. What is stored is the
+    // *departure* from the generated equilibrium, and a version-38 world has none: every hex still
+    // holds the depth terra publishes for it, which is the same depth this version computes from the
+    // same seed. So there is nothing to write into the state — `SavedState` defaults the set to
+    // empty, and an empty set is skipped by the checksum on the guard `ground` and `spoil` already
+    // use, leaving a version-38 file hashing exactly what it hashed before. Only the stamp moves.
+    if version == 38 && target_version >= 39 {
+        if let Some(object) = value.as_object_mut() {
+            object.insert("save_version".into(), Value::from(39));
+        }
+        version = 39;
+    }
+
     if version == target_version {
         return Ok(Cow::Owned(serde_json::to_string(&value).map_err(
             |error| format!("migrated save could not be written: {error}"),

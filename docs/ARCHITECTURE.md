@@ -660,6 +660,22 @@ defect it prevents; a change that contradicts one needs an argument, not an over
   only as the test fixture (`legacy_band_game`) that pins the old band rules against
   `fixtures/terrain-passability.json`; no loadable save reaches it, because the scale break refuses
   every file below save 37.
+- **Water is stored as a departure, never as a level.** Generated hydrology is a pure function of
+  seed and coordinate, so an untouched world carries no water state at all. `hydrology.rs` stores
+  only `DisturbedWater` — the signed quanta by which a cell differs from the depth `terra` publishes
+  for it — and forgets a cell the moment it returns to that depth, so a world flooded and drained
+  back hashes identically to one nobody touched. `Core::water_depth_at` is the one predicate:
+  movement, construction and every later reader ask it rather than a terrain band, because the band
+  is a picture of the generated equilibrium and Phase 8 lets the player change it. An earthwork
+  settles the water over the cells it moved, in a region that grows only where settling water
+  actually asks for ground and never reads past the surveyed frontier — a solve cannot generate a
+  chunk, and a test asserts the chunk set is untouched across one. Termination is a potential
+  argument rather than the sweep budget, and a budget-truncated rim is a wall and never a sink, so a
+  fence can stop a solve early but cannot quietly eat the water. The undo record carries the exact
+  departures its solve displaced, so putting the ground back puts the water back rather than running
+  a second solve and trusting it to agree. Save 39 is the envelope that opened this: a save-38 world
+  had no departure to carry, and an empty set is skipped by the checksum on the same emptiness guard
+  `ground` and `spoil` already use, so a save-38 file resumes on the checksum it was written with.
 - **The drawn height field is the picker, and it is still not simulation truth.**
   `heightfieldTerrain.ts` consumes native-published samples, sorts them into a
   query-order-independent build, shares averaged corners across ordinary slopes, keeps water in a

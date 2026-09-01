@@ -12,10 +12,9 @@ mod ground_spine;
 /// Phase 8 slice 4: departure from generated water equilibrium, and the bounded solve that settles
 /// it.
 ///
-/// Nothing that ships reads it yet, which is what the `dead_code` allowance says out loud. It is on
-/// the module rather than on its items so that wiring the first caller takes the whole allowance
-/// off in one edit, and anything the activation leaves behind shows up as a warning instead of
-/// hiding under a permanent per-item exemption.
+/// Movement, construction and earthwork read it. The rest of the slice — the flood and drain
+/// commands, the pumps and the wire — is what will take the remaining allowance off; what is under
+/// it now is the reporting the solve already produces and nothing has yet asked to see.
 #[allow(dead_code)]
 mod hydrology;
 #[cfg(test)]
@@ -157,7 +156,7 @@ const SAVE_PREFIX: &str = "HXF1\n";
 /// definition. Occupancy is still derived from the catalogue rather than saved per entity, so a
 /// version-37 file is the same factory under the new stamps: the original checksum verifies, then
 /// the envelope numbers move.
-const SAVE_VERSION: u16 = 38;
+const SAVE_VERSION: u16 = 39;
 /// Bumped to 6 for World Parameters. `WorldParams` is now part of a run's identity — it is in the
 /// save envelope and in the checksum — so a version-5 envelope carries no answer to the question
 /// "which world is this" and is rejected rather than assumed to be the default.

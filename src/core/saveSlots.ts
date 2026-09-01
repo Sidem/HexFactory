@@ -29,7 +29,9 @@
 // keep the site_rules they were generated with, so existing deposits do not move.
 // v38 names foundation class, a service/upgrade envelope and overhead clearance on the definition.
 // Occupancy is derived, so a v37 file is the same factory: only the stamps move.
-export const SAVE_VERSION = 38;
+// v39 lets an earthwork move the water beside it. What is stored is the departure from the
+// generated equilibrium, and a v38 world has none, so only the stamp moves.
+export const SAVE_VERSION = 39;
 export const SAVE_CATALOG_KEY = "hexfactory:saves:v1";
 export const LEGACY_SAVE_PREFIX = "hexfactory:hxf1:";
 export const HXF1_PREFIX = "HXF1\n";
@@ -206,6 +208,7 @@ export function compatibility(
     [36, 27, 16],
     [37, 28, 16],
     [38, 29, 16],
+    [39, 29, 16],
   ];
   if (envelope.saveVersion <= 36 && build.versions.save >= 37) {
     mismatches.push({

@@ -510,17 +510,32 @@ partially activated physical model.
    transit instead. Nothing in the simulation reads the player's speed in metres per second. The full
    reasoning lives on the constant in `factory-wasm/src/lib.rs`.
 
-4. **Sparse disturbed water.** — **next.** Add water departure state, active-region equilibrium,
+4. **Sparse disturbed water.** — **in progress.** Add water departure state, active-region equilibrium,
    frontier boundaries, pumps, flood/drain commands and save/load/checksum coverage. Re-measure the
    active front and the settled-world zero-work case.
 5. **Geomorphic epochs.** Add curvature, resistance, bank stress, deposition and local reflow with
    an accelerated deterministic harness. Ship only after protected infrastructure and finite work
    bounds are visible and tested.
 
-#### Starting slice 4
+#### Slice 4 in progress
 
 Slices 1–3 are complete, green and pushed to `origin/main` at save 38 / definitions 29 / world 11 /
-wire 21. Slice 4 is open work; nothing gates it.
+wire 21. Slice 4 is under way on local `main` and unpushed:
+
+- **Done.** `factory_wasm::hydrology` owns the departure state, the bounded settling solve, the
+  active region and the frontier boundary. `Core::water_depth_at` is the one native water predicate,
+  and movement and construction read it instead of the terrain band. The departure set saves, loads,
+  validates and checksums, and an earthwork now settles the water over the ground it moved — with
+  the undo record carrying the exact departures its solve displaced, so putting the ground back puts
+  the water back rather than solving for it a second time. Save 39 is the envelope that carries all
+  of it; a save-38 world had no departure to store, so the rung moves only the stamp.
+- **Remaining.** Flood and drain commands; pumps drawing against local depth and replenishing
+  discharge, naming their source and limiting rate; the wire and snapshot publishing that lets the
+  renderer draw a disturbed depth; wading and route search reading the same predicate; resumption at
+  the surveyed frontier when a survey exposes the next region; fixtures replacing
+  `fixtures/terrain-passability.json` with substrate, slope and water-depth cases in both languages;
+  and the re-measured active front and settled-world zero-work case in
+  [`BENCHMARKS.md`](BENCHMARKS.md).
 
 What the ground already gives you: an absolute physical bed in millimetres, per-cell water depth,
 surface and discharge from the prototype's drainage, a graded long profile whose seam elevations agree

@@ -148,6 +148,45 @@ impl DisturbedWater {
         water
     }
 
+    /// Write a recorded set of departures back, cell by cell.
+    pub(super) fn apply(&mut self, cells: &[WaterCell]) {
+        for cell in cells {
+            self.set(cell.q, cell.r, WaterDelta::new(cell.departure));
+        }
+    }
+
+    /// What this set holds at every cell a later one disagrees with — the exact write-back that
+    /// returns `later` to `self`.
+    ///
+    /// A cell the later set forgot is recorded at the departure it used to carry, and a cell the
+    /// later set invented is recorded as zero, so [`apply`](Self::apply) of the result is a true
+    /// inverse rather than an approximate one. That is what lets an earthwork undo put the water
+    /// back instead of solving for it a second time and hoping the answer matches.
+    pub(super) fn reversal_of(&self, later: &Self) -> Vec<WaterCell> {
+        let mut cells: Vec<WaterCell> = later
+            .cells
+            .iter()
+            .filter(|(cell, delta)| self.delta_at(cell.0, cell.1) != **delta)
+            .map(|(&(q, r), _)| WaterCell {
+                q,
+                r,
+                departure: self.delta_at(q, r).get(),
+            })
+            .chain(
+                self.cells
+                    .iter()
+                    .filter(|(cell, _)| !later.cells.contains_key(*cell))
+                    .map(|(&(q, r), delta)| WaterCell {
+                        q,
+                        r,
+                        departure: delta.get(),
+                    }),
+            )
+            .collect();
+        cells.sort_unstable_by_key(|cell| (cell.q, cell.r));
+        cells
+    }
+
     /// The checksum contribution, in the map's own key order so it cannot depend on how the water
     /// got there.
     pub(super) fn hash_into(&self, hash: &mut u32) {
@@ -937,14 +976,18 @@ mod tests {
         }
     }
 
+    /// The three catalogues the shipped game loads, as `Core::new` and `Core::from_save` take them.
+    fn catalogues() -> (DefinitionsInput, TechnologiesInput, ScenariosInput) {
+        (
+            serde_json::from_str(include_str!("../../src/data/definitions.json")).unwrap(),
+            serde_json::from_str(include_str!("../../src/data/technologies.json")).unwrap(),
+            serde_json::from_str(include_str!("../../src/data/scenarios.json")).unwrap(),
+        )
+    }
+
     /// A real opening world on the physical source, surveyed around the landing shelf.
     fn physical_core() -> Core {
-        let definitions =
-            serde_json::from_str(include_str!("../../src/data/definitions.json")).unwrap();
-        let technologies =
-            serde_json::from_str(include_str!("../../src/data/technologies.json")).unwrap();
-        let scenarios: ScenariosInput =
-            serde_json::from_str(include_str!("../../src/data/scenarios.json")).unwrap();
+        let (definitions, technologies, scenarios) = catalogues();
         let core = Core::new(
             &definitions,
             &technologies,
@@ -1119,6 +1162,30 @@ mod tests {
         );
     }
 
+    /// The version-39 rung is a stamp and nothing else. A version-38 world could not make a
+    /// departure, and this version computes the same equilibrium from the same seed, so the file
+    /// resumes on the checksum it was written with rather than on a recomputed one.
+    #[test]
+    fn a_version_thirty_eight_world_resumes_on_its_own_checksum() {
+        let core = physical_core();
+        let saved = core.save_string().expect("the world saves");
+        let old = saved.replace(
+            &format!("\"save_version\":{SAVE_VERSION}"),
+            "\"save_version\":38",
+        );
+        assert_ne!(old, saved, "the stamp was found and rewritten");
+
+        let (definitions, technologies, scenarios) = catalogues();
+        let restored = Core::from_save(&definitions, &technologies, &scenarios, &old)
+            .expect("a version-38 world resumes");
+        assert!(restored.water.is_empty(), "it had no departure to carry");
+        assert_eq!(
+            restored.checksum(),
+            core.checksum(),
+            "and it hashes exactly what it hashed before hydrology existed"
+        );
+    }
+
     #[test]
     fn a_saved_departure_past_the_guard_is_refused() {
         let past = [WaterCell {
@@ -1154,5 +1221,205 @@ mod tests {
             i32::from(i16::MAX) > DEPARTURE_LIMIT_QUANTA,
             "the guard must fit the integer it guards"
         );
+    }
+
+    #[test]
+    fn a_reversal_puts_back_what_a_solve_forgot_and_drops_what_it_invented() {
+        let before = DisturbedWater::from_cells(&[
+            WaterCell {
+                q: 0,
+                r: 0,
+                departure: 3,
+            },
+            WaterCell {
+                q: 1,
+                r: 0,
+                departure: -2,
+            },
+        ]);
+        let after = DisturbedWater::from_cells(&[
+            WaterCell {
+                q: 1,
+                r: 0,
+                departure: -2,
+            },
+            WaterCell {
+                q: 2,
+                r: 0,
+                departure: 5,
+            },
+        ]);
+        assert_eq!(
+            before.reversal_of(&after),
+            vec![
+                WaterCell {
+                    q: 0,
+                    r: 0,
+                    departure: 3,
+                },
+                WaterCell {
+                    q: 2,
+                    r: 0,
+                    departure: 0,
+                },
+            ],
+            "a cell the solve left alone is not in the record"
+        );
+        let mut restored = after.clone();
+        restored.apply(&before.reversal_of(&after));
+        assert_eq!(restored, before, "and applying it is a true inverse");
+    }
+
+    /// One hex, lowered by `steps` grade steps, priced and committed the way a player's drag is.
+    fn lower(q: i32, r: i32, steps: u8) -> GroundEdit {
+        GroundEdit {
+            q,
+            r,
+            to_q: q,
+            to_r: r,
+            corner: 0,
+            to_corner: 0,
+            shape: GroundShape::Cell,
+            definition_id: 2,
+            action: GroundAction::Lower,
+            steps,
+            reference: GroundReference::default(),
+            cover: false,
+        }
+    }
+
+    /// Whether this hex would take that cut whole — no obstacle, no deposit, no refusal.
+    fn diggable(core: &Core, (q, r): (i32, i32), steps: u8) -> bool {
+        let preview = core.ground_preview(&lower(q, r, steps));
+        preview.error.is_none() && preview.blocked == 0 && preview.changes > 0
+    }
+
+    /// A surveyed, dry, diggable hex whose six neighbours are all surveyed, dry and diggable too, so
+    /// a pond dug into one of them has a bank the test can compute rather than guess.
+    fn pit_and_bank(core: &Core) -> ((i32, i32), (i32, i32)) {
+        let size = core.scenario.chunk_size;
+        let dry = |core: &Core, (q, r): (i32, i32)| {
+            core.surveyed(q, r)
+                && core.water_depth_at(q, r) == 0
+                && !core.generated_ground_at(q, r).presentation.is_water()
+        };
+        core.generated_chunks
+            .iter()
+            .flat_map(|&(chunk_q, chunk_r)| hexes_in_chunk(chunk_q, chunk_r, size))
+            .filter(|&cell| dry(core, cell) && diggable(core, cell, 4))
+            .find_map(|(q, r)| {
+                let ring: Vec<(i32, i32)> = DIRECTIONS
+                    .iter()
+                    .map(|&(dq, dr)| (q + dq, r + dr))
+                    .collect();
+                ring.iter()
+                    .all(|&cell| dry(core, cell))
+                    .then(|| {
+                        ring.iter()
+                            .copied()
+                            .find(|&cell| diggable(core, cell, 2))
+                            .map(|bank| ((q, r), bank))
+                    })
+                    .flatten()
+            })
+            .expect("the opening shelf has an open pair of dry hexes")
+    }
+
+    /// Digging beside standing water floods the cut, and nothing had to ask it to. The earthwork
+    /// moved the bed, and the bed is what the water stands on.
+    #[test]
+    fn a_cut_beside_a_pond_floods_and_the_undo_puts_the_water_back() {
+        let mut core = physical_core();
+        core.set_creative(true);
+        let ((pit_q, pit_r), (bank_q, bank_r)) = pit_and_bank(&core);
+
+        // A pit next door, and a pond in it standing exactly one quantum under the lowest bed around
+        // it. One quantum is head the model will not move on, so this is a world already at rest.
+        core.edit_ground(&lower(pit_q, pit_r, 4)).unwrap();
+        let floor = core.ground_elevation_at(pit_q, pit_r);
+        let rim = DIRECTIONS
+            .iter()
+            .map(|&(dq, dr)| core.ground_elevation_at(pit_q + dq, pit_r + dr))
+            .min()
+            .expect("a hex has neighbours");
+        let depth = rim + 1 - floor;
+        assert!(depth > 0, "the cut put the floor below its own rim");
+        core.water
+            .set(pit_q, pit_r, WaterDelta::new(i16::try_from(depth).unwrap()));
+        core.settle_water(&[(pit_q, pit_r)]);
+        assert_eq!(
+            core.water_depth_at(pit_q, pit_r),
+            depth,
+            "a pond under its rim has nowhere to go"
+        );
+        let held: i32 = core.water.iter().map(|(_, d)| i32::from(d.get())).sum();
+        assert_eq!(held, depth, "and the shelf around it is dry");
+        let checksum = core.checksum();
+
+        // Now cut the bank. The pond's surface is suddenly above it, and the water finds the cut.
+        core.events.clear();
+        core.edit_ground(&lower(bank_q, bank_r, 2)).unwrap();
+        assert!(
+            core.water_depth_at(bank_q, bank_r) > 0,
+            "the cut took water nobody handed it"
+        );
+        assert!(
+            core.water_depth_at(pit_q, pit_r) < depth,
+            "and the pond is what gave it up"
+        );
+        assert_eq!(
+            core.water
+                .iter()
+                .map(|(_, d)| i32::from(d.get()))
+                .sum::<i32>(),
+            held,
+            "the water was moved, not made"
+        );
+        assert!(
+            core.events
+                .iter()
+                .any(|event| event.contains("Water found the new grade")),
+            "{:?}",
+            core.events
+        );
+
+        // Undo restores the ground and the water that was standing on it, exactly. The water is put
+        // back from the record rather than solved for again, so this is an identity and not a second
+        // opinion that happens to agree.
+        core.undo_ground().unwrap();
+        assert_eq!(core.water_depth_at(bank_q, bank_r), 0);
+        assert_eq!(core.water_depth_at(pit_q, pit_r), depth);
+        assert_eq!(core.checksum(), checksum, "the world came back exactly");
+    }
+
+    /// The common case, and the one that must stay free: a grade with no water anywhere near it
+    /// leaves no departure, says nothing about water, and hashes as if hydrology were not here.
+    #[test]
+    fn a_grade_with_no_water_near_it_records_nothing() {
+        let mut core = physical_core();
+        core.set_creative(true);
+        let ((q, r), _) = pit_and_bank(&core);
+        let checksum = core.checksum();
+        let chunks = core.generated_chunks.len();
+
+        core.events.clear();
+        core.edit_ground(&lower(q, r, 1)).unwrap();
+        assert!(core.water.is_empty(), "dry ground disturbs no water");
+        assert!(
+            !core
+                .events
+                .iter()
+                .any(|event| event.contains("Water found the new grade")),
+            "{:?}",
+            core.events
+        );
+        assert_eq!(
+            core.generated_chunks.len(),
+            chunks,
+            "and the settle did not open the world to look"
+        );
+
+        core.undo_ground().unwrap();
+        assert_eq!(core.checksum(), checksum);
     }
 }

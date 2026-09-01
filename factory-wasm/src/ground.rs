@@ -282,12 +282,24 @@ pub(super) struct GroundUndo {
     after: Vec<((i32, i32), Option<GroundCell>)>,
     spoil_before: u64,
     spoil_after: u64,
+    /// The departures this edit's settle displaced, as they stood before it ran.
+    water_before: Vec<crate::hydrology::WaterCell>,
 }
 
 struct GroundTransaction {
     preview: GroundPreview,
     undo: GroundUndo,
     inventory: BTreeMap<ItemId, u32>,
+}
+
+/// What a commit does about the water standing on the ground it is about to move.
+enum WaterPlan {
+    /// Settle over the cells the edit changed, and record what moved. This is what an edit does.
+    Settle,
+    /// Write these departures back verbatim. This is what an undo does: the edit being reversed
+    /// already recorded the exact state its solve displaced, so putting the ground back is put back
+    /// with the water that was standing on it rather than with a second solve's opinion of it.
+    Restore(Vec<crate::hydrology::WaterCell>),
 }
 
 fn ingredients(items: &BTreeMap<ItemId, u32>) -> Vec<Ingredient> {
@@ -622,6 +634,7 @@ impl Core {
                 after: Vec::new(),
                 spoil_before: self.spoil,
                 spoil_after: self.spoil,
+                water_before: Vec::new(),
             },
             inventory: self.player.inventory.clone(),
         };
@@ -988,7 +1001,34 @@ impl Core {
         self.ground_transaction(edit).preview
     }
 
-    fn commit_ground_transaction(&mut self, transaction: &GroundTransaction) {
+    /// Move the water the bed change displaced, and say what it left behind.
+    ///
+    /// Water stands on the finished bed, so an earthwork moves its surface with it: a cut opens head
+    /// under every pool beside it and a fill carries its own column uphill until it runs back off.
+    /// Both are the same solve, seeded on exactly the cells the edit changed — the region grows from
+    /// there only where settling water actually asks for ground, so a dry grade far from any water
+    /// costs seven cells and stops.
+    ///
+    /// The legacy square metre is left alone: its water is a presentation band with no depth to move.
+    fn settle_after_ground(&mut self, transaction: &mut GroundTransaction, water: WaterPlan) {
+        match water {
+            WaterPlan::Restore(cells) => self.water.apply(&cells),
+            WaterPlan::Settle if self.ground_is_physical() => {
+                let before = self.water.clone();
+                let seeds: Vec<(i32, i32)> = transaction
+                    .undo
+                    .after
+                    .iter()
+                    .map(|(cell, _)| *cell)
+                    .collect();
+                self.settle_water(&seeds);
+                transaction.undo.water_before = before.reversal_of(&self.water);
+            }
+            WaterPlan::Settle => {}
+        }
+    }
+
+    fn commit_ground_transaction(&mut self, transaction: &mut GroundTransaction, water: WaterPlan) {
         let mut covering_changed = false;
         for (cell, after) in &transaction.undo.after {
             let was_paved = self.surface_at(cell.0, cell.1) != 0;
@@ -1022,11 +1062,13 @@ impl Core {
             self.mark_all_entities_dirty();
             self.rebuild_flora_regrowth();
         }
+        // Before the replan, because where the water ends up is part of what is walkable.
+        self.settle_after_ground(transaction, water);
         self.replan_walk();
     }
 
     pub(super) fn edit_ground(&mut self, edit: &GroundEdit) -> Result<(), String> {
-        let transaction = self.ground_transaction(edit);
+        let mut transaction = self.ground_transaction(edit);
         if let Some(error) = &transaction.preview.error {
             return Err(error.clone());
         }
@@ -1038,7 +1080,8 @@ impl Core {
             transaction.preview.fill,
             transaction.preview.changes,
         );
-        self.commit_ground_transaction(&transaction);
+        self.commit_ground_transaction(&mut transaction, WaterPlan::Settle);
+        let moved = transaction.undo.water_before.len();
         self.ground_undo.push(transaction.undo);
         if self.ground_undo.len() > MAX_UNDO_DEPTH {
             self.ground_undo.remove(0);
@@ -1055,6 +1098,12 @@ impl Core {
                 if changes == 1 { "" } else { "es" }
             )
         });
+        if moved > 0 {
+            self.events.push(format!(
+                "Water found the new grade across {moved} hex{}",
+                if moved == 1 { "" } else { "es" }
+            ));
+        }
         Ok(())
     }
 
@@ -1090,6 +1139,9 @@ impl Core {
                 after: undo.before.clone(),
                 spoil_before: undo.spoil_after,
                 spoil_after: undo.spoil_before,
+                // This record reverses a reversal and is popped rather than kept, so there is no
+                // second displacement to remember.
+                water_before: Vec::new(),
             },
             inventory: self.player.inventory.clone(),
         };
@@ -1104,7 +1156,7 @@ impl Core {
             )?;
         }
         self.ground_price(&mut transaction)?;
-        self.commit_ground_transaction(&transaction);
+        self.commit_ground_transaction(&mut transaction, WaterPlan::Restore(undo.water_before));
         self.ground_undo.pop();
         self.events.push("Undid the last ground edit".into());
         Ok(())
