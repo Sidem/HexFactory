@@ -375,7 +375,7 @@ impl Core {
         }
     }
 
-    fn grade_limit(&self) -> i32 {
+    pub(super) fn grade_limit(&self) -> i32 {
         if self.ground_is_physical() {
             scale::EARTHWORK_LIMIT_QUANTA
         } else {

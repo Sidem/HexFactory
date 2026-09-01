@@ -1,5 +1,5 @@
 {
-  "version": 28,
+  "version": 29,
   "items": [
     {
       "id": 1,
@@ -906,6 +906,12 @@
       "placement_rule": "resource",
       "buildable": true,
       "blocks_movement": true,
+      "service_envelope": [
+        {
+          "q": 0,
+          "r": 1
+        }
+      ],
       "footprint": [
         {
           "q": 0,
@@ -942,6 +948,7 @@
       "placement_rule": "ground",
       "buildable": true,
       "blocks_movement": false,
+      "foundation_class": "span",
       "footprint": [
         {
           "q": 0,
@@ -1386,6 +1393,20 @@
       "placement_rule": "elevated",
       "buildable": true,
       "blocks_movement": true,
+      "overhead_clearance": [
+        {
+          "q": 1,
+          "r": 1
+        },
+        {
+          "q": -1,
+          "r": 1
+        },
+        {
+          "q": 1,
+          "r": -1
+        }
+      ],
       "footprint": [
         {
           "q": 0,
@@ -1513,6 +1534,16 @@
       "placement_rule": "ground",
       "buildable": true,
       "blocks_movement": true,
+      "overhead_clearance": [
+        {
+          "q": 2,
+          "r": 1
+        },
+        {
+          "q": 2,
+          "r": -1
+        }
+      ],
       "footprint": [
         {
           "q": 0,

@@ -21,15 +21,15 @@ native survey/prototype, not a production toggle; **it is delivered in v0.46.0**
 the typed production ground spine behind the old presentation. Slice 3 is the current work: content
 and renderer activation at the declared compatibility boundary. Local commits through `deddf52`
 have activated the physical source, native height samples, continuous landform, height-aware
-picking, physical footprints and metre-derived belt cadence together at save 37 / world 11 /
-definitions 28 / scenarios 8 / wire 21. `factory_wasm::terra` is now in the wasm artifact, new worlds
-select `GroundSpine::physical`, and save 36 is refused with an export path because its 1 m² scale
-cannot be resumed as 25 m² ground. The complete local quality gate is green at 333 TypeScript and
-293 Rust tests. This activation is not finished or pushed: the next agent must add foundation class,
-service/upgrade envelope and overhead-clearance definition surfaces as one coordinated compatibility
-change, then validate the desktop and mobile journeys. Do not start slice 4 or push the partial
-activation. The unrelated untracked `belt-cadence-demo.png` belongs to the user and must stay out of
-commits. Pipes were brought forward and the ground rework was requested outright; neither reorders
+picking, physical footprints and metre-derived belt cadence together, and the remaining slice-3
+definition surfaces — foundation class, service/upgrade envelope and overhead clearance — now sit
+on the catalogue at save 38 / world 11 / definitions 29 / scenarios 8 / wire 21.
+`factory_wasm::terra` is now in the wasm artifact, new worlds select `GroundSpine::physical`, and
+save 36 is refused with an export path because its 1 m² scale cannot be resumed as 25 m² ground.
+Save 37 advances by stamp onto the reservation catalogue. Desktop and mobile journeys against the
+physical opening are recorded. This activation is not pushed: the next agent must review before
+any push. Do not start slice 4 or push the partial activation. The unrelated untracked `belt-cadence-demo.png`
+belongs to the user and must stay out of commits. Pipes were brought forward and the ground rework was requested outright; neither reorders
 the table. Release numbers after v0.46.0 are unassigned. Do not reorder those phases without the
 user. On 2026-08-29 the user moved supported floors and vertical transport from row 7 to row 10,
 behind flowing water and Living Lattice, so the player learns the shipped ground-level systems

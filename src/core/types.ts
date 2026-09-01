@@ -32,6 +32,12 @@ export type PlacementRule =
   | "water"
   | "elevated"
   | "shallows";
+/**
+ * How a building's occupied foundation may sit on finished grade. Absent means a level pad.
+ * `span` may follow a walkable slope; `retaining` is the exception for walls, stairs and
+ * prepared foundations.
+ */
+export type FoundationClass = "pad" | "span" | "retaining";
 export type PowerSource = "burner" | "wind" | "hydro" | "turbine";
 /**
  * Which routing headings a definition may be built at. `edge` is the six hex edges and the
@@ -164,6 +170,12 @@ export interface BuildingDefinition {
   buildable: boolean;
   blocks_movement: boolean;
   footprint: AxialCoordinate[];
+  /** Absent means a level pad. */
+  foundation_class?: FoundationClass;
+  /** Reserved cells that are not solid occupancy. A later upgrade may grow onto them. */
+  service_envelope?: AxialCoordinate[];
+  /** Air reservation: belts may pass underneath, machines may not. */
+  overhead_clearance?: AxialCoordinate[];
 }
 
 export interface Definitions {

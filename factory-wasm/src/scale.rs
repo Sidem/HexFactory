@@ -152,9 +152,9 @@ pub const fn belt_items_per_minute() -> i64 {
 /// The largest height difference between neighbours that a *building pad* may span, in height
 /// quanta, absent an explicit foundation class. One quantum is 0.25 m over 5.37 m.
 ///
-/// Slice 1 proposal, pending the slice 3 retune. `MAX_BUILD_STEP == MAX_WALK_STEP` does not
-/// survive this phase: retaining walls, foundations and stairs are the exceptions, and they are
-/// stated per definition rather than as one global number.
+/// Walking and construction no longer share one threshold. Ordinary machines use this pad;
+/// `FoundationClass::Span` may follow [`MAX_WALK_STEP_QUANTA`], and `Retaining` is the exception
+/// for walls, stairs and prepared foundations.
 pub const MAX_BUILD_STEP_QUANTA: i32 = 2;
 
 /// The largest height difference between neighbours a player may walk, in height quanta. Four

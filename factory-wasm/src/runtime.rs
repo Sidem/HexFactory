@@ -25,6 +25,10 @@ pub(super) struct RuntimeIndex {
     pub(super) merger_targets: Vec<usize>,
     /// Occupied footprint cells, maintained with the compiled topology.
     pub(super) occupied: BTreeMap<(i32, i32), usize>,
+    /// Service/upgrade envelope cells. Not occupancy: walking and output rays ignore them.
+    pub(super) envelope: BTreeMap<(i32, i32), usize>,
+    /// Overhead-clearance cells. Not occupancy; low infrastructure may share them.
+    pub(super) clearance: BTreeMap<(i32, i32), usize>,
     /// Entities attached to a power network, filled after power compilation.
     pub(super) power_order: Vec<usize>,
     /// Reused transfer scratch. Indexes correspond to the current entity vector.
@@ -39,6 +43,8 @@ impl RuntimeIndex {
         graph: &[Links],
         mergers: Vec<bool>,
         occupied: BTreeMap<(i32, i32), usize>,
+        envelope: BTreeMap<(i32, i32), usize>,
+        clearance: BTreeMap<(i32, i32), usize>,
     ) {
         let mut entity_order: Vec<usize> = (0..entities.len()).collect();
         entity_order.sort_by_key(|&index| entities[index].id);
@@ -82,6 +88,8 @@ impl RuntimeIndex {
         self.entity_order = entity_order;
         self.mergers = mergers;
         self.occupied = occupied;
+        self.envelope = envelope;
+        self.clearance = clearance;
         self.claimed.resize(entities.len(), false);
         self.delivered.resize(entities.len(), false);
         self.clear_transfer_scratch();

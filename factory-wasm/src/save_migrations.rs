@@ -211,6 +211,20 @@ pub(super) fn migrate<'a>(json: &'a str, target_version: u16) -> Result<Cow<'a, 
         version = 36;
     }
 
+    // Version 37 is the physical-scale activation and has no migration from 36: a one-square-metre
+    // factory cannot be resumed as 25 m² ground. Version 38 names foundation class, a service
+    // envelope and overhead clearance on the definition. Occupancy is derived from the catalogue,
+    // so a version-37 file is the same factory: only the stamps move.
+    if version == 37 && target_version >= 38 {
+        if let Some(object) = value.as_object_mut() {
+            object.insert("save_version".into(), Value::from(38));
+            if object.get("definition_version") == Some(&Value::from(28)) {
+                object.insert("definition_version".into(), Value::from(29));
+            }
+        }
+        version = 38;
+    }
+
     if version == target_version {
         return Ok(Cow::Owned(serde_json::to_string(&value).map_err(
             |error| format!("migrated save could not be written: {error}"),
@@ -746,5 +760,18 @@ mod tests {
             value["state"]["legacy_fluid_belts"],
             serde_json::json!([7, 11])
         );
+    }
+
+    #[test]
+    fn version_thirty_seven_names_foundation_reservations_without_rewriting_state() {
+        let json = r#"{"save_version":37,"definition_version":28,"technology_version":16,"world_generator_version":11,"state":{"entities":[{"id":7,"definition_id":1,"orientation":0}]}}"#;
+        let migrated = migrate(json, 38).expect("migrated save");
+        let value: Value = serde_json::from_str(&migrated).expect("migrated json");
+        assert_eq!(value["save_version"], 38);
+        assert_eq!(value["definition_version"], 29);
+        assert_eq!(value["technology_version"], 16);
+        assert_eq!(value["world_generator_version"], 11);
+        assert_eq!(value["state"]["entities"][0]["definition_id"], 1);
+        assert_eq!(value["state"]["entities"][0]["orientation"], 0);
     }
 }

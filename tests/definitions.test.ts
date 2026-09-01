@@ -233,6 +233,59 @@ describe("data-defined content", () => {
     ).toThrow(/off a cell it stands on/);
   });
 
+  it("keeps occupied foundation, service envelope and overhead clearance as separate claims", () => {
+    const extractor = typedDefinitions.buildings.find(
+      ({ key }) => key === "extractor",
+    );
+    const wind = typedDefinitions.buildings.find(
+      ({ key }) => key === "wind-turbine",
+    );
+    const steam = typedDefinitions.buildings.find(
+      ({ key }) => key === "steam-turbine",
+    );
+    const belt = typedDefinitions.buildings.find(({ key }) => key === "belt");
+    expect(extractor?.service_envelope).toEqual([{ q: 0, r: 1 }]);
+    expect(extractor?.footprint.some(({ q, r }) => q === 0 && r === 1)).toBe(
+      false,
+    );
+    expect(wind?.overhead_clearance?.length).toBeGreaterThan(0);
+    expect(steam?.overhead_clearance).toEqual([
+      { q: 2, r: 1 },
+      { q: 2, r: -1 },
+    ]);
+    expect(belt?.foundation_class).toBe("span");
+
+    const withEnvelope = (
+      key: string,
+      cells: { q: number; r: number }[],
+    ): Definitions => {
+      const edited = structuredClone(typedDefinitions);
+      const target = edited.buildings.find((building) => building.key === key);
+      expect(target, `${key} is in the catalogue`).toBeDefined();
+      if (target) target.service_envelope = cells;
+      return edited;
+    };
+
+    expect(() =>
+      validateDefinitions(withEnvelope("container", [{ q: 1, r: 0 }])),
+    ).not.toThrow();
+    expect(() =>
+      validateDefinitions(
+        withEnvelope("container", [
+          { q: 0, r: 0 },
+          { q: 1, r: 0 },
+        ]),
+      ),
+    ).toThrow(/already occupies/);
+    expect(() =>
+      validateDefinitions(withEnvelope("container", [{ q: 3, r: 0 }])),
+    ).toThrow(/disconnected pieces/);
+    const corner = structuredClone(typedDefinitions);
+    const target = corner.buildings.find(({ key }) => key === "belt");
+    if (target) target.service_envelope = [{ q: 1, r: 0 }];
+    expect(() => validateDefinitions(corner)).toThrow(/two-row period/);
+  });
+
   it("gives every shipped building a footprint in its physical size band", () => {
     // The bands the phase authored the catalogue to, in cells. They are here rather than in prose
     // because the point of the rescale is that a hex is 25 m²: a smelter that still claims one cell

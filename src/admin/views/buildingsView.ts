@@ -1,6 +1,7 @@
 import type { AxialCoordinate } from "@hexlife/embed/hex";
 import type {
   BuildingDefinition,
+  FoundationClass,
   BuildingKind,
   Ingredient,
   OrientationAxis,
@@ -33,6 +34,8 @@ const PLACEMENT_RULES: PlacementRule[] = [
   "elevated",
   "shallows",
 ];
+
+const FOUNDATION_CLASSES: FoundationClass[] = ["pad", "span", "retaining"];
 
 const POWER_SOURCES: PowerSource[] = ["burner", "wind", "hydro", "turbine"];
 
@@ -402,6 +405,15 @@ function renderBuildingModal(
               </select>
             </label>
             <label>
+              <span>Foundation class</span>
+              <select name="foundation_class">
+                ${FOUNDATION_CLASSES.map(
+                  (value) =>
+                    `<option value="${value}" ${value === (currentBuilding.foundation_class ?? "pad") ? "selected" : ""}>${value.charAt(0).toUpperCase() + value.slice(1)}</option>`,
+                ).join("")}
+              </select>
+            </label>
+            <label>
               <span>Power Draw (Watts/tick)</span>
               <input type="number" name="power_draw" value="${currentBuilding.power_draw ?? ""}" min="0" placeholder="e.g. 4" />
             </label>
@@ -645,6 +657,9 @@ function renderBuildingModal(
     const placement_rule = String(
       formData.get("placement_rule"),
     ) as PlacementRule;
+    const foundation_class = String(
+      formData.get("foundation_class") || "pad",
+    ) as FoundationClass;
     const buildable = formData.get("buildable") !== null;
     const blocks_movement = formData.get("blocks_movement") !== null;
 
@@ -667,6 +682,10 @@ function renderBuildingModal(
       blocks_movement,
       footprint,
       construction_cost,
+      foundation_class:
+        foundation_class === "pad" ? undefined : foundation_class,
+      service_envelope: currentBuilding.service_envelope,
+      overhead_clearance: currentBuilding.overhead_clearance,
     };
 
     // Kind specific parsing

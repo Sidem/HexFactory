@@ -5293,7 +5293,11 @@ function setOrientation(next: number): void {
       ? host.definitions.buildings.find(({ id }) => id === tool)
       : undefined;
   renderer.setBuildFootprint(
-    definition?.footprint ?? [{ q: 0, r: 0 }],
+    [
+      ...(definition?.footprint ?? [{ q: 0, r: 0 }]),
+      ...(definition?.service_envelope ?? []),
+      ...(definition?.overhead_clearance ?? []),
+    ],
     // Corner headings are closed under 60° rotation. Definitions remain single-cell until one
     // genuinely needs a wider footprint, so this is currently exact and future-proof.
     orientation >= NORTH ? orientation - NORTH : orientation,

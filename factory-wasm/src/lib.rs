@@ -143,7 +143,12 @@ const SAVE_PREFIX: &str = "HXF1\n";
 /// exactly the legacy behaviour: all products leave from the building's facing. The checksum
 /// contribution is guarded on emptiness, so the 34 -> 35 migration can verify the original run
 /// before adding no state at all.
-const SAVE_VERSION: u16 = 37;
+///
+/// Version 38 names foundation class, a service/upgrade envelope and overhead clearance on the
+/// definition. Occupancy is still derived from the catalogue rather than saved per entity, so a
+/// version-37 file is the same factory under the new stamps: the original checksum verifies, then
+/// the envelope numbers move.
+const SAVE_VERSION: u16 = 38;
 /// Bumped to 6 for World Parameters. `WorldParams` is now part of a run's identity — it is in the
 /// save envelope and in the checksum — so a version-5 envelope carries no answer to the question
 /// "which world is this" and is rejected rather than assumed to be the default.
@@ -254,6 +259,11 @@ const MAX_EXTRACT_RADIUS: u32 = 4;
 /// ceiling moves before the catalogue does precisely so raising it is not part of the change that
 /// reauthors thirty buildings.
 const MAX_FOOTPRINT_CELLS: usize = 19;
+/// Service/upgrade envelope and overhead clearance each share the occupied-footprint ceiling.
+/// They are reservations rather than occupancy, but they are still keys in a derived index and
+/// preview cells, so a definition file may not make them unbounded either.
+const MAX_ENVELOPE_CELLS: usize = MAX_FOOTPRINT_CELLS;
+const MAX_CLEARANCE_CELLS: usize = MAX_FOOTPRINT_CELLS;
 /// Hexes around the hub forced to lowland so the landing is always a buildable clearing.
 const LANDING_CLEAR_RADIUS: i32 = 7;
 /// World units the player covers per player step at full intent (1000). That is the **run**:
@@ -684,6 +694,35 @@ struct BuildingDefinition {
     blocks_movement: bool,
     #[serde(default = "default_footprint")]
     footprint: Vec<Coordinate>,
+    /// How this building sits on uneven ground. Absent means a level pad: the occupied foundation
+    /// may not span more than [`MAX_BUILD_STEP`] (legacy) or [`scale::MAX_BUILD_STEP_QUANTA`]
+    /// (physical). `span` may follow a slope a player can still walk; `retaining` is the exception
+    /// for walls, stairs and prepared foundations that create the grade they sit on.
+    #[serde(default)]
+    foundation_class: FoundationClass,
+    /// Cells reserved at placement that are not solid occupancy. Neighbours cannot occupy them;
+    /// a later upgrade may grow onto them without a second occupancy check. The player may still
+    /// walk through. Empty means the atomic growth path: prove the extra cells at upgrade time.
+    #[serde(default)]
+    service_envelope: Vec<Coordinate>,
+    /// Cells this building reserves in the air without occupying the ground. A turbine rotor is
+    /// the type case: belts, poles and bridges may pass underneath, machines may not. Empty means
+    /// the occupied footprint is the whole of what this building claims.
+    #[serde(default)]
+    overhead_clearance: Vec<Coordinate>,
+}
+
+/// How a building's occupied foundation may sit on finished grade.
+///
+/// Walking and construction no longer share one threshold. Ordinary machines need a pad; a belt
+/// or a stair can follow a walkable slope; a retaining wall is the thing that *makes* the face.
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+enum FoundationClass {
+    #[default]
+    Pad,
+    Span,
+    Retaining,
 }
 
 impl BuildingDefinition {
@@ -3040,23 +3079,7 @@ impl Core {
     fn footprint_for(&self, placed: PlacedBuilding, orientation: u8) -> Vec<Coordinate> {
         self.building_definition(placed.definition_id)
             .map(|definition| {
-                definition
-                    .footprint
-                    .iter()
-                    .map(|offset| {
-                        // No definition needs a multi-cell corner-heading footprint yet, and the
-                        // validator keeps that axis single-cell. A single `(0, 0)` cell is
-                        // invariant under rotation, so leaving it unrotated is exact.
-                        let offset = match orientation {
-                            NORTH.. => *offset,
-                            turns => rotate_coordinate(*offset, turns),
-                        };
-                        Coordinate {
-                            q: placed.q + offset.q,
-                            r: placed.r + offset.r,
-                        }
-                    })
-                    .collect()
+                Self::oriented_cells(&definition.footprint, placed.q, placed.r, orientation)
             })
             .unwrap_or_else(|| {
                 vec![Coordinate {
@@ -3066,8 +3089,82 @@ impl Core {
             })
     }
 
+    fn envelope_for(&self, placed: PlacedBuilding, orientation: u8) -> Vec<Coordinate> {
+        self.building_definition(placed.definition_id)
+            .map(|definition| {
+                Self::oriented_cells(
+                    &definition.service_envelope,
+                    placed.q,
+                    placed.r,
+                    orientation,
+                )
+            })
+            .unwrap_or_default()
+    }
+
+    fn clearance_for(&self, placed: PlacedBuilding, orientation: u8) -> Vec<Coordinate> {
+        self.building_definition(placed.definition_id)
+            .map(|definition| {
+                Self::oriented_cells(
+                    &definition.overhead_clearance,
+                    placed.q,
+                    placed.r,
+                    orientation,
+                )
+            })
+            .unwrap_or_default()
+    }
+
+    /// Rotate authored offsets onto a heading and translate them to a world anchor.
+    ///
+    /// No definition needs a multi-cell corner-heading footprint yet, and the validator keeps
+    /// that axis single-cell (envelope and clearance included). A single `(0, 0)` cell is
+    /// invariant under rotation, so leaving a corner heading unrotated is exact.
+    fn oriented_cells(offsets: &[Coordinate], q: i32, r: i32, orientation: u8) -> Vec<Coordinate> {
+        offsets
+            .iter()
+            .map(|offset| {
+                let offset = match orientation {
+                    NORTH.. => *offset,
+                    turns => rotate_coordinate(*offset, turns),
+                };
+                Coordinate {
+                    q: q + offset.q,
+                    r: r + offset.r,
+                }
+            })
+            .collect()
+    }
+
     fn entity_footprint(&self, entity: &Entity) -> Vec<Coordinate> {
         self.footprint_for(entity.placed, entity.placed.orientation)
+    }
+
+    fn entity_envelope(&self, entity: &Entity) -> Vec<Coordinate> {
+        self.envelope_for(entity.placed, entity.placed.orientation)
+    }
+
+    fn entity_clearance(&self, entity: &Entity) -> Vec<Coordinate> {
+        self.clearance_for(entity.placed, entity.placed.orientation)
+    }
+
+    /// True when this kind may share a cell with someone else's overhead clearance.
+    ///
+    /// A rotor reserves air, not the ground: belts, poles and bridge decks can pass under it.
+    /// Machines cannot.
+    fn is_low_infrastructure(kind: BuildingKind) -> bool {
+        matches!(
+            kind,
+            BuildingKind::Belt | BuildingKind::Pole | BuildingKind::Bridge
+        )
+    }
+
+    fn pad_step_limit(&self, class: FoundationClass) -> i32 {
+        match class {
+            FoundationClass::Pad => self.build_step_limit(),
+            FoundationClass::Span => self.walk_step_limit(),
+            FoundationClass::Retaining => self.grade_limit(),
+        }
     }
 
     /// Squared world-unit distance from the player to a hex centre.
@@ -3551,25 +3648,36 @@ impl Core {
     }
 
     fn compile_graph(&mut self) {
-        let occupied = self.occupied_entities();
+        let (occupied, envelope, clearance) = self.occupancy_maps();
         self.graph = self
             .entities
             .iter()
             .enumerate()
             .map(|(index, _)| self.compile_links(index, &occupied))
             .collect();
-        self.rebuild_runtime_index(occupied);
+        self.rebuild_runtime_index(occupied, envelope, clearance);
         self.compile_power();
         // A full compile can move any entity's outgoing link, and `next_id` is part of its snapshot.
         self.mark_all_entities_dirty();
     }
 
-    fn rebuild_runtime_index(&mut self, occupied: BTreeMap<(i32, i32), usize>) {
+    fn rebuild_runtime_index(
+        &mut self,
+        occupied: BTreeMap<(i32, i32), usize>,
+        envelope: BTreeMap<(i32, i32), usize>,
+        clearance: BTreeMap<(i32, i32), usize>,
+    ) {
         let mergers = (0..self.entities.len())
             .map(|index| self.is_merger(index))
             .collect();
-        self.runtime
-            .rebuild(&self.entities, &self.graph, mergers, occupied);
+        self.runtime.rebuild(
+            &self.entities,
+            &self.graph,
+            mergers,
+            occupied,
+            envelope,
+            clearance,
+        );
         // Every edit and every load funnels through here, and `occupied` is half of what a route is
         // made of, so this is the one place a standing walk has to be re-answered against the world
         // it is crossing. It is also what builds the route after a load, since the goal is saved
@@ -3577,14 +3685,84 @@ impl Core {
         self.replan_walk();
     }
 
+    #[cfg(test)]
     fn occupied_entities(&self) -> BTreeMap<(i32, i32), usize> {
+        self.occupancy_maps().0
+    }
+
+    /// Occupied foundation, service envelope and overhead clearance as three derived maps.
+    ///
+    /// Occupied is the only one the transport graph and the walk read. Envelope and clearance are
+    /// placement reservations: they are never saved or checksummed, and they rebuild with the
+    /// occupancy index after every edit.
+    fn occupancy_maps(
+        &self,
+    ) -> (
+        BTreeMap<(i32, i32), usize>,
+        BTreeMap<(i32, i32), usize>,
+        BTreeMap<(i32, i32), usize>,
+    ) {
         let mut occupied = BTreeMap::new();
+        let mut envelope = BTreeMap::new();
+        let mut clearance = BTreeMap::new();
         for (index, entity) in self.entities.iter().enumerate() {
             for cell in self.entity_footprint(entity) {
                 occupied.insert((cell.q, cell.r), index);
             }
+            for cell in self.entity_envelope(entity) {
+                envelope.insert((cell.q, cell.r), index);
+            }
+            for cell in self.entity_clearance(entity) {
+                clearance.insert((cell.q, cell.r), index);
+            }
         }
-        occupied
+        (occupied, envelope, clearance)
+    }
+
+    fn reserved_name(&self, index: usize) -> String {
+        self.entities
+            .get(index)
+            .and_then(|entity| self.building_definition(entity.placed.definition_id))
+            .map(|definition| definition.name.clone())
+            .unwrap_or_else(|| "that building".into())
+    }
+
+    /// Whether this cell is already claimed in a way this kind cannot share.
+    ///
+    /// `ignore` is the building whose own envelope or clearance we are growing into, so an
+    /// upgrade does not refuse the reservation it already holds.
+    fn reservation_conflict(
+        &self,
+        q: i32,
+        r: i32,
+        kind: BuildingKind,
+        ignore: Option<usize>,
+        occupied_ok: bool,
+    ) -> Result<(), String> {
+        if !occupied_ok {
+            if let Some(index) = self.entity_at(q, r) {
+                if ignore != Some(index) {
+                    return Err("building footprint overlaps an occupied hex".into());
+                }
+            }
+        }
+        if let Some(&index) = self.runtime.envelope.get(&(q, r)) {
+            if ignore != Some(index) {
+                return Err(format!(
+                    "this hex is reserved around the {}",
+                    self.reserved_name(index).to_lowercase()
+                ));
+            }
+        }
+        if let Some(&index) = self.runtime.clearance.get(&(q, r)) {
+            if ignore != Some(index) && !Self::is_low_infrastructure(kind) {
+                return Err(format!(
+                    "the {}'s overhead clearance occupies this hex",
+                    self.reserved_name(index).to_lowercase()
+                ));
+            }
+        }
+        Ok(())
     }
 
     /// Every outgoing transport edge one entity compiles.
@@ -4352,7 +4530,7 @@ impl Core {
         edited_ids: &BTreeSet<u32>,
     ) -> usize {
         // Erasing shifts vector indices, so preserve unaffected edges through stable entity IDs.
-        let occupied = self.occupied_entities();
+        let (occupied, envelope, clearance) = self.occupancy_maps();
         let indices_by_id: BTreeMap<u32, usize> = self
             .entities
             .iter()
@@ -4462,7 +4640,7 @@ impl Core {
             .filter(|id| indices_by_id.contains_key(id))
             .count();
         self.graph = graph;
-        self.rebuild_runtime_index(occupied);
+        self.rebuild_runtime_index(occupied, envelope, clearance);
         self.compile_power();
         // Exactly the entities whose outgoing link was recomputed, so their `next_id` may differ.
         self.dirty.entities.extend(
@@ -6586,15 +6764,20 @@ impl Core {
         if self.boundary_crosses_footprint(&footprint) {
             return Err("A boundary crosses this building footprint; remove it first".into());
         }
+        let envelope = self.envelope_for(placed, orientation);
+        let clearance = self.clearance_for(placed, orientation);
+        if self.boundary_crosses_footprint(&envelope) {
+            return Err(
+                "A boundary crosses this building's service envelope; remove it first".into(),
+            );
+        }
         for cell in &footprint {
             let supported_transport = definition.kind == BuildingKind::Belt
                 && self.bridge_at(cell.q, cell.r)
                 && self
                     .entity_at(cell.q, cell.r)
                     .is_some_and(|index| self.entities[index].kind == BuildingKind::Bridge);
-            if self.entity_at(cell.q, cell.r).is_some() && !supported_transport {
-                return Err("building footprint overlaps an occupied hex".into());
-            }
+            self.reservation_conflict(cell.q, cell.r, definition.kind, None, supported_transport)?;
             let (cell_x, cell_y) = axial_world(cell.q, cell.r);
             if circles_overlap(
                 self.player.x,
@@ -6619,10 +6802,30 @@ impl Core {
                 return Err("environment blocks construction".into());
             }
         }
+        for cell in &envelope {
+            self.reservation_conflict(cell.q, cell.r, definition.kind, None, false)?;
+            let terrain = self.terrain_at(cell.q, cell.r);
+            let shallow_support = definition.placement_rule == PlacementRule::Shallows
+                && terrain == Terrain::ShallowWater;
+            if self.terrain_blocks_construction(cell.q, cell.r) && !shallow_support {
+                return Err("environment blocks construction".into());
+            }
+        }
+        for cell in &clearance {
+            // Clearance is air: low infrastructure may already stand here, and the ground does
+            // not have to be a pad. Other machines, envelopes and rotors still cannot share it.
+            self.reservation_conflict(cell.q, cell.r, definition.kind, None, true)?;
+            if let Some(index) = self.entity_at(cell.q, cell.r) {
+                if !Self::is_low_infrastructure(self.entities[index].kind) {
+                    return Err("building footprint overlaps an occupied hex".into());
+                }
+            }
+        }
         // A footprint has to sit on ground level enough to stand a building on. Measuring the whole
-        // footprint's spread rather than each neighbouring pair is what makes a level pad worth
-        // grading: a multi-hex machine on a hillside asks the player to prepare a site first, and
-        // the site they prepare is exactly the one the preview showed them.
+        // occupied foundation's spread rather than each neighbouring pair is what makes a level pad
+        // worth grading: a multi-hex machine on a hillside asks the player to prepare a site first,
+        // and the site they prepare is exactly the one the preview showed them. Envelope and
+        // clearance are reservations, not the pad.
         if let (Some(low), Some(high)) = (
             footprint
                 .iter()
@@ -6633,7 +6836,7 @@ impl Core {
                 .map(|cell| self.ground_elevation_at(cell.q, cell.r))
                 .max(),
         ) {
-            if high - low > self.build_step_limit() {
+            if high - low > self.pad_step_limit(definition.foundation_class) {
                 return Err("This ground is too uneven; level a pad for this footprint".into());
             }
         }
@@ -7531,9 +7734,12 @@ impl Core {
     /// unless the ground it grew onto was empty, which is what this refuses to assume.
     fn upgrade_growth_legality(
         &self,
+        index: usize,
         next: &BuildingDefinition,
         current: &[Coordinate],
         grown: &[Coordinate],
+        next_envelope: &[Coordinate],
+        next_clearance: &[Coordinate],
     ) -> Result<(), String> {
         let held: BTreeSet<(i32, i32)> = current.iter().map(|cell| (cell.q, cell.r)).collect();
         let growth: Vec<Coordinate> = grown
@@ -7541,18 +7747,27 @@ impl Core {
             .copied()
             .filter(|cell| !held.contains(&(cell.q, cell.r)))
             .collect();
-        if growth.is_empty() {
-            return Ok(());
-        }
         if self.boundary_crosses_footprint(grown) {
             return Err("A boundary crosses this building footprint; remove it first".into());
         }
+        if self.boundary_crosses_footprint(next_envelope) {
+            return Err(
+                "A boundary crosses this building's service envelope; remove it first".into(),
+            );
+        }
         for cell in &growth {
-            if self.entity_at(cell.q, cell.r).is_some() {
-                return Err(format!(
-                    "{} needs more room than this one has; clear the hexes beside it",
-                    next.name
-                ));
+            // Own envelope is the reserved path: the cell was held empty at placement, so growth
+            // does not re-ask occupancy. Anything else — a neighbour, another envelope, a rotor —
+            // is the atomic path, and a refusal here leaves the building unchanged.
+            match self.reservation_conflict(cell.q, cell.r, next.kind, Some(index), false) {
+                Ok(()) => {}
+                Err(reason) if reason.contains("occupied hex") => {
+                    return Err(format!(
+                        "{} needs more room than this one has; clear the hexes beside it",
+                        next.name
+                    ));
+                }
+                Err(reason) => return Err(reason),
             }
             let (cell_x, cell_y) = axial_world(cell.q, cell.r);
             if circles_overlap(
@@ -7574,6 +7789,25 @@ impl Core {
                 return Err("environment blocks construction".into());
             }
         }
+        for cell in next_envelope {
+            if held.contains(&(cell.q, cell.r)) {
+                continue;
+            }
+            self.reservation_conflict(cell.q, cell.r, next.kind, Some(index), false)?;
+            let shallow_support = next.placement_rule == PlacementRule::Shallows
+                && self.terrain_at(cell.q, cell.r) == Terrain::ShallowWater;
+            if self.terrain_blocks_construction(cell.q, cell.r) && !shallow_support {
+                return Err("environment blocks construction".into());
+            }
+        }
+        for cell in next_clearance {
+            self.reservation_conflict(cell.q, cell.r, next.kind, Some(index), true)?;
+            if let Some(other) = self.entity_at(cell.q, cell.r) {
+                if other != index && !Self::is_low_infrastructure(self.entities[other].kind) {
+                    return Err("building footprint overlaps an occupied hex".into());
+                }
+            }
+        }
         let elevations: Vec<_> = grown
             .iter()
             .map(|cell| self.ground_elevation_at(cell.q, cell.r))
@@ -7582,7 +7816,7 @@ impl Core {
             elevations.iter().min().copied(),
             elevations.iter().max().copied(),
         ) {
-            if high - low > self.build_step_limit() {
+            if high - low > self.pad_step_limit(next.foundation_class) {
                 return Err("This ground is too uneven; level a pad for this footprint".into());
             }
         }
@@ -7632,14 +7866,21 @@ impl Core {
         // and level enough to stand on together with the old. Every refusal below leaves the
         // building exactly as it was.
         let current_cells = self.entity_footprint(&self.entities[index]);
-        let grown = self.footprint_for(
-            PlacedBuilding {
-                definition_id: next_id,
-                ..self.entities[index].placed
-            },
-            orientation,
-        );
-        self.upgrade_growth_legality(&next, &current_cells, &grown)?;
+        let next_placed = PlacedBuilding {
+            definition_id: next_id,
+            ..self.entities[index].placed
+        };
+        let grown = self.footprint_for(next_placed, orientation);
+        let next_envelope = self.envelope_for(next_placed, orientation);
+        let next_clearance = self.clearance_for(next_placed, orientation);
+        self.upgrade_growth_legality(
+            index,
+            &next,
+            &current_cells,
+            &grown,
+            &next_envelope,
+            &next_clearance,
+        )?;
         // Netted per item, so the two halves of the price never travel through the pack. A player
         // upgrading with a full pack is charged the difference and asked to carry the difference,
         // which is what an in-place edit actually costs them.
@@ -8215,22 +8456,49 @@ impl Core {
         if next_orientation == orientation {
             return Err("no other heading is researched for this building".into());
         }
-        let next_footprint = self.footprint_for(self.entities[index].placed, next_orientation);
+        let next_placed = PlacedBuilding {
+            orientation: next_orientation,
+            ..self.entities[index].placed
+        };
+        let next_footprint = self.footprint_for(next_placed, next_orientation);
+        let next_envelope = self.envelope_for(next_placed, next_orientation);
+        let next_clearance = self.clearance_for(next_placed, next_orientation);
         if self.boundary_crosses_footprint(&next_footprint) {
             return Err("A boundary crosses the rotated footprint; remove it first".into());
         }
+        if self.boundary_crosses_footprint(&next_envelope) {
+            return Err(
+                "A boundary crosses this building's service envelope; remove it first".into(),
+            );
+        }
         let rotating_kind = self.entities[index].kind;
-        if next_footprint.iter().any(|cell| {
-            self.entities.iter().enumerate().any(|(other, entity)| {
-                other != index
-                    && !(rotating_kind == BuildingKind::Belt && entity.kind == BuildingKind::Bridge)
-                    && self
-                        .entity_footprint(entity)
-                        .iter()
-                        .any(|occupied| occupied == cell)
-            })
-        }) {
-            return Err("rotated footprint would overlap another building".into());
+        for cell in &next_footprint {
+            let supported_transport = rotating_kind == BuildingKind::Belt
+                && self.bridge_at(cell.q, cell.r)
+                && self
+                    .entity_at(cell.q, cell.r)
+                    .is_some_and(|other| self.entities[other].kind == BuildingKind::Bridge);
+            match self.reservation_conflict(
+                cell.q,
+                cell.r,
+                rotating_kind,
+                Some(index),
+                supported_transport,
+            ) {
+                Ok(()) => {}
+                Err(_) => return Err("rotated footprint would overlap another building".into()),
+            }
+        }
+        for cell in &next_envelope {
+            self.reservation_conflict(cell.q, cell.r, rotating_kind, Some(index), false)?;
+        }
+        for cell in &next_clearance {
+            self.reservation_conflict(cell.q, cell.r, rotating_kind, Some(index), true)?;
+            if let Some(other) = self.entity_at(cell.q, cell.r) {
+                if other != index && !Self::is_low_infrastructure(self.entities[other].kind) {
+                    return Err("rotated footprint would overlap another building".into());
+                }
+            }
         }
         // A heading is a price on the any axis, so turning onto one is an edit that costs the
         // difference — otherwise a player could buy the cheap heading and rotate onto the expensive
@@ -10602,11 +10870,68 @@ fn validate_definitions(definitions: &DefinitionsInput) -> Result<(), String> {
                 building.id
             ));
         }
+        let envelope = unique_offsets(&building.service_envelope, "service envelope", building.id)?;
+        let clearance = unique_offsets(
+            &building.overhead_clearance,
+            "overhead clearance",
+            building.id,
+        )?;
+        if envelope.len() > MAX_ENVELOPE_CELLS {
+            return Err(format!(
+                "building {} has an invalid service envelope",
+                building.id
+            ));
+        }
+        if clearance.len() > MAX_CLEARANCE_CELLS {
+            return Err(format!(
+                "building {} has an invalid overhead clearance",
+                building.id
+            ));
+        }
+        for cell in envelope.iter().chain(clearance.iter()) {
+            if footprint.contains(cell) {
+                return Err(format!(
+                    "building {} reserves a cell it already occupies",
+                    building.id
+                ));
+            }
+        }
+        if envelope.iter().any(|cell| clearance.contains(cell)) {
+            return Err(format!(
+                "building {} uses the same cell as envelope and clearance",
+                building.id
+            ));
+        }
+        if !envelope.is_empty() {
+            let mut with_envelope = footprint.clone();
+            with_envelope.extend(envelope.iter().copied());
+            if !footprint_is_contiguous(&with_envelope) {
+                return Err(format!(
+                    "building {} has a service envelope in disconnected pieces",
+                    building.id
+                ));
+            }
+        }
+        if !clearance.is_empty() {
+            let mut with_clearance = footprint.clone();
+            with_clearance.extend(clearance.iter().copied());
+            if !footprint_is_contiguous(&with_clearance) {
+                return Err(format!(
+                    "building {} has overhead clearance in disconnected pieces",
+                    building.id
+                ));
+            }
+        }
         // No shipped definition needs a multi-cell corner-heading footprint yet. Keep the narrow
         // rule until a real definition asks for the extra path and can test it. The test is "may
         // face a corner", not "faces only corners": an any-axis definition reaches the same
-        // untested path the moment it is rotated onto a vertex heading.
-        if building.orientation_axis.allows(NORTH) && building.footprint.len() != 1 {
+        // untested path the moment it is rotated onto a vertex heading. Envelope and clearance
+        // rotate the same way, so they stay empty on that axis too.
+        if building.orientation_axis.allows(NORTH)
+            && (building.footprint.len() != 1
+                || !building.service_envelope.is_empty()
+                || !building.overhead_clearance.is_empty())
+        {
             return Err(format!(
                 "building {} spans the two-row period, which only a single-cell footprint can do",
                 building.id
@@ -10787,6 +11112,12 @@ fn validate_upgrade_ladders(definitions: &DefinitionsInput) -> Result<(), String
         if next.orientation_axis != building.orientation_axis {
             return Err(format!(
                 "building {} upgrades onto a different orientation axis",
+                building.id
+            ));
+        }
+        if next.foundation_class != building.foundation_class {
+            return Err(format!(
+                "building {} upgrades onto a different foundation class",
                 building.id
             ));
         }
@@ -11499,6 +11830,18 @@ fn world_direction(direction: u8) -> (i16, i16) {
 /// a contiguous footprint stays contiguous at every heading a definition may face, and translation
 /// to a placement anchor cannot separate it either. Checking the definition once is therefore the
 /// same as checking every placement of it.
+fn unique_offsets(
+    cells: &[Coordinate],
+    label: &str,
+    building_id: DefinitionId,
+) -> Result<BTreeSet<(i32, i32)>, String> {
+    let unique: BTreeSet<_> = cells.iter().map(|cell| (cell.q, cell.r)).collect();
+    if unique.len() != cells.len() {
+        return Err(format!("building {building_id} has an invalid {label}"));
+    }
+    Ok(unique)
+}
+
 fn footprint_is_contiguous(cells: &BTreeSet<(i32, i32)>) -> bool {
     let mut reached = BTreeSet::from([(0, 0)]);
     let mut frontier = vec![(0, 0)];
@@ -15389,12 +15732,17 @@ mod tests {
         core.place(3, 0, 1, 0, None).unwrap();
         let extractor = extractor_index(&core);
 
-        // No pole anywhere: the generator is simply built against the extractor's footprint.
+        // No pole anywhere: the generator is simply built against the extractor's occupied
+        // foundation. Neighbours of the anchor are not enough now that the machine and its
+        // service envelope cover more than one hex; search every cell the hull actually holds.
         let mut placed = None;
-        for &(dq, dr) in &DIRECTIONS {
-            if core.place(3 + dq, dr, 13, 0, None).is_ok() {
-                placed = Some((3 + dq, dr));
-                break;
+        let hull = core.entity_footprint(&core.entities[extractor]);
+        'search: for cell in &hull {
+            for &(dq, dr) in &DIRECTIONS {
+                if core.place(cell.q + dq, cell.r + dr, 13, 0, None).is_ok() {
+                    placed = Some((cell.q + dq, cell.r + dr));
+                    break 'search;
+                }
             }
         }
         placed.expect("a burner fits beside the extractor");
@@ -19223,10 +19571,10 @@ mod tests {
             .place(2, 0, 2, 0, None)
             .unwrap_err()
             .contains("occupied"));
-        assert!(core
-            .place(2, -2, 1, 0, None)
-            .unwrap_err()
-            .contains("deposit"));
+        // Occupied foundation plus the reserved growth hex both have to be constructible, so the
+        // empty-deposit case is asked of a pad that is inland of the water that refused (2, 1).
+        let deposit = core.place(4, -3, 1, 0, None).unwrap_err();
+        assert!(deposit.contains("deposit"), "{deposit}");
         set_player_hex(&mut core, 100, 100);
         core.player.inventory.insert(24, 2);
         let checksum_before_preview = core.checksum();
@@ -20514,6 +20862,33 @@ mod tests {
             .footprint = cells.iter().map(|&(q, r)| Coordinate { q, r }).collect();
     }
 
+    fn set_test_envelope(core: &mut Core, definition_id: DefinitionId, cells: &[(i32, i32)]) {
+        core.definitions
+            .buildings
+            .iter_mut()
+            .find(|building| building.id == definition_id)
+            .expect("a building to reshape")
+            .service_envelope = cells.iter().map(|&(q, r)| Coordinate { q, r }).collect();
+    }
+
+    fn set_test_clearance(core: &mut Core, definition_id: DefinitionId, cells: &[(i32, i32)]) {
+        core.definitions
+            .buildings
+            .iter_mut()
+            .find(|building| building.id == definition_id)
+            .expect("a building to reshape")
+            .overhead_clearance = cells.iter().map(|&(q, r)| Coordinate { q, r }).collect();
+    }
+
+    fn set_test_foundation(core: &mut Core, definition_id: DefinitionId, class: FoundationClass) {
+        core.definitions
+            .buildings
+            .iter_mut()
+            .find(|building| building.id == definition_id)
+            .expect("a building to reshape")
+            .foundation_class = class;
+    }
+
     /// The two-ring hexagon is the largest shape a definition may claim, and standing one is not a
     /// special case: all nineteen cells enter the occupancy index, the snapshot publishes all
     /// nineteen, and an erase aimed at the rim takes the whole building.
@@ -20624,6 +20999,43 @@ mod tests {
             .contains("disconnected pieces"));
     }
 
+    #[test]
+    fn a_definition_may_not_reserve_a_cell_it_occupies_or_disconnect() {
+        let mutate = |edit: fn(&mut BuildingDefinition)| {
+            let mut definitions: DefinitionsInput = serde_json::from_str(DEFINITIONS).unwrap();
+            let building = definitions
+                .buildings
+                .iter_mut()
+                .find(|building| building.id == 4)
+                .expect("the container");
+            edit(building);
+            definitions
+        };
+
+        assert_eq!(
+            validate_definitions(&mutate(|building| {
+                building.service_envelope = vec![Coordinate { q: 1, r: 0 }];
+            })),
+            Ok(())
+        );
+        assert!(validate_definitions(&mutate(|building| {
+            building.service_envelope = vec![Coordinate { q: 0, r: 0 }];
+        }))
+        .unwrap_err()
+        .contains("already occupies"));
+        assert!(validate_definitions(&mutate(|building| {
+            building.service_envelope = vec![Coordinate { q: 3, r: 0 }];
+        }))
+        .unwrap_err()
+        .contains("disconnected pieces"));
+        assert!(validate_definitions(&mutate(|building| {
+            building.overhead_clearance = vec![Coordinate { q: 1, r: 0 }];
+            building.service_envelope = vec![Coordinate { q: 1, r: 0 }];
+        }))
+        .unwrap_err()
+        .contains("envelope and clearance"));
+    }
+
     /// A taller tier may take more ground than the one it replaces, and it keeps every port it
     /// had.
     ///
@@ -20724,6 +21136,90 @@ mod tests {
         let refusal = core.upgrade(3, 0).unwrap_err();
         assert!(refusal.contains("level a pad"), "{refusal}");
         assert_eq!(core.entities[extractor].placed.definition_id, 1);
+    }
+
+    /// Occupied foundation, service envelope and overhead clearance are three different claims.
+    ///
+    /// Envelope is reserved empty ground: neighbours cannot occupy it, belts included, but the
+    /// player can walk through. Clearance is air: a belt may pass under a rotor, a machine may not.
+    /// Neither claim enters the occupancy index, so output rays still bind at the first occupied
+    /// cell off the hull.
+    #[test]
+    fn envelope_and_clearance_reserve_without_occupying() {
+        let mut core = ground_world();
+        core.set_creative(true);
+        reach(&mut core);
+        set_test_envelope(&mut core, 4, &[(1, 0)]);
+        set_test_clearance(&mut core, 17, &[(1, 0)]);
+        set_test_footprint(&mut core, 17, &[(0, 0)]);
+
+        core.place(0, 0, 4, 0, None).unwrap();
+        let container = core.entity_at(0, 0).expect("the crate stands");
+        assert_eq!(core.entity_at(1, 0), None, "envelope is not occupancy");
+        assert!(
+            core.walkable_hex(1, 0),
+            "the player can walk the reserved service hex"
+        );
+        let reserved = core.place(1, 0, 4, 0, None).unwrap_err();
+        assert!(
+            reserved.contains("reserved around the container"),
+            "{reserved}"
+        );
+        let belt_on_envelope = core.place(1, 0, 2, 0, None).unwrap_err();
+        assert!(
+            belt_on_envelope.contains("reserved around the container"),
+            "{belt_on_envelope}"
+        );
+        assert_eq!(core.entity_at(0, 0), Some(container));
+
+        core.erase(0, 0).unwrap();
+        core.place(3, 0, 17, 0, None).unwrap();
+        let turbine = core.entity_at(3, 0).expect("the turbine stands");
+        assert_eq!(core.entity_at(4, 0), None, "clearance is not occupancy");
+        assert!(
+            core.walkable_hex(4, 0),
+            "the ground under a rotor stays open"
+        );
+        core.place(4, 0, 2, 0, None).unwrap();
+        assert!(
+            core.entity_at(4, 0).is_some(),
+            "a belt may pass under the rotor"
+        );
+        core.erase(4, 0).unwrap();
+        let machine = core.place(4, 0, 4, 0, None).unwrap_err();
+        assert!(machine.contains("overhead clearance"), "{machine}");
+        assert_eq!(core.entity_at(3, 0), Some(turbine));
+    }
+
+    /// An upgrade into a cell reserved at placement does not re-ask occupancy: the envelope held
+    /// it empty. Growing outside that envelope is still the atomic check.
+    #[test]
+    fn an_upgrade_grows_into_its_reserved_envelope() {
+        let mut core = game("new-game");
+        core.researched.extend([1, 2, 12]);
+        for item_id in [1, 3, 6, 11, 16, 19, 20] {
+            core.player.inventory.insert(item_id, 60);
+        }
+        core.player.carry_slots = 99;
+        core.player.build_range = 1 << 20;
+        set_player_hex(&mut core, 3, 2);
+        set_test_footprint(&mut core, 19, &[(0, 0), (1, 0), (0, 1)]);
+
+        stock_for(&mut core, 2, 1);
+        core.place(3, 0, 1, 0, None).unwrap();
+        let extractor = core.entity_at(3, 0).expect("the extractor stands");
+        assert_eq!(
+            core.entity_at(3, 1),
+            None,
+            "the reserved growth hex is not occupied yet"
+        );
+        core.upgrade(3, 0).unwrap();
+        assert_eq!(core.entities[extractor].placed.definition_id, 19);
+        assert_eq!(
+            core.entity_at(3, 1),
+            Some(extractor),
+            "the taller tier took the hex its envelope reserved"
+        );
     }
 
     #[test]
@@ -26253,6 +26749,11 @@ mod tests {
             .unwrap_err()
             .contains("level a pad"));
 
+        // A span foundation may follow a slope a player can still walk; the pad class may not.
+        set_test_foundation(&mut core, 4, FoundationClass::Span);
+        assert_eq!(core.placement_legality(0, 0, 4, 0, None, true), Ok(()));
+        set_test_foundation(&mut core, 4, FoundationClass::Pad);
+
         // Levelling the pair onto the first cell's grade is exactly what makes the site legal.
         core.edit_ground(&GroundEdit {
             to_q: 1,
@@ -26298,7 +26799,10 @@ mod tests {
         let mut untouched = ground_world();
         untouched.player.build_range = untouched.earned_build_range();
         let plain = untouched.save_string().unwrap();
-        let old = plain.replace("\"save_version\":37", "\"save_version\":36");
+        let old = plain.replace(
+            &format!("\"save_version\":{SAVE_VERSION}"),
+            "\"save_version\":36",
+        );
         let error = match Core::from_save(&definitions, &technologies, &scenarios, &old) {
             Ok(_) => panic!("legacy ground crossed the physical compatibility boundary"),
             Err(error) => error,

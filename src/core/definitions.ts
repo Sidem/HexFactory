@@ -33,6 +33,8 @@ export function supportsRecipe(
  * too; a definition file may not make either of those unbounded on this side either.
  */
 const MAX_FOOTPRINT_CELLS = 19;
+const MAX_ENVELOPE_CELLS = MAX_FOOTPRINT_CELLS;
+const MAX_CLEARANCE_CELLS = MAX_FOOTPRINT_CELLS;
 
 /**
  * True when every cell of a definition's footprint is reachable from its anchor through the six
@@ -42,6 +44,24 @@ const MAX_FOOTPRINT_CELLS = 19;
  * contiguous footprint stays contiguous at every heading, and translating it to a placement anchor
  * cannot separate it either.
  */
+function reservationCells(
+  cells: { q: number; r: number }[] | undefined,
+  buildingId: number,
+  label: string,
+  max: number,
+): Set<string> {
+  if (cells === undefined) return new Set();
+  if (
+    !Array.isArray(cells) ||
+    cells.some(({ q, r }) => !Number.isInteger(q) || !Number.isInteger(r))
+  )
+    throw new TypeError(`building ${buildingId} has an invalid ${label}`);
+  const unique = new Set(cells.map(({ q, r }) => `${q},${r}`));
+  if (unique.size !== cells.length || unique.size > max)
+    throw new TypeError(`building ${buildingId} has an invalid ${label}`);
+  return unique;
+}
+
 function footprintIsContiguous(cells: ReadonlySet<string>): boolean {
   const reached = new Set(["0,0"]);
   const frontier: [number, number][] = [[0, 0]];
@@ -78,6 +98,7 @@ const PLACEMENT_RULES = new Set([
   "elevated",
   "shallows",
 ]);
+const FOUNDATION_CLASSES = new Set(["pad", "span", "retaining"]);
 const POWER_SOURCES = new Set(["burner", "wind", "hydro", "turbine"]);
 const ORIENTATION_AXES = new Set(["edge", "corner", "any"]);
 /** The axes on which a definition may face a vertex heading, and so name a corner price. */
@@ -344,6 +365,54 @@ export function validateDefinitions(
       throw new TypeError(
         `building ${building.id} has a footprint in disconnected pieces`,
       );
+    if (
+      building.foundation_class !== undefined &&
+      !FOUNDATION_CLASSES.has(building.foundation_class)
+    )
+      throw new TypeError(
+        `building ${building.id} has an unknown foundation class`,
+      );
+    const envelopeCells = reservationCells(
+      building.service_envelope,
+      building.id,
+      "service envelope",
+      MAX_ENVELOPE_CELLS,
+    );
+    const clearanceCells = reservationCells(
+      building.overhead_clearance,
+      building.id,
+      "overhead clearance",
+      MAX_CLEARANCE_CELLS,
+    );
+    for (const key of envelopeCells)
+      if (footprint.has(key))
+        throw new TypeError(
+          `building ${building.id} reserves a cell it already occupies`,
+        );
+    for (const key of clearanceCells) {
+      if (footprint.has(key))
+        throw new TypeError(
+          `building ${building.id} reserves a cell it already occupies`,
+        );
+      if (envelopeCells.has(key))
+        throw new TypeError(
+          `building ${building.id} uses the same cell as envelope and clearance`,
+        );
+    }
+    if (
+      envelopeCells.size &&
+      !footprintIsContiguous(new Set([...footprint, ...envelopeCells]))
+    )
+      throw new TypeError(
+        `building ${building.id} has a service envelope in disconnected pieces`,
+      );
+    if (
+      clearanceCells.size &&
+      !footprintIsContiguous(new Set([...footprint, ...clearanceCells]))
+    )
+      throw new TypeError(
+        `building ${building.id} has overhead clearance in disconnected pieces`,
+      );
     // A machine that runs recipes needs a category, and one that does not must not claim one.
     if ((building.kind === "composer") !== Boolean(building.recipe_category))
       throw new TypeError(
@@ -434,7 +503,9 @@ export function validateDefinitions(
     // same deliberately narrow rule; the catalog should not reach an untested combination.
     if (
       CORNER_AXES.has(building.orientation_axis ?? "edge") &&
-      building.footprint.length !== 1
+      (building.footprint.length !== 1 ||
+        (building.service_envelope?.length ?? 0) > 0 ||
+        (building.overhead_clearance?.length ?? 0) > 0)
     )
       throw new TypeError(
         `building ${building.id} spans the two-row period, which only a single-cell footprint can do`,
@@ -556,7 +627,8 @@ function validateUpgradeLadders(buildings: BuildingDefinition[]): void {
         JSON.stringify(building.recipe_ids ?? null) ||
       Boolean(next.manual_work) !== Boolean(building.manual_work) ||
       (next.orientation_axis ?? "edge") !==
-        (building.orientation_axis ?? "edge")
+        (building.orientation_axis ?? "edge") ||
+      (next.foundation_class ?? "pad") !== (building.foundation_class ?? "pad")
     )
       throw new TypeError(
         `building ${building.id} upgrades into a different machine, not a higher tier of itself`,

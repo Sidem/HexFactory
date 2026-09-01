@@ -516,8 +516,10 @@ partially activated physical model.
    cell off the footprint and growth into an occupied cell is what the check refuses. Rotation,
    placement, occupancy, erase, snapshot and the definition validators are covered at nineteen
    cells; the shipped catalogue is untouched, and no envelope moved. Foundation class, the service
-   envelope and overhead clearance stay with the activation bundle, since each adds definition and
-   save surface.
+   envelope and overhead clearance now sit on the definition: `pad` / `span` / `retaining` choose
+   the occupied-foundation grade, a service envelope reserves cells that are not occupancy, and
+   overhead clearance reserves air that belts may share. Occupancy is still derived, so save 38
+   only moves the stamps; a version-37 file is the same factory.
 
    Picking is now height-aware and live. The shipped renderer marches the pointer ray down the drawn
    height field over the terrain build's own cell map, between the tallest column and the floor every
@@ -540,18 +542,20 @@ partially activated physical model.
    Local unpushed work already reauthored the catalogue onto physical footprints, publishes
    native height samples on wire 20, draws a continuous landform, and puts items on a 5.37 m belt
    cadence (wire 21). New worlds now construct `GroundSpine::physical` and `terra` is in the wasm
-   artifact. Save 37 / world 11 / definitions 28; a save 36 file is refused as the old 1 m² scale
-   with an export path. The opening no longer asks the translated physical valley shelf to expose a
+   artifact. Save 38 / world 11 / definitions 29 / scenarios 8 / wire 21; a save 36 file is refused
+   as the old 1 m² scale with an export path, and save 37 advances by stamp onto the reservation
+   catalogue. The opening no longer asks the translated physical valley shelf to expose a
    miniature set of legacy presentation bands: each guaranteed material may force one derived dry
    outcrop while retaining its authored yield, radius and water-proximity policy. The natural site
    lattices are now 18 / 24 / 20 / 18 cells across the four presets, sparse enough to keep fields
    below 22% of sampled land and extractor purity above 950 per mille while all four presets still
-   open on ten representative seeds. The native activation suite is green at 293 tests; old-band
-   movement rules use an explicit compatibility fixture, and pre-save-37 integration cases now pin
-   the export refusal instead of pretending to resume at the physical scale. Desktop and mobile
-   journey validation and the remaining definition surfaces below still stand between this local
-   activation bundle and a push; the complete local quality gate is green at 333 TypeScript and 293
-   Rust tests, including the Wasm and production builds.
+   open on ten representative seeds. Old-band movement rules use an explicit compatibility fixture,
+   and pre-save-37 integration cases now pin the export refusal instead of pretending to resume at
+   the physical scale. Desktop and mobile journeys against the physical opening (seed 1213486160,
+   continental) and the factory demo are recorded: title stamp save 38 / world 11 / definitions 29,
+   a new-game walk and creative belt placement, extractor refusal naming a missing deposit, legacy
+   catalogue rows refused with the 1 m² export path, and a 390-wide touch session with the movement
+   pad. Review still stands between this local activation bundle and a push.
 
 4. **Sparse disturbed water.** Add water departure state, active-region equilibrium, frontier
    boundaries, pumps, flood/drain commands and save/load/checksum coverage. Re-measure the active
@@ -560,13 +564,12 @@ partially activated physical model.
    an accelerated deterministic harness. Ship only after protected infrastructure and finite work
    bounds are visible and tested.
 
-The next implementing agent finishes slice 3 from local commit `deddf52`. Add foundation class, the
-service/upgrade envelope and overhead clearance as one coordinated definition/save change;
-then run and record the desktop and mobile journeys against the physical opening. Keep
-`belt-cadence-demo.png` untracked. Do not start slice 4 or push until those surfaces and journeys are
-complete and the activation has been reviewed. The flowing-water front must never run on the old
-band elevations; the prototype and ground spine keep the scale, drainage and running predicates
-independently testable now that the save boundary makes mistakes expensive.
+The next implementing agent reviews the unpushed activation before any push. Slice 3's remaining
+definition surfaces and the desktop/mobile journeys against the physical opening are in the tree
+at save 38 / definitions 29. Keep `belt-cadence-demo.png` untracked. Do not start slice 4 or push
+a partial activation. The flowing-water front must never run on the old band elevations; the
+prototype and ground spine keep the scale, drainage and running predicates independently testable
+now that the save boundary makes mistakes expensive.
 
 ### Acceptance
 
