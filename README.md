@@ -105,6 +105,15 @@ the first hex you picked, the lowest in the selection, or the highest. `[` and `
 visible from above instead of hiding under the ground they cut, and an edit the game refuses keeps
 its whole shape on screen with the blocking hex marked in red and named in the tray.
 
+**The ground got twenty-five times bigger (on the live build, not yet numbered).** One hexagon is now
+about 25 m² instead of 1 m², and the height under it is real: valleys are carved by drainage before
+rivers are placed, so a cliff is a cliff rather than a knee-high step, and a biome takes minutes to
+cross. Machines were redrawn around the new scale, and a belt is now a 5.37 m conveyor an item takes
+real time to ride rather than a one-tick hop. **Saves from before this change cannot be opened.** A
+1 m² factory has no honest reading at 25 m² — its buildings would overlap and its ground has no
+drainage history — so the game refuses those files by name and offers to export them instead of
+pretending to resume them. Saves made since the change carry forward.
+
 ## Controls
 
 - The default hotbar starts with the manual workshop and primitive furnace. Existing pinned bars

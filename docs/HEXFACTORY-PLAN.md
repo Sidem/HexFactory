@@ -77,12 +77,15 @@ catalog shows which one moved rather than hiding the row:
 
 | Envelope              | Version |
 | --------------------- | ------: |
-| `HXF1` save           |      36 |
-| Definitions           |      27 |
+| `HXF1` save           |      38 |
+| Definitions           |      29 |
 | Technologies          |      16 |
-| Scenarios             |       7 |
-| World generator       |      10 |
-| Wire (snapshot delta) |      19 |
+| Scenarios             |       8 |
+| World generator       |      11 |
+| Wire (snapshot delta) |      21 |
+
+These are the Phase 8 activation numbers, on `main` and not yet carrying a release number. Save 36
+and below is the old 1 m² world and is refused with an export path rather than migrated.
 
 **Current measured capacity.** The v0.43 audit puts the complete 6,144-entity Three.js browser frame
 at 32.3% of 60 Hz on Low, 33.5% on Medium, and 33.9% on High on the reference desktop at
@@ -98,9 +101,9 @@ qualification run that was outstanding is withdrawn rather than pending. See
 exists; read the section a milestone names when you need the reasoning behind a rule you are about
 to change.
 
-**Latest delivery: v0.46.0 Shaped Ground.** Earthworks are selected as a shape rather than a heap of hexes: hex, line, rectangle and circle, each with an outline modifier that reuses the two anchors already placed, plus a depth of one to three steps and a levelling datum the player names. A refused selection now keeps its footprint on screen and points at the hex in the way instead of disappearing. This is a rework of shipped ground works, not a phase from the numbered table; flowing water remains next.
+**Last release: v0.46.0 Shaped Ground.** Earthworks are selected as a shape rather than a heap of hexes: hex, line, rectangle and circle, each with an outline modifier that reuses the two anchors already placed, plus a depth of one to three steps and a levelling datum the player names. A refused selection keeps its footprint on screen and points at the hex in the way instead of disappearing.
 
-**Previous delivery: v0.45.0 Sealed Routes.** Loose water and crude oil now travel through pipes, while belts carry solids and reusable sealed barrels. Filtered water and oil tanks buffer the two fluids, and one barrel station fills or empties either barrel. A belt or pipe underpass is drawn entrance-to-exit as one atomic pair, leaving every crossed cell available to its own lane. This was the user's explicit early delivery of the former pipes horizon item; it does not reorder the numbered phase table. Flowing water remains next.
+**On `main` since, unreleased: the Phase 8 scale break.** One construction hex is 25 m², altitude is physical native height, and buildings, belts and the renderer were reauthored around it. Slices 1 to 3 of the phase below are complete; slice 4 is the next work.
 
 ### Current assessment — 2026-08-29
 
@@ -113,10 +116,11 @@ Discovery phases are the planned answer; do not invent repeatable filler quests 
 **Development and retrieval.** Native ownership, the worker boundary, data-defined catalogues,
 cross-language fixtures, deterministic saves and headless balance/capacity harnesses are the right
 architecture. The task-first generated map and `rg` routine make most changes cheap to localise. The
-concentration behind that map is now the limiting factor: `factory-wasm/src/lib.rs` is 24,192 lines
-(production ends near line 13,960 and the rest is mostly inline tests), `src/main.ts` is 5,482 lines,
-and production `lib.rs` contains 110 `BuildingKind` references. The suite is strong — 239 Rust tests
-and 292 TypeScript cases at this review — but three browser test files also pin important wiring by
+concentration behind that map is now the limiting factor: `factory-wasm/src/lib.rs` was 24,192 lines
+at this review and is over 27,000 after Phase 8 (production ends near line 13,960 and the rest is
+mostly inline tests), `src/main.ts` is 5,482 lines, and production `lib.rs` contains 110
+`BuildingKind` references. The suite is strong — 239 Rust tests and 292 TypeScript cases at this
+review, 297 and 335 today — but three browser test files also pin important wiring by
 source inspection rather than by composed interaction. The map routes added in this audit cover
 ground works, skills, petroleum, scenarios, saves and the camera; the big files still cost an agent
 more context and wider regression reasoning than their behaviours require.
@@ -171,14 +175,14 @@ the factory.
 
 Phases 1 to 7 are **shipped**, and the user-requested pipe infrastructure shipped between rows 7 and 8 as v0.45.0 without reordering the approved sequence. Read the ledger for what each release delivered.
 
-| Order | Work                                    | Scope and dependency                                                                                                                                                                                                                                  |
-| ----- | --------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 7     | Icon pass and integrated validation     | **Shipped as v0.44.0.** The emblem library covers buildings, recipe categories and branches under one contract; accessibility and the measured-capacity position are stated in the ledger.                                                            |
-| 8     | Flowing water                           | Rebuilds world scale, physical altitude, drainage-shaped landforms and machine footprints before water becomes a sparse native layer that floods, drains and erodes the ground. Supersedes the old fluid-network and water-reshaping horizon entries. |
-| 9     | Living Lattice                          | Animals, biomatter and waste as one ecological system. Reuses phase 4's joint-output costing. Brief below.                                                                                                                                            |
-| 10    | Supported floors and vertical transport | Support classes, the first upper floor, stairs, belt lifts and a layer view, standing on phase 3's grades. Needs the beams and concrete phase 3 and 4 produce.                                                                                        |
-| 11    | The primitive human                     | The player gains needs and attributes. Depends on flowing water and Living Lattice for a food supply worth automating, and revises the skills budget rather than sitting beside it.                                                                   |
-| 12    | Regional Discovery                      | The play half of regional variation: survey tools, distant sites, outposts. Brief below.                                                                                                                                                              |
+| Order | Work                                    | Scope and dependency                                                                                                                                                                                                                                                                                                                            |
+| ----- | --------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 7     | Icon pass and integrated validation     | **Shipped as v0.44.0.** The emblem library covers buildings, recipe categories and branches under one contract; accessibility and the measured-capacity position are stated in the ledger.                                                                                                                                                      |
+| 8     | Flowing water                           | **In flight — slices 1–3 complete and pushed, unreleased; slice 4 is next.** The scale break, physical altitude, drainage-shaped landforms and reauthored footprints are live; water becoming a sparse native layer that floods, drains and erodes is the remaining work. Supersedes the old fluid-network and water-reshaping horizon entries. |
+| 9     | Living Lattice                          | Animals, biomatter and waste as one ecological system. Reuses phase 4's joint-output costing. Brief below.                                                                                                                                                                                                                                      |
+| 10    | Supported floors and vertical transport | Support classes, the first upper floor, stairs, belt lifts and a layer view, standing on phase 3's grades. Needs the beams and concrete phase 3 and 4 produce.                                                                                                                                                                                  |
+| 11    | The primitive human                     | The player gains needs and attributes. Depends on flowing water and Living Lattice for a food supply worth automating, and revises the skills budget rather than sitting beside it.                                                                                                                                                             |
+| 12    | Regional Discovery                      | The play half of regional variation: survey tools, distant sites, outposts. Brief below.                                                                                                                                                                                                                                                        |
 
 These are delivery phases, not a single giant release, and a phase may ship as several versions.
 Do not start a later row in parallel with an earlier one unless the user changes priority; an unmet
@@ -204,9 +208,11 @@ why the row leads with clarity as well as icons; items 2 and 4 belong to row 10 
    harness out of `lib.rs`, then extract only the occupancy/placement/transport slices the floors
    row has to touch. Split the corresponding session/panel wiring out of `main.ts`. Preserve
    behavior, checksum, save and wire at each step; this is not authority for a rewrite.
-3. State and test the supported save-migration window before the next envelope bump. A catalogue
-   may keep diagnosing older files, but a player needs to know which recent release boundary is a
-   promise rather than discovering it from a disabled Load button.
+3. State the supported save-migration window in player-facing text. Phase 8 answered half of this:
+   the boundary is explicit and tested, a legacy-scale row names the world scale that moved and
+   offers export, and the ladder is pinned against the shipped catalogue numbers. What is still
+   missing is the promise itself — a player should be told which releases carry forward rather than
+   discovering it from a disabled Load button.
 4. Add a deterministic stacked-floor/lift capacity tier and rerun Low, Medium and High before a
    floor release. The current 6,144-entity record is already near the desktop gate.
 
@@ -218,8 +224,9 @@ Masonry and the vertex lattice did not complete the enclosure work: roofs, rebar
 remain, and they attach to the floors row, because they are a structural system and the shipped row 6
 was a geometry change. That work waits with the floors row rather than moving ahead of it.
 
-Generated terrain height remains presentation-only; as of v0.38.0 the integer grade a player cuts or
-fills is native, checksummed state that walking, routing and building legality all read. Gameplay is
+Ground height is native and physical since the Phase 8 scale break: a millimetre bed under a 25 m²
+hex, plus the integer grade a player cuts or fills, all of it checksummed state that walking, routing
+and building legality read. Only the drawn surface between quanta is presentation. Gameplay is
 otherwise two-dimensional: there are no floors above or below a hex, and no vertical transport.
 
 ## Phase 7 — Icon pass and integrated validation
@@ -431,174 +438,104 @@ cut or buries itself in a slope.
 
 ### Compatibility boundary
 
-This is an intentional new-world boundary. Do not automatically enlarge a v0.46 factory: new
-footprints can overlap, the old generated bands contain no recoverable drainage history, and a
-coordinate-preserving load would pretend otherwise. Keep the save catalogue able to identify and
-explain a legacy-scale file. Choose either a frozen legacy viewer/runtime or a clear refusal with an
-export path before activation; do not maintain two live physical scales inside one simulation.
+This is an intentional new-world boundary, and the choice it posed is made: **a clear refusal with an
+export path**, not a frozen legacy runtime. A v0.46 factory is not enlarged automatically, because new
+footprints would overlap, the old generated bands carry no recoverable drainage history, and a
+coordinate-preserving load would pretend otherwise. Two live physical scales never coexist inside one
+simulation. The shipped rules, and the two traps the activation review found in them, are recorded in
+the Save contract of [`ARCHITECTURE.md`](ARCHITECTURE.md).
 
-Activation requires deliberate save, world-generator, definitions, wire and scenario version
-changes together with both lockfiles and fixtures. Release numbers remain unassigned. State the
-supported migration window in player-facing text before the bump, as already required by the entry
-work above.
+Activation moved save, world-generator, definitions, wire and scenario versions together with both
+lockfiles and fixtures; it is on `main` and unreleased. Release numbers remain unassigned. Player-facing
+text still owes the supported migration window, as the entry work above requires.
 
 ### Implementation order
 
 Each numbered slice ends in a clean commit and keeps production behaviour valid. Do not push a
 partially activated physical model.
 
-1. **Baseline and prototype, no production toggle.** — **delivered in v0.46.0.** Record the current
-   survey, balance, capacity, opening journey and representative screenshots. Add fixed scale
-   constants and a native test-only prototype for absolute height, drainage provinces, spring graph,
-   depression handling and the new survey. It must prove query-order independence and drainage
-   invariants before any envelope moves.
+1. **Baseline and prototype, no production toggle.** — **delivered in v0.46.0.** The pre-rescale
+   survey, balance, capacity and opening journey were recorded, and `factory_wasm::scale` and a
+   test-only `factory_wasm::terra` proved absolute height, drainage provinces, the spring graph and
+   depression handling query-order independent before any envelope moved.
 
-   The baseline and the prototype's measurements are in
-   [`BENCHMARKS.md`](BENCHMARKS.md#phase-8-slice-1--the-pre-rescale-baseline-and-the-drainage-prototype--v0460).
-   `factory_wasm::scale` holds the scale contract, declared and read by nothing that ships;
-   `factory_wasm::terra` holds the prototype and is `#[cfg(not(target_arch = "wasm32"))]`, so "no
-   production toggle" is a property of the artifact rather than a promise. `npm run terra` reports
-   it. Its sixteen tests assert query-order independence, seam agreement from either side, acyclic
-   drainage with non-increasing head, terminating walks and a bounded per-cell province cost; two
-   surveys of 81 provinces each report zero cycles, zero uphill edges and zero unterminated walks.
-
-   Two carried findings, both measured rather than argued:
+   Measurements are in
+   [`BENCHMARKS.md`](BENCHMARKS.md#phase-8-slice-1--the-pre-rescale-baseline-and-the-drainage-prototype--v0460),
+   and `npm run terra` reports the survey. Two measured findings still constrain the work ahead:
    - **Depressions are made by the height field, not resolved badly by the drainage pass.** They sit
      at the value-noise octave corners on interfluves no valley cross-section reaches. Carving the
      whole flow tree to fix that made them 2.1× worse, because a constant-depth cut across rising
-     ground manufactures a trench with a lip. Slice 2 wants a **graded long profile** — an absolute
-     descending floor elevation propagated down the tree — which changes what head means and needs
-     seam floor elevations to agree, so it could not be prototyped without moving the envelope.
+     ground manufactures a trench with a lip. The answer is the **graded long profile** slice 2
+     built: an absolute descending floor elevation propagated down the tree, with seam floor
+     elevations agreeing from either side.
    - **The height field must not be rounded to quanta before depressions are resolved.** Doing so
      put 216 per mille of neighbour pairs at exactly equal height and produced 32,694 micro-lakes.
-     The prototype carries the field in milli-quanta internally and publishes whole quanta.
+     The field is carried in milli-quanta internally and published in whole quanta.
 
-   Screenshots were **not** committed: the renderer runs without `preserveDrawingBuffer`, so a
-   page-side canvas capture returns an empty buffer, and turning it on for a baseline would change
-   production rendering. The visual baseline is instead reproducible — `npm run dev`, the committed
-   `New game` save at seed 1213486160, continental, save 36 / world 10 / definitions 27 /
-   technology 16 / scenario 7. It shows what the phase is correcting: within one screen of the
-   landing hub the shipped generator packs a pond, a sand flat, forest, meadow and cliff faces, a toy
-   sample of every band, at a scale where a 1 m cell makes a "cliff" a knee-high step.
+2. **Production ground spine behind the old presentation.** — **complete.**
+   `factory_wasm::ground_spine` separates generated bed, substrate, initial hydrology, earthwork,
+   erosion and prepared surface into native types, and `FinishedGround` supplies elevation and access
+   to walking, placement, ground transactions and their previews. Its derived surveyed-chunk cache is
+   rebuilt on load and never saved or checksummed. Shipped behaviour and every envelope were unchanged
+   by this slice.
+3. **Content and renderer activation.** — **complete, on `main`, unreleased.** The physical world is
+   live: new worlds construct `GroundSpine::physical`, `terra` is in the wasm artifact, and
+   `Terra::landing_site` translates the unbounded source onto a deterministic dry seven-hex valley
+   shelf so the opening no longer depends on what the seed put at coordinate zero. The renderer draws
+   a continuous height field with water kept separate, and picking marches the pointer ray down that
+   drawn field — a flank included, since the face of a rise belongs to the rise — while native still
+   answers for legality. The catalogue is reauthored onto the new scale: footprints up to the complete
+   two-ring hexagon, contiguous, with foundation class, a service envelope that reserves without
+   occupying, and overhead clearance that belts may share; an upgrade judges the whole enlarged
+   footprint in one refusal. A belt is 5.37 m of conveyor at a cadence derived from 2 m/s and 1.075 m
+   spacing — 27 ticks a hex, 120 items a minute, exactly one extractor — with items in flight saved,
+   hashed and published as elapsed ticks. Site lattices were thinned to 18 / 24 / 20 / 18 cells so
+   fields stay below 22% of sampled land at above 950 per mille purity across all four presets. Save 38
+   / world 11 / definitions 29 / scenarios 8 / wire 21, with desktop and mobile journeys recorded
+   against the physical opening.
 
-2. **Production ground spine behind the old presentation.** — **implemented after v0.46.0; not a
-   physical-model activation.** `factory_wasm::ground_spine` separates generated bed, substrate,
-   initial hydrology, earthwork, erosion and prepared surface into native types. Its legacy source is
-   the full oracle; a derived cache contains surveyed chunks only, is rebuilt on load and is never
-   saved or checksummed. `FinishedGround` now supplies elevation and access to walking, placement,
-   ground transactions and their previews/snapshots. The cross-language passability fixture and the
-   existing save/checksum/delta tests pass through that route, proving current worlds retain their
-   old bands, grades and envelopes. The source identity guard falls back to the full oracle rather
-   than serving a stale cache if a test or migration replaces the generator behind a Core. Save 36,
-   definitions 27, technologies 16, scenarios 7, world 10 and wire 19 remain unchanged.
-3. **Content and renderer activation.** Reauthor footprints and metre-derived cadence, build the
-   heightfield/water renderer and height-aware picking, retune the opening, then switch new worlds to
-   the 25 m² generator at the declared compatibility boundary. Move every envelope and fixture in
-   one reviewed activation; validate desktop and mobile journeys before production.
+   The activation was reviewed, and the one defect it found was the boundary itself: `compatibility()`
+   refuses a legacy-scale file ahead of the ladder, but the ladder had no rung for the build's own
+   tuple, so every save-37 file was refused too. The rung is restored and pinned against the shipped
+   catalogue numbers; the reasoning and the two traps behind it are in the Save contract of
+   [`ARCHITECTURE.md`](ARCHITECTURE.md).
 
-   Development toward this slice now includes a native-only physical `GroundSpine` source. It maps
-   the drainage prototype's absolute bed, numeric water depth/surface/discharge and independently
-   derived substrate into the same surveyed-cache oracle the legacy source uses. `Terra::landing_site`
-   chooses a dry, walkable seven-hex valley shelf deterministically and translates the unbounded
-   source so the opening no longer depends on whatever the seed placed at coordinate zero. Three
-   representative seeds and reordered prior queries pin that choice; cached and uncached physical
-   ground agree. Production still constructs `GroundSpine::legacy`, `terra` is still absent from the
-   wasm artifact, and no compatibility envelope has moved. The inactive
-   `src/rendering/three/heightfieldTerrain.ts` prerequisite now builds deterministic continuous
-   ground from explicit native samples, keeps water separate, adds cliff/frontier skirts and
-   raycasts the visible surface back to an axial cell. It is not imported by the live renderer, so
-   wire 19, the shipped prisms and logical-plane picking are unchanged.
+   **Player speed — settled 2026-09-01, superseding this brief's original instruction.** The rescale
+   reopened the movement question and the user settled it for traversal: `PLAYER_SPEED` stays at 275,
+   unchanged across the scale break, so a hex still takes about 0.36 s to cross at a walk and the metre
+   figures move instead — a 15 m/s walk, a 25 m/s run, a 5 m/s ford. Holding 3 m/s would have multiplied
+   every journey in the game by five, which is the one thing a 25 m² hex was not meant to buy. This is
+   not the belt case wearing different clothes: the factory reads a belt's speed and balances against
+   it, so relabelling one would have falsified a number the player plans with, and belts were given real
+   transit instead. Nothing in the simulation reads the player's speed in metres per second. The full
+   reasoning lives on the constant in `factory-wasm/src/lib.rs`.
 
-   The definition footprint ceiling now stands at the complete two-ring hexagon, nineteen cells, on
-   both sides of the boundary, and a footprint must be one contiguous shape. An upgrade takes the
-   plan's atomic branch rather than a reserved envelope: a ladder step may only grow onto cells the
-   tier below did not hold, and `upgrade` judges the whole enlarged footprint — occupancy, the
-   player, boundaries, terrain and the grade across every cell — in one refusal before anything is
-   charged or written. A port cannot be lost by growing, because an output ray binds to the first
-   cell off the footprint and growth into an occupied cell is what the check refuses. Rotation,
-   placement, occupancy, erase, snapshot and the definition validators are covered at nineteen
-   cells; the shipped catalogue is untouched, and no envelope moved. Foundation class, the service
-   envelope and overhead clearance now sit on the definition: `pad` / `span` / `retaining` choose
-   the occupied-foundation grade, a service envelope reserves cells that are not occupancy, and
-   overhead clearance reserves air that belts may share. Occupancy is still derived, so save 38
-   only moves the stamps; a version-37 file is the same factory.
-
-   Picking is now height-aware and live. The shipped renderer marches the pointer ray down the drawn
-   height field over the terrain build's own cell map, between the tallest column and the floor every
-   column is drawn down to, and names the cell whose surface it meets — a flank included, since the
-   face of a rise belongs to the rise. This fixes a bug the graded ground already had: at this
-   camera's tilt a column standing a cliff and three steps above its neighbour draws more than a hex
-   away from the plane point beneath it, so aiming at the top of a rise handed native the cell in
-   front of it. Fog keeps the logical plane so unsurveyed ground stays pointable, the march costs
-   about twenty map lookups rather than one test per instance, and nothing about it is simulation
-   truth: native still answers for legality. Wire 19 and every other envelope are unchanged.
-
-   A belt is now 5.37 m of conveyor rather than a one-tick hop. Native cadence is derived from
-   2 m/s and a 1.075 m item spacing: 27 ticks to cross a hex, one item every five ticks, six slots
-   on the lane, 120 items a minute — exactly one extractor. Items in flight are real saved state
-   (`lane` plus the exit `cargo` slot), hashed, and published on wire 21 as elapsed ticks against
-   the header's `belt_transit_ticks` so a still line does not re-send every belt every tick. The
-   host draws each in-transit item at `(tick - entered) / belt_transit_ticks` of the way over its
-   hex and parks the exit slot at the far end.
-
-   Local unpushed work already reauthored the catalogue onto physical footprints, publishes
-   native height samples on wire 20, draws a continuous landform, and puts items on a 5.37 m belt
-   cadence (wire 21). New worlds now construct `GroundSpine::physical` and `terra` is in the wasm
-   artifact. Save 38 / world 11 / definitions 29 / scenarios 8 / wire 21; a save 36 file is refused
-   as the old 1 m² scale with an export path, and save 37 advances by stamp onto the reservation
-   catalogue. The opening no longer asks the translated physical valley shelf to expose a
-   miniature set of legacy presentation bands: each guaranteed material may force one derived dry
-   outcrop while retaining its authored yield, radius and water-proximity policy. The natural site
-   lattices are now 18 / 24 / 20 / 18 cells across the four presets, sparse enough to keep fields
-   below 22% of sampled land and extractor purity above 950 per mille while all four presets still
-   open on ten representative seeds. Old-band movement rules use an explicit compatibility fixture,
-   and pre-save-37 integration cases now pin the export refusal instead of pretending to resume at
-   the physical scale. Desktop and mobile journeys against the physical opening (seed 1213486160,
-   continental) and the factory demo are recorded: title stamp save 38 / world 11 / definitions 29,
-   a new-game walk and creative belt placement, extractor refusal naming a missing deposit, legacy
-   catalogue rows refused with the 1 m² export path, and a 390-wide touch session with the movement
-   pad.
-
-   The activation has now been reviewed. It found one defect, and the defect was the boundary
-   itself: `compatibility()` refuses a legacy-scale file before the ladder, but the ladder's own
-   rungs stop at `[37, 28, 16]`. The current build's tuple `[38, 29, 16]` was never added, so `to`
-   resolved to -1, `migrates` was pinned false, and every save-37 file was refused with "Save
-   format is 37; this build is 38" — a file native migrates by stamp, and the one kind of save an
-   early player of this activation would actually hold. The suite could not see it: `build` in
-   `tests/saveSlots.test.ts` is synthetic at definitions 10 / technology 5, so `to` is -1 for every
-   case it asserts and no test distinguished a stuck ladder from a working one. The rung is
-   restored and pinned by a case built from the shipped catalogue numbers rather than the
-   synthetic build. Note that refusing everything at or below save 36 makes the ladder's rows
-   below `[37, 28, 16]`, and both world/scenario replay branches, unreachable; they are kept as
-   history, not as live paths.
-
-   On 2026-09-01 the user settled the movement question the rescale reopened, and settled it for
-   traversal: `PLAYER_SPEED` stays at 275, unchanged across the rescale, so a hex still takes about
-   0.36 s to cross at a walk and the metre figures move instead — a 15 m/s walk, a 25 m/s run, a
-   5 m/s ford. Holding 3 m/s would have multiplied every journey in the game by five, which is the
-   one thing a 25 m² hex was not meant to buy: the rescale was for distance, not for time spent
-   covering it. The brief's original instruction to preserve the stated speeds is superseded here.
-
-   This is not the belt case wearing different clothes. A belt's speed is read by the factory —
-   throughput, cadence, the ratio against an extractor — so relabelling one would have falsified a
-   number the player balances against, and belts were given real transit instead. Nothing in the
-   simulation reads the player's speed in metres per second; it reads world units per step. So the
-   honest thing is not to hold the metre figure but to say plainly what the figure now is, which
-   every doc, comment and test that quoted 3/5/1 m/s now does.
-
-4. **Sparse disturbed water.** Add water departure state, active-region equilibrium, frontier
-   boundaries, pumps, flood/drain commands and save/load/checksum coverage. Re-measure the active
-   front and the settled-world zero-work case.
+4. **Sparse disturbed water.** — **next.** Add water departure state, active-region equilibrium,
+   frontier boundaries, pumps, flood/drain commands and save/load/checksum coverage. Re-measure the
+   active front and the settled-world zero-work case.
 5. **Geomorphic epochs.** Add curvature, resistance, bank stress, deposition and local reflow with
    an accelerated deterministic harness. Ship only after protected infrastructure and finite work
    bounds are visible and tested.
 
-The activation bundle has been reviewed, its one defect fixed and the player's speed settled; slice 3
-is complete in the tree at save 38 / definitions 29, and the full gate is green. What remains is the
-user's call to push, which no agent should make unasked. Do not start slice 4 before
-that push lands. The flowing-water front must never run on the old band elevations; the
-prototype and ground spine keep the scale, drainage and running predicates independently testable
-now that the save boundary makes mistakes expensive.
+#### Starting slice 4
+
+Slices 1–3 are complete, green and pushed to `origin/main` at save 38 / definitions 29 / world 11 /
+wire 21. Slice 4 is open work; nothing gates it.
+
+What the ground already gives you: an absolute physical bed in millimetres, per-cell water depth,
+surface and discharge from the prototype's drainage, a graded long profile whose seam elevations agree
+from either side, and a surveyed-chunk cache that is derived — never saved, never checksummed, rebuilt
+on load. Water state that a player can disturb is the first water that must be **saved**, so it moves
+the save envelope; departure from equilibrium is the thing to store, not the equilibrium itself.
+
+What the slice must not do: run the flowing front on anything but the physical bed; insert gameplay
+chunks from a hydrology query; or leave any command, region, wire payload or solver without an explicit
+bound. Slice 1's second finding is live here — do not round the field to quanta before depressions are
+resolved, or equal-height neighbours will manufacture micro-lakes by the tens of thousands.
+
+Read first: the four Phase 8 sections above from **Water is equilibrium plus sparse disturbance**,
+`factory_wasm::terra` and `factory_wasm::ground_spine`, and the Acceptance rows below that mention
+water, pumps and bounds.
 
 ### Acceptance
 
@@ -952,7 +889,8 @@ this file and in the code that implements it; what follows is the index.
   order by one cross-language fixture; `DIRECTIONS` remains six. Definitions 11, technologies 6,
   wire 6.
 
-- **World scale** (2026-08-20) — One hexagon is 1 m². The walk is 3 m/s; Shift runs at 5 m/s.
+- **World scale** (2026-08-20; superseded by the Phase 8 scale break) — One hexagon is 1 m². The walk
+  is 3 m/s; Shift runs at 5 m/s.
   Shallows are a 1 m/s ford; deep water still blocks. Landform cells moved from 5–20 to 128–960
   so a biome takes minutes to cross, rivers are 8–10 hexes thick, and oceans come from the coarse
   octave at last. A landing disc keeps the opening's bootstrap windows on a world that large.

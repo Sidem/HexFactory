@@ -347,12 +347,20 @@ counts. Each is behavior-tested without Wasm or WebGL; `main.ts` wires them to t
 
 ## Save contract
 
-Petroleum Roads (v0.40.0) advances save 31 to 32, definitions 25 to 26, technologies 13 to 14,
-and world 9 to 10. Wire 17 and scenarios 7 are unchanged. All existing site rules and stock remain
-saved facts; old worlds do not acquire oil. Load verifies the checksum using the original world
-stamp, before granting newer creative capabilities. Restoring a world does not run a newer release's
-new-game bootstrap eligibility gate, but still validates parameters, references and native state.
-The named-save picker mirrors these adjacent envelopes and shows load failures on the title screen.
+Load verifies the checksum using the original world stamp, before granting any newer capability.
+Restoring a world does not run a newer release's new-game bootstrap eligibility gate, but still
+validates parameters, references and native state. The named-save picker mirrors the adjacent
+envelopes and shows load failures on the title screen.
+
+**The Phase 8 scale break is the one refusal boundary, and it is not a migration.** A file at save 36
+or below describes a 1 m² world. There is no arithmetic that resumes it as 25 m² ground — its
+footprints would overlap and its bands carry no drainage history — so `compatibility()` refuses it
+ahead of the migration ladder and offers export instead. Save 37 advances to 38 by stamp. Two
+consequences are easy to miss. The ladder's rungs below `[37, 28, 16]` and both replay branches are
+now unreachable, kept as history rather than as live paths. And the ladder must gain a rung for
+**each build's own tuple**, not only for the oldest file it accepts: without one, `to` resolves to
+-1, `migrates` is pinned false, and the build refuses the very saves it can open. The regression case
+reads the build end from the shipped catalogues, because a synthetic fixture cannot see that.
 
 Recipes retain a primary output and may add up to seven co-products. Each output is a positive
 integer quantity, with unique identities and an explicit positive integer cost allocation summing
@@ -379,11 +387,12 @@ rebuild cost. A file whose envelope number is not the expected one is left alone
 relabelled. Derived availability is never saved or hashed. The per-release detail behind each of
 those is in the git history of this file and in `save_migrations.rs`.
 
-Sealed Routes advances save 35 to 36, definitions 26 to 27 and technologies 15 to 16. Migration
-records the stable IDs of existing belt-kind entities in `legacy_fluid_belts` only after the old
-checksum verifies. That sparse, checksummed compatibility set lets an old liquid belt keep running,
-but a newly placed belt cannot accept loose fluid. Removing a grandfathered belt removes its ID; no
-replacement belt inherits the exception. Scenarios 7, world 10 and wire 19 are unchanged.
+`legacy_fluid_belts` is the shape of a grandfathering set worth copying: a sparse, checksummed list
+of stable entity IDs, written only after the old checksum verifies, that lets an existing belt keep
+carrying loose fluid while a newly placed one cannot. Removing a grandfathered belt removes its ID
+and no replacement inherits the exception. The scale break means no load can populate it any more —
+it survives only inside files that migrated before save 37 — so treat it as a pattern rather than as
+a live compatibility path.
 
 Rust serializes `HXF1` plus JSON containing save/definition/technology/scenario versions, seed,
 generated chunks and resource quantities, player and inventory, research, blueprint/entity IDs,
@@ -641,30 +650,27 @@ defect it prevents; a change that contradicts one needs an argument, not an over
   `Core::terrain_blocks_movement` / `terrain_blocks_construction` in Rust or `bandAt` in TypeScript,
   never through `blocks_movement` or `TERRAIN_INFO` directly — those two still state the band, which
   is what a legend and a pinned fixture are for.
-- **The Phase 8 ground spine is typed before it is physical.** `GroundSpine` separates generated bed,
-  substrate, initial hydrology and presentation; `FinishedGround` keeps earthwork, erosion and the
-  prepared surface distinct and is the one route to finished elevation and access. Its current
-  source is a legacy adapter, so it produces the shipped band steps and the seven-band presentation
-  unchanged; no physical scale constant is read until the slice-3 compatibility boundary. The
-  cache contains surveyed chunks only, falls back to the uncached source when its world identity no
-  longer matches the Core, and is rebuilt rather than saved, hashed or checksummed. The uncached
-  source is the cache oracle, and `fixtures/terrain-passability.json` pins the adapter on both sides
-  of the host boundary.
-- **The Phase 8 physical source is prepared native-side before activation.** Native tests may build
-  `GroundSpine::physical`, which translates the drainage prototype onto a deterministic dry,
-  walkable seven-hex valley shelf and publishes absolute bed height plus numeric initial water depth,
-  surface and discharge through the same cache oracle. Query order and surveyed caching are pinned.
-  The constructor and `terra` remain compiled out of wasm, and running `Core` still constructs
-  `GroundSpine::legacy`; this is preparation for the one reviewed compatibility bundle, not a hidden
-  mixed-scale world.
-- **The Phase 8 heightfield renderer is prepared without becoming the live renderer.**
-  `heightfieldTerrain.ts` consumes an explicit set of native-published samples, sorts them into a
+- **The ground is physical, and one type owns every fact about it.** `GroundSpine` separates
+  generated bed, substrate and initial hydrology; `FinishedGround` keeps earthwork, erosion and the
+  prepared surface distinct and is the one route to finished elevation and access. A running `Core`
+  constructs `GroundSpine::physical`, which publishes absolute bed height in 0.25 m quanta plus
+  numeric water depth, surface and discharge. The cache contains surveyed chunks only, falls back to
+  the uncached source when its world identity no longer matches the Core, and is rebuilt rather than
+  saved, hashed or checksummed — the uncached source is its oracle. `GroundSpine::legacy` survives
+  only as the test fixture (`legacy_band_game`) that pins the old band rules against
+  `fixtures/terrain-passability.json`; no loadable save reaches it, because the scale break refuses
+  every file below save 37.
+- **The drawn height field is the picker, and it is still not simulation truth.**
+  `heightfieldTerrain.ts` consumes native-published samples, sorts them into a
   query-order-independent build, shares averaged corners across ordinary slopes, keeps water in a
-  separate geometry, and emits vertical faces only at declared cliffs and the surveyed frontier.
-  Its picker raycasts that visible surface before translating x/z back to an axial cell; native
-  remains the legality authority. The module and its focused tests are an activation prerequisite:
-  wire 19 publishes no physical samples, `ThreeFactoryRenderer` does not import it, and the shipped
-  prism renderer and logical-plane picker remain live until all compatibility envelopes move.
+  separate geometry, and emits vertical faces only at declared cliffs and the surveyed frontier. The
+  picker marches the pointer ray down that drawn surface between the tallest column and the floor,
+  names the cell whose surface it meets — a flank included, since the face of a rise belongs to the
+  rise — and hands it to native, which remains the legality authority. This fixes a bug the graded
+  ground already had: at this camera's tilt a column standing a cliff above its neighbour draws more
+  than a hex away from the plane point beneath it, so the old logical-plane picker handed native the
+  cell in front of a rise whenever the player aimed at its top. Fog keeps the logical plane, so
+  unsurveyed ground stays pointable.
 - **An earthworks selection is resolved in three passes, and the footprint survives a refusal.**
   `ground_transaction` runs `ground_resolve` per cell, which records a `blocked` reason on the hex in
   the way instead of aborting the whole edit; then `ground_footprint`, which publishes every selected

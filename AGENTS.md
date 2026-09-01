@@ -4,44 +4,26 @@ HexFactory is a browser factory-automation game. Player experience is the tiebre
 native ownership, sparse cost, and measured claims exist to keep a large living factory responsive
 and trustworthy.
 
-Current release: **v0.46.0 Shaped Ground** — an earthworks selection is a shape and two anchors, not
-a heap of hexes: hex, line, rectangle and circle, with one outline modifier that reuses the anchors
-already placed. An outline is the hex-adjacency perimeter of its own fill, so it is one hex thick at
-every size; the ceiling is 64 hexes. Raise and Lower take a depth of one to three steps, and Level
-evens onto a datum the player names. A refused edit keeps its footprint drawn and names the hex in
-the way rather than erasing the selection. Presentation and RPC only: every envelope is unchanged at
-save 36, definitions 27, technologies 16, scenarios 7, world 10, wire 19. Save 35 still grandfathers
-only its existing belts for legacy liquid cargo.
+Current release: **v0.46.0 Shaped Ground** — an earthworks selection is a shape and two anchors, not a
+heap of hexes. Its detail is one ledger line in the plan.
 
-Next work is the numbered phase table in `docs/HEXFACTORY-PLAN.md#what-to-do-next`: flowing water.
-On 2026-08-31 the user approved the Phase 8 scale break detailed in that brief: one construction hex
-becomes 25 m², generated altitude becomes physical native height, drainage shapes valleys before
-rivers are placed, and building footprints are reauthored around the new scale. The first slice is a
-native survey/prototype, not a production toggle; **it is delivered in v0.46.0**. Slice 2 now supplies
-the typed production ground spine behind the old presentation. Slice 3 is the current work: content
-and renderer activation at the declared compatibility boundary. Local commits through `deddf52`
-have activated the physical source, native height samples, continuous landform, height-aware
-picking, physical footprints and metre-derived belt cadence together, and the remaining slice-3
-definition surfaces — foundation class, service/upgrade envelope and overhead clearance — now sit
-on the catalogue at save 38 / world 11 / definitions 29 / scenarios 8 / wire 21.
-`factory_wasm::terra` is now in the wasm artifact, new worlds select `GroundSpine::physical`, and
-save 36 is refused with an export path because its 1 m² scale cannot be resumed as 25 m² ground.
-Save 37 advances by stamp onto the reservation catalogue. Desktop and mobile journeys against the
-physical opening are recorded. The activation has been reviewed: it was refusing save-37 files
-because `compatibility()` in `src/core/saveSlots.ts` never gained the current build's own rung,
-`[38, 29, 16]`, so `migrates` was pinned false. The rung is restored and pinned against the shipped
-catalogue numbers, because the suite's synthetic `build` cannot catch a missing one. On 2026-09-01
-the user also settled movement for traversal rather than for physical plausibility: `PLAYER_SPEED`
-stays at 275 across the rescale, so the player crosses a hex in the time they always did and the
-stated speeds move to a 15 m/s walk, a 25 m/s run and a 5 m/s ford. This is not the belt relabelling
-the phase refused — the factory reads a belt's speed and balances against it, and nothing reads the
-player's — so the figures are restated everywhere rather than held. The bundle is reviewed and green
-but still unpushed; pushing is the user's call. Do not start slice 4
-before that push lands. Pipes were brought forward and the ground rework was requested outright; neither reorders
-the table. Release numbers after v0.46.0 are unassigned. Do not reorder those phases without the
-user. On 2026-08-29 the user moved supported floors and vertical transport from row 7 to row 10,
-behind flowing water and Living Lattice, so the player learns the shipped ground-level systems
-before the game asks them to think in levels.
+On `main` since, unreleased: **the Phase 8 scale break.** One construction hex is 25 m², altitude is
+physical native height, drainage shapes valleys before rivers are placed, and footprints, belt cadence,
+the renderer and picking were reauthored around the new scale. Every envelope moved together to save
+38, definitions 29, technologies 16, scenarios 8, world 11, wire 21. A save at 36 or below is the old
+1 m² world and is refused with an export path rather than migrated; save 37 advances by stamp. On
+2026-09-01 the user settled player movement for traversal: `PLAYER_SPEED` is unchanged across the
+rescale, so the stated figures moved instead — a 15 m/s walk, a 25 m/s run, a 5 m/s ford. The reasoning
+is on the constant in `factory-wasm/src/lib.rs`.
+
+Next work is the numbered phase table in `docs/HEXFACTORY-PLAN.md#what-to-do-next`. Phase 8, flowing
+water, is in flight: the user approved its scale break on 2026-08-31, slices 1 to 3 are complete, green
+and pushed, and **slice 4 — sparse disturbed water — is the next work**. The plan's "Starting slice 4"
+note says what the physical ground already gives you and what the slice must not do. Pipes were brought
+forward and the ground rework was requested outright; neither reorders the table. Release numbers after
+v0.46.0 are unassigned. Do not reorder those phases without the user. On 2026-08-29 the user moved
+supported floors and vertical transport from row 7 to row 10, behind flowing water and Living Lattice,
+so the player learns the shipped ground-level systems before the game asks them to think in levels.
 
 ## Localize before reading
 
@@ -72,10 +54,10 @@ remain the authority.
   `src/core/snapshotWire.ts`. Identity-bearing numbers must stay within JavaScript's exact range.
 - Derived indexes and caches are never saved, hashed, or checksummed. Rebuild them after the source
   state changes and pin them against the uncached/full implementation.
-- Presentation never becomes simulation truth. Picking names the cell whose drawn surface the
-  pointer is over, and native still decides what that cell allows. Generated
-  terrain height is still visual; only the integer grade a player paid for is simulation, and it is
-  native's. Lists containing controls are keyed and patched in place.
+- Presentation never becomes simulation truth. Picking names the cell whose drawn surface the pointer
+  is over, and native still decides what that cell allows. Ground height is native — a millimetre bed
+  plus the paid integer grade — and only the drawn surface between quanta is presentation. Lists
+  containing controls are keyed and patched in place.
 - No performance or scale claim without a committed measurement from the relevant harness.
 - Preserve user changes in a dirty tree. Never source-import HexLife or edit its checkout unless a
   separate task explicitly authorizes a generic package release.
