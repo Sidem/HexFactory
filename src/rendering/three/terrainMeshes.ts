@@ -121,8 +121,9 @@ interface Point3 {
  * both heights and gets a vertical face. Water is its own surface at its own level.
  *
  * Height is native's published bed plus native's own earthwork, added exactly as native adds them,
- * converted once at this boundary by {@link HEIGHT_UNIT_HEIGHT}. The renderer interpolates between
- * those samples and never invents a second elevation oracle.
+ * converted once at this boundary by {@link HEIGHT_UNIT_HEIGHT}. Standing water is the same sum:
+ * generated depth plus the published departure. The renderer interpolates between those samples and
+ * never invents a second elevation oracle.
  */
 export function buildTerrainMeshes(
   snapshot: FactorySnapshot,
@@ -132,8 +133,17 @@ export function buildTerrainMeshes(
   const groundByKey = new Map(
     snapshot.ground.map((cell) => [cellKey(cell.q, cell.r), cell]),
   );
+  const waterByKey = new Map(
+    snapshot.water.map((cell) => [cellKey(cell.q, cell.r), cell]),
+  );
   const cells = snapshot.terrain
-    .map((tile) => terrainCell(tile, groundByKey.get(cellKey(tile.q, tile.r))))
+    .map((tile) =>
+      terrainCell(
+        tile,
+        groundByKey.get(cellKey(tile.q, tile.r)),
+        waterByKey.get(cellKey(tile.q, tile.r)),
+      ),
+    )
     .sort((a, b) => a.r - b.r || a.q - b.q);
 
   const built = buildHeightfieldGeometry(cells.map(heightfieldSample), {
@@ -187,16 +197,18 @@ export function buildTerrainMeshes(
   };
 }
 
-/** One published tile joined with whatever earthwork the player has paid for on top of it. */
+/** One published tile joined with whatever earthwork and water the player has moved on top of it. */
 function terrainCell(
   tile: TerrainSnapshot,
   ground: { readonly elevation: number; readonly surface: number } | undefined,
+  water: { readonly departure: number } | undefined,
 ): TerrainCell {
   const world = axialToPixel(tile, WORLD_SCALE, { x: 0, y: 0 });
   const elevation = ground?.elevation ?? 0;
   // Generated bed and paid-for earthwork are the same unit and native sums them, so the host does
   // too. Everything that stands on the terrain follows from this one number.
   const height = (tile.height + elevation) * HEIGHT_UNIT_HEIGHT;
+  const waterDepth = Math.max(0, tile.water_depth + (water?.departure ?? 0));
   return {
     q: tile.q,
     r: tile.r,
@@ -207,8 +219,8 @@ function terrainCell(
     elevation,
     surface: ground?.surface ?? 0,
     substrate: tile.substrate,
-    waterDepth: tile.water_depth,
-    waterHeight: height + tile.water_depth * HEIGHT_UNIT_HEIGHT,
+    waterDepth,
+    waterHeight: height + waterDepth * HEIGHT_UNIT_HEIGHT,
     discharge: tile.discharge,
   };
 }

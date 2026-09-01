@@ -1610,6 +1610,30 @@ describe("picking the drawn landform", () => {
     for (const material of materials.materials) material.dispose();
   });
 
+  it("draws standing water at the generated depth plus the published departure", () => {
+    const snapshot = minimalSnapshot();
+    snapshot.terrain = surveyedTiles();
+    snapshot.water = [{ q: 0, r: 0, departure: 6 }];
+    const materials = createWorldMaterials();
+    const built = buildTerrainMeshes(snapshot, materials);
+    const dry = terrainAt(built.cellByKey, 1, 0);
+    const flooded = terrainAt(built.cellByKey, 0, 0);
+    expect(dry?.waterDepth).toBe(0);
+    expect(flooded?.waterDepth).toBe(6);
+    expect(flooded?.waterHeight).toBeCloseTo(
+      (flooded?.height ?? 0) + 6 * HEIGHT_UNIT_HEIGHT,
+      6,
+    );
+
+    snapshot.water = [{ q: 0, r: 0, departure: -6 }];
+    const drained = buildTerrainMeshes(snapshot, materials);
+    expect(terrainAt(drained.cellByKey, 0, 0)?.waterDepth).toBe(0);
+
+    for (const geometry of built.geometries) geometry.dispose();
+    for (const geometry of drained.geometries) geometry.dispose();
+    for (const material of materials.materials) material.dispose();
+  });
+
   it("names the low cell in front of a rise rather than the rise behind it", () => {
     const snapshot = minimalSnapshot();
     snapshot.terrain = [cliffTile(0, 0), ...surveyedTiles().slice(1)];
@@ -1902,6 +1926,7 @@ function minimalSnapshot(): FactorySnapshot {
   return {
     boundaries: [],
     ground: [],
+    water: [],
     spoil: 0,
     scenario: "test",
     scenario_name: "Test",

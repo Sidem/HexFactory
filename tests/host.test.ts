@@ -69,6 +69,7 @@ import {
 const snapshot: FactorySnapshot = {
   boundaries: [],
   ground: [],
+  water: [],
   spoil: 0,
   scenario: "new-game",
   scenario_name: "New game",

@@ -32,7 +32,7 @@ function bytesOf(hex: string): ArrayBuffer {
 describe("binary snapshot delta", () => {
   it("agrees with the Rust encoder on the format's identity", () => {
     expect(fixture.magic).toBe("HXFD");
-    expect(fixture.version).toBe(21);
+    expect(fixture.version).toBe(22);
   });
 
   it("reads prepared ground as a signed grade beside an unsigned surface", () => {
@@ -56,6 +56,21 @@ describe("binary snapshot delta", () => {
       { q: -1, r: 0, surface: 0, elevation: -2, paid: [] },
     ]);
     expect(decoded.spoil).toBe(6);
+  });
+
+  it("reads disturbed water as a signed departure", () => {
+    // Departure is signed, so a drained cell read with the unsigned reader does not fail — it
+    // returns a vast positive depth. The fixture carries a flood and a drain together and this
+    // pins both back.
+    const decoded = decodeSnapshotDelta(
+      bytesOf(
+        fixture.cases.find((test) => test.name === "disturbed water")!.bytes,
+      ),
+    );
+    expect(decoded.water).toEqual([
+      { q: 2, r: -3, departure: 6 },
+      { q: -1, r: 0, departure: -4 },
+    ]);
   });
 
   it.each(fixture.cases)("decodes $name to exactly the JSON delta", (test) => {

@@ -40,7 +40,7 @@ import type {
  */
 
 const MAGIC = 0x48584644; // "HXFD"
-const VERSION = 21;
+const VERSION = 22;
 
 /** Wire code is the index. Pinned against Rust by `fixtures/snapshot-delta-wire.json`. */
 const KINDS: BuildingKind[] = [
@@ -116,6 +116,7 @@ const GROUP = {
   boundaries: 1 << 20,
   ground: 1 << 21,
   spoil: 1 << 22,
+  water: 1 << 23,
   chunks: 1 << 12,
   terrain: 1 << 13,
   resources: 1 << 14,
@@ -424,6 +425,14 @@ export function decodeSnapshotDelta(buffer: ArrayBuffer): FactorySnapshotDelta {
     }));
   }
   if (has(GROUP.spoil)) delta.spoil = reader.uvarint();
+  if (has(GROUP.water)) {
+    const count = reader.uvarint();
+    delta.water = Array.from({ length: count }, () => ({
+      q: reader.svarint(),
+      r: reader.svarint(),
+      departure: reader.svarint(),
+    }));
+  }
   // A buffer with bytes left over means the two sides disagree about the layout, which would
   // otherwise surface as a subtly wrong frame somewhere downstream.
   if (!reader.atEnd())

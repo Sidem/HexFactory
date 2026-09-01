@@ -587,6 +587,7 @@ impl Core {
         let mut water = std::mem::take(&mut self.water);
         let report = settle(&*self, &mut water, seeds);
         self.water = water;
+        self.dirty.water = true;
         report
     }
 }
@@ -1354,6 +1355,11 @@ mod tests {
         );
         let held: i32 = core.water.iter().map(|(_, d)| i32::from(d.get())).sum();
         assert_eq!(held, depth, "and the shelf around it is dry");
+        assert_eq!(
+            core.snapshot().water,
+            core.water.cells(),
+            "the snapshot is the departure set, not a second picture of it"
+        );
         let checksum = core.checksum();
 
         // Now cut the bank. The pond's surface is suddenly above it, and the water finds the cut.
@@ -1374,6 +1380,11 @@ mod tests {
                 .sum::<i32>(),
             held,
             "the water was moved, not made"
+        );
+        assert_eq!(
+            core.snapshot().water,
+            core.water.cells(),
+            "the flood the solve left is the flood the host is told about"
         );
         assert!(
             core.events

@@ -113,7 +113,13 @@ pub(crate) const WIRE_MAGIC: [u8; 4] = *b"HXFD";
 /// each with the ticks since it stepped on. Both are in front of fields a version-20 host already
 /// reads, so this is a break rather than an addition: the old reader would take the cadence for a
 /// group mask and decode the rest of the buffer as noise.
-pub(crate) const WIRE_VERSION: u8 = 21;
+///
+/// Version 22 appends the sparse water-departure group. Generated `water_depth` still travels on the
+/// tile and is published once; what the player moved is a signed overlay the host adds, the same
+/// way it adds earthwork to generated height. A version-21 decoder would stop at spoil and its
+/// "consumed the whole buffer" assertion is exactly what catches the new group, which is why the
+/// version moves rather than the overlay being smuggled in.
+pub(crate) const WIRE_VERSION: u8 = 22;
 
 /// Which optional groups the buffer carries, in the order they are written.
 mod group {
@@ -140,6 +146,7 @@ mod group {
     pub(super) const BOUNDARIES: u32 = 1 << 20;
     pub(super) const GROUND: u32 = 1 << 21;
     pub(super) const SPOIL: u32 = 1 << 22;
+    pub(super) const WATER: u32 = 1 << 23;
 }
 
 /// Per-entity presence bits, so an absent option costs a bit rather than a field name and a `null`.
@@ -361,6 +368,7 @@ pub(crate) fn encode_delta(delta: &SnapshotDelta) -> Vec<u8> {
     set(group::BOUNDARIES, delta.boundaries.is_some());
     set(group::GROUND, delta.ground.is_some());
     set(group::SPOIL, delta.spoil.is_some());
+    set(group::WATER, delta.water.is_some());
     set(group::CHUNKS, delta.chunks.is_some());
     set(group::TERRAIN, delta.terrain.is_some());
     set(group::RESOURCES, delta.resources.is_some());
@@ -526,6 +534,14 @@ pub(crate) fn encode_delta(delta: &SnapshotDelta) -> Vec<u8> {
     }
     if let Some(spoil) = delta.spoil {
         writer.uvarint(spoil);
+    }
+    if let Some(water) = &delta.water {
+        writer.uvarint(water.len() as u64);
+        for cell in water {
+            writer.svarint(i64::from(cell.q));
+            writer.svarint(i64::from(cell.r));
+            writer.svarint(i64::from(cell.departure));
+        }
     }
     writer.bytes
 }
@@ -1177,6 +1193,15 @@ pub(crate) mod decode {
                 .collect()
         });
         let spoil = has(group::SPOIL).then(|| reader.uvarint());
+        let water = has(group::WATER).then(|| {
+            (0..reader.count())
+                .map(|_| crate::hydrology::WaterCell {
+                    q: reader.svarint() as i32,
+                    r: reader.svarint() as i32,
+                    departure: reader.svarint() as i16,
+                })
+                .collect()
+        });
         assert_eq!(
             reader.offset,
             bytes.len(),
@@ -1186,6 +1211,7 @@ pub(crate) mod decode {
             boundaries,
             ground,
             spoil,
+            water,
             base_revision,
             revision,
             tick,

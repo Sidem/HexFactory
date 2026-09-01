@@ -83,6 +83,7 @@ export class ThreeFactoryRenderer implements FactoryRenderer {
   private lastChunks: FactorySnapshot["chunks"] | null = null;
   private lastTerrain: FactorySnapshot["terrain"] | null = null;
   private lastGround: FactorySnapshot["ground"] | null = null;
+  private lastWater: FactorySnapshot["water"] | null = null;
   private layout = { width: 1, height: 1, left: 0, top: 0 };
   private layoutDirty = true;
   private needsDraw = true;
@@ -179,12 +180,15 @@ export class ThreeFactoryRenderer implements FactoryRenderer {
       snapshot.chunks !== this.lastChunks ||
       snapshot.terrain !== this.lastTerrain ||
       // Grading moves the walked surface, so a ground change rebuilds the landform for the same
-      // reason a survey does: everything standing on it takes its height from here.
-      snapshot.ground !== this.lastGround
+      // reason a survey does: everything standing on it takes its height from here. Disturbed
+      // water is the same overlay for the water surface.
+      snapshot.ground !== this.lastGround ||
+      snapshot.water !== this.lastWater
     ) {
       this.lastChunks = snapshot.chunks;
       this.lastTerrain = snapshot.terrain;
       this.lastGround = snapshot.ground;
+      this.lastWater = snapshot.water;
       this.rebuildTerrain(snapshot);
     }
     // After the rebuild, not before it: the height the camera follows is the ground this snapshot

@@ -93,6 +93,7 @@ function snapshotAt(state: {
   return {
     boundaries: [],
     ground: [],
+    water: [],
     spoil: 0,
     scenario: "new-game",
     scenario_name: "New game",

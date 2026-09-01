@@ -1012,7 +1012,10 @@ impl Core {
     /// The legacy square metre is left alone: its water is a presentation band with no depth to move.
     fn settle_after_ground(&mut self, transaction: &mut GroundTransaction, water: WaterPlan) {
         match water {
-            WaterPlan::Restore(cells) => self.water.apply(&cells),
+            WaterPlan::Restore(cells) => {
+                self.water.apply(&cells);
+                self.dirty.water = true;
+            }
             WaterPlan::Settle if self.ground_is_physical() => {
                 let before = self.water.clone();
                 let seeds: Vec<(i32, i32)> = transaction

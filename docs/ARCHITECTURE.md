@@ -676,6 +676,9 @@ defect it prevents; a change that contradicts one needs an argument, not an over
   a second solve and trusting it to agree. Save 39 is the envelope that opened this: a save-38 world
   had no departure to carry, and an empty set is skipped by the checksum on the same emptiness guard
   `ground` and `spoil` already use, so a save-38 file resumes on the checksum it was written with.
+  The snapshot publishes the same overlay the file does, as a trailing wire group: the tile still
+  carries the generated depth, and the renderer adds the departure exactly as native does, so a
+  flood and a drain are drawn on the water surface the player walks.
 - **The drawn height field is the picker, and it is still not simulation truth.**
   `heightfieldTerrain.ts` consumes native-published samples, sorts them into a
   query-order-independent build, shares averaged corners across ordinary slopes, keeps water in a
@@ -708,7 +711,9 @@ defect it prevents; a change that contradicts one needs an argument, not an over
   against; it is not a fallback path and the game must not ship on it. Wire 21 puts
   `belt_transit_ticks` in every header and an optional `lane` of in-transit items on a belt, each
   coded as ticks since it stepped on rather than as a fraction that would dirty every belt every
-  tick.
+  tick. Wire 22 appends the sparse water-departure group behind spoil: generated `water_depth`
+  still travels on the tile and is published once, and the host adds the signed overlay the same
+  way it adds earthwork to generated height.
 - The wire format is pinned in two places at once and both must move together. Rust round trips
   every delta a running factory produces inside
   `dirty_tracked_deltas_match_a_full_snapshot_diff`; `fixtures/snapshot-delta-wire.json` carries

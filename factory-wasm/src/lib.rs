@@ -12,9 +12,9 @@ mod ground_spine;
 /// Phase 8 slice 4: departure from generated water equilibrium, and the bounded solve that settles
 /// it.
 ///
-/// Movement, construction and earthwork read it. The rest of the slice — the flood and drain
-/// commands, the pumps and the wire — is what will take the remaining allowance off; what is under
-/// it now is the reporting the solve already produces and nothing has yet asked to see.
+/// Movement, construction, earthwork and the snapshot already read it. The rest of the slice — the
+/// flood and drain commands and the pumps — is what will take the remaining allowance off; what is
+/// under it now is reporting the solve already produces and nothing has yet asked to see.
 #[allow(dead_code)]
 mod hydrology;
 #[cfg(test)]
@@ -1482,6 +1482,10 @@ struct Entity {
 struct Snapshot {
     boundaries: Vec<Boundary>,
     ground: Vec<GroundCell>,
+    /// Cells whose standing water has left the generated equilibrium. Sparse, like `ground`: the
+    /// tile still carries the generated depth, published once, and the host adds this departure
+    /// exactly as native does.
+    water: Vec<hydrology::WaterCell>,
     spoil: u64,
     scenario: String,
     scenario_name: String,
@@ -1651,8 +1655,9 @@ struct ChunkSnapshot {
 /// and is never repeated — and delta coding, which prices a neighbouring cell at the hop to it.
 ///
 /// `height`, `water_depth` and the substrate are generated facts and nothing else: the earthwork the
-/// player paid for arrives separately in the ground group, and the host adds the two exactly as
-/// native does. That is what lets this list be published once and never revisited.
+/// player paid for arrives separately in the ground group, and the water they moved arrives
+/// separately in the water group. The host adds each overlay exactly as native does. That is what
+/// lets this list be published once and never revisited.
 #[derive(Clone, Copy, Debug, Serialize, PartialEq, Eq)]
 struct TileSnapshot {
     q: i32,
@@ -1886,6 +1891,8 @@ struct SnapshotDirty {
     boundaries: bool,
     /// Set when a surface or grade changed. Sparse and small, so the group is resent whole.
     ground: bool,
+    /// Set when a water departure changed. Sparse and small, so the group is resent whole.
+    water: bool,
     /// Stable entity ids whose snapshot may differ, including newly placed ones.
     entities: Vec<u32>,
     /// Stable entity ids the host must drop.
@@ -1921,6 +1928,8 @@ struct SnapshotDelta {
     ground: Option<Vec<GroundCell>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     spoil: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    water: Option<Vec<hydrology::WaterCell>>,
     base_revision: u64,
     revision: u64,
     tick: u64,
@@ -2011,6 +2020,7 @@ impl SnapshotDelta {
             boundaries: Some(current.boundaries.clone()),
             ground: Some(current.ground.clone()),
             spoil: Some(current.spoil),
+            water: Some(current.water.clone()),
             events: Some(current.events.clone()),
         }
     }
@@ -2051,6 +2061,7 @@ impl SnapshotDelta {
             boundaries: changed(&previous.boundaries, &current.boundaries),
             ground: changed(&previous.ground, &current.ground),
             spoil: changed_copy(previous.spoil, current.spoil),
+            water: changed(&previous.water, &current.water),
             events: changed(&previous.events, &current.events),
         }
     }
@@ -9185,6 +9196,7 @@ impl Core {
             buildings,
             boundaries: self.boundary_snapshot(),
             ground: self.ground_snapshot(),
+            water: self.water.cells(),
             spoil: self.spoil,
             ground_items: self.ground_items.clone(),
             events: self.events.clone(),
@@ -9718,6 +9730,7 @@ struct SavedState {
 struct SnapshotBaseline {
     boundaries: Vec<Boundary>,
     ground: Vec<GroundCell>,
+    water: Vec<hydrology::WaterCell>,
     spoil: u64,
     scenario: String,
     scenario_name: String,
@@ -9764,6 +9777,7 @@ impl SnapshotBaseline {
                 .collect(),
             boundaries: snapshot.boundaries.clone(),
             ground: snapshot.ground.clone(),
+            water: snapshot.water.clone(),
             spoil: snapshot.spoil,
             ground_items: snapshot.ground_items.clone(),
             events: snapshot.events.clone(),
@@ -9959,6 +9973,10 @@ impl Factory {
                 baseline.spoil = core.spoil;
                 core.spoil
             }),
+            water: dirty
+                .water
+                .then(|| take_changed(&mut baseline.water, core.water.cells()))
+                .flatten(),
             events: take_changed(&mut baseline.events, core.events.clone()),
         }
     }
@@ -22854,6 +22872,7 @@ mod tests {
             boundaries: None,
             ground: None,
             spoil: None,
+            water: None,
             base_revision: 0,
             revision: 1,
             tick: 0,
@@ -23388,10 +23407,29 @@ mod tests {
             spoil: Some(6),
             ..empty()
         };
+        // Departure is signed, like a cut's elevation: a flooded cell and a drained one in the same
+        // case is what pins the reader. Swap it for an unsigned varint and the drained hex comes
+        // back as a huge positive depth rather than as an error.
+        let water = SnapshotDelta {
+            water: Some(vec![
+                hydrology::WaterCell {
+                    q: 2,
+                    r: -3,
+                    departure: 6,
+                },
+                hydrology::WaterCell {
+                    q: -1,
+                    r: 0,
+                    departure: -4,
+                },
+            ]),
+            ..empty()
+        };
 
         vec![
             ("boundaries with paid recovery", boundaries),
             ("prepared ground and spoil", ground),
+            ("disturbed water", water),
             ("a quiet frame", quiet),
             ("every scalar group", scalars),
             ("both patches with entries", patches),
@@ -26911,6 +26949,57 @@ mod tests {
         let quiet = factory.build_delta();
         assert!(quiet.ground.is_none());
         assert!(quiet.spoil.is_none());
+        assert!(quiet.water.is_none());
+    }
+
+    /// A flood is a sparse overlay, like a grade: the tile still carries the generated depth, and
+    /// the delta carries only the cells that left it. Returning to equilibrium sends the empty list
+    /// so the host drops the overlay rather than keeping the last flood it saw.
+    #[test]
+    fn a_disturbed_depth_is_what_the_delta_publishes() {
+        let mut factory = test_factory("new-game");
+        factory.core.set_creative(true);
+        let (q, r) = {
+            let size = factory.core.scenario.chunk_size;
+            factory
+                .core
+                .generated_chunks
+                .iter()
+                .copied()
+                .flat_map(|(chunk_q, chunk_r)| hexes_in_chunk(chunk_q, chunk_r, size))
+                .find(|&(cell_q, cell_r)| factory.core.water_depth_at(cell_q, cell_r) == 0)
+                .expect("the opening surveys dry ground")
+        };
+        factory.core.water.set(q, r, hydrology::WaterDelta::new(6));
+        factory.core.settle_water(&[(q, r)]);
+        let _ = factory.snapshot_json();
+        let mut previous = factory.core.snapshot();
+        assert!(
+            !previous.water.is_empty(),
+            "a flood is a departure the snapshot carries"
+        );
+
+        let seeds: Vec<(i32, i32)> = factory
+            .core
+            .water
+            .cells()
+            .iter()
+            .map(|cell| (cell.q, cell.r))
+            .collect();
+        for &(cell_q, cell_r) in &seeds {
+            factory
+                .core
+                .water
+                .set(cell_q, cell_r, hydrology::WaterDelta::new(0));
+        }
+        factory.core.settle_water(&seeds);
+        assert!(
+            factory.core.water.is_empty(),
+            "forgetting every departure is the equilibrium"
+        );
+        assert_delta_matches_full_diff(&mut factory, &mut previous, "draining the flood");
+        let quiet = factory.build_delta();
+        assert!(quiet.water.is_none());
     }
 
     /// The generated world is exactly as passable after this release as before it. Every pair of

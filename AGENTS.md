@@ -10,16 +10,16 @@ heap of hexes. Its detail is one ledger line in the plan.
 On `main` since, unreleased: **the Phase 8 scale break.** One construction hex is 25 m², altitude is
 physical native height, drainage shapes valleys before rivers are placed, and footprints, belt cadence,
 the renderer and picking were reauthored around the new scale. Every envelope moved together to save
-38, definitions 29, technologies 16, scenarios 8, world 11, wire 21. A save at 36 or below is the old
-1 m² world and is refused with an export path rather than migrated; save 37 advances by stamp. On
-2026-09-01 the user settled player movement for traversal: `PLAYER_SPEED` is unchanged across the
-rescale, so the stated figures moved instead — a 15 m/s walk, a 25 m/s run, a 5 m/s ford. The reasoning
-is on the constant in `factory-wasm/src/lib.rs`.
+39, definitions 29, technologies 16, scenarios 8, world 11, wire 22. A save at 36 or below is the old
+1 m² world and is refused with an export path rather than migrated; save 37 advances by stamp, save 38
+by stamp onto 39. On 2026-09-01 the user settled player movement for traversal: `PLAYER_SPEED` is
+unchanged across the scale break, so the stated figures moved instead — a 15 m/s walk, a 25 m/s run, a
+5 m/s ford. The reasoning is on the constant in `factory-wasm/src/lib.rs`.
 
 Next work is the numbered phase table in `docs/HEXFACTORY-PLAN.md#what-to-do-next`. Phase 8, flowing
 water, is in flight: the user approved its scale break on 2026-08-31, slices 1 to 3 are complete, green
-and pushed, and **slice 4 — sparse disturbed water — is the next work**. The plan's "Starting slice 4"
-note says what the physical ground already gives you and what the slice must not do. Pipes were brought
+and pushed, and **slice 4 — sparse disturbed water — is in progress**. The plan's slice-4 note says
+what has landed and what remains. Pipes were brought
 forward and the ground rework was requested outright; neither reorders the table. Release numbers after
 v0.46.0 are unassigned. Do not reorder those phases without the user. On 2026-08-29 the user moved
 supported floors and vertical transport from row 7 to row 10, behind flowing water and Living Lattice,

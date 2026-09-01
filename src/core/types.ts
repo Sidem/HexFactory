@@ -571,9 +571,9 @@ export interface ResourceSnapshot extends WorldPoint {
  * for the host to fill a gap with.
  *
  * `height` and `water_depth` are the *generated* bed in native height units — signed, absolute, sea
- * level at zero. Whatever the player cut or filled arrives separately in the ground group, and the
- * host adds the two exactly as native does. That is what lets a tile be published once and never
- * revisited.
+ * level at zero. Whatever the player cut or filled arrives separately in the ground group, and
+ * whatever water they moved arrives separately in the water group. The host adds each overlay
+ * exactly as native does. That is what lets a tile be published once and never revisited.
  */
 export interface TerrainSnapshot extends WorldPoint {
   q: number;
@@ -710,6 +710,12 @@ export interface GroundItemSnapshot extends AxialCoordinate {
 export interface FactorySnapshot {
   boundaries: Boundary[];
   ground: GroundCell[];
+  /**
+   * Cells whose standing water has left the generated equilibrium. Sparse, like {@link ground}:
+   * the tile still carries the generated depth, and the host adds this departure exactly as native
+   * does.
+   */
+  water: WaterCell[];
   /** Steps of earth dug and not yet placed. The only thing fill can be paid from. */
   spoil: number;
   scenario: string;
@@ -1136,6 +1142,18 @@ export interface GroundCell {
   /** Steps above or below the hex's natural grade, bounded by native's `MAX_GRADE_STEPS`. */
   elevation: number;
   paid: Ingredient[];
+}
+
+/**
+ * One cell whose standing water has left the generated equilibrium. A cell exists only while it
+ * differs, so an absent cell and a cell with departure 0 mean the same thing and native never
+ * publishes the latter.
+ */
+export interface WaterCell {
+  q: number;
+  r: number;
+  /** Signed quanta away from the depth the generator publishes here. */
+  departure: number;
 }
 
 export type GroundAction = "pave" | "clear" | "raise" | "lower" | "level";

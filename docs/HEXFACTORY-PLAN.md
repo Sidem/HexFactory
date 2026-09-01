@@ -528,13 +528,15 @@ wire 21. Slice 4 is under way on local `main` and unpushed:
   validates and checksums, and an earthwork now settles the water over the ground it moved — with
   the undo record carrying the exact departures its solve displaced, so putting the ground back puts
   the water back rather than solving for it a second time. Save 39 is the envelope that carries all
-  of it; a save-38 world had no departure to store, so the rung moves only the stamp.
+  of it; a save-38 world had no departure to store, so the rung moves only the stamp. The snapshot
+  and wire 22 publish the same overlay the file does: generated `water_depth` still travels on the
+  tile, and the host adds the signed departure exactly as native does, so a flood and a drain are
+  drawn on the water surface.
 - **Remaining.** Flood and drain commands; pumps drawing against local depth and replenishing
-  discharge, naming their source and limiting rate; the wire and snapshot publishing that lets the
-  renderer draw a disturbed depth; wading and route search reading the same predicate; resumption at
-  the surveyed frontier when a survey exposes the next region; fixtures replacing
-  `fixtures/terrain-passability.json` with substrate, slope and water-depth cases in both languages;
-  and the re-measured active front and settled-world zero-work case in
+  discharge, naming their source and limiting rate; wading and route search reading the same
+  predicate; resumption at the surveyed frontier when a survey exposes the next region; fixtures
+  replacing `fixtures/terrain-passability.json` with substrate, slope and water-depth cases in both
+  languages; and the re-measured active front and settled-world zero-work case in
   [`BENCHMARKS.md`](BENCHMARKS.md).
 
 What the ground already gives you: an absolute physical bed in millimetres, per-cell water depth,
