@@ -1,6 +1,7 @@
 import {
   BufferGeometry,
   Float32BufferAttribute,
+  Uint32BufferAttribute,
   Vector2,
   type Camera,
   type Intersection,
@@ -480,13 +481,21 @@ class GeometryWriter {
     );
     // Sorted so a given world produces a given index buffer, whatever order the samples arrived in.
     const buckets = [...this.#indicesByBucket.keys()].sort((a, b) => a - b);
-    const indices: number[] = [];
-    for (const bucket of buckets) {
-      const run = this.#indicesByBucket.get(bucket)!;
-      geometry.addGroup(indices.length, run.length, geometry.groups.length);
-      indices.push(...run);
+    const runs = buckets.map((bucket) => this.#indicesByBucket.get(bucket)!);
+    // Copied run by run into one buffer rather than spread into a growing array. A spread passes
+    // every index as a call argument, so a surveyed world outgrew the argument stack long before it
+    // outgrew memory: a few thousand hexes sharing one look was enough to end a walk in a
+    // `RangeError`. `set` moves a run of any length.
+    const indices = new Uint32Array(
+      runs.reduce((total, run) => total + run.length, 0),
+    );
+    let start = 0;
+    for (const run of runs) {
+      geometry.addGroup(start, run.length, geometry.groups.length);
+      indices.set(run, start);
+      start += run.length;
     }
-    geometry.setIndex(indices);
+    geometry.setIndex(new Uint32BufferAttribute(indices, 1));
     if (indices.length > 0) {
       geometry.computeVertexNormals();
       geometry.computeBoundingBox();

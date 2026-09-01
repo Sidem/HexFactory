@@ -193,6 +193,24 @@ describe("physical heightfield terrain", () => {
     dispose(built);
   });
 
+  it("indexes a walked-out world whose run of one look outgrows the argument stack", () => {
+    // A frame that surveys rebuilds the whole surveyed landform, so the ground run of the commonest
+    // look keeps growing as the player walks. Ten thousand cells is 180,000 indices in one run,
+    // well past what a spread can pass as call arguments.
+    const samples: HeightfieldSample[] = [];
+    for (let q = 0; q < 100; q += 1)
+      for (let r = 0; r < 100; r += 1) samples.push(dry(q, r, 0));
+    const built = buildHeightfieldGeometry(samples, { cliffThreshold: 0.25 });
+
+    expect(built.buckets.ground).toEqual([0]);
+    expect(triangles(built.ground)).toBe(samples.length * 6);
+    expect(built.ground.groups.map((group) => group.count)).toEqual([
+      samples.length * 18,
+    ]);
+
+    dispose(built);
+  });
+
   it("refuses malformed or duplicate native samples", () => {
     expect(() =>
       buildHeightfieldGeometry([dry(0, 0, 0), dry(0, 0, 1)], {

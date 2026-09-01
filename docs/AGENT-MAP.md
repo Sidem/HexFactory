@@ -536,10 +536,10 @@ Data or fixture; inspect keys before loading the full file.
 
 - GroundMeshes:56, perimeter:193, colorFor:205
 
-### `src/rendering/three/heightfieldTerrain.ts` — 513 lines / 15.7 KiB
+### `src/rendering/three/heightfieldTerrain.ts` — 522 lines / 16.2 KiB
 
-- HeightfieldSubstrate:34, HeightfieldSample:41, HeightfieldOptions:57, GeometryBuckets:72, HeightfieldGeometryBuild:74, HeightfieldPick:89, ViewportRect:95, buildHeightfieldGeometry:114, heightfieldHeightAt:253, pickHeightfieldRay:266, pickHeightfieldAt:275, pickFromIntersection:292
-- validSample:301, compareCells:321, cellKey:328, cellCentre:332, groundCorner:337, waterCorner:383, cornerPoint:402, mean:416, modulo:420, GeometryWriter:432, fixed:510
+- HeightfieldSubstrate:35, HeightfieldSample:42, HeightfieldOptions:58, GeometryBuckets:73, HeightfieldGeometryBuild:75, HeightfieldPick:90, ViewportRect:96, buildHeightfieldGeometry:115, heightfieldHeightAt:254, pickHeightfieldRay:267, pickHeightfieldAt:276, pickFromIntersection:293
+- validSample:302, compareCells:322, cellKey:329, cellCentre:333, groundCorner:338, waterCorner:384, cornerPoint:403, mean:417, modulo:421, GeometryWriter:433, fixed:519
 
 ### `src/rendering/three/machineMeshes.ts` — 381 lines / 13.3 KiB
 
@@ -694,9 +694,9 @@ Data or fixture; inspect keys before loading the full file.
 
 - shippedScenario:29, boardFor:50, snapshotAt:79
 
-### `tests/heightfieldTerrain.test.ts` — 216 lines / 6.4 KiB
+### `tests/heightfieldTerrain.test.ts` — 234 lines / 7.2 KiB
 
-- dispose:210
+- dispose:228
 
 ### `tests/host.test.ts` — 2017 lines / 75.8 KiB
 
