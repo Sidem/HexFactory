@@ -354,6 +354,14 @@ impl Core {
         }
     }
 
+    /// Whether the heights this world publishes are physical quanta rather than legacy band steps.
+    /// Asked by the cross-language scale fixture only: nothing in the running game branches on it,
+    /// because a world is built from one source and keeps it.
+    #[cfg(test)]
+    pub(super) fn ground_is_physical(&self) -> bool {
+        self.ground_spine.is_physical()
+    }
+
     /// The finished height of this hex: the generated band plus whatever has been cut or filled.
     pub(super) fn ground_elevation_at(&self, q: i32, r: i32) -> i32 {
         self.finished_ground_at(q, r).elevation().get()

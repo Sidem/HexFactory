@@ -44,6 +44,14 @@ export interface HeightfieldSample extends AxialCoordinate {
   readonly waterDepth: number;
   readonly waterHeight: number;
   readonly dischargeClass: number;
+  /**
+   * Which look this cell's ground, cliff faces and frontier skirt draw in. The caller chooses the
+   * numbering; this file only keeps triangles that share one together. Substrate is deliberately not
+   * used for it — a river bed and a hillside are both soil, and they do not draw alike.
+   */
+  readonly look: number;
+  /** Which look this cell's standing water draws in. Ignored when the cell is dry. */
+  readonly waterLook: number;
 }
 
 export interface HeightfieldOptions {
@@ -53,11 +61,27 @@ export interface HeightfieldOptions {
   readonly frontierDepth?: number;
 }
 
+/**
+ * Which look each of a geometry's draw groups covers, in group order: entry `i` is the bucket that
+ * `geometry.groups[i]` was written for. A continuous surface is one geometry, so the material a run
+ * of triangles wants cannot travel as a separate mesh — it travels as this index.
+ *
+ * The numbers are the caller's `look`/`waterLook`, sorted ascending and deduplicated. A geometry
+ * with no triangles has no groups and so an empty list.
+ */
+export type GeometryBuckets = readonly number[];
+
 export interface HeightfieldGeometryBuild {
   readonly ground: BufferGeometry;
   readonly water: BufferGeometry;
   readonly cliffs: BufferGeometry;
   readonly frontier: BufferGeometry;
+  readonly buckets: {
+    readonly ground: GeometryBuckets;
+    readonly water: GeometryBuckets;
+    readonly cliffs: GeometryBuckets;
+    readonly frontier: GeometryBuckets;
+  };
   readonly cells: readonly HeightfieldSample[];
   readonly cellByKey: ReadonlyMap<string, HeightfieldSample>;
 }
@@ -134,7 +158,7 @@ export function buildHeightfieldGeometry(
         options.cliffThreshold,
       );
       // Winding is counter-clockwise when viewed from above, so generated normals face +Y.
-      ground.triangle(centre, second, first, substrate);
+      ground.triangle(centre, second, first, substrate, cell.look);
 
       if (cell.waterDepth > 0) {
         const waterCentre = cellCentre(cell, cell.waterHeight);
@@ -145,6 +169,7 @@ export function buildHeightfieldGeometry(
           waterSecond,
           waterFirst,
           cell.dischargeClass,
+          cell.waterLook,
         );
       }
     }
@@ -168,6 +193,7 @@ export function buildHeightfieldGeometry(
           { ...second, y: second.y - frontierDepth },
           { ...first, y: first.y - frontierDepth },
           substrate,
+          cell.look,
         );
         continue;
       }
@@ -198,15 +224,26 @@ export function buildHeightfieldGeometry(
         { ...second, y: neighbourSecond.y },
         { ...first, y: neighbourFirst.y },
         substrate,
+        cell.look,
       );
     }
   }
 
+  const groundBuild = ground.finish();
+  const waterBuild = water.finish();
+  const cliffBuild = cliffs.finish();
+  const frontierBuild = frontier.finish();
   return {
-    ground: ground.finish(),
-    water: water.finish(),
-    cliffs: cliffs.finish(),
-    frontier: frontier.finish(),
+    ground: groundBuild.geometry,
+    water: waterBuild.geometry,
+    cliffs: cliffBuild.geometry,
+    frontier: frontierBuild.geometry,
+    buckets: {
+      ground: groundBuild.buckets,
+      water: waterBuild.buckets,
+      cliffs: cliffBuild.buckets,
+      frontier: frontierBuild.buckets,
+    },
     cells,
     cellByKey,
   };
@@ -273,6 +310,10 @@ function validSample(sample: HeightfieldSample): boolean {
     Number.isInteger(sample.dischargeClass) &&
     sample.dischargeClass >= 0 &&
     sample.dischargeClass <= 255 &&
+    Number.isInteger(sample.look) &&
+    sample.look >= 0 &&
+    Number.isInteger(sample.waterLook) &&
+    sample.waterLook >= 0 &&
     Object.hasOwn(SUBSTRATE_CODE, sample.substrate)
   );
 }
@@ -380,10 +421,18 @@ function modulo(value: number, divisor: number): number {
   return ((value % divisor) + divisor) % divisor;
 }
 
+/**
+ * Accumulates one surface. Each triangle carries a `channel`, a per-vertex float the shader reads,
+ * and a `bucket`, the look the triangle wants drawn. The two are usually the same number and are
+ * not the same idea: water's channel is its discharge class, which varies within one material.
+ *
+ * Buckets become draw groups rather than separate geometries, so the surface stays one mesh and one
+ * raycast target no matter how many looks it spans.
+ */
 class GeometryWriter {
   readonly #positions: number[] = [];
   readonly #channels: number[] = [];
-  readonly #indices: number[] = [];
+  readonly #indicesByBucket = new Map<number, number[]>();
   readonly #vertices = new Map<string, number>();
 
   constructor(private readonly channelName: string) {}
@@ -393,8 +442,14 @@ class GeometryWriter {
     second: Point3,
     third: Point3,
     channel: number,
+    bucket: number = channel,
   ): void {
-    this.#indices.push(
+    let indices = this.#indicesByBucket.get(bucket);
+    if (!indices) {
+      indices = [];
+      this.#indicesByBucket.set(bucket, indices);
+    }
+    indices.push(
       this.vertex(first, channel),
       this.vertex(second, channel),
       this.vertex(third, channel),
@@ -407,12 +462,13 @@ class GeometryWriter {
     third: Point3,
     fourth: Point3,
     channel: number,
+    bucket: number = channel,
   ): void {
-    this.triangle(first, second, third, channel);
-    this.triangle(first, third, fourth, channel);
+    this.triangle(first, second, third, channel, bucket);
+    this.triangle(first, third, fourth, channel, bucket);
   }
 
-  finish(): BufferGeometry {
+  finish(): { geometry: BufferGeometry; buckets: GeometryBuckets } {
     const geometry = new BufferGeometry();
     geometry.setAttribute(
       "position",
@@ -422,13 +478,21 @@ class GeometryWriter {
       this.channelName,
       new Float32BufferAttribute(this.#channels, 1),
     );
-    geometry.setIndex(this.#indices);
-    if (this.#indices.length > 0) {
+    // Sorted so a given world produces a given index buffer, whatever order the samples arrived in.
+    const buckets = [...this.#indicesByBucket.keys()].sort((a, b) => a - b);
+    const indices: number[] = [];
+    for (const bucket of buckets) {
+      const run = this.#indicesByBucket.get(bucket)!;
+      geometry.addGroup(indices.length, run.length, geometry.groups.length);
+      indices.push(...run);
+    }
+    geometry.setIndex(indices);
+    if (indices.length > 0) {
       geometry.computeVertexNormals();
       geometry.computeBoundingBox();
       geometry.computeBoundingSphere();
     }
-    return geometry;
+    return { geometry, buckets };
   }
 
   private vertex(point: Point3, channel: number): number {

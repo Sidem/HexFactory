@@ -36,7 +36,7 @@ import {
 } from "./machineMeshes";
 import type { WorldMaterials } from "./materials";
 import type { TerrainCell } from "./terrainMeshes";
-import { cellKey, stableVariation } from "./terrainMeshes";
+import { heightAt, stableVariation } from "./terrainMeshes";
 import {
   createCurvedTransportGeometry,
   createTransportGeometry,
@@ -1674,7 +1674,7 @@ export class WorldInstanceLayer {
   }
 
   private groundHeight(q: number, r: number): number {
-    return this.terrainByKey.get(cellKey(q, r))?.height ?? 0.07;
+    return heightAt(this.terrainByKey, q, r);
   }
 }
 

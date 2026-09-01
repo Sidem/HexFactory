@@ -59,8 +59,9 @@ pub(super) enum Substrate {
 /// live flow model; the field exists now so the physical source has an independent output to fill.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct InitialHydrology {
-    /// Standing depth in 0.25 m quanta for the physical source. The legacy adapter uses one native
-    /// unit for either old water band; its presentation remains the compatibility distinction.
+    /// Standing depth in 0.25 m quanta for the physical source. The legacy adapter gives one native
+    /// unit to deep water and none to a shallow, whose bed is already plain level; the presentation
+    /// band remains the compatibility distinction between a ford and dry ground.
     pub(super) depth_quanta: i32,
     pub(super) surface: GroundElevation,
     pub(super) discharge_class: u8,
@@ -86,10 +87,10 @@ impl GeneratedGround {
             Terrain::Hills => Substrate::Soil,
             Terrain::Highland | Terrain::Cliff => Substrate::Rock,
         };
-        let depth_quanta = match terrain {
-            Terrain::DeepWater | Terrain::ShallowWater => 1,
-            _ => 0,
-        };
+        // Only deep water stands above its bed here. A legacy shallow is a ford — `natural_elevation`
+        // puts its bed at plain level on purpose, so any depth at all would draw a lake standing
+        // proud of its own shore. The band is what tells a ford from a meadow in this source.
+        let depth_quanta = i32::from(matches!(terrain, Terrain::DeepWater));
         // These are compatibility surfaces in legacy steps, not physical water levels. Nothing
         // reads them for simulation before the physical source activates.
         let surface = GroundElevation::new(bed.get() + depth_quanta);
@@ -251,6 +252,18 @@ impl GroundSpine {
         }
     }
 
+    /// Whether the height this spine publishes is a physical 0.25 m quantum rather than a legacy
+    /// presentation band step. Nothing in a snapshot says which, and the renderer has to know: the
+    /// same integer means seventeen times as much ground once the physical source answers.
+    #[cfg(test)]
+    pub(super) fn is_physical(&self) -> bool {
+        match self.source {
+            GroundSource::Legacy => false,
+            #[cfg(test)]
+            GroundSource::Physical { .. } => true,
+        }
+    }
+
     pub(super) fn generated_at(&self, q: i32, r: i32) -> GeneratedGround {
         self.cache
             .borrow()
@@ -332,7 +345,7 @@ mod tests {
     fn legacy_adapter_separates_facts_without_changing_height() {
         let cases = [
             (Terrain::DeepWater, -1, Substrate::Soil, 1, 0),
-            (Terrain::ShallowWater, 0, Substrate::Soil, 1, 1),
+            (Terrain::ShallowWater, 0, Substrate::Soil, 0, 0),
             (Terrain::Shore, 0, Substrate::Sand, 0, 0),
             (Terrain::Lowland, 0, Substrate::Meadow, 0, 0),
             (Terrain::Hills, 1, Substrate::Soil, 0, 1),

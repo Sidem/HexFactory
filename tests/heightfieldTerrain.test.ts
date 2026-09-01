@@ -21,6 +21,7 @@ const dry = (
   r: number,
   height: number,
   substrate: HeightfieldSample["substrate"] = "meadow",
+  look = 0,
 ): HeightfieldSample => ({
   q,
   r,
@@ -29,6 +30,8 @@ const dry = (
   waterDepth: 0,
   waterHeight: height,
   dischargeClass: 0,
+  look,
+  waterLook: look,
 });
 
 const triangles = (
@@ -154,6 +157,39 @@ describe("physical heightfield terrain", () => {
     ).toMatchObject({ axial: { q: 0, r: 0 }, height: 2 });
 
     material.dispose();
+    dispose(built);
+  });
+
+  it("groups one surface into draw runs so several looks share a mesh", () => {
+    const built = buildHeightfieldGeometry(
+      [
+        dry(0, 0, 0, "rock", 6),
+        dry(1, 0, 0, "sand", 2),
+        dry(0, 1, 0, "rock", 6),
+        {
+          ...dry(-1, 0, -1, "soil", 0),
+          waterDepth: 4,
+          waterHeight: 0,
+        },
+        { ...dry(1, -1, -1, "soil", 1), waterDepth: 1, waterHeight: 0 },
+      ],
+      { cliffThreshold: 4 },
+    );
+
+    // Sorted and deduplicated: the two look-6 cells share one run rather than opening a second,
+    // which is the whole point of grouping instead of splitting the mesh into one per look.
+    expect(built.buckets.ground).toEqual([0, 1, 2, 6]);
+    expect(built.ground.groups.map((group) => group.count)).toEqual([
+      18, 18, 18, 36,
+    ]);
+    expect(built.ground.groups.map((group) => group.start)).toEqual([
+      0, 18, 36, 54,
+    ]);
+    // The two wet cells part company on their look even though both carry discharge class 0 and
+    // would be one run if the per-vertex channel were what decided the grouping.
+    expect(built.buckets.water).toEqual([0, 1]);
+    expect(built.water.groups.map((group) => group.count)).toEqual([18, 18]);
+
     dispose(built);
   });
 

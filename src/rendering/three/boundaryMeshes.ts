@@ -17,7 +17,7 @@ import type {
   BoundarySegment,
 } from "../../core/types";
 import { chordCorners, cornerHexes } from "../../core/lattice";
-import type { TerrainCell } from "./terrainMeshes";
+import { FOG_HEIGHT, heightAt, type TerrainCell } from "./terrainMeshes";
 
 /**
  * The six corners of a hex of circumradius one, index 0 due north and then clockwise. The same
@@ -241,10 +241,10 @@ export class BoundaryMeshes {
 
   /** The grade a vertex stands on: the highest of the three hexes that meet there. */
   private heightAt(anchor: BoundaryAnchor): number {
+    const terrain = this.terrain;
+    if (!terrain) return FOG_HEIGHT;
     return Math.max(
-      ...cornerHexes(anchor).map(
-        (cell) => this.terrain?.get(`${cell.q},${cell.r}`)?.height ?? 0.07,
-      ),
+      ...cornerHexes(anchor).map((cell) => heightAt(terrain, cell.q, cell.r)),
     );
   }
 

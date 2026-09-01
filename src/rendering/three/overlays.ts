@@ -27,7 +27,7 @@ import type { ReachRadii } from "../FactoryRenderer";
 import { WORLD_SCALE } from "../landmarks";
 import type { WorldMaterials } from "./materials";
 import type { TerrainCell } from "./terrainMeshes";
-import { cellKey } from "./terrainMeshes";
+import { heightAt as terrainHeightAt } from "./terrainMeshes";
 
 export interface SpatialOverlayState {
   readonly hover: AxialCoordinate | null;
@@ -404,7 +404,7 @@ export class SpatialOverlays {
     q: number,
     r: number,
   ): number {
-    return terrain.get(cellKey(q, r))?.height ?? 0.07;
+    return terrainHeightAt(terrain, q, r);
   }
 }
 

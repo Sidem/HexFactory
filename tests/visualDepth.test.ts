@@ -59,14 +59,21 @@ import {
 } from "../src/rendering/three/quality";
 import {
   buildTerrainMeshes,
+  FOG_HEIGHT,
+  heightAt,
+  heightAtWorld,
   HEX_RADIUS,
   pickTerrainCell,
   terrainAt,
+  type TerrainCell,
 } from "../src/rendering/three/terrainMeshes";
 import {
-  TERRAIN_STYLE,
-  visualHeight,
-} from "../src/rendering/three/terrainStyle";
+  HEIGHT_UNIT_HEIGHT,
+  RELIEF_CEILING,
+  RELIEF_FLOOR,
+  RELIEF_SPAN,
+} from "../src/rendering/sceneScale";
+import { TERRAIN_STYLE } from "../src/rendering/three/terrainStyle";
 import {
   surfaceSource,
   TERRAIN_SURFACE,
@@ -902,32 +909,8 @@ describe("Visual Depth terrain and quality contracts", () => {
     from.status = "carrying";
     snapshot.buildings.push(from, entity(2, 2, "belt", 1, 0, 0));
     const terrain = new Map([
-      [
-        "0,0",
-        {
-          q: 0,
-          r: 0,
-          terrain: "lowland" as const,
-          x: 0,
-          z: 0,
-          height: 0.1,
-          elevation: 0,
-          surface: 0,
-        },
-      ],
-      [
-        "1,0",
-        {
-          q: 1,
-          r: 0,
-          terrain: "highland" as const,
-          x: 1,
-          z: 0,
-          height: 0.62,
-          elevation: 0,
-          surface: 0,
-        },
-      ],
+      ["0,0", sceneCell(0, 0, "lowland", 0, 0, 0.1)],
+      ["1,0", sceneCell(1, 0, "highland", 1, 0, 0.62)],
     ]);
     layer.setSnapshot(snapshot, terrain, 0);
 
@@ -1308,8 +1291,10 @@ describe("Visual Depth terrain and quality contracts", () => {
     for (const material of materials.materials) material.dispose();
   });
 
-  it("has one total height/material row for the pinned terrain union", () => {
-    const keys = [
+  it("declares the pinned terrain union once, in the order the bands rise", () => {
+    // The order is what `terrainMeshes` uses as a band's draw-group look, so reordering this record
+    // silently repaints the world. It is also the order a legend reads in.
+    expect(Object.keys(TERRAIN_STYLE)).toEqual([
       "deep_water",
       "shallow_water",
       "shore",
@@ -1317,20 +1302,19 @@ describe("Visual Depth terrain and quality contracts", () => {
       "hills",
       "highland",
       "cliff",
-    ] as const;
-    expect(Object.keys(TERRAIN_STYLE)).toEqual(keys);
-    expect(keys.map(visualHeight)).toEqual(
-      [...keys.map(visualHeight)].sort((a, b) => a - b),
-    );
+    ]);
   });
 
-  it("meshes surveyed lowland but ignores published cells outside native coverage", () => {
+  it("meshes exactly the cells native published and infers none", () => {
     const snapshot = minimalSnapshot();
     const materials = createWorldMaterials();
     const built = buildTerrainMeshes(snapshot, materials);
-    expect(built.cells.length).toBeGreaterThan(0);
-    expect(built.cells.some(({ terrain }) => terrain === "lowland")).toBe(true);
-    expect(built.cells.some(({ q, r }) => q === 99 && r === 99)).toBe(false);
+    expect(built.cells.map(({ q, r }) => [q, r])).toEqual(
+      [...SURVEYED_CELLS].sort((a, b) => a[1] - b[1] || a[0] - b[0]),
+    );
+    // `(-1, 0)` sits inside the published chunk rectangle and is still not drawn: the old builder
+    // scanned that rectangle and called every gap surveyed lowland, and nothing does now.
+    expect(terrainAt(built.cellByKey, -1, 0)).toBeUndefined();
     for (const geometry of built.geometries) geometry.dispose();
     for (const material of materials.materials) material.dispose();
   });
@@ -1577,16 +1561,15 @@ describe("Terrain surfaces", () => {
 describe("picking the drawn landform", () => {
   it("names the raised cell the pointer is over, where the plane picker names its neighbour", () => {
     const snapshot = minimalSnapshot();
-    snapshot.terrain = [cliffTile(0, 0)];
+    snapshot.terrain = [cliffTile(0, 0), ...surveyedTiles().slice(1)];
     snapshot.ground = [{ q: 0, r: 0, surface: 0, elevation: 3, paid: [] }];
     const materials = createWorldMaterials();
     const built = buildTerrainMeshes(snapshot, materials);
     const raised = terrainAt(built.cellByKey, 0, 0);
     expect(raised).toBeDefined();
-    expect(raised?.height).toBeCloseTo(
-      visualHeight("cliff") + 3 * GRADE_STEP_HEIGHT,
-      6,
-    );
+    // Native's generated bed for a cliff band plus the three steps the player paid to raise it,
+    // added in native's own unit and converted once.
+    expect(raised?.height).toBeCloseTo(6 * GRADE_STEP_HEIGHT, 6);
     expect(built.ceiling).toBeCloseTo(raised?.height ?? 0, 6);
 
     const camera = new HexSceneCamera();
@@ -1612,7 +1595,7 @@ describe("picking the drawn landform", () => {
 
   it("names the low cell in front of a rise rather than the rise behind it", () => {
     const snapshot = minimalSnapshot();
-    snapshot.terrain = [cliffTile(0, 0)];
+    snapshot.terrain = [cliffTile(0, 0), ...surveyedTiles().slice(1)];
     snapshot.ground = [{ q: 0, r: 0, surface: 0, elevation: 3, paid: [] }];
     const materials = createWorldMaterials();
     const built = buildTerrainMeshes(snapshot, materials);
@@ -1638,7 +1621,6 @@ describe("picking the drawn landform", () => {
 
   it("agrees with the plane picker everywhere the ground is flat", () => {
     const snapshot = minimalSnapshot();
-    snapshot.terrain = [];
     const materials = createWorldMaterials();
     const built = buildTerrainMeshes(snapshot, materials);
     expect(built.cells.length).toBeGreaterThan(0);
@@ -1676,6 +1658,124 @@ describe("picking the drawn landform", () => {
     for (const geometry of built.geometries) geometry.dispose();
     for (const material of materials.materials) material.dispose();
   });
+
+  it("still meets the tallest ground the world can raise, seen from its lowest floor", () => {
+    const snapshot = minimalSnapshot();
+    // The worst case the scale contract allows: a summit at the top of the declared relief with
+    // the camera down on the bottom of it. Under an orthographic projection a pick ray starts at
+    // the camera's own position plane, so ground standing this far above it is exactly what an
+    // unbacked-off ray would begin behind and never meet.
+    snapshot.terrain = [
+      {
+        ...lowlandTile(0, 0),
+        terrain: "cliff",
+        substrate: "rock",
+        height: Math.round(RELIEF_CEILING / HEIGHT_UNIT_HEIGHT),
+      },
+      ...surveyedTiles().slice(1),
+    ];
+    const materials = createWorldMaterials();
+    const built = buildTerrainMeshes(snapshot, materials);
+    const summit = terrainAt(built.cellByKey, 0, 0);
+    expect(summit?.height).toBeCloseTo(RELIEF_CEILING, 6);
+
+    const camera = new HexSceneCamera();
+    camera.resize(1280, 800);
+    camera.recenter({ x: 0, y: 0 }, RELIEF_FLOOR);
+    const screen = camera.projectScene(
+      summit?.x ?? 0,
+      summit?.height ?? 0,
+      summit?.z ?? 0,
+    );
+    const hit = pickTerrainCell(built, camera.rayAt(screen.x, screen.y));
+    expect({ q: hit?.cell.q, r: hit?.cell.r }).toEqual({ q: 0, r: 0 });
+    // And it is inside the clip planes, so what the player just pointed at is drawn as well as
+    // pickable. Orthographic depth is linear, so bracketing the whole relief costs only precision.
+    const depth = new Vector3(
+      summit?.x ?? 0,
+      summit?.height ?? 0,
+      summit?.z ?? 0,
+    ).project(camera.camera).z;
+    expect(Math.abs(depth)).toBeLessThanOrEqual(1);
+
+    for (const geometry of built.geometries) geometry.dispose();
+    for (const material of materials.materials) material.dispose();
+  });
+});
+
+describe("a camera that follows the landform", () => {
+  it("carries the whole rig up to the height it is looking at", () => {
+    const camera = new HexSceneCamera();
+    camera.resize(1280, 800);
+    camera.recenter({ x: 0, y: 0 });
+    const sealevel = camera.camera.position.y;
+    const framed = camera.projectScene(0, 0, 0);
+
+    camera.recenter({ x: 0, y: 0 }, RELIEF_CEILING);
+    expect(camera.camera.position.y).toBeCloseTo(sealevel + RELIEF_CEILING, 6);
+    // The player on a summit is framed exactly where the player on the plain was. Moving the
+    // target alone would have tilted the whole scene and walked them toward the top of the view.
+    const climbed = camera.projectScene(0, RELIEF_CEILING, 0);
+    expect(climbed.x).toBeCloseTo(framed.x, 6);
+    expect(climbed.y).toBeCloseTo(framed.y, 6);
+  });
+
+  it("keeps panning anchored to the height it is looking at", () => {
+    const camera = new HexSceneCamera();
+    camera.resize(1280, 800);
+    camera.recenter({ x: 0, y: 0 }, RELIEF_CEILING);
+    // The plane a drag is measured against rises with the target, so the point under the pointer
+    // stays under it. Against a fixed sea-level plane a drag on a hilltop would overshoot.
+    const ground = camera.groundAt(640, 400);
+    expect(ground.y).toBeCloseTo(RELIEF_CEILING, 6);
+  });
+
+  it("fades distance by the screenful rather than by a fixed reach", () => {
+    const camera = new HexSceneCamera();
+    camera.resize(1280, 800);
+    const near = camera.hazeRange;
+    camera.zoomAt(640, 400, 2);
+    const close = camera.hazeRange;
+    // Zoomed in there is less world on screen, so the haze closes in with it. A constant range
+    // would have hazed everything at one end of the zoom and nothing at the other.
+    expect(close.near).toBeLessThan(near.near);
+    expect(close.far).toBeLessThan(near.far);
+    expect(close.far).toBeGreaterThan(close.near);
+  });
+});
+
+describe("one height route", () => {
+  it("answers for a hex and for a world point with the same ground", () => {
+    const snapshot = minimalSnapshot();
+    snapshot.terrain = [cliffTile(0, 0), ...surveyedTiles().slice(1)];
+    const materials = createWorldMaterials();
+    const built = buildTerrainMeshes(snapshot, materials);
+
+    const cell = terrainAt(built.cellByKey, 0, 0);
+    expect(cell?.height).toBeCloseTo(3 * GRADE_STEP_HEIGHT, 6);
+    expect(heightAt(built.cellByKey, 0, 0)).toBe(cell?.height);
+    expect(heightAtWorld(built.cellByKey, { x: 0, y: 0 })).toBe(cell?.height);
+    // Fog is the logical plane: nothing is drawn there, so nothing standing there is lifted off it.
+    expect(heightAt(built.cellByKey, 40, 40)).toBe(FOG_HEIGHT);
+    expect(
+      heightAtWorld(built.cellByKey, {
+        x: WORLD_SCALE * 40,
+        y: WORLD_SCALE * 40,
+      }),
+    ).toBe(FOG_HEIGHT);
+
+    for (const geometry of built.geometries) geometry.dispose();
+    for (const material of materials.materials) material.dispose();
+  });
+
+  it("brackets the relief the ground source can actually publish", () => {
+    // The renderer's reach is native's own, read off `fixtures/scene-scale.json` — the file Rust
+    // asserts against the source production constructs. A camera that bracketed a guess would clip
+    // a summit native is entitled to generate.
+    expect(RELIEF_FLOOR).toBeLessThan(0);
+    expect(RELIEF_CEILING).toBeGreaterThan(0);
+    expect(RELIEF_SPAN).toBeCloseTo(RELIEF_CEILING - RELIEF_FLOOR, 12);
+  });
 });
 
 /** The family's own `hfSurface`, without the shared declarations every family carries. */
@@ -1709,23 +1809,74 @@ function compileTerrain(terrain: Terrain) {
   return { materials, shader };
 }
 
-/**
- * One surveyed cell of rock standing at sea level. These tests are about what the renderer draws
- * from the presentation band and the earthwork above it, so the generated ground the wire now
- * carries beside the band is held flat and dry: any relief in the assertions below comes from the
- * `ground` group, which is the thing under test.
- */
+/** One surveyed cell of rock, standing at the height the legacy generator gives a cliff band. */
 function cliffTile(q: number, r: number): TerrainSnapshot {
+  return {
+    ...lowlandTile(q, r),
+    terrain: "cliff",
+    height: 3,
+    substrate: "rock",
+  };
+}
+
+/** One surveyed cell of flat dry meadow at sea level. */
+function lowlandTile(q: number, r: number): TerrainSnapshot {
   return {
     q,
     r,
     x: 0,
     y: 0,
     radius: WORLD_SCALE,
-    terrain: "cliff",
+    terrain: "lowland",
     height: 0,
-    substrate: "rock",
+    substrate: "meadow",
     water_depth: 0,
+    discharge: 0,
+  };
+}
+
+/**
+ * The cells `minimalSnapshot` publishes: the origin and five of its six neighbours.
+ *
+ * `(-1, 0)` is deliberately left out even though it falls inside the published chunk rectangle. The
+ * terrain group carries every surveyed cell now, so an unpublished centre is unsurveyed ground —
+ * there is no rectangle to scan and no omitted row to default to lowland, and the missing cell is
+ * what proves it.
+ */
+const SURVEYED_CELLS: readonly (readonly [number, number])[] = [
+  [0, 0],
+  [1, 0],
+  [0, 1],
+  [-1, 1],
+  [0, -1],
+  [1, -1],
+];
+
+function surveyedTiles(): TerrainSnapshot[] {
+  return SURVEYED_CELLS.map(([q, r]) => lowlandTile(q, r));
+}
+
+/** A drawn cell as `buildTerrainMeshes` produces one, for the layers that consume its map. */
+function sceneCell(
+  q: number,
+  r: number,
+  terrain: Terrain,
+  x: number,
+  z: number,
+  height: number,
+): TerrainCell {
+  return {
+    q,
+    r,
+    terrain,
+    x,
+    z,
+    height,
+    elevation: 0,
+    surface: 0,
+    substrate: "meadow",
+    waterDepth: 0,
+    waterHeight: height,
     discharge: 0,
   };
 }
@@ -1796,7 +1947,7 @@ function minimalSnapshot(): FactorySnapshot {
         span: WORLD_SCALE * 4,
       },
     ],
-    terrain: [cliffTile(99, 99)],
+    terrain: surveyedTiles(),
     resources: [],
     buildings: [],
     ground_items: [],

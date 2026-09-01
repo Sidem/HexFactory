@@ -12,9 +12,9 @@ import {
 import { axialToPixel } from "@hexlife/embed/hex";
 
 import type { GroundPreview, GroundPreviewCell } from "../../core/types";
-import { GRADE_STEP_HEIGHT } from "../surfaceLook";
+import { HEIGHT_UNIT_HEIGHT } from "../sceneScale";
 import { HEX_RING_START } from "./overlays";
-import { HEX_RADIUS, cellKey, type TerrainCell } from "./terrainMeshes";
+import { HEX_RADIUS, heightAt, type TerrainCell } from "./terrainMeshes";
 
 /** Nothing in this selection will happen: the edit as a whole was refused. A wash, not an alarm. */
 const REFUSED = "#ff9a92";
@@ -126,10 +126,11 @@ export class GroundMeshes {
     let rimIndex = 0;
     preview.cells.forEach((cell, index) => {
       const centre = axialToPixel(cell, 1, { x: 0, y: 0 });
-      const base =
-        this.terrain?.get(cellKey(cell.q, cell.r))?.height ??
-        cell.elevation * GRADE_STEP_HEIGHT;
-      const top = base + cell.change * GRADE_STEP_HEIGHT + LIFT;
+      // The drawn ground, through the same route everything else standing on the landform uses.
+      // The old fallback re-derived a height from the cell's earthwork alone, which described the
+      // grade only on a world whose generated bed was flat everywhere.
+      const base = this.terrain ? heightAt(this.terrain, cell.q, cell.r) : 0;
+      const top = base + cell.change * HEIGHT_UNIT_HEIGHT + LIFT;
       const color = tint.set(colorFor(preview, cell));
       position.set(centre.x, top, centre.y);
       matrix.compose(position, upright, scale);

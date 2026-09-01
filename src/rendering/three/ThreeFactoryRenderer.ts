@@ -3,6 +3,7 @@ import {
   AmbientLight,
   Color,
   DirectionalLight,
+  Fog,
   HemisphereLight,
   PCFShadowMap,
   Scene,
@@ -36,6 +37,7 @@ import { SpatialOverlays, type SpatialOverlayState } from "./overlays";
 import { QUALITY_SETTINGS } from "./quality";
 import {
   buildTerrainMeshes,
+  heightAtWorld,
   pickTerrainCell,
   type TerrainBuild,
   type TerrainPick,
@@ -44,11 +46,15 @@ import { BoundaryMeshes } from "./boundaryMeshes";
 import { GroundMeshes } from "./groundMeshes";
 import { WorldInstanceLayer } from "./worldInstances";
 
+/** Clear colour, background and distance haze — one colour, so distance dissolves into nothing. */
+const SKY = "#142129";
+
 /** Three.js low-poly diorama over the unchanged native axial plane. */
 export class ThreeFactoryRenderer implements FactoryRenderer {
   readonly camera = new HexSceneCamera();
   private readonly renderer: WebGLRenderer;
   private readonly scene = new Scene();
+  private readonly fog = new Fog(SKY, 1, 2);
   private readonly materials: WorldMaterials;
   private readonly worldInstances: WorldInstanceLayer;
   private readonly overlays: SpatialOverlays;
@@ -114,9 +120,12 @@ export class ThreeFactoryRenderer implements FactoryRenderer {
     this.renderer.toneMappingExposure = 1.05;
     this.renderer.shadowMap.type = PCFShadowMap;
     this.renderer.shadowMap.autoUpdate = false;
-    this.renderer.setClearColor(new Color("#142129"), 1);
-    this.scene.background = new Color("#142129");
-    this.scene.fog = null;
+    this.renderer.setClearColor(new Color(SKY), 1);
+    this.scene.background = new Color(SKY);
+    // The same colour as the background, so distance dissolves into sky rather than into a haze
+    // the player can see the shape of. Its range is a fraction of the view and is set every frame.
+    this.scene.fog = this.fog;
+    this.syncFog();
     this.materials = createWorldMaterials();
     this.worldInstances = new WorldInstanceLayer(definitions, this.materials);
     this.overlays = new SpatialOverlays(this.materials);
@@ -166,7 +175,6 @@ export class ThreeFactoryRenderer implements FactoryRenderer {
   setSnapshot(snapshot: FactorySnapshot): void {
     const started = performance.now();
     this.snapshot = snapshot;
-    this.camera.follow(snapshot.player);
     if (
       snapshot.chunks !== this.lastChunks ||
       snapshot.terrain !== this.lastTerrain ||
@@ -179,6 +187,9 @@ export class ThreeFactoryRenderer implements FactoryRenderer {
       this.lastGround = snapshot.ground;
       this.rebuildTerrain(snapshot);
     }
+    // After the rebuild, not before it: the height the camera follows is the ground this snapshot
+    // publishes, and on the frame a survey or a grade lands that ground is the one just built.
+    this.camera.follow(snapshot.player, this.playerHeight(snapshot));
     const structureChanged = this.worldInstances.setSnapshot(
       snapshot,
       this.terrain?.cellByKey ?? this.emptyTerrain,
@@ -341,8 +352,37 @@ export class ThreeFactoryRenderer implements FactoryRenderer {
   }
 
   recenter(): void {
-    if (this.snapshot) this.camera.recenter(this.snapshot.player);
+    if (this.snapshot)
+      this.camera.recenter(
+        this.snapshot.player,
+        this.playerHeight(this.snapshot),
+      );
     this.markDirty();
+  }
+
+  /**
+   * Fade the far end of the view into the background.
+   *
+   * The world stops at whatever native has surveyed, and with real relief that edge is now a
+   * horizon the camera can look straight down: a valley reaching away from the player ends in a
+   * hard rim of frontier skirt against the sky. Fog turns that seam into distance.
+   *
+   * The range is a fraction of what is on screen rather than a fixed number of scene units, because
+   * this camera's idea of far away is a screenful. A constant would swallow the world at full
+   * zoom-out and do nothing at all zoomed in.
+   */
+  private syncFog(): void {
+    const { near, far } = this.camera.hazeRange;
+    this.fog.near = near;
+    this.fog.far = far;
+  }
+
+  /** The drawn ground the player is standing on, through the terrain's one height route. */
+  private playerHeight(snapshot: FactorySnapshot): number {
+    return heightAtWorld(
+      this.terrain?.cellByKey ?? this.emptyTerrain,
+      snapshot.player,
+    );
   }
 
   renderFrame(now: number): void {
@@ -385,6 +425,7 @@ export class ThreeFactoryRenderer implements FactoryRenderer {
       }
       this.prepUs = smooth(this.prepUs, (performance.now() - started) * 1000);
     }
+    this.syncFog();
     // Water is the one landform that moves. Reduced motion holds the swell still rather than
     // slowing it, the same bargain every other phase in the scene makes.
     this.materials.terrainSurfaces.setMotion(!this.motionReduced);

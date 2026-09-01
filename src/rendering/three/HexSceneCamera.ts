@@ -11,6 +11,7 @@ import { pixelToAxial, type AxialCoordinate } from "@hexlife/embed/hex";
 import type { WorldPoint } from "../../core/types";
 import { BASE_HEX_SIZE } from "../FactoryRenderer";
 import { WORLD_SCALE } from "../landmarks";
+import { RELIEF_SPAN } from "../sceneScale";
 
 const MIN_ZOOM = 0.55;
 /**
@@ -42,9 +43,60 @@ const ORBIT_STEP_MS = 230;
 /** A sweep already carrying queued steps still lands inside a second. */
 const ORBIT_MAX_MS = 1000;
 
-/** Fixed-tilt, twelve-orbit camera over the native logical plane. */
+/** The reach the flat world always had, and still the whole depth budget where relief is small. */
+const NEAR_PLANE = 0.1;
+const FAR_PLANE = 180;
+/**
+ * How much view depth one scene unit of height is worth to this camera.
+ *
+ * The rig looks down a fixed slope, so ground standing above the point being looked at sits nearer
+ * along the view direction and ground below it sits further. Only the vertical component of that
+ * slope matters, and it is the camera's height over its own distance from the target.
+ */
+const TARGET_DEPTH = Math.hypot(CAMERA_DISTANCE, CAMERA_HEIGHT);
+const DEPTH_PER_HEIGHT = CAMERA_HEIGHT / TARGET_DEPTH;
+/**
+ * Where the distance haze begins and ends, in screenfuls of view depth beyond the target.
+ *
+ * The near end is just past the top edge of the view, so ground the player is working on is never
+ * hazed however far up the screen it sits — a factory at the top of the frame is beside them, not
+ * away from them. What the haze is for is the thing that is genuinely distant and still on screen,
+ * which under this projection only relief can be: a peak stands high enough to be drawn while
+ * being screenfuls further along the view than anything at the player's feet, and it is the fade
+ * that says so. The far end is loose so the survey frontier dissolves rather than ending at a rim.
+ */
+const HAZE_START = 0.6;
+const HAZE_END = 2;
+/**
+ * How much depth the world's full relief can move a point either side of the flat-world budget.
+ *
+ * The camera is looking at one height and the ground it is drawing may be anywhere in the world's
+ * range, above as well as below, so both ends open by the same amount. Orthographic depth is
+ * linear, so widening the range costs precision in proportion and nothing else — and a negative
+ * near plane is ordinary here: it is what lets a summit standing over the camera still be drawn.
+ */
+const RELIEF_DEPTH = RELIEF_SPAN * DEPTH_PER_HEIGHT;
+/**
+ * How far back along its own direction a pick ray starts.
+ *
+ * An orthographic raycast begins at the camera's own position plane, so ground standing above the
+ * camera would start behind the ray's origin and never be met — the summit the player is looking
+ * straight at would be the one thing they could not click. Backing the origin off past the tallest
+ * relief in the world fixes that and moves nothing else: sliding an origin along its own direction
+ * does not change where the ray crosses a plane or a triangle.
+ */
+const PICK_BACKOFF = RELIEF_DEPTH + 1;
+
+/** Fixed-tilt, twelve-orbit camera over the landform native published. */
 export class HexSceneCamera {
-  readonly camera = new OrthographicCamera(-1, 1, 1, -1, 0.1, 180);
+  readonly camera = new OrthographicCamera(
+    -1,
+    1,
+    1,
+    -1,
+    NEAR_PLANE - RELIEF_DEPTH,
+    FAR_PLANE + RELIEF_DEPTH,
+  );
   private readonly raycaster = new Raycaster();
   private readonly ground = new Plane(new Vector3(0, 1, 0), 0);
   private readonly target = new Vector3();
@@ -82,20 +134,44 @@ export class HexSceneCamera {
     return this.following;
   }
 
+  /**
+   * The view depths where distance haze should start and finish at the current zoom.
+   *
+   * Distance under an orthographic camera is a screenful, not a metre count: the far edge of the
+   * view is a fixed fraction of a screen beyond the point being looked at, whatever the zoom. A
+   * haze given constant depths would swallow the world zoomed out and do nothing zoomed in, so
+   * both ends are measured from the target and scaled by what is actually on screen.
+   */
+  get hazeRange(): { near: number; far: number } {
+    const span = this.camera.top - this.camera.bottom;
+    return {
+      near: TARGET_DEPTH + HAZE_START * span,
+      far: TARGET_DEPTH + HAZE_END * span,
+    };
+  }
+
   resize(width: number, height: number): void {
     this.width = Math.max(1, width);
     this.height = Math.max(1, height);
     this.updateProjection(this.width, this.height);
   }
 
-  follow(point: WorldPoint): void {
+  /**
+   * Look at a world point standing at `height`.
+   *
+   * The height is the finished ground under the player, resolved through the terrain's one height
+   * route. The whole rig moves with it rather than the target alone: a player who walks up a
+   * hillside stays in the middle of the view instead of climbing towards the top of it, and the
+   * plane that panning and zooming are anchored to rises with them.
+   */
+  follow(point: WorldPoint, height = 0): void {
     if (!this.following) return;
-    this.setTarget(point);
+    this.setTarget(point, height);
   }
 
-  recenter(point: WorldPoint): void {
+  recenter(point: WorldPoint, height = 0): void {
     this.following = true;
-    this.setTarget(point);
+    this.setTarget(point, height);
   }
 
   /**
@@ -194,13 +270,21 @@ export class HexSceneCamera {
     return length === 0 ? { x: 0, y: 0 } : { x: x / length, y: y / length };
   }
 
-  projectWorld(point: WorldPoint): { x: number; y: number } {
-    return this.projectScene(point.x / WORLD_SCALE, 0, point.y / WORLD_SCALE);
+  /**
+   * Where a world point lands on the canvas. `height` is the drawn ground under it — a marker over
+   * a summit is not on the screen pixel the logical plane beneath it projects to.
+   */
+  projectWorld(point: WorldPoint, height = 0): { x: number; y: number } {
+    return this.projectScene(
+      point.x / WORLD_SCALE,
+      height,
+      point.y / WORLD_SCALE,
+    );
   }
 
-  worldOnScreen(point: WorldPoint, margin = 44): boolean {
+  worldOnScreen(point: WorldPoint, margin = 44, height = 0): boolean {
     this.projected
-      .set(point.x / WORLD_SCALE, 0, point.y / WORLD_SCALE)
+      .set(point.x / WORLD_SCALE, height, point.y / WORLD_SCALE)
       .project(this.camera);
     const x = (this.projected.x * 0.5 + 0.5) * this.width;
     const y = (-this.projected.y * 0.5 + 0.5) * this.height;
@@ -230,6 +314,10 @@ export class HexSceneCamera {
       1 - (screenY / this.height) * 2,
     );
     this.raycaster.setFromCamera(ndc, this.camera);
+    this.raycaster.ray.origin.addScaledVector(
+      this.raycaster.ray.direction,
+      -PICK_BACKOFF,
+    );
     return this.raycaster.ray;
   }
 
@@ -241,8 +329,12 @@ export class HexSceneCamera {
     );
   }
 
-  private setTarget(point: WorldPoint): void {
-    this.target.set(point.x / WORLD_SCALE, 0, point.y / WORLD_SCALE);
+  private setTarget(point: WorldPoint, height: number): void {
+    this.target.set(point.x / WORLD_SCALE, height, point.y / WORLD_SCALE);
+    // A plane with an upward normal passes through `y = -constant`. Panning and zooming stay
+    // anchored to the height being looked at, so dragging across a hillside does not slide the
+    // world out from under the pointer the way a fixed sea-level plane would.
+    this.ground.constant = -height;
     this.updatePose();
   }
 
@@ -277,7 +369,9 @@ export class HexSceneCamera {
     const angle = this.orbitAngle;
     this.camera.position.set(
       this.target.x + Math.cos(angle) * CAMERA_DISTANCE,
-      CAMERA_HEIGHT,
+      // Over the target rather than over sea level, so the tilt the whole scene is composed at is
+      // the same on a summit as on a valley floor.
+      this.target.y + CAMERA_HEIGHT,
       this.target.z + Math.sin(angle) * CAMERA_DISTANCE,
     );
     this.camera.up.set(0, 1, 0);

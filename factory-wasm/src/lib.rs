@@ -15700,6 +15700,69 @@ mod tests {
         }
     }
 
+    /// The wire's `height` is an integer in whatever unit the active ground source counts in, and
+    /// the renderer has to turn it into a scene height. That conversion is a copy of a native fact,
+    /// and a copy is a thing that drifts — so it goes through the `fixtures/hex-directions.json`
+    /// idiom rather than through a constant somebody remembers to change.
+    ///
+    /// `height_unit` is the one that matters at the compatibility boundary. Production still builds
+    /// `GroundSpine::legacy`, whose height is a presentation band step; when the physical source
+    /// activates the same field becomes a 0.25 m quantum, the number stays an integer, and nothing
+    /// in the payload announces that the world got seventeen times taller. This test is what makes
+    /// that switch reach `src/rendering/sceneScale.ts` in the same commit.
+    #[test]
+    fn the_renderer_reads_the_height_unit_native_actually_publishes() {
+        #[derive(Deserialize)]
+        struct SceneScale {
+            height_unit: String,
+            height_quantum_mm: i32,
+            cell_circumradius_mm: i32,
+            max_walk_step: i32,
+            relief_min: i32,
+            relief_max: i32,
+        }
+
+        let fixture: SceneScale =
+            serde_json::from_str(include_str!("../../fixtures/scene-scale.json")).unwrap();
+        assert_eq!(fixture.height_quantum_mm, scale::HEIGHT_QUANTUM_MM);
+        assert_eq!(fixture.cell_circumradius_mm, scale::CELL_CIRCUMRADIUS_MM);
+        // Read out of a real Core rather than declared here, so the fixture answers to the source
+        // production constructs and not to a second opinion about which one that is.
+        let physical = test_factory("new-game").core.ground_is_physical();
+        assert_eq!(
+            fixture.height_unit,
+            if physical { "quantum" } else { "legacy_step" },
+            "the fixture names a height unit the shipped ground source does not publish"
+        );
+        assert_eq!(
+            fixture.max_walk_step,
+            if physical {
+                scale::MAX_WALK_STEP_QUANTA
+            } else {
+                MAX_WALK_STEP
+            },
+            "the renderer's cliff threshold is not the step the player can climb"
+        );
+        // The full reach of finished ground: the generated bed's own range, opened at both ends by
+        // everything the player is allowed to dig or pile on top of it. The camera brackets its
+        // depth range with this, so a summit that native can generate is a summit the camera can
+        // still draw and still pick.
+        let (relief_min, relief_max) = if physical {
+            (
+                scale::BED_MIN_QUANTA - scale::EARTHWORK_LIMIT_QUANTA,
+                scale::BED_MAX_QUANTA + scale::EARTHWORK_LIMIT_QUANTA,
+            )
+        } else {
+            let steps = i32::from(MAX_GRADE_STEPS);
+            (
+                ground_spine::legacy_band_elevation(Terrain::DeepWater) - steps,
+                ground_spine::legacy_band_elevation(Terrain::Cliff) + steps,
+            )
+        };
+        assert_eq!(fixture.relief_min, relief_min);
+        assert_eq!(fixture.relief_max, relief_max);
+    }
+
     /// A preview pixel is turned into a world point and the point into the hex holding it. The
     /// round trip is what makes that a picture of the map rather than of a sheared rhombus, and it
     /// has to hold on both sides of the origin — truncating division is exactly the bug that would

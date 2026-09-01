@@ -1,0 +1,8 @@
+{
+  "height_unit": "legacy_step",
+  "height_quantum_mm": 250,
+  "cell_circumradius_mm": 3102,
+  "max_walk_step": 2,
+  "relief_min": -4,
+  "relief_max": 6
+}

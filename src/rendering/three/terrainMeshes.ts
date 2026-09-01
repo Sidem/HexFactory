@@ -1,45 +1,63 @@
 import {
   BufferGeometry,
-  Color,
   CylinderGeometry,
   Float32BufferAttribute,
   Group,
   InstancedMesh,
   LineSegments,
   Matrix4,
+  Mesh,
   Quaternion,
+  Raycaster,
   Vector3,
+  type Material,
 } from "three";
 import { axialToPixel, pixelToAxial } from "@hexlife/embed/hex";
 
 import { TRANSPORT_DIRECTIONS } from "../../core/directions";
 import type {
-  ChunkSnapshot,
   FactorySnapshot,
-  GroundCell,
   SurfaceDefinition,
   Terrain,
+  TerrainSnapshot,
+  WorldPoint,
 } from "../../core/types";
 import { WORLD_SCALE } from "../landmarks";
-import { GRADE_STEP_HEIGHT } from "../surfaceLook";
+import { CLIFF_THRESHOLD, HEIGHT_UNIT_HEIGHT } from "../sceneScale";
+import {
+  buildHeightfieldGeometry,
+  pickHeightfieldRay,
+  type GeometryBuckets,
+  type HeightfieldSample,
+  type HeightfieldSubstrate,
+} from "./heightfieldTerrain";
 import type { WorldMaterials } from "./materials";
-import { TERRAIN_STYLE, visualHeight } from "./terrainStyle";
+import { TERRAIN_STYLE } from "./terrainStyle";
 
-/** The underside every column is drawn down to. Nothing below it is ground the player can see. */
+/**
+ * How far the survey frontier skirt drops below the last published edge. Deep enough that no camera
+ * angle sees under the world, shallow enough that it reads as an edge rather than as a cliff.
+ */
 export const WORLD_FLOOR = -0.34;
 /** How thick a laid surface reads. Thin enough to be a skin, thick enough to catch the key light. */
 const SURFACE_CAP_DEPTH = 0.05;
-/**
- * How far the pick ray steps down the landform. A step advances less than a fifth of a hex across
- * the ground at this camera's tilt, so no column is stepped over between two samples.
- */
-const PICK_STEP = 0.12;
-/** Bisections that place the entry point once a step has landed inside the drawn ground. */
-const PICK_REFINEMENTS = 12;
 const ADJACENCY_DIRECTIONS = TRANSPORT_DIRECTIONS.slice(0, 6);
-/** Exact circumradius for the public pointy-top axial projection. A smaller or rotated prism leaves
+/** Exact circumradius for the public pointy-top axial projection. A smaller or rotated cell leaves
  * triangular holes where three cells meet; height may vary, but the logical plane is closed. */
 export const HEX_RADIUS = 1;
+
+/**
+ * The band order the seven materials are declared in, used as the heightfield's look bucket.
+ *
+ * The band rather than the substrate decides which material a triangle draws with. Native's
+ * substrate is what the ground is made of and travels per vertex for the shaders that want it; the
+ * band is what it looks like, and it is the only one of the two that separates a river bed from the
+ * hillside beside it when both are soil.
+ */
+const TERRAIN_LOOKS = Object.keys(TERRAIN_STYLE) as readonly Terrain[];
+const TERRAIN_LOOK: ReadonlyMap<Terrain, number> = new Map(
+  TERRAIN_LOOKS.map((terrain, index) => [terrain, index]),
+);
 
 export interface TerrainCell {
   readonly q: number;
@@ -53,6 +71,14 @@ export interface TerrainCell {
   readonly elevation: number;
   /** The surface definition id laid here, or 0 for untreated ground. */
   readonly surface: number;
+  /** What the ground is made of, as native generated it. */
+  readonly substrate: HeightfieldSubstrate;
+  /** Standing water depth in native's height unit. Zero on dry ground. */
+  readonly waterDepth: number;
+  /** Scene height of the water's own surface. Equal to {@link height} when the cell is dry. */
+  readonly waterHeight: number;
+  /** Native's flow class for the water standing here, 0 on still or dry ground. */
+  readonly discharge: number;
 }
 
 export interface TerrainBuild {
@@ -60,8 +86,10 @@ export interface TerrainBuild {
   readonly cells: readonly TerrainCell[];
   readonly cellByKey: ReadonlyMap<string, TerrainCell>;
   readonly geometries: readonly BufferGeometry[];
-  /** Scene height of the tallest drawn column. A pick ray meets nothing above it. */
+  /** Scene height of the highest drawn ground. A pick ray meets nothing above it. */
   readonly ceiling: number;
+  /** The one object a pointer ray is cast against. */
+  readonly surface: Group;
 }
 
 /** A scene-space ray, as the camera hands one over. */
@@ -85,147 +113,193 @@ interface Point3 {
 }
 
 /**
- * Builds only axial centres inside native-published chunk rectangles. An omitted terrain row is
- * surveyed lowland; a centre outside every rectangle is fog and never enters the mesh.
+ * Build the surveyed world as one continuous height mesh rather than as a prism per hex.
+ *
+ * Every cell native surveyed travels in the terrain group, so this reads that list and nothing else:
+ * there is no chunk rectangle to scan and no omitted row to guess a band for. Ordinary neighbours
+ * share averaged corners and become a slope; a step wider than the one the player can climb keeps
+ * both heights and gets a vertical face. Water is its own surface at its own level.
+ *
+ * Height is native's published bed plus native's own earthwork, added exactly as native adds them,
+ * converted once at this boundary by {@link HEIGHT_UNIT_HEIGHT}. The renderer interpolates between
+ * those samples and never invents a second elevation oracle.
  */
 export function buildTerrainMeshes(
   snapshot: FactorySnapshot,
   materials: WorldMaterials,
   surfaces: readonly SurfaceDefinition[] = [],
 ): TerrainBuild {
-  const terrainByKey = new Map(
-    snapshot.terrain.map((cell) => [cellKey(cell.q, cell.r), cell.terrain]),
-  );
   const groundByKey = new Map(
     snapshot.ground.map((cell) => [cellKey(cell.q, cell.r), cell]),
   );
-  const cells = surveyedCells(snapshot.chunks, terrainByKey, groundByKey);
+  const cells = snapshot.terrain
+    .map((tile) => terrainCell(tile, groundByKey.get(cellKey(tile.q, tile.r))))
+    .sort((a, b) => a.r - b.r || a.q - b.q);
+
+  const built = buildHeightfieldGeometry(cells.map(heightfieldSample), {
+    cliffThreshold: CLIFF_THRESHOLD,
+    frontierDepth: Math.max(0.01, -WORLD_FLOOR),
+  });
+
   const group = new Group();
   group.name = "surveyed-terrain";
-  const column = new CylinderGeometry(HEX_RADIUS, HEX_RADIUS, 1, 6, 1, false);
-  const matrix = new Matrix4();
-  const quaternion = new Quaternion();
-  const scale = new Vector3();
-  const position = new Vector3();
-  const tint = new Color();
-  for (const terrain of Object.keys(TERRAIN_STYLE) as Terrain[]) {
-    const bucket = cells.filter((cell) => cell.terrain === terrain);
-    if (!bucket.length) continue;
-    const mesh = new InstancedMesh(
-      column,
-      materials.terrain[terrain],
-      bucket.length,
-    );
-    mesh.name = `terrain-${terrain}`;
-    mesh.receiveShadow = true;
-    for (const [index, cell] of bucket.entries()) {
-      const depth = Math.max(0.01, cell.height - WORLD_FLOOR);
-      position.set(cell.x, WORLD_FLOOR + depth / 2, cell.z);
-      scale.set(1, depth, 1);
-      matrix.compose(position, quaternion, scale);
-      mesh.setMatrixAt(index, matrix);
-      // A luminance jitter, not a colour: the band's hue now comes from the procedural surface in
-      // `terrainSurface.ts`, and tinting the instance as well would fight it.
-      tint.setScalar(0.94 + stableVariation(cell.q, cell.r) * 0.12);
-      mesh.setColorAt(index, tint);
-    }
-    mesh.instanceMatrix.needsUpdate = true;
-    if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
-    group.add(mesh);
+  // One object for the whole landform, so a pointer ray is cast against a single subtree and the
+  // ground, its cliff faces and its frontier skirt all answer as the same surface.
+  const surface = new Group();
+  surface.name = "terrain-surface";
+  group.add(surface);
+  for (const [name, geometry, buckets] of [
+    ["ground", built.ground, built.buckets.ground],
+    ["cliffs", built.cliffs, built.buckets.cliffs],
+    ["frontier-skirt", built.frontier, built.buckets.frontier],
+  ] as const) {
+    const mesh = bandMesh(name, geometry, buckets, materials);
+    if (mesh) surface.add(mesh);
   }
+  const water = bandMesh("water", built.water, built.buckets.water, materials);
+  if (water) {
+    // Water is drawn but never picked: a pointer over a ford names the bed it would wade across.
+    water.renderOrder = 10;
+    group.add(water);
+  }
+
   const frontier = frontierLines(cells, materials);
   group.add(frontier.mesh);
   const caps = surfaceCaps(cells, surfaces, materials);
   if (caps) for (const mesh of caps.meshes) group.add(mesh);
   return {
     group,
+    surface,
     cells,
     cellByKey: new Map(cells.map((cell) => [cellKey(cell.q, cell.r), cell])),
-    geometries: [column, frontier.geometry, ...(caps ? [caps.geometry] : [])],
+    geometries: [
+      built.ground,
+      built.water,
+      built.cliffs,
+      built.frontier,
+      frontier.geometry,
+      ...(caps ? [caps.geometry] : []),
+    ],
     ceiling: cells.reduce(
-      (highest, cell) => Math.max(highest, cell.height),
+      (highest, cell) => Math.max(highest, cell.height, cell.waterHeight),
       WORLD_FLOOR,
     ),
   };
+}
+
+/** One published tile joined with whatever earthwork the player has paid for on top of it. */
+function terrainCell(
+  tile: TerrainSnapshot,
+  ground: { readonly elevation: number; readonly surface: number } | undefined,
+): TerrainCell {
+  const world = axialToPixel(tile, WORLD_SCALE, { x: 0, y: 0 });
+  const elevation = ground?.elevation ?? 0;
+  // Generated bed and paid-for earthwork are the same unit and native sums them, so the host does
+  // too. Everything that stands on the terrain follows from this one number.
+  const height = (tile.height + elevation) * HEIGHT_UNIT_HEIGHT;
+  return {
+    q: tile.q,
+    r: tile.r,
+    terrain: tile.terrain,
+    x: world.x / WORLD_SCALE,
+    z: world.y / WORLD_SCALE,
+    height,
+    elevation,
+    surface: ground?.surface ?? 0,
+    substrate: tile.substrate,
+    waterDepth: tile.water_depth,
+    waterHeight: height + tile.water_depth * HEIGHT_UNIT_HEIGHT,
+    discharge: tile.discharge,
+  };
+}
+
+function heightfieldSample(cell: TerrainCell): HeightfieldSample {
+  const look = TERRAIN_LOOK.get(cell.terrain) ?? 0;
+  return {
+    q: cell.q,
+    r: cell.r,
+    height: cell.height,
+    substrate: cell.substrate,
+    waterDepth: cell.waterDepth,
+    waterHeight: cell.waterHeight,
+    dischargeClass: cell.discharge,
+    look,
+    waterLook: look,
+  };
+}
+
+/**
+ * One mesh per surface, drawn in as many passes as it spans bands. Splitting by band would have made
+ * the landform several meshes, and a continuous surface has to be one: shared corner vertices are
+ * the whole reason neighbouring cells read as a slope rather than as tiles.
+ */
+function bandMesh(
+  name: string,
+  geometry: BufferGeometry,
+  buckets: GeometryBuckets,
+  materials: WorldMaterials,
+): Mesh | null {
+  if (buckets.length === 0) return null;
+  const used: Material[] = buckets.map(
+    (look) => materials.terrain[TERRAIN_LOOKS[look] ?? "lowland"],
+  );
+  const mesh = new Mesh(geometry, used);
+  mesh.name = `terrain-${name}`;
+  mesh.receiveShadow = true;
+  return mesh;
 }
 
 /**
  * Name the cell whose drawn surface a ray meets first.
  *
  * The old picker intersected the flat logical plane, which is only where a cell stands when the
- * landform is flat. This camera looks down at about forty degrees, so a column standing a cliff and
- * three graded steps above its neighbour draws more than a hex away from the plane point beneath
- * it: the player clicked the top of the rise and native was handed the cell in front of it.
+ * landform is flat. This camera looks down at about forty degrees, so ground standing a cliff and
+ * three graded steps above its neighbour draws more than a hex away from the plane point beneath it:
+ * the player clicked the top of the rise and native was handed the cell in front of it.
  *
- * The columns are a height field, so the ray is marched rather than intersected against geometry.
- * A sample is inside the ground when its cell is surveyed and the ray has fallen to or below that
- * cell's walked surface, which is true for a flank as well as a cap — the face of a rise belongs to
- * the cell it is the face of. The march starts at the tallest column and ends at the floor every
- * column is drawn down to, so its cost follows the relief rather than the size of the world, and
- * nothing here becomes simulation truth: native still decides what the named cell allows.
+ * The landform is now real geometry, so the ray is cast against it instead of marched down a field
+ * of columns, and the point it meets is resolved back to the axial cell that owns it. A cliff face
+ * answers as well as a top, because the face of a rise belongs to the rise. Nothing here becomes
+ * simulation truth: native still decides what the named cell allows.
  */
 export function pickTerrainCell(
   build: TerrainBuild,
   ray: TerrainRay,
 ): TerrainPick | null {
-  const { origin, direction } = ray;
-  if (!(direction.y < 0)) return null;
-  const descent = -direction.y;
-  const start = Math.max(0, (origin.y - build.ceiling) / descent);
-  const end = (origin.y - WORLD_FLOOR) / descent;
-  if (end <= start) return null;
-  if (groundSample(build, ray, start))
-    return surfacePoint(build, ray, start, start);
-  const steps = Math.ceil((end - start) / PICK_STEP);
-  let outside = start;
-  for (let step = 1; step <= steps; step += 1) {
-    const distance = start + ((end - start) * step) / steps;
-    if (groundSample(build, ray, distance))
-      return surfacePoint(build, ray, outside, distance);
-    outside = distance;
-  }
-  return null;
+  const raycaster = new Raycaster(
+    new Vector3(ray.origin.x, ray.origin.y, ray.origin.z),
+    new Vector3(ray.direction.x, ray.direction.y, ray.direction.z).normalize(),
+  );
+  const hit = pickHeightfieldRay(raycaster, build.surface);
+  if (!hit) return null;
+  const cell =
+    build.cellByKey.get(cellKey(hit.axial.q, hit.axial.r)) ??
+    // A frontier skirt hangs off the outside of the last published edge, so the point where a ray
+    // meets it can resolve to the unsurveyed cell beyond. The edge belongs to the cell it hangs
+    // from, and that cell is the nearest published one.
+    nearestCell(build, hit.world.x, hit.world.y);
+  return cell
+    ? { cell, x: hit.world.x, z: hit.world.y, height: hit.height }
+    : null;
 }
 
-/** The surveyed cell containing this point, when the point has reached its drawn surface. */
-function groundSample(
+/** The published cell whose centre is closest to a scene point. Used only to own a frontier edge. */
+function nearestCell(
   build: TerrainBuild,
-  { origin, direction }: TerrainRay,
-  distance: number,
+  x: number,
+  z: number,
 ): TerrainCell | null {
-  const x = origin.x + direction.x * distance;
-  const y = origin.y + direction.y * distance;
-  const z = origin.z + direction.z * distance;
-  const { q, r } = pixelToAxial({ x, y: z }, 1, { x: 0, y: 0 });
-  const cell = build.cellByKey.get(cellKey(q, r));
-  return cell && y <= cell.height ? cell : null;
-}
-
-/** Close the last step onto the surface, so a rim is named by the cell the ray actually entered. */
-function surfacePoint(
-  build: TerrainBuild,
-  ray: TerrainRay,
-  outside: number,
-  inside: number,
-): TerrainPick {
-  let low = outside;
-  let high = inside;
-  let cell = groundSample(build, ray, inside)!;
-  for (let refinement = 0; refinement < PICK_REFINEMENTS; refinement += 1) {
-    const middle = (low + high) / 2;
-    const sample = groundSample(build, ray, middle);
-    if (sample) {
-      high = middle;
-      cell = sample;
-    } else low = middle;
+  let best: TerrainCell | null = null;
+  let bestDistance = Number.POSITIVE_INFINITY;
+  for (const cell of build.cells) {
+    const distance = (cell.x - x) ** 2 + (cell.z - z) ** 2;
+    if (distance < bestDistance) {
+      bestDistance = distance;
+      best = cell;
+    }
   }
-  const { origin, direction } = ray;
-  return {
-    cell,
-    x: origin.x + direction.x * high,
-    z: origin.z + direction.z * high,
-    height: origin.y + direction.y * high,
-  };
+  // Beyond a cell and a half there is nothing this skirt could have hung from, so this was fog.
+  return best && bestDistance <= 2.25 ? best : null;
 }
 
 /**
@@ -290,6 +364,48 @@ export function terrainAt(
   return cellByKey.get(cellKey(q, r));
 }
 
+/**
+ * The height of unsurveyed ground.
+ *
+ * Nothing is drawn out there, so this only decides where a thing standing over fog is put. Zero is
+ * the logical plane, which is where the flat renderer, the pick plane and the camera all still
+ * assume the world sits when they have been told nothing else.
+ */
+export const FOG_HEIGHT = 0;
+
+/**
+ * The one route from a hex to the height of the ground drawn on it.
+ *
+ * Buildings, boundaries, overlays, cargo, the camera and the player all come through here, so
+ * nothing floats over a cut or buries itself in a slope by resolving the ground its own way. It is
+ * the cell's own published height, not an interpolation: a machine stands on its hex, not on the
+ * blended corner the triangle happens to draw beneath its centre.
+ *
+ * Each caller used to carry its own copy of this lookup and its own fallback, and they had drifted
+ * apart — a fixed 0.07 in three places, a re-derived grade in a fourth. With real relief that is
+ * how a wall ends up buried in the hillside its gate stands on.
+ */
+export function heightAt(
+  cellByKey: ReadonlyMap<string, TerrainCell>,
+  q: number,
+  r: number,
+): number {
+  return cellByKey.get(cellKey(q, r))?.height ?? FOG_HEIGHT;
+}
+
+/** {@link heightAt} for a native world point, for the layers that hold one rather than a hex. */
+export function heightAtWorld(
+  cellByKey: ReadonlyMap<string, TerrainCell>,
+  point: WorldPoint,
+): number {
+  const { q, r } = pixelToAxial(
+    { x: point.x / WORLD_SCALE, y: point.y / WORLD_SCALE },
+    1,
+    { x: 0, y: 0 },
+  );
+  return heightAt(cellByKey, q, r);
+}
+
 export function cellKey(q: number, r: number): string {
   return `${q},${r}`;
 }
@@ -300,63 +416,6 @@ export function stableVariation(q: number, r: number): number {
   value = Math.imul(value, 0x45d9f3b);
   value ^= value >>> 16;
   return (value >>> 0) / 0xffffffff;
-}
-
-function surveyedCells(
-  chunks: readonly ChunkSnapshot[],
-  terrainByKey: ReadonlyMap<string, Terrain>,
-  groundByKey: ReadonlyMap<string, GroundCell>,
-): TerrainCell[] {
-  const seen = new Set<string>();
-  const cells: TerrainCell[] = [];
-  for (const chunk of chunks) {
-    const corners = [
-      pixelToAxial({ x: chunk.x, y: chunk.y }, WORLD_SCALE),
-      pixelToAxial({ x: chunk.x + chunk.span, y: chunk.y }, WORLD_SCALE),
-      pixelToAxial({ x: chunk.x, y: chunk.y + chunk.span }, WORLD_SCALE),
-      pixelToAxial(
-        { x: chunk.x + chunk.span, y: chunk.y + chunk.span },
-        WORLD_SCALE,
-      ),
-    ];
-    const minQ = Math.min(...corners.map(({ q }) => q)) - 2;
-    const maxQ = Math.max(...corners.map(({ q }) => q)) + 2;
-    const minR = Math.min(...corners.map(({ r }) => r)) - 2;
-    const maxR = Math.max(...corners.map(({ r }) => r)) + 2;
-    for (let q = minQ; q <= maxQ; q += 1) {
-      for (let r = minR; r <= maxR; r += 1) {
-        const key = cellKey(q, r);
-        if (seen.has(key)) continue;
-        const world = axialToPixel({ q, r }, WORLD_SCALE, { x: 0, y: 0 });
-        if (
-          world.x < chunk.x ||
-          world.x >= chunk.x + chunk.span ||
-          world.y < chunk.y ||
-          world.y >= chunk.y + chunk.span
-        )
-          continue;
-        seen.add(key);
-        const terrain = terrainByKey.get(key) ?? "lowland";
-        const ground = groundByKey.get(key);
-        cells.push({
-          q,
-          r,
-          terrain,
-          x: world.x / WORLD_SCALE,
-          z: world.y / WORLD_SCALE,
-          // Grading moves the walked surface, so everything that stands on the terrain — buildings,
-          // fences, overlays, the ghost of a pending edit — follows from this one number.
-          height:
-            visualHeight(terrain) +
-            (ground?.elevation ?? 0) * GRADE_STEP_HEIGHT,
-          elevation: ground?.elevation ?? 0,
-          surface: ground?.surface ?? 0,
-        });
-      }
-    }
-  }
-  cells.sort((a, b) => a.r - b.r || a.q - b.q);
-  return cells;
 }
 
 function frontierLines(
