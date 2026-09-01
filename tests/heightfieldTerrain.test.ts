@@ -61,9 +61,21 @@ describe("physical heightfield terrain", () => {
 
     dispose(forward);
     dispose(reverse);
-  });
 
-  it("closes the tapered end of a cliff through the ordinary-slope component", () => {
+    // A sample the builder cannot make a surface out of is refused rather than drawn wrong.
+    expect(() =>
+      buildHeightfieldGeometry([dry(0, 0, 0), dry(0, 0, 1)], {
+        cliffThreshold: 1,
+      }),
+    ).toThrow(/Duplicate/);
+    expect(() =>
+      buildHeightfieldGeometry([{ ...dry(0, 0, 0), waterDepth: Number.NaN }], {
+        cliffThreshold: 1,
+      }),
+    ).toThrow(/Invalid/);
+
+    // And the tapered end of a cliff closes through the ordinary-slope component: the shared
+    // vertex has one height, not two.
     const built = buildHeightfieldGeometry(
       [dry(0, 0, 0), dry(1, 0, 0.2), dry(0, 1, 0.4)],
       { cliffThreshold: 0.25 },
@@ -191,37 +203,22 @@ describe("physical heightfield terrain", () => {
     expect(built.water.groups.map((group) => group.count)).toEqual([18, 18]);
 
     dispose(built);
-  });
 
-  it("indexes a walked-out world whose run of one look outgrows the argument stack", () => {
     // A frame that surveys rebuilds the whole surveyed landform, so the ground run of the commonest
     // look keeps growing as the player walks. Ten thousand cells is 180,000 indices in one run,
     // well past what a spread can pass as call arguments.
     const samples: HeightfieldSample[] = [];
     for (let q = 0; q < 100; q += 1)
       for (let r = 0; r < 100; r += 1) samples.push(dry(q, r, 0));
-    const built = buildHeightfieldGeometry(samples, { cliffThreshold: 0.25 });
+    const walked = buildHeightfieldGeometry(samples, { cliffThreshold: 0.25 });
 
-    expect(built.buckets.ground).toEqual([0]);
-    expect(triangles(built.ground)).toBe(samples.length * 6);
-    expect(built.ground.groups.map((group) => group.count)).toEqual([
+    expect(walked.buckets.ground).toEqual([0]);
+    expect(triangles(walked.ground)).toBe(samples.length * 6);
+    expect(walked.ground.groups.map((group) => group.count)).toEqual([
       samples.length * 18,
     ]);
 
-    dispose(built);
-  });
-
-  it("refuses malformed or duplicate native samples", () => {
-    expect(() =>
-      buildHeightfieldGeometry([dry(0, 0, 0), dry(0, 0, 1)], {
-        cliffThreshold: 1,
-      }),
-    ).toThrow(/Duplicate/);
-    expect(() =>
-      buildHeightfieldGeometry([{ ...dry(0, 0, 0), waterDepth: Number.NaN }], {
-        cliffThreshold: 1,
-      }),
-    ).toThrow(/Invalid/);
+    dispose(walked);
   });
 });
 

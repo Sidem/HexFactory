@@ -215,18 +215,19 @@ describe("panel controller", () => {
     view.controller.reveal("left");
     expect(view.controller.isOpen("left")).toBe(false);
   });
-  it("returns to the main toggle when a cross-link opener is now hidden", () => {
-    const view = harness();
-    view.controller.toggle(
+  it("opens research modally, closes on Escape, and returns focus to a visible opener", () => {
+    // A cross-link opener that is no longer on screen hands focus back to the main toggle rather
+    // than to an element the player cannot see.
+    const crossLinked = harness();
+    crossLinked.controller.toggle(
       "research-panel",
-      view.rightToggle as unknown as HTMLElement,
+      crossLinked.rightToggle as unknown as HTMLElement,
     );
-    view.rightToggle.visible = false;
-    view.controller.close();
-    expect(view.rightToggle.focused).toBe(false);
-    expect(view.modalToggle.focused).toBe(true);
-  });
-  it("opens research modally, closes on Escape, and returns focus to its opener", () => {
+    crossLinked.rightToggle.visible = false;
+    crossLinked.controller.close();
+    expect(crossLinked.rightToggle.focused).toBe(false);
+    expect(crossLinked.modalToggle.focused).toBe(true);
+
     const view = harness();
     view.controller.bind();
     view.controller.toggle("research-panel");
@@ -243,33 +244,30 @@ describe("panel controller", () => {
     expect(view.modal.open).toBe(false);
     expect(view.modalToggle.focused).toBe(true);
     expect(view.values.get("hexfactory:panels:v1")).toBe("[]");
+
+    // A stored modal is not reopened over the title screen, and opening a workspace dismisses it.
+    const stored = harness('["research-panel"]');
+    stored.controller.restore();
+    expect(stored.modal.open).toBe(false);
+    expect(stored.modal.classList.contains("open")).toBe(false);
+    stored.controller.toggle("research-panel");
+    stored.controller.toggle("right");
+    expect(stored.modal.open).toBe(false);
+    expect(stored.right.classList.contains("open")).toBe(true);
   });
 
-  it("does not restore a modal over the title screen and dismisses it when opening another workspace", () => {
-    const view = harness('["research-panel"]');
-    view.controller.restore();
-    expect(view.modal.open).toBe(false);
-    expect(view.modal.classList.contains("open")).toBe(false);
-    view.controller.toggle("research-panel");
-    view.controller.toggle("right");
-    expect(view.modal.open).toBe(false);
-    expect(view.right.classList.contains("open")).toBe(true);
-  });
-  it("restores only the last valid workspace and synchronizes its toggles", () => {
-    const view = harness('["missing","left","right"]');
-    view.left.classList.remove("open");
-    view.controller.restore();
+  it("restores the last valid workspace exclusively, and persists what it opened", () => {
+    const restored = harness('["missing","left","right"]');
+    restored.left.classList.remove("open");
+    restored.controller.restore();
 
-    expect(view.left.classList.contains("open")).toBe(false);
-    expect(view.right.classList.contains("open")).toBe(true);
-    expect(view.leftToggle.attributes.get("aria-expanded")).toBe("false");
-    expect(view.rightToggle.attributes.get("aria-expanded")).toBe("true");
-  });
+    expect(restored.left.classList.contains("open")).toBe(false);
+    expect(restored.right.classList.contains("open")).toBe(true);
+    expect(restored.leftToggle.attributes.get("aria-expanded")).toBe("false");
+    expect(restored.rightToggle.attributes.get("aria-expanded")).toBe("true");
 
-  it("makes opening a workspace exclusive and persists the resulting ids", () => {
     const view = harness();
     view.controller.toggle("right");
-
     expect(view.left.classList.contains("open")).toBe(false);
     expect(view.right.classList.contains("open")).toBe(true);
     expect(view.values.get("hexfactory:panels:v1")).toBe('["right"]');
@@ -376,13 +374,12 @@ describe("panel controller", () => {
         machineStockSlots([{ item_id: 5, quantity: 60 }], [], true, 60, true),
       ),
     ).toEqual(["stored-5", "drop"]);
-  });
 
-  it("never repeats a compartment slot key", () => {
-    // A duplicate key makes `syncChildren` drop the second element the moment it reconciles, so a
-    // slot the player can see would stop existing on the next frame. An item named by the recipe and
-    // also sitting in the compartment is the case that would otherwise produce two.
-    const slots = machineStockSlots(
+    // And never two slots with the same key. A duplicate makes `syncChildren` drop the second
+    // element the moment it reconciles, so a slot the player can see would stop existing on the
+    // next frame. An item named by the recipe and also sitting in the compartment is the case that
+    // would otherwise produce two.
+    const both = machineStockSlots(
       [
         { item_id: 5, quantity: 2 },
         { item_id: 11, quantity: 0 },
@@ -390,8 +387,7 @@ describe("panel controller", () => {
       [5, 5, 11, 0],
       true,
     );
-    const keys = slots.map(({ key }) => key);
-    expect(new Set(keys).size).toBe(keys.length);
-    expect(keys).toEqual(["expected-5", "expected-11"]);
+    expect(new Set(keys(both)).size).toBe(both.length);
+    expect(keys(both)).toEqual(["expected-5", "expected-11"]);
   });
 });

@@ -74,6 +74,12 @@ const MASSIF_PROVINCES: i32 = 12;
 
 /// Wavelength of the hillslope term, in cells: about 515 m. This is what puts a shoulder between
 /// two valleys rather than a smooth ramp.
+///
+/// Raising this term's amplitude, or adding a shorter meso-scale one beneath it, was measured
+/// against [`TerraSurvey::viewport_relief_median`] and rejected: the field already carries about
+/// 53 m of relief inside one viewport, so the extra amplitude bought no visible landform and spent
+/// 64 per mille of the world's buildable ground. What reads as flat is the material map, not the
+/// height field — see [`crate::ground_spine`].
 const HILLSLOPE_CELL: i32 = 96;
 /// Amplitude of the hillslope term, in height quanta: 10 m.
 const HILLSLOPE_QUANTA: i32 = 40;
@@ -433,8 +439,16 @@ fn valley_half_width(class: u8) -> i32 {
     (3 + i32::from(class.saturating_sub(CHANNEL_CLASS_MIN)) * 3).min(VALLEY_RADIUS)
 }
 
+/// How deep a class cuts, in height quanta: 2.25 m for the smallest channel, 9.75 m for the
+/// largest.
+///
+/// The old cut was 0.5 m to 5 m, which over a half-width of 3 to 21 cells is a 3 to 4 per cent
+/// grade — a depression the eye reads as ground that happens to be wet rather than as a valley.
+/// Deepening it against the same widths puts the bank at 8 to 14 per cent, which is past
+/// [`crate::scale::MAX_BUILD_STEP_QUANTA`] on the steepest part of the flank. That is the intent:
+/// a river should be a thing you bridge, ford or terrace around, not a stripe of blue on a plain.
 fn channel_depth(class: u8) -> i32 {
-    2 + i32::from(class.saturating_sub(CHANNEL_CLASS_MIN)) * 3
+    4 + i32::from(class.saturating_sub(CHANNEL_CLASS_MIN)) * 5
 }
 
 fn river_depth(class: u8) -> i32 {
@@ -1480,9 +1494,22 @@ pub struct TerraSurvey {
     pub left_survey: u64,
     pub walk_budget_exhausted: u64,
     pub longest_walk: u32,
+    /// Elevation range inside one [`VIEWPORT_CELL`] disc, in quanta, over sampled centres: the
+    /// median view and the flattest tenth of views.
+    ///
+    /// The slope histogram cannot answer the question this does. A field of uncorrelated
+    /// centimetre noise and a hillside produce similar neighbour steps, and only one of them is a
+    /// landform: the difference is whether the steps accumulate over the distance the camera
+    /// frames or cancel out inside it. That is what these two numbers measure, and "the world
+    /// looks flat" is a claim about them and about nothing else in this report.
+    pub viewport_relief_median: i32,
+    pub viewport_relief_p10: i32,
     pub solve_micros: u128,
     pub sweep_micros: u128,
 }
+
+/// The radius of the ground a player has on screen at a normal zoom, in cells: about 215 m across.
+pub const VIEWPORT_CELL: i32 = 40;
 
 impl TerraSurvey {
     pub fn water_per_mille(&self) -> u64 {
@@ -1579,6 +1606,8 @@ pub fn survey_at(seed: u32, span: i32, centre: (i32, i32)) -> TerraSurvey {
         left_survey: 0,
         walk_budget_exhausted: 0,
         longest_walk: 0,
+        viewport_relief_median: 0,
+        viewport_relief_p10: 0,
         solve_micros,
         sweep_micros: 0,
     };
@@ -1709,6 +1738,34 @@ pub fn survey_at(seed: u32, span: i32, centre: (i32, i32)) -> TerraSurvey {
             }
         }
     }
+    // Relief at the scale the camera frames. Centres are held one viewport inside the surveyed
+    // square so that every disc is answered from provinces this survey already solved.
+    let (low_q, low_r) = province_origin(cq - half, cr - half);
+    let side = span * PROVINCE_CELL;
+    let mut views: Vec<i32> = Vec::new();
+    let mut centre_r = VIEWPORT_CELL;
+    while centre_r < side - VIEWPORT_CELL {
+        let mut centre_q = VIEWPORT_CELL;
+        while centre_q < side - VIEWPORT_CELL {
+            let origin = (low_q + centre_q, low_r + centre_r);
+            let mut low = i32::MAX;
+            let mut high = i32::MIN;
+            for cell in hexes_in_radius(origin, VIEWPORT_CELL) {
+                let head = terra.head(cell.0, cell.1);
+                low = low.min(head);
+                high = high.max(head);
+            }
+            views.push(high - low);
+            centre_q += VIEWPORT_CELL;
+        }
+        centre_r += VIEWPORT_CELL;
+    }
+    if !views.is_empty() {
+        views.sort_unstable();
+        result.viewport_relief_median = views[views.len() / 2];
+        result.viewport_relief_p10 = views[views.len() / 10];
+    }
+
     #[cfg(not(target_arch = "wasm32"))]
     {
         result.sweep_micros = sweep_started.elapsed().as_micros();
@@ -1760,6 +1817,12 @@ pub fn format_report(survey: &TerraSurvey) -> String {
         crate::scale::MAX_WALK_STEP_QUANTA,
         survey.buildable_per_mille(),
         crate::scale::MAX_BUILD_STEP_QUANTA
+    ));
+    out.push_str(&format!(
+        "  viewport       {} m of relief across {} m, flattest tenth {} m\n",
+        metres(survey.viewport_relief_median),
+        i64::from(VIEWPORT_CELL * 2) * i64::from(crate::scale::CELL_SPACING_MM) / 1_000,
+        metres(survey.viewport_relief_p10)
     ));
     out.push_str(&format!(
         "  discharge class (channel cells, {} per mille of the sample)\n",
@@ -1842,6 +1905,9 @@ pub fn format_json(survey: &TerraSurvey) -> String {
         "left_survey": survey.left_survey,
         "walk_budget_exhausted": survey.walk_budget_exhausted,
         "longest_walk": survey.longest_walk,
+        "viewport_cell": VIEWPORT_CELL,
+        "viewport_relief_median": survey.viewport_relief_median,
+        "viewport_relief_p10": survey.viewport_relief_p10,
         "solve_micros": survey.solve_micros,
         "sweep_micros": survey.sweep_micros,
     })
@@ -1867,9 +1933,10 @@ mod tests {
     }
 
     /// The macro graph is a forest: every edge strictly decreases `(rank, pq, pr)`, so following
-    /// outlets from anywhere terminates rather than looping.
+    /// outlets from anywhere terminates rather than looping. Both halves are asserted — the
+    /// ordering on each edge, and the termination it is supposed to buy.
     #[test]
-    fn province_outlets_strictly_descend() {
+    fn province_outlets_strictly_descend_and_their_chains_terminate() {
         for pr in -6..6 {
             for pq in -6..6 {
                 if let Outlet::Province { pq: nq, pr: nr } = province_outlet(SEED, pq, pr) {
@@ -1880,14 +1947,9 @@ mod tests {
                         "province ({pq},{pr}) drains to a higher outlet"
                     );
                 }
-            }
-        }
-    }
 
-    #[test]
-    fn province_outlet_chains_terminate() {
-        for pr in -6..6 {
-            for pq in -6..6 {
+                // Which is the same claim followed rather than checked one edge at a time: from
+                // anywhere, the chain of outlets ends.
                 let mut current = (pq, pr);
                 let mut steps = 0;
                 while let Outlet::Province { pq: nq, pr: nr } =
@@ -1923,11 +1985,32 @@ mod tests {
                 }
             }
         }
+
+        // The cells on either side of a seam are computed identically whether the province was
+        // solved on its own or after its neighbours — the halo is an implementation detail, not a
+        // place where results are approximate.
+        let mut alone = Terra::new(SEED);
+        let border = alone.province(0, 0);
+        let mut surrounded = Terra::new(SEED);
+        for pr in -1..=1 {
+            for pq in -1..=1 {
+                surrounded.province(pq, pr);
+            }
+        }
+        let after = surrounded.province(0, 0);
+        for r in 0..PROVINCE_CELL {
+            for q in 0..PROVINCE_CELL {
+                assert_eq!(border.head(q, r), after.head(q, r), "height at ({q},{r})");
+                assert_eq!(border.flow(q, r), after.flow(q, r), "flow at ({q},{r})");
+            }
+        }
     }
 
-    /// The claim caching is allowed to make, and the only one: the same answer either way.
+    /// The claim caching is allowed to make, and the only one: the same answer either way — for a
+    /// single cell against the uncached oracle, and for a whole patch walked in reverse. What
+    /// caching is allowed to change is the cost, which is bounded here too.
     #[test]
-    fn cached_and_uncached_height_agree() {
+    fn the_cache_changes_the_cost_and_nothing_else() {
         let mut terra = Terra::new(SEED);
         for (q, r) in [
             (0, 0),
@@ -1945,12 +2028,9 @@ mod tests {
                 "cached and uncached height disagree at ({q},{r})"
             );
         }
-    }
 
-    /// Query order cannot matter. Two caches walked in opposite directions must agree cell for
-    /// cell, height, flow and water alike.
-    #[test]
-    fn query_order_does_not_change_the_world() {
+        // Query order cannot matter either: two caches walked in opposite directions must agree
+        // cell for cell, height, flow and water alike.
         let cells = patch();
         let mut forward = Terra::new(SEED);
         let mut backward = Terra::new(SEED);
@@ -1970,28 +2050,18 @@ mod tests {
                 "reverse query order changed ({q},{r})"
             );
         }
-    }
 
-    /// A province's own cells are computed identically whether the province was solved on its own
-    /// or after its neighbours. This is the seam version of the test above: it is what lets the
-    /// halo be an implementation detail rather than a place results are approximate.
-    #[test]
-    fn a_seam_reads_the_same_from_either_province() {
-        let mut alone = Terra::new(SEED);
-        let border = alone.province(0, 0);
-        let mut surrounded = Terra::new(SEED);
-        for pr in -1..=1 {
-            for pq in -1..=1 {
-                surrounded.province(pq, pr);
-            }
-        }
-        let after = surrounded.province(0, 0);
+        // And solving one cell costs a bounded number of provinces: reading a whole province does
+        // not pull in a continent.
+        let mut single = Terra::new(SEED);
+        single.head(0, 0);
+        assert_eq!(single.provinces_solved(), 1);
         for r in 0..PROVINCE_CELL {
             for q in 0..PROVINCE_CELL {
-                assert_eq!(border.head(q, r), after.head(q, r), "height at ({q},{r})");
-                assert_eq!(border.flow(q, r), after.flow(q, r), "flow at ({q},{r})");
+                single.head(q, r);
             }
         }
+        assert_eq!(single.provinces_solved(), 1);
     }
 
     /// The drainage invariants the brief names as acceptance, over a real patch of world.
@@ -2010,13 +2080,10 @@ mod tests {
                 );
             }
         }
-    }
 
-    /// Every path that is not a lake reaches a declared outlet: the sea, a lake, or an honestly
-    /// reported frontier basin. Nothing wanders forever.
-    #[test]
-    fn every_path_reaches_a_declared_outlet() {
-        let mut terra = Terra::new(SEED);
+        // Followed rather than checked edge by edge: every path that is not a lake reaches a
+        // declared outlet — the sea, a lake, or an honestly reported frontier basin. Nothing
+        // wanders forever.
         for r in (-PROVINCE_CELL..(2 * PROVINCE_CELL)).step_by(7) {
             for q in (-PROVINCE_CELL..(2 * PROVINCE_CELL)).step_by(7) {
                 let (mut cq, mut cr) = (q, r);
@@ -2041,13 +2108,10 @@ mod tests {
                 }
             }
         }
-    }
 
-    /// A retained lake reports the rim it spills over, and that rim stands at or above every cell
-    /// the lake covers. A lake surface below its own bed would be the model lying about water.
-    #[test]
-    fn lakes_report_a_spill_level_above_their_bed() {
-        let mut terra = Terra::new(SEED);
+        // A lake is where a path stops, so the same walk has to find the retained water honest: a
+        // lake reports the rim it spills over, and that rim stands at or above every cell it
+        // covers. A lake surface below its own bed would be the model lying about water.
         let mut found = 0;
         for pr in -1..=1 {
             for pq in -1..=1 {
@@ -2140,9 +2204,11 @@ mod tests {
         best.0
     }
 
-    /// Discharge classes are monotone in catchment and saturate rather than overflowing.
+    /// Discharge classes are monotone in catchment and saturate rather than overflowing, and every
+    /// width those classes buy stays inside the halo the solve computes — which is what makes a
+    /// cell's height complete before anyone outside the province reads it.
     #[test]
-    fn discharge_classes_are_monotone() {
+    fn discharge_classes_are_monotone_and_no_valley_outgrows_the_halo() {
         let mut last = 0;
         for exponent in 0..40 {
             let class = discharge_class(1u64 << exponent);
@@ -2151,32 +2217,12 @@ mod tests {
         }
         assert_eq!(discharge_class(u64::MAX), 7);
         assert_eq!(discharge_class(0), 0);
-    }
 
-    /// A valley is never wider than the halo the solve computes, which is what makes a cell's
-    /// height complete before anyone outside the province reads it.
-    #[test]
-    fn no_valley_is_wider_than_the_halo() {
         for class in 0..=7u8 {
             assert!(valley_half_width(class) <= VALLEY_RADIUS);
             assert!(river_half_width(class) <= VALLEY_RADIUS);
         }
         assert!(HALO > VALLEY_RADIUS);
-    }
-
-    /// Solving one cell costs a bounded number of provinces, and reading a whole province does not
-    /// pull in a continent. Nine is the nine that a halo can reach.
-    #[test]
-    fn one_cell_costs_a_bounded_number_of_provinces() {
-        let mut terra = Terra::new(SEED);
-        terra.head(0, 0);
-        assert_eq!(terra.provinces_solved(), 1);
-        for r in 0..PROVINCE_CELL {
-            for q in 0..PROVINCE_CELL {
-                terra.head(q, r);
-            }
-        }
-        assert_eq!(terra.provinces_solved(), 1);
     }
 
     #[test]
@@ -2219,9 +2265,10 @@ mod tests {
         }
     }
 
-    /// A different seed is a different world; the same seed is the same world twice.
+    /// A different seed is a different world; the same seed is the same world twice; and both are
+    /// worlds the survey certifies and the rescale earned.
     #[test]
-    fn seeds_separate_worlds_and_repeat_them() {
+    fn seeds_separate_worlds_that_survey_clean_with_real_relief() {
         let mut first = Terra::new(SEED);
         let mut again = Terra::new(SEED);
         let mut other = Terra::new(SEED ^ 0x9999);
@@ -2238,12 +2285,9 @@ mod tests {
             differences > 3_000,
             "two seeds produced nearly the same world"
         );
-    }
 
-    /// The survey is the falsification instrument, so it has to run and it has to report the
-    /// invariants as clean. A single province keeps the test quick.
-    #[test]
-    fn the_survey_reports_clean_invariants() {
+        // The survey is the falsification instrument for those worlds, so it has to run and it has
+        // to report the invariants as clean. A single province keeps this quick.
         let result = survey(SEED, 1);
         assert_eq!(result.provinces, 1);
         assert_eq!(result.cells, (PROVINCE_CELL * PROVINCE_CELL) as u64);
@@ -2254,17 +2298,11 @@ mod tests {
         assert!(result.max_quanta > result.min_quanta);
         assert!(!format_report(&result).is_empty());
         assert!(format_json(&result).contains("\"uphill_edges\":0"));
-    }
 
-    /// Relief has to be worth the rescale: a world that is flat at 25 m² per cell has not earned
-    /// the compatibility break. Kilometre-scale variation is the point of the phase.
-    ///
-    /// Measured on the bare height field rather than on a survey, because the claim is about the
-    /// continental wavelength — 33 km — and no sample small enough to solve inside a test can span
-    /// one. Three provinces is 2.1 km, six per cent of a wavelength; asking that for hundreds of
-    /// metres of relief would only be asking for a noisier generator.
-    #[test]
-    fn the_landscape_has_relief_worth_the_rescale() {
+        // And the relief in those worlds has to be worth the rescale: a world that is flat at
+        // 25 m² per cell has not earned the compatibility break. The wide measurement is taken on
+        // the bare height field rather than on a survey, because the claim is about the continental
+        // wavelength — 33 km — and no sample small enough to solve inside a test can span one.
         let step = PROVINCE_CELL;
         let reach = 32; // 32 provinces each way: 68 km, two continental wavelengths.
         let mut low = i32::MAX;
@@ -2284,9 +2322,10 @@ mod tests {
         );
 
         // And the relief has to be there locally too, or the world is a single smooth ramp with
-        // nothing to walk around.
-        let result = survey(SEED, 3);
-        let local = result.max_quanta - result.min_quanta;
+        // nothing to walk around. Three provinces is 2.1 km, six per cent of a wavelength; asking
+        // that for hundreds of metres of relief would only be asking for a noisier generator.
+        let wider = survey(SEED, 3);
+        let local = wider.max_quanta - wider.min_quanta;
         assert!(
             local > 100,
             "only {local} quanta of relief across three provinces"

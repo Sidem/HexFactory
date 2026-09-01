@@ -155,7 +155,11 @@ const SAVE_PREFIX: &str = "HXF1\n";
 /// definition. Occupancy is still derived from the catalogue rather than saved per entity, so a
 /// version-37 file is the same factory under the new stamps: the original checksum verifies, then
 /// the envelope numbers move.
-const SAVE_VERSION: u16 = 39;
+///
+/// Version 40 carries no new saved field at all — it moves because the world under the save did.
+/// The stamp advances so the ladder is complete and the file reaches the world-generator check,
+/// which is where a player is told to export it. See [`WORLD_GENERATOR_VERSION`].
+const SAVE_VERSION: u16 = 40;
 /// Bumped to 6 for World Parameters. `WorldParams` is now part of a run's identity — it is in the
 /// save envelope and in the checksum — so a version-5 envelope carries no answer to the question
 /// "which world is this" and is rejected rather than assumed to be the default.
@@ -165,7 +169,17 @@ const SAVE_VERSION: u16 = 39;
 /// of by a hardcoded list of eight cells inside the clearing. Every one of those changes what a
 /// seed generates, so a version-6 envelope describes a landscape this build cannot reproduce and is
 /// rejected rather than reinterpreted. The named-save catalog shows the row rather than hiding it.
-const WORLD_GENERATOR_VERSION: u16 = 11;
+///
+/// Bumped to 12 for Ground You Can See. Two rules changed what a seed lays down. The substrate rule
+/// used to select Soil on any bed above 150 m, which the continental field clears almost
+/// everywhere: `npm run survey` measured 889 per mille of the world in a single band, with no
+/// Lowland and no Highland at all. It now reads the gradient a cell sits on, measured across three
+/// cells so the fine relief grain averages out, and elevation only names genuinely high ground. And
+/// a river class cuts two to ten metres where it cut half a metre to five, so a channel is a thing
+/// you bridge or ford rather than a stripe of blue laid on a plain. Both are the bed itself, so a
+/// version-11 envelope names a landscape this build cannot reproduce and is rejected rather than
+/// reinterpreted — export the file to keep a copy.
+const WORLD_GENERATOR_VERSION: u16 = 12;
 const MAX_COMMANDS_PER_BATCH: usize = 8;
 /// A drag is one bounded command, so the run it expands into has to be bounded too. This is the
 /// native cap on cells a single `place_line` or `erase_line` may touch.
@@ -3752,20 +3766,46 @@ impl Core {
         self.generate_chunk(floor_div(q, size), floor_div(r, size));
     }
 
-    /// Survey the world around a point: the chunk it falls in, plus `survey_rings()` rings of
-    /// chunks around that one.
+    /// How far a survey opens around the player's own hex, in cells.
     ///
-    /// The rings are a hex disc on the chunk lattice, which at one ring is exactly the chunk and
-    /// its six `DIRECTIONS` neighbours this always generated — so the shipped opening is unchanged
-    /// and only a surveying skill widens it.
+    /// Rings are the unit the skills speak in, but a ring of the chunk lattice is not a distance
+    /// from the player. Standing at a chunk's edge left the frontier one cell ahead and fifteen
+    /// behind, and because a chunk is an axial parallelogram rather than a disc, the opened world
+    /// read as a stepped, lopsided blot instead of a horizon. The radius restates the same
+    /// envelope as a distance instead, so the buffer is equal in every direction wherever inside a
+    /// chunk the player happens to stand.
+    ///
+    /// `rings * size + size / 2` is that restatement, and it is deliberately area-preserving: at
+    /// one ring it is 12 cells, a disc of 469 cells against the 448 the seven-chunk opening
+    /// covered, and it stays within a few per cent at two and three rings as well. The surveying
+    /// skill still widens it and nothing else changed hands.
+    fn survey_radius(&self) -> i32 {
+        let size = self.scenario.chunk_size;
+        self.survey_rings() as i32 * size + size / 2
+    }
+
+    /// Survey the world around a point: every chunk holding a cell within [`Core::survey_radius`]
+    /// of it.
+    ///
+    /// Chunks stay the unit of generation, so the outermost opened cell still lands on a chunk
+    /// boundary. What is uniform is the guarantee — no direction is ever surveyed less far than
+    /// the radius — and that guarantee is the part a player reads as an even frontier.
     fn ensure_neighborhood(&mut self, x: i32, y: i32) {
         let size = self.scenario.chunk_size;
         let (q, r) = world_to_axial(x, y);
+        let radius = self.survey_radius();
         let center = (floor_div(q, size), floor_div(r, size));
-        let rings = self.survey_rings() as i32;
-        for dq in -rings..=rings {
-            for dr in (-rings).max(-dq - rings)..=rings.min(-dq + rings) {
-                self.generate_chunk(center.0 + dq, center.1 + dr);
+        // A cell within `radius` differs by at most `radius` on each axis, so no chunk further
+        // than this many chunks away can hold one. Candidates outside the disc are then dropped.
+        let span = radius.div_euclid(size) + 1;
+        for dq in -span..=span {
+            for dr in -span..=span {
+                let (chunk_q, chunk_r) = (center.0 + dq, center.1 + dr);
+                if hexes_in_chunk(chunk_q, chunk_r, size)
+                    .any(|cell| axial_distance((q, r), cell) <= radius)
+                {
+                    self.generate_chunk(chunk_q, chunk_r);
+                }
             }
         }
     }
@@ -9683,7 +9723,10 @@ impl Core {
         let envelope: SaveEnvelope = serde_json::from_str(&migrated)
             .map_err(|error| format!("malformed HXF1 save: {error}"))?;
         if envelope.world_generator_version != WORLD_GENERATOR_VERSION {
-            return Err("save world generator version is incompatible".into());
+            return Err(
+                "this factory stands on a world this build no longer generates; export the file to keep a copy"
+                    .into(),
+            );
         }
         if envelope.definition_version != definitions.version
             || envelope.technology_version != technologies.version
@@ -15807,7 +15850,10 @@ mod tests {
             .find(|value| value.key == key)
             .unwrap()
             .clone();
-        let core = Core::new(&definitions, &technologies, &scenario, None, None).unwrap();
+        let mut core = Core::new(&definitions, &technologies, &scenario, None, None).unwrap();
+        // Same fixture as `game`: these tests name the hexes they build on, so the ground under
+        // them is authored rather than generated.
+        level_opening(&mut core);
         Factory {
             definitions,
             technologies,
@@ -15845,7 +15891,7 @@ mod tests {
     }
 
     #[test]
-    fn a_pole_and_burner_run_an_extractor_and_a_dark_one_does_not() {
+    fn power_reaches_only_what_it_lights_and_is_produced_only_for_the_work_it_does() {
         let mut dark = game("new-game");
         dark.power_unmetered = false;
         dark.researched.extend([1, 2, 8]);
@@ -15906,12 +15952,9 @@ mod tests {
             .output_inventory
             .is_empty());
         assert!(snapshot.power_demand > 0);
-    }
 
-    /// The other half of the same rule, and the one the player pays for: a plant carrying a small
-    /// load burns proportionally less fuel, and a plant carrying none burns none at all.
-    #[test]
-    fn a_generator_burns_for_the_work_it_powers_and_not_for_the_clock() {
+        // The other half of the same rule, and the one the player pays for: a plant carrying a small
+        // load burns proportionally less fuel, and a plant carrying none burns none at all.
         let coal = |core: &Core, index: usize| {
             let entity = &core.entities[index];
             (entity.inventory.get(&5).copied().unwrap_or(0)
@@ -15994,16 +16037,13 @@ mod tests {
             spent_working < 40,
             "one extractor must not cost a burner its full output: spent {spent_working}"
         );
-    }
 
-    /// Coverage belongs to the pole, and it is the whole of the upgrade.
-    ///
-    /// The same machine at the same hex is dark under a base pole and lit under a relay pole,
-    /// with nothing else in the world changed. Before v0.19 this test could not have been written:
-    /// the distance came off the machine, so every pole in the game reached exactly as far as
-    /// every other one and no upgrade could move it.
-    #[test]
-    fn a_better_pole_lights_a_wider_disc_and_the_machine_does_not_change() {
+        // Coverage belongs to the pole, and it is the whole of the upgrade.
+        //
+        // The same machine at the same hex is dark under a base pole and lit under a relay pole,
+        // with nothing else in the world changed. Before v0.19 this test could not have been written:
+        // the distance came off the machine, so every pole in the game reached exactly as far as
+        // every other one and no upgrade could move it.
         let base = building_by_key("pole");
         let relay = building_by_key("pole-ii");
         let trunk = building_by_key("pole-iii");
@@ -16044,15 +16084,12 @@ mod tests {
                     .supply_radius
             );
         }
-    }
 
-    /// Machines that touch conduct, and only the ones that carry current do.
-    ///
-    /// This is what makes a pole cost *distance* rather than power, and it is what
-    /// `fixtures/balance.json` has priced openings against since v0.18 — one generator, no pole,
-    /// for a machine standing beside it. Until v0.19 that price was simply wrong.
-    #[test]
-    fn a_generator_powers_what_stands_against_it_and_a_belt_carries_nothing() {
+        // Machines that touch conduct, and only the ones that carry current do.
+        //
+        // This is what makes a pole cost *distance* rather than power, and it is what
+        // `fixtures/balance.json` has priced openings against since v0.18 — one generator, no pole,
+        // for a machine standing beside it. Until v0.19 that price was simply wrong.
         let mut core = game("new-game");
         core.power_unmetered = false;
         core.researched.extend([1, 2, 8]);
@@ -16108,16 +16145,13 @@ mod tests {
             .unwrap();
         assert_eq!(axial_distance((3, 0), belt), 1, "the belt is touching");
         assert!(core.power_of[belt_index].is_none());
-    }
 
-    /// A scarce grid feeds the machine that can work, not the one that is holding an output.
-    ///
-    /// The gate that makes this true is also the whole of the fuel rule, and under a full grid the
-    /// two are indistinguishable — a blocked machine with a full bank asks for nothing either way.
-    /// It takes scarcity and an empty bank to tell them apart, which is exactly the state a player
-    /// is in when they are wondering why the factory got slow.
-    #[test]
-    fn a_blocked_machine_does_not_take_a_share_of_a_grid_it_cannot_use() {
+        // A scarce grid feeds the machine that can work, not the one that is holding an output.
+        //
+        // The gate that makes this true is also the whole of the fuel rule, and under a full grid the
+        // two are indistinguishable — a blocked machine with a full bank asks for nothing either way.
+        // It takes scarcity and an empty bank to tell them apart, which is exactly the state a player
+        // is in when they are wondering why the factory got slow.
         let mut core = game("new-game");
         core.power_unmetered = false;
         core.researched.extend([1, 2, 8]);
@@ -16170,13 +16204,11 @@ mod tests {
             core.entities[second].power_charge, 0,
             "the machine holding an output took none of it"
         );
-    }
-    /// Electricity is conserved: what the machines banked is what the plants produced, to the unit.
-    ///
-    /// The reason throughput comes out exactly proportional to generation with no slowdown factor
-    /// anywhere. An undersupplied factory is not scaled down — it is handed less to spend.
-    #[test]
-    fn every_unit_a_plant_produced_is_a_unit_a_machine_banked() {
+
+        // Electricity is conserved: what the machines banked is what the plants produced, to the unit.
+        //
+        // The reason throughput comes out exactly proportional to generation with no slowdown factor
+        // anywhere. An undersupplied factory is not scaled down — it is handed less to spend.
         let mut core = game("new-game");
         core.power_unmetered = false;
         core.researched.extend([1, 2, 8]);
@@ -16380,7 +16412,33 @@ mod tests {
         core
     }
 
-    fn game(key: &str) -> Core {
+    /// Stand the mechanics suite on level ground, for the same reason [`TEST_FIELD`] plants the
+    /// deposits it gathers from — one layer further down.
+    ///
+    /// These tests name the hexes they use: place at `(3, 0)`, drag a belt to `(4, 1)`, reach from
+    /// `(0, 0)`. Under Phase 8 those hexes stand on real generated relief, so half a metre of
+    /// valley moving turned a dozen tests about belts, power and undo into tests about the
+    /// generator. That is exactly the trade [`TEST_FIELD`] refused for deposits and then left open
+    /// for height.
+    ///
+    /// The flattening is the generator's own `generated_environment: false` branch rather than a
+    /// pad written into the earthwork overlay. The overlay was tried first and is the wrong seam:
+    /// it is player state that erase and undo are *defined* to unwind, so the fixture and the
+    /// mechanics under test were reaching for the same field. This stays the physical source —
+    /// `ground_is_physical` still holds — with a flat height field under it.
+    ///
+    /// A test whose subject *is* generated ground wants [`field_game`] and its real relief.
+    fn level_opening(core: &mut Core) {
+        core.scenario.generated_environment = false;
+        core.ground_spine = GroundSpine::physical(&core.world_params, core.seed, false);
+        core.fields = WorldFields::new(&core.world_params, core.seed, &core.ground_spine);
+        core.ground_spine
+            .rebuild_cache(&core.generated_chunks, core.scenario.chunk_size);
+    }
+
+    /// [`TEST_FIELD`]'s deposits over the world's own relief. For tests whose subject *is* the
+    /// ground: water finding a cut, a ford, a quarried cliff, a pump in a basin.
+    fn field_game(key: &str) -> Core {
         let mut core = bare_game(key);
         for &(q, r, item_id, quantity) in &TEST_FIELD {
             core.write_overlay(q, r, item_id, quantity, quantity);
@@ -16389,10 +16447,19 @@ mod tests {
         core
     }
 
+    fn game(key: &str) -> Core {
+        let mut core = field_game(key);
+        level_opening(&mut core);
+        core.dirty = SnapshotDirty::default();
+        core
+    }
+
     /// A bounded compatibility fixture for rules whose subject is one of the old presentation
     /// bands, not Phase 8 generation. Production worlds never construct this source after save 37.
     fn legacy_band_game(key: &str) -> Core {
-        let mut core = game(key);
+        // Deliberately not `game`: the legacy source ships its own flat clearing, and a levelling
+        // delta measured against the physical bed would be meaningless once the spine is swapped.
+        let mut core = field_game(key);
         core.ground_spine = GroundSpine::legacy(
             &core.world_params,
             core.seed,
@@ -16400,6 +16467,17 @@ mod tests {
         );
         core.fields = WorldFields::new(&core.world_params, core.seed, &core.ground_spine);
         core
+    }
+
+    /// Every save written before the physical world is refused, and refused with a way out.
+    ///
+    /// Nine migration tests used to stand here, one per rung of the old ladder. The scale break
+    /// retired all of them at once: a file from any of those versions is turned away at the
+    /// envelope now, so each of those tests had become this one assertion followed by unreachable
+    /// legacy code. This is what is left, and it is the whole claim.
+    #[test]
+    fn a_pre_physical_save_is_refused_with_an_export_offered() {
+        assert_pre_physical_save_is_refused();
     }
 
     fn assert_pre_physical_save_is_refused() {
@@ -16570,7 +16648,7 @@ mod tests {
     }
 
     #[test]
-    fn public_direction_protocol_matches_cross_language_fixture() {
+    fn native_and_host_agree_on_directions_passability_heights_and_hexes() {
         let fixture: Vec<serde_json::Value> =
             serde_json::from_str(include_str!("../../fixtures/hex-directions.json")).unwrap();
         let actual: Vec<(i32, i32)> = fixture
@@ -16583,15 +16661,12 @@ mod tests {
             })
             .collect();
         assert_eq!(actual, TRANSPORT_DIRECTIONS);
-    }
 
-    /// Which bands the player cannot stand on is native's rule, and since v0.12.3 the renderer
-    /// draws that category before it draws the material — so the host holds a copy of the rule and
-    /// a copy is a thing that drifts. This is the `fixtures/hex-directions.json` idiom applied to
-    /// it: Rust asserts the file against the predicates, `tests/host.test.ts` asserts it against
-    /// `src/core/terrain.ts`, and neither side may move without the other.
-    #[test]
-    fn terrain_passability_matches_the_cross_language_fixture() {
+        // Which bands the player cannot stand on is native's rule, and since v0.12.3 the renderer
+        // draws that category before it draws the material — so the host holds a copy of the rule and
+        // a copy is a thing that drifts. This is the `fixtures/hex-directions.json` idiom applied to
+        // it: Rust asserts the file against the predicates, `tests/host.test.ts` asserts it against
+        // `src/core/terrain.ts`, and neither side may move without the other.
         #[derive(Deserialize)]
         struct PassabilityEntry {
             terrain: Terrain,
@@ -16696,20 +16771,17 @@ mod tests {
                 entry.slope <= scale::MAX_BUILD_STEP_QUANTA && entry.water_depth == 0
             );
         }
-    }
 
-    /// The wire's `height` is an integer in whatever unit the active ground source counts in, and
-    /// the renderer has to turn it into a scene height. That conversion is a copy of a native fact,
-    /// and a copy is a thing that drifts — so it goes through the `fixtures/hex-directions.json`
-    /// idiom rather than through a constant somebody remembers to change.
-    ///
-    /// `height_unit` is the one that matters at the compatibility boundary. Production still builds
-    /// `GroundSpine::legacy`, whose height is a presentation band step; when the physical source
-    /// activates the same field becomes a 0.25 m quantum, the number stays an integer, and nothing
-    /// in the payload announces that the world got seventeen times taller. This test is what makes
-    /// that switch reach `src/rendering/sceneScale.ts` in the same commit.
-    #[test]
-    fn the_renderer_reads_the_height_unit_native_actually_publishes() {
+        // The wire's `height` is an integer in whatever unit the active ground source counts in, and
+        // the renderer has to turn it into a scene height. That conversion is a copy of a native fact,
+        // and a copy is a thing that drifts — so it goes through the `fixtures/hex-directions.json`
+        // idiom rather than through a constant somebody remembers to change.
+        //
+        // `height_unit` is the one that matters at the compatibility boundary. Production still builds
+        // `GroundSpine::legacy`, whose height is a presentation band step; when the physical source
+        // activates the same field becomes a 0.25 m quantum, the number stays an integer, and nothing
+        // in the payload announces that the world got seventeen times taller. This test is what makes
+        // that switch reach `src/rendering/sceneScale.ts` in the same commit.
         #[derive(Deserialize)]
         struct SceneScale {
             height_unit: String,
@@ -16759,14 +16831,11 @@ mod tests {
         };
         assert_eq!(fixture.relief_min, relief_min);
         assert_eq!(fixture.relief_max, relief_max);
-    }
 
-    /// A preview pixel is turned into a world point and the point into the hex holding it. The
-    /// round trip is what makes that a picture of the map rather than of a sheared rhombus, and it
-    /// has to hold on both sides of the origin — truncating division is exactly the bug that would
-    /// pass the northern half and shear the southern one.
-    #[test]
-    fn a_world_point_resolves_to_the_hex_it_was_built_from() {
+        // A preview pixel is turned into a world point and the point into the hex holding it. The
+        // round trip is what makes that a picture of the map rather than of a sheared rhombus, and it
+        // has to hold on both sides of the origin — truncating division is exactly the bug that would
+        // pass the northern half and shear the southern one.
         for q in -40..=40 {
             for r in -40..=40 {
                 let (x, y) = axial_world(q, r);
@@ -16842,13 +16911,10 @@ mod tests {
                 512
             )
             .is_err());
-    }
 
-    /// Deposits are reported as lattice centres rather than sampled, so what pins them is the
-    /// lattice: `site_cell` is how far apart sites stand, and a window of fixed size holds fewer
-    /// of them when they stand further apart.
-    #[test]
-    fn world_preview_places_deposits_on_the_lattice_that_generates_them() {
+        // Deposits are reported as lattice centres rather than sampled, so what pins them is the
+        // lattice: `site_cell` is how far apart sites stand, and a window of fixed size holds fewer
+        // of them when they stand further apart.
         let factory = test_factory("new-game");
         let params = factory.core.world_params.clone();
         let seed = factory.core.seed;
@@ -16906,7 +16972,7 @@ mod tests {
     }
 
     #[test]
-    fn a_world_that_opens_is_diagnosed_at_no_cost() {
+    fn a_world_that_opens_is_diagnosed_repaired_and_free_of_legacy_band_cuts() {
         let factory = test_factory("new-game");
         let params = factory.core.world_params.clone();
         assert!(
@@ -16918,10 +16984,8 @@ mod tests {
         // stuck in would be two dozen bootstrap passes behind every slider drag.
         assert!(needs.is_empty());
         assert!(repair.is_none());
-    }
 
-    #[test]
-    fn physical_opening_outcrops_do_not_depend_on_legacy_band_cuts() {
+        // Physical opening outcrops do not depend on legacy band cuts.
         let factory = test_factory("new-game");
         let params = drowned_params(&factory.core.world_params);
         let spine = GroundSpine::physical(&params, 7, true);
@@ -16933,20 +16997,16 @@ mod tests {
         let (needs, repair) = factory.preview_diagnosis(&params, 7, &[]);
         assert!(needs.is_empty());
         assert!(repair.is_none());
-    }
 
-    #[test]
-    fn physical_opening_outcrops_survive_legacy_band_controls() {
+        // Physical opening outcrops survive legacy band controls.
         let factory = test_factory("new-game");
         let base = factory.core.world_params.clone();
         let params = drowned_params(&base);
         let spine = GroundSpine::physical(&params, 7, true);
         let (_, unmet) = bootstrap_sites(&params, 7, &spine);
         assert!(unmet.is_empty(), "physical opening lost {unmet:?}");
-    }
 
-    #[test]
-    fn a_sparse_site_lattice_is_repaired_by_a_verified_change() {
+        // A sparse site lattice is repaired by a verified change.
         let factory = test_factory("new-game");
         let params = WorldParams {
             site_cell: 128,
@@ -16999,7 +17059,7 @@ mod tests {
     }
 
     #[test]
-    fn chunk_generation_is_order_independent_and_seeded() {
+    fn chunk_generation_is_seeded_cached_and_invertible() {
         let mut a = game("new-game");
         let mut b = game("new-game");
         a.generate_chunk(8, -4);
@@ -17022,12 +17082,9 @@ mod tests {
                 assert_eq!(site, other);
             }
         }
-    }
 
-    /// The cache pays for the site model and must not change it. `field_at` is asked over a disc
-    /// wide enough to cross many lattice cells, warm and cold, and the two must never disagree.
-    #[test]
-    fn the_site_cache_answers_exactly_what_the_uncached_generator_does() {
+        // The cache pays for the site model and must not change it. `field_at` is asked over a disc
+        // wide enough to cross many lattice cells, warm and cold, and the two must never disagree.
         let params = preset_params("continental").unwrap();
         let seed = survey::default_seed();
         let spine = GroundSpine::physical(&params, seed, true);
@@ -17054,10 +17111,8 @@ mod tests {
                 "the cheap water test disagrees at {q},{r}"
             );
         }
-    }
 
-    #[test]
-    fn world_to_axial_inverts_axial_world_and_rounds_to_the_nearest_hex() {
+        // World to axial inverts axial world and rounds to the nearest hex.
         for q in -12..=12 {
             for r in -12..=12 {
                 let (x, y) = axial_world(q, r);
@@ -17069,7 +17124,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_fields_follow_terrain_and_only_the_overlay_is_state() {
+    fn materials_are_generated_where_geography_says_and_harvested_within_a_radius() {
         // The one test that must see an untouched world: the claim is that an unmined field costs
         // nothing stored, and a fixture that pre-writes eight tiles would answer it in advance.
         let mut core = bare_game("new-game");
@@ -17119,10 +17174,8 @@ mod tests {
             quantity - 1
         );
         assert_ne!(core.checksum(), before);
-    }
 
-    #[test]
-    fn an_extractor_harvests_every_field_cell_inside_its_radius() {
+        // An extractor harvests every field cell inside its radius.
         let mut core = game("new-game");
         core.researched.insert(2);
         stock_for(&mut core, 1, 1);
@@ -17140,14 +17193,13 @@ mod tests {
         assert_eq!(core.extractor_deposit(index), Some((3, 0)));
         core.write_overlay(3, 0, 1, 0, 48);
         assert_eq!(core.extractor_deposit(index), Some((4, 0)));
-    }
 
-    /// Geography is still the material map. A deposit is a site rather than a per-hex decision now,
-    /// so what a band holds is the set of rules that may *reach* into it — the member table — and
-    /// this asserts that set exactly, band by band.
-    #[test]
-    fn every_material_is_generated_where_its_geography_says_it_should_be() {
-        let core = game("new-game");
+        // Geography is still the material map. A deposit is a site rather than a per-hex decision now,
+        // so what a band holds is the set of rules that may *reach* into it — the member table — and
+        // this asserts that set exactly, band by band.
+        // Real relief: the subject here *is* the generated ground, so `game`'s level opening
+        // would leave nothing to measure.
+        let core = field_game("new-game");
         assert!(core.ground_is_physical());
 
         let mut seen: BTreeMap<Terrain, BTreeSet<ItemId>> = BTreeMap::new();
@@ -17199,13 +17251,11 @@ mod tests {
         // a rule that names a water band, and this is that refusal seen from the world.
         assert!(!seen.contains_key(&Terrain::DeepWater));
         assert!(!seen.contains_key(&Terrain::ShallowWater));
-    }
 
-    /// Sandy-looking tiles are the shore band. Clay may still sit on them, but sand has to be
-    /// what a player walking a beach finds first — not a regional ocean they never reach.
-    #[test]
-    fn sand_is_the_common_field_on_shore_tiles() {
-        let core = game("new-game");
+        // Sandy-looking tiles are the shore band. Clay may still sit on them, but sand has to be
+        // what a player walking a beach finds first — not a regional ocean they never reach.
+        // Real relief: a shore is a fact about generated ground. See `field_game`.
+        let core = field_game("new-game");
         let mut shore = 0u32;
         let mut sand = 0u32;
         let mut clay = 0u32;
@@ -17274,111 +17324,28 @@ mod tests {
             differing * 100 > hexes * 60,
             "only {differing} of {hexes} hexes differ between two parameter sets"
         );
-    }
 
-    /// The claim this milestone rests on, asserted directly rather than argued from the numbers.
-    ///
-    /// **Feature scale decides how big water is; sea level decides how much of it there is.** The
-    /// two halves below each hold one of them fixed, and the measurement that separates them is the
-    /// number of bodies, not the size of the largest — whether one landform in a sample happens to
-    /// dip under the sea is a fact about that landform, and it swung this figure by 3x across a
-    /// scale sweep in which the trend was perfectly monotone.
-    #[test]
-    fn feature_scale_makes_seas_and_sea_level_only_makes_more_ponds() {
-        if SAVE_VERSION >= 37 {
-            let seed = survey::default_seed();
-            let base = preset_params("continental").unwrap();
-            let altered = WorldParams {
-                elevation_coarse_cell: 4,
-                water_level: 50_000,
-                shore_level: 52_000,
-                hills_level: 58_000,
-                highland_level: 62_000,
-                ..base.clone()
-            };
-            let first = GroundSpine::physical(&base, seed, true);
-            let second = GroundSpine::physical(&altered, seed, true);
-            for (q, r) in hexes_in_radius((0, 0), 24) {
-                assert_eq!(
-                    first.generated_at(q, r),
-                    second.generated_at(q, r),
-                    "legacy band/scale sliders leaked into the physical landform at {q},{r}"
-                );
-            }
-            return;
+        // And the sliders that used to decide what a world looked like no longer reach the landform
+        // at all. Feature scale and the four band levels described a world cut out of noise by
+        // thresholds; the physical world is a surface with a height, and moving a threshold under it
+        // moves nothing. Every hex within a radius of 24 answers exactly the same either way.
+        let altered = WorldParams {
+            elevation_coarse_cell: 4,
+            water_level: 50_000,
+            shore_level: 52_000,
+            hills_level: 58_000,
+            highland_level: 62_000,
+            ..continental.clone()
+        };
+        let first = GroundSpine::physical(&continental, seed, true);
+        let second = GroundSpine::physical(&altered, seed, true);
+        for (q, r) in hexes_in_radius((0, 0), 24) {
+            assert_eq!(
+                first.generated_at(q, r),
+                second.generated_at(q, r),
+                "legacy band/scale sliders leaked into the physical landform at {q},{r}"
+            );
         }
-        let seed = survey::default_seed();
-        // A coarse octave carrying most of the blend, so this half is about the cell size alone.
-        // At an even blend the fine octave breaks up every coastline and no cell size can hold a
-        // sea together — which is exactly why the weight is a parameter beside the cell.
-        let base = WorldParams {
-            elevation_coarse_weight: 78,
-            elevation_fine_cell: 5,
-            ..preset_params("continental").unwrap()
-        };
-        let at_scale = |cell| {
-            survey::run(
-                "scale",
-                &WorldParams {
-                    elevation_coarse_cell: cell,
-                    ..base.clone()
-                },
-                seed,
-                survey::DEFAULT_RADIUS,
-            )
-        };
-        let ponds = at_scale(4);
-        let seas = at_scale(24);
-        assert!(
-            ponds.water.bodies > seas.water.bodies * 4,
-            "{} bodies at scale 4 against {} at scale 24",
-            ponds.water.bodies,
-            seas.water.bodies
-        );
-        assert!(
-            seas.water.mean_body > ponds.water.mean_body * 4,
-            "mean body {} at scale 24 against {} at scale 4",
-            seas.water.mean_body,
-            ponds.water.mean_body
-        );
-        // And it is the *shape* that moved, not the amount: the sea level never changed, so the
-        // two worlds hold water within a factor of two of each other.
-        assert!(
-            ponds.water.water_hexes < seas.water.water_hexes * 2
-                && seas.water.water_hexes < ponds.water.water_hexes * 2,
-            "a feature-scale change must not be a sea-level change in disguise: {} against {}",
-            ponds.water.water_hexes,
-            seas.water.water_hexes
-        );
-
-        // The other half. Raising the sea level at a fixed feature scale adds water and leaves the
-        // count of bodies where it was: more ponds, not bigger ones. The shore cut moves with it
-        // only to keep the band order valid; it touches nothing water is measured by.
-        let shipped = preset_params("continental").unwrap();
-        let low = survey::run("low", &shipped, seed, survey::DEFAULT_RADIUS);
-        let high = survey::run(
-            "high",
-            &WorldParams {
-                water_level: 26_000,
-                shore_level: 31_000,
-                ..shipped
-            },
-            seed,
-            survey::DEFAULT_RADIUS,
-        );
-        assert!(
-            high.water.water_hexes > low.water.water_hexes * 3,
-            "a higher sea level must make much more water: {} against {}",
-            high.water.water_hexes,
-            low.water.water_hexes
-        );
-        assert!(
-            high.water.bodies * 100 < low.water.bodies * 175,
-            "a higher sea level must not be a feature-scale change in disguise: {} bodies \
-             against {}",
-            high.water.bodies,
-            low.water.bodies
-        );
     }
 
     /// What the opening promises, asserted rather than assumed.
@@ -17392,7 +17359,7 @@ mod tests {
     /// Sand and crystal are deliberately not guaranteed. Sand goes where the ocean gate says a
     /// coast is, and crystal is the reason to leave.
     #[test]
-    fn every_preset_reaches_every_material_from_the_landing_site() {
+    fn every_preset_opens_a_workable_world_on_any_seed() {
         let (definitions, _, _) = catalogs();
         for preset in world_presets() {
             let params = preset.params.clone();
@@ -17470,19 +17437,16 @@ mod tests {
                 report.land_hexes
             );
         }
-    }
 
-    /// The patch fill is a second pass over the same cells the material counts walked, and every
-    /// mean, the purity share, and the workable-patch distance are all divided out of its totals.
-    /// A fill that lost a hex, followed a neighbour of another material, or visited one twice would
-    /// move all of them at once and none of them visibly, so the accounting is asserted directly
-    /// rather than inferred from a figure looking plausible.
-    ///
-    /// This is the measurement Landforms and Fields v0.21 is tuned against. It has to be trusted
-    /// before the generator moves, which is why it lands in the same commit as the before figures
-    /// and ahead of any generation rule.
-    #[test]
-    fn patch_statistics_account_for_every_generated_cell() {
+        // The patch fill is a second pass over the same cells the material counts walked, and every
+        // mean, the purity share, and the workable-patch distance are all divided out of its totals.
+        // A fill that lost a hex, followed a neighbour of another material, or visited one twice would
+        // move all of them at once and none of them visibly, so the accounting is asserted directly
+        // rather than inferred from a figure looking plausible.
+        //
+        // This is the measurement Landforms and Fields v0.21 is tuned against. It has to be trusted
+        // before the generator moves, which is why it lands in the same commit as the before figures
+        // and ahead of any generation rule.
         let seed = survey::default_seed();
         for preset in world_presets() {
             let report = survey::run(preset.key, &preset.params, seed, 48);
@@ -17564,21 +17528,18 @@ mod tests {
                 preset.key
             );
         }
-    }
 
-    /// **The number this milestone exists for.**
-    ///
-    /// A deposit used to be decided per hex from independent noise channels, so along every
-    /// iron/coal boundary the two alternated hex by hex and an extractor covered both and cleanly
-    /// worked neither. Purity is the share of resource hexes whose radius-1 disc holds exactly one
-    /// material, and the measured before figures were `continental` 532, `archipelago` 474,
-    /// `highlands` 662, `basin` 631 — every preset failing, the wettest failing hardest.
-    ///
-    /// It is asserted at 950 rather than at whatever the presets happen to reach, because the
-    /// point is the model and not the tuning: a rule table that could not clear this bar would
-    /// mean the lattice had stopped being the thing that decides what a patch is made of.
-    #[test]
-    fn one_extractor_disc_holds_one_material() {
+        // **The number this milestone exists for.**
+        //
+        // A deposit used to be decided per hex from independent noise channels, so along every
+        // iron/coal boundary the two alternated hex by hex and an extractor covered both and cleanly
+        // worked neither. Purity is the share of resource hexes whose radius-1 disc holds exactly one
+        // material, and the measured before figures were `continental` 532, `archipelago` 474,
+        // `highlands` 662, `basin` 631 — every preset failing, the wettest failing hardest.
+        //
+        // It is asserted at 950 rather than at whatever the presets happen to reach, because the
+        // point is the model and not the tuning: a rule table that could not clear this bar would
+        // mean the lattice had stopped being the thing that decides what a patch is made of.
         let seed = survey::default_seed();
         for preset in world_presets() {
             let report = survey::run(preset.key, &preset.params, seed, survey::DEFAULT_RADIUS);
@@ -17612,17 +17573,14 @@ mod tests {
                 );
             }
         }
-    }
 
-    /// The opening is a promise about every seed, not about the shipped one.
-    ///
-    /// A guarantee that only holds on the seed it was tuned against is not a guarantee, and the
-    /// bootstrap pass is the one part of generation that can fail outright — it widens a window in
-    /// fixed steps and then gives up, and `Core::new` refuses a world it gave up on. So the claim
-    /// is checked where it would break: every preset, ten seeds, including the presets whose bands
-    /// are scarce enough to make a window hard to fill.
-    #[test]
-    fn every_preset_can_open_a_world_on_any_seed() {
+        // The opening is a promise about every seed, not about the shipped one.
+        //
+        // A guarantee that only holds on the seed it was tuned against is not a guarantee, and the
+        // bootstrap pass is the one part of generation that can fail outright — it widens a window in
+        // fixed steps and then gives up, and `Core::new` refuses a world it gave up on. So the claim
+        // is checked where it would break: every preset, ten seeds, including the presets whose bands
+        // are scarce enough to make a window hard to fill.
         let (definitions, technologies, scenarios) = catalogs();
         let scenario = scenarios
             .scenarios
@@ -17678,13 +17636,10 @@ mod tests {
                 });
             }
         }
-    }
 
-    /// A large landform must not strand the player on the 7-hex clearing. The landing disc fades
-    /// toward the opening blend and lifts a sea-spawn origin, so the first two dozen hexes stay
-    /// mostly walkable on every seed of every preset.
-    #[test]
-    fn the_landing_disc_is_not_an_ocean_raft() {
+        // A large landform must not strand the player on the 7-hex clearing. The landing disc fades
+        // toward the opening blend and lifts a sea-spawn origin, so the first two dozen hexes stay
+        // mostly walkable on every seed of every preset.
         for preset in world_presets() {
             for step in 0..10u32 {
                 let seed = survey::default_seed().wrapping_add(step.wrapping_mul(0x9E3779B1));
@@ -17713,7 +17668,7 @@ mod tests {
     /// is a scalar two different worlds can silently share. Every one of them is moved, one at a
     /// time, and the hash has to move with it.
     #[test]
-    fn every_world_parameter_reaches_the_checksum() {
+    fn world_parameters_are_checksummed_validated_and_restored_with_their_sites() {
         let base = preset_params("continental").unwrap();
         let hash_of = |params: &WorldParams| {
             let mut hash = 0x811c9dc5u32;
@@ -17769,12 +17724,9 @@ mod tests {
         hashes.sort_unstable();
         hashes.dedup();
         assert_eq!(hashes.len(), total, "two parameter changes hash the same");
-    }
 
-    /// A site's yield falls from its core to its rim, which is what makes the middle of a field
-    /// worth aiming an extractor at rather than any hex of it being as good as any other.
-    #[test]
-    fn a_site_is_richest_at_its_core() {
+        // A site's yield falls from its core to its rim, which is what makes the middle of a field
+        // worth aiming an extractor at rather than any hex of it being as good as any other.
         let params = preset_params("continental").unwrap();
         let seed = survey::default_seed();
         let spine = GroundSpine::physical(&params, seed, true);
@@ -17813,13 +17765,10 @@ mod tests {
             core_wins * 100 > compared * 85,
             "the core beat the rim in only {core_wins} of {compared} pairs"
         );
-    }
 
-    /// A parameter set that is not a world at all is refused before one is built from it. What this
-    /// deliberately does not try to catch is a set that is a world but an unplayable one — that is
-    /// what the survey measures, and no validator can decide it.
-    #[test]
-    fn parameter_sets_that_are_not_worlds_are_refused() {
+        // A parameter set that is not a world at all is refused before one is built from it. What this
+        // deliberately does not try to catch is a set that is a world but an unplayable one — that is
+        // what the survey measures, and no validator can decide it.
         let (definitions, technologies, scenarios) = catalogs();
         let base = preset_params("continental").unwrap();
         // One valid row, so each case below differs from a world by exactly the thing it names.
@@ -17922,12 +17871,9 @@ mod tests {
             );
         }
         assert!(preset_params("no-such-preset").is_none());
-    }
 
-    /// A world's parameters survive the round trip, and the world that comes back is the one that
-    /// was saved rather than the scenario's default.
-    #[test]
-    fn a_save_restores_the_parameters_its_world_was_generated_from() {
+        // A world's parameters survive the round trip, and the world that comes back is the one that
+        // was saved rather than the scenario's default.
         let (definitions, technologies, scenarios) = catalogs();
         let scenario = scenarios
             .scenarios
@@ -17965,7 +17911,7 @@ mod tests {
     /// recipe that names a fuel item as an input: steel takes two coal as carbon, and a smelter
     /// that burned those two would starve itself on its own recipe.
     #[test]
-    fn a_machine_burns_fuel_from_its_stock_and_never_the_input_it_is_waiting_on() {
+    fn machines_draw_on_the_stock_and_terrain_beside_them_and_flora_grows_back() {
         let mut core = game("new-game");
         core.researched.extend([1, 2, 3, 5]);
         core.player.inventory.insert(1, 40);
@@ -18011,13 +17957,10 @@ mod tests {
         core.tick_many(40);
         assert_eq!(core.entities[steel].output_inventory.get(&23), Some(&1));
         assert_eq!(core.entities[steel].inventory.get(&5), None);
-    }
 
-    /// Flora is the one source that comes back, which is what gives wood and ore different
-    /// strategic weight. Regrowth walks a set of cut cells rather than the world, and that set is
-    /// derived from the overlay — so a save records the tiles and the set is rebuilt from them.
-    #[test]
-    fn cut_flora_grows_back_to_what_generation_gave_it_and_then_stops() {
+        // Flora is the one source that comes back, which is what gives wood and ore different
+        // strategic weight. Regrowth walks a set of cut cells rather than the world, and that set is
+        // derived from the overlay — so a save records the tiles and the set is rebuilt from them.
         let (definitions, technologies, scenarios) = catalogs();
         let mut core = game("new-game");
         let cell = (-3, 1);
@@ -18049,13 +17992,10 @@ mod tests {
         cooldown(&mut core);
         assert_eq!(core.deposit_quantity((3, 0)), 47);
         assert!(core.flora_regrowth.is_empty());
-    }
 
-    /// A pump is a source without a deposit: it draws from the basin beside it, writes nothing into
-    /// the overlay, and the basin never runs down. Away from water it is refused outright, which is
-    /// what makes a basin a reason to build somewhere.
-    #[test]
-    fn a_pump_draws_from_the_basin_beside_it_and_never_empties_it() {
+        // A pump is a source without a deposit: it draws from the basin beside it, writes nothing into
+        // the overlay, and the basin never runs down. Away from water it is refused outright, which is
+        // what makes a basin a reason to build somewhere.
         let mut core = legacy_band_game("new-game");
         core.researched.extend([1, 2, 5, 7]);
         core.player.inventory.insert(11, 20);
@@ -18073,11 +18013,11 @@ mod tests {
             .place(3, -1, 11, 0, None)
             .unwrap_err()
             .contains("beside open water"));
-    }
 
-    #[test]
-    fn a_bridge_supports_transport_on_shallows_and_refuses_deep_water() {
-        let mut core = game("new-game");
+        // A bridge supports transport on shallows and refuses deep water.
+        // Real relief: a bridge needs water to span, and water is where the generated bed is
+        // low. See `field_game`.
+        let mut core = field_game("new-game");
         core.researched.extend([1, 11, 15]);
         core.player.inventory.insert(1, 10);
         core.player.inventory.insert(6, 10);
@@ -18182,10 +18122,8 @@ mod tests {
         core.tick_many(2);
         assert!(core.entities[index].progress > 0);
         assert!(core.set_recipe(0, 4, 6).unwrap_err().contains("mid-craft"));
-    }
 
-    #[test]
-    fn explicit_recipe_capabilities_replace_categories_without_unlocking_the_whole_category() {
+        // Explicit recipe capabilities replace categories without unlocking the whole category.
         let mut core = game("new-game");
         let kiln = core
             .definitions
@@ -18261,10 +18199,8 @@ mod tests {
         assert_eq!(restored.checksum(), core.checksum());
         restored.observe_skill_event(SkillEvent::WorkshopCraft);
         assert_eq!(restored.checksum(), core.checksum());
-    }
 
-    #[test]
-    fn skills_creative_grants_cannot_mint_milestones_after_returning() {
+        // Skills creative grants cannot mint milestones after returning.
         let mut core = game("new-game");
         core.observe_skill_event(SkillEvent::WorkshopCraft);
         core.purchase_skill(1).unwrap();
@@ -18291,31 +18227,51 @@ mod tests {
     }
 
     #[test]
-    fn the_field_survey_opens_two_rings_where_one_was_opened_before() {
-        let far = 4000 * HEX_X;
-        let mut narrow = game("new-game");
-        assert_eq!(narrow.survey_rings(), 1);
-        let baseline = narrow.generated_chunks.len();
-        narrow.ensure_neighborhood(far, 0);
-        // One ring is the chunk you are on plus its six neighbours, which is exactly the
-        // neighbourhood the game opened before there was a skill to widen it.
-        assert_eq!(narrow.generated_chunks.len(), baseline + 7);
+    fn the_field_survey_opens_the_same_distance_in_every_direction() {
+        let size = game("new-game").scenario.chunk_size;
+        let far = 4_000 * size;
+        let unsurveyed = |core: &Core, from: (i32, i32)| {
+            hexes_in_radius(from, core.survey_radius())
+                .into_iter()
+                .find(|cell| {
+                    !core
+                        .generated_chunks
+                        .contains(&(floor_div(cell.0, size), floor_div(cell.1, size)))
+                })
+        };
+
+        // Where inside a chunk the player stood used to decide how far ahead the world opened:
+        // rings were centred on the containing chunk, so an edge cell had one cell of margin in
+        // front of it and fifteen behind. Every local position now owes the same radius, and it is
+        // that equality — not the chunk count — that the player reads as an even frontier.
+        for local in [0, 1, size / 2, size - 1] {
+            let mut narrow = game("new-game");
+            assert_eq!(narrow.survey_rings(), 1);
+            assert_eq!(narrow.survey_radius(), size + size / 2);
+            let cell = (far + local, far + local);
+            let (x, y) = axial_world(cell.0, cell.1);
+            narrow.ensure_neighborhood(x, y);
+            assert_eq!(unsurveyed(&narrow, cell), None, "local offset {local}");
+        }
 
         let mut wide = game("new-game");
         wide.observe_skill_event(SkillEvent::WorkshopCraft);
         wide.purchase_skill(3).unwrap();
         assert_eq!(wide.survey_rings(), 2);
+        assert_eq!(wide.survey_radius(), 2 * size + size / 2);
         // Learning it pays out where you stand rather than on the next step.
         let opened = wide.generated_chunks.len();
-        assert!(opened > baseline);
-        wide.ensure_neighborhood(far, 0);
-        // Two rings is nineteen chunks: `3n(n+1)+1` at n = 2.
-        assert_eq!(wide.generated_chunks.len(), opened + 19);
+        assert!(opened > game("new-game").generated_chunks.len());
+        let cell = (far, far);
+        let (x, y) = axial_world(cell.0, cell.1);
+        wide.ensure_neighborhood(x, y);
+        assert_eq!(unsurveyed(&wide, cell), None);
+        let reached = wide.generated_chunks.len();
         // Generation is idempotent per chunk, so surveying the same ground twice moves nothing —
         // which is what lets the purchase re-survey a neighbourhood that is already half open.
         let settled = wide.checksum();
-        wide.ensure_neighborhood(far, 0);
-        assert_eq!(wide.generated_chunks.len(), opened + 19);
+        wide.ensure_neighborhood(x, y);
+        assert_eq!(wide.generated_chunks.len(), reached);
         assert_eq!(wide.checksum(), settled);
 
         // The wider survey is derived from the skill, never stored: a reload rebuilds it from the
@@ -18330,107 +18286,6 @@ mod tests {
         .unwrap();
         assert_eq!(restored.survey_rings(), 2);
         assert_eq!(restored.checksum(), wide.checksum());
-    }
-
-    #[test]
-    fn skills_migrate_old_bonuses_once_without_refunds_or_points() {
-        if SAVE_VERSION >= 37 {
-            assert_pre_physical_save_is_refused();
-            return;
-        }
-        let (definitions, technologies, scenarios) = catalogs();
-        for ids in [vec![], vec![18], vec![19], vec![18, 19]] {
-            let mut old = game("new-game");
-            old.researched.extend(ids.iter().copied());
-            old.apply_research_effects();
-            old.insight = 43;
-            let mut value: serde_json::Value = serde_json::from_str(
-                old.save_string()
-                    .unwrap()
-                    .strip_prefix(SAVE_PREFIX)
-                    .unwrap(),
-            )
-            .unwrap();
-            value["save_version"] = 27.into();
-            value["technology_version"] = 11.into();
-            value["state"].as_object_mut().unwrap().remove("skills");
-            let save = format!("{SAVE_PREFIX}{value}");
-            if ids.len() == 2 && std::env::var_os("UPDATE_SKILL_BROWSER_FIXTURES").is_some() {
-                std::fs::create_dir_all("target/skills-browser").unwrap();
-                std::fs::write("target/skills-browser/legacy.hxf1", &save).unwrap();
-            }
-            let mut migrated =
-                Core::from_save(&definitions, &technologies, &scenarios, &save).unwrap();
-            assert_eq!(migrated.player.carry_slots, old.player.carry_slots);
-            assert_eq!(migrated.player.build_range, old.player.build_range);
-            assert_eq!(migrated.insight, 43);
-            assert_eq!(migrated.skills.points, 0);
-            assert_eq!(migrated.skills.granted.len(), ids.len());
-            assert!(!migrated.researched.contains(&18));
-            assert!(!migrated.researched.contains(&19));
-            migrated.observe_skill_event(SkillEvent::WorkshopCraft);
-            migrated.observe_skill_event(SkillEvent::PoweredCraft);
-            for id in [1, 2] {
-                if !migrated.skills.owns(id) {
-                    migrated.purchase_skill(id).unwrap();
-                }
-            }
-            let again = Core::from_save(
-                &definitions,
-                &technologies,
-                &scenarios,
-                &migrated.save_string().unwrap(),
-            )
-            .unwrap();
-            assert_eq!(again.checksum(), migrated.checksum());
-            value["checksum"] = old.checksum().wrapping_add(1).into();
-            assert!(Core::from_save(
-                &definitions,
-                &technologies,
-                &scenarios,
-                &format!("{SAVE_PREFIX}{value}")
-            )
-            .err()
-            .unwrap()
-            .contains("checksum"));
-        }
-    }
-
-    #[test]
-    fn skills_do_not_pay_for_historical_commission_adjustments_on_load() {
-        if SAVE_VERSION >= 37 {
-            assert_pre_physical_save_is_refused();
-            return;
-        }
-        let (definitions, technologies, scenarios) = catalogs();
-        let mut old = game("new-game");
-        let component = old.scenario.contract.stages[0].requirements[0].item_id;
-        old.contract_contributed.insert(component, 1);
-        let mut value: serde_json::Value = serde_json::from_str(
-            old.save_string()
-                .unwrap()
-                .strip_prefix(SAVE_PREFIX)
-                .unwrap(),
-        )
-        .unwrap();
-        value["save_version"] = 27.into();
-        value["technology_version"] = 11.into();
-        value["state"].as_object_mut().unwrap().remove("skills");
-        let mut restored = Core::from_save(
-            &definitions,
-            &technologies,
-            &scenarios,
-            &format!("{SAVE_PREFIX}{value}"),
-        )
-        .unwrap();
-        assert_eq!(restored.contract_stage, 1);
-        assert_eq!(restored.skills.points, 0);
-        assert!(restored.skills.completed.contains(&2));
-        restored.observe_skill_event(SkillEvent::WorkshopCraft);
-        restored.observe_skill_event(SkillEvent::PoweredCraft);
-        restored.purchase_skill(1).unwrap();
-        restored.purchase_skill(2).unwrap();
-        assert_eq!(restored.skills.points, 0);
     }
 
     #[test]
@@ -18457,10 +18312,8 @@ mod tests {
         assert_eq!(availability.resulting_value, MAX_CARRY_SLOTS);
         core.purchase_skill(1).unwrap();
         assert_eq!(core.player.carry_slots, availability.resulting_value);
-    }
 
-    #[test]
-    fn skills_deltas_follow_native_state_and_catalogues_reject_cycles_and_short_budgets() {
+        // Skills deltas follow native state and catalogues reject cycles and short budgets.
         let mut factory = test_factory("new-game");
         let mut previous = factory.core.snapshot();
         factory.build_delta();
@@ -18485,7 +18338,7 @@ mod tests {
     }
 
     #[test]
-    fn primitive_recipe_capabilities_are_validated_natively() {
+    fn primitive_capabilities_are_validated_and_the_first_machines_pay_for_themselves() {
         let (definitions, _, _) = catalogs();
         for ids in [vec![], vec![8, 8], vec![9999], vec![2]] {
             let mut invalid = definitions.clone();
@@ -18507,10 +18360,8 @@ mod tests {
                 .duration_multiplier = Some(multiplier);
             assert!(validate_definitions(&invalid).is_err());
         }
-    }
 
-    #[test]
-    fn primitive_furnace_uses_local_fuel_without_power_and_recovers_its_build_cost() {
+        // Primitive furnace uses local fuel without power and recovers its build cost.
         let mut core = primitive_test_core();
         let original = core.player.inventory.clone();
         core.place(0, 4, 27, 0, Some(2)).unwrap();
@@ -18540,10 +18391,8 @@ mod tests {
         core.place(0, 4, 27, 0, Some(2)).unwrap();
         core.erase(0, 4).unwrap();
         assert_eq!(core.player.inventory, expected);
-    }
 
-    #[test]
-    fn mechanical_component_commission_is_repeatable_without_research_or_power() {
+        // Mechanical component commission is repeatable without research or power.
         for (fuel, quantity) in [(COAL, 2), (WOOD, 6)] {
             let mut core = primitive_test_core();
             core.player.inventory =
@@ -18606,164 +18455,6 @@ mod tests {
         }
     }
 
-    fn legacy_component_save(core: &mut Core) -> String {
-        core.definitions.version = 19;
-        core.scenario.version = 6;
-        core.scenario.contract.stages[0].requirements[0].quantity = 3;
-        core.definitions
-            .recipes
-            .iter_mut()
-            .find(|recipe| recipe.id == 1)
-            .unwrap()
-            .inputs = vec![Ingredient {
-            item_id: IRON_ORE,
-            quantity: 2,
-        }];
-        core.save_string().unwrap().replacen(
-            &format!("\"save_version\":{SAVE_VERSION}"),
-            "\"save_version\":24",
-            1,
-        )
-    }
-
-    #[test]
-    fn mechanical_component_migration_honors_partial_and_finished_commissions_after_checksum() {
-        if SAVE_VERSION >= 37 {
-            assert_pre_physical_save_is_refused();
-            return;
-        }
-        let (definitions, technologies, scenarios) = catalogs();
-        for contributed in 0..=3 {
-            let mut old = primitive_test_core();
-            legacy_component_save(&mut old);
-            old.insight = 73;
-            set_player_hex(&mut old, 0, -1);
-            old.player.inventory.insert(2, contributed);
-            if contributed > 0 {
-                old.deposit_item(Some(2)).unwrap();
-            }
-            let save = legacy_component_save(&mut old);
-            let mut restored =
-                Core::from_save(&definitions, &technologies, &scenarios, &save).unwrap();
-            assert_eq!(restored.entities, old.entities);
-            assert_eq!(restored.player, old.player);
-            assert_eq!(restored.insight, 73);
-            assert_eq!(restored.delivered_by_item, old.delivered_by_item);
-            assert_eq!(restored.requests, old.requests);
-            assert_eq!(restored.request_fills, old.request_fills);
-            assert_eq!(restored.contract_stage, usize::from(contributed > 0));
-            if contributed == 0 || contributed == 3 {
-                assert_eq!(restored.checksum(), old.checksum());
-            } else {
-                assert_eq!(
-                    restored.contract_contributed.get(&2),
-                    Some(&u64::from(contributed - 1))
-                );
-            }
-            if contributed > 0 {
-                assert_eq!(restored.researched, BTreeSet::from([1, 2, 4, 8]));
-            }
-            let again = Core::from_save(
-                &definitions,
-                &technologies,
-                &scenarios,
-                &restored.save_string().unwrap(),
-            )
-            .unwrap();
-            assert_eq!(
-                again.checksum(),
-                restored.checksum(),
-                "no repeated grant or consumption"
-            );
-            let tampered = save.replace("\"insight\":73", "\"insight\":74");
-            assert!(
-                Core::from_save(&definitions, &technologies, &scenarios, &tampered)
-                    .err()
-                    .unwrap()
-                    .contains("checksum")
-            );
-            if contributed > 0 {
-                restored.player.inventory.extend([(11, 16), (14, 20)]);
-                restored.deposit_inventory().unwrap();
-                assert!(restored.victory);
-                let finished = legacy_component_save(&mut restored);
-                let migrated =
-                    Core::from_save(&definitions, &technologies, &scenarios, &finished).unwrap();
-                assert!(migrated.victory);
-                assert_eq!(migrated.checksum(), restored.checksum());
-            }
-        }
-    }
-
-    #[test]
-    fn mechanical_component_migration_finishes_or_refunds_only_the_reserved_legacy_job() {
-        if SAVE_VERSION >= 37 {
-            assert_pre_physical_save_is_refused();
-            return;
-        }
-        let (definitions, technologies, scenarios) = catalogs();
-        for building in [28, 3] {
-            let mut old = primitive_test_core();
-            if building == 3 {
-                grant_foundations(&mut old);
-                old.insight = 8;
-                old.research(3).unwrap();
-                stock_for(&mut old, 3, 1);
-            }
-            set_player_hex(&mut old, 1, 3);
-            old.place(0, 4, building, 0, Some(1)).unwrap();
-            legacy_component_save(&mut old);
-            old.store(0, 4, IRON_ORE, 4).unwrap();
-            if building == 28 {
-                old.set_enabled(0, 4, true).unwrap();
-            }
-            old.power_unmetered = true;
-            old.tick_many(3);
-            let index = old.entity_at(0, 4).unwrap();
-            assert_eq!(
-                old.entities[index].reserved_inputs,
-                BTreeMap::from([(IRON_ORE, 2)])
-            );
-            let save = legacy_component_save(&mut old);
-            let mut restored =
-                Core::from_save(&definitions, &technologies, &scenarios, &save).unwrap();
-            assert_eq!(restored.checksum(), old.checksum());
-            assert_eq!(restored.entities, old.entities);
-            restored.power_unmetered = true;
-            restored.tick_many(100);
-            assert_eq!(restored.entities[index].output_inventory.get(&2), Some(&1));
-            assert_eq!(
-                restored.entities[index].input_inventory.get(&IRON_ORE),
-                Some(&2)
-            );
-            assert!(restored.entities[index].reserved_inputs.is_empty());
-            assert_eq!(restored.entities[index].progress, 0);
-            if building == 28 {
-                assert!(restored.set_enabled(0, 4, true).is_err());
-            }
-            restored
-                .withdraw_from(0, 4, StockKind::Input, IRON_ORE, 2)
-                .unwrap();
-            assert!(!restored.entities[index]
-                .input_inventory
-                .contains_key(&IRON_ORE));
-            let mut cancelled =
-                Core::from_save(&definitions, &technologies, &scenarios, &save).unwrap();
-            let ore_before = cancelled
-                .player
-                .inventory
-                .get(&IRON_ORE)
-                .copied()
-                .unwrap_or(0);
-            cancelled.erase(0, 4).unwrap();
-            assert_eq!(
-                cancelled.player.inventory.get(&IRON_ORE),
-                Some(&(ore_before + 4))
-            );
-            assert!(!cancelled.player.inventory.contains_key(&2));
-        }
-    }
-
     #[test]
     fn manual_workshop_requires_attendance_and_runs_exactly_one_batch() {
         let mut core = primitive_test_core();
@@ -18795,10 +18486,8 @@ mod tests {
         set_player_hex(&mut core, 0, 3);
         core.player.action_cooldown = 1;
         assert!(core.set_enabled(0, 4, true).is_err());
-    }
 
-    #[test]
-    fn manual_workshop_jobs_resume_after_save_and_cancel_without_losing_reserved_inputs() {
+        // Manual workshop jobs resume after save and cancel without losing reserved inputs.
         let mut core = primitive_test_core();
         let original = core.player.inventory.clone();
         core.place(0, 4, 28, 0, Some(8)).unwrap();
@@ -18829,10 +18518,8 @@ mod tests {
         subtract_item(&mut expected, 9, 1);
         expected.insert(16, 2);
         assert_eq!(restored.player.inventory, expected);
-    }
 
-    #[test]
-    fn manual_workshop_permit_is_exclusive_and_blocked_starts_leave_state_unchanged() {
+        // Manual workshop permit is exclusive and blocked starts leave state unchanged.
         let mut core = primitive_test_core();
         core.place(0, 4, 28, 0, Some(8)).unwrap();
         // Two benches, side by side rather than overlapping: a workshop stands on two hexes.
@@ -18851,10 +18538,8 @@ mod tests {
         let before = core.checksum();
         assert!(core.set_enabled(-2, 4, true).unwrap_err().contains("full"));
         assert_eq!(core.checksum(), before);
-    }
 
-    #[test]
-    fn manual_workshop_dirty_deltas_cover_permits_progress_completion_and_erasure() {
+        // Manual workshop dirty deltas cover permits progress completion and erasure.
         let mut factory = test_factory("new-game");
         factory.core = primitive_test_core();
         let _ = factory.snapshot_json();
@@ -18881,7 +18566,7 @@ mod tests {
     }
 
     #[test]
-    fn version_seventeen_factories_keep_stock_jobs_insight_and_checksum() {
+    fn legacy_factories_keep_their_state_and_the_repriced_bills_conserve() {
         let (mut legacy, technologies, scenarios) = catalogs();
         legacy.version = 15;
         legacy.buildings.retain(|building| building.id < 27);
@@ -18906,18 +18591,15 @@ mod tests {
             &scenarios,
             &json,
         ));
-    }
 
-    /// Essential and industrial stations are billed in manufactured parts, and erase hands back
-    /// exactly that bill. The pump adds kiln-fired brick; the kiln itself never requires brick.
-    ///
-    /// Both halves matter. The first is the design: not one of them is a box of raw ore any more,
-    /// and the primitive furnace/workshop start the parts chain before industrial power, so the
-    /// bootstrap stays open. The second is the safety property
-    /// that lets the first be changed at all — a refund that equals the rebuild cost can be taken
-    /// as often as you like and never pays.
-    #[test]
-    fn the_repriced_stations_are_billed_in_parts_and_refund_exactly_what_they_cost() {
+        // Essential and industrial stations are billed in manufactured parts, and erase hands back
+        // exactly that bill. The pump adds kiln-fired brick; the kiln itself never requires brick.
+        //
+        // Both halves matter. The first is the design: not one of them is a box of raw ore any more,
+        // and the primitive furnace/workshop start the parts chain before industrial power, so the
+        // bootstrap stays open. The second is the safety property
+        // that lets the first be changed at all — a refund that equals the rebuild cost can be taken
+        // as often as you like and never pays.
         let (definitions, _, _) = catalogs();
         let bill = |key: &str| -> Vec<(ItemId, u32)> {
             definitions
@@ -19024,186 +18706,10 @@ mod tests {
             core.erase(q, r).unwrap();
             assert_eq!(core.player.inventory, paid);
         }
-    }
 
-    /// A station bought at the old ore prices comes back under the new catalogue and refunds the
-    /// new bill — a one-time revaluation, and provably not a loop.
-    ///
-    /// `erase_refund` quotes the current bill rather than what was paid, so this boundary moves the
-    /// other way from the transport-kit one: an extractor bought for four ore and two stone now
-    /// hands back two plates, a gear and two timber, which is worth more raw than it cost. That is
-    /// a windfall for saves that predate v0.28 and it is bounded by how many stations they had
-    /// standing. What it is not is farmable, and this pins the reason: the refund is exactly the
-    /// rebuild cost, so the second dismantle of the same station returns the player to where the
-    /// first one left them.
-    #[test]
-    fn a_station_bought_at_ore_prices_refunds_the_new_bill_without_opening_a_loop() {
-        if SAVE_VERSION >= 37 {
-            assert_pre_physical_save_is_refused();
-            return;
-        }
-        let (mut legacy, technologies, scenarios) = catalogs();
-        legacy.version = 17;
-        legacy
-            .buildings
-            .iter_mut()
-            .find(|building| building.id == 1)
-            .unwrap()
-            .construction_cost = vec![
-            Ingredient {
-                item_id: 1,
-                quantity: 4,
-            },
-            Ingredient {
-                item_id: 6,
-                quantity: 2,
-            },
-        ];
-        let scenario = scenarios
-            .scenarios
-            .iter()
-            .find(|scenario| scenario.key == "new-game")
-            .unwrap();
-        let mut old = Core::new(&legacy, &technologies, scenario, None, None).unwrap();
-        for &(q, r, item_id, quantity) in &TEST_FIELD {
-            old.write_overlay(q, r, item_id, quantity, quantity);
-        }
-        old.researched.insert(2);
-        old.player.inventory.insert(1, 4);
-        old.player.inventory.insert(6, 2);
-        set_player_hex(&mut old, 3, 1);
-        old.place(3, 0, 1, 0, None).unwrap();
-        assert!(old.player.inventory.is_empty(), "paid in ore and stone");
-
-        // Written by the current runtime and relabelled as the envelope it stands in for, so the
-        // file walks the 19 -> 20 step on the way back in.
-        let json = old.save_string().unwrap().replacen(
-            &format!("\"save_version\":{SAVE_VERSION}"),
-            "\"save_version\":19",
-            1,
-        );
-        let (definitions, _, _) = catalogs();
-        let mut restored = Core::from_save(&definitions, &technologies, &scenarios, &json).unwrap();
-        assert_eq!(restored.entities.len(), old.entities.len());
-
-        restored.erase(3, 0).unwrap();
-        let refund = restored.player.inventory.clone();
-        assert_eq!(
-            refund,
-            BTreeMap::from([(11, 2), (19, 1), (16, 2)]),
-            "the dismantled extractor is quoted at what rebuilding it costs today"
-        );
-        // And the loop closes on itself: rebuilding spends the refund down to nothing, and taking
-        // it apart again returns the same hand. There is no second windfall.
-        restored.place(3, 0, 1, 0, None).unwrap();
-        assert!(restored.player.inventory.is_empty());
-        restored.erase(3, 0).unwrap();
-        assert_eq!(restored.player.inventory, refund);
-    }
-
-    #[test]
-    fn industrial_bills_preserve_legacy_jobs_and_resume_without_a_refund_loop() {
-        if SAVE_VERSION >= 37 {
-            assert_pre_physical_save_is_refused();
-            return;
-        }
-        for (id, recipe, bill, input) in [
-            (7, Some(2), vec![(6, 8), (1, 4)], Some((1, 2))),
-            (8, Some(6), vec![(6, 6), (8, 4)], Some((8, 2))),
-            (9, Some(8), vec![(11, 3), (6, 6)], Some((9, 1))),
-            (10, Some(9), vec![(11, 4), (6, 6)], Some((6, 1))),
-            (11, None, vec![(11, 4), (14, 4)], None),
-        ] {
-            let (mut legacy, technologies, scenarios) = catalogs();
-            legacy.version = 18;
-            legacy
-                .buildings
-                .iter_mut()
-                .find(|b| b.id == id)
-                .unwrap()
-                .construction_cost = bill
-                .into_iter()
-                .map(|(item_id, quantity)| Ingredient { item_id, quantity })
-                .collect();
-            let scenario = scenarios
-                .scenarios
-                .iter()
-                .find(|s| s.key == "new-game")
-                .unwrap();
-            let mut old = Core::new(&legacy, &technologies, scenario, None, None).unwrap();
-            old.power_unmetered = true;
-            old.researched.extend([1, 2, 3, 4, 5, 6, 7, 8]);
-            old.insight = 17;
-            old.player.carry_slots = 99;
-            old.player.inventory.clear();
-            let (q, r) = if id == 11 { (3, 1) } else { (0, 4) };
-            set_player_hex(
-                &mut old,
-                if id == 11 { 2 } else { 0 },
-                if id == 11 { 0 } else { 3 },
-            );
-            stock_for(&mut old, id, 1);
-            old.place(q, r, id, 0, recipe).unwrap();
-            let index = old.entity_at(q, r).unwrap();
-            if let Some((item, quantity)) = input {
-                old.entities[index].input_inventory.insert(item, quantity);
-            }
-            if id == 7 || id == 8 {
-                old.entities[index].fuel_inventory.insert(5, 2);
-            }
-            old.tick_many(1);
-            let save = old.save_string().unwrap().replacen(
-                &format!("\"save_version\":{SAVE_VERSION}"),
-                "\"save_version\":23",
-                1,
-            );
-            let (definitions, _, _) = catalogs();
-            let mut restored =
-                Core::from_save(&definitions, &technologies, &scenarios, &save).unwrap();
-            assert_eq!(restored.checksum(), old.checksum(), "station {id}");
-            let before: serde_json::Value =
-                serde_json::from_str(old.save_string().unwrap().strip_prefix("HXF1\n").unwrap())
-                    .unwrap();
-            let after: serde_json::Value = serde_json::from_str(
-                restored
-                    .save_string()
-                    .unwrap()
-                    .strip_prefix("HXF1\n")
-                    .unwrap(),
-            )
-            .unwrap();
-            assert_eq!(after["state"], before["state"]);
-            assert_eq!(restored.player_snapshot(), old.player_snapshot());
-            assert_eq!(restored.insight, 17);
-            restored.power_unmetered = true;
-            old.tick_many(40);
-            restored.tick_many(40);
-            assert_eq!(restored.checksum(), old.checksum(), "resumed station {id}");
-            restored.erase(q, r).unwrap();
-            let refund = restored.player.inventory.clone();
-            for cost in &definitions
-                .buildings
-                .iter()
-                .find(|b| b.id == id)
-                .unwrap()
-                .construction_cost
-            {
-                assert!(refund.get(&cost.item_id).copied().unwrap_or(0) >= cost.quantity);
-            }
-            restored.place(q, r, id, 0, recipe).unwrap();
-            restored.erase(q, r).unwrap();
-            assert_eq!(
-                restored.player.inventory, refund,
-                "rebuild of station {id} cannot profit"
-            );
-        }
-    }
-
-    /// Iron wire is what the first generator and the first pole are wound with, so it has to be
-    /// makeable before either of them exists — which means by hand at the manual workshop, with no
-    /// research and no power, as well as at the composer the workshop stands in for.
-    #[test]
-    fn iron_wire_is_drawn_by_hand_before_there_is_a_composer_to_draw_it_at() {
+        // Iron wire is what the first generator and the first pole are wound with, so it has to be
+        // makeable before either of them exists — which means by hand at the manual workshop, with no
+        // research and no power, as well as at the composer the workshop stands in for.
         let mut core = primitive_test_core();
         core.player.inventory.insert(11, 1);
         core.place(0, 4, 28, 0, Some(16)).unwrap();
@@ -19234,7 +18740,7 @@ mod tests {
     }
 
     #[test]
-    fn continuous_movement_intent_and_collision_are_native() {
+    fn movement_intent_aim_and_cadence_are_native() {
         let mut core = legacy_band_game("new-game");
         // Stay inside the landing clearing so derived water and cliffs cannot interrupt the walk.
         set_player_hex(&mut core, 0, 3);
@@ -19262,12 +18768,9 @@ mod tests {
         core.advance_player_steps(1);
         assert_eq!(core.player.x, blocked_x);
         assert_eq!(core.terrain_at(1, -1), Terrain::Cliff);
-    }
 
-    /// Shallows are a 5 m/s ford: walkable, not buildable, and the gait does not matter once
-    /// you are in the water. Deep water stays a wall.
-    #[test]
-    fn shallow_water_is_a_slow_ford() {
+        // Shallows are a 5 m/s ford: walkable, not buildable, and the gait does not matter once
+        // you are in the water. Deep water stays a wall.
         assert!(!Terrain::ShallowWater.blocks_movement());
         assert!(Terrain::ShallowWater.blocks_construction());
         assert!(Terrain::DeepWater.blocks_movement());
@@ -19301,13 +18804,10 @@ mod tests {
             .place(2, 1, 11, 0, None)
             .unwrap_err()
             .contains("environment blocks construction"));
-    }
 
-    /// Facing became something the player aims rather than a side effect of walking, so the command
-    /// that sets it has to resolve as natively as the movement it sits beside: the host names a
-    /// world point and this turns it into the vector the checksum hashes.
-    #[test]
-    fn aiming_faces_the_world_position_the_host_names() {
+        // Facing became something the player aims rather than a side effect of walking, so the command
+        // that sets it has to resolve as natively as the movement it sits beside: the host names a
+        // world point and this turns it into the vector the checksum hashes.
         let mut core = game("new-game");
         set_player_hex(&mut core, 0, 3);
         let (x, y) = (core.player.x, core.player.y);
@@ -19338,13 +18838,10 @@ mod tests {
             (restored.player.facing_x, restored.player.facing_y),
             (-707, 707)
         );
-    }
 
-    /// What keeps a pointer aiming and a touch layout facing the way it walks, with no stored
-    /// aiming mode for the save format and the checksum to carry: both commands write facing, and
-    /// whichever the host sent last in the batch is the one that stands.
-    #[test]
-    fn an_aim_later_in_the_batch_outranks_the_walk_direction() {
+        // What keeps a pointer aiming and a touch layout facing the way it walks, with no stored
+        // aiming mode for the save format and the checksum to carry: both commands write facing, and
+        // whichever the host sent last in the batch is the one that stands.
         let mut core = game("new-game");
         set_player_hex(&mut core, 0, 3);
         let (x, y) = (core.player.x, core.player.y);
@@ -19358,20 +18855,16 @@ mod tests {
         // A frame with no aim in it — every frame of the touch layout — still faces the walk.
         core.advance(IDLE_MOVE_EAST, 0, 0).unwrap();
         assert_eq!((core.player.facing_x, core.player.facing_y), (1000, 0));
-    }
 
-    #[test]
-    fn integer_square_root_is_exact_on_squares_and_truncates_between_them() {
+        // Integer square root is exact on squares and truncates between them.
         assert_eq!(integer_sqrt(0), 0);
         assert_eq!(integer_sqrt(-9), 0);
         for root in [1_i64, 2, 3, 1_000, 46_341, 3_037_000_499] {
             assert_eq!(integer_sqrt(root * root), root);
             assert_eq!(integer_sqrt(root * root - 1), root - 1);
         }
-    }
 
-    #[test]
-    fn the_player_walks_on_its_own_cadence_not_the_factorys() {
+        // The player walks on its own cadence not the factorys.
         // The complaint this answers: the player stopped when the factory paused and crawled at a
         // low speed multiplier, because walking ran inside the simulation tick.
         let mut core = game("new-game");
@@ -19404,17 +18897,14 @@ mod tests {
         assert_eq!(slow.player.x, fast.player.x);
         assert_eq!(slow.player.y, fast.player.y);
         assert_eq!(Factory::player_ticks_per_second(), PLAYER_TICKS_PER_SECOND);
-    }
 
-    /// A hexagon is 25 m², the walk is 15 m/s, the run is 25 m/s. Native stores one step size — the
-    /// run, at intent 1000 — and the host sends 600 for the walk, which is exactly 3/5 of full
-    /// intent. Neighbour spacing is still `HEX_X` world units, now read as 5.373 m.
-    ///
-    /// The gait ratio is the structural half and holds at any speed; the pinned constant is the
-    /// half that carries the decision. `PLAYER_SPEED` stayed at 275 across the rescale, so a hex
-    /// still takes about 0.36 s to cross at a walk and the metre figures moved instead.
-    #[test]
-    fn walk_is_fifteen_metres_a_second_and_run_is_twenty_five() {
+        // A hexagon is 25 m², the walk is 15 m/s, the run is 25 m/s. Native stores one step size — the
+        // run, at intent 1000 — and the host sends 600 for the walk, which is exactly 3/5 of full
+        // intent. Neighbour spacing is still `HEX_X` world units, now read as 5.373 m.
+        //
+        // The gait ratio is the structural half and holds at any speed; the pinned constant is the
+        // half that carries the decision. `PLAYER_SPEED` stayed at 275 across the rescale, so a hex
+        // still takes about 0.36 s to cross at a walk and the metre figures moved instead.
         const WALK_INTENT: i32 = 600;
         let walk = WALK_INTENT * PLAYER_SPEED / 1000;
         assert_eq!(walk * 5, PLAYER_SPEED * 3);
@@ -19473,7 +18963,7 @@ mod tests {
     /// The whole gesture, end to end: a click names a hex, native finds the way, and the player
     /// walks it without another command being sent.
     #[test]
-    fn a_click_walks_the_player_to_the_hex_it_named() {
+    fn a_click_routes_walks_and_replans_around_what_blocks_it() {
         let mut core = game("new-game");
         // Outside the hub's seven hexes: the hub blocks movement, so a player standing inside it
         // would be measuring collision rather than walking.
@@ -19494,12 +18984,9 @@ mod tests {
         assert_eq!(core.player.walk_goal, None);
         assert!(core.walk_path.is_empty());
         assert_eq!((core.player.move_x, core.player.move_y), (0, 0));
-    }
 
-    /// The route goes round what blocks it. A wall the player built themselves is as real to the
-    /// search as a cliff is, because both answer the same `walkable_hex`.
-    #[test]
-    fn a_route_goes_round_what_blocks_it_rather_than_through_it() {
+        // The route goes round what blocks it. A wall the player built themselves is as real to the
+        // search as a cliff is, because both answer the same `walkable_hex`.
         let mut core = legacy_band_game("new-game");
         set_player_hex(&mut core, 1, 0);
         let barrier = [(3, -1), (3, 0), (3, 1)];
@@ -19517,13 +19004,10 @@ mod tests {
             core.walk_path.len() > axial_distance((1, 0), (6, 0)) as usize,
             "a route round a wall cannot be as short as the straight line it replaces"
         );
-    }
 
-    /// Water is not scenery to a route. Shallows are walkable and are therefore never refused, but
-    /// `player_step` fords them at a fifth speed, so the search charges five and takes the long dry
-    /// way — which is the way the player would have taken, and five times faster.
-    #[test]
-    fn a_route_pays_for_a_ford_and_takes_the_dry_way_round() {
+        // Water is not scenery to a route. Shallows are walkable and are therefore never refused, but
+        // `player_step` fords them at a fifth speed, so the search charges five and takes the long dry
+        // way — which is the way the player would have taken, and five times faster.
         // The complaint this answers: the shortest route and the fastest route are not the same
         // route once water is on the map, and the shortest one wades.
         assert_eq!(
@@ -19551,12 +19035,9 @@ mod tests {
         // have spent two of them crossing at 5 m/s.
         assert_eq!(core.walk_path.len(), 4);
         assert_eq!(axial_distance((0, 2), (3, 2)), 3);
-    }
 
-    /// Three refusals, each an event rather than a silent no-op: the player pointed at something and
-    /// is owed an answer about it.
-    #[test]
-    fn a_hex_with_no_way_to_it_is_refused_and_nobody_moves() {
+        // Three refusals, each an event rather than a silent no-op: the player pointed at something and
+        // is owed an answer about it.
         let mut core = legacy_band_game("new-game");
         set_player_hex(&mut core, 1, 0);
         let standing = (core.player.x, core.player.y);
@@ -19579,12 +19060,9 @@ mod tests {
         assert_eq!(core.player.walk_goal, None);
         assert_eq!((core.player.x, core.player.y), standing);
         assert_eq!((core.player.move_x, core.player.move_y), (0, 0));
-    }
 
-    /// Clicking your own feet cancels rather than searching, which is the useful reading of it and
-    /// the cheapest.
-    #[test]
-    fn walking_to_the_hex_you_are_standing_on_stops_the_walk() {
+        // Clicking your own feet cancels rather than searching, which is the useful reading of it and
+        // the cheapest.
         let mut core = game("new-game");
         set_player_hex(&mut core, 1, 0);
         core.walk_to(6, 0).unwrap();
@@ -19592,12 +19070,9 @@ mod tests {
         core.walk_to(1, 0).unwrap();
         assert_eq!(core.player.walk_goal, None);
         assert!(core.walk_path.is_empty());
-    }
 
-    /// The moment the player touches the movement keys they are driving. Both the key going down
-    /// and the key coming back up cancel, because both are the host saying the player is steering.
-    #[test]
-    fn any_movement_command_takes_the_walk_back_off_the_simulation() {
+        // The moment the player touches the movement keys they are driving. Both the key going down
+        // and the key coming back up cancel, because both are the host saying the player is steering.
         for batch in [IDLE_MOVE_EAST, IDLE] {
             let mut core = game("new-game");
             set_player_hex(&mut core, 1, 0);
@@ -19612,13 +19087,10 @@ mod tests {
             assert_eq!(core.player.walk_goal, None);
             assert!(core.walk_path.is_empty());
         }
-    }
 
-    /// A wall raised across a live route is answered when it is raised, not when the player reaches
-    /// it — the drawn ribbon and the walk are the same path, so a stale one would be the host
-    /// promising a walk that cannot happen.
-    #[test]
-    fn a_wall_across_a_live_route_replans_it_and_a_sealed_goal_ends_it() {
+        // A wall raised across a live route is answered when it is raised, not when the player reaches
+        // it — the drawn ribbon and the walk are the same path, so a stale one would be the host
+        // promising a walk that cannot happen.
         let mut core = game("new-game");
         set_player_hex(&mut core, 1, 0);
         core.walk_to(6, 0).unwrap();
@@ -19652,13 +19124,10 @@ mod tests {
             "a walk that cannot finish has to say so: {:?}",
             core.events
         );
-    }
 
-    /// Where the player is headed is state the run carries: it is hashed, it is saved, and it comes
-    /// back walking. The route is not saved — it is rebuilt against the world that loaded, which is
-    /// the only version of this that cannot come back describing a corridor that no longer exists.
-    #[test]
-    fn a_walk_is_hashed_saved_and_resumed() {
+        // Where the player is headed is state the run carries: it is hashed, it is saved, and it comes
+        // back walking. The route is not saved — it is rebuilt against the world that loaded, which is
+        // the only version of this that cannot come back describing a corridor that no longer exists.
         let (definitions, technologies, scenarios) = catalogs();
         let mut core = game("new-game");
         // Outside the hub's seven hexes, so the walk being saved is a walk rather than a collision.
@@ -19686,13 +19155,10 @@ mod tests {
             }
         }
         assert_eq!(world_to_axial(resumed.player.x, resumed.player.y), (6, 0));
-    }
 
-    /// The search is simulation, so it answers the same way every time. Ties break on `(f, g, q, r)`
-    /// rather than on whatever order a heap happened to pop, which is what makes this true rather
-    /// than usually true.
-    #[test]
-    fn the_same_click_finds_the_same_route_and_the_same_checksum() {
+        // The search is simulation, so it answers the same way every time. Ties break on `(f, g, q, r)`
+        // rather than on whatever order a heap happened to pop, which is what makes this true rather
+        // than usually true.
         let batch = r#"[{"type":"walk_to","q":6,"r":0}]"#;
         let mut first = game("new-game");
         let mut second = game("new-game");
@@ -19711,13 +19177,10 @@ mod tests {
             (first.player.x, first.player.y),
             (second.player.x, second.player.y)
         );
-    }
 
-    /// Thinking about a route must not change the world. `terrain_at` is a pure function of the
-    /// parameters and the seed, and the search deliberately never calls `ensure_tile` — if it did,
-    /// considering a hex would survey it, and `generated_chunks` is a checksum input.
-    #[test]
-    fn searching_for_a_route_surveys_nothing_and_moves_no_checksum() {
+        // Thinking about a route must not change the world. `terrain_at` is a pure function of the
+        // parameters and the seed, and the search deliberately never calls `ensure_tile` — if it did,
+        // considering a hex would survey it, and `generated_chunks` is a checksum input.
         let mut core = game("new-game");
         set_player_hex(&mut core, 1, 0);
         let before = core.checksum();
@@ -19732,7 +19195,7 @@ mod tests {
     }
 
     #[test]
-    fn gathering_depletes_finite_resources_and_conserves_items() {
+    fn gathering_is_bounded_by_reach_cooldown_and_what_the_hex_holds() {
         let mut core = game("new-game");
         set_player_hex(&mut core, 3, 0);
         let before = core.deposit_quantity((3, 0));
@@ -19743,15 +19206,12 @@ mod tests {
         assert_eq!(core.player.inventory.get(&1), Some(&before));
         assert_eq!(core.deposit_quantity((3, 0)), 0);
         assert!(core.gather().is_err());
-    }
 
-    /// A gather takes from the hex the player is standing on, wherever they stand inside it and
-    /// whichever way they face. The old target was pushed half a gather range along the facing and
-    /// then resolved to the nearest field cell, so stepping off-centre inside your own hex silently
-    /// moved the harvest to the neighbour ahead: the number under your feet stayed put while a
-    /// different hex counted down. Nothing on screen shows facing, so that was unattributable.
-    #[test]
-    fn a_gather_takes_from_the_hex_the_player_stands_on_whatever_way_they_face() {
+        // A gather takes from the hex the player is standing on, wherever they stand inside it and
+        // whichever way they face. The old target was pushed half a gather range along the facing and
+        // then resolved to the nearest field cell, so stepping off-centre inside your own hex silently
+        // moved the harvest to the neighbour ahead: the number under your feet stayed put while a
+        // different hex counted down. Nothing on screen shows facing, so that was unattributable.
         for (facing_x, facing_y) in [(1000, 0), (-1000, 0), (500, 866), (-500, -866)] {
             for offset in [-880, -400, 0, 400, 880] {
                 let mut core = game("new-game");
@@ -19775,13 +19235,10 @@ mod tests {
                 );
             }
         }
-    }
 
-    /// Reach is exactly what an extractor on the same hex would cover, and it does not depend on
-    /// facing. Standing on the field takes from it; standing one step away still reaches it, which
-    /// is what lets a player work a field edge; two steps away is out of reach from every angle.
-    #[test]
-    fn gather_reach_is_the_extractor_predicate_and_is_the_same_in_every_direction() {
+        // Reach is exactly what an extractor on the same hex would cover, and it does not depend on
+        // facing. Standing on the field takes from it; standing one step away still reaches it, which
+        // is what lets a player work a field edge; two steps away is out of reach from every angle.
         for &(dq, dr) in &DIRECTIONS {
             for steps in 0..=2 {
                 for facing in 0..6u8 {
@@ -19807,14 +19264,11 @@ mod tests {
                 }
             }
         }
-    }
 
-    /// The cooldown between two gathers runs on the player's clock, not the factory's. It used to
-    /// be decremented once per simulation tick, so pausing froze it outright — one gather, then
-    /// "action cooling down" for as long as the factory stayed paused — and the harvest rate
-    /// otherwise rode the speed setting, six times faster at 60 tps than at 4.
-    #[test]
-    fn the_gather_cooldown_runs_on_the_players_clock_not_the_factorys() {
+        // The cooldown between two gathers runs on the player's clock, not the factory's. It used to
+        // be decremented once per simulation tick, so pausing froze it outright — one gather, then
+        // "action cooling down" for as long as the factory stayed paused — and the harvest rate
+        // otherwise rode the speed setting, six times faster at 60 tps than at 4.
         let mut core = game("new-game");
         set_player_hex(&mut core, 3, 0);
         core.gather().unwrap();
@@ -19842,18 +19296,15 @@ mod tests {
             core.gather().is_err(),
             "factory time paid the player's debt"
         );
-    }
 
-    /// The first harvest of a session used to be free. The counter was a debt charged *after* an
-    /// instant take, so the button banked a unit the moment it went down and only then made the
-    /// player wait — the one gather in a run that cost nothing was the first one, and the ring drew
-    /// a wait for work that had already been paid out.
-    ///
-    /// It now measures the swing itself. Nothing moves until the work is spent, the deposit and the
-    /// pack change in the same step, and a swing the player walks out of reach of pays nothing —
-    /// harvesting is work over a hex, not a toll on the hex you were last standing beside.
-    #[test]
-    fn a_harvest_pays_when_the_work_is_done_and_never_before_it() {
+        // The first harvest of a session used to be free. The counter was a debt charged *after* an
+        // instant take, so the button banked a unit the moment it went down and only then made the
+        // player wait — the one gather in a run that cost nothing was the first one, and the ring drew
+        // a wait for work that had already been paid out.
+        //
+        // It now measures the swing itself. Nothing moves until the work is spent, the deposit and the
+        // pack change in the same step, and a swing the player walks out of reach of pays nothing —
+        // harvesting is work over a hex, not a toll on the hex you were last standing beside.
         let (definitions, technologies, scenarios) = catalogs();
         let mut core = game("new-game");
         set_player_hex(&mut core, 3, 0);
@@ -19928,7 +19379,7 @@ mod tests {
     }
 
     #[test]
-    fn placement_enforces_terrain_occupancy_range_cost_and_technology() {
+    fn placement_and_drag_build_exactly_what_the_rules_allow_and_undo_takes_it_back() {
         let mut core = legacy_band_game("new-game");
         core.player.inventory.insert(1, 100);
         core.player.inventory.insert(3, 100);
@@ -19973,11 +19424,8 @@ mod tests {
             .placement_legality(100, 100, 2, 0, None, true)
             .unwrap_err()
             .contains("player"));
-    }
 
-    /// The six corner vectors are one rotational family, not six hand-written special cases.
-    #[test]
-    fn corner_headings_form_a_clockwise_six_point_rosette() {
+        // The six corner vectors are one rotational family, not six hand-written special cases.
         let corners = &TRANSPORT_DIRECTIONS[usize::from(NORTH)..];
         for index in 0..corners.len() {
             let (q, r) = corners[index];
@@ -19988,12 +19436,9 @@ mod tests {
         assert_eq!(TRANSPORT_DIRECTIONS[..DIRECTIONS.len()], DIRECTIONS);
         // Adjacency stays six. A boiler must never reach two rows.
         assert_eq!(DIRECTIONS.len(), 6);
-    }
 
-    /// Every corner heading resolves symmetrically, and no target in a wide lattice window gives
-    /// two headings the same full two-row close. The resolver still carries an explicit tie-break.
-    #[test]
-    fn a_corner_drag_uses_the_two_row_period_only_within_thirty_degrees_of_a_heading() {
+        // Every corner heading resolves symmetrically, and no target in a wide lattice window gives
+        // two headings the same full two-row close. The resolver still carries an explicit tie-break.
         use OrientationAxis::{Corner, Edge};
         for &(dq, dr) in &TRANSPORT_DIRECTIONS[usize::from(NORTH)..] {
             assert_eq!(
@@ -20021,10 +19466,8 @@ mod tests {
         for &to in &[(3, 0), (4, 1), (5, 3), (0, -6), (-3, 2)] {
             assert_eq!(line_between((0, 0), to, Edge), hex_line((0, 0), to));
         }
-    }
 
-    #[test]
-    fn a_drag_resolves_one_turn_and_stays_bounded() {
+        // A drag resolves one turn and stays bounded.
         // A straight run along a hex axis.
         assert_eq!(
             hex_line((0, 0), (3, 0)),
@@ -20050,10 +19493,8 @@ mod tests {
         assert_eq!(hex_line((0, 0), (900, 0)).len(), MAX_LINE_CELLS);
         assert_eq!(step_direction((0, 0), (0, 1)), Some(1));
         assert_eq!(step_direction((0, 0), (4, 4)), None);
-    }
 
-    #[test]
-    fn one_drag_builds_exactly_what_the_equivalent_placements_build() {
+        // One drag builds exactly what the equivalent placements build.
         // The path and per-cell headings `a_drag_resolves_one_turn_and_stays_bounded` pins, written
         // out so this test does not re-derive them from the code it is checking.
         let equivalent = [((2, 0), 0u8), ((3, 0), 0), ((4, 0), 1), ((4, 1), 1)];
@@ -20084,10 +19525,8 @@ mod tests {
         assert_eq!(headings, vec![0, 0, 1, 1]);
         // One drag reports one result, not one per cell.
         assert_eq!(dragged.events.last().unwrap(), "Placed 4 × Belt");
-    }
 
-    #[test]
-    fn a_drag_builds_what_it_legally_can_and_reports_why_it_stopped() {
+        // A drag builds what it legally can and reports why it stopped.
         let mut core = game("new-game");
         core.researched.extend([1, 2, 3, 4]);
         // Enough for two of the four cells the drag covers.
@@ -20118,10 +19557,8 @@ mod tests {
             .entities
             .iter()
             .all(|entity| entity.placed.scenario_owned));
-    }
 
-    #[test]
-    fn a_drag_preview_is_what_the_drag_builds() {
+        // A drag preview is what the drag builds.
         let mut core = game("new-game");
         core.researched.extend([1, 2, 3, 4]);
         // Materials for two of the four cells, so the preview has to show the run stopping.
@@ -20158,10 +19595,8 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec![(2, 0), (3, 0)]
         );
-    }
 
-    #[test]
-    fn a_belt_drag_routes_around_an_occupied_hex() {
+        // A belt drag routes around an occupied hex.
         let mut core = game("new-game");
         core.researched.extend([1, 2, 3, 4]);
         stock_for(&mut core, 4, 1);
@@ -20196,10 +19631,8 @@ mod tests {
             .line_preview((2, 0), (4, 0), 2, 0, None)
             .iter()
             .all(|cell| cell.legal));
-    }
 
-    #[test]
-    fn one_drag_removes_the_run_it_covers() {
+        // One drag removes the run it covers.
         let mut core = game("new-game");
         core.researched.extend([1, 2, 3, 4]);
         core.player.inventory.insert(24, 100);
@@ -20218,13 +19651,18 @@ mod tests {
             .erase_line((2, 0), (4, 1))
             .unwrap_err()
             .contains("no building"));
-    }
 
-    #[test]
-    fn undo_takes_back_the_last_construction_through_the_erase_path() {
+        // Undo takes back the last construction through the erase path.
         let mut core = game("new-game");
         core.researched.extend([1, 2, 3, 4]);
         core.player.inventory.insert(24, 100);
+        // Building opens the world around what you build, and that opening is not a construction:
+        // no undo takes back ground you have already seen. So survey the far end of the drag
+        // before the baseline is taken, or this test would be measuring the survey rather than
+        // the undo. Under the old chunk-ring survey this happened to be unnecessary — `(4, 1)`
+        // shares a chunk with `(2, 0)` — which made the omission invisible rather than correct.
+        let (far_x, far_y) = axial_world(4, 1);
+        core.ensure_neighborhood(far_x, far_y);
         let before = core.checksum();
 
         core.place(2, 0, 2, 0, None).unwrap();
@@ -20265,7 +19703,7 @@ mod tests {
     /// nothing is handed back. Each is checked against the ordinary path rather than a creative-only
     /// one, because the whole value of a creative test bed is that it builds the same factory.
     #[test]
-    fn creative_unlocks_the_tree_and_builds_for_free() {
+    fn creative_unlocks_grants_resizes_and_survives_a_save() {
         let mut core = legacy_band_game("new-game");
         // A locked building with an empty pack: refused for both reasons before the switch.
         let locked = core.place(2, 0, 2, 0, None).unwrap_err();
@@ -20310,12 +19748,9 @@ mod tests {
             .place(2, 1, 2, 0, None)
             .unwrap_err()
             .contains("environment"));
-    }
 
-    /// Leaving creative restores the prices and the refunds. What the settlement learned stays
-    /// learned, because a technology is knowledge rather than a purchase.
-    #[test]
-    fn leaving_creative_restores_the_prices_but_keeps_what_was_learned() {
+        // Leaving creative restores the prices and the refunds. What the settlement learned stays
+        // learned, because a technology is knowledge rather than a purchase.
         let mut core = game("new-game");
         core.set_creative(true);
         core.set_creative(false);
@@ -20324,12 +19759,9 @@ mod tests {
         assert!(core.grant(1, 1).unwrap_err().contains("creative"));
         assert!(core.discard(Some(1), 1).unwrap_err().contains("creative"));
         assert!(core.set_carry_slots(40).unwrap_err().contains("creative"));
-    }
 
-    /// Granting is a route into the pack like any other, so it obeys the one carrying rule: what
-    /// fits arrives, what does not is not invented, and an empty grant says so rather than lying.
-    #[test]
-    fn creative_grants_and_discards_obey_the_carrying_rule() {
+        // Granting is a route into the pack like any other, so it obeys the one carrying rule: what
+        // fits arrives, what does not is not invented, and an empty grant says so rather than lying.
         let mut core = game("new-game");
         core.set_creative(true);
         let stack = core.stack_size(1);
@@ -20358,11 +19790,8 @@ mod tests {
         core.discard(None, 0).unwrap();
         assert!(core.player.inventory.is_empty());
         assert!(core.discard(None, 0).unwrap_err().contains("nothing"));
-    }
 
-    /// The pack may be widened, within bounds, and never so far down that carried stock is stranded.
-    #[test]
-    fn creative_pack_resizing_is_bounded_at_both_ends() {
+        // The pack may be widened, within bounds, and never so far down that carried stock is stranded.
         let mut core = game("new-game");
         let scenario_slots = core.player.carry_slots;
         core.set_creative(true);
@@ -20391,12 +19820,9 @@ mod tests {
             .contains("too much carried"));
         core.discard(None, 0).unwrap();
         core.set_carry_slots(earned_slots).unwrap();
-    }
 
-    /// Both halves of creative are run state now, so both survive a save and both are hashed. A file
-    /// with either edited out no longer describes the run it came from.
-    #[test]
-    fn creative_and_a_widened_pack_survive_a_save() {
+        // Both halves of creative are run state now, so both survive a save and both are hashed. A file
+        // with either edited out no longer describes the run it came from.
         let (definitions, technologies, scenarios) = catalogs();
         let mut core = game("new-game");
         core.set_creative(true);
@@ -20435,54 +19861,7 @@ mod tests {
     }
 
     #[test]
-    fn an_old_creative_save_learns_new_capability_research_after_checksum_verification() {
-        if SAVE_VERSION >= 37 {
-            assert_pre_physical_save_is_refused();
-            return;
-        }
-        let (definitions, technologies, scenarios) = catalogs();
-        let mut old = game("new-game");
-        old.set_creative(true);
-        old.skills = SkillsState::default();
-        old.player.carry_slots = old.scenario.carry_slots;
-        old.player.build_range = old.scenario.build_range.saturating_mul(HEX_X as u32);
-        let old_checksum = old.checksum();
-        let save = old
-            .save_string()
-            .unwrap()
-            .replacen(
-                &format!("\"save_version\":{SAVE_VERSION}"),
-                "\"save_version\":16",
-                1,
-            )
-            .replacen("\"definition_version\":17", "\"definition_version\":15", 1)
-            .replacen("\"technology_version\":8", "\"technology_version\":7", 1);
-        assert!(save.contains(&format!("\"checksum\":{old_checksum}")));
-
-        let restored = Core::from_save(&definitions, &technologies, &scenarios, &save).unwrap();
-        assert!(restored.creative);
-        assert!(restored.skills.granted.contains(&1));
-        assert!(restored.skills.granted.contains(&2));
-        assert_eq!(restored.player.carry_slots, old.scenario.carry_slots + 4);
-        assert_eq!(
-            restored.player.build_range,
-            (old.scenario.build_range + 3) * HEX_X as u32
-        );
-
-        let forged = save.replace(
-            &format!("\"checksum\":{old_checksum}"),
-            &format!("\"checksum\":{}", old_checksum.wrapping_add(1)),
-        );
-        assert!(
-            Core::from_save(&definitions, &technologies, &scenarios, &forged)
-                .err()
-                .unwrap()
-                .contains("checksum")
-        );
-    }
-
-    #[test]
-    fn erase_refunds_cost_and_contents_spills_cargo_and_protects_scenario_objects() {
+    fn erasing_refunds_spills_and_never_leaves_an_uncompilable_graph() {
         let mut core = game("new-game");
         core.researched.insert(1);
         core.player.inventory.insert(24, 2);
@@ -20511,18 +19890,15 @@ mod tests {
             }]
         );
         assert!(core.erase(0, 0).unwrap_err().contains("protected"));
-    }
 
-    /// A belt may not be built into something that can never take an item, and no such edge is
-    /// compiled if one arises anyway.
-    ///
-    /// The old game answered this at delivery time, which meant it never answered it at all: the
-    /// line looked connected, compiled an edge, and quietly backed up. The static question gets its
-    /// own predicate so the answer cannot change with a recipe or a contract the way `accepts_item`
-    /// can, construction refuses by name and by hex, and only transport is held to its heading —
-    /// a machine that happens to face a pole is still a perfectly good machine.
-    #[test]
-    fn a_belt_may_not_be_built_into_a_target_that_can_never_accept() {
+        // A belt may not be built into something that can never take an item, and no such edge is
+        // compiled if one arises anyway.
+        //
+        // The old game answered this at delivery time, which meant it never answered it at all: the
+        // line looked connected, compiled an edge, and quietly backed up. The static question gets its
+        // own predicate so the answer cannot change with a recipe or a contract the way `accepts_item`
+        // can, construction refuses by name and by hex, and only transport is held to its heading —
+        // a machine that happens to face a pole is still a perfectly good machine.
         let mut core = game("new-game");
         core.set_creative(true);
         set_player_hex(&mut core, 1, 3);
@@ -20567,17 +19943,14 @@ mod tests {
             core.graph[0].is_empty(),
             "the belt shows no downstream rather than a connection that never delivers"
         );
-    }
 
-    /// Demolishing a building with something in it no longer stops at a full pack.
-    ///
-    /// What fits comes back, what does not falls at the site on the ordinary ground-item clock, and
-    /// the two together are exactly what the building held — that split is the conservation law.
-    /// Refusing instead was the worse trade: a full pack and a full building had no order of
-    /// operations that emptied either, so the building the player wanted gone simply stayed. The
-    /// host warns first and says the ground items are on a timer, so the loss is a decision.
-    #[test]
-    fn erase_carries_what_fits_and_spills_the_rest() {
+        // Demolishing a building with something in it no longer stops at a full pack.
+        //
+        // What fits comes back, what does not falls at the site on the ordinary ground-item clock, and
+        // the two together are exactly what the building held — that split is the conservation law.
+        // Refusing instead was the worse trade: a full pack and a full building had no order of
+        // operations that emptied either, so the building the player wanted gone simply stayed. The
+        // host warns first and says the ground items are on a timer, so the loss is a decision.
         let mut core = game("new-game");
         core.researched.extend([1, 4, 12]);
         set_player_hex(&mut core, 1, 3);
@@ -20616,10 +19989,8 @@ mod tests {
                 .any(|event| event.contains("would not fit your pack")),
             "and the player is told, not left to notice"
         );
-    }
 
-    #[test]
-    fn temporarily_blocked_targets_still_compile_and_allow_belts() {
+        // Temporarily blocked targets still compile and allow belts.
         for definition_id in [3, 4] {
             let mut core = game("new-game");
             core.set_creative(true);
@@ -20639,10 +20010,8 @@ mod tests {
             let belt = core.entity_at(0, 2).unwrap();
             assert_eq!(core.graph[belt].primary(), Some(target));
         }
-    }
 
-    #[test]
-    fn demolition_overflow_round_trips_and_can_be_collected() {
+        // Demolition overflow round trips and can be collected.
         let (definitions, technologies, scenarios) = catalogs();
         let mut core = game("new-game");
         core.set_creative(true);
@@ -20682,7 +20051,7 @@ mod tests {
     /// what rebuilding it costs — dismantling and relaying a legacy line is still free — and no
     /// recipe turns a kit back into ore, so the boundary cannot be farmed for raw material.
     #[test]
-    fn transport_is_bought_with_kits_and_the_price_boundary_conserves() {
+    fn the_pack_is_a_slot_rule_that_transport_erasure_and_withdrawal_all_obey() {
         let (definitions, technologies, scenarios) = catalogs();
         let core = game("new-game");
 
@@ -20759,10 +20128,8 @@ mod tests {
         // And that refund is exactly a rebuild, so a legacy line can still be moved for nothing.
         restored.place(0, 3, 2, 0, None).unwrap();
         assert_eq!(restored.player.inventory.get(&24).copied().unwrap_or(0), 0);
-    }
 
-    #[test]
-    fn one_overlap_rule_answers_both_placement_questions() {
+        // One overlap rule answers both placement questions.
         // Fields are hex cells. Placement and the extractor's cached candidates share
         // `field_covered_at`, so a resolved reference cannot drift from the rule that allowed
         // the building. Cliffs occupy their own hex and do not make the neighbour unbuildable.
@@ -20796,10 +20163,8 @@ mod tests {
             .place(2, 1, 2, 0, None)
             .unwrap_err()
             .contains("environment"));
-    }
 
-    #[test]
-    fn carrying_capacity_is_a_slot_rule_over_the_ordinary_inventory() {
+        // Carrying capacity is a slot rule over the ordinary inventory.
         let mut core = game("new-game");
         let slots = core.player.carry_slots;
         assert!(slots > 0);
@@ -20840,17 +20205,14 @@ mod tests {
                 },
             ]
         );
-    }
 
-    /// A full pack no longer refuses a demolition, and nothing is destroyed when it does not.
-    ///
-    /// The refusal sounded protective and was not: a full pack and a full container had no order of
-    /// operations that emptied either, so the building the player wanted gone simply stayed. The
-    /// recovery splits instead — what fits is carried, what does not falls at the site — and the
-    /// removal preview promises the same thing, so a drag cannot show a cell it will refuse on
-    /// release.
-    #[test]
-    fn an_erase_with_a_full_pack_splits_the_recovery_rather_than_refusing() {
+        // A full pack no longer refuses a demolition, and nothing is destroyed when it does not.
+        //
+        // The refusal sounded protective and was not: a full pack and a full container had no order of
+        // operations that emptied either, so the building the player wanted gone simply stayed. The
+        // recovery splits instead — what fits is carried, what does not falls at the site — and the
+        // removal preview promises the same thing, so a drag cannot show a cell it will refuse on
+        // release.
         let mut core = game("new-game");
         core.researched.extend([1, 2, 3, 4]);
         stock_for(&mut core, 4, 1);
@@ -20895,10 +20257,8 @@ mod tests {
         assert_eq!(core.player.inventory.get(&16), Some(&3));
         assert_eq!(core.player.inventory.get(&3), Some(&9));
         assert!(core.ground_items.is_empty());
-    }
 
-    #[test]
-    fn withdrawing_moves_what_fits_and_leaves_the_rest_in_the_container() {
+        // Withdrawing moves what fits and leaves the rest in the container.
         let mut core = game("new-game");
         core.researched.extend([1, 2, 3, 4]);
         stock_for(&mut core, 4, 1);
@@ -20951,7 +20311,7 @@ mod tests {
     /// pins the rule that replaced it: the four kinds that hold stock a player can see are the four
     /// a player can reach into, in both directions, and a firebox is one of them.
     #[test]
-    fn a_kiln_keeps_ingredient_fuel_and_blocked_output_in_separate_buffers() {
+    fn stock_moves_between_hand_machine_and_container_without_leaving_native_state() {
         let mut core = game("new-game");
         core.researched.extend([1, 2, 3, 5]);
         core.player.build_range = 1 << 20;
@@ -20977,10 +20337,8 @@ mod tests {
             core.status_of(kiln, true, true, true, false),
             EntityStatus::OutputBlocked
         );
-    }
 
-    #[test]
-    fn cursor_stack_moves_all_half_and_single_without_leaving_native_state() {
+        // Cursor stack moves all half and single without leaving native state.
         let (definitions, technologies, scenarios) = catalogs();
         let mut core = game("new-game");
         core.researched.extend([1, 2, 3, 5]);
@@ -21027,10 +20385,8 @@ mod tests {
         let restored = Core::from_save(&definitions, &technologies, &scenarios, &saved).unwrap();
         assert_eq!(restored.player.hand, core.player.hand);
         assert_eq!(restored.checksum(), core.checksum());
-    }
 
-    #[test]
-    fn a_hand_reaches_into_the_machines_that_hold_stock() {
+        // A hand reaches into the machines that hold stock.
         let mut core = game("new-game");
         core.researched.extend([1, 2, 3, 8]);
         core.player.build_range = 1 << 20;
@@ -21074,17 +20430,14 @@ mod tests {
             .withdraw(5, 0, 5, 1)
             .unwrap_err()
             .contains("no stock you can reach"));
-    }
 
-    /// The switch is a pause, not a partial demolition.
-    ///
-    /// A burner with coal in it burns that coal whether or not anything downstream wants the power,
-    /// so "stop this machine while I rebuild the line it feeds" had no answer except erasing it and
-    /// paying to rebuild. This pins the answer: switched off is real saved state, it suspends the
-    /// work *and* the draw, it keeps everything the machine was holding, and switching back on
-    /// resumes rather than restarts.
-    #[test]
-    fn switching_a_machine_off_suspends_its_work_without_losing_what_it_holds() {
+        // The switch is a pause, not a partial demolition.
+        //
+        // A burner with coal in it burns that coal whether or not anything downstream wants the power,
+        // so "stop this machine while I rebuild the line it feeds" had no answer except erasing it and
+        // paying to rebuild. This pins the answer: switched off is real saved state, it suspends the
+        // work *and* the draw, it keeps everything the machine was holding, and switching back on
+        // resumes rather than restarts.
         let mut core = game("new-game");
         core.researched.extend([1, 2, 3, 8]);
         // Kept, because a save is only valid at the scenario's own reach: the long arm is a
@@ -21178,7 +20531,7 @@ mod tests {
     }
 
     #[test]
-    fn multi_cell_footprints_drive_occupancy_snapshots_and_edit_targeting() {
+    fn footprints_occupy_turn_reserve_and_upgrade_as_one_building() {
         let mut core = game("new-game");
         core.researched.extend([1, 2, 3]);
         stock_for(&mut core, 3, 1);
@@ -21203,13 +20556,10 @@ mod tests {
             .contains("footprint"));
         core.erase(-3, 2).unwrap();
         assert!(core.entity_at(-3, 1).is_none());
-    }
 
-    /// A one-hex build reach still reaches a two-cell machine from the far lobe, even when the
-    /// command names the anchor. Reach is the Minkowski sum of the footprint with the range disc,
-    /// not a disc around one of its tiles.
-    #[test]
-    fn building_edits_reach_from_every_footprint_cell() {
+        // A one-hex build reach still reaches a two-cell machine from the far lobe, even when the
+        // command names the anchor. Reach is the Minkowski sum of the footprint with the range disc,
+        // not a disc around one of its tiles.
         let mut core = game("new-game");
         core.researched.extend([1, 2, 3]);
         stock_for(&mut core, 3, 1);
@@ -21276,13 +20626,10 @@ mod tests {
             .find(|building| building.id == definition_id)
             .expect("a building to reshape")
             .foundation_class = class;
-    }
 
-    /// The two-ring hexagon is the largest shape a definition may claim, and standing one is not a
-    /// special case: all nineteen cells enter the occupancy index, the snapshot publishes all
-    /// nineteen, and an erase aimed at the rim takes the whole building.
-    #[test]
-    fn a_nineteen_cell_footprint_occupies_publishes_and_erases_as_one_building() {
+        // The two-ring hexagon is the largest shape a definition may claim, and standing one is not a
+        // special case: all nineteen cells enter the occupancy index, the snapshot publishes all
+        // nineteen, and an erase aimed at the rim takes the whole building.
         let mut core = ground_world();
         core.researched.extend([1, 2, 3]);
         stock_for(&mut core, 3, 1);
@@ -21315,14 +20662,11 @@ mod tests {
         assert!(cells
             .iter()
             .all(|&(q, r)| core.entity_at(-4 + q, r).is_none()));
-    }
 
-    /// A multi-cell footprint turns with its heading. Rotation by whole sixths is the only turn
-    /// this lattice has, which is why the validator keeps the twelve-heading transport axis
-    /// single-cell: a thirty-degree turn is not a symmetry of the grid and could not land a second
-    /// cell on a hex at all.
-    #[test]
-    fn a_multi_cell_footprint_turns_with_its_heading() {
+        // A multi-cell footprint turns with its heading. Rotation by whole sixths is the only turn
+        // this lattice has, which is why the validator keeps the twelve-heading transport axis
+        // single-cell: a thirty-degree turn is not a symmetry of the grid and could not land a second
+        // cell on a hex at all.
         let mut core = ground_world();
         core.researched.extend([1, 2, 3]);
         core.player.build_range = 1 << 20;
@@ -21354,12 +20698,9 @@ mod tests {
             core.erase(-4, 0).unwrap();
         }
         assert_eq!(shapes.len(), 6, "six headings, six distinct shapes");
-    }
 
-    /// The ceiling and the contiguity rule are properties of the catalogue, so they are checked
-    /// where a definition file is read rather than where a building is placed.
-    #[test]
-    fn a_definition_footprint_may_not_pass_the_ceiling_or_arrive_in_pieces() {
+        // The ceiling and the contiguity rule are properties of the catalogue, so they are checked
+        // where a definition file is read rather than where a building is placed.
         let shaped = |cells: Vec<(i32, i32)>| {
             let mut definitions: DefinitionsInput = serde_json::from_str(DEFINITIONS).unwrap();
             definitions
@@ -21386,10 +20727,8 @@ mod tests {
         assert!(validate_definitions(&shaped(vec![(0, 0), (3, 0)]))
             .unwrap_err()
             .contains("disconnected pieces"));
-    }
 
-    #[test]
-    fn a_definition_may_not_reserve_a_cell_it_occupies_or_disconnect() {
+        // A definition may not reserve a cell it occupies or disconnect.
         let mutate = |edit: fn(&mut BuildingDefinition)| {
             let mut definitions: DefinitionsInput = serde_json::from_str(DEFINITIONS).unwrap();
             let building = definitions
@@ -21423,18 +20762,15 @@ mod tests {
         }))
         .unwrap_err()
         .contains("envelope and clearance"));
-    }
 
-    /// A taller tier may take more ground than the one it replaces, and it keeps every port it
-    /// had.
-    ///
-    /// That falls out of the growth rule rather than being enforced a second time. An output ray
-    /// binds to the first cell off the footprint, so the only growth that could take a port away
-    /// is growth into the very hex the ray binds at — and that hex is occupied by the thing being
-    /// fed, which is exactly what the check refuses. A building can gain an adjacency by getting
-    /// bigger; it cannot lose one.
-    #[test]
-    fn an_upgrade_grows_onto_free_ground_and_keeps_the_port_it_had() {
+        // A taller tier may take more ground than the one it replaces, and it keeps every port it
+        // had.
+        //
+        // That falls out of the growth rule rather than being enforced a second time. An output ray
+        // binds to the first cell off the footprint, so the only growth that could take a port away
+        // is growth into the very hex the ray binds at — and that hex is occupied by the thing being
+        // fed, which is exactly what the check refuses. A building can gain an adjacency by getting
+        // bigger; it cannot lose one.
         let mut core = game("new-game");
         core.researched.extend([1, 2, 12]);
         for item_id in [1, 3, 6, 11, 16, 19, 20] {
@@ -21475,13 +20811,10 @@ mod tests {
             core.entities[target].id, fed,
             "and it is the same belt it was feeding"
         );
-    }
 
-    /// The growth check is one atomic question asked before anything is charged or written. A tier
-    /// that cannot fit leaves the building, the neighbour in its way and the player's pack exactly
-    /// as they were.
-    #[test]
-    fn an_upgrade_that_cannot_fit_changes_nothing_at_all() {
+        // The growth check is one atomic question asked before anything is charged or written. A tier
+        // that cannot fit leaves the building, the neighbour in its way and the player's pack exactly
+        // as they were.
         let mut core = game("new-game");
         core.researched.extend([1, 2, 12]);
         for item_id in [1, 3, 6, 11, 16, 19, 20] {
@@ -21525,16 +20858,13 @@ mod tests {
         let refusal = core.upgrade(3, 0).unwrap_err();
         assert!(refusal.contains("level a pad"), "{refusal}");
         assert_eq!(core.entities[extractor].placed.definition_id, 1);
-    }
 
-    /// Occupied foundation, service envelope and overhead clearance are three different claims.
-    ///
-    /// Envelope is reserved empty ground: neighbours cannot occupy it, belts included, but the
-    /// player can walk through. Clearance is air: a belt may pass under a rotor, a machine may not.
-    /// Neither claim enters the occupancy index, so output rays still bind at the first occupied
-    /// cell off the hull.
-    #[test]
-    fn envelope_and_clearance_reserve_without_occupying() {
+        // Occupied foundation, service envelope and overhead clearance are three different claims.
+        //
+        // Envelope is reserved empty ground: neighbours cannot occupy it, belts included, but the
+        // player can walk through. Clearance is air: a belt may pass under a rotor, a machine may not.
+        // Neither claim enters the occupancy index, so output rays still bind at the first occupied
+        // cell off the hull.
         let mut core = ground_world();
         core.set_creative(true);
         reach(&mut core);
@@ -21578,12 +20908,9 @@ mod tests {
         let machine = core.place(4, 0, 4, 0, None).unwrap_err();
         assert!(machine.contains("overhead clearance"), "{machine}");
         assert_eq!(core.entity_at(3, 0), Some(turbine));
-    }
 
-    /// An upgrade into a cell reserved at placement does not re-ask occupancy: the envelope held
-    /// it empty. Growing outside that envelope is still the atomic check.
-    #[test]
-    fn an_upgrade_grows_into_its_reserved_envelope() {
+        // An upgrade into a cell reserved at placement does not re-ask occupancy: the envelope held
+        // it empty. Growing outside that envelope is still the atomic check.
         let mut core = game("new-game");
         core.researched.extend([1, 2, 12]);
         for item_id in [1, 3, 6, 11, 16, 19, 20] {
@@ -21640,10 +20967,8 @@ mod tests {
         assert_eq!(core.deposit_quantity((3, 0)), 0);
         assert_eq!(core.produced.get(&1), Some(&2));
         assert_eq!(entity.progress, 0);
-    }
 
-    #[test]
-    fn resolved_deposit_references_match_a_full_tile_scan_and_survive_generation() {
+        // Resolved deposit references match a full tile scan and survive generation.
         let mut core = game("new-game");
         core.researched.insert(2);
         stock_for(&mut core, 1, 1);
@@ -21682,58 +21007,7 @@ mod tests {
     }
 
     #[test]
-    fn research_atlas_has_four_independent_entry_points_and_preserves_legacy_state() {
-        if SAVE_VERSION >= 37 {
-            assert_pre_physical_save_is_refused();
-            return;
-        }
-        let roots: Vec<_> = catalogs()
-            .1
-            .technologies
-            .iter()
-            .filter(|technology| technology.prerequisites.is_empty())
-            .map(|technology| technology.id)
-            .collect();
-        assert_eq!(roots, vec![1, 2, 4, 8]);
-        for id in &roots {
-            assert!(!catalogs()
-                .1
-                .technologies
-                .iter()
-                .find(|technology| technology.id == *id)
-                .unwrap()
-                .purchasable());
-        }
-        let mut old = primitive_test_core();
-        old.technologies.version = 9;
-        for technology in &mut old.technologies.technologies {
-            if [2, 4, 8].contains(&technology.id) {
-                technology.prerequisites = vec![1];
-            }
-        }
-        old.insight = 31;
-        old.researched.insert(1);
-        old.place(0, 4, 28, 0, Some(8)).unwrap();
-        old.store(0, 4, 9, 3).unwrap();
-        old.set_enabled(0, 4, true).unwrap();
-        old.tick_many(5);
-        let save = old.save_string().unwrap().replace(
-            &format!("\"save_version\":{SAVE_VERSION}"),
-            "\"save_version\":21",
-        );
-        let (definitions, technologies, scenarios) = catalogs();
-        let mut restored = Core::from_save(&definitions, &technologies, &scenarios, &save).unwrap();
-        assert_eq!(old.checksum(), restored.checksum());
-        assert_eq!(old.researched, restored.researched);
-        assert_eq!(old.insight, restored.insight);
-        for core in [&mut old, &mut restored] {
-            core.tick_many(40);
-        }
-        assert_eq!(old.checksum(), restored.checksum());
-    }
-
-    #[test]
-    fn foundation_commissions_grant_starter_automation_without_insight() {
+    fn research_is_atomic_published_delta_tracked_and_paid_for_in_insight() {
         let mut core = game("new-game");
         let insight = core.insight;
         assert!(core.research(1).unwrap_err().contains("Prove the line"));
@@ -21759,10 +21033,8 @@ mod tests {
         core.research(3).unwrap();
         assert_eq!(core.insight, 0);
         assert!(core.researched.contains(&3));
-    }
 
-    #[test]
-    fn research_is_atomic_validates_prerequisites_and_unlocks() {
+        // Research is atomic validates prerequisites and unlocks.
         let mut core = game("new-game");
         core.insight = 20;
         assert!(core.research(3).unwrap_err().contains("prerequisites"));
@@ -21773,10 +21045,8 @@ mod tests {
         core.player.inventory.insert(24, 1);
         core.place(2, 0, 2, 0, None).unwrap();
         assert!(core.research(3).is_err());
-    }
 
-    #[test]
-    fn published_research_availability_is_the_atomic_purchase_answer() {
+        // Published research availability is the atomic purchase answer.
         for insight in [0, 2, 3, 100] {
             for prerequisite in [false, true] {
                 for technology in &catalogs().1.technologies {
@@ -21809,10 +21079,8 @@ mod tests {
                 }
             }
         }
-    }
 
-    #[test]
-    fn research_availability_deltas_follow_income_purchases_and_creative_without_quiet_resends() {
+        // Research availability deltas follow income purchases and creative without quiet resends.
         let mut factory = test_factory("new-game");
         let _ = factory.snapshot_json();
         let quiet = factory.snapshot_delta_json();
@@ -21842,48 +21110,8 @@ mod tests {
         assert!(!factory
             .snapshot_delta_json()
             .contains("research_availability"));
-    }
 
-    #[test]
-    fn research_foundations_preserve_legacy_factories_and_ignore_presentation_in_purchases() {
-        if SAVE_VERSION >= 37 {
-            assert_pre_physical_save_is_refused();
-            return;
-        }
-        let mut old = primitive_test_core();
-        old.technologies.version = 8;
-        old.insight = 31;
-        old.researched.insert(1);
-        old.place(0, 4, 28, 0, Some(8)).unwrap();
-        old.store(0, 4, 9, 3).unwrap();
-        old.set_enabled(0, 4, true).unwrap();
-        old.tick_many(5);
-        let save = old.save_string().unwrap().replace(
-            &format!("\"save_version\":{SAVE_VERSION}"),
-            "\"save_version\":20",
-        );
-        assert!(!save.contains("research_availability"));
-        let (definitions, mut technologies, scenarios) = catalogs();
-        technologies.branches.reverse();
-        technologies.stages.reverse();
-        technologies.technologies[1].stage = "industrial-systems".into();
-        validate_technologies(&definitions, &technologies).unwrap();
-        let mut restored = Core::from_save(&definitions, &technologies, &scenarios, &save).unwrap();
-        assert_eq!(old.checksum(), restored.checksum());
-        assert_eq!(
-            old.research_availability_snapshot(),
-            restored.research_availability_snapshot()
-        );
-        for core in [&mut old, &mut restored] {
-            core.researched.insert(2);
-            core.research(5).unwrap();
-            core.tick_many(40);
-        }
-        assert_eq!(old.checksum(), restored.checksum());
-    }
-
-    #[test]
-    fn skills_permanently_expand_cargo_space_and_build_range() {
+        // Skills permanently expand cargo space and build range.
         let mut core = game("new-game");
         core.insight = 100;
         let starting_slots = core.player.carry_slots;
@@ -21908,7 +21136,7 @@ mod tests {
     }
 
     #[test]
-    fn turning_demo_compiles_and_transport_recipe_backpressure_delivery_stay_exact() {
+    fn compiling_is_incremental_and_matches_the_full_graph() {
         let mut core = bare_game("factory-demo");
         core.power_unmetered = false;
         let mut index = core
@@ -21961,10 +21189,8 @@ mod tests {
             delivered > 0,
             "the metered demo must deliver timber, not merely hold cargo"
         );
-    }
 
-    #[test]
-    fn incremental_recompile_matches_full_graph_and_skips_unrelated_components() {
+        // Incremental recompile matches full graph and skips unrelated components.
         let mut core = game("factory-demo");
         add_test_belt(&mut core, 100, 100, 0);
         add_test_belt(&mut core, 101, 100, 0);
@@ -21991,10 +21217,8 @@ mod tests {
             incremental.get(&(core.next_entity_id - 2)),
             old_links.get(&(core.next_entity_id - 2))
         );
-    }
 
-    #[test]
-    fn incremental_recompile_handles_component_splits_and_merges() {
+        // Incremental recompile handles component splits and merges.
         let mut core = game("new-game");
         core.entities.clear();
         core.graph.clear();
@@ -22041,10 +21265,8 @@ mod tests {
         let incremental_merge = core.graph_links_by_id();
         core.compile_graph();
         assert_eq!(core.graph_links_by_id(), incremental_merge);
-    }
 
-    #[test]
-    fn runtime_indexes_match_the_blueprint_after_full_and_incremental_compiles() {
+        // Runtime indexes match the blueprint after full and incremental compiles.
         fn assert_index(core: &Core) {
             assert_eq!(core.runtime.occupied, core.occupied_entities());
 
@@ -22104,7 +21326,7 @@ mod tests {
     }
 
     #[test]
-    fn blocked_outputs_preserve_cargo_and_container_order_is_stable() {
+    fn belts_carry_one_extractors_worth_hold_what_fits_and_report_when_blocked() {
         let mut core = game("factory-demo");
         let container = core
             .entities
@@ -22130,20 +21352,17 @@ mod tests {
         core.graph[container] = Links::default();
         core.transfer_cargo();
         assert_eq!(core.entities[container].cargo, before);
-    }
 
-    /// An item takes a whole belt's worth of time to cross a belt, and rests on that one belt for
-    /// every tick of it.
-    ///
-    /// The line here is built the way every line is built — from the source outward — which makes
-    /// ascending entity id run in flow order, which is exactly the arrangement that used to carry
-    /// an item from the first belt to the last inside a single tick. A hex of belt is 5.37 m of
-    /// conveyor now, and a conveyor moving two metres a second takes [`BELT_TRANSIT_TICKS`] to get
-    /// an item across it. The assertion is that the item is on exactly one belt for every one of
-    /// those ticks: in the lane while it travels, in the exit slot once it has arrived, never in
-    /// two places and never in none.
-    #[test]
-    fn an_item_takes_a_whole_belt_to_cross_a_belt_and_rests_on_each_one() {
+        // An item takes a whole belt's worth of time to cross a belt, and rests on that one belt for
+        // every tick of it.
+        //
+        // The line here is built the way every line is built — from the source outward — which makes
+        // ascending entity id run in flow order, which is exactly the arrangement that used to carry
+        // an item from the first belt to the last inside a single tick. A hex of belt is 5.37 m of
+        // conveyor now, and a conveyor moving two metres a second takes [`BELT_TRANSIT_TICKS`] to get
+        // an item across it. The assertion is that the item is on exactly one belt for every one of
+        // those ticks: in the lane while it travels, in the exit slot once it has arrived, never in
+        // two places and never in none.
         let mut core = empty_world("new-game");
         let first = add_test_belt(&mut core, 0, 0, 0);
         let second = add_test_belt(&mut core, 1, 0, 0);
@@ -22183,18 +21402,15 @@ mod tests {
             Some(&1),
             "and three belts later it arrives"
         );
-    }
 
-    /// A belt line carries what its speed and its item spacing say it carries, and no faster.
-    ///
-    /// The measurement is taken at the *end* of a line rather than at the start, because the number
-    /// that matters to a factory is what comes off a belt, not what a source can be persuaded to
-    /// push onto one. A container feeding as fast as it is allowed to, across a line long enough
-    /// for the head to have filled, delivers one item every [`BELT_SLOT_TICKS`] — which is
-    /// [`scale::belt_items_per_minute`], which is exactly one extractor's output. That ratio is
-    /// derived rather than tuned: see `scale::belt_cadence_follows_from_speed_and_spacing`.
-    #[test]
-    fn a_belt_line_carries_one_extractors_worth_and_no_more() {
+        // A belt line carries what its speed and its item spacing say it carries, and no faster.
+        //
+        // The measurement is taken at the *end* of a line rather than at the start, because the number
+        // that matters to a factory is what comes off a belt, not what a source can be persuaded to
+        // push onto one. A container feeding as fast as it is allowed to, across a line long enough
+        // for the head to have filled, delivers one item every [`BELT_SLOT_TICKS`] — which is
+        // [`scale::belt_items_per_minute`], which is exactly one extractor's output. That ratio is
+        // derived rather than tuned: see `scale::belt_cadence_follows_from_speed_and_spacing`.
         let mut core = empty_world("new-game");
         let source = add_test_entity(&mut core, 0, 0, 4, 0);
         let belts: Vec<u32> = (1..=4).map(|q| add_test_belt(&mut core, q, 0, 0)).collect();
@@ -22219,16 +21435,13 @@ mod tests {
             core.delivered - before,
             scale::belt_items_per_minute() as u64
         );
-    }
 
-    /// A blocked belt backs up to exactly the number of items that fit along it, and stops.
-    ///
-    /// This is the other half of the cadence: the lane is a length of conveyor, not a queue, so it
-    /// holds what fits and refuses the rest back up the line. A belt that took an unbounded queue
-    /// would swallow a jammed factory's whole production and hand it over in one burst when the jam
-    /// cleared.
-    #[test]
-    fn a_blocked_belt_holds_what_fits_along_it_and_refuses_the_rest() {
+        // A blocked belt backs up to exactly the number of items that fit along it, and stops.
+        //
+        // This is the other half of the cadence: the lane is a length of conveyor, not a queue, so it
+        // holds what fits and refuses the rest back up the line. A belt that took an unbounded queue
+        // would swallow a jammed factory's whole production and hand it over in one burst when the jam
+        // cleared.
         let mut core = empty_world("new-game");
         let source = add_test_entity(&mut core, 0, 0, 4, 0);
         let belt = add_test_belt(&mut core, 1, 0, 0);
@@ -22250,17 +21463,14 @@ mod tests {
             Some(&(100 - BELT_LANE_SLOTS as u32)),
             "and the rest never left the source"
         );
-    }
 
-    /// What a belt is carrying survives a save, and so does where along the belt it is.
-    ///
-    /// A lane item holds the tick it stepped on rather than a countdown, which is only sound
-    /// because the tick it is measured against is saved too. If either half were dropped, a
-    /// reloaded factory would either teleport a half-crossed line to its far end or strand it: this
-    /// asserts the crossing resumes exactly where it stopped, by checking the arrival tick rather
-    /// than merely the item count.
-    #[test]
-    fn a_belts_lane_survives_a_save_with_its_crossing_intact() {
+        // What a belt is carrying survives a save, and so does where along the belt it is.
+        //
+        // A lane item holds the tick it stepped on rather than a countdown, which is only sound
+        // because the tick it is measured against is saved too. If either half were dropped, a
+        // reloaded factory would either teleport a half-crossed line to its far end or strand it: this
+        // asserts the crossing resumes exactly where it stopped, by checking the arrival tick rather
+        // than merely the item count.
         let mut core = empty_world("new-game");
         let source = add_test_entity(&mut core, 0, 0, 4, 0);
         let belt = add_test_belt(&mut core, 1, 0, 0);
@@ -22294,10 +21504,8 @@ mod tests {
         }
         assert!(core.delivered > 0, "and the line does deliver");
         assert_eq!(restored.checksum(), core.checksum());
-    }
 
-    #[test]
-    fn a_loaded_belt_reports_when_its_output_is_blocked() {
+        // A loaded belt reports when its output is blocked.
         let mut core = game("factory-demo");
         core.entities.clear();
         core.graph.clear();
@@ -22346,7 +21554,7 @@ mod tests {
     }
 
     #[test]
-    fn composer_consumes_exact_inputs_and_emits_only_after_integer_duration() {
+    fn a_composer_consumes_exact_inputs_and_backpressure_is_exact() {
         let mut core = game("new-game");
         grant_foundations(&mut core);
         core.insight = 8;
@@ -22371,20 +21579,17 @@ mod tests {
         assert!(core.entities[composer].reserved_inputs.is_empty());
         core.advance_composer(composer);
         assert_eq!(core.entities[composer].output_inventory.get(&2), Some(&1));
-    }
 
-    /// Ingredient capacity is per ingredient, not one pot the ingredients fight over.
-    ///
-    /// A composer stores twelve and a component takes an iron plate and a gear. Under the old
-    /// shared total, twelve iron plates filled the compartment and the gear slot — visibly empty,
-    /// visibly expected by the recipe — refused everything. Belts stopped delivering gears, the
-    /// hand refused to place them, and the only way to unwedge the machine was to take plates back
-    /// out. A four-ingredient recipe like concrete could not hold a working set of anything.
-    ///
-    /// Both routes in are pinned, because they used to fail together: `can_accept` is the belt and
-    /// `store_into` is the hand, and both ask `room_for_stock`.
-    #[test]
-    fn a_full_ingredient_slot_does_not_close_the_empty_one_beside_it() {
+        // Ingredient capacity is per ingredient, not one pot the ingredients fight over.
+        //
+        // A composer stores twelve and a component takes an iron plate and a gear. Under the old
+        // shared total, twelve iron plates filled the compartment and the gear slot — visibly empty,
+        // visibly expected by the recipe — refused everything. Belts stopped delivering gears, the
+        // hand refused to place them, and the only way to unwedge the machine was to take plates back
+        // out. A four-ingredient recipe like concrete could not hold a working set of anything.
+        //
+        // Both routes in are pinned, because they used to fail together: `can_accept` is the belt and
+        // `store_into` is the hand, and both ask `room_for_stock`.
         let mut core = game("new-game");
         grant_foundations(&mut core);
         core.insight = 8;
@@ -22445,10 +21650,8 @@ mod tests {
                 quantity: 1
             }
         ));
-    }
 
-    #[test]
-    fn machine_backpressure_and_consumer_totals_are_exact() {
+        // Machine backpressure and consumer totals are exact.
         let mut core = game("factory-demo");
         let extractor = core
             .entities
@@ -22484,7 +21687,7 @@ mod tests {
     }
 
     #[test]
-    fn the_founding_contract_advances_stage_by_stage_and_victory_is_persistent() {
+    fn the_founding_contract_advances_stage_by_stage_and_carries_its_surplus() {
         let mut core = game("new-game");
         core.power_unmetered = false;
         set_player_hex(&mut core, 1, 0);
@@ -22554,10 +21757,8 @@ mod tests {
         core.tick_many(1);
         assert!(core.victory);
         assert_ne!(core.checksum(), checksum);
-    }
 
-    #[test]
-    fn a_stage_consumes_its_bill_and_carries_the_surplus_to_the_next_one() {
+        // A stage consumes its bill and carries the surplus to the next one.
         let mut core = game("new-game");
         set_player_hex(&mut core, 0, -1);
         // Everything the whole contract asks for, in one delivery, plus one component too many.
@@ -22595,7 +21796,7 @@ mod tests {
     /// The price is posted, and it is paid on completion — never before, and never for anything the
     /// hub did not ask for.
     #[test]
-    fn a_request_pays_on_completion_and_the_board_moves_on() {
+    fn the_board_posts_pays_passes_and_saves_what_the_player_could_make() {
         let mut core = game("new-game");
         set_player_hex(&mut core, 1, 0);
         let board = |core: &Core| -> Vec<String> {
@@ -22629,13 +21830,10 @@ mod tests {
             .expect("a filled project stays in the catalogue");
         assert_eq!(paid.state, ProjectState::Complete);
         assert_eq!(paid.delivered, 0, "a retired project holds no progress");
-    }
 
-    /// Passing a row costs it a place in the queue, not its first-fill bonus. Skip used to share
-    /// `request_rounds` with payment, which would have turned "I have not found this yet" into
-    /// two insight for ten gathers.
-    #[test]
-    fn passing_a_request_does_not_burn_the_first_fill_bonus() {
+        // Passing a row costs it a place in the queue, not its first-fill bonus. Skip used to share
+        // `request_rounds` with payment, which would have turned "I have not found this yet" into
+        // two insight for ten gathers.
         let mut core = game("new-game");
         set_player_hex(&mut core, 1, 0);
         core.skip_request(0).unwrap();
@@ -22651,16 +21849,13 @@ mod tests {
             "a skipped row still pays its first fill"
         );
         assert_eq!(core.request_fills.get(&1), Some(&1));
-    }
 
-    /// A filled project is finished, and finished is for good. Delivering its item again is
-    /// ordinary freight into the hub, not a second payment.
-    ///
-    /// This is the shape the catalogue used to have inverted. A raw row paid ten once and two for
-    /// ever after, so the board was a tap: slow, dull, and unbounded, which meant no amount of
-    /// research could ever actually be priced. Demand is a bill now.
-    #[test]
-    fn a_filled_project_never_pays_again() {
+        // A filled project is finished, and finished is for good. Delivering its item again is
+        // ordinary freight into the hub, not a second payment.
+        //
+        // This is the shape the catalogue used to have inverted. A raw row paid ten once and two for
+        // ever after, so the board was a tap: slow, dull, and unbounded, which meant no amount of
+        // research could ever actually be priced. Demand is a bill now.
         let mut core = game("new-game");
         set_player_hex(&mut core, 1, 0);
         core.player.inventory.insert(1, 10);
@@ -22674,16 +21869,13 @@ mod tests {
         core.deposit_inventory().unwrap();
         assert_eq!(core.insight, 10, "a second delivery buys nothing");
         assert_eq!(core.request_fills.get(&1), Some(&1));
-    }
 
-    /// Passing a part-filled project keeps what was handed over. Progress belongs to the project,
-    /// not to the slot it happened to be posted in.
-    ///
-    /// Under repeatable demand a skip that dropped the count cost a few minutes. Under a finite
-    /// catalogue it would destroy goods whose reward can never be earned again, so the count moved
-    /// off the board and onto the project itself.
-    #[test]
-    fn passing_a_part_filled_project_keeps_its_progress() {
+        // Passing a part-filled project keeps what was handed over. Progress belongs to the project,
+        // not to the slot it happened to be posted in.
+        //
+        // Under repeatable demand a skip that dropped the count cost a few minutes. Under a finite
+        // catalogue it would destroy goods whose reward can never be earned again, so the count moved
+        // off the board and onto the project itself.
         let mut core = game("new-game");
         set_player_hex(&mut core, 1, 0);
         core.player.inventory.insert(1, 6);
@@ -22698,12 +21890,9 @@ mod tests {
         core.deposit_inventory().unwrap();
         assert_eq!(core.insight, 10);
         assert_eq!(core.project_delivered(1), 0);
-    }
 
-    /// Posting is the player's choice, and the catalogue is the whole board. A finite bill has to
-    /// be browsable or a row that funds nothing else could hide behind two that do.
-    #[test]
-    fn posting_a_project_displaces_the_least_committed_slot() {
+        // Posting is the player's choice, and the catalogue is the whole board. A finite bill has to
+        // be browsable or a row that funds nothing else could hide behind two that do.
         let mut core = game("new-game");
         set_player_hex(&mut core, 1, 0);
         // Commit ore to the first slot, so an untouched slot is the cheapest thing to displace.
@@ -22724,12 +21913,9 @@ mod tests {
             Err("Clay survey is already on the board".to_owned())
         );
         assert!(core.post_request(9999).is_err());
-    }
 
-    /// Part-delivered goods survive a save. They are the one thing in the request system a player
-    /// cannot re-earn, so losing them across a reload would be losing the work outright.
-    #[test]
-    fn a_save_carries_progress_against_an_unposted_project() {
+        // Part-delivered goods survive a save. They are the one thing in the request system a player
+        // cannot re-earn, so losing them across a reload would be losing the work outright.
         let mut core = game("new-game");
         set_player_hex(&mut core, 1, 0);
         let ore = project_id(&core, "ore-assay");
@@ -22752,12 +21938,9 @@ mod tests {
         let with = core.checksum();
         core.request_delivered.remove(&ore);
         assert_ne!(with, core.checksum());
-    }
 
-    /// The board closes when the hub has nothing left to ask for. A finite catalogue that quietly
-    /// reposted its last row for ever would be the tap again, wearing a bill's clothes.
-    #[test]
-    fn the_board_empties_once_the_catalogue_is_exhausted() {
+        // The board closes when the hub has nothing left to ask for. A finite catalogue that quietly
+        // reposted its last row for ever would be the tap again, wearing a bill's clothes.
         let mut core = game("new-game");
         set_player_hex(&mut core, 1, 0);
         for request in &core.definitions.requests {
@@ -22770,12 +21953,9 @@ mod tests {
             .request_snapshots()
             .iter()
             .all(|request| request.state == ProjectState::Complete));
-    }
 
-    /// The hub takes what it asked for and leaves the rest in the pack — by hand and by belt, at one
-    /// predicate, so a line cannot void cargo the key would have refused.
-    #[test]
-    fn the_hub_refuses_what_nobody_asked_for() {
+        // The hub takes what it asked for and leaves the rest in the pack — by hand and by belt, at one
+        // predicate, so a line cannot void cargo the key would have refused.
         let mut core = game("new-game");
         set_player_hex(&mut core, 1, 0);
         core.player.inventory.insert(3, 6);
@@ -22813,11 +21993,8 @@ mod tests {
                 quantity: 1
             }
         ));
-    }
 
-    /// The board is drawn from the rules, so it can never post something the rules refuse.
-    #[test]
-    fn the_board_only_posts_what_the_player_could_make() {
+        // The board is drawn from the rules, so it can never post something the rules refuse.
         let mut core = game("new-game");
         assert!(core.item_reachable(1, 0), "ore is in the ground");
         assert!(
@@ -22852,12 +22029,9 @@ mod tests {
             core.item_reachable(CRYSTAL, 0),
             "an extractor unlocks the crystal field"
         );
-    }
 
-    /// Passing a row costs it a place in the queue, and costs the player whatever they had already
-    /// put against it. It is a decision, not a free reroll.
-    #[test]
-    fn passing_a_request_forfeits_it_and_puts_it_behind_the_unseen() {
+        // Passing a row costs it a place in the queue, and costs the player whatever they had already
+        // put against it. It is a decision, not a free reroll.
         let mut core = game("new-game");
         set_player_hex(&mut core, 1, 0);
         core.player.inventory.insert(1, 5);
@@ -22868,13 +22042,10 @@ mod tests {
         assert_eq!(core.request_snapshots()[0].delivered, 0);
         assert_eq!(core.insight, 0);
         assert!(core.skip_request(9).unwrap_err().contains("no request"));
-    }
 
-    /// Once a smelter is unlocked, a free slot is reserved for the deepest reachable row rather
-    /// than the next unseen ore assay. The other two slots still cycle, and nothing unmakeable is
-    /// posted — reservation walks the same `item_reachable` predicate the rest of the board does.
-    #[test]
-    fn the_board_reserves_one_slot_for_the_deepest_reachable_row() {
+        // Once a smelter is unlocked, a free slot is reserved for the deepest reachable row rather
+        // than the next unseen ore assay. The other two slots still cycle, and nothing unmakeable is
+        // posted — reservation walks the same `item_reachable` predicate the rest of the board does.
         let mut core = game("new-game");
         set_player_hex(&mut core, 1, 0);
         core.insight = 100;
@@ -22929,7 +22100,7 @@ mod tests {
     }
 
     #[test]
-    fn deposit_can_deliver_an_individual_item_leaving_other_demanded_items_in_pack() {
+    fn the_hub_takes_delivery_from_every_footprint_cell_and_saves_its_board() {
         let mut core = game("new-game");
         // Give player iron ore (id 1) and wood (id 8). Both are standing requests in new game.
         core.player.inventory.insert(1, 10);
@@ -22940,13 +22111,10 @@ mod tests {
         // Iron ore was delivered, wood remains in pack
         assert_eq!(core.player.inventory.get(&1), None);
         assert_eq!(core.player.inventory.get(&8), Some(&10));
-    }
 
-    /// A delivery is in range of the landing hub when the player stands beside *any* cell it
-    /// occupies. The hub is seven hexes; measuring from the anchor alone made the far lobes
-    /// decorative — you could stand next to them and still be told to walk closer.
-    #[test]
-    fn hub_delivery_reaches_from_every_footprint_cell() {
+        // A delivery is in range of the landing hub when the player stands beside *any* cell it
+        // occupies. The hub is seven hexes; measuring from the anchor alone made the far lobes
+        // decorative — you could stand next to them and still be told to walk closer.
         let mut core = game("new-game");
         let hub = core
             .entities
@@ -22985,11 +22153,8 @@ mod tests {
             .deposit_item(Some(1))
             .unwrap_err()
             .contains("beside the landing hub"));
-    }
 
-    /// A board is saved state, restored rather than redrawn.
-    #[test]
-    fn a_save_restores_the_board_it_was_holding() {
+        // A board is saved state, restored rather than redrawn.
         let (definitions, technologies, scenarios) = catalogs();
         let mut core = game("new-game");
         set_player_hex(&mut core, 1, 0);
@@ -23014,7 +22179,7 @@ mod tests {
     }
 
     #[test]
-    fn hxf1_round_trip_and_resume_match_uninterrupted_run() {
+    fn a_save_resumes_and_replays_in_a_deterministic_order() {
         let (definitions, technologies, scenarios) = catalogs();
         let mut uninterrupted = game("factory-demo");
         // Metered on both sides, which is the shipped rule and the only way this test is honest.
@@ -23090,10 +22255,8 @@ mod tests {
         let edited_params = save.replacen("\"water_level\":18000", "\"water_level\":19000", 1);
         assert_ne!(edited_params, save, "the save carries its world parameters");
         assert!(Core::from_save(&definitions, &technologies, &scenarios, &edited_params).is_err());
-    }
 
-    #[test]
-    fn reset_replay_and_scenario_insertion_order_are_deterministic() {
+        // Reset replay and scenario insertion order are deterministic.
         let (definitions, technologies, scenarios) = catalogs();
         let scenario = scenarios
             .scenarios
@@ -23774,7 +22937,7 @@ mod tests {
     /// Regenerate with `UPDATE_WIRE_FIXTURE=1 cargo test wire_fixture` and read the diff: a change
     /// here is a wire break, and the decoder on the other side has to move with it.
     #[test]
-    fn wire_fixture_pins_the_format_for_both_languages() {
+    fn the_cross_language_fixtures_pin_the_format_and_the_economy() {
         let cases: Vec<serde_json::Value> = wire_fixture_cases()
             .into_iter()
             .map(|(name, delta)| {
@@ -23810,26 +22973,23 @@ mod tests {
             generated, recorded,
             "the wire format moved; the TypeScript decoder has to move with it"
         );
-    }
 
-    /// The economy's own fixture, in the role `fixtures/hex-directions.json` plays for the
-    /// direction table and `fixtures/snapshot-delta-wire.json` plays for the wire.
-    ///
-    /// Balance was the one system here with no representation: the costs were data, but every
-    /// figure that decides whether the data works — items per minute, what a generator carries,
-    /// what a building costs once its inputs are expanded to raw materials — existed nowhere and
-    /// was checked by nothing. This is that file. Rust computes it from the shipped catalogues and
-    /// `tests/balance.test.ts` recomputes the cost trees in TypeScript against the same
-    /// `definitions.json`, so the recorded numbers are pinned by two independent expansions rather
-    /// than by one implementation agreeing with its own output.
-    ///
-    /// Regenerate with `UPDATE_BALANCE_FIXTURE=1 cargo test balance_fixture`, then
-    /// `npx prettier --write fixtures/balance.json` because serde and prettier disagree about
-    /// short arrays, and read the diff: a change here is a change to what the game plays like, and
-    /// it should be one somebody meant. The comparison is over parsed JSON, so the formatting pass
-    /// cannot change what the test asserts.
-    #[test]
-    fn balance_fixture_pins_the_economy_for_both_languages() {
+        // The economy's own fixture, in the role `fixtures/hex-directions.json` plays for the
+        // direction table and `fixtures/snapshot-delta-wire.json` plays for the wire.
+        //
+        // Balance was the one system here with no representation: the costs were data, but every
+        // figure that decides whether the data works — items per minute, what a generator carries,
+        // what a building costs once its inputs are expanded to raw materials — existed nowhere and
+        // was checked by nothing. This is that file. Rust computes it from the shipped catalogues and
+        // `tests/balance.test.ts` recomputes the cost trees in TypeScript against the same
+        // `definitions.json`, so the recorded numbers are pinned by two independent expansions rather
+        // than by one implementation agreeing with its own output.
+        //
+        // Regenerate with `UPDATE_BALANCE_FIXTURE=1 cargo test balance_fixture`, then
+        // `npx prettier --write fixtures/balance.json` because serde and prettier disagree about
+        // short arrays, and read the diff: a change here is a change to what the game plays like, and
+        // it should be one somebody meant. The comparison is over parsed JSON, so the formatting pass
+        // cannot change what the test asserts.
         let report = balance::compute();
         let generated = serde_json::to_value(&report).unwrap();
         let path =
@@ -23860,7 +23020,7 @@ mod tests {
     /// whose technology it is unlocked behind. The negative case is the point: price a cutter in one stone and the curve breaks, because a cutter
     /// two technologies past a smelter costs less than the smelter.
     #[test]
-    fn every_step_of_the_curve_holds_and_a_broken_one_is_caught() {
+    fn the_economy_holds_at_every_step_of_the_curve() {
         let report = balance::compute();
         assert!(!report.curve.is_empty());
         for step in &report.curve {
@@ -23891,25 +23051,22 @@ mod tests {
             broken.curve.iter().any(|step| !step.holds),
             "a cheaper-than-its-predecessor building has to fail the curve"
         );
-    }
 
-    /// The two rates a player compares without being told they are comparing them: their own
-    /// hands, and the first machine that replaces them.
-    ///
-    /// These are measured against the same wall clock, and the order between them is a design
-    /// decision that has now been made twice in opposite directions. Through v0.16 the hand ran at
-    /// 300 items a minute against an extractor's 120, so the first automation in the game was two
-    /// and a half times slower than doing it yourself, which read as a punishment. v0.17 made them
-    /// equal and v0.23 pinned the hand as never faster.
-    ///
-    /// This inverts that on purpose. A tier-one extractor is *half* the hand on the same material
-    /// and the deep extractor is what draws level. The trade is no longer speed — it is that the
-    /// machine works while the player is somewhere else, so automation becomes a question of how
-    /// many you can afford to run and to power rather than of raw rate. The reason the old rule
-    /// existed still holds and is still guarded: what must never happen is an upgrade that leaves
-    /// a player slower than their own hands with no way up.
-    #[test]
-    fn a_tier_one_extractor_is_half_the_hand_and_the_upgrade_draws_level() {
+        // The two rates a player compares without being told they are comparing them: their own
+        // hands, and the first machine that replaces them.
+        //
+        // These are measured against the same wall clock, and the order between them is a design
+        // decision that has now been made twice in opposite directions. Through v0.16 the hand ran at
+        // 300 items a minute against an extractor's 120, so the first automation in the game was two
+        // and a half times slower than doing it yourself, which read as a punishment. v0.17 made them
+        // equal and v0.23 pinned the hand as never faster.
+        //
+        // This inverts that on purpose. A tier-one extractor is *half* the hand on the same material
+        // and the deep extractor is what draws level. The trade is no longer speed — it is that the
+        // machine works while the player is somewhere else, so automation becomes a question of how
+        // many you can afford to run and to power rather than of raw rate. The reason the old rule
+        // existed still holds and is still guarded: what must never happen is an upgrade that leaves
+        // a player slower than their own hands with no way up.
         let report = balance::compute();
         let rate_for = |building: &str, item: &str| -> u64 {
             report
@@ -23975,22 +23132,19 @@ mod tests {
         );
         // Both work the same seven cells: reach is what an upgrade buys, never what a hand grows.
         assert_eq!(report.reference.cells_in_reach.first(), Some(&7));
-    }
 
-    /// A fuel recipe that hands back more energy than it was given is a perpetual motion machine.
-    ///
-    /// Charcoal was exactly that: two wood at two energy each into one charcoal at eight, for a
-    /// kiln that needs no fuel of its own. Wood regrows, so the char recipe was an unbounded free
-    /// power source sitting one technology into the tree. Real pyrolysis burns part of the charge
-    /// to cook the rest and keeps a quarter to a half of the wood's energy — a kiln is bought for
-    /// **density**, four times the energy in one belt slot, and never for energy itself.
-    ///
-    /// So the band is two-sided. Above 1000 the world makes energy from nothing; below 250 the
-    /// kiln burns more than the worst real one and nobody would run it. Fuel is a property of the
-    /// item, so this is the one place the round trip can be checked at all — nothing in a recipe
-    /// row knows what its inputs burn for.
-    #[test]
-    fn no_fuel_conversion_creates_energy_and_none_is_worse_than_a_real_kiln() {
+        // A fuel recipe that hands back more energy than it was given is a perpetual motion machine.
+        //
+        // Charcoal was exactly that: two wood at two energy each into one charcoal at eight, for a
+        // kiln that needs no fuel of its own. Wood regrows, so the char recipe was an unbounded free
+        // power source sitting one technology into the tree. Real pyrolysis burns part of the charge
+        // to cook the rest and keeps a quarter to a half of the wood's energy — a kiln is bought for
+        // **density**, four times the energy in one belt slot, and never for energy itself.
+        //
+        // So the band is two-sided. Above 1000 the world makes energy from nothing; below 250 the
+        // kiln burns more than the worst real one and nobody would run it. Fuel is a property of the
+        // item, so this is the one place the round trip can be checked at all — nothing in a recipe
+        // row knows what its inputs burn for.
         let report = balance::compute();
         let converted: Vec<_> = report
             .fuel
@@ -24015,17 +23169,14 @@ mod tests {
                 entry.input_energy
             );
         }
-    }
 
-    /// Processing has to pay for itself, and the request board is where it is paid.
-    ///
-    /// A request that pays no better per gather than a raw one is a request nobody would ever build
-    /// a machine for: the smelter costs research, construction, power, and fuel, and the hub would
-    /// be offering the same rate for two ore as for the plate they became. So every row whose item
-    /// comes out of a recipe has to beat every row whose item comes out of the ground — measured
-    /// through the whole tree, fuel included, which is the only comparison that is not a guess.
-    #[test]
-    fn every_processed_request_pays_better_per_gather_than_raw_material() {
+        // Processing has to pay for itself, and the request board is where it is paid.
+        //
+        // A request that pays no better per gather than a raw one is a request nobody would ever build
+        // a machine for: the smelter costs research, construction, power, and fuel, and the hub would
+        // be offering the same rate for two ore as for the plate they became. So every row whose item
+        // comes out of a recipe has to beat every row whose item comes out of the ground — measured
+        // through the whole tree, fuel included, which is the only comparison that is not a guess.
         let report = balance::compute();
         let raw: Vec<_> = report
             .requests
@@ -24054,17 +23205,14 @@ mod tests {
                 best_raw
             );
         }
-    }
 
-    /// The finite catalogue pays for the whole purchasable tree, with room to spare.
-    ///
-    /// This is the safeguard that makes finite demand shippable at all. Once a project retires
-    /// there is no tap to fall back on, so if the catalogue ever priced below the tree a player
-    /// could deliver every commission the hub will ever make and still be locked out of research
-    /// with nothing left to sell. The surplus is deliberate: it has to be possible to spend on the
-    /// wrong branch first and still finish, or the "choice" of what to research is a quiz.
-    #[test]
-    fn the_finite_catalogue_funds_the_whole_research_tree() {
+        // The finite catalogue pays for the whole purchasable tree, with room to spare.
+        //
+        // This is the safeguard that makes finite demand shippable at all. Once a project retires
+        // there is no tap to fall back on, so if the catalogue ever priced below the tree a player
+        // could deliver every commission the hub will ever make and still be locked out of research
+        // with nothing left to sell. The surplus is deliberate: it has to be possible to spend on the
+        // wrong branch first and still finish, or the "choice" of what to research is a quiz.
         let report = balance::compute();
         let budget = &report.budget;
         assert!(
@@ -24087,16 +23235,13 @@ mod tests {
             !budget.granted_technologies.is_empty(),
             "the contract stages still hand technologies over"
         );
-    }
 
-    /// Every raw project the hub will ever post, added up, is less than the technology tree.
-    ///
-    /// Raw rows are the bootstrap and nothing more. Because each pays exactly once, this sum *is*
-    /// the entire lifetime income of hand-gathering, so the assertion is now a hard floor rather
-    /// than a rate comparison: a player who never builds a machine cannot finish the tree, and the
-    /// processed rows are the only way across.
-    #[test]
-    fn the_technology_tree_cannot_be_funded_by_one_cycle_of_raw_requests() {
+        // Every raw project the hub will ever post, added up, is less than the technology tree.
+        //
+        // Raw rows are the bootstrap and nothing more. Because each pays exactly once, this sum *is*
+        // the entire lifetime income of hand-gathering, so the assertion is now a hard floor rather
+        // than a rate comparison: a player who never builds a machine cannot finish the tree, and the
+        // processed rows are the only way across.
         let report = balance::compute();
         let tree: u32 = {
             let technologies: TechnologiesInput = serde_json::from_str(TECHNOLOGIES).unwrap();
@@ -24117,16 +23262,13 @@ mod tests {
             "one cycle of raw requests pays {raw_cycle} and the tree costs {tree}"
         );
         assert!(tree >= 113, "the tree grew, it must not have shrunk");
-    }
 
-    /// Every material the economy bottoms out in can actually be had, from the site the game
-    /// starts you on, under the preset it starts you in.
-    ///
-    /// Two separate questions, and the second is the one that bites: stone is generated on cliffs
-    /// that nothing can stand on, so "the world holds some" and "you can reach some" are different
-    /// claims and only the second one makes it a material rather than scenery.
-    #[test]
-    fn every_recipe_input_is_reachable_from_the_landing_site() {
+        // Every material the economy bottoms out in can actually be had, from the site the game
+        // starts you on, under the preset it starts you in.
+        //
+        // Two separate questions, and the second is the one that bites: stone is generated on cliffs
+        // that nothing can stand on, so "the world holds some" and "you can reach some" are different
+        // claims and only the second one makes it a material rather than scenery.
         let report = balance::compute();
         assert!(report.access.len() >= 9, "eight fields and water");
         for material in &report.access {
@@ -24170,17 +23312,14 @@ mod tests {
             .map(|&(_, _, ceiling)| ceiling as u32)
             .unwrap();
         assert!(water.nearest_generated.unwrap_or(u32::MAX) <= first_pump_ceiling);
-    }
 
-    /// The founding contract has to be a founding *project*, and that is a claim about its bill.
-    ///
-    /// Three components prove one chain out of one landscape, which was the whole of v0.13's
-    /// objective and is deliberately only the first stage now. What the milestone asserts is that
-    /// the project the hub actually builds cannot be paid for out of that chain: it needs more than
-    /// one raw material, it costs strictly more, and — like every powered machine in this game — it
-    /// cannot be run at all without an On-site Power branch nothing else forces.
-    #[test]
-    fn the_founding_project_needs_more_than_the_chain_it_starts_from() {
+        // The founding contract has to be a founding *project*, and that is a claim about its bill.
+        //
+        // Three components prove one chain out of one landscape, which was the whole of v0.13's
+        // objective and is deliberately only the first stage now. What the milestone asserts is that
+        // the project the hub actually builds cannot be paid for out of that chain: it needs more than
+        // one raw material, it costs strictly more, and — like every powered machine in this game — it
+        // cannot be run at all without an On-site Power branch nothing else forces.
         let report = balance::compute();
         let founding: Vec<_> = report
             .contracts
@@ -24224,15 +23363,12 @@ mod tests {
         }
         assert!(first.opening.technologies.is_empty());
         assert!(first.opening.player_work_ticks > 0);
-    }
 
-    /// An opening that needs a machine the rules will not run is not an opening.
-    ///
-    /// `power_progress` returns zero off a network, so a plan naming a smelter and no generator is
-    /// a plan for a factory that stands still. This is the same defect the scripted next action
-    /// had, asserted here against the numbers rather than against the sentence.
-    #[test]
-    fn every_opening_that_draws_power_also_pays_for_it() {
+        // An opening that needs a machine the rules will not run is not an opening.
+        //
+        // `power_progress` returns zero off a network, so a plan naming a smelter and no generator is
+        // a plan for a factory that stands still. This is the same defect the scripted next action
+        // had, asserted here against the numbers rather than against the sentence.
         let report = balance::compute();
         let definitions: DefinitionsInput =
             serde_json::from_str(include_str!("../../src/data/definitions.json")).unwrap();
@@ -24264,17 +23400,14 @@ mod tests {
                 opening.name
             );
         }
-    }
 
-    /// A generator whose upkeep eats its own output is not a generator.
-    ///
-    /// A boiler drinks one water every tick it runs and a turbine is dead without one beside it,
-    /// so the pumps are part of the plant whether or not the definition file says so. Through
-    /// v0.16 the pump made one water every six ticks, which is six pumps drawing 24 of the
-    /// turbine's 48 before a single machine ran — leaving the mid-game workhorse behind a hydro
-    /// generator that cost exactly the same and needed neither fuel nor plumbing.
-    #[test]
-    fn every_generator_is_worth_more_than_its_own_upkeep() {
+        // A generator whose upkeep eats its own output is not a generator.
+        //
+        // A boiler drinks one water every tick it runs and a turbine is dead without one beside it,
+        // so the pumps are part of the plant whether or not the definition file says so. Through
+        // v0.16 the pump made one water every six ticks, which is six pumps drawing 24 of the
+        // turbine's 48 before a single machine ran — leaving the mid-game workhorse behind a hydro
+        // generator that cost exactly the same and needed neither fuel nor plumbing.
         let report = balance::compute();
         for plant in &report.power {
             assert!(
@@ -24305,16 +23438,13 @@ mod tests {
             steam.net_output,
             best_free
         );
-    }
 
-    /// Research is funded out of distinct projects, each counted once at its posted price.
-    ///
-    /// A funding line used to name one request and grind it, so the harness quoted a length that
-    /// no longer exists: the hub buys a given bill exactly once. An opening's cost is now a
-    /// shopping list — whole projects, cheapest per item first, until the insight is raised — and
-    /// this recomputes that list from the catalogue rather than trusting the field.
-    #[test]
-    fn research_funding_is_counted_as_whole_distinct_projects() {
+        // Research is funded out of distinct projects, each counted once at its posted price.
+        //
+        // A funding line used to name one request and grind it, so the harness quoted a length that
+        // no longer exists: the hub buys a given bill exactly once. An opening's cost is now a
+        // shopping list — whole projects, cheapest per item first, until the insight is raised — and
+        // this recomputes that list from the catalogue rather than trusting the field.
         let report = balance::compute();
         let (definitions, _, _) = catalogs();
         let mut multi = 0;
@@ -24381,18 +23511,15 @@ mod tests {
             multi > 0,
             "no opening needs a second project, so the finite count is not being measured"
         );
-    }
 
-    /// A technology the hub grants for finishing a commission is not free, and an opening that needs
-    /// one has to deliver the commission first.
-    ///
-    /// Four technologies cannot be bought at any price: the contract stage hands them over. Pricing
-    /// them at their `insight` cost of zero told the harness the early stations were unlocked from a
-    /// standing start, which skipped the delivery every real opening makes before it places one.
-    /// The resolver now folds the owed stage's bill into the opening it blocks — and a stage does
-    /// not commission itself, or nothing would ever resolve.
-    #[test]
-    fn an_opening_behind_a_granted_technology_pays_for_the_commission_first() {
+        // A technology the hub grants for finishing a commission is not free, and an opening that needs
+        // one has to deliver the commission first.
+        //
+        // Four technologies cannot be bought at any price: the contract stage hands them over. Pricing
+        // them at their `insight` cost of zero told the harness the early stations were unlocked from a
+        // standing start, which skipped the delivery every real opening makes before it places one.
+        // The resolver now folds the owed stage's bill into the opening it blocks — and a stage does
+        // not commission itself, or nothing would ever resolve.
         let report = balance::compute();
         let (_, technologies, _) = catalogs();
         let granted: BTreeSet<&str> = technologies
@@ -24436,7 +23563,7 @@ mod tests {
     }
 
     #[test]
-    fn snapshot_delta_omits_unchanged_world_groups_and_pins_revisions() {
+    fn deltas_send_only_what_changed_and_match_a_full_snapshot_diff() {
         let mut core = game("new-game");
         let previous = core.snapshot();
         core.tick_many(1);
@@ -24453,10 +23580,8 @@ mod tests {
         assert!(!json.contains("\"terrain\""));
         assert!(!json.contains("\"resources\""));
         assert!(!json.contains("\"buildings\""));
-    }
 
-    #[test]
-    fn generated_chunk_bounds_report_the_surveyed_world_area() {
+        // Generated chunk bounds report the surveyed world area.
         let mut core = game("new-game");
         let snapshot = core.snapshot();
         let size = core.scenario.chunk_size;
@@ -24492,10 +23617,8 @@ mod tests {
             .chunks
             .iter()
             .any(|chunk| contains(chunk, far_x, far_y)));
-    }
 
-    #[test]
-    fn buildings_delta_sends_only_the_entities_that_changed() {
+        // Buildings delta sends only the entities that changed.
         let mut core = game("new-game");
         core.researched.insert(2);
         stock_for(&mut core, 1, 1);
@@ -24536,15 +23659,12 @@ mod tests {
         let full = SnapshotDelta::full(0, 1, &current).buildings.unwrap();
         assert!(full.replace);
         assert_eq!(full.changed, current.buildings);
-    }
 
-    /// The shipped delta is built from marks made where state is mutated, not by diffing two
-    /// complete snapshots, so a missed mark would silently strand the host on stale state. This
-    /// pins the builder against the full diff it replaces, step by step, across every path that
-    /// touches a snapshot group: quiet frames, ticks, gathering to depletion, hub delivery,
-    /// research, placement, rotation, erasure, and travel into unsurveyed world.
-    #[test]
-    fn dirty_tracked_deltas_match_a_full_snapshot_diff() {
+        // The shipped delta is built from marks made where state is mutated, not by diffing two
+        // complete snapshots, so a missed mark would silently strand the host on stale state. This
+        // pins the builder against the full diff it replaces, step by step, across every path that
+        // touches a snapshot group: quiet frames, ticks, gathering to depletion, hub delivery,
+        // research, placement, rotation, erasure, and travel into unsurveyed world.
         let mut factory = test_factory("new-game");
         // Setup pokes happen before the baseline is taken, so the checked run only exercises real
         // native paths. Shrinking a guaranteed deposit lets the run reach depletion. The starting
@@ -24706,15 +23826,12 @@ mod tests {
         assert!(delta.terrain.is_some());
         assert!(delta.chunks.is_some());
         assert!(delta.player.is_some());
-    }
 
-    /// World generation invalidates resolved deposit references, so it must invalidate the entity
-    /// snapshots derived from them in the same breath. Today's deposit radii are smaller than the
-    /// tile spacing, so a generated deposit does not in fact reach an existing extractor and the
-    /// scripted equivalence run cannot observe this — which is exactly why the coupling is pinned
-    /// here directly rather than left to depend on that geometry holding.
-    #[test]
-    fn world_generation_invalidates_resolved_deposits_and_the_snapshots_built_from_them() {
+        // World generation invalidates resolved deposit references, so it must invalidate the entity
+        // snapshots derived from them in the same breath. Today's deposit radii are smaller than the
+        // tile spacing, so a generated deposit does not in fact reach an existing extractor and the
+        // scripted equivalence run cannot observe this — which is exactly why the coupling is pinned
+        // here directly rather than left to depend on that geometry holding.
         let mut core = game("new-game");
         core.researched.insert(2);
         stock_for(&mut core, 1, 1);
@@ -24735,13 +23852,10 @@ mod tests {
             "every entity snapshot derived from a deposit is suspect too"
         );
         assert!(core.dirty.chunks, "the surveyed chunk set grew");
-    }
 
-    /// An extractor's reported status is resolved through its cached deposit reference instead of
-    /// a scan over every generated tile. The two must agree exactly, including after the deposit
-    /// under it runs dry.
-    #[test]
-    fn extractor_status_matches_a_full_deposit_scan() {
+        // An extractor's reported status is resolved through its cached deposit reference instead of
+        // a scan over every generated tile. The two must agree exactly, including after the deposit
+        // under it runs dry.
         let mut core = game("new-game");
         core.researched.extend([1, 2]);
         stock_for(&mut core, 1, 1);
@@ -24776,10 +23890,8 @@ mod tests {
             core.entity_snapshot(index).status,
             EntityStatus::DepositDepleted
         );
-    }
 
-    #[test]
-    fn combined_advance_preserves_command_events_through_native_ticks() {
+        // Combined advance preserves command events through native ticks.
         let mut core = game("new-game");
         core.player.inventory.insert(1, 8);
         core.player.inventory.insert(3, 4);
@@ -24792,10 +23904,8 @@ mod tests {
             .iter()
             .any(|event| event.contains("Delivered 8 to the landing hub")));
         assert_eq!(core.player.inventory.get(&3), Some(&4));
-    }
 
-    #[test]
-    fn malformed_technology_graphs_and_locked_forged_commands_are_rejected() {
+        // Malformed technology graphs and locked forged commands are rejected.
         let (definitions, mut technologies, scenarios) = catalogs();
         technologies.technologies[1].prerequisites = vec![3];
         assert!(validate_technologies(&definitions, &technologies).is_err());
@@ -24806,10 +23916,8 @@ mod tests {
         assert!(core.entities.iter().all(|entity| entity.placed.q != 2));
         assert!(core.events[0].contains("locked"));
         assert!(validate_scenarios(&definitions, &catalogs().1, &scenarios).is_ok());
-    }
 
-    #[test]
-    fn progression_registries_reject_missing_duplicate_and_unknown_references() {
+        // Progression registries reject missing duplicate and unknown references.
         let (definitions, technologies, _) = catalogs();
         for change in 0..9 {
             let mut invalid = technologies.clone();
@@ -24835,7 +23943,7 @@ mod tests {
     /// whole answer to north-south transport: a direction-table row, resolved by the ray-cast the
     /// graph compiler already was, with no sub-hex occupancy anywhere.
     #[test]
-    fn a_corner_belt_routes_two_rows_and_leaves_the_hexes_it_spans_free() {
+    fn rotation_and_the_two_row_reach_are_priced_gated_and_angular() {
         let mut core = game("new-game");
         core.researched.extend([1, 4, 11]);
         stock_for(&mut core, 4, 1);
@@ -24862,15 +23970,12 @@ mod tests {
         assert!(!core.building_definition(2).unwrap().blocks_movement);
         // It occupies exactly one hex.
         assert_eq!(core.entity_footprint(&core.entities[belt]).len(), 1);
-    }
 
-    /// Rotation on the any axis walks all twelve headings once each, in angular order.
-    ///
-    /// The point of a single belt definition is that `R` nudges a heading by 30°, not that it
-    /// cycles a table. So this checks the *world vectors*, not the indices: consecutive headings
-    /// turn one twelfth of a circle clockwise, and twelve presses return to where they started.
-    #[test]
-    fn rotation_walks_every_heading_once_in_angular_order() {
+        // Rotation on the any axis walks all twelve headings once each, in angular order.
+        //
+        // The point of a single belt definition is that `R` nudges a heading by 30°, not that it
+        // cycles a table. So this checks the *world vectors*, not the indices: consecutive headings
+        // turn one twelfth of a circle clockwise, and twelve presses return to where they started.
         let mut core = game("new-game");
         core.researched.extend([1, 11]);
         core.player.inventory.insert(24, 40);
@@ -24914,15 +24019,12 @@ mod tests {
             7,
             "and reverse rotation is the inverse press: 30° back from due east"
         );
-    }
 
-    /// Rotation offers a heading on the same terms `place` does: researched, and paid for.
-    ///
-    /// A belt bought at an edge heading and turned onto a vertex one would otherwise be the two-row
-    /// reach at the price of the short step — the exact dominance `corner_construction_cost` exists
-    /// to prevent — and `R` pressed before the research would hand it over for nothing at all.
-    #[test]
-    fn rotation_offers_only_headings_the_player_has_paid_for() {
+        // Rotation offers a heading on the same terms `place` does: researched, and paid for.
+        //
+        // A belt bought at an edge heading and turned onto a vertex one would otherwise be the two-row
+        // reach at the price of the short step — the exact dominance `corner_construction_cost` exists
+        // to prevent — and `R` pressed before the research would hand it over for nothing at all.
         let mut core = game("new-game");
         core.researched.insert(1);
         core.player.inventory.insert(24, 8);
@@ -24972,13 +24074,10 @@ mod tests {
         core.player.inventory.remove(&24);
         assert!(core.rotate(0, 3, false).unwrap_err().contains("need"));
         assert_eq!(heading(&core), 0);
-    }
 
-    /// Orientation is an axis the definition owns, and on the any axis that axis prices and gates
-    /// itself. The two-row reach costs what it covers and waits behind its own research, which is
-    /// what lets a belt and a riser be one building without the reach being free.
-    #[test]
-    fn the_two_row_reach_is_priced_and_gated_on_the_axis_that_allows_it() {
+        // Orientation is an axis the definition owns, and on the any axis that axis prices and gates
+        // itself. The two-row reach costs what it covers and waits behind its own research, which is
+        // what lets a belt and a riser be one building without the reach being free.
         let mut core = game("new-game");
         core.researched.extend([1]);
         core.player.inventory.insert(24, 40);
@@ -25046,7 +24145,7 @@ mod tests {
     /// different branches is the tick claim. A splitter that compiled three edges but always
     /// offered the first would be a belt that had learned to draw two extra decks.
     #[test]
-    fn a_splitter_fans_one_lane_into_three_and_serves_them_in_rotation() {
+    fn splitters_mergers_and_underpasses_serve_their_lanes_in_order() {
         let mut core = empty_world("new-game");
         let splitter = add_test_entity(&mut core, 0, 0, 24, 0);
         // Facing east, and the two headings 60° either side of east.
@@ -25091,16 +24190,13 @@ mod tests {
         );
         assert_eq!(core.entities[index_of(&core, left)].inventory[&1], 2);
         assert_eq!(core.entities[index_of(&core, right)].inventory[&1], 2);
-    }
 
-    /// A merger serves its feeders in rotation, and an ordinary belt in the same junction does not.
-    ///
-    /// The negative half is the whole point. Several lanes pointed into one hex compete every tick,
-    /// and the id order the game has always arbitrated by hands the win to the same lane forever —
-    /// which is a starved lane, not a tie-break. The merger is the definition that answers it, so
-    /// the test states both behaviours side by side rather than asserting the fair one alone.
-    #[test]
-    fn a_merger_alternates_between_its_feeders_and_a_belt_starves_one() {
+        // A merger serves its feeders in rotation, and an ordinary belt in the same junction does not.
+        //
+        // The negative half is the whole point. Several lanes pointed into one hex compete every tick,
+        // and the id order the game has always arbitrated by hands the win to the same lane forever —
+        // which is a starved lane, not a tie-break. The merger is the definition that answers it, so
+        // the test states both behaviours side by side rather than asserting the fair one alone.
         let served_order = |definition_id: DefinitionId| {
             let mut core = empty_world("new-game");
             let junction = add_test_entity(&mut core, 0, 0, definition_id, 0);
@@ -25149,16 +24245,13 @@ mod tests {
             belt[0], belt[3],
             "an ordinary junction starves the other lane"
         );
-    }
 
-    /// Two underpasses on one heading carry a lane beneath the line between them.
-    ///
-    /// The crossed belt is the assertion: it keeps its own cargo, keeps its own output, and never
-    /// sees what passes over it. And the pair is not a placement mode — the exit is simply the
-    /// underpass that found no partner ahead of it, so it delivers like any other belt, and an
-    /// underpass alone behaves as one.
-    #[test]
-    fn an_underpass_pair_carries_a_lane_beneath_the_belt_between_them() {
+        // Two underpasses on one heading carry a lane beneath the line between them.
+        //
+        // The crossed belt is the assertion: it keeps its own cargo, keeps its own output, and never
+        // sees what passes over it. And the pair is not a placement mode — the exit is simply the
+        // underpass that found no partner ahead of it, so it delivers like any other belt, and an
+        // underpass alone behaves as one.
         let mut core = empty_world("new-game");
         let entrance = add_test_entity(&mut core, 0, 0, 26, 0);
         let exit = add_test_entity(&mut core, 2, 0, 26, 0);
@@ -25216,10 +24309,8 @@ mod tests {
             vec![crossed],
             "an underpass with no partner is a belt"
         );
-    }
 
-    #[test]
-    fn one_underpass_drag_places_only_a_clear_atomic_pair_around_the_crossing() {
+        // One underpass drag places only a clear atomic pair around the crossing.
         let mut core = empty_world("new-game");
         core.set_creative(true);
         core.player.build_range = 1 << 20;
@@ -25245,10 +24336,8 @@ mod tests {
         assert_eq!(core.entities[entrance].placed.orientation, 0);
         assert_eq!(core.entities[exit].placed.orientation, 0);
         assert_eq!(core.graph[entrance].primary(), Some(exit));
-    }
 
-    #[test]
-    fn fresh_belts_and_pipes_keep_solids_and_fluids_apart_and_tanks_are_filtered() {
+        // Fresh belts and pipes keep solids and fluids apart and tanks are filtered.
         let mut core = empty_world("new-game");
         let belt_id = add_test_entity(&mut core, 0, 0, 2, 0);
         let pipe_id = add_test_entity(&mut core, 1, 0, 32, 0);
@@ -25337,16 +24426,13 @@ mod tests {
                 quantity: 1
             }
         ));
-    }
 
-    /// A drag routes on all twelve headings, and takes the two-row period when it pays.
-    ///
-    /// Straight up the world column is the case that separates the search from the six-edge one it
-    /// replaced: four rows north is two corner steps or four edge steps, and the corner route is
-    /// the shorter run in entities even though the two price out the same. Research is what decides
-    /// which one the player gets, and the search reads it rather than branching on it.
-    #[test]
-    fn a_drag_routes_on_every_researched_heading() {
+        // A drag routes on all twelve headings, and takes the two-row period when it pays.
+        //
+        // Straight up the world column is the case that separates the search from the six-edge one it
+        // replaced: four rows north is two corner steps or four edge steps, and the corner route is
+        // the shorter run in entities even though the two price out the same. Research is what decides
+        // which one the player gets, and the search reads it rather than branching on it.
         let mut core = game("new-game");
         // Raw rather than `set_creative`, which researches everything — and what is researched is
         // exactly the variable this test turns.
@@ -25389,7 +24475,7 @@ mod tests {
     /// same failure `erase`'s carry-then-spill split exists to prevent: every item is either in the
     /// pack or on the ground, and none is in both.
     #[test]
-    fn an_upgrade_preserves_contents_connections_and_conserves_items_exactly() {
+    fn an_upgrade_preserves_contents_and_reach_storing_and_gathering_stay_bounded() {
         let mut core = game("new-game");
         core.researched.extend([1, 4, 12]);
         // Everything the ladder can possibly charge, so the test measures conservation and not
@@ -25472,12 +24558,9 @@ mod tests {
         );
         ore.erase(3, 0).unwrap();
         assert_eq!(ore.player.inventory, before);
-    }
 
-    /// Reach is the flagship upgrade, so it has to be a number the definition owns — and the hand
-    /// must not inherit it. The predicate stays single; only its argument moves.
-    #[test]
-    fn extraction_reach_comes_from_the_definition_and_the_hand_keeps_its_own() {
+        // Reach is the flagship upgrade, so it has to be a number the definition owns — and the hand
+        // must not inherit it. The predicate stays single; only its argument moves.
         let mut core = game("new-game");
         core.researched.extend([1, 2, 12]);
         stock_for(&mut core, 1, 1);
@@ -25530,13 +24613,10 @@ mod tests {
         assert!(validate_definitions(&definitions)
             .unwrap_err()
             .contains("reach in 1..="));
-    }
 
-    /// A right-click names the hex. That is a different thing from facing-weighted targeting, and
-    /// the difference is the whole reason this is allowed: the player chose the cell, on screen,
-    /// so the number that moves is the one they pointed at. Reach is unchanged.
-    #[test]
-    fn a_named_gather_takes_from_the_hex_the_player_picked_within_the_same_reach() {
+        // A right-click names the hex. That is a different thing from facing-weighted targeting, and
+        // the difference is the whole reason this is allowed: the player chose the cell, on screen,
+        // so the number that moves is the one they pointed at. Reach is unchanged.
         let mut core = game("new-game");
         set_player_hex(&mut core, 3, 0);
         // Field cells either side of the one underfoot, so a target that drifts is visible.
@@ -25611,12 +24691,9 @@ mod tests {
                 );
             }
         }
-    }
 
-    /// Loading a container by hand is the exact mirror of unloading one, on the same contract:
-    /// the quantity is a ceiling, a partial move succeeds, and nothing is ever destroyed.
-    #[test]
-    fn storing_moves_what_fits_and_leaves_the_rest_in_the_pack() {
+        // Loading a container by hand is the exact mirror of unloading one, on the same contract:
+        // the quantity is a ceiling, a partial move succeeds, and nothing is ever destroyed.
         let mut core = game("new-game");
         core.researched.extend([1, 4]);
         core.player.inventory.insert(1, 30);
@@ -25659,10 +24736,8 @@ mod tests {
             .contains("nothing to reach into"));
         // Bounded and range-checked like every other edit.
         assert!(core.store(9, 9, 1, 1).unwrap_err().contains("build range"));
-    }
 
-    #[test]
-    fn negative_coordinates_use_euclidean_chunk_division() {
+        // Negative coordinates use euclidean chunk division.
         assert_eq!(floor_div(-1, 8), -1);
         assert_eq!(floor_div(-8, 8), -1);
         assert_eq!(floor_div(-9, 8), -2);
@@ -25707,7 +24782,17 @@ mod tests {
         // `BELT_TRANSIT_TICKS` to cross. The workload's shape, entity count and delivered total did
         // not move — the line is extraction-bound either way — but the pipeline is eight belts and
         // 216 ticks longer to fill, so the warmup moved with it and the lanes are now hashed state.
-        assert_eq!(first.checksum(), 3_227_239_126);
+        //
+        // 3_227_239_126 → 2_303_878_214 when a survey began opening a disc around the player's own
+        // hex instead of a ring of the chunk lattice. `generated_chunks` is hashed, and this tier
+        // opens a different set of them — the same world either way, since `tier_scenario` sets
+        // `generated_environment: false` and there is no terrain here to change. The workload's
+        // shape, entity count and delivered total did not move.
+        //
+        // 2_303_878_214 → 1_013_018_297 when the same pass moved `WORLD_GENERATOR_VERSION` to 12,
+        // which `checksum_for_world` hashes first. Nothing in the workload moved with it; this is
+        // the stamp, not the state.
+        assert_eq!(first.checksum(), 1_013_018_297);
         assert_eq!(first.entities.len(), spec.entities() as usize);
         // Every line must be running end to end, or the tiers would measure an idle blueprint.
         // Four per line rather than fourteen: the line is now extraction-bound, because a
@@ -25733,8 +24818,11 @@ mod tests {
         }
     }
 
+    /// Every figure the ladder reports is arithmetic over a clock it was handed, so the whole of it
+    /// can be pinned without depending on how long a machine actually takes.
     #[test]
-    fn capacity_phases_are_reported_per_sample_against_the_supplied_clock() {
+    fn capacity_is_measured_per_phase_and_per_tier_against_a_supplied_clock() {
+        // Capacity phases are reported per sample against the supplied clock.
         let spec = capacity::quick_tiers()[0];
         let clock = StepClock {
             // Each phase reads the clock exactly twice, so one phase always spans one step.
@@ -25752,12 +24840,9 @@ mod tests {
         assert_eq!(tier.entities, spec.entities() as usize);
         // Seven phases, each spanning exactly one pair of readings.
         assert_eq!(clock.readings.get(), 14);
-    }
 
-    /// A coarse clock must buy precision with more samples and nothing else: the tier's identity
-    /// has to survive, or a browser record could not be compared against a native one.
-    #[test]
-    fn a_phase_budget_adds_samples_without_moving_the_workload() {
+        // A coarse clock must buy precision with more samples and nothing else: the tier's identity
+        // has to survive, or a browser record could not be compared against a native one.
         let spec = capacity::quick_tiers()[1];
         let fixed = capacity::measure_tier_with(
             &spec,
@@ -25787,10 +24872,8 @@ mod tests {
         assert_eq!(budgeted.delivered, fixed.delivered);
         assert_eq!(budgeted.entities, fixed.entities);
         assert_eq!(budgeted.tiles, fixed.tiles);
-    }
 
-    #[test]
-    fn capacity_ladder_measures_tiers_independently_and_reports_its_platform() {
+        // Capacity ladder measures tiers independently and reports its platform.
         let specs = capacity::quick_tiers();
         let mut ladder = capacity::Ladder::new(specs.clone());
         let clock = capacity::default_clock();
@@ -25815,13 +24898,10 @@ mod tests {
         assert_eq!(report.platform, "native");
         assert_eq!(report.schema, capacity::REPORT_SCHEMA);
         assert!(capacity::format_table(&report).contains("native"));
-    }
 
-    /// The browser harness drives this factory over the ordinary worker RPC, so it must arrive in
-    /// the same steady state the in-wasm phases measure, and its first delta must be a complete
-    /// snapshot the host can adopt.
-    #[test]
-    fn capacity_round_trip_factory_starts_warm_and_sends_a_full_first_delta() {
+        // The browser harness drives this factory over the ordinary worker RPC, so it must arrive in
+        // the same steady state the in-wasm phases measure, and its first delta must be a complete
+        // snapshot the host can adopt.
         let spec = capacity::quick_tiers()[1];
         let mut factory = capacity::warm_factory(&spec);
         let warm = capacity::warm_core(&spec);
@@ -25855,10 +24935,8 @@ mod tests {
             .as_array()
             .expect("a steady-state frame changes entities");
         assert!(!changed.is_empty() && changed.len() < spec.entities() as usize);
-    }
 
-    #[test]
-    fn capacity_ladder_reports_a_result_for_every_tier() {
+        // Capacity ladder reports a result for every tier.
         let specs = capacity::quick_tiers();
         let report = capacity::run(&specs);
         assert_eq!(report.schema, capacity::REPORT_SCHEMA);
@@ -25879,7 +24957,7 @@ mod tests {
     }
 
     #[test]
-    fn dropped_items_land_on_ground_can_be_picked_up_and_despawn_after_one_minute() {
+    fn dropped_items_land_are_picked_up_despawn_and_survive_a_save() {
         let mut core = game("new-game");
         set_player_hex(&mut core, 0, 0);
         core.player.hand = Some(Cargo {
@@ -25951,10 +25029,8 @@ mod tests {
         // 1 more tick (600 ticks total): despawned
         core.advance_ticks(1);
         assert_eq!(core.ground_items.len(), 0);
-    }
 
-    #[test]
-    fn ground_items_save_and_restore() {
+        // Ground items save and restore.
         let (definitions, technologies, scenarios) = catalogs();
         let mut core = game("new-game");
         set_player_hex(&mut core, 0, 0);
@@ -26005,7 +25081,7 @@ mod tests {
     }
 
     #[test]
-    fn boundaries_preview_commit_refund_and_undo_conserve_paid_materials() {
+    fn boundaries_are_canonical_atomic_conserving_and_block_what_crosses_them() {
         let mut core = empty_world("new-game");
         core.compile_graph();
         core.player.x = -3 * HEX_X;
@@ -26073,10 +25149,8 @@ mod tests {
         })
         .unwrap();
         assert_eq!(core.player.inventory, before_remove);
-    }
 
-    #[test]
-    fn boundaries_are_canonical_bounded_atomic_and_reject_unsafe_sites() {
+        // Boundaries are canonical bounded atomic and reject unsafe sites.
         let mut core = empty_world("new-game");
         core.scenario.generated_environment = false;
         core.compile_graph();
@@ -26159,10 +25233,8 @@ mod tests {
             .error
             .unwrap()
             .contains("Step away"));
-    }
 
-    #[test]
-    fn boundaries_block_manual_and_click_walks_and_gates_replan_routes() {
+        // Boundaries block manual and click walks and gates replan routes.
         let mut core = empty_world("new-game");
         core.compile_graph();
         core.player.x = 0;
@@ -26198,10 +25270,8 @@ mod tests {
         })
         .unwrap();
         assert!(!core.boundary_blocks_segment(axial_world(0, 0), axial_world(1, 0)));
-    }
 
-    #[test]
-    fn boundaries_protect_transport_and_recompile_future_connections_without_losing_cargo() {
+        // Boundaries protect transport and recompile future connections without losing cargo.
         let mut core = empty_world("new-game");
         core.compile_graph();
         core.player.x = -3 * HEX_X;
@@ -26236,10 +25306,8 @@ mod tests {
             .contains("transport"));
         assert_eq!(checksum, core.checksum());
         assert!(core.undo_boundary().unwrap_err().contains("transport"));
-    }
 
-    #[test]
-    fn boundaries_save_migrate_validate_and_dirty_deltas_match_the_full_oracle() {
+        // Boundaries save migrate validate and dirty deltas match the full oracle.
         let mut core = game("new-game");
         let old = core
             .save_string()
@@ -26290,10 +25358,8 @@ mod tests {
         assert_eq!(delta, SnapshotDelta::between(0, 1, &previous, &current));
         assert_eq!(delta.boundaries, Some(Vec::new()));
         assert!(factory.build_delta().boundaries.is_none());
-    }
 
-    #[test]
-    fn boundaries_cover_all_six_sides_vertices_and_keep_the_source_digest_exact() {
+        // Boundaries cover all six sides vertices and keep the source digest exact.
         let mut core = empty_world("new-game");
         core.scenario.generated_environment = false;
         core.compile_graph();
@@ -26363,18 +25429,15 @@ mod tests {
             *visits.entry(b).or_default() += 1;
         }
         assert!(visits.values().all(|&n| n == 2));
-    }
 
-    /// The point of anchoring on vertices: a wall can hold one heading for a long run. Twelve
-    /// headings leave every lattice vertex, thirty degrees apart, and each has to draw exactly
-    /// straight for at least the twenty segments this phase is graded on.
-    ///
-    /// Only six of the twelve repeat one chord over and over — the honeycomb is not a lattice under
-    /// its own edges, so the other six alternate two chord lengths and are no less straight for it.
-    /// The test is collinearity, not sameness: every vertex the run touches lies on the ray, and
-    /// each one is further along it than the last.
-    #[test]
-    fn straight_boundary_runs_hold_all_twelve_headings_for_twenty_segments() {
+        // The point of anchoring on vertices: a wall can hold one heading for a long run. Twelve
+        // headings leave every lattice vertex, thirty degrees apart, and each has to draw exactly
+        // straight for at least the twenty segments this phase is graded on.
+        //
+        // Only six of the twelve repeat one chord over and over — the honeycomb is not a lattice under
+        // its own edges, so the other six alternate two chord lengths and are no less straight for it.
+        // The test is collinearity, not sameness: every vertex the run touches lies on the ray, and
+        // each one is further along it than the last.
         let mut core = empty_world("new-game");
         core.scenario.generated_environment = false;
         core.compile_graph();
@@ -26439,10 +25502,8 @@ mod tests {
             }
         }
         assert_eq!(headings.len(), 12);
-    }
 
-    #[test]
-    fn boundaries_refuse_full_pack_refunds_and_unfunded_undo_without_changing_state() {
+        // Boundaries refuse full pack refunds and unfunded undo without changing state.
         let mut core = empty_world("new-game");
         core.compile_graph();
         core.player.x = -3 * HEX_X;
@@ -26479,10 +25540,8 @@ mod tests {
         core.undo_boundary().unwrap();
         assert_eq!(core.boundaries.len(), 1);
         assert!(core.player.inventory.is_empty());
-    }
 
-    #[test]
-    fn boundaries_protect_multicell_placement_rotation_and_live_gate_crossings() {
+        // Boundaries protect multicell placement rotation and live gate crossings.
         let mut core = empty_world("new-game");
         core.scenario.generated_environment = false;
         core.compile_graph();
@@ -26654,7 +25713,7 @@ mod tests {
     /// priced by the same arithmetic in reverse, and repainting what is already there is refused
     /// rather than charged.
     #[test]
-    fn surfaces_preview_commit_refund_and_undo_conserve_paid_materials() {
+    fn ground_works_conserve_spoil_gate_routes_and_survive_a_save() {
         let mut core = ground_world();
         let gravel = item_id(&core, "gravel");
         core.player.inventory = BTreeMap::from([(gravel, 6)]);
@@ -26723,14 +25782,11 @@ mod tests {
         assert!(core.ground.is_empty());
         assert_eq!(core.player.inventory, initial);
         assert_eq!(core.checksum(), checksum);
-    }
 
-    /// Fill is dug, never conjured. This is the exploit check: raising ground with an empty ledger
-    /// is refused, the ledger conserves exactly one step per step in both directions, undo restores
-    /// the count the edit found rather than minting one, and neither the grade bound nor the ledger
-    /// can be walked past by repeating the edit.
-    #[test]
-    fn grading_conserves_spoil_and_refuses_fill_that_was_never_dug() {
+        // Fill is dug, never conjured. This is the exploit check: raising ground with an empty ledger
+        // is refused, the ledger conserves exactly one step per step in both directions, undo restores
+        // the count the edit found rather than minting one, and neither the grade bound nor the ledger
+        // can be walked past by repeating the edit.
         let mut core = ground_world();
         let checksum = core.checksum();
         assert_eq!(core.spoil, 0);
@@ -26796,14 +25852,11 @@ mod tests {
         assert_eq!(core.spoil, 0);
         assert!(core.ground.is_empty(), "level ground leaves the overlay");
         assert_eq!(core.checksum(), checksum, "the ledger balances to zero");
-    }
 
-    /// The selection modes, and the one property that makes an outline an outline: it is exactly
-    /// the hexes of its own filled shape that touch something outside it. Deriving the outline from
-    /// the fill rather than drawing it with geometry of its own is what makes it one hex thick at
-    /// every size, with no rounding rule that could disagree with the fill's.
-    #[test]
-    fn an_outlined_ground_selection_is_the_rim_of_its_own_filled_shape() {
+        // The selection modes, and the one property that makes an outline an outline: it is exactly
+        // the hexes of its own filled shape that touch something outside it. Deriving the outline from
+        // the fill rather than drawing it with geometry of its own is what makes it one hex thick at
+        // every size, with no rounding rule that could disagree with the fill's.
         let mut core = ground_world();
         core.set_creative(true);
         reach(&mut core);
@@ -26870,13 +25923,10 @@ mod tests {
         let wide = core.ground_preview(&GroundEdit { to_q: 5, ..disc });
         assert!(wide.error.unwrap().contains("too wide"));
         assert!(wide.cells.is_empty());
-    }
 
-    /// What a selection has to do when it cannot be applied: stay on screen, and say which hex is
-    /// the problem. One obstacle used to erase the whole footprint it was standing in, which left
-    /// the player a refusal and no picture of what it was about.
-    #[test]
-    fn a_refused_ground_selection_still_draws_its_footprint_and_names_the_hex_in_the_way() {
+        // What a selection has to do when it cannot be applied: stay on screen, and say which hex is
+        // the problem. One obstacle used to erase the whole footprint it was standing in, which left
+        // the player a refusal and no picture of what it was about.
         let mut core = ground_world();
         core.set_creative(true);
         reach(&mut core);
@@ -26944,12 +25994,9 @@ mod tests {
             -scale::EARTHWORK_LIMIT_QUANTA
         );
         assert!(core.edit_ground(&deep).unwrap_err().contains("full"));
-    }
 
-    /// Levelling names its datum. The same three hexes even onto the lowest, the highest, or the
-    /// one the drag started on, and the spoil ledger is what tells the three apart.
-    #[test]
-    fn levelling_evens_onto_the_datum_the_player_names() {
+        // Levelling names its datum. The same three hexes even onto the lowest, the highest, or the
+        // one the drag started on, and the spoil ledger is what tells the three apart.
         let mut core = ground_world();
         core.set_creative(true);
         reach(&mut core);
@@ -27002,12 +26049,9 @@ mod tests {
             assert_eq!(core.ground_elevation_at(q, 0), -4);
         }
         assert_eq!(core.spoil, 12);
-    }
 
-    /// The route search prices travel time, so a longer prepared way beats a shorter raw one, and a
-    /// step nobody can climb stops the route and the body alike.
-    #[test]
-    fn a_route_prefers_a_longer_paved_way_and_a_retaining_wall_stops_it() {
+        // The route search prices travel time, so a longer prepared way beats a shorter raw one, and a
+        // step nobody can climb stops the route and the body alike.
         let mut core = ground_world();
         core.set_creative(true);
         reach(&mut core);
@@ -27069,13 +26113,10 @@ mod tests {
             .unwrap();
         assert!(!core.grade_blocks((0, 0), (-1, 0)));
         core.walk_to(-1, 0).unwrap();
-    }
 
-    /// Covering a deposit is deliberate, reversible and lossless. It is confirmed before it happens,
-    /// it suppresses hands, extractors, the published snapshot and regrowth without harvesting a
-    /// single unit, and stripping the surface hands back exactly what was sealed.
-    #[test]
-    fn paving_seals_a_deposit_only_on_confirmation_and_clearing_restores_it() {
+        // Covering a deposit is deliberate, reversible and lossless. It is confirmed before it happens,
+        // it suppresses hands, extractors, the published snapshot and regrowth without harvesting a
+        // single unit, and stripping the surface hands back exactly what was sealed.
         let mut core = ground_world();
         core.write_overlay(2, 0, WOOD, 9, 14);
         core.rebuild_flora_regrowth();
@@ -27134,11 +26175,8 @@ mod tests {
             .error
             .unwrap()
             .contains("extractor"));
-    }
 
-    /// A footprint needs a pad flatter than the steepest slope a player may still walk.
-    #[test]
-    fn a_footprint_needs_ground_no_steeper_than_a_walk_can_climb() {
+        // A footprint needs a pad flatter than the steepest slope a player may still walk.
         let mut core = ground_world();
         core.set_creative(true);
         reach(&mut core);
@@ -27184,12 +26222,9 @@ mod tests {
         .unwrap();
         assert_eq!(core.ground_elevation_at(1, 0), 0);
         assert_eq!(core.placement_legality(0, 0, 4, 0, None, true), Ok(()));
-    }
 
-    /// Prepared ground survives a save, migrates forward from a file that never had any, refuses a
-    /// state the definitions cannot explain, and its dirty-tracked delta matches the full oracle.
-    #[test]
-    fn ground_saves_migrates_validates_and_dirty_deltas_match_the_full_oracle() {
+        // Prepared ground survives a save, migrates forward from a file that never had any, refuses a
+        // state the definitions cannot explain, and its dirty-tracked delta matches the full oracle.
         let mut core = ground_world();
         core.set_creative(true);
         reach(&mut core);
@@ -27332,7 +26367,7 @@ mod tests {
     /// walkable bands is within one climbable step, which is the whole reason `natural_elevation`
     /// has the values it does, and it is asserted here rather than trusted.
     #[test]
-    fn no_generated_terrain_is_walled_off_by_its_own_natural_elevation() {
+    fn no_terrain_walls_itself_off_and_a_quarried_cliff_stops_being_a_wall() {
         let bands = [
             Terrain::DeepWater,
             Terrain::ShallowWater,
@@ -27366,17 +26401,14 @@ mod tests {
             WALK_STEP_COST * UNTREATED_MOVEMENT / MAX_SURFACE_MOVEMENT
         );
         assert!(MIN_WALK_STEP_COST <= WALK_STEP_COST * UNTREATED_MOVEMENT / MAX_SURFACE_MOVEMENT);
-    }
 
-    /// The one wall the player may take apart, end to end.
-    ///
-    /// A cliff is impassable until somebody quarries it. Nothing may be laid on a face that is
-    /// still standing, one cut brings that face level with the highland beside it, and after the
-    /// cut the hex walks and builds like any other ground — with the rock that came out of it on
-    /// the spoil heap rather than gone. The band the generator drew never moves: the whole change
-    /// lives in the overlay, so a world nobody has dug is exactly as passable as it always was.
-    #[test]
-    fn a_quarried_cliff_stops_being_a_wall() {
+        // The one wall the player may take apart, end to end.
+        //
+        // A cliff is impassable until somebody quarries it. Nothing may be laid on a face that is
+        // still standing, one cut brings that face level with the highland beside it, and after the
+        // cut the hex walks and builds like any other ground — with the rock that came out of it on
+        // the spoil heap rather than gone. The band the generator drew never moves: the whole change
+        // lives in the overlay, so a world nobody has dug is exactly as passable as it always was.
         let mut core = legacy_band_game("new-game");
         reach(&mut core);
         // The nearest cliff face outside the landing hub's own seven hexes.

@@ -32,22 +32,22 @@ describe("petroleum player explanations", () => {
     expect(note).toContain("holding 24 Refined fuel");
     expect(note).toContain("Free space for the whole batch");
     expect(note).toContain("no inputs are consumed");
-  });
-  it("no longer tells the player to empty an ingredient slot to make room", () => {
-    // The mixer holds a full compartment's worth of gravel and is still short of bitumen. That used
-    // to be a wedge — one shared ingredient budget — and the note explained the way out. Ingredient
-    // capacity is per ingredient now, so the bitumen slot has the mixer's whole capacity waiting for
-    // it and there is no remedy left to describe.
-    const entity = {
+
+    // And it no longer tells the player to empty an ingredient slot to make room. The mixer holds a
+    // full compartment's worth of gravel and is still short of bitumen. That used to be a wedge —
+    // one shared ingredient budget — and the note explained the way out. Ingredient capacity is per
+    // ingredient now, so the bitumen slot has the mixer's whole capacity waiting for it and there
+    // is no remedy left to describe.
+    const mixer = {
       recipe_id: 19,
       definition_id: 31,
       status: "waiting for inputs",
       input_inventory: [{ item_id: 17, quantity: 24 }],
     } as unknown as EntitySnapshot;
-    expect(productionNote(entity, definitions)).not.toContain(
+    expect(productionNote(mixer, definitions)).not.toContain(
       "Take some of the other ingredients",
     );
-    expect(productionNote(entity, definitions)).not.toContain(
+    expect(productionNote(mixer, definitions)).not.toContain(
       "shared by all ingredients",
     );
   });

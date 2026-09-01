@@ -238,6 +238,20 @@ pub(super) fn migrate<'a>(json: &'a str, target_version: u16) -> Result<Cow<'a, 
         version = 39;
     }
 
+    // Version 40 is the ground you can see: substrate reads the gradient a cell sits on rather than
+    // an elevation the continental field clears almost everywhere, and a river class cuts a valley
+    // instead of a shallow trough. Both change what a seed lays down, so a version-39 file is a
+    // different landscape and `Core::from_save` refuses it on the world stamp a few lines after this
+    // one. The ladder still carries it that far rather than stopping short: reaching the world check
+    // is what earns the reader the message about exporting the file, where stopping here would only
+    // say there is no migration path.
+    if version == 39 && target_version >= 40 {
+        if let Some(object) = value.as_object_mut() {
+            object.insert("save_version".into(), Value::from(40));
+        }
+        version = 40;
+    }
+
     if version == target_version {
         return Ok(Cow::Owned(serde_json::to_string(&value).map_err(
             |error| format!("migrated save could not be written: {error}"),
@@ -528,16 +542,16 @@ fn walk_goal_14_to_15(value: &mut Value) {
 mod tests {
     use super::*;
 
+    /// The two ends of the ladder. A file already at the target is handed back untouched — not
+    /// reserialized, which is what the borrow asserts — and a version the ladder has no rung for is
+    /// refused by name rather than guessed at, in both directions.
     #[test]
-    fn current_envelopes_pass_through_without_reserialization() {
+    fn the_ladder_passes_through_what_it_is_and_refuses_what_it_is_not() {
         let json = r#"{ "save_version": 17, "sentinel": [3, 2, 1] }"#;
         let migrated = migrate(json, 17).expect("current save");
         assert!(matches!(migrated, Cow::Borrowed(_)));
         assert_eq!(migrated, json);
-    }
 
-    #[test]
-    fn unknown_older_and_newer_versions_fail_at_the_boundary() {
         assert_eq!(
             migrate(r#"{"save_version":13}"#, 17).unwrap_err(),
             "no migration path from save version 13 to 17"
@@ -548,30 +562,25 @@ mod tests {
         );
     }
 
+    /// The steps that add a field. Each one writes the new field explicitly absent and leaves every
+    /// other field where it found it: a step adds a field, it does not rewrite a save.
     #[test]
-    fn version_fourteen_gains_an_explicit_absent_walk_goal() {
+    fn a_step_that_adds_a_field_writes_only_that_field() {
         let json = r#"{"save_version":14,"state":{"player":{"x":7,"carry_slots":4}}}"#;
         let migrated = migrate(json, 17).expect("migrated save");
         let value: Value = serde_json::from_str(&migrated).expect("migrated json");
         assert_eq!(value["save_version"], 17);
         assert_eq!(value["state"]["player"]["walk_goal"], Value::Null);
-        // Nothing else about the player moves: the step adds a field, it does not rewrite a save.
         assert_eq!(value["state"]["player"]["x"], 7);
         assert_eq!(value["state"]["player"]["carry_slots"], 4);
-    }
 
-    #[test]
-    fn a_fourteen_envelope_without_a_player_still_reaches_fifteen() {
-        // The step must not depend on a shape it did not verify. A file the typed envelope will
-        // reject for other reasons should reach that rejection, not be turned away here as
-        // unmigratable.
+        // Nor may a step depend on a shape it did not verify. A file the typed envelope will reject
+        // for other reasons should reach that rejection, not be turned away here as unmigratable.
         let migrated = migrate(r#"{"save_version":14}"#, 17).expect("migrated save");
         let value: Value = serde_json::from_str(&migrated).expect("migrated json");
         assert_eq!(value["save_version"], 17);
-    }
 
-    #[test]
-    fn version_fifteen_gains_an_explicit_empty_hand_without_moving_machine_stock() {
+        // Fifteen gains an explicit empty hand, and machine stock stays exactly where it was.
         let json = r#"{"save_version":15,"definition_version":14,"state":{"player":{"inventory":{"3":4}},"entities":[{"inventory":{"5":12},"cargo":{"item_id":4,"quantity":1}}]}}"#;
         let migrated = migrate(json, 17).expect("migrated save");
         let value: Value = serde_json::from_str(&migrated).expect("migrated json");
@@ -582,8 +591,12 @@ mod tests {
         assert_eq!(value["state"]["entities"][0]["cargo"]["item_id"], 4);
     }
 
+    /// Every rung that is only a catalogue advance. These are price revisions, not state rewrites:
+    /// each one moves the versions it was written against and nothing else — the ore in the pack
+    /// stays ore, a placed machine keeps its identity and everything it was holding, and a version
+    /// the step never saw is left alone rather than guessed at.
     #[test]
-    fn version_eighteen_advances_the_definition_catalog_without_touching_stock_or_belts() {
+    fn a_catalogue_advance_moves_versions_and_never_state() {
         let json = r#"{"save_version":18,"definition_version":16,"technology_version":8,"state":{"player":{"inventory":{"1":9}},"entities":[{"definition_id":2,"orientation":0}]}}"#;
         let migrated = migrate(json, 19).expect("migrated save");
         let value: Value = serde_json::from_str(&migrated).expect("migrated json");
@@ -594,8 +607,80 @@ mod tests {
         assert_eq!(value["state"]["player"]["inventory"]["1"], 9);
         assert_eq!(value["state"]["entities"][0]["definition_id"], 2);
         assert_eq!(value["technology_version"], 8);
+
+        // Nineteen reprices the stations. The placed extractor keeps its identity and its stock.
+        let json = r#"{"save_version":19,"definition_version":17,"technology_version":8,"state":{"player":{"inventory":{"1":9}},"entities":[{"definition_id":1,"orientation":0,"inventory":{"1":4}}]}}"#;
+        let migrated = migrate(json, 20).expect("migrated save");
+        let value: Value = serde_json::from_str(&migrated).expect("migrated json");
+        assert_eq!(value["save_version"], 20);
+        assert_eq!(value["definition_version"], 18);
+        assert_eq!(value["state"]["player"]["inventory"]["1"], 9);
+        assert_eq!(value["state"]["entities"][0]["definition_id"], 1);
+        assert_eq!(value["state"]["entities"][0]["inventory"]["1"], 4);
+        assert_eq!(value["technology_version"], 8);
+
+        // Twenty-five reprices power and tier bills, and neither research nor the scenario moves at
+        // that boundary.
+        let json = r#"{"save_version":25,"definition_version":20,"technology_version":11,"scenario_version":7,"state":{"insight":9,"player":{"inventory":{"1":7}},"entities":[{"definition_id":19,"orientation":0,"inventory":{"1":5}}]}}"#;
+        let migrated = migrate(json, 26).expect("migrated save");
+        let value: Value = serde_json::from_str(&migrated).expect("migrated json");
+        assert_eq!(value["save_version"], 26);
+        assert_eq!(value["definition_version"], 21);
+        assert_eq!(value["state"]["player"]["inventory"]["1"], 7);
+        assert_eq!(value["state"]["entities"][0]["definition_id"], 19);
+        assert_eq!(value["state"]["entities"][0]["inventory"]["1"], 5);
+        assert_eq!(value["state"]["insight"], 9);
+        assert_eq!(value["technology_version"], 11);
+        assert_eq!(value["scenario_version"], 7);
+
+        // Only the definition version a step was written against advances. Anything else is a shape
+        // the migration never saw, and guessing at it is what the module refuses to do.
+        let json = r#"{"save_version":25,"definition_version":18,"state":{}}"#;
+        let migrated = migrate(json, 26).expect("migrated save");
+        let value: Value = serde_json::from_str(&migrated).expect("migrated json");
+        assert_eq!(value["save_version"], 26);
+        assert_eq!(value["definition_version"], 18);
+
+        // Sixteen advances the capability catalogue without granting anything the file had not
+        // already researched or been given.
+        let json = r#"{"save_version":16,"technology_version":7,"state":{"researched":[1,4],"player":{"carry_slots":8,"build_range":8870}}}"#;
+        let migrated = migrate(json, 17).expect("migrated save");
+        let value: Value = serde_json::from_str(&migrated).expect("migrated json");
+        assert_eq!(value["save_version"], 17);
+        assert_eq!(value["technology_version"], 8);
+        assert_eq!(value["state"]["researched"], serde_json::json!([1, 4]));
+        assert_eq!(value["state"]["player"]["carry_slots"], 8);
+        assert_eq!(value["state"]["player"]["build_range"], 8870);
+
+        // Thirty carries the masonry envelopes, world stamp included, without rewriting site rules.
+        let json = r#"{"save_version":30,"definition_version":24,"technology_version":12,"world_generator_version":8,"state":{"player":{"inventory":{"21":4}},"world_params":{"site_rules":[{"item_id":6}]}}}"#;
+        let migrated = migrate(json, 31).expect("migrated save");
+        let value: Value = serde_json::from_str(&migrated).expect("migrated json");
+        assert_eq!(value["save_version"], 31);
+        assert_eq!(value["definition_version"], 25);
+        assert_eq!(value["technology_version"], 13);
+        assert_eq!(value["world_generator_version"], 9);
+        assert_eq!(value["state"]["player"]["inventory"]["21"], 4);
+        assert_eq!(
+            value["state"]["world_params"]["site_rules"][0]["item_id"],
+            6
+        );
+
+        // Thirty-seven names foundation reservations, which is a catalogue fact and not a state one:
+        // the world stamp and every placed building stay exactly as they were.
+        let json = r#"{"save_version":37,"definition_version":28,"technology_version":16,"world_generator_version":11,"state":{"entities":[{"id":7,"definition_id":1,"orientation":0}]}}"#;
+        let migrated = migrate(json, 38).expect("migrated save");
+        let value: Value = serde_json::from_str(&migrated).expect("migrated json");
+        assert_eq!(value["save_version"], 38);
+        assert_eq!(value["definition_version"], 29);
+        assert_eq!(value["technology_version"], 16);
+        assert_eq!(value["world_generator_version"], 11);
+        assert_eq!(value["state"]["entities"][0]["definition_id"], 1);
+        assert_eq!(value["state"]["entities"][0]["orientation"], 0);
     }
 
+    /// A file does not stop at the rung it was written for: fifteen climbs to twenty through every
+    /// definition step in between, and arrives with every version the ladder moved.
     #[test]
     fn a_version_fifteen_file_reaches_twenty_through_every_definition_step() {
         let json = r#"{"save_version":15,"definition_version":14,"technology_version":7,"state":{"player":{}}}"#;
@@ -606,29 +691,14 @@ mod tests {
         assert_eq!(value["technology_version"], 8);
     }
 
+    /// The rungs that do move state. Each one moves exactly what the rule it encodes owns and
+    /// leaves the rest of the file alone — which is the harder half, because a migration that
+    /// rewrites too much cannot be told from one that rewrites too little by its version stamps.
     #[test]
-    fn version_twenty_five_reprices_power_and_tier_bills_without_touching_state() {
-        let json = r#"{"save_version":25,"definition_version":20,"technology_version":11,"scenario_version":7,"state":{"insight":9,"player":{"inventory":{"1":7}},"entities":[{"definition_id":19,"orientation":0,"inventory":{"1":5}}]}}"#;
-        let migrated = migrate(json, 26).expect("migrated save");
-        let value: Value = serde_json::from_str(&migrated).expect("migrated json");
-        assert_eq!(value["save_version"], 26);
-        assert_eq!(value["definition_version"], 21);
-        // A price revision, not a state rewrite: the ore in the pack stays ore, and the placed deep
-        // extractor keeps its identity and everything it was holding.
-        assert_eq!(value["state"]["player"]["inventory"]["1"], 7);
-        assert_eq!(value["state"]["entities"][0]["definition_id"], 19);
-        assert_eq!(value["state"]["entities"][0]["inventory"]["1"], 5);
-        assert_eq!(value["state"]["insight"], 9);
-        // Neither research nor the scenario moves at this boundary.
-        assert_eq!(value["technology_version"], 11);
-        assert_eq!(value["scenario_version"], 7);
-    }
-
-    /// Progress made against a project survives the move off the board slot — except where the
-    /// project has already been paid for, which under the old rules was an ordinary state and under
-    /// the new ones would be a project owing a second reward.
-    #[test]
-    fn version_twenty_six_lifts_delivered_progress_onto_the_project() {
+    fn a_state_change_moves_only_what_its_rule_owns() {
+        // Progress made against a project survives the move off the board slot — except where the
+        // project has already been paid for, which under the old rules was an ordinary state and
+        // under the new ones would be a project owing a second reward.
         let json = r#"{"save_version":26,"definition_version":21,"technology_version":11,"scenario_version":7,"state":{"insight":40,"request_fills":{"1":1},"requests":[{"request_id":1,"delivered":4},{"request_id":5,"delivered":7},{"request_id":9,"delivered":0}]}}"#;
         let migrated = migrate(json, 27).expect("migrated save");
         let value: Value = serde_json::from_str(&migrated).expect("migrated json");
@@ -648,21 +718,9 @@ mod tests {
         assert_eq!(value["state"]["insight"], 40);
         assert_eq!(value["technology_version"], 11);
         assert_eq!(value["scenario_version"], 7);
-    }
 
-    #[test]
-    fn version_twenty_five_leaves_an_unexpected_definition_version_alone() {
-        let json = r#"{"save_version":25,"definition_version":18,"state":{}}"#;
-        let migrated = migrate(json, 26).expect("migrated save");
-        let value: Value = serde_json::from_str(&migrated).expect("migrated json");
-        assert_eq!(value["save_version"], 26);
-        // Only the definition version this step was written against advances. Anything else is a
-        // shape this migration never saw, and guessing at it is what the module refuses to do.
-        assert_eq!(value["definition_version"], 18);
-    }
-
-    #[test]
-    fn version_twenty_two_grants_foundation_automation_after_the_opening_commission() {
+        // Twenty-two grants foundation automation, but only to a factory that had already passed
+        // the opening commission.
         let json = r#"{"save_version":22,"technology_version":10,"scenario_version":5,"state":{"contract_stage":1,"researched":[3],"insight":12}}"#;
         let migrated = migrate(json, 23).expect("migrated save");
         let value: Value = serde_json::from_str(&migrated).expect("migrated json");
@@ -674,71 +732,23 @@ mod tests {
             value["state"]["researched"],
             serde_json::json!([1, 2, 3, 4, 8])
         );
-    }
 
-    #[test]
-    fn version_twenty_two_leaves_a_stage_zero_factory_unresearched() {
+        // A stage-zero factory is left unresearched, which is the other half of that rule.
         let json = r#"{"save_version":22,"technology_version":10,"scenario_version":5,"state":{"contract_stage":0,"researched":[],"insight":4}}"#;
         let migrated = migrate(json, 23).expect("migrated save");
         let value: Value = serde_json::from_str(&migrated).expect("migrated json");
         assert_eq!(value["save_version"], 23);
         assert_eq!(value["state"]["researched"], serde_json::json!([]));
         assert_eq!(value["state"]["insight"], 4);
-    }
 
-    #[test]
-    fn version_nineteen_reprices_the_stations_without_touching_stock_or_machines() {
-        let json = r#"{"save_version":19,"definition_version":17,"technology_version":8,"state":{"player":{"inventory":{"1":9}},"entities":[{"definition_id":1,"orientation":0,"inventory":{"1":4}}]}}"#;
-        let migrated = migrate(json, 20).expect("migrated save");
-        let value: Value = serde_json::from_str(&migrated).expect("migrated json");
-        assert_eq!(value["save_version"], 20);
-        assert_eq!(value["definition_version"], 18);
-        // A price revision, not a state rewrite: the ore in the pack stays ore, and the placed
-        // extractor keeps its identity and everything it was holding.
-        assert_eq!(value["state"]["player"]["inventory"]["1"], 9);
-        assert_eq!(value["state"]["entities"][0]["definition_id"], 1);
-        assert_eq!(value["state"]["entities"][0]["inventory"]["1"], 4);
-        assert_eq!(value["technology_version"], 8);
-    }
-
-    #[test]
-    fn version_sixteen_advances_the_capability_catalog_without_granting_research() {
-        let json = r#"{"save_version":16,"technology_version":7,"state":{"researched":[1,4],"player":{"carry_slots":8,"build_range":8870}}}"#;
-        let migrated = migrate(json, 17).expect("migrated save");
-        let value: Value = serde_json::from_str(&migrated).expect("migrated json");
-        assert_eq!(value["save_version"], 17);
-        assert_eq!(value["technology_version"], 8);
-        assert_eq!(value["state"]["researched"], serde_json::json!([1, 4]));
-        assert_eq!(value["state"]["player"]["carry_slots"], 8);
-        assert_eq!(value["state"]["player"]["build_range"], 8870);
-    }
-
-    #[test]
-    fn version_thirty_advances_masonry_envelopes_without_rewriting_site_rules() {
-        let json = r#"{"save_version":30,"definition_version":24,"technology_version":12,"world_generator_version":8,"state":{"player":{"inventory":{"21":4}},"world_params":{"site_rules":[{"item_id":6}]}}}"#;
-        let migrated = migrate(json, 31).expect("migrated save");
-        let value: Value = serde_json::from_str(&migrated).expect("migrated json");
-        assert_eq!(value["save_version"], 31);
-        assert_eq!(value["definition_version"], 25);
-        assert_eq!(value["technology_version"], 13);
-        assert_eq!(value["world_generator_version"], 9);
-        assert_eq!(value["state"]["player"]["inventory"]["21"], 4);
-        assert_eq!(
-            value["state"]["world_params"]["site_rules"][0]["item_id"],
-            6
-        );
-    }
-
-    #[test]
-    fn version_thirty_three_offers_the_survey_skill_without_learning_it() {
+        // Thirty-three offers the survey skill and never grants it: the purchased set is the file's
+        // own, the point that would buy it is still unspent, and nothing about how far the world was
+        // surveyed is written down here to be moved.
         let json = r#"{"save_version":33,"definition_version":26,"technology_version":14,"state":{"skills":{"points":1,"purchased":[1]},"player":{"carry_slots":12}}}"#;
         let migrated = migrate(json, 34).expect("migrated save");
         let value: Value = serde_json::from_str(&migrated).expect("migrated json");
         assert_eq!(value["save_version"], 34);
         assert_eq!(value["technology_version"], 15);
-        // The new skill is offered, never granted: the purchased set is the file's own, the point
-        // that would buy it is still unspent, and nothing about how far the world was surveyed is
-        // written down here to be moved.
         assert_eq!(
             value["state"]["skills"]["purchased"],
             serde_json::json!([1])
@@ -746,10 +756,8 @@ mod tests {
         assert_eq!(value["state"]["skills"]["points"], 1);
         assert_eq!(value["state"]["player"]["carry_slots"], 12);
         assert_eq!(value["definition_version"], 26);
-    }
 
-    #[test]
-    fn version_thirty_four_keeps_every_building_on_its_facing_outlet() {
+        // Thirty-four keeps every building on its facing outlet rather than inventing routes for it.
         let json = r#"{"save_version":34,"definition_version":26,"technology_version":15,"state":{"entities":[{"id":7,"orientation":3,"output_inventory":{"29":2,"30":2}}]}}"#;
         let migrated = migrate(json, 35).expect("migrated save");
         let value: Value = serde_json::from_str(&migrated).expect("migrated json");
@@ -759,10 +767,9 @@ mod tests {
         assert!(value["state"].get("output_routes").is_none());
         assert_eq!(value["definition_version"], 26);
         assert_eq!(value["technology_version"], 15);
-    }
 
-    #[test]
-    fn version_thirty_five_grandfathers_only_existing_transport_ids() {
+        // Thirty-five grandfathers the belts that exist and only those: the container between them
+        // is not a transport, and the ids are the file's own.
         let json = r#"{"save_version":35,"definition_version":26,"technology_version":15,"state":{"entities":[{"id":7,"kind":"belt","definition_id":2},{"id":8,"kind":"container","definition_id":4},{"id":11,"kind":"belt","definition_id":26}]}}"#;
         let migrated = migrate(json, 36).expect("migrated save");
         let value: Value = serde_json::from_str(&migrated).expect("migrated json");
@@ -773,18 +780,5 @@ mod tests {
             value["state"]["legacy_fluid_belts"],
             serde_json::json!([7, 11])
         );
-    }
-
-    #[test]
-    fn version_thirty_seven_names_foundation_reservations_without_rewriting_state() {
-        let json = r#"{"save_version":37,"definition_version":28,"technology_version":16,"world_generator_version":11,"state":{"entities":[{"id":7,"definition_id":1,"orientation":0}]}}"#;
-        let migrated = migrate(json, 38).expect("migrated save");
-        let value: Value = serde_json::from_str(&migrated).expect("migrated json");
-        assert_eq!(value["save_version"], 38);
-        assert_eq!(value["definition_version"], 29);
-        assert_eq!(value["technology_version"], 16);
-        assert_eq!(value["world_generator_version"], 11);
-        assert_eq!(value["state"]["entities"][0]["definition_id"], 1);
-        assert_eq!(value["state"]["entities"][0]["orientation"], 0);
     }
 }

@@ -375,9 +375,18 @@ describe("the economy's stated curve", () => {
     // Raw rows are the bootstrap, and because each pays once this is their entire lifetime income.
     expect(budget.raw_project_insight).toBeLessThan(budget.research_cost);
     expect(budget.granted_technologies.length).toBeGreaterThan(0);
+
+    // Personal skill is a separate purse, and the journey funds the whole ladder and not a point
+    // more: three milestones, three upgrades.
+    expect(budget.skill_points).toBe(3);
+    expect(budget.skill_cost).toBe(3);
+    expect(budget.skill_cost).toBeLessThanOrEqual(budget.skill_points);
+    expect(budget.skill_milestones).toBe(3);
+    expect(budget.research_cost).toBe(162);
+    expect(budget.project_insight).toBe(706);
   });
 
-  it("describes the catalogue it was generated from", () => {
+  it("expands every building cost to the same raw materials TypeScript reaches", () => {
     expect(fixture.reference.definition_version).toBe(catalogue.version);
     expect(fixture.reference.best_fuel_item).toBe(bestFuel.key);
     expect(fixture.reference.best_fuel_value).toBe(bestFuel.fuel_value);
@@ -392,9 +401,7 @@ describe("the economy's stated curve", () => {
     expect(fixture.items.map(({ item }) => item).sort()).toEqual(
       catalogue.items.map(({ key }) => key).sort(),
     );
-  });
 
-  it("expands every building cost to the same raw materials TypeScript reaches", () => {
     for (const recorded of fixture.buildings) {
       const building = catalogue.buildings.find(
         ({ key }) => key === recorded.building,
@@ -699,9 +706,8 @@ describe("the economy's stated curve", () => {
     expect(fixture.reference.hand_items_per_minute).toBe(
       wood?.items_per_minute,
     );
-  });
 
-  it("prices every hand-gathered project below every processed one", () => {
+    // And every hand-gathered project is priced below every processed one.
     // Per gather, which is the rate a player can actually improve. Raw rows still pay better per
     // *minute* — a gather is quick and a furnace is not — and that is fine now demand is finite:
     // the whole hand-gathered catalogue is 85 insight against 128 of research, so hand-gathering
@@ -731,18 +737,6 @@ describe("the economy's stated curve", () => {
     );
     expect(rawInsight).toBeLessThan(fixture.budget.research_cost);
   });
-});
-
-it("budgets personal skill points separately from factory insight", () => {
-  expect(fixture.budget.skill_points).toBe(3);
-  // The journey funds the whole ladder and not a point more: three milestones, three upgrades.
-  expect(fixture.budget.skill_cost).toBe(3);
-  expect(fixture.budget.skill_cost).toBeLessThanOrEqual(
-    fixture.budget.skill_points,
-  );
-  expect(fixture.budget.skill_milestones).toBe(3);
-  expect(fixture.budget.research_cost).toBe(162);
-  expect(fixture.budget.project_insight).toBe(706);
 });
 
 describe("primitive boundary construction", () => {

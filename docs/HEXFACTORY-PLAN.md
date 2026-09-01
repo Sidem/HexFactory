@@ -544,6 +544,39 @@ definitions 29 / world 11 / wire 22:
   cases as well as the legacy band table. `npm run water` records a 41-cell active front and 100,000
   settled ticks with no water dirty mark or state change.
 
+#### Ground you can see — a corrective pass on top of slice 4
+
+Two complaints about the physical world were investigated on 2026-09-01: discovery looked jagged, and
+the world looked flat. Both were real; only one had the cause it appeared to have. The envelope moves
+to save 40 / world 12, and every pre-40 file is refused on the world stamp with an export path,
+because the bed a seed lays down changed. Definitions 29, technologies 16, scenarios 8 and wire 22 do
+not move. `fixtures/balance.json` was regenerated: the same eleven materials keep the same
+reachability, the guaranteed walks move by a cell or two, and water is markedly nearer the opening —
+21 cells to 10 — which is the deeper incision showing up in the access report.
+
+- **Discovery was jagged for the reason it looked jagged.** `ensure_neighborhood` opened a ring of the
+  chunk lattice around the player's _chunk_, so standing at a chunk edge left the frontier one cell
+  ahead and fifteen behind, and an axial parallelogram is not a disc. It now opens every chunk holding
+  a cell within `Core::survey_radius` of the player's own hex. The restatement is area-preserving —
+  a 469-cell disc against the 448 cells seven chunks covered — so no skill, cost or envelope number
+  changed hands.
+- **The world was not flat; the material map was.** `TerraSurvey` gained a viewport-relief measurement
+  because "looks flat" is a claim about whether steps accumulate over the distance the camera frames,
+  which no slope histogram can answer. It measured **54.2 m of relief across 429 m**. The proposed
+  amplitude retune was implemented and measured against it and **rejected**: relief fell to 49.7 m
+  while buildable ground fell 64 per mille. What was flat was `ground_spine`: the substrate rule
+  selected on `bed >= 600` — 150 m — which the continental field clears almost everywhere, putting 889
+  per mille of the world in one band with no Lowland and no Highland at all. Substrate now reads a
+  three-cell gradient, and elevation only names genuinely high ground. Bands are Lowland 663, Hills
+  214, Shore 48, ShallowWater 48, Cliff 11, DeepWater 10, Highland 3.
+- **Rivers became obstacles.** `channel_depth` cuts 2.25–9.75 m where it cut 0.5–5 m, taking bank
+  grades from 3–4 per cent to 8–14 per cent. 4–7 quanta neighbour steps rose 57 to 82 per mille and
+  buildable ground fell 32 per mille. Taken deliberately: a river should be a thing you bridge, ford
+  or terrace around.
+
+The measurements, including the rejected change, are in [`BENCHMARKS.md`](BENCHMARKS.md). The
+rejection is also recorded on the constant in `factory-wasm/src/terra.rs` so it is not retried.
+
 What the ground already gives you: an absolute physical bed in millimetres, per-cell water depth,
 surface and discharge from the prototype's drainage, a graded long profile whose seam elevations agree
 from either side, and a surveyed-chunk cache that is derived — never saved, never checksummed, rebuilt

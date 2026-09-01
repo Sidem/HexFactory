@@ -13,19 +13,62 @@ import { validateDefinitions } from "../src/core/definitions";
 import type { Definitions } from "../src/core/types";
 
 describe("Admin Dashboard Studio", () => {
-  it("initializes AdminStore with default shipped definitions and 0 errors", () => {
+  it("opens on the shipped catalogue clean, and diagnoses what a bad edit would break", () => {
     const store = new AdminStore();
     expect(store.definitions.items.length).toBeGreaterThan(10);
     expect(store.definitions.recipes.length).toBeGreaterThan(10);
     expect(store.definitions.buildings.length).toBeGreaterThan(10);
     expect(store.technologies.technologies.length).toBeGreaterThan(5);
+    expect(
+      runDiagnostics(store.definitions, store.technologies).filter(
+        (i) => i.severity === "error",
+      ),
+    ).toHaveLength(0);
 
-    const issues = runDiagnostics(store.definitions, store.technologies);
-    const errors = issues.filter((i) => i.severity === "error");
-    expect(errors).toHaveLength(0);
+    const brokenDefs = structuredClone(store.definitions);
+
+    // Break 1: Add recipe referencing non-existent item #9999
+    brokenDefs.recipes.push({
+      id: 999,
+      key: "broken-recipe",
+      name: "Broken Recipe",
+      description: "Broken",
+      category: "smelting",
+      inputs: [{ item_id: 9999, quantity: 1 }],
+      output: { item_id: 1, quantity: 1 },
+      duration: 60,
+    });
+
+    // Break 2: Duplicate item ID
+    brokenDefs.items.push({
+      id: 1,
+      key: "fake-ore",
+      name: "Fake Ore",
+      color: "#ffffff",
+      icon: "ore",
+      description: "Dup",
+      stack_size: 10,
+    });
+
+    // Break 3: Orphan category with no machine
+    brokenDefs.recipes.push({
+      id: 998,
+      key: "alchemy-recipe",
+      name: "Alchemy Recipe",
+      description: "No machine",
+      category: "alchemy",
+      inputs: [{ item_id: 1, quantity: 1 }],
+      output: { item_id: 11, quantity: 1 },
+      duration: 60,
+    });
+
+    const issues = runDiagnostics(brokenDefs, store.technologies);
+    expect(issues.some((i) => i.id.includes("bad-input-9999"))).toBe(true);
+    expect(issues.some((i) => i.id.includes("duplicate-item-id-1"))).toBe(true);
+    expect(issues.some((i) => i.id.includes("orphan-recipe-998"))).toBe(true);
   });
 
-  it("handles Item CRUD, duplication, and unique ID generation", () => {
+  it("handles CRUD and duplication, undoes it, and reports what is dirty", () => {
     const store = new AdminStore();
     const initialCount = store.definitions.items.length;
     const nextId = store.getNextItemId();
@@ -73,15 +116,13 @@ describe("Admin Dashboard Studio", () => {
     if (dup) store.deleteItem(dup.id);
     store.deleteItem(nextId);
     expect(store.definitions.items.length).toBe(initialCount);
-  });
 
-  it("supports Undo and Redo operations across state mutations", () => {
-    const store = new AdminStore();
+    // Undo and redo carry a mutation both ways.
     const origLength = store.definitions.recipes.length;
-    const nextId = store.getNextRecipeId();
+    const recipeId = store.getNextRecipeId();
 
     store.saveRecipe({
-      id: nextId,
+      id: recipeId,
       key: "test-alloy-craft",
       name: "Test Alloy Craft",
       description: "Crafting test alloy.",
@@ -104,72 +145,19 @@ describe("Admin Dashboard Studio", () => {
     const redone = store.redo();
     expect(redone).toBe(true);
     expect(store.definitions.recipes.length).toBe(origLength + 1);
-  });
 
-  it("tracks change diffs against baseline shipped definitions", () => {
-    const store = new AdminStore();
-    expect(store.getDirtyCount()).toBe(0);
+    // And a diff against the shipped baseline names the field that moved, not merely the row.
+    const clean = new AdminStore();
+    expect(clean.getDirtyCount()).toBe(0);
+    const ironOre = clean.definitions.items.find((i) => i.key === "ore");
+    if (ironOre) clean.saveItem({ ...ironOre, stack_size: 99 });
 
-    // Modify an existing item's stack size
-    const ironOre = store.definitions.items.find((i) => i.key === "ore");
-    if (ironOre) {
-      store.saveItem({
-        ...ironOre,
-        stack_size: 99,
-      });
-    }
-
-    const diffs = store.getDiffSummary();
+    const diffs = clean.getDiffSummary();
     expect(diffs.length).toBeGreaterThan(0);
     const itemDiff = diffs.find((d) => d.id === ironOre?.id);
     expect(itemDiff).toBeDefined();
     expect(itemDiff?.changeType).toBe("modified");
     expect(itemDiff?.details[0]).toContain("stack_size");
-  });
-
-  it("diagnoses referential integrity and balance defects", () => {
-    const store = new AdminStore();
-    const brokenDefs = structuredClone(store.definitions);
-
-    // Break 1: Add recipe referencing non-existent item #9999
-    brokenDefs.recipes.push({
-      id: 999,
-      key: "broken-recipe",
-      name: "Broken Recipe",
-      description: "Broken",
-      category: "smelting",
-      inputs: [{ item_id: 9999, quantity: 1 }],
-      output: { item_id: 1, quantity: 1 },
-      duration: 60,
-    });
-
-    // Break 2: Duplicate item ID
-    brokenDefs.items.push({
-      id: 1,
-      key: "fake-ore",
-      name: "Fake Ore",
-      color: "#ffffff",
-      icon: "ore",
-      description: "Dup",
-      stack_size: 10,
-    });
-
-    // Break 3: Orphan category with no machine
-    brokenDefs.recipes.push({
-      id: 998,
-      key: "alchemy-recipe",
-      name: "Alchemy Recipe",
-      description: "No machine",
-      category: "alchemy",
-      inputs: [{ item_id: 1, quantity: 1 }],
-      output: { item_id: 11, quantity: 1 },
-      duration: 60,
-    });
-
-    const issues = runDiagnostics(brokenDefs, store.technologies);
-    expect(issues.some((i) => i.id.includes("bad-input-9999"))).toBe(true);
-    expect(issues.some((i) => i.id.includes("duplicate-item-id-1"))).toBe(true);
-    expect(issues.some((i) => i.id.includes("orphan-recipe-998"))).toBe(true);
   });
 
   it("validates FootprintEditor coordinate management and (0,0) anchor invariant", () => {

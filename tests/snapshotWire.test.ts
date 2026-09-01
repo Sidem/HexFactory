@@ -30,12 +30,7 @@ function bytesOf(hex: string): ArrayBuffer {
 }
 
 describe("binary snapshot delta", () => {
-  it("agrees with the Rust encoder on the format's identity", () => {
-    expect(fixture.magic).toBe("HXFD");
-    expect(fixture.version).toBe(22);
-  });
-
-  it("reads prepared ground as a signed grade beside an unsigned surface", () => {
+  it("reads a signed field beside an unsigned one, on ground and on water", () => {
     // Elevation is signed and a surface id is not, so the two use different varint readers. Reading
     // a cut cell with the unsigned one does not fail — it returns a vast positive number — so the
     // fixture carries a paved cell and a cut cell together and this pins both back.
@@ -56,18 +51,15 @@ describe("binary snapshot delta", () => {
       { q: -1, r: 0, surface: 0, elevation: -2, paid: [] },
     ]);
     expect(decoded.spoil).toBe(6);
-  });
 
-  it("reads disturbed water as a signed departure", () => {
-    // Departure is signed, so a drained cell read with the unsigned reader does not fail — it
-    // returns a vast positive depth. The fixture carries a flood and a drain together and this
-    // pins both back.
-    const decoded = decodeSnapshotDelta(
+    // Departure is signed the same way, so a drained cell read with the unsigned reader returns a
+    // vast positive depth rather than failing. The fixture carries a flood and a drain together.
+    const water = decodeSnapshotDelta(
       bytesOf(
         fixture.cases.find((test) => test.name === "disturbed water")!.bytes,
       ),
     );
-    expect(decoded.water).toEqual([
+    expect(water.water).toEqual([
       { q: 2, r: -3, departure: 6 },
       { q: -1, r: 0, departure: -4 },
     ]);
@@ -123,21 +115,22 @@ describe("binary snapshot delta", () => {
     expect(decoded.terrain?.changed?.map((tile) => tile.discharge)).toEqual([
       0, 7,
     ]);
-  });
 
-  it("carries an integer up to the largest one the host can hold", () => {
     // The wire invariant is that nothing wider than 2^53 travels as a number. The fixture pins the
     // boundary itself, so a varint reader that used `<<` — which truncates to 32 bits — cannot pass.
-    const decoded = decodeSnapshotDelta(
+    const scalars = decodeSnapshotDelta(
       bytesOf(
         fixture.cases.find((test) => test.name === "every scalar group")!.bytes,
       ),
     );
-    expect(decoded.delivered).toBe(Number.MAX_SAFE_INTEGER);
-    expect(decoded.tick).toBe(300);
+    expect(scalars.delivered).toBe(Number.MAX_SAFE_INTEGER);
+    expect(scalars.tick).toBe(300);
   });
 
   it("refuses a buffer it cannot prove it understands", () => {
+    expect(fixture.magic).toBe("HXFD");
+    expect(fixture.version).toBe(22);
+
     const good = new Uint8Array(
       bytesOf(fixture.cases[0]!.bytes as unknown as string),
     );

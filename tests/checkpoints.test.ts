@@ -64,7 +64,7 @@ describe("opening checkpoints", () => {
     expect(spent.run.records[0]).toMatchObject({ id: "first-iron", tick: 40 });
   });
 
-  it("does not count a built extractor until it is actually producing", () => {
+  it("counts a machine only once it has actually produced, not when it is placed", () => {
     const run = startRun(0, 0);
     const brownout = recordCheckpoints(
       run,
@@ -97,13 +97,11 @@ describe("opening checkpoints", () => {
       2_000,
     );
     expect(running.reached.map(({ id }) => id)).toEqual(["first-extraction"]);
-  });
 
-  it("counts an output-blocked extractor, which is holding what it made", () => {
     // `extracting` is published only while progress is above zero, so a working extractor shows one
     // idle frame per cadence. A blocked one has already produced, which is the same proof.
-    const result = recordCheckpoints(
-      startRun(0, 0),
+    const blocked = recordCheckpoints(
+      run,
       context({
         buildings: [
           {
@@ -116,11 +114,9 @@ describe("opening checkpoints", () => {
       }),
       2_000,
     );
-    expect(result.reached.map(({ id }) => id)).toEqual(["first-extraction"]);
-  });
+    expect(blocked.reached.map(({ id }) => id)).toEqual(["first-extraction"]);
 
-  it("requires a composer to be powered, not merely placed", () => {
-    const run = startRun(0, 0);
+    // The same rule for a composer: placed and unpowered is not a first craft.
     const placed = recordCheckpoints(
       run,
       context({
@@ -196,28 +192,15 @@ describe("opening checkpoints", () => {
       }),
     ).toBe(false);
   });
-
-  it("keeps taints unique so a report names a reason once", () => {
-    let run = startRun(0, 0);
-    run = taintRun(run, "speed-changed");
-    run = taintRun(run, "speed-changed");
-    run = taintRun(run, "loaded-save");
-    expect(run.taints).toEqual(["speed-changed", "loaded-save"]);
-  });
 });
 
 describe("run reporting", () => {
-  it("starts every new report at the game's fixed simulation rate", () => {
+  it("splits between consecutive checkpoints, at the game's fixed rate, in minutes and tenths", () => {
     expect(startRun(0, 0).startedSpeed).toBe(10);
-  });
-
-  it("formats elapsed time as minutes and tenths", () => {
     expect(formatElapsed(0)).toBe("0:00.0");
     expect(formatElapsed(9_400)).toBe("0:09.4");
     expect(formatElapsed(605_000)).toBe("10:05.0");
-  });
 
-  it("reports splits between consecutive checkpoints", () => {
     let run = startRun(0, 0);
     run = recordCheckpoints(run, context({ carried: { ore: 1 } }), 10_000).run;
     run = recordCheckpoints(run, context({ researchedCount: 1 }), 25_000).run;
@@ -227,9 +210,12 @@ describe("run reporting", () => {
     expect(splits[1]?.elapsedMs).toBe(15_000);
   });
 
-  it("leads a tainted report with the reason it cannot be compared", () => {
+  it("leads a tainted report with the reason it cannot be compared, named once", () => {
     let run = startRun(Date.UTC(2026, 0, 1), 0);
     run = taintRun(run, "speed-changed");
+    run = taintRun(run, "speed-changed");
+    run = taintRun(run, "loaded-save");
+    expect(run.taints).toEqual(["speed-changed", "loaded-save"]);
     const report = formatRunReport(run);
     expect(report).toContain("NOT COMPARABLE");
     expect(report).toContain("simulation speed changed mid-run");
@@ -239,24 +225,20 @@ describe("run reporting", () => {
 });
 
 describe("run storage", () => {
-  it("round-trips a run", () => {
+  it("round-trips a run, and drops what it cannot trust rather than reporting it", () => {
     const storage = memoryStorage();
     let run = startRun(1_000, 5);
     run = recordCheckpoints(run, context({ carried: { ore: 1 } }), 3_000).run;
     writeRun(storage, run);
     expect(readRun(storage)).toEqual(run);
-  });
 
-  it("discards a stored run whose shape does not parse", () => {
-    const storage = memoryStorage();
     storage.setItem(RUN_STORAGE_KEY, "{not json");
     expect(readRun(storage)).toBeNull();
     storage.setItem(RUN_STORAGE_KEY, JSON.stringify({ startedAt: "soon" }));
     expect(readRun(storage)).toBeNull();
-  });
 
-  it("drops malformed records rather than reporting times that never happened", () => {
-    const storage = memoryStorage();
+    // A record that parses but names a time that never happened is dropped on its own, without
+    // taking the run with it.
     storage.setItem(
       RUN_STORAGE_KEY,
       JSON.stringify({
@@ -270,8 +252,8 @@ describe("run storage", () => {
         ],
       }),
     );
-    const run = readRun(storage);
-    expect(run?.records).toHaveLength(1);
-    expect(run?.taints).toEqual(["speed-changed"]);
+    const salvaged = readRun(storage);
+    expect(salvaged?.records).toHaveLength(1);
+    expect(salvaged?.taints).toEqual(["speed-changed"]);
   });
 });

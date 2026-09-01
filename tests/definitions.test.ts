@@ -18,7 +18,9 @@ import { isItemIconKey } from "../src/rendering/icons";
 describe("data-defined content", () => {
   const typedDefinitions = definitions as Definitions;
 
-  it("validates progression registries and references without making stage order a gate", () => {
+  it("refuses a catalogue or a technology tree that does not hold together", () => {
+    // Registries and their references, first. Stage order is deliberately not a gate: a release
+    // may reorder the stages without invalidating a technology that names one.
     const badBranch = structuredClone(technologies);
     badBranch.technologies[0]!.branch = "missing";
     expect(() => validateTechnologies(badBranch, typedDefinitions)).toThrow(
@@ -52,6 +54,92 @@ describe("data-defined content", () => {
     expect(() =>
       validateTechnologies(reordered, typedDefinitions),
     ).not.toThrow();
+
+    // Duplicate ids, unbuyable costs, unknown unlocks and cycles.
+    const duplicate = structuredClone(definitions);
+    duplicate.items[1]!.id = duplicate.items[0]!.id;
+    expect(() => validateDefinitions(duplicate)).toThrow(/positive and unique/);
+
+    const badCost = structuredClone(definitions);
+    badCost.buildings[0]!.construction_cost[0]!.item_id = 999;
+    expect(() => validateDefinitions(badCost)).toThrow(/invalid cost/);
+
+    // Every item needs a stack size, because carrying capacity is measured in stacks.
+    const unstackable = structuredClone(definitions);
+    unstackable.items[0]!.stack_size = 0;
+    expect(() => validateDefinitions(unstackable)).toThrow(/incomplete/);
+
+    const badUnlock = structuredClone(technologies);
+    badUnlock.technologies[0]!.effects = [
+      { kind: "unlock_building", building_id: 999 },
+    ];
+    expect(() => validateTechnologies(badUnlock, typedDefinitions)).toThrow(
+      /invalid/,
+    );
+
+    const cycle = structuredClone(technologies);
+    cycle.technologies[1]!.prerequisites = [3];
+    expect(() => validateTechnologies(cycle, typedDefinitions)).toThrow(
+      /acyclic/,
+    );
+
+    const excessiveBonus = structuredClone(technologies);
+    excessiveBonus.technologies[0]!.effects = [
+      { kind: "build_range", amount: 999 },
+    ];
+    expect(() =>
+      validateTechnologies(excessiveBonus, typedDefinitions),
+    ).toThrow(/invalid/);
+
+    // A recipe no machine can run, and a machine claiming a category its kind cannot have.
+    const orphan = structuredClone(definitions);
+    orphan.recipes.find(({ key }) => key === "circuit")!.category = "alchemy";
+    expect(() => validateDefinitions(orphan)).toThrow(/no building runs/);
+
+    const miscategorised = structuredClone(definitions);
+    (
+      miscategorised.buildings.find(({ key }) => key === "container") as {
+        recipe_category?: string;
+      }
+    ).recipe_category = "assembly";
+    expect(() => validateDefinitions(miscategorised)).toThrow(
+      /does not match its kind/,
+    );
+
+    // Skills are a separate purse with their own bounds, and their prerequisites are a DAG too.
+    const mutate = (edit: (data: Technologies) => void) => {
+      const invalid = structuredClone(technologies);
+      edit(invalid);
+      expect(() => validateTechnologies(invalid, typedDefinitions)).toThrow();
+    };
+    mutate((data) => {
+      data.skills[0]!.id = data.skills[1]!.id;
+    });
+    mutate((data) => {
+      data.skills[0]!.prerequisites = [999];
+    });
+    mutate((data) => {
+      data.skills[0]!.prerequisites = [2];
+      data.skills[1]!.prerequisites = [1];
+    });
+    mutate((data) => {
+      data.skills[0]!.effect.amount = 0;
+    });
+    mutate((data) => {
+      data.skills[0]!.effect.amount = 33;
+    });
+    mutate((data) => {
+      data.skills[0]!.cost = 4;
+    });
+    mutate((data) => {
+      data.skill_milestones[0]!.points = 0;
+    });
+    mutate((data) => {
+      data.skill_milestones[1]!.event = data.skill_milestones[0]!.event;
+    });
+    mutate((data) => {
+      data.technologies[0]!.effects = [{ kind: "carry_slots", amount: 4 }];
+    });
   });
 
   it("accepts dynamic items, recipes, construction metadata, and the technology DAG", () => {
@@ -137,7 +225,7 @@ describe("data-defined content", () => {
     }
   });
 
-  it("keeps an upgrade ladder a taller version of the same machine", () => {
+  it("keeps an upgrade ladder a taller version of the same machine, on ground it already stands on", () => {
     const buildings = typedDefinitions.buildings;
     const ladders = buildings.filter(
       ({ upgrades_to }) => upgrades_to !== undefined,
@@ -166,12 +254,10 @@ describe("data-defined content", () => {
     );
 
     const broken = structuredClone(typedDefinitions);
-    const target = broken.buildings.find(({ key }) => key === "extractor-ii");
-    if (target) target.tier = 0;
+    const lowered = broken.buildings.find(({ key }) => key === "extractor-ii");
+    if (lowered) lowered.tier = 0;
     expect(() => validateDefinitions(broken)).toThrow(/not a higher tier/);
-  });
 
-  it("bounds a footprint at one readable building and lets a tier only grow", () => {
     // The complete two-ring hexagon: the ceiling both sides enforce, and the largest structure the
     // physical catalogue asks for.
     const disc = (radius: number): { q: number; r: number }[] => {
@@ -233,7 +319,7 @@ describe("data-defined content", () => {
     ).toThrow(/off a cell it stands on/);
   });
 
-  it("keeps occupied foundation, service envelope and overhead clearance as separate claims", () => {
+  it("keeps foundation, service envelope, clearance and the two-row period separate claims", () => {
     const extractor = typedDefinitions.buildings.find(
       ({ key }) => key === "extractor",
     );
@@ -284,6 +370,31 @@ describe("data-defined content", () => {
     const target = corner.buildings.find(({ key }) => key === "belt");
     if (target) target.service_envelope = [{ q: 1, r: 0 }];
     expect(() => validateDefinitions(corner)).toThrow(/two-row period/);
+
+    // The two-row period itself belongs to single-cell definitions alone. And the reach is priced
+    // for what it buys — twice a belt, for twice a belt's span — and gated behind its own research,
+    // so one definition covering both periods still hands the player the second only when earned.
+    expect(belt?.orientation_axis).toBe("any");
+    expect(belt?.footprint).toHaveLength(1);
+    const total = (cost: { quantity: number }[] | undefined) =>
+      (cost ?? []).reduce((sum, { quantity }) => sum + quantity, 0);
+    expect(total(belt?.corner_construction_cost)).toBe(
+      total(belt?.construction_cost) * 2,
+    );
+    expect(belt?.corner_technology_id).toBeDefined();
+    expect(belt?.corner_technology_id).not.toBe(belt?.unlock_technology_id);
+
+    const wide = structuredClone(typedDefinitions);
+    wide.buildings
+      .find(({ key }) => key === "belt")
+      ?.footprint.push({ q: 1, r: 0 });
+    expect(() => validateDefinitions(wide)).toThrow(/two-row period/);
+
+    // An any-axis definition that gates none of its headings is refused too.
+    const ungated = structuredClone(typedDefinitions);
+    const beltless = ungated.buildings.find(({ key }) => key === "belt");
+    if (beltless) delete beltless.corner_technology_id;
+    expect(() => validateDefinitions(ungated)).toThrow(/gates none of them/);
   });
 
   it("gives every shipped building a footprint in its physical size band", () => {
@@ -364,34 +475,6 @@ describe("data-defined content", () => {
       }
       expect(reached.size, `${building.key} is one connected shape`).toBe(size);
     }
-  });
-
-  it("lets only a single-cell definition claim the two-row period", () => {
-    const belt = typedDefinitions.buildings.find(({ key }) => key === "belt");
-    expect(belt?.orientation_axis).toBe("any");
-    expect(belt?.footprint).toHaveLength(1);
-    // And the reach is priced for what it buys — twice a belt, for twice a belt's span — and
-    // gated behind its own research, so one definition covering both periods still hands the
-    // player the second one only when they have earned it.
-    const total = (cost: { quantity: number }[] | undefined) =>
-      (cost ?? []).reduce((sum, { quantity }) => sum + quantity, 0);
-    expect(total(belt?.corner_construction_cost)).toBe(
-      total(belt?.construction_cost) * 2,
-    );
-    expect(belt?.corner_technology_id).toBeDefined();
-    expect(belt?.corner_technology_id).not.toBe(belt?.unlock_technology_id);
-
-    const wide = structuredClone(typedDefinitions);
-    wide.buildings
-      .find(({ key }) => key === "belt")
-      ?.footprint.push({ q: 1, r: 0 });
-    expect(() => validateDefinitions(wide)).toThrow(/two-row period/);
-
-    // An any-axis definition that gates none of its headings is refused too.
-    const ungated = structuredClone(typedDefinitions);
-    const target = ungated.buildings.find(({ key }) => key === "belt");
-    if (target) delete target.corner_technology_id;
-    expect(() => validateDefinitions(ungated)).toThrow(/gates none of them/);
   });
 
   it("gives every material a source and every recipe a machine that runs it", () => {
@@ -510,22 +593,6 @@ describe("data-defined content", () => {
     }
   });
 
-  it("rejects a recipe no machine can run and a machine that claims the wrong category", () => {
-    const orphan = structuredClone(definitions);
-    orphan.recipes.find(({ key }) => key === "circuit")!.category = "alchemy";
-    expect(() => validateDefinitions(orphan)).toThrow(/no building runs/);
-
-    const miscategorised = structuredClone(definitions);
-    (
-      miscategorised.buildings.find(({ key }) => key === "container") as {
-        recipe_category?: string;
-      }
-    ).recipe_category = "assembly";
-    expect(() => validateDefinitions(miscategorised)).toThrow(
-      /does not match its kind/,
-    );
-  });
-
   it("validates explicit primitive capabilities and bounded attended work", () => {
     const workshop = typedDefinitions.buildings.find(
       ({ key }) => key === "manual-workshop",
@@ -559,78 +626,5 @@ describe("data-defined content", () => {
       );
       expect(() => validateDefinitions(invalid)).toThrow(/invalid/);
     }
-  });
-
-  it("validates separate skill costs, bounded effects and acyclic prerequisites", () => {
-    const mutate = (edit: (data: Technologies) => void) => {
-      const invalid = structuredClone(technologies);
-      edit(invalid);
-      expect(() => validateTechnologies(invalid, typedDefinitions)).toThrow();
-    };
-    mutate((data) => {
-      data.skills[0]!.id = data.skills[1]!.id;
-    });
-    mutate((data) => {
-      data.skills[0]!.prerequisites = [999];
-    });
-    mutate((data) => {
-      data.skills[0]!.prerequisites = [2];
-      data.skills[1]!.prerequisites = [1];
-    });
-    mutate((data) => {
-      data.skills[0]!.effect.amount = 0;
-    });
-    mutate((data) => {
-      data.skills[0]!.effect.amount = 33;
-    });
-    mutate((data) => {
-      data.skills[0]!.cost = 4;
-    });
-    mutate((data) => {
-      data.skill_milestones[0]!.points = 0;
-    });
-    mutate((data) => {
-      data.skill_milestones[1]!.event = data.skill_milestones[0]!.event;
-    });
-    mutate((data) => {
-      data.technologies[0]!.effects = [{ kind: "carry_slots", amount: 4 }];
-    });
-  });
-
-  it("rejects duplicate IDs, invalid costs, unknown unlocks, and cycles", () => {
-    const duplicate = structuredClone(definitions);
-    duplicate.items[1]!.id = duplicate.items[0]!.id;
-    expect(() => validateDefinitions(duplicate)).toThrow(/positive and unique/);
-
-    const badCost = structuredClone(definitions);
-    badCost.buildings[0]!.construction_cost[0]!.item_id = 999;
-    expect(() => validateDefinitions(badCost)).toThrow(/invalid cost/);
-
-    // Every item needs a stack size, because carrying capacity is measured in stacks.
-    const unstackable = structuredClone(definitions);
-    unstackable.items[0]!.stack_size = 0;
-    expect(() => validateDefinitions(unstackable)).toThrow(/incomplete/);
-
-    const badUnlock = structuredClone(technologies);
-    badUnlock.technologies[0]!.effects = [
-      { kind: "unlock_building", building_id: 999 },
-    ];
-    expect(() => validateTechnologies(badUnlock, typedDefinitions)).toThrow(
-      /invalid/,
-    );
-
-    const cycle = structuredClone(technologies);
-    cycle.technologies[1]!.prerequisites = [3];
-    expect(() => validateTechnologies(cycle, typedDefinitions)).toThrow(
-      /acyclic/,
-    );
-
-    const excessiveBonus = structuredClone(technologies);
-    excessiveBonus.technologies[0]!.effects = [
-      { kind: "build_range", amount: 999 },
-    ];
-    expect(() =>
-      validateTechnologies(excessiveBonus, typedDefinitions),
-    ).toThrow(/invalid/);
   });
 });

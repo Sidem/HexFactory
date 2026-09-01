@@ -96,6 +96,28 @@ fn petroleum_well_refuses_other_fields_and_ordinary_extractors_refuse_oil() {
     );
     assert_eq!(core.deposit_quantity((2, -1)), 20);
     assert_eq!(core.extractor_deposit(index), None);
+
+    // And every shipped preset puts a workable oil field within the opening survey, or the chain
+    // above has nothing to start from.
+    for preset in world_presets() {
+        let report = survey::run(
+            preset.key,
+            &preset.params,
+            survey::default_seed(),
+            survey::DEFAULT_RADIUS,
+        );
+        let oil = report
+            .patches
+            .iter()
+            .find(|patch| patch.item_id == CRUDE_OIL)
+            .unwrap();
+        assert!(
+            oil.nearest_workable_patch.is_some(),
+            "{} must expose a buildable oil site",
+            preset.key
+        );
+        assert!(oil.largest_patch >= 7);
+    }
 }
 
 #[test]
@@ -347,6 +369,44 @@ fn petroleum_roads_require_research_and_base_and_refund_both_layers() {
     core.undo_ground().unwrap();
     assert_eq!(core.surface_at(0, 2), 6);
     assert!(core.player.inventory.is_empty());
+
+    // And the surface a road costs that much to lay is worth laying: a reproducible travel-time
+    // comparison — not a wall-clock or human playtest benchmark — over an isolated level corridor,
+    // which excludes generation and production from the measurement. Gravel has to stay useful at
+    // every distance rather than being a rung nobody would stop on.
+    for distance in [6, 24, 60] {
+        let mut measured = Vec::new();
+        for surface in [0, 2, 6] {
+            let (mut core, _) = test_core();
+            if surface != 0 {
+                for q in -1..=distance + 1 {
+                    for r in -1..=1 {
+                        core.ground.insert(
+                            (q, r),
+                            GroundCell {
+                                q,
+                                r,
+                                surface,
+                                elevation: 0,
+                                paid: vec![],
+                            },
+                        );
+                    }
+                }
+            }
+            core.walk_to(distance, 0).unwrap();
+            let mut steps = 0;
+            while core.player.walk_goal.is_some() && steps < 10_000 {
+                core.advance_player_steps(1);
+                steps += 1;
+            }
+            assert!(core.player.walk_goal.is_none());
+            assert_eq!(world_to_axial(core.player.x, core.player.y), (distance, 0));
+            measured.push(steps);
+        }
+        assert!(measured[0] > measured[1] && measured[1] > measured[2]);
+        println!("journey {distance} hexes: raw {} / gravel {} / asphalt {} player steps at {PLAYER_TICKS_PER_SECOND} Hz", measured[0], measured[1], measured[2]);
+    }
 }
 
 #[test]
@@ -384,142 +444,14 @@ fn petroleum_migration_verifies_original_checksum_and_does_not_reroll_legacy_sit
         Ok(_) => panic!("pre-scale-break worlds are refused"),
         Err(err) => assert!(err.contains("one square metre"), "{err}"),
     }
-}
 
-#[test]
-fn petroleum_survey_finds_accessible_oil_on_every_shipped_preset() {
-    for preset in world_presets() {
-        let report = survey::run(
-            preset.key,
-            &preset.params,
-            survey::default_seed(),
-            survey::DEFAULT_RADIUS,
-        );
-        let oil = report
-            .patches
-            .iter()
-            .find(|patch| patch.item_id == CRUDE_OIL)
-            .unwrap();
-        assert!(
-            oil.nearest_workable_patch.is_some(),
-            "{} must expose a buildable oil site",
-            preset.key
-        );
-        assert!(oil.largest_patch >= 7);
-    }
-}
-
-/// Reproducible travel-time comparison, not a wall-clock or human playtest benchmark.
-#[test]
-fn petroleum_road_journeys_keep_gravel_useful_and_make_long_routes_faster() {
-    for distance in [6, 24, 60] {
-        let mut measured = Vec::new();
-        for surface in [0, 2, 6] {
-            let (mut core, _) = test_core();
-            // An isolated, level corridor excludes generation and production from the comparison.
-            if surface != 0 {
-                for q in -1..=distance + 1 {
-                    for r in -1..=1 {
-                        core.ground.insert(
-                            (q, r),
-                            GroundCell {
-                                q,
-                                r,
-                                surface,
-                                elevation: 0,
-                                paid: vec![],
-                            },
-                        );
-                    }
-                }
-            }
-            core.walk_to(distance, 0).unwrap();
-            let mut steps = 0;
-            while core.player.walk_goal.is_some() && steps < 10_000 {
-                core.advance_player_steps(1);
-                steps += 1;
-            }
-            assert!(core.player.walk_goal.is_none());
-            assert_eq!(world_to_axial(core.player.x, core.player.y), (distance, 0));
-            measured.push(steps);
-        }
-        assert!(measured[0] > measured[1] && measured[1] > measured[2]);
-        println!("journey {distance} hexes: raw {} / gravel {} / asphalt {} player steps at {PLAYER_TICKS_PER_SECOND} Hz", measured[0], measured[1], measured[2]);
-    }
-}
-
-#[test]
-fn petroleum_loading_pre_masonry_world_does_not_require_new_limestone_guarantee() {
-    if SAVE_VERSION >= 37 {
-        let (core, scenarios) = test_core();
-        let legacy = format!("{SAVE_PREFIX}{{\"save_version\":36,\"world_generator_version\":10}}");
-        let error =
-            match Core::from_save(&core.definitions, &core.technologies, &scenarios, &legacy) {
-                Ok(_) => panic!("a one-square-metre save crossed the physical-world boundary"),
-                Err(error) => error,
-            };
-        assert!(error.contains("export"), "{error}");
-        return;
-    }
-    let (catalog, _) = test_core();
-    let scenarios: ScenariosInput =
-        serde_json::from_str(include_str!("../../src/data/scenarios.json")).unwrap();
-    let scenario = scenarios
-        .scenarios
-        .iter()
-        .find(|scenario| scenario.key == "new-game")
-        .unwrap();
-    let mut params = default_world_params();
-    params
-        .site_rules
-        .retain(|rule| rule.item_id != LIMESTONE && rule.item_id != CRUDE_OIL);
-    assert!(
-        Core::new(
-            &catalog.definitions,
-            &catalog.technologies,
-            scenario,
-            None,
-            Some(params.clone())
-        )
-        .is_err(),
-        "new games still require a valid opening"
-    );
-    let core = Core::initialize(
-        &catalog.definitions,
-        &catalog.technologies,
-        scenario,
-        None,
-        Some(params),
-        false,
-    )
-    .unwrap();
-    let mut envelope: serde_json::Value = serde_json::from_str(
-        core.save_string()
-            .unwrap()
-            .strip_prefix(SAVE_PREFIX)
-            .unwrap(),
-    )
-    .unwrap();
-    envelope["save_version"] = 29.into();
-    envelope["definition_version"] = 23.into();
-    envelope["technology_version"] = 12.into();
-    envelope["world_generator_version"] = 8.into();
-    envelope["checksum"] = core.checksum_for_world(8).into();
-    let restored = Core::from_save(
-        &catalog.definitions,
-        &catalog.technologies,
-        &scenarios,
-        &format!("{SAVE_PREFIX}{envelope}"),
-    )
-    .unwrap();
-    assert_eq!(restored.world_params, core.world_params);
-    assert_eq!(restored.checksum(), core.checksum());
-    let reloaded = Core::from_save(
-        &catalog.definitions,
-        &catalog.technologies,
-        &scenarios,
-        &restored.save_string().unwrap(),
-    )
-    .unwrap();
-    assert_eq!(reloaded.checksum(), restored.checksum());
+    // The refusal does not depend on the envelope being otherwise well formed, and it names the way
+    // out. A save from the last one-square-metre build carries nothing but its two versions here,
+    // and it still has to be turned away with an export offered rather than migrated.
+    let legacy = format!("{SAVE_PREFIX}{{\"save_version\":36,\"world_generator_version\":10}}");
+    let error = match Core::from_save(&core.definitions, &core.technologies, &scenarios, &legacy) {
+        Ok(_) => panic!("a one-square-metre save crossed the physical-world boundary"),
+        Err(error) => error,
+    };
+    assert!(error.contains("export"), "{error}");
 }

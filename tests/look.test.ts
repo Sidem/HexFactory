@@ -114,9 +114,8 @@ describe("Stage B look generator", () => {
     expect(fringeToward("highland", "hills")).toBe(true);
     expect(fringeToward("cliff", "highland")).toBe(true);
     expect(fringeToward("lowland", "lowland")).toBe(false);
-  });
 
-  it("treats a surveyed hex with no terrain entry as lowland", () => {
+    // And a surveyed hex with no terrain entry of its own is lowland, not a gap in the ranking.
     const map = new Map([[tileKey(1, 0), "hills" as const]]);
     expect(surveyedBand(map, 1, 0)).toBe("hills");
     expect(surveyedBand(map, 0, 0)).toBe("lowland");
@@ -226,6 +225,14 @@ describe("Stage D shape grammar", () => {
     expect(BUILDING_SHAPES.belt).toHaveLength(0);
     expect(SHAPED_KEYS.length).toBeGreaterThan(10);
     expect(BUILDING_SHAPE_VERSION).toBeGreaterThan(0);
+
+    // A tier on a definition whose silhouette is empty would be an upgrade the map cannot show.
+    // Naming it here is what stops the belt's deliberate blank from quietly becoming a defect the
+    // day somebody adds a belt II.
+    for (const definition of definitions.buildings) {
+      if ((definition.tier ?? 0) === 0) continue;
+      expect(BUILDING_SHAPES[keyOf(definition)].length).toBeGreaterThan(0);
+    }
   });
 
   it("makes a tier legible as a silhouette, with colour removed", () => {
@@ -241,16 +248,16 @@ describe("Stage D shape grammar", () => {
         expect(at.length).toBeGreaterThan(below.length);
       }
     }
-  });
 
-  it("refuses a tiered definition that has no shape to grow", () => {
-    // A tier on a definition whose silhouette is empty would be an upgrade the map cannot show.
-    // Naming it here is what stops the belt's deliberate blank from quietly becoming a defect the
-    // day somebody adds a belt II.
-    for (const definition of definitions.buildings) {
-      if ((definition.tier ?? 0) === 0) continue;
-      expect(BUILDING_SHAPES[keyOf(definition)].length).toBeGreaterThan(0);
+    // Every step of the ladder that does that is named and does something, and trim climbs beside
+    // the shape rather than competing with it.
+    for (const step of TIER_LADDER) {
+      expect(step.name).not.toBe("");
+      expect(step.reads).not.toBe("");
+      expect(step.modifiers.length).toBeGreaterThan(0);
     }
+    expect(trimOf(1).width).toBeGreaterThan(trimOf(0).width);
+    expect(trimOf(2).width).toBeGreaterThan(trimOf(1).width);
   });
 
   it("vents only what burns, and gives the working machine something visibly moving", () => {
@@ -292,30 +299,23 @@ describe("Stage D shape grammar", () => {
     expect(grammar.match(/switch \(/g)).toHaveLength(2);
   });
 
-  it("keeps modifiers pure, so a bake cannot poison the table", () => {
+  it("keeps modifiers pure, and splits every part into exactly one drawing pass", () => {
     // The bake caches per key and tier for the life of the page. A modifier that mutated the base
-    // row would make the second building of a kind wear the first one's tier.
+    // row would make the second building of a kind wear the first one's tier. And `drawShape`
+    // stamps the stills and walks the movers, so a part counted by neither would vanish while a
+    // part counted by both would be drawn twice.
     for (const key of SHAPED_KEYS) {
       const before = silhouetteSignature(BUILDING_SHAPES[key]);
-      partsFor(key, 1);
-      partsFor(key, 2);
-      expect(silhouetteSignature(BUILDING_SHAPES[key])).toBe(before);
-      expect(silhouetteSignature(partsFor(key, 1))).toBe(
-        silhouetteSignature(partsFor(key, 1)),
-      );
-    }
-  });
-
-  it("splits every part into exactly one of the baked and the live pass", () => {
-    // `drawShape` stamps the stills and walks the movers. A part counted by neither would vanish;
-    // a part counted by both would be drawn twice.
-    for (const key of SHAPED_KEYS) {
       for (let tier = 0; tier <= TIER_LADDER.length; tier += 1) {
         const parts = partsFor(key, tier);
         const still = parts.filter(isStill).length;
         const moving = parts.filter((part) => !isStill(part)).length;
         expect(still + moving).toBe(parts.length);
       }
+      expect(silhouetteSignature(BUILDING_SHAPES[key])).toBe(before);
+      expect(silhouetteSignature(partsFor(key, 1))).toBe(
+        silhouetteSignature(partsFor(key, 1)),
+      );
     }
   });
 
@@ -329,17 +329,6 @@ describe("Stage D shape grammar", () => {
         ),
       ).toBe(true);
     }
-  });
-
-  it("names every tier step it applies", () => {
-    for (const step of TIER_LADDER) {
-      expect(step.name).not.toBe("");
-      expect(step.reads).not.toBe("");
-      expect(step.modifiers.length).toBeGreaterThan(0);
-    }
-    // Trim still climbs beside the shape, so the two agree rather than competing.
-    expect(trimOf(1).width).toBeGreaterThan(trimOf(0).width);
-    expect(trimOf(2).width).toBeGreaterThan(trimOf(1).width);
   });
 
   it("says why a machine is doing nothing, from the status it already publishes", () => {

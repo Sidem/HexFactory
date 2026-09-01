@@ -217,7 +217,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn joint_output_contract_rejects_ambiguous_costs_and_cycles() {
+    fn the_recipe_contract_holds_costs_cycles_route_order_and_capacity() {
         let mut definitions: DefinitionsInput =
             serde_json::from_str(include_str!("../../src/data/definitions.json")).unwrap();
         definitions.recipes[0].co_products = vec![Ingredient {
@@ -231,10 +231,8 @@ mod tests {
         assert_eq!(definitions.recipes[0].share_of(3), 30);
         definitions.recipes[0].co_products[0] = definitions.recipes[0].inputs[0];
         assert!(validate_routes(&definitions).is_err());
-    }
 
-    #[test]
-    fn production_route_order_is_explicit_and_reachability_can_use_an_unlocked_alternative() {
+        // Production route order is explicit and reachability can use an unlocked alternative.
         let mut definitions: DefinitionsInput =
             serde_json::from_str(include_str!("../../src/data/definitions.json")).unwrap();
         let technologies =

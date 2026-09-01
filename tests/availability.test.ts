@@ -67,7 +67,9 @@ describe("research presentation", () => {
     );
   });
 
-  it("refuses malformed graph dependencies instead of recursing indefinitely", () => {
+  it("lays out every node and prerequisite deterministically with no overlapping cards", () => {
+    // A malformed graph is refused rather than recursed into, so the layout below is always over a
+    // graph that terminates.
     const first = technologies.technologies[0]!;
     expect(() =>
       layoutResearch({
@@ -81,8 +83,7 @@ describe("research presentation", () => {
         technologies: [{ ...first, prerequisites: [999] }],
       }),
     ).toThrow("Unknown prerequisite 999");
-  });
-  it("lays out every node and prerequisite deterministically with no overlapping cards", () => {
+
     const layout = layoutResearch(technologies);
     const reversed = {
       ...technologies,
@@ -245,21 +246,18 @@ describe("cost lines", () => {
       { item_id: 1, required: 5, held: 2, shortfall: 3 },
       { item_id: 2, required: 3, held: 0, shortfall: 3 },
     ]);
-  });
 
-  it("floors a surplus at zero rather than reporting a negative shortfall", () => {
+    // A surplus floors at zero rather than reporting a negative shortfall, and an item never
+    // carried is zero held rather than absent.
     expect(
       costLines([{ item_id: 1, quantity: 2 }], carrying({ "1": 9 })),
     ).toEqual([{ item_id: 1, required: 2, held: 9, shortfall: 0 }]);
-  });
-
-  it("treats an item the player has never carried as zero held", () => {
     expect(heldQuantity(carrying({}), 7)).toBe(0);
   });
 });
 
 describe("building availability", () => {
-  it("names which line of a cost is short instead of only that it is unaffordable", () => {
+  it("derives affordability from the lines, naming which one is short", () => {
     const belt = building("belt");
     const [line] = belt.construction_cost;
     if (!line) throw new Error("a belt is expected to cost something");
@@ -277,12 +275,8 @@ describe("building availability", () => {
         shortfall: 1,
       },
     ]);
-  });
 
-  it("derives affordability from the lines, so the two can never disagree", () => {
-    const belt = building("belt");
-    const [line] = belt.construction_cost;
-    if (!line) throw new Error("a belt is expected to cost something");
+    // Paid in full, the two can never disagree: affordability is read off the lines themselves.
     const paid = buildingAvailability(
       belt,
       carrying({ [String(line.item_id)]: line.quantity }),

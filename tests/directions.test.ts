@@ -46,16 +46,15 @@ describe("rotationMatchesNativeAngularOrder", () => {
     }
     expect([...seen].sort((a, b) => a - b)).toEqual([...Array(12).keys()]);
     expect(rotateAnyOrientation(orientation, 1)).toBe(0);
-  });
 
-  it("turns back the way it came", () => {
-    // Reverse from due east is 30° short of it, which is a corner heading — the table's second
-    // family — so an implementation that stepped indices could not produce it.
+    // And it turns back the way it came. Reverse from due east is 30° short of it, which is a
+    // corner heading — the table's second family — so an implementation that stepped indices could
+    // not produce it.
     expect(rotateAnyOrientation(0, -1)).toBe(CORNER_START + 1);
-    for (let orientation = 0; orientation < 12; orientation += 1)
-      expect(
-        rotateAnyOrientation(rotateAnyOrientation(orientation, 1), -1),
-      ).toBe(orientation);
+    for (let start = 0; start < 12; start += 1)
+      expect(rotateAnyOrientation(rotateAnyOrientation(start, 1), -1)).toBe(
+        start,
+      );
   });
 });
 

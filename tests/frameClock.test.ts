@@ -21,25 +21,18 @@ describe("frame clock", () => {
     ).toEqual({ elapsed: 250, ticks: 2, playerSteps: 7 });
   });
 
-  it("keeps the factory running while dropping idle player debt", () => {
-    const clock = new FrameClock(0);
-    clock.update(100, {
-      playerActive: true,
-      playerTicksPerSecond: 30,
-    });
-    clock.consume(1, 3);
+  it("keeps the factory running at its own rate through an idle player and a stalled frame", () => {
+    // Going idle drops the player's debt without touching the factory's.
+    const idling = new FrameClock(0);
+    idling.update(100, { playerActive: true, playerTicksPerSecond: 30 });
+    idling.consume(1, 3);
     expect(
-      clock.update(200, {
-        playerActive: false,
-        playerTicksPerSecond: 30,
-      }),
+      idling.update(200, { playerActive: false, playerTicksPerSecond: 30 }),
     ).toEqual({ elapsed: 100, ticks: 1, playerSteps: 0 });
-  });
 
-  it("bounds a stalled frame and never changes the factory rate", () => {
-    const clock = new FrameClock(0);
+    // A stalled frame is bounded, and the bound never changes the factory rate.
     expect(
-      clock.update(10_000, {
+      new FrameClock(0).update(10_000, {
         playerActive: true,
         playerTicksPerSecond: 1_000,
       }),

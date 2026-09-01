@@ -69,21 +69,33 @@ const nativeReport: NativeReport = {
 };
 
 describe("browser capacity report", () => {
-  it("keeps the crate's own account of what it measured", () => {
+  it("keeps the crate's own account of what it measured, paired by key", () => {
     const report = mergeBrowserReport(nativeReport, [hostTier], environment);
     expect(report.platform).toBe("wasm32");
     expect(report.schema).toBe(3);
     expect(report.crate_version).toBe("0.8.0");
     expect(report.environment).toEqual(environment);
     expect(report.tiers[0]?.host).toEqual(hostTier);
+    // One cell per column, and the tier names itself.
+    const row = tierRow(report.tiers[0]!);
+    expect(row).toHaveLength(TIER_COLUMNS.length);
+    expect(row[0]).toBe("small");
+
+    // Host results are matched to their tier by key: a report that listed them positionally would
+    // quote the medium tier's cost against the small tier's work.
+    const paired = mergeBrowserReport(
+      nativeReport,
+      [{ ...hostTier, key: "medium" }, hostTier],
+      environment,
+    );
+    expect(paired.tiers[0]?.host?.key).toBe("small");
   });
 
-  it("leaves a tier without a host measurement explicitly unmeasured", () => {
-    const report = mergeBrowserReport(nativeReport, [], environment);
-    expect(report.tiers[0]?.host).toBeNull();
+  it("leaves an unmeasured host and an unmeasured renderer absent, not free", () => {
+    const unmeasured = mergeBrowserReport(nativeReport, [], environment);
+    expect(unmeasured.tiers[0]?.host).toBeNull();
     // An unmeasured host cost must read as absent, never as zero cost.
-    const row = tierRow(report.tiers[0]!);
-    expect(row.slice(-9)).toEqual([
+    expect(tierRow(unmeasured.tiers[0]!).slice(-9)).toEqual([
       "—",
       "—",
       "—",
@@ -94,9 +106,7 @@ describe("browser capacity report", () => {
       "—",
       "—",
     ]);
-  });
 
-  it("leaves an unmeasured renderer as absent, not free", () => {
     const report = mergeBrowserReport(nativeReport, [hostTier], environment);
     expect(hostHasRender(report.tiers[0]!.host)).toBe(false);
     const row = tierRow(report.tiers[0]!);
@@ -117,7 +127,11 @@ describe("browser capacity report", () => {
     expect(row.at(-1)).toBe("—");
   });
 
-  it("states a complete browser frame once the renderer has been timed", () => {
+  it("states a complete browser frame, and its share of 60 Hz, once the renderer is timed", () => {
+    expect(frameShare(FRAME_BUDGET_US)).toBe("100.0%");
+    expect(frameShare(FRAME_BUDGET_US / 2)).toBe("50.0%");
+    expect(frameShare(500)).toBe("3.0%");
+
     const rendered: HostTierResult = {
       ...hostTier,
       render_world_us: 800,
@@ -147,28 +161,6 @@ describe("browser capacity report", () => {
     ]);
   });
 
-  it("pairs host results with their tier by key, not by position", () => {
-    const other: HostTierResult = { ...hostTier, key: "medium" };
-    const report = mergeBrowserReport(
-      { ...nativeReport, tiers: [nativeTier] },
-      [other, hostTier],
-      environment,
-    );
-    expect(report.tiers[0]?.host?.key).toBe("small");
-  });
-
-  it("renders one cell per column", () => {
-    const report = mergeBrowserReport(nativeReport, [hostTier], environment);
-    expect(tierRow(report.tiers[0]!)).toHaveLength(TIER_COLUMNS.length);
-    expect(tierRow(report.tiers[0]!)[0]).toBe("small");
-  });
-
-  it("states the host frame cost as a share of a 60 Hz frame", () => {
-    expect(frameShare(FRAME_BUDGET_US)).toBe("100.0%");
-    expect(frameShare(FRAME_BUDGET_US / 2)).toBe("50.0%");
-    expect(frameShare(500)).toBe("3.0%");
-  });
-
   it("fails the merge check when an applied snapshot lost entities", () => {
     const intact = mergeBrowserReport(nativeReport, [hostTier], environment);
     expect(deltaMergeIsIntact(intact)).toBe(true);
@@ -186,46 +178,45 @@ describe("browser capacity report", () => {
 });
 
 describe("timed sample budget", () => {
-  it("repeats work until the minimum duration has elapsed", () => {
+  it("repeats work until the minimum duration has elapsed, but never fewer than once", () => {
     let reading = 0;
     let calls = 0;
     const now = (): number => reading;
-    const work = (): void => {
-      calls += 1;
-      reading += 5;
-    };
-    const timed = timeMeanUs(work, now, 20);
+    const timed = timeMeanUs(
+      () => {
+        calls += 1;
+        reading += 5;
+      },
+      now,
+      20,
+    );
     expect(timed.samples).toBe(4);
     expect(timed.elapsedMs).toBe(20);
     expect(timed.meanUs).toBe(5_000);
     expect(calls).toBe(4);
-  });
 
-  it("accepts a single sample that already exceeds the budget", () => {
-    let reading = 0;
-    const now = (): number => reading;
-    const timed = timeMeanUs(
+    // One sample that already exceeds the budget is the whole measurement.
+    reading = 0;
+    const slow = timeMeanUs(
       () => {
         reading += 50;
       },
       now,
       20,
     );
-    expect(timed.samples).toBe(1);
-    expect(timed.meanUs).toBe(50_000);
+    expect(slow.samples).toBe(1);
+    expect(slow.meanUs).toBe(50_000);
   });
 });
 
 describe("pinned renderer viewport", () => {
-  it("is the playtest world size and the shipped minimap", () => {
+  it("is the playtest world size and the shipped minimap, on the bench page's own canvases", async () => {
     expect(RENDER_VIEWPORT).toEqual({
       width: 1440,
       height: 900,
       minimap: 178,
     });
-  });
 
-  it("pins those sizes on the bench page's hidden canvases", async () => {
     const { readFileSync } = await import("node:fs");
     const page = readFileSync(
       new URL("../bench.html", import.meta.url),
@@ -241,7 +232,7 @@ describe("pinned renderer viewport", () => {
 });
 
 describe("clock resolution probe", () => {
-  it("reports the smallest step a quantized clock actually moves by", () => {
+  it("reports the smallest step a clock actually moves by, quantized or fine", () => {
     // A clamped browser clock: readings advance only in whole 0.1 ms steps.
     let reading = 0;
     const clamped = (): number => {
@@ -249,10 +240,8 @@ describe("clock resolution probe", () => {
       return Math.floor(reading / 3) * 0.1;
     };
     expect(probeClockResolutionUs(clamped, 4)).toBeCloseTo(100, 6);
-  });
 
-  it("reports a fine-grained clock as fine-grained", () => {
-    let reading = 0;
+    reading = 0;
     const fine = (): number => {
       reading += 1;
       return reading * 0.000_005;

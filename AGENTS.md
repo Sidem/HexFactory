@@ -10,9 +10,12 @@ heap of hexes. Its detail is one ledger line in the plan.
 On `main` since, unreleased: **the Phase 8 scale break.** One construction hex is 25 m², altitude is
 physical native height, drainage shapes valleys before rivers are placed, and footprints, belt cadence,
 the renderer and picking were reauthored around the new scale. Every envelope moved together to save
-39, definitions 29, technologies 16, scenarios 8, world 11, wire 22. A save at 36 or below is the old
+40, definitions 29, technologies 16, scenarios 8, world 12, wire 22. A save at 36 or below is the old
 1 m² world and is refused with an export path rather than migrated; save 37 advances by stamp, save 38
-by stamp onto 39. On 2026-09-01 the user settled player movement for traversal: `PLAYER_SPEED` is
+by stamp onto 39, and 39 by stamp onto 40. World 12 then refuses every pre-40 file on its own: the
+substrate rule now reads the slope a cell sits on rather than an elevation the continental field
+clears almost everywhere, and a river class cuts a valley you bridge rather than a shallow trough, so
+an older envelope names ground this build does not lay down. Export is the path out. On 2026-09-01 the user settled player movement for traversal: `PLAYER_SPEED` is
 unchanged across the scale break, so the stated figures moved instead — a 15 m/s walk, a 25 m/s run, a
 5 m/s ford. The reasoning is on the constant in `factory-wasm/src/lib.rs`.
 

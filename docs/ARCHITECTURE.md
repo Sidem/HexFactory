@@ -362,6 +362,15 @@ now unreachable, kept as history rather than as live paths. And the ladder must 
 -1, `migrates` is pinned false, and the build refuses the very saves it can open. The regression case
 reads the build end from the shipped catalogues, because a synthetic fixture cannot see that.
 
+**The world stamp is a second, independent gate, and it closes on files the format ladder carries
+happily.** `world_generator_version` answers "which landscape is this", so it moves whenever a rule
+that decides what a seed lays down moves — world 12 for substrate reading slope instead of an
+elevation nearly every cell clears, and for a river class cutting a valley rather than a trough. A
+pre-40 file therefore migrates cleanly up the format ladder and is then refused on the world stamp,
+which is deliberate: reaching that check is what earns the player the message about exporting the
+file, where stopping short in the ladder would only report that no migration path exists. The format
+ladder and the world stamp are separate questions and their tests say so separately.
+
 Recipes retain a primary output and may add up to seven co-products. Each output is a positive
 integer quantity, with unique identities and an explicit positive integer cost allocation summing
 to 100. The shared output compartment must hold the entire batch before native reserves any inputs;

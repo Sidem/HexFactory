@@ -396,43 +396,44 @@ describe("guidance derived from the rules rather than scripted against them", ()
       technologies,
     );
     expect(carrying.key).toBe("deliver-request:ore-assay");
-  });
 
-  it("stops asking for anything once the contract is finished", () => {
-    const done = nextAction(
-      snapshotAt({
-        stage: newGame.contract.stages.length,
-        researched: [1, 2, 3],
-        insight: 40,
-        inventory: {},
-        buildings: [],
-      }),
-      definitions,
-      technologies,
-    );
-    expect(done.key).toBe("complete");
-  });
-
-  it("keeps an existing industrial route instead of asking for a redundant primitive station", () => {
-    const action = nextAction(
-      snapshotAt({
-        stage: 0,
-        researched: [1, 2, 3, 5, 8],
-        insight: 0,
-        inventory: { "1": 6 },
-        buildings: [
-          { definition_id: 3, kind: "composer" },
-          { definition_id: 7, kind: "composer" },
-          { definition_id: 13, kind: "generator" },
-        ],
-      }),
-      definitions,
-      technologies,
-    );
-    expect(action.key).toBe("supply");
+    // And past the last stage there is nothing left to ask for, whatever the player holds.
+    expect(
+      nextAction(
+        snapshotAt({
+          stage: newGame.contract.stages.length,
+          researched: [1, 2, 3],
+          insight: 40,
+          inventory: {},
+          buildings: [],
+        }),
+        definitions,
+        technologies,
+      ).key,
+    ).toBe("complete");
   });
 
   it("names primitive construction suppliers before the first generator or a replacement kiln", () => {
+    // An industrial route that already exists is kept: the guide asks for supply rather than a
+    // redundant primitive station beside the machine that replaced it.
+    expect(
+      nextAction(
+        snapshotAt({
+          stage: 0,
+          researched: [1, 2, 3, 5, 8],
+          insight: 0,
+          inventory: { "1": 6 },
+          buildings: [
+            { definition_id: 3, kind: "composer" },
+            { definition_id: 7, kind: "composer" },
+            { definition_id: 13, kind: "generator" },
+          ],
+        }),
+        definitions,
+        technologies,
+      ).key,
+    ).toBe("supply");
+
     const state = {
       stage: 1,
       researched: [1, 2, 3, 4, 5, 8],
@@ -501,29 +502,29 @@ describe("guidance derived from the rules rather than scripted against them", ()
     snapshot.player.inventory["2"] = 1;
     snapshot.buildings = [];
     expect(nextAction(snapshot, definitions, technologies).key).toBe("deliver");
-  });
 
-  it("puts a full pack ahead of everything, because it blocks the rest", () => {
-    const full = nextAction(
-      snapshotAt({
-        stage: 0,
-        researched: [],
-        insight: 0,
-        inventory: {
-          "1": 20,
-          "3": 10,
-          "4": 20,
-          "5": 20,
-          "6": 20,
-          "7": 20,
-          "8": 20,
-          "9": 20,
-        },
-        buildings: [],
-      }),
-      definitions,
-      technologies,
-    );
-    expect(full.key).toBe("pack-full");
+    // A full pack goes ahead of all of it, because it blocks the rest.
+    expect(
+      nextAction(
+        snapshotAt({
+          stage: 0,
+          researched: [],
+          insight: 0,
+          inventory: {
+            "1": 20,
+            "3": 10,
+            "4": 20,
+            "5": 20,
+            "6": 20,
+            "7": 20,
+            "8": 20,
+            "9": 20,
+          },
+          buildings: [],
+        }),
+        definitions,
+        technologies,
+      ).key,
+    ).toBe("pack-full");
   });
 });

@@ -236,19 +236,19 @@ describe("public hex host contract", () => {
     camera.zoomAt(1.6, { x: 320, y: 240 }, 900, 650);
     const moved = camera.project(coordinate, 900, 650);
     expect(camera.pick(moved, 900, 650)).toEqual(coordinate);
-  });
 
-  it("keeps a following camera on the player when the wheel zooms", () => {
-    const camera = new HexCamera();
+    // And a wheel zoom on a following camera keeps following: it must not quietly convert the
+    // follow into a pan the player then has to undo.
+    const followed = new HexCamera();
     const player = { x: 3550, y: -3072 };
-    camera.recenter(player);
-    expect(camera.following).toBe(true);
-    camera.zoomAt(1.6, { x: 80, y: 40 }, 900, 650);
-    expect(camera.following).toBe(true);
-    expect(camera.pan).toEqual({ x: 0, y: 0 });
-    expect(camera.center).toEqual(player);
-    camera.follow({ x: 4000, y: 0 });
-    expect(camera.center).toEqual({ x: 4000, y: 0 });
+    followed.recenter(player);
+    expect(followed.following).toBe(true);
+    followed.zoomAt(1.6, { x: 80, y: 40 }, 900, 650);
+    expect(followed.following).toBe(true);
+    expect(followed.pan).toEqual({ x: 0, y: 0 });
+    expect(followed.center).toEqual(player);
+    followed.follow({ x: 4000, y: 0 });
+    expect(followed.center).toEqual({ x: 4000, y: 0 });
   });
 });
 
@@ -1006,7 +1006,7 @@ describe("bounded host input", () => {
     expect(actions).not.toMatch(/reserved_inputs/);
   });
 
-  it("keeps the save envelope number the host reports level with native's", () => {
+  it("keeps the envelope numbers level with native's, and shows the ones it is running", () => {
     // Native does not publish `SAVE_VERSION`, so the host copies it, and a copy drifts silently:
     // the slot catalog went on advertising 11 after native moved to 12, which makes a save this
     // build wrote look like one from a build that no longer exists. Read native's back instead.
@@ -1017,9 +1017,9 @@ describe("bounded host input", () => {
     const declared = rust.match(/const SAVE_VERSION: u16 = (\d+);/);
     expect(declared).not.toBeNull();
     expect(SAVE_VERSION).toBe(Number(declared![1]));
-  });
 
-  it("shows the envelope numbers it is actually running, not ones typed into the markup", () => {
+    // And the title screen fills that number in at runtime rather than carrying one typed into
+    // the markup, which is the same drift one level further out.
     const main = readFileSync(
       new URL("../src/main.ts", import.meta.url),
       "utf8",
@@ -1120,7 +1120,10 @@ describe("availability and expanded snapshot adapter", () => {
     expect(host.presetKeyFor(tuned)).toBeUndefined();
   });
 
-  it("applies per-entity buildings patches instead of whole-array replacements", () => {
+  // One claim, both patched groups: a delta names the entries that moved, and everything else keeps
+  // the identity native sent it with. Buildings are keyed by native id and resources by coordinate,
+  // and both have to survive insert, remove, replace, an empty patch and an absent group.
+  it("patches buildings and deposits entry by entry instead of resending the group", () => {
     const belt: EntitySnapshot = {
       id: 4,
       q: 1,
@@ -1184,9 +1187,7 @@ describe("availability and expanded snapshot adapter", () => {
         checksum: 456,
       }).snapshot.buildings,
     ).toBe(listed);
-  });
 
-  it("patches individual deposits without resending the surveyed world's resources", () => {
     const second: ResourceSnapshot = {
       q: 4,
       r: -2,
@@ -1197,16 +1198,21 @@ describe("availability and expanded snapshot adapter", () => {
       quantity: 32,
       initial_quantity: 32,
     };
-    const listed = [...snapshot.resources, second];
-    const withCrystal: FactorySnapshot = { ...snapshot, resources: listed };
+    const deposits = [...snapshot.resources, second];
+    const withCrystal: FactorySnapshot = { ...snapshot, resources: deposits };
 
     // A drawn-from deposit is substituted in place; every other deposit keeps its identity, so
     // the native ordering the host received survives the patch.
-    const drained = { ...listed[0]!, quantity: 46 };
-    const patched = applyResourcesPatch(listed, { changed: [drained] });
-    expect(patched.map(({ q, r }) => `${q},${r}`)).toEqual(["3,0", "4,-2"]);
-    expect(patched[0]).toEqual(drained);
-    expect(patched[1]).toBe(listed[1]);
+    const drained = { ...deposits[0]!, quantity: 46 };
+    const patchedDeposits = applyResourcesPatch(deposits, {
+      changed: [drained],
+    });
+    expect(patchedDeposits.map(({ q, r }) => `${q},${r}`)).toEqual([
+      "3,0",
+      "4,-2",
+    ]);
+    expect(patchedDeposits[0]).toEqual(drained);
+    expect(patchedDeposits[1]).toBe(deposits[1]);
 
     // A patch touches the harvested cell and nothing else, including in the negative-coordinate
     // world where a 64-bit id packed from q and r used to round to the same JSON number for a
@@ -1231,22 +1237,22 @@ describe("availability and expanded snapshot adapter", () => {
     ]);
 
     // An empty patch and an untouched group both leave the previous list in place.
-    expect(applyResourcesPatch(listed, { changed: [] })).toBe(listed);
+    expect(applyResourcesPatch(deposits, { changed: [] })).toBe(deposits);
     expect(
-      applyResourcesPatch(listed, { replace: true, changed: [second] }),
+      applyResourcesPatch(deposits, { replace: true, changed: [second] }),
     ).toEqual([second]);
 
-    const next = applySnapshotDelta(withCrystal, 0, {
+    const drawn = applySnapshotDelta(withCrystal, 0, {
       base_revision: 0,
       revision: 1,
       tick: 13,
       checksum: 456,
       resources: { changed: [drained] },
     });
-    expect(next.snapshot.resources[0]?.quantity).toBe(46);
-    expect(next.snapshot.resources[1]).toBe(second);
-    expect(next.snapshot.buildings).toBe(withCrystal.buildings);
-    expect(next.snapshot.terrain).toBe(withCrystal.terrain);
+    expect(drawn.snapshot.resources[0]?.quantity).toBe(46);
+    expect(drawn.snapshot.resources[1]).toBe(second);
+    expect(drawn.snapshot.buildings).toBe(withCrystal.buildings);
+    expect(drawn.snapshot.terrain).toBe(withCrystal.terrain);
     expect(
       applySnapshotDelta(withCrystal, 0, {
         base_revision: 0,
@@ -1254,7 +1260,7 @@ describe("availability and expanded snapshot adapter", () => {
         tick: 13,
         checksum: 456,
       }).snapshot.resources,
-    ).toBe(listed);
+    ).toBe(deposits);
   });
 
   it("rejects missing or out-of-order snapshot revisions", () => {

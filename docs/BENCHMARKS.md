@@ -105,6 +105,69 @@ timer: a settled world schedules zero water solves and resends zero water groups
 by the bounded command, earthwork, pump draw or newly surveyed frontier that woke it; there is no
 per-cell standing-water tick.
 
+## Ground you can see — what "the world looks flat" turned out to measure
+
+Seed 1213486160, `npm run terra` and `npm run survey`, world generator 12.
+
+### A viewport is the unit the complaint is about
+
+The slope histogram cannot answer "does this world look flat". A field of uncorrelated centimetre
+noise and a hillside produce similar neighbour steps, and only one of them is a landform: the
+difference is whether the steps accumulate over the distance the camera frames or cancel out inside
+it. So `TerraSurvey` gained two numbers — the elevation range inside one `VIEWPORT_CELL` (40 cells,
+215 m) disc, over sampled centres, as a median and as the flattest tenth.
+
+```
+viewport       54.2 m of relief across 429 m, flattest tenth 23.5 m
+```
+
+**That is not a flat world**, and the measurement is why the roadmap's amplitude retune was
+rejected rather than shipped. Raising `HILLSLOPE_QUANTA` and adding a meso-scale ridge octave under
+it was implemented and measured: viewport relief went **down**, 53.5 m → 49.7 m, while buildable
+ground fell 64 per mille. The change is reverted and the rejection is recorded on the constant in
+`factory-wasm/src/terra.rs` so it is not retried.
+
+### The material map was the whole of it
+
+`npm run survey` on `continental` at radius 768, bands in per mille of hexes:
+
+| build        | DeepWater | ShallowWater | Shore | Lowland | Hills | Highland | Cliff |
+| ------------ | --------- | ------------ | ----- | ------- | ----- | -------- | ----- |
+| world 11     | —         | —            | —     | 0       | 889   | 0        | 9     |
+| **world 12** | 10        | 48           | 48    | **663** | 214   | 3        | 11    |
+
+The old substrate rule selected Soil on any bed at or above 600 quanta — 150 m — which the
+continental field clears almost everywhere. One clause therefore chose the same material for 889 per
+mille of the world, and no amount of relief in the height field could have shown through it. The
+rule now reads the gradient a cell sits on, sampled across `MATERIAL_STENCIL` (3) cells so the fine
+relief grain averages away instead of speckling the ground, and elevation only names genuinely high
+ground at `ALPINE_QUANTA`. Every band in `terrainStyle.ts` has its own colour, so the fix reaches the
+screen.
+
+### Rivers you bridge
+
+`channel_depth` cut 0.5 m to 5 m across half-widths of 3 to 21 cells — a 3 to 4 per cent grade, which
+the eye reads as ground that happens to be wet. It now cuts 2.25 m to 9.75 m, putting the bank at 8
+to 14 per cent, past `MAX_BUILD_STEP_QUANTA` on the steepest part of the flank.
+
+|        | 4–7 quanta steps | viewport relief | buildable at 2 |
+| ------ | ---------------- | --------------- | -------------- |
+| before | 57‰              | 53.5 m          | 779‰           |
+| after  | **82‰**          | 54.2 m          | 747‰           |
+
+32 per mille of buildable ground for a river that is an obstacle. Taken deliberately.
+
+### Discovery is a radius, not a ring of chunks
+
+`Core::survey_radius` restates the survey envelope as a distance from the player's own hex rather
+than a count of chunk-lattice rings. Standing at a chunk's edge previously left the frontier one cell
+ahead and fifteen behind, and a chunk is an axial parallelogram rather than a disc, so the opened
+world read as a stepped, lopsided blot. `rings * size + size / 2` is deliberately area-preserving:
+at one ring it is a 469-cell disc against the 448 cells the seven-chunk opening covered, and it stays
+within a few per cent at two and three rings. Chunks are still the unit of generation, so the
+outermost opened cell lands on a chunk boundary; what is uniform is the guarantee that no direction
+is surveyed less far than the radius.
+
 Capacity is measured, never asserted, and the measurement orders the work. Every number here was
 produced by the committed harness; the raw reports live in `docs/benchmarks/` and are the source for
 any table that was trimmed out of this document.

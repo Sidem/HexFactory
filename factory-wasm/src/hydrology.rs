@@ -763,8 +763,12 @@ mod tests {
         }
     }
 
+    /// The model's whole statement about a single disturbance, in the order a player produces it:
+    /// an untouched world stores nothing, a cut beside a pool levels with it, an odd volume rests
+    /// one quantum apart, a real step drains a cell dry, and a reopened outlet empties a bowl down
+    /// its channel without losing a quantum on the way.
     #[test]
-    fn a_world_at_equilibrium_stores_no_departure() {
+    fn water_levels_with_what_is_dug_beside_it_and_stores_only_the_difference() {
         let field = TestField::flat(4, 100).water(0, 0, 3).bed(0, 0, 94);
         let mut water = DisturbedWater::new();
         let report = settle(&field, &mut water, &[(0, 0)]);
@@ -774,10 +778,7 @@ mod tests {
             water.is_empty(),
             "equilibrium is not a departure and must not be stored"
         );
-    }
 
-    #[test]
-    fn a_cut_beside_a_pool_fills_and_the_pair_levels() {
         // A pool six quanta deep in a pit, and a neighbouring cell dug to the same floor.
         let field = TestField::flat(4, 100)
             .bed(0, 0, 94)
@@ -800,10 +801,7 @@ mod tests {
         );
         assert_eq!(water.delta_at(1, 0).get(), 3);
         assert_eq!(water.delta_at(0, 0).get(), -3);
-    }
 
-    #[test]
-    fn settled_water_stands_at_most_one_quantum_apart() {
         // An odd volume cannot split evenly, which is the residual this model states.
         let field = TestField::flat(4, 100)
             .bed(0, 0, 94)
@@ -813,10 +811,7 @@ mod tests {
         settle(&field, &mut water, &[(1, 0)]);
         let gap = field.surface(&water, 0, 0) - field.surface(&water, 1, 0);
         assert_eq!(gap.abs(), 1, "an odd volume rests one quantum apart");
-    }
 
-    #[test]
-    fn a_cell_drains_dry_down_any_real_step() {
         // One quantum standing on ground a quantum above its neighbour: head 2, so it leaves.
         let field = TestField::flat(4, 100)
             .bed(0, 0, 100)
@@ -833,10 +828,7 @@ mod tests {
             field.equilibrium_depth(1, 0) + i32::from(water.delta_at(1, 0).get()),
             1,
         );
-    }
 
-    #[test]
-    fn a_flooded_cut_drains_when_its_outlet_is_reopened() {
         // A bowl at 94 holding twelve quanta, and a graded channel out of it to a far lower shelf.
         let mut field = TestField::flat(6, 100).bed(0, 0, 94).water(0, 0, 12);
         for step in 1..=5 {
@@ -854,8 +846,12 @@ mod tests {
         );
     }
 
+    /// The two boundaries a solve can reach, and what each of them is allowed to do with the water
+    /// that arrives: the ocean absorbs it and never itself departs, and the surveyed frontier lets
+    /// it leave while naming what left — without either reading past the frontier or mistaking a
+    /// generated pool sitting on it for a leak.
     #[test]
-    fn the_ocean_absorbs_without_being_simulated() {
+    fn water_leaves_at_a_boundary_without_the_boundary_being_simulated() {
         let field = TestField::flat(4, 100)
             .bed(0, 0, 20)
             .water(0, 0, 40)
@@ -869,10 +865,7 @@ mod tests {
             WaterDelta::default(),
             "the ocean is a boundary condition and never departs"
         );
-    }
 
-    #[test]
-    fn water_leaves_the_frontier_without_reading_past_it() {
         // Everything but this single cell is unsurveyed, so any read beyond it panics in the field.
         let field = TestField::flat(2, 100).bed(0, 0, 100).survey(&[(0, 0)]);
         let mut water = DisturbedWater::new();
@@ -895,10 +888,9 @@ mod tests {
             "the stated residual holds at a boundary too: the last quantum has no two-quantum head"
         );
         assert_eq!(field.surface(&water, 0, 0), 101);
-    }
 
-    #[test]
-    fn the_frontier_does_not_drain_the_equilibrium_itself() {
+        // And a generated pool that happens to sit on the frontier is not a leak: nothing departs
+        // and nothing is stored.
         let field = TestField::flat(2, 100)
             .bed(0, 0, 94)
             .water(0, 0, 6)
@@ -913,8 +905,12 @@ mod tests {
         assert!(water.is_empty());
     }
 
+    /// What the saved departure set is, as distinct from the water: the solve's answer cannot
+    /// depend on the order its seeds arrived in, and a cell that is flooded and drained back is
+    /// forgotten entirely rather than stored as a zero — it has to hash as untouched, or every
+    /// checksum would record work that left no trace on the world.
     #[test]
-    fn the_answer_does_not_depend_on_the_order_of_the_seeds() {
+    fn the_departure_set_is_order_independent_and_forgets_what_returned() {
         let build = || {
             TestField::flat(5, 100)
                 .bed(0, 0, 90)
@@ -934,10 +930,7 @@ mod tests {
             water
         };
         assert_eq!(forward, reversed, "the solve is order independent");
-    }
 
-    #[test]
-    fn a_departure_that_returns_is_forgotten_and_hashes_as_untouched() {
         let untouched = {
             let mut hash = 0x811c_9dc5u32;
             DisturbedWater::new().hash_into(&mut hash);
@@ -965,8 +958,15 @@ mod tests {
         );
     }
 
+    /// What one disturbance is allowed to cost. The active region grows with the water and stops
+    /// where the water does — seven cells for dry ground and seven for a pit the pool cannot climb
+    /// out of — and where a command is wider than the budget the region says so, walls the water in
+    /// rather than losing it, and leaves the solve unfinished for rescheduling. The sweep budget is
+    /// the other half of the cost, and the shape that stresses it worst — a rough-floored bowl with
+    /// one low rim cell, where every cell has somewhere to push and only one leads out — has to
+    /// finish inside it without clamping or going negative anywhere.
     #[test]
-    fn a_dry_disturbance_costs_seven_cells_and_stops() {
+    fn a_disturbance_claims_only_what_the_water_covers_and_stops_at_its_budget() {
         let field = TestField::flat(12, 100);
         let mut water = DisturbedWater::new();
         let region = active_region(&field, &[(0, 0)]);
@@ -976,10 +976,7 @@ mod tests {
         assert_eq!(report.cells, 7, "dry ground is never claimed");
         assert_eq!(report.transfers, 0);
         assert!(water.is_empty());
-    }
 
-    #[test]
-    fn a_pool_claims_exactly_the_ground_it_covers() {
         // Ten quanta in a pit, and a wide flat pan around it the water cannot climb onto.
         let field = TestField::flat(12, 100).bed(0, 0, 90).water(0, 0, 10);
         let mut water = DisturbedWater::new();
@@ -989,10 +986,7 @@ mod tests {
             report.cells, 7,
             "growth follows the water, and this water goes nowhere"
         );
-    }
 
-    #[test]
-    fn the_seed_region_stops_at_its_budget_and_says_so() {
         // A flood command wider than the budget: the seeds alone exhaust it.
         let field = TestField::flat(64, 100);
         let seeds = hexes_in_radius((0, 0), 40);
@@ -1003,10 +997,7 @@ mod tests {
             "a disturbance wider than the budget must report the truncation"
         );
         assert_eq!(region.len(), ACTIVE_CELL_BUDGET);
-    }
 
-    #[test]
-    fn a_truncated_region_walls_the_water_in_rather_than_losing_it() {
         let mut field = TestField::flat(64, 100);
         for cell in hexes_in_radius((0, 0), 8) {
             field = field.water(cell.0, cell.1, 40);
@@ -1025,10 +1016,7 @@ mod tests {
             before,
             "the budget is a wall, not a drain"
         );
-    }
 
-    #[test]
-    fn every_solve_terminates_inside_its_sweep_budget() {
         // A bowl with a rough floor and a single low rim cell: the worst shape this model meets,
         // because every cell has somewhere to push and only one of them leads out.
         let mut field = TestField::flat(10, 200);
@@ -1119,8 +1107,12 @@ mod tests {
         None
     }
 
+    /// Depth is the answer and the band is only a drawing. A meadow under water stops a walk its
+    /// own band would allow, a drained deep-water cell is ground whatever the band draws, route
+    /// cost and wading read the disturbed depth, and the solver reads the same finished bed the
+    /// predicate does — the four ways that one claim can be got wrong.
     #[test]
-    fn a_flooded_meadow_stops_the_walk_its_own_band_would_allow() {
+    fn every_water_answer_comes_from_depth_rather_than_the_band() {
         let mut core = physical_core();
         let (q, r) = dry_cell(&core);
         assert!(!core.terrain_blocks_movement(q, r));
@@ -1154,11 +1146,46 @@ mod tests {
             !core.generated_ground_at(q, r).presentation.is_water(),
             "the flood did not rewrite the generated band"
         );
-    }
 
-    #[test]
-    fn a_drained_cell_is_walkable_though_its_band_still_says_water() {
-        let mut core = physical_core();
+        // Route cost reads the same depth: one quantum is a ford priced as one, and the wade limit
+        // stops the route outright.
+        core.water.set(q, r, WaterDelta::new(0));
+        assert!(!core.shallow_water_at(q, r));
+        core.water.set(q, r, WaterDelta::new(1));
+        assert!(core.shallow_water_at(q, r), "a flooded meadow is a ford");
+        let climb =
+            (core.ground_elevation_at(q, r) - core.ground_elevation_at(q - 1, r)).max(0) as u32;
+        assert_eq!(
+            core.walk_step_cost((q - 1, r), q, r),
+            WALK_SHALLOW_COST + climb * WALK_CLIMB_COST,
+            "the water part of route cost is the ford cost"
+        );
+        core.water.set(
+            q,
+            r,
+            WaterDelta::new(i16::try_from(crate::scale::WADE_LIMIT_QUANTA).unwrap()),
+        );
+        assert!(
+            !core.walkable_hex(q, r),
+            "deep disturbed water stops the route"
+        );
+
+        // And the solver reads the bed the predicate does — the ground the player finished, not the
+        // generated bed underneath it.
+        core.water.set(q, r, WaterDelta::new(6));
+        assert_eq!(core.water_depth_at(q, r), 6);
+        assert_eq!(
+            core.water_surface_at(q, r),
+            core.ground_elevation_at(q, r) + 6,
+            "water stands on the ground the player finished, not on the generated bed"
+        );
+        assert_eq!(
+            WaterField::bed_quanta(&core, q, r),
+            core.ground_elevation_at(q, r),
+            "the solver reads the same bed the predicate does"
+        );
+        core.water.set(q, r, WaterDelta::new(0));
+
         // The opening shelf is deliberately dry, so the surveyed rings hold no deep water at all.
         // Walk chunks outward until the generator offers an inland one — the landing site is a
         // translation of an unbounded source, so "there is water somewhere out there" is a property
@@ -1176,26 +1203,12 @@ mod tests {
         );
     }
 
+    /// A hydrology solve may never insert a gameplay chunk — not while settling, not through a
+    /// player's bounded flood or drain command, and not when a survey resumes a departure that was
+    /// waiting at the old frontier. Surveying is the player's decision; water arriving somewhere is
+    /// not a reason to make it for them.
     #[test]
-    fn the_water_predicate_and_the_solver_agree_on_the_finished_bed() {
-        let mut core = physical_core();
-        let (q, r) = dry_cell(&core);
-        core.water.set(q, r, WaterDelta::new(6));
-        assert_eq!(core.water_depth_at(q, r), 6);
-        assert_eq!(
-            core.water_surface_at(q, r),
-            core.ground_elevation_at(q, r) + 6,
-            "water stands on the ground the player finished, not on the generated bed"
-        );
-        assert_eq!(
-            WaterField::bed_quanta(&core, q, r),
-            core.ground_elevation_at(q, r),
-            "the solver reads the same bed the predicate does"
-        );
-    }
-
-    #[test]
-    fn settling_never_surveys_a_chunk() {
+    fn no_solve_may_survey_a_chunk() {
         let mut core = physical_core();
         let (q, r) = dry_cell(&core);
         core.water.set(q, r, WaterDelta::new(40));
@@ -1206,10 +1219,8 @@ mod tests {
             core.generated_chunks, surveyed,
             "a hydrology solve may never insert a gameplay chunk"
         );
-    }
 
-    #[test]
-    fn flood_and_drain_commands_are_bounded_and_never_survey() {
+        // The player's own commands are bounded, reach the same solve, and survey nothing either.
         let mut core = physical_core();
         let (q, r) = dry_cell(&core);
         let surveyed = core.generated_chunks.clone();
@@ -1234,28 +1245,26 @@ mod tests {
                 .any(|event| event.starts_with("Water settled over")),
             "the JSON command reaches the bounded native edit"
         );
-    }
 
-    #[test]
-    fn wading_and_route_cost_read_disturbed_depth_not_the_band() {
+        // And a departure left waiting past the frontier resumes when the player finally surveys
+        // there, opening that one chunk and no other.
         let mut core = physical_core();
-        let (q, r) = dry_cell(&core);
-        assert!(!core.shallow_water_at(q, r));
-        core.water.set(q, r, WaterDelta::new(1));
-        assert!(core.shallow_water_at(q, r), "a flooded meadow is a ford");
-        let climb =
-            (core.ground_elevation_at(q, r) - core.ground_elevation_at(q - 1, r)).max(0) as u32;
-        assert_eq!(
-            core.walk_step_cost((q - 1, r), q, r),
-            WALK_SHALLOW_COST + climb * WALK_CLIMB_COST,
-            "the water part of route cost is the ford cost"
-        );
-        let depth = crate::scale::WADE_LIMIT_QUANTA;
-        core.water
-            .set(q, r, WaterDelta::new(i16::try_from(depth).unwrap()));
+        let size = core.scenario.chunk_size;
+        let chunk = (20, -11);
+        let target = (chunk.0 * size, chunk.1 * size);
+        assert!(!core.generated_chunks.contains(&chunk));
+        core.water.set(target.0, target.1, WaterDelta::new(3));
+        core.dirty.water = false;
+        let before = core.generated_chunks.len();
+        core.generate_chunk(chunk.0, chunk.1);
         assert!(
-            !core.walkable_hex(q, r),
-            "deep disturbed water stops the route"
+            core.dirty.water,
+            "survey ran the waiting departure through the solve"
+        );
+        assert_eq!(
+            core.generated_chunks.len(),
+            before + 1,
+            "the resumed solve did not survey past its new frontier"
         );
     }
 
@@ -1293,30 +1302,12 @@ mod tests {
         );
     }
 
+    /// Everything the save file has to say about disturbed water: a departure is a checksum input,
+    /// a world back at equilibrium hashes as one that never left it, the cells round trip through
+    /// the envelope, a version-38 world resumes on the checksum it was written with, and the
+    /// storage guard refuses what it must while staying wider than any legal dam.
     #[test]
-    fn surveying_a_frontier_departure_resumes_the_water_without_opening_another_chunk() {
-        let mut core = physical_core();
-        let size = core.scenario.chunk_size;
-        let chunk = (20, -11);
-        let target = (chunk.0 * size, chunk.1 * size);
-        assert!(!core.generated_chunks.contains(&chunk));
-        core.water.set(target.0, target.1, WaterDelta::new(3));
-        core.dirty.water = false;
-        let before = core.generated_chunks.len();
-        core.generate_chunk(chunk.0, chunk.1);
-        assert!(
-            core.dirty.water,
-            "survey ran the waiting departure through the solve"
-        );
-        assert_eq!(
-            core.generated_chunks.len(),
-            before + 1,
-            "the resumed solve did not survey past its new frontier"
-        );
-    }
-
-    #[test]
-    fn a_departure_is_saved_checksummed_and_restored() {
+    fn a_departure_is_saved_checksummed_restored_and_guarded() {
         let mut core = physical_core();
         let baseline = core.checksum();
         let (q, r) = dry_cell(&core);
@@ -1346,13 +1337,10 @@ mod tests {
             DisturbedWater::from_cells(&restored.state.water),
             core.water
         );
-    }
 
-    /// The version-39 rung is a stamp and nothing else. A version-38 world could not make a
-    /// departure, and this version computes the same equilibrium from the same seed, so the file
-    /// resumes on the checksum it was written with rather than on a recomputed one.
-    #[test]
-    fn a_version_thirty_eight_world_resumes_on_its_own_checksum() {
+        // The version-39 rung is a stamp and nothing else. A version-38 world could not make a
+        // departure, and this version computes the same equilibrium from the same seed, so the file
+        // resumes on the checksum it was written with rather than on a recomputed one.
         let core = physical_core();
         let saved = core.save_string().expect("the world saves");
         let old = saved.replace(
@@ -1370,10 +1358,10 @@ mod tests {
             core.checksum(),
             "and it hashes exactly what it hashed before hydrology existed"
         );
-    }
 
-    #[test]
-    fn a_saved_departure_past_the_guard_is_refused() {
+        // The guard refuses a departure past its limit and a cell named twice, and the limit itself
+        // is wider than anything the generator makes but narrower than the integer it guards — so a
+        // legal dam can never reach it and the guard can never overflow.
         let past = [WaterCell {
             q: 0,
             r: 0,
@@ -1394,10 +1382,7 @@ mod tests {
         ];
         assert!(validate_saved_water(&twice).is_err());
         assert!(validate_saved_water(&twice[..1]).is_ok());
-    }
 
-    #[test]
-    fn the_departure_limit_is_wider_than_anything_the_generator_makes() {
         let relief = crate::scale::BED_MAX_QUANTA - crate::scale::BED_MIN_QUANTA;
         assert!(
             DEPARTURE_LIMIT_QUANTA > relief,
@@ -1498,12 +1483,26 @@ mod tests {
                     .iter()
                     .map(|&(dq, dr)| (q + dq, r + dr))
                     .collect();
+                // The bank has to be the rim itself, not merely a neighbour. The pond stands one
+                // quantum under the lowest bed around it, so a cut into any higher neighbour can
+                // leave that neighbour still above the water and the test would be asserting the
+                // model failed to move water uphill. Picking the lowest neighbour makes "the
+                // pond's surface is suddenly above it" true by construction, whatever relief the
+                // generator lays down here.
+                let rim = ring
+                    .iter()
+                    .map(|&(cq, cr)| core.ground_elevation_at(cq, cr))
+                    .min()
+                    .expect("a hex has neighbours");
                 ring.iter()
                     .all(|&cell| dry(core, cell))
                     .then(|| {
                         ring.iter()
                             .copied()
-                            .find(|&cell| diggable(core, cell, 2))
+                            .find(|&cell| {
+                                core.ground_elevation_at(cell.0, cell.1) == rim
+                                    && diggable(core, cell, 2)
+                            })
                             .map(|bank| ((q, r), bank))
                     })
                     .flatten()
@@ -1586,12 +1585,10 @@ mod tests {
         assert_eq!(core.water_depth_at(bank_q, bank_r), 0);
         assert_eq!(core.water_depth_at(pit_q, pit_r), depth);
         assert_eq!(core.checksum(), checksum, "the world came back exactly");
-    }
 
-    /// The common case, and the one that must stay free: a grade with no water anywhere near it
-    /// leaves no departure, says nothing about water, and hashes as if hydrology were not here.
-    #[test]
-    fn a_grade_with_no_water_near_it_records_nothing() {
+        // The common case is the other half of the same rule, and it must stay free: a grade with no
+        // water anywhere near it leaves no departure, says nothing about water, does not open the
+        // world to look, and hashes as if hydrology were not here.
         let mut core = physical_core();
         core.set_creative(true);
         let ((q, r), _) = pit_and_bank(&core);

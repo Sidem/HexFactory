@@ -39,6 +39,25 @@ describe("joint production contracts", () => {
     expect(() => validateDefinitions(definitions)).toThrow(
       /production route|cycle/,
     );
+
+    // A batch no compatible station could hold is refused too, and so is a specialized source
+    // naming an item the catalogue does not have.
+    const oversized = structuredClone(json) as Definitions;
+    oversized.buildings.find(
+      (building) => building.key === "refinery",
+    )!.capacity = 3;
+    expect(() => validateDefinitions(oversized)).toThrow(/batch exceeds/);
+
+    const unknownSource = structuredClone(json) as Definitions;
+    unknownSource.items.find(
+      (item) => item.key === "crude-oil",
+    )!.extraction_building_id = undefined;
+    unknownSource.buildings.find(
+      (building) => building.key === "oil-well",
+    )!.output_item_id = 99999;
+    expect(() => validateDefinitions(unknownSource)).toThrow(
+      /known output item/,
+    );
   });
   it("requires ordered alternatives and selects an available route independently of catalogue order", () => {
     const definitions = structuredClone(json) as Definitions;
@@ -60,23 +79,5 @@ describe("joint production contracts", () => {
     ).toBe(first.id);
     definitions.recipes.reverse();
     expect(productionRecipe(definitions, first.output.item_id)?.id).toBe(1001);
-  });
-  it("rejects a joint batch that cannot fit every compatible station", () => {
-    const definitions = structuredClone(json) as Definitions;
-    definitions.buildings.find(
-      (building) => building.key === "refinery",
-    )!.capacity = 3;
-    expect(() => validateDefinitions(definitions)).toThrow(/batch exceeds/);
-  });
-  it("rejects specialized sources naming an unknown item", () => {
-    const definitions = structuredClone(json) as Definitions;
-    const well = definitions.buildings.find(
-      (building) => building.key === "oil-well",
-    )!;
-    definitions.items.find(
-      (item) => item.key === "crude-oil",
-    )!.extraction_building_id = undefined;
-    well.output_item_id = 99999;
-    expect(() => validateDefinitions(definitions)).toThrow(/known output item/);
   });
 });

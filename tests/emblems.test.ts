@@ -42,7 +42,7 @@ describe("the emblem library is a family, not a pile of drawings", () => {
    * size, stroke or cap, the family dissolves one careless emblem at a time — so this is checked on
    * every emblem the library can emit rather than on a sample.
    */
-  it("draws every emblem in the one frame", () => {
+  it("draws every emblem in the one frame, leaving colour to the caller", () => {
     for (const svg of [...EVERY_EMBLEM.map(([, value]) => value), GENERIC]) {
       expect(svg.startsWith('<svg viewBox="0 0 32 32" fill="none"')).toBe(true);
       expect(svg).toContain('stroke="currentColor"');
@@ -53,15 +53,10 @@ describe("the emblem library is a family, not a pile of drawings", () => {
       expect(svg.endsWith("</svg>")).toBe(true);
       // Exactly one frame: a glyph that smuggled in its own <svg> would nest and escape the rules.
       expect(svg.split("<svg").length).toBe(2);
-    }
-  });
 
-  /**
-   * Colour belongs to the caller, so the same drawing can carry a building accent in the catalogue
-   * and a branch accent in the research pane. A baked fill or an inline style would freeze it.
-   */
-  it("leaves colour to the caller and bakes no text into a drawing", () => {
-    for (const svg of [...EVERY_EMBLEM.map(([, value]) => value), GENERIC]) {
+      // Colour belongs to the caller, so the same drawing can carry a building accent in the
+      // catalogue and a branch accent in the research pane. A baked fill or an inline style would
+      // freeze it, and baked text would not translate.
       const glyph = svg.slice(svg.indexOf(">") + 1);
       expect(glyph).not.toContain("fill=");
       expect(glyph).not.toContain("style=");
@@ -143,15 +138,13 @@ describe("the emblem library covers what the interface actually names", () => {
    * deliberately not entries — they resolve through the base key — so this also proves the
    * derivation works against the real catalogue rather than against a hand-written list.
    */
-  it("draws every buildable machine, tiers included", () => {
+  it("draws every machine, category and branch the data declares, or falls back", () => {
     const missing = definitions.buildings
       .filter((building) => building.buildable)
       .filter((building) => !hasBuildingEmblem(building.key))
       .map((building) => building.key);
     expect(missing).toEqual([]);
-  });
 
-  it("draws every recipe category and every branch the data declares", () => {
     const categories = new Set(
       definitions.recipes.map((recipe) => recipe.category),
     );
@@ -171,6 +164,12 @@ describe("the emblem library covers what the interface actually names", () => {
         branchEmblemSvg(branch) !== GENERIC,
         `branch ${branch} has no emblem`,
       ).toBe(true);
+
+    // An unknown key is a slightly plain button, never an empty one and never a thrown error.
+    expect(hasBuildingEmblem("no-such-machine")).toBe(false);
+    expect(buildingEmblemSvg("no-such-machine")).toBe(GENERIC);
+    expect(recipeCategoryEmblemSvg("no-such-category")).toBe(GENERIC);
+    expect(branchEmblemSvg("no-such-branch")).toBe(GENERIC);
   });
 
   /** An upgrade is the same machine. It must share the drawing and differ only by the badge. */
@@ -190,14 +189,6 @@ describe("the emblem library covers what the interface actually names", () => {
     expect(emblemRank(0)).toBe("");
     expect(emblemRank(undefined)).toBe("");
     expect(emblemRank(1)).toBe("II");
-  });
-
-  /** An unknown key is a slightly plain button, never an empty one and never a thrown error. */
-  it("falls back rather than failing", () => {
-    expect(hasBuildingEmblem("no-such-machine")).toBe(false);
-    expect(buildingEmblemSvg("no-such-machine")).toBe(GENERIC);
-    expect(recipeCategoryEmblemSvg("no-such-category")).toBe(GENERIC);
-    expect(branchEmblemSvg("no-such-branch")).toBe(GENERIC);
   });
 });
 

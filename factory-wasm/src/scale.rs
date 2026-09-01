@@ -232,38 +232,36 @@ mod tests {
 
     /// The spacing is not a free number: it is what 25 m² of pointy-top hex forces. Checking it
     /// against the area keeps a later "round it to 5.4 m for convenience" edit from silently
-    /// making every cell 2.5% too big.
+    /// making every cell 2.5% too big. Spacing and circumradius then have to describe the *same*
+    /// hexagon, and the whole linear scale has to be exactly five times the shipped 1 m² cell —
+    /// the claim the brief makes and the reason every metre-derived rate was retuned rather than
+    /// scaled.
     #[test]
-    fn spacing_matches_the_stated_cell_area() {
+    fn the_cell_geometry_is_what_twenty_five_square_metres_forces() {
         // area = (sqrt(3) / 2) * spacing^2, in mm² then reduced to m².
         let spacing = CELL_SPACING_MM as i64;
         // sqrt(3)/2 as a rational, good to nine digits: 866025404 / 1000000000.
         let area_mm2 = spacing * spacing * 866_025_404 / 1_000_000_000;
         let area_m2 = area_mm2 / 1_000_000;
         assert_eq!(area_m2, CELL_AREA_M2 as i64);
-    }
 
-    /// Spacing and circumradius describe the same hexagon: spacing = sqrt(3) * circumradius.
-    #[test]
-    fn circumradius_matches_the_spacing() {
+        // spacing = sqrt(3) * circumradius.
         let expected = CELL_CIRCUMRADIUS_MM as i64 * 1_732_050_808 / 1_000_000_000;
         assert!((expected - CELL_SPACING_MM as i64).abs() <= 1);
-    }
 
-    /// The linear scale moved by exactly five from the shipped 1 m² cell, which is the claim the
-    /// brief makes and the reason every metre-derived rate has to be retuned rather than scaled.
-    #[test]
-    fn linear_scale_moved_by_five() {
         assert_eq!(CELL_AREA_M2, 25);
         // The shipped cell was 1 m², so its spacing was 5.373 / 5.
         let shipped_spacing_mm = 1_075;
         assert!((CELL_SPACING_MM - shipped_spacing_mm * 5).abs() <= 2);
     }
 
-    /// The Raise/Lower buttons still read 0.5 m, 1.0 m and 1.5 m after the conversion, and the
-    /// content limit is 8 m rather than the storage limit of the `i16` it lives in.
+    /// Every height figure a player is shown reads back in metres: the Raise/Lower buttons are
+    /// still 0.5 m, 1.0 m and 1.5 m after the conversion, the earthwork ceiling is a content limit
+    /// of 8 m rather than the storage limit of the `i16` it lives in, one spoil unit is one
+    /// quarter-metre layer of one 25 m² cell, and the generated relief spans 400 m below sea level
+    /// to 2,000 m above it.
     #[test]
-    fn earthwork_steps_name_metres() {
+    fn heights_and_volumes_read_back_in_metres() {
         let metres: Vec<i64> = EARTHWORK_STEPS_QUANTA
             .iter()
             .map(|&step| quanta_to_mm(step as i64))
@@ -271,33 +269,24 @@ mod tests {
         assert_eq!(metres, vec![500, 1_000, 1_500]);
         assert_eq!(quanta_to_mm(EARTHWORK_LIMIT_QUANTA as i64), 8_000);
         assert!(EARTHWORK_LIMIT_QUANTA < i32::from(i16::MAX));
-    }
 
-    /// One spoil unit is one quarter-metre layer of one 25 m² cell.
-    #[test]
-    fn spoil_unit_is_one_cell_layer() {
         let litres = CELL_AREA_M2 as i64 * quanta_to_mm(1) * 1_000;
         assert_eq!(litres, SPOIL_UNIT_LITRES);
         assert_eq!(SPOIL_UNIT_LITRES / 1_000_000, 6); // 6.25 m³, floored.
-    }
 
-    /// A step still takes about 0.36 s walking, exactly as it did at the old scale: the player's
-    /// world-units per step did not move, so the cell got five times wider and the speed in metres
-    /// went with it. The belt is the opposite case — its speed is the fixed thing and its cadence
-    /// was re-derived — which is why these two live side by side here.
-    #[test]
-    fn step_durations_follow_from_speed_and_spacing() {
-        assert_eq!(walk_step_ms(), 358);
-        assert_eq!(run_step_ms(), 215);
-        assert!(
-            run_step_ms() * 5 == walk_step_ms() * 3
-                || (run_step_ms() * 5 - walk_step_ms() * 3).abs() <= 4
-        );
+        assert_eq!(quanta_to_mm(BED_MIN_QUANTA as i64), -400_000);
+        assert_eq!(quanta_to_mm(BED_MAX_QUANTA as i64), 2_000_000);
+        assert_eq!(SEA_LEVEL_QUANTA, 0);
     }
 
     /// The belt's cadence is derived from its speed and its item spacing, and neither of those was
     /// chosen to hit a throughput number. What falls out is one belt carrying exactly one
     /// extractor's 120 items a minute, at 5.37 m in 2.7 s — about 2 m/s.
+    ///
+    /// The property those numbers exist to satisfy is asserted with them: capacity must never be
+    /// what limits a flowing belt. A lane has to hold everything in flight when items arrive on
+    /// cadence, or the entrance stalls and the stated rate is fiction — and no more than one item
+    /// of slack, or the belt is quietly a buffer rather than a lane.
     #[test]
     fn belt_cadence_follows_from_speed_and_spacing() {
         assert_eq!(belt_transit_ticks(), 27);
@@ -308,44 +297,37 @@ mod tests {
         let mm_per_tick = cells_to_mm(1) / belt_transit_ticks();
         let mm_per_second = mm_per_tick * TICKS_PER_SECOND as i64;
         assert!((mm_per_second - BELT_SPEED_MM_S as i64).abs() <= 100);
-    }
 
-    /// Capacity is never what limits a flowing belt. This is the property the two cadence numbers
-    /// have to satisfy for a line to actually carry [`belt_items_per_minute`]: the belt must have
-    /// room for everything that is in flight when items arrive on cadence, or the entrance stalls
-    /// and the stated rate is fiction. It is asserted separately from the values above because it
-    /// is the *reason* for them, and a future change to speed or spacing has to keep it.
-    #[test]
-    fn a_belt_has_room_for_everything_in_flight_at_cadence() {
         assert!(belt_lane_slots() * belt_slot_ticks() >= belt_transit_ticks());
-        // And no more than one item of slack, or the belt is quietly a buffer rather than a lane.
         assert!((belt_lane_slots() - 1) * belt_slot_ticks() < belt_transit_ticks());
     }
 
-    /// The two conversions are inverses within half a cell, in both directions and across zero.
+    /// A step still takes about 0.36 s walking, exactly as it did at the old scale: the player's
+    /// world-units per step did not move, so the cell got five times wider and the speed in metres
+    /// went with it. The belt above is the opposite case — its speed is the fixed thing and its
+    /// cadence was re-derived.
+    ///
+    /// The conversions those durations are computed through are inverses within half a cell, in
+    /// both directions and across zero; and the two slope thresholds the ground rules read are no
+    /// longer one number, with build the stricter of them.
     #[test]
-    fn cell_and_millimetre_conversions_round_trip() {
+    fn movement_reads_the_lattice_through_round_tripping_conversions() {
+        assert_eq!(walk_step_ms(), 358);
+        assert_eq!(run_step_ms(), 215);
+        assert!(
+            run_step_ms() * 5 == walk_step_ms() * 3
+                || (run_step_ms() * 5 - walk_step_ms() * 3).abs() <= 4
+        );
+
         for cells in -1_000..=1_000 {
             assert_eq!(mm_to_cells(cells_to_mm(cells)), cells);
         }
         for quanta in -8_000..=8_000 {
             assert_eq!(mm_to_quanta(quanta_to_mm(quanta)), quanta);
         }
-    }
 
-    /// The build and walk thresholds are no longer one number, and the build one is the stricter.
-    #[test]
-    fn build_and_walk_thresholds_have_parted() {
         assert!(MAX_BUILD_STEP_QUANTA < MAX_WALK_STEP_QUANTA);
         assert_eq!(neighbour_slope_percent(MAX_BUILD_STEP_QUANTA), 9);
         assert_eq!(neighbour_slope_percent(MAX_WALK_STEP_QUANTA), 18);
-    }
-
-    /// The stated content relief spans 400 m below sea level to 2,000 m above it.
-    #[test]
-    fn bed_range_spans_the_stated_relief() {
-        assert_eq!(quanta_to_mm(BED_MIN_QUANTA as i64), -400_000);
-        assert_eq!(quanta_to_mm(BED_MAX_QUANTA as i64), 2_000_000);
-        assert_eq!(SEA_LEVEL_QUANTA, 0);
     }
 }

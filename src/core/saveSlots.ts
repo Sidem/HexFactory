@@ -31,7 +31,11 @@
 // Occupancy is derived, so a v37 file is the same factory: only the stamps move.
 // v39 lets an earthwork move the water beside it. What is stored is the departure from the
 // generated equilibrium, and a v38 world has none, so only the stamp moves.
-export const SAVE_VERSION = 39;
+// v40 moves because the world moved: substrate reads the slope a cell sits on instead of an
+// elevation nearly every cell clears, and a river cuts a valley rather than a trough. No new field
+// is saved. The stamp advances so the ladder reaches native's world-generator check, which is what
+// refuses a v39 world and tells the player to export it.
+export const SAVE_VERSION = 40;
 export const SAVE_CATALOG_KEY = "hexfactory:saves:v1";
 export const LEGACY_SAVE_PREFIX = "hexfactory:hxf1:";
 export const HXF1_PREFIX = "HXF1\n";
@@ -209,6 +213,10 @@ export function compatibility(
     [37, 28, 16],
     [38, 29, 16],
     [39, 29, 16],
+    // 40 carries no catalogue move of its own — the world under the save changed, not the save
+    // format. The rung exists so the format ladder stays continuous; the world stamp below is what
+    // actually turns a pre-40 file away.
+    [40, 29, 16],
   ];
   if (envelope.saveVersion <= 36 && build.versions.save >= 37) {
     mismatches.push({

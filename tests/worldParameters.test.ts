@@ -48,31 +48,28 @@ function ascending(values: number[]): boolean {
   );
 }
 
-describe("orderBands", () => {
-  it("leaves an already ordered set alone", () => {
+describe("the world form's arithmetic", () => {
+  it("keeps the band cuts ascending whichever one the player drags, and only the cuts", () => {
     expect(orderBands(BASE, "hills_level")).toEqual(BASE);
-  });
 
-  it("pushes the cuts above when one is raised past them", () => {
+    // Raised past the cuts above it: the moved cut is where the player put it, and the three it
+    // passed step up out of its way.
     const raised = orderBands({ ...BASE, water_level: 60000 }, "water_level");
     expect(ascending(cuts(raised))).toBe(true);
-    // The moved cut is where the player put it; the three it passed step up out of its way.
     expect(raised.water_level).toBe(60000);
     expect(raised.shore_level).toBe(60000 + BAND_GAP);
     expect(raised.highland_level).toBe(60000 + 3 * BAND_GAP);
-  });
 
-  it("stops the lowest cut short of the room the three above it need", () => {
-    const raised = orderBands(
+    // And the lowest cut stops short of the room the three above it need.
+    const ceiling = orderBands(
       { ...BASE, water_level: NOISE_MAX },
       "water_level",
     );
-    expect(raised.water_level).toBe(NOISE_MAX - 3 * BAND_GAP);
-    expect(raised.highland_level).toBe(NOISE_MAX);
-    expect(ascending(cuts(raised))).toBe(true);
-  });
+    expect(ceiling.water_level).toBe(NOISE_MAX - 3 * BAND_GAP);
+    expect(ceiling.highland_level).toBe(NOISE_MAX);
+    expect(ascending(cuts(ceiling))).toBe(true);
 
-  it("pushes the cuts below when one is dropped past them", () => {
+    // Dropped past the cuts below it, the same rule mirrored.
     const dropped = orderBands(
       { ...BASE, highland_level: 100 },
       "highland_level",
@@ -80,71 +77,51 @@ describe("orderBands", () => {
     expect(ascending(cuts(dropped))).toBe(true);
     expect(dropped.highland_level).toBe(3 * BAND_GAP);
     expect(dropped.water_level).toBe(0);
-  });
 
-  it("moves only the cuts, never another parameter", () => {
+    // No parameter that is not a band cut moves, and one that is not a cut is left alone.
     const moved = orderBands({ ...BASE, shore_level: 5 }, "shore_level");
     expect(moved.river_cell).toBe(BASE.river_cell);
     expect(moved.cliff_step).toBe(BASE.cliff_step);
     expect(moved.site_rules).toBe(BASE.site_rules);
-  });
-
-  it("ignores a parameter that is not a band cut", () => {
     expect(
       orderBands({ ...BASE, river_cell: 4 }, "river_cell").river_cell,
     ).toBe(4);
   });
-});
 
-describe("bandSegments", () => {
-  it("covers the whole height range exactly once", () => {
+  it("covers the height range exactly once, with no band drawn a negative share", () => {
     const total = bandSegments(BASE).reduce(
       (sum, segment) => sum + segment.share,
       0,
     );
     expect(total).toBeCloseTo(1, 10);
-  });
 
-  it("reports water as the share of the range below the sea cut", () => {
     const [water] = bandSegments(BASE);
     expect(water?.terrain).toBe("shallow_water");
     expect(water?.share).toBeCloseTo(BASE.water_level / NOISE_MAX, 10);
-  });
 
-  it("reports a band nobody can reach as no share rather than a negative one", () => {
     // Out of order on purpose: the strip is drawn from whatever it is handed, including a set
     // orderBands has not been through yet, and a negative flex-grow is not a drawing.
     const segments = bandSegments({ ...BASE, shore_level: 1000 });
     expect(segments.every((segment) => segment.share >= 0)).toBe(true);
   });
-});
 
-describe("river width", () => {
-  it("round-trips a width in hexes through the noise half-width", () => {
+  it("round-trips the river slider through the noise half-width, at any spacing", () => {
     for (const hexes of [0, 1, 3, 8, 24]) {
       expect(riverHexWidth(riverWidthFor(hexes, 180), 180)).toBe(hexes);
     }
-  });
-
-  it("reads a wider river out of the same half-width when rivers sit further apart", () => {
+    // The same half-width reads as a wider river when rivers sit further apart.
     expect(riverHexWidth(2200, 360)).toBeGreaterThan(riverHexWidth(2200, 180));
-  });
-
-  it("never divides by a zero cell", () => {
+    // And a zero cell is a division the slider must survive.
     expect(Number.isFinite(riverWidthFor(4, 0))).toBe(true);
     expect(Number.isFinite(riverHexWidth(2200, 0))).toBe(true);
   });
-});
 
-describe("WORLD_PARAMETER_FIELDS", () => {
-  it("offers every generator scalar exactly once", () => {
+  it("offers every generator scalar exactly once and reads each at both ends", () => {
     const keys = WORLD_PARAMETER_FIELDS.map((field) => field.key);
     expect(new Set(keys).size).toBe(keys.length);
     const scalars = Object.keys(BASE).filter((key) => key !== "site_rules");
     expect([...keys].sort()).toEqual(scalars.sort());
-  });
 
-  it("reads every field at both ends of its own range", () => {
     for (const field of WORLD_PARAMETER_FIELDS) {
       for (const value of [field.min, field.max]) {
         expect(field.read(value, BASE).length).toBeGreaterThan(0);

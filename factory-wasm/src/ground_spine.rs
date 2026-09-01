@@ -106,6 +106,41 @@ impl GeneratedGround {
     }
 }
 
+/// Above this bed height a cell is bare highland however gently it rolls: 4,800 quanta, 1,200 m.
+///
+/// Chosen so the term names ground the continental field reaches rarely rather than ground it
+/// clears by default. It is a material rule and nothing else reads it: walking, building and water
+/// all keep answering to the height itself.
+const ALPINE_QUANTA: i32 = 4_800;
+
+/// How far apart the two samples of a landform gradient are taken, in cells.
+const MATERIAL_STENCIL: i32 = 3;
+
+/// The gradient a cell sits on, in height quanta per cell.
+///
+/// Deliberately measured across three cells rather than one. A single neighbour step is dominated
+/// by the fine relief term — ±0.75 m of grain that exists to break flats so they drain, not to
+/// describe a hillside — so a material chosen from it speckles the ground with noise instead of
+/// shading it by landform. Over three cells the grain is uncorrelated and averages away while a
+/// real slope accumulates, so this reads the hillside rather than the gravel lying on it.
+///
+/// The neighbour step keeps its own separate job: it is what walking, building and the cliff face
+/// are defined against, and those are facts about a step, not about a hillside.
+fn landform_gradient(terra: &mut crate::terra::Terra, bed: i32, source: (i32, i32)) -> i32 {
+    DIRECTIONS
+        .iter()
+        .map(|&(dq, dr)| {
+            let far = (
+                source.0 + dq * MATERIAL_STENCIL,
+                source.1 + dr * MATERIAL_STENCIL,
+            );
+            (bed - terra.head(far.0, far.1)).abs()
+        })
+        .max()
+        .unwrap_or(0)
+        / MATERIAL_STENCIL
+}
+
 impl GeneratedGround {
     fn from_physical(
         terra: &mut crate::terra::Terra,
@@ -126,14 +161,24 @@ impl GeneratedGround {
             .map(|&(dq, dr)| (bed - terra.head(source.0 + dq, source.1 + dr)).abs())
             .max()
             .unwrap_or(0);
+        let gradient = landform_gradient(terra, bed, source);
         // This is the first physical material policy, deliberately stated against native facts.
         // Slice 3 may tune the thresholds from the opening survey; it may not turn a height back
         // into the old seven-band authority.
+        //
+        // The elevation term used to be `bed >= 600` — 150 m — which the continental field clears
+        // almost everywhere: the surveyed world averages about 800 m, so that one clause selected
+        // Soil for every cell that was not an outright cliff and the whole material map collapsed
+        // to a single band. `npm run survey` measured the result at 889 per mille Hills with no
+        // Lowland and no Highland at all, which is the monochrome ground, and no amount of relief
+        // in the height field could have shown through it. Elevation still earns a say, but it has
+        // to name high ground rather than name the world, so it moved to [`ALPINE_QUANTA`] and
+        // slope became the term that decides the ordinary case.
         let substrate = if bed <= crate::scale::SEA_LEVEL_QUANTA + 8 {
             Substrate::Sand
-        } else if max_step > crate::scale::MAX_WALK_STEP_QUANTA {
+        } else if gradient > crate::scale::MAX_WALK_STEP_QUANTA || bed >= ALPINE_QUANTA {
             Substrate::Rock
-        } else if max_step > crate::scale::MAX_BUILD_STEP_QUANTA || bed >= 600 {
+        } else if gradient > crate::scale::MAX_BUILD_STEP_QUANTA {
             Substrate::Soil
         } else {
             Substrate::Meadow
@@ -365,35 +410,54 @@ mod tests {
             assert_eq!(ground.hydrology.discharge_class, 0);
             assert_eq!(ground.presentation, terrain);
         }
+
+        // Finished ground carries the same facts with two independent deltas on top: a quarried
+        // legacy cliff has lost a quantum of bed and stopped being a wall, without either delta
+        // being folded into the other or into the generated height above.
+        let finished = FinishedGround {
+            generated: GeneratedGround::from_legacy_band(Terrain::Cliff),
+            earthwork: GroundDelta::new(-1),
+            erosion: GroundDelta::new(0),
+            surface: 0,
+        };
+        assert_eq!(finished.elevation().get(), 2);
+        assert!(finished.cliff_quarried());
+        assert!(!finished.blocks_movement());
+        assert!(!finished.blocks_construction());
+        assert_eq!(finished.surface, 0);
     }
 
+    /// The cache is an optimisation and must never be a second generator. Both sources are walked
+    /// here because they answer through different code and only the physical one ships.
     #[test]
-    fn surveyed_cache_is_only_an_echo_of_the_full_oracle() {
-        let params = default_world_params();
-        let spine = GroundSpine::legacy(&params, 1_213_486_160, true);
-        assert_eq!(spine.cached_cells(), 0);
-        spine.cache_chunk(0, 0, 16);
-        assert_eq!(spine.cached_cells(), 256);
-        for q in -2..=18 {
-            for r in -2..=18 {
-                assert_eq!(
-                    spine.generated_at(q, r),
-                    spine.generated_uncached_at(q, r),
-                    "cache drifted at {q},{r}"
-                );
-            }
-        }
-        assert_eq!(
-            spine.cached_cells(),
-            256,
-            "unsurveyed queries do not populate the cache"
-        );
-    }
-
-    #[test]
-    fn a_changed_source_identity_bypasses_the_surveyed_cache() {
+    fn the_surveyed_cache_is_only_an_echo_of_the_full_oracle() {
         let params = default_world_params();
         let seed = 1_213_486_160;
+        for spine in [
+            GroundSpine::legacy(&params, seed, true),
+            GroundSpine::physical(&params, seed, true),
+        ] {
+            assert_eq!(spine.cached_cells(), 0);
+            spine.cache_chunk(0, 0, 16);
+            assert_eq!(spine.cached_cells(), 256);
+            for q in -2..=18 {
+                for r in -2..=18 {
+                    assert_eq!(
+                        spine.generated_at(q, r),
+                        spine.generated_uncached_at(q, r),
+                        "cache drifted at {q},{r}"
+                    );
+                }
+            }
+            assert_eq!(
+                spine.cached_cells(),
+                256,
+                "unsurveyed queries do not populate the cache"
+            );
+        }
+
+        // And a changed source identity has to bypass the cache entirely rather than answer from
+        // it, or a world edit would be shown the world it replaced.
         let spine = GroundSpine::legacy(&params, seed, true);
         spine.cache_chunk(0, 0, 16);
         let (q, r) = hexes_in_chunk(0, 0, 16)
@@ -414,22 +478,6 @@ mod tests {
     }
 
     #[test]
-    fn finished_ground_keeps_deltas_separate_and_quarries_one_legacy_cliff() {
-        let generated = GeneratedGround::from_legacy_band(Terrain::Cliff);
-        let finished = FinishedGround {
-            generated,
-            earthwork: GroundDelta::new(-1),
-            erosion: GroundDelta::new(0),
-            surface: 0,
-        };
-        assert_eq!(finished.elevation().get(), 2);
-        assert!(finished.cliff_quarried());
-        assert!(!finished.blocks_movement());
-        assert!(!finished.blocks_construction());
-        assert_eq!(finished.surface, 0);
-    }
-
-    #[test]
     fn physical_source_translates_the_world_to_a_dry_buildable_shelf() {
         let params = default_world_params();
         let spine = GroundSpine::physical(&params, 1_213_486_160, true);
@@ -446,23 +494,5 @@ mod tests {
         assert!(clear
             .iter()
             .all(|&(q, r)| { spine.generated_uncached_at(q, r).hydrology.depth_quanta == 0 }));
-    }
-
-    #[test]
-    fn physical_surveyed_cache_matches_the_full_oracle() {
-        let params = default_world_params();
-        let spine = GroundSpine::physical(&params, 1_213_486_160, true);
-        spine.cache_chunk(0, 0, 16);
-        assert_eq!(spine.cached_cells(), 256);
-        for q in -2..=18 {
-            for r in -2..=18 {
-                assert_eq!(
-                    spine.generated_at(q, r),
-                    spine.generated_uncached_at(q, r),
-                    "physical cache drifted at {q},{r}"
-                );
-            }
-        }
-        assert_eq!(spine.cached_cells(), 256);
     }
 }

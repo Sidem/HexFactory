@@ -34,7 +34,7 @@ import shippedTechnologies from "../src/data/technologies.json";
 // Native owns `WORLD_GENERATOR_VERSION`, so there is no catalogue to read it from here. The ladder
 // only consults the world stamp for pre-v32 upgrades, so any value the envelope and the build
 // agree on exercises the rung this test is about.
-const shippedWorldVersion = 11;
+const shippedWorldVersion = 12;
 
 const continental = {
   elevation_coarse_cell: 24,
@@ -96,7 +96,7 @@ function memoryStorage(initial: Record<string, string> = {}): StorageLike {
 }
 
 describe("parseHxf1", () => {
-  it("reads the versions and starting world from an envelope", () => {
+  it("reads the versions and starting world from an envelope, and nothing from a non-save", () => {
     const parsed = parseHxf1(envelope());
     expect(parsed).toMatchObject({
       saveVersion: SAVE_VERSION,
@@ -114,21 +114,16 @@ describe("parseHxf1", () => {
       landformScale: 24,
       seaLevel: 28000,
     });
-  });
 
-  it("rejects a payload that is not HXF1 JSON", () => {
     expect(parseHxf1("not a save")).toBeNull();
     expect(parseHxf1(`${HXF1_PREFIX}{`)).toBeNull();
   });
 });
 
 describe("compatibility", () => {
-  it("accepts a slot whose numbers match this build", () => {
-    const parsed = parseHxf1(envelope())!;
-    expect(compatibility(parsed, build).compatible).toBe(true);
-  });
-
   it("offers the exact released migration chain to native", () => {
+    expect(compatibility(parseHxf1(envelope())!, build).compatible).toBe(true);
+
     const latest = {
       ...build,
       versions: {
@@ -255,10 +250,9 @@ describe("compatibility", () => {
       }),
     )!;
     expect(compatibility(unknown, current).compatible).toBe(false);
-  });
 
-  it("offers save 35 to the Sealed Routes migration", () => {
-    const current: CurrentBuild = {
+    // And the Sealed Routes rung, which the loop above stops short of.
+    const sealed: CurrentBuild = {
       ...build,
       versions: {
         save: 36,
@@ -280,7 +274,7 @@ describe("compatibility", () => {
         scenario_version: 7,
       }),
     )!;
-    expect(compatibility(previous, current)).toEqual({
+    expect(compatibility(previous, sealed)).toEqual({
       compatible: true,
       mismatches: [],
     });
@@ -305,6 +299,17 @@ describe("compatibility", () => {
     expect(describeMismatches(result.mismatches)).toContain(
       "Scenario “gone” is not in this build.",
     );
+
+    // A scenario the build still has, whose own version moved under it, is named the same way —
+    // the catalogue version matching is not enough on its own.
+    const moved = compatibility(
+      parseHxf1(envelope({ scenario_version: 4 }))!,
+      build,
+    );
+    expect(moved.compatible).toBe(false);
+    expect(describeMismatches(moved.mismatches)).toBe(
+      "Scenario new-game is 4; this build is 5.",
+    );
   });
 
   it("gives a legacy-scale factory the export path before irrelevant catalogue mismatches", () => {
@@ -322,8 +327,11 @@ describe("compatibility", () => {
     );
   });
 
-  // Save 37 is the oldest file this build can still open: 36 and below are the 1 m² scale and are
-  // refused above. Native migrates 37 by stamp, so the host must offer Load for it, and it only
+  // Save 37 is the oldest rung the *format* ladder still reaches: 36 and below are the 1 m² scale
+  // and are refused above. That is a separate question from whether any real 37 file opens today —
+  // it carries world generator 11 and the stamp below turns it away, which the next test pins.
+  // Here the world stamp is set to the build's own so the ladder is the only thing under test.
+  // Native migrates 37 by stamp, so the host must offer Load for it, and it only
   // does while the ladder runs unbroken from [37, 28, 16] to the build's own tuple. The synthetic
   // `build` above cannot catch a break: its tuple was never on the ladder, so `to` is -1 for every
   // case it asserts and nothing there distinguishes a stuck `migrates` from a working one. Read the
@@ -360,18 +368,38 @@ describe("compatibility", () => {
     expect(result.compatible).toBe(true);
   });
 
-  it("refuses a scenario whose own version moved, even when the catalogue version did not", () => {
-    const parsed = parseHxf1(envelope({ scenario_version: 4 }))!;
-    const result = compatibility(parsed, build);
+  // The world stamp is the gate a terrain change closes, and it closes on files the format ladder
+  // would happily carry. Every save written before world generator 12 stands on ground this build
+  // no longer lays down — the substrate rule and the river incision both moved — so the host must
+  // refuse it here rather than let native reproduce a landscape it cannot.
+  it("refuses a save written against an earlier world, however current its format", () => {
+    const shipped: CurrentBuild = {
+      ...build,
+      versions: {
+        save: SAVE_VERSION,
+        world: shippedWorldVersion,
+        definitions: shippedDefinitions.version,
+        technology: shippedTechnologies.version,
+      },
+    };
+    const parsed = parseHxf1(
+      envelope({
+        save_version: SAVE_VERSION,
+        world_generator_version: shippedWorldVersion - 1,
+        definition_version: shippedDefinitions.version,
+        technology_version: shippedTechnologies.version,
+      }),
+    )!;
+    const result = compatibility(parsed, shipped);
     expect(result.compatible).toBe(false);
     expect(describeMismatches(result.mismatches)).toBe(
-      "Scenario new-game is 4; this build is 5.",
+      `World generator is ${shippedWorldVersion - 1}; this build is ${shippedWorldVersion}.`,
     );
   });
 });
 
 describe("catalog", () => {
-  it("round-trips named slots and overwrites one that already has the name", () => {
+  it("overwrites the slot of the same name, and only that one", () => {
     const storage = memoryStorage();
     const first = slotFromPayload(envelope(), "Landing", build, 1000, "a")!;
     const second = slotFromPayload(envelope(), "Landing", build, 2000, "b")!;
@@ -382,7 +410,7 @@ describe("catalog", () => {
     expect(slots[0]?.savedAt).toBe(2000);
   });
 
-  it("updates Auto-save slot without overwriting other named slots", () => {
+  it("updates Auto-save without overwriting other slots, and offers the newest compatible one", () => {
     const storage = memoryStorage();
     const manual = slotFromPayload(
       envelope(),
@@ -418,6 +446,18 @@ describe("catalog", () => {
       slots.find((slot) => slot.name === AUTOSAVE_SLOT_NAME)?.savedAt,
     ).toBe(2500);
     expect(latestCompatible(slots, build)?.name).toBe(AUTOSAVE_SLOT_NAME);
+
+    // Continue offers the newest slot this build can actually open, not simply the newest row.
+    const older = slotFromPayload(
+      envelope({ save_version: 9 }),
+      "Then",
+      build,
+      999_000,
+      "then",
+    )!;
+    expect(latestCompatible([...slots, older], build)?.name).toBe(
+      AUTOSAVE_SLOT_NAME,
+    );
   });
 
   it("steps a defaulted save name aside rather than over an existing factory", () => {
@@ -428,18 +468,6 @@ describe("catalog", () => {
     expect(uniqueSlotName("Landing run", taken)).toBe("Landing run 3");
     expect(uniqueSlotName("Second landing", taken)).toBe("Second landing");
     expect(uniqueSlotName("Landing run", [])).toBe("Landing run");
-  });
-
-  it("Continue is the newest compatible slot, not the newest row", () => {
-    const compatible = slotFromPayload(envelope(), "Now", build, 100, "now")!;
-    const older = slotFromPayload(
-      envelope({ save_version: 9 }),
-      "Then",
-      build,
-      999,
-      "then",
-    )!;
-    expect(latestCompatible([compatible, older], build)?.id).toBe("now");
   });
 
   it("imports leftover versioned keys without deleting them", () => {
@@ -483,7 +511,8 @@ describe("catalog", () => {
 describe("unsavedRunAtRisk", () => {
   const grace = 30_000;
 
-  it("says nothing when the newest write already covers this tick", () => {
+  it("asks only once a whole grace window of unwritten factory has run up", () => {
+    // Covered by the newest write: nothing to lose, however long ago it was written.
     expect(
       unsavedRunAtRisk({
         tick: 400,
@@ -493,9 +522,7 @@ describe("unsavedRunAtRisk", () => {
         graceMs: grace,
       }),
     ).toBe(false);
-  });
-
-  it("keeps quiet about the ticks a player runs up moments after saving", () => {
+    // Ticks run up moments after saving are not worth a prompt; a full window of them is.
     expect(
       unsavedRunAtRisk({
         tick: 412,
@@ -505,9 +532,6 @@ describe("unsavedRunAtRisk", () => {
         graceMs: grace,
       }),
     ).toBe(false);
-  });
-
-  it("asks once a whole grace window of factory is unwritten", () => {
     expect(
       unsavedRunAtRisk({
         tick: 412,
@@ -517,9 +541,7 @@ describe("unsavedRunAtRisk", () => {
         graceMs: grace,
       }),
     ).toBe(true);
-  });
-
-  it("stays quiet on an idle run however long the save has stood", () => {
+    // An idle run has produced no factory to lose, so the clock alone never asks.
     expect(
       unsavedRunAtRisk({
         tick: 400,
@@ -567,6 +589,32 @@ describe("desktop save files", () => {
     });
     expect(fromWindows.slots[0]?.name).toBe("Hills");
     expect(parseHxf1(fromWindows.slots[0]!.payload)?.seed).toBe(1213486160);
+
+    // A JSON wrapper carries the name and time the file stem cannot.
+    const wrapped = slotsFromFileText(
+      JSON.stringify({ name: "North / West", payload, savedAt: 9 }),
+      build,
+      { fileName: "hexfactory-save.hxf1", now: 1 },
+    );
+    expect(wrapped.slots[0]?.name).toBe("North / West");
+    expect(wrapped.slots[0]?.savedAt).toBe(9);
+
+    // And a bare envelope body that lost the HXF1 marker is still a save.
+    const bare = slotsFromFileText(
+      JSON.stringify({
+        save_version: SAVE_VERSION,
+        world_generator_version: 6,
+        definition_version: 10,
+        technology_version: 5,
+        scenario_key: "new-game",
+        scenario_version: 5,
+        checksum: 1,
+        state: { seed: 7, world_params: continental },
+      }),
+      build,
+      { fileName: "untitled.json", now: 1 },
+    );
+    expect(bare.slots[0]?.config.seed).toBe(7);
   });
 
   it("imports the catalog JSON the browser already stores, skipping broken rows", () => {
@@ -583,35 +631,6 @@ describe("desktop save files", () => {
     expect(imported.slots[0]?.name).toBe("Landing");
     expect(imported.slots[0]?.savedAt).toBe(1000);
     expect(imported.slots[0]?.id).not.toBe("a");
-  });
-
-  it("keeps a name that would not fit a file stem when the JSON wraps the payload", () => {
-    const payload = envelope();
-    const imported = slotsFromFileText(
-      JSON.stringify({ name: "North / West", payload, savedAt: 9 }),
-      build,
-      { fileName: "hexfactory-save.hxf1", now: 1 },
-    );
-    expect(imported.slots[0]?.name).toBe("North / West");
-    expect(imported.slots[0]?.savedAt).toBe(9);
-  });
-
-  it("reads a bare envelope body that lost the HXF1 marker", () => {
-    const body = JSON.stringify({
-      save_version: SAVE_VERSION,
-      world_generator_version: 6,
-      definition_version: 10,
-      technology_version: 5,
-      scenario_key: "new-game",
-      scenario_version: 5,
-      checksum: 1,
-      state: { seed: 7, world_params: continental },
-    });
-    const imported = slotsFromFileText(body, build, {
-      fileName: "untitled.json",
-      now: 1,
-    });
-    expect(imported.slots[0]?.config.seed).toBe(7);
   });
 
   it("refuses empty and unrelated files rather than inventing a slot", () => {

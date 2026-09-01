@@ -139,15 +139,13 @@ describe("Visual Depth camera", () => {
     expect(camera.zoomLevel).toBeCloseTo(0.55, 6);
   });
 
-  it("keeps orbit as a twelve-step presentation value", () => {
-    const camera = new HexSceneCamera();
-    for (let step = 0; step < 24; step += 1) camera.orbitBy(1);
-    expect(camera.orbitIndex).toBe(0);
-    camera.orbitBy(-1);
-    expect(camera.orbitIndex).toBe(11);
-  });
+  it("closes the full circle in twelve thirty-degree stops, and the index wraps both ways", () => {
+    const wrapping = new HexSceneCamera();
+    for (let step = 0; step < 24; step += 1) wrapping.orbitBy(1);
+    expect(wrapping.orbitIndex).toBe(0);
+    wrapping.orbitBy(-1);
+    expect(wrapping.orbitIndex).toBe(11);
 
-  it("closes the full circle in twelve thirty-degree stops", () => {
     const camera = new HexSceneCamera();
     camera.resize(1440, 900);
     const start = heading(camera);
@@ -213,69 +211,70 @@ describe("Visual Depth camera", () => {
     }
   });
 
-  it("sweeps a full thirty degrees and lands there", () => {
-    const camera = new HexSceneCamera();
-    camera.resize(1440, 900);
-    const start = heading(camera);
-    camera.orbitBy(1);
-    expect(camera.isOrbiting).toBe(true);
-    settle(camera);
-    expect(camera.isOrbiting).toBe(false);
-    expect(turnedBy(camera, start)).toBeCloseTo(Math.PI / 6, 6);
-    expect(camera.orbitIndex).toBe(1);
-  });
+  // The sweep is one behaviour with four faces, all measured off the same fresh camera: it lands the
+  // whole thirty degrees, it eases there rather than jumping, a second press during the sweep is
+  // absorbed instead of dropped, and reduced motion takes the same turn with no sweep at all.
+  it("eases each thirty-degree step, absorbs a press mid-sweep, and snaps under reduced motion", () => {
+    const fresh = (): HexSceneCamera => {
+      const camera = new HexSceneCamera();
+      camera.resize(1440, 900);
+      return camera;
+    };
 
-  it("eases the turn across intermediate frames and finishes inside a second", () => {
-    const camera = new HexSceneCamera();
-    camera.resize(1440, 900);
-    const start = heading(camera);
+    // It lands the full step and stops orbiting when it gets there.
+    const landing = fresh();
+    const landingStart = heading(landing);
+    landing.orbitBy(1);
+    expect(landing.isOrbiting).toBe(true);
+    settle(landing);
+    expect(landing.isOrbiting).toBe(false);
+    expect(turnedBy(landing, landingStart)).toBeCloseTo(Math.PI / 6, 6);
+    expect(landing.orbitIndex).toBe(1);
+
+    // It eases across intermediate frames and finishes inside a second.
+    const easing = fresh();
+    const easingStart = heading(easing);
     const began = performance.now();
-    camera.orbitBy(1);
-    expect(camera.advanceOrbit(began + 115)).toBe(true);
-    const partway = turnedBy(camera, start);
+    easing.orbitBy(1);
+    expect(easing.advanceOrbit(began + 115)).toBe(true);
+    const partway = turnedBy(easing, easingStart);
     expect(partway).toBeGreaterThan(0.05);
     expect(partway).toBeLessThan(Math.PI / 6 - 0.05);
-    camera.advanceOrbit(began + 1000);
-    expect(camera.isOrbiting).toBe(false);
-    expect(turnedBy(camera, start)).toBeCloseTo(Math.PI / 6, 6);
-  });
+    easing.advanceOrbit(began + 1000);
+    expect(easing.isOrbiting).toBe(false);
+    expect(turnedBy(easing, easingStart)).toBeCloseTo(Math.PI / 6, 6);
 
-  it("keeps a step pressed mid-sweep inside the same second", () => {
-    const camera = new HexSceneCamera();
-    camera.resize(1440, 900);
-    const start = heading(camera);
-    const began = performance.now();
-    camera.orbitBy(1);
-    camera.advanceOrbit(began + 100);
-    camera.orbitBy(1);
-    expect(camera.orbitIndex).toBe(2);
-    expect(camera.isOrbiting).toBe(true);
-    camera.advanceOrbit(began + 1000);
-    expect(camera.isOrbiting).toBe(false);
-    expect(turnedBy(camera, start)).toBeCloseTo(Math.PI / 3, 6);
-  });
+    // A step pressed mid-sweep still lands, inside the same second.
+    const pressed = fresh();
+    const pressedStart = heading(pressed);
+    const pressedAt = performance.now();
+    pressed.orbitBy(1);
+    pressed.advanceOrbit(pressedAt + 100);
+    pressed.orbitBy(1);
+    expect(pressed.orbitIndex).toBe(2);
+    expect(pressed.isOrbiting).toBe(true);
+    pressed.advanceOrbit(pressedAt + 1000);
+    expect(pressed.isOrbiting).toBe(false);
+    expect(turnedBy(pressed, pressedStart)).toBeCloseTo(Math.PI / 3, 6);
 
-  it("snaps the same turn without a sweep when motion is reduced", () => {
-    const camera = new HexSceneCamera();
-    camera.resize(1440, 900);
-    const start = heading(camera);
-    camera.orbitBy(1, false);
-    expect(camera.isOrbiting).toBe(false);
-    expect(camera.advanceOrbit(performance.now() + 1000)).toBe(false);
-    expect(turnedBy(camera, start)).toBeCloseTo(Math.PI / 6, 6);
-  });
+    // Reduced motion takes the same turn without a sweep to advance.
+    const snapped = fresh();
+    const snappedStart = heading(snapped);
+    snapped.orbitBy(1, false);
+    expect(snapped.isOrbiting).toBe(false);
+    expect(snapped.advanceOrbit(performance.now() + 1000)).toBe(false);
+    expect(turnedBy(snapped, snappedStart)).toBeCloseTo(Math.PI / 6, 6);
 
-  it("walks toward the heading the sweep is landing on, not the frame it is passing", () => {
-    const camera = new HexSceneCamera();
-    camera.resize(1440, 900);
-    camera.orbitBy(1);
-    camera.advanceOrbit(performance.now() + 100);
-    const drawn = heading(camera);
-    const during = camera.screenMovement(0, -1);
-    // Reading the movement basis must not disturb the frame being drawn.
-    expect(heading(camera)).toBeCloseTo(drawn, 12);
-    settle(camera);
-    const after = camera.screenMovement(0, -1);
+    // And walking mid-sweep aims at the heading the sweep is landing on, not the frame it is
+    // passing — reading the movement basis must not disturb the frame being drawn.
+    const walking = fresh();
+    walking.orbitBy(1);
+    walking.advanceOrbit(performance.now() + 100);
+    const drawn = heading(walking);
+    const during = walking.screenMovement(0, -1);
+    expect(heading(walking)).toBeCloseTo(drawn, 12);
+    settle(walking);
+    const after = walking.screenMovement(0, -1);
     expect(during.x).toBeCloseTo(after.x, 6);
     expect(during.y).toBeCloseTo(after.y, 6);
   });
@@ -751,13 +750,12 @@ describe("Visual Depth terrain and quality contracts", () => {
     for (const material of materials.materials) material.dispose();
   });
 
-  it("points transport geometry along the native heading instead of ninety degrees across it", () => {
+  it("points transport along the native heading and connects it to belts with stable treads", () => {
+    // Along the heading, not ninety degrees across it.
     expect(directionAngle(0)).toBeCloseTo(0, 12);
     expect(directionAngle(1)).toBeCloseTo(-Math.PI / 3, 12);
     expect(Math.abs(directionAngle(3))).toBeCloseTo(Math.PI, 12);
-  });
 
-  it("connects transport to belts with stable treads", () => {
     const materials = createWorldMaterials();
     const layer = new WorldInstanceLayer(
       {
@@ -1207,12 +1205,15 @@ describe("Visual Depth terrain and quality contracts", () => {
     for (const material of materials.materials) material.dispose();
   });
 
-  it("uses the exact pointy-top circumradius so three-cell junctions close", () => {
+  it("stands the scene on the exact pointy-top lattice", () => {
+    // The circumradius three-cell junctions close on...
     expect(HEX_RADIUS).toBe(1);
     expect(2 * HEX_RADIUS * Math.cos(Math.PI / 6)).toBeCloseTo(
       Math.sqrt(3),
       12,
     );
+    // ...and the vertex a six-sided interaction ring starts on.
+    expect(HEX_RING_START).toBeCloseTo(Math.PI / 6, 12);
   });
 
   it("changes the world hex under a stationary pointer when the followed player moves", () => {
@@ -1254,10 +1255,6 @@ describe("Visual Depth terrain and quality contracts", () => {
 
     overlays.dispose();
     for (const material of materials.materials) material.dispose();
-  });
-
-  it("starts six-sided interaction rings on the pointy-top tile vertices", () => {
-    expect(HEX_RING_START).toBeCloseTo(Math.PI / 6, 12);
   });
 
   it("keeps range rims thin at every radius and separates build from pole colours", () => {
@@ -1308,9 +1305,9 @@ describe("Visual Depth terrain and quality contracts", () => {
     for (const material of materials.materials) material.dispose();
   });
 
-  it("declares the pinned terrain union once, in the order the bands rise", () => {
-    // The order is what `terrainMeshes` uses as a band's draw-group look, so reordering this record
-    // silently repaints the world. It is also the order a legend reads in.
+  it("pins the two ordered tables the renderer reads: the bands and the quality profiles", () => {
+    // The band order is what `terrainMeshes` uses as a band's draw-group look, so reordering this
+    // record silently repaints the world. It is also the order a legend reads in.
     expect(Object.keys(TERRAIN_STYLE)).toEqual([
       "deep_water",
       "shallow_water",
@@ -1320,6 +1317,12 @@ describe("Visual Depth terrain and quality contracts", () => {
       "highland",
       "cliff",
     ]);
+    // And Low, Medium and High are deliberate bounded profiles, not a free-form dial.
+    expect(Object.keys(QUALITY_SETTINGS)).toEqual(["low", "medium", "high"]);
+    expect(QUALITY_SETTINGS.low.shadows).toBe(false);
+    expect(QUALITY_SETTINGS.high.pixelRatioCap).toBeLessThanOrEqual(1.5);
+    expect(parseGraphicsProfile("medium")).toBe("medium");
+    expect(parseGraphicsProfile("ultra")).toBeNull();
   });
 
   it("meshes exactly the cells native published and infers none", () => {
@@ -1335,18 +1338,10 @@ describe("Visual Depth terrain and quality contracts", () => {
     for (const geometry of built.geometries) geometry.dispose();
     for (const material of materials.materials) material.dispose();
   });
-
-  it("keeps Low, Medium, and High as deliberate bounded profiles", () => {
-    expect(Object.keys(QUALITY_SETTINGS)).toEqual(["low", "medium", "high"]);
-    expect(QUALITY_SETTINGS.low.shadows).toBe(false);
-    expect(QUALITY_SETTINGS.high.pixelRatioCap).toBeLessThanOrEqual(1.5);
-    expect(parseGraphicsProfile("medium")).toBe("medium");
-    expect(parseGraphicsProfile("ultra")).toBeNull();
-  });
 });
 
 describe("Terrain surfaces", () => {
-  it("gives every band a surface built from the four families", () => {
+  it("gives every band a surface from the four families, centred on the band's identity colour", () => {
     expect(Object.keys(TERRAIN_SURFACE)).toEqual(Object.keys(TERRAIN_STYLE));
     const families = Object.values(TERRAIN_SURFACE).map(({ family }) => family);
     expect(new Set(families)).toEqual(
@@ -1356,9 +1351,9 @@ describe("Terrain surfaces", () => {
     expect(TERRAIN_SURFACE.shore.family).toBe("sand");
     expect(TERRAIN_SURFACE.lowland.family).toBe("meadow");
     expect(TERRAIN_SURFACE.cliff.family).toBe("rock");
-  });
 
-  it("keeps the procedural band centred on the band's identity colour", () => {
+    // The procedural range a band varies across has to straddle the flat colour the rest of the UI
+    // draws it in, or the shaded world and the minimap disagree about what a band looks like.
     for (const [key, surface] of Object.entries(TERRAIN_SURFACE)) {
       const identity = new Color(TERRAIN_STYLE[key as Terrain].color);
       const middle = new Color(surface.low).lerp(new Color(surface.high), 0.5);
@@ -1419,7 +1414,9 @@ describe("Terrain surfaces", () => {
     for (const material of materials.materials) material.dispose();
   });
 
-  it("holds the swell still under reduced motion and wraps the clock", () => {
+  // The three runtime knobs on `terrainSurfaces`, on one compiled band: the clock the swell rides,
+  // the reduced-motion switch that stops it, and the detail budget the quality profile sets.
+  it("wraps the clock, holds the swell still under reduced motion, and spends detail by profile", () => {
     const { materials, shader } = compileTerrain("deep_water");
     materials.terrainSurfaces.setTime(3601.5);
     expect(uniformValue(shader, "hfTime")).toBeCloseTo(1.5, 6);
@@ -1427,11 +1424,7 @@ describe("Terrain surfaces", () => {
     expect(uniformValue(shader, "hfMotion")).toBe(0);
     materials.terrainSurfaces.setMotion(true);
     expect(uniformValue(shader, "hfMotion")).toBe(1);
-    for (const material of materials.materials) material.dispose();
-  });
 
-  it("spends surface detail only where the profile pays for it", () => {
-    const materials = createWorldMaterials();
     const water = materials.terrain.deep_water;
     materials.terrainSurfaces.setDetail(
       QUALITY_SETTINGS.low.terrainDetail,
@@ -1513,7 +1506,7 @@ describe("Terrain surfaces", () => {
     for (const material of materials.materials) material.dispose();
   });
 
-  it("samples every paving from world space and gives each its own program", () => {
+  it("samples every paving from world space, gives each its own program, and spends detail by profile", () => {
     const materials = createWorldMaterials();
     const keys = materials.paving
       .all()
@@ -1534,11 +1527,7 @@ describe("Terrain surfaces", () => {
       expect(source).not.toContain("vUv");
       expect(source).not.toContain("vColor");
     }
-    for (const material of materials.materials) material.dispose();
-  });
 
-  it("spends paving detail only where the profile pays for it", () => {
-    const materials = createWorldMaterials();
     materials.paving.setDetail(QUALITY_SETTINGS.low.terrainDetail);
     for (const material of materials.paving.all()) {
       expect(material.defines?.HF_OCTAVES).toBe(2);
@@ -1576,7 +1565,10 @@ describe("Terrain surfaces", () => {
 });
 
 describe("picking the drawn landform", () => {
-  it("names the raised cell the pointer is over, where the plane picker names its neighbour", () => {
+  // Both halves are the same claim from opposite sides: the pick answers for the surface that was
+  // drawn, not for the logical plane under it. One raises a cell until the plane picker names its
+  // neighbour; the other stands a low cell in front of a rise the plane picker would have preferred.
+  it("names the cell whose drawn surface the pointer is over, raised or low", () => {
     const snapshot = minimalSnapshot();
     snapshot.terrain = [cliffTile(0, 0), ...surveyedTiles().slice(1)];
     snapshot.ground = [{ q: 0, r: 0, surface: 0, elevation: 32, paid: [] }];
@@ -1606,7 +1598,27 @@ describe("picking the drawn landform", () => {
     // from the plane point beneath it, so the old picker handed native the cell in front.
     expect(camera.axialAt(screen.x, screen.y)).not.toEqual({ q: 0, r: 0 });
 
+    const shallow = minimalSnapshot();
+    shallow.terrain = [cliffTile(0, 0), ...surveyedTiles().slice(1)];
+    shallow.ground = [{ q: 0, r: 0, surface: 0, elevation: 3, paid: [] }];
+    const front = buildTerrainMeshes(shallow, materials);
+    // `(0, 1)` sits toward the camera at this orbit, so its surface is drawn clear of the cliff.
+    const low = terrainAt(front.cellByKey, 0, 1);
+    expect(low?.terrain).toBe("lowland");
+    const lowScreen = camera.projectScene(
+      low?.x ?? 0,
+      low?.height ?? 0,
+      low?.z ?? 0,
+    );
+    const lowHit = pickTerrainCell(
+      front,
+      camera.rayAt(lowScreen.x, lowScreen.y),
+    );
+    expect(lowHit?.cell.q).toBe(0);
+    expect(lowHit?.cell.r).toBe(1);
+
     for (const geometry of built.geometries) geometry.dispose();
+    for (const geometry of front.geometries) geometry.dispose();
     for (const material of materials.materials) material.dispose();
   });
 
@@ -1634,33 +1646,7 @@ describe("picking the drawn landform", () => {
     for (const material of materials.materials) material.dispose();
   });
 
-  it("names the low cell in front of a rise rather than the rise behind it", () => {
-    const snapshot = minimalSnapshot();
-    snapshot.terrain = [cliffTile(0, 0), ...surveyedTiles().slice(1)];
-    snapshot.ground = [{ q: 0, r: 0, surface: 0, elevation: 3, paid: [] }];
-    const materials = createWorldMaterials();
-    const built = buildTerrainMeshes(snapshot, materials);
-    // `(0, 1)` sits toward the camera at this orbit, so its surface is drawn clear of the cliff.
-    const low = terrainAt(built.cellByKey, 0, 1);
-    expect(low?.terrain).toBe("lowland");
-
-    const camera = new HexSceneCamera();
-    camera.resize(1280, 800);
-    camera.recenter({ x: 0, y: 0 });
-    const screen = camera.projectScene(
-      low?.x ?? 0,
-      low?.height ?? 0,
-      low?.z ?? 0,
-    );
-    const hit = pickTerrainCell(built, camera.rayAt(screen.x, screen.y));
-    expect(hit?.cell.q).toBe(0);
-    expect(hit?.cell.r).toBe(1);
-
-    for (const geometry of built.geometries) geometry.dispose();
-    for (const material of materials.materials) material.dispose();
-  });
-
-  it("agrees with the plane picker everywhere the ground is flat", () => {
+  it("agrees with the plane picker on flat ground and meets nothing over fog", () => {
     const snapshot = minimalSnapshot();
     const materials = createWorldMaterials();
     const built = buildTerrainMeshes(snapshot, materials);
@@ -1681,20 +1667,10 @@ describe("picking the drawn landform", () => {
       });
     }
 
-    for (const geometry of built.geometries) geometry.dispose();
-    for (const material of materials.materials) material.dispose();
-  });
-
-  it("meets nothing over fog, so the logical plane stays pointable there", () => {
-    const snapshot = minimalSnapshot();
-    const materials = createWorldMaterials();
-    const built = buildTerrainMeshes(snapshot, materials);
-    const camera = new HexSceneCamera();
-    camera.resize(1280, 800);
-    camera.recenter({ x: 0, y: 0 });
-    // Far outside the one published chunk: unsurveyed ground has no landform to meet.
-    const screen = camera.projectScene(40, 0, 40);
-    expect(pickTerrainCell(built, camera.rayAt(screen.x, screen.y))).toBeNull();
+    // Far outside the one published chunk: unsurveyed ground has no landform to meet, so the
+    // logical plane stays pointable there.
+    const fog = camera.projectScene(40, 0, 40);
+    expect(pickTerrainCell(built, camera.rayAt(fog.x, fog.y))).toBeNull();
 
     for (const geometry of built.geometries) geometry.dispose();
     for (const material of materials.materials) material.dispose();
@@ -1745,7 +1721,7 @@ describe("picking the drawn landform", () => {
 });
 
 describe("a camera that follows the landform", () => {
-  it("carries the whole rig up to the height it is looking at", () => {
+  it("carries the whole rig, and the plane a drag is measured against, up to the height it looks at", () => {
     const camera = new HexSceneCamera();
     camera.resize(1280, 800);
     camera.recenter({ x: 0, y: 0 });
@@ -1759,16 +1735,10 @@ describe("a camera that follows the landform", () => {
     const climbed = camera.projectScene(0, RELIEF_CEILING, 0);
     expect(climbed.x).toBeCloseTo(framed.x, 6);
     expect(climbed.y).toBeCloseTo(framed.y, 6);
-  });
 
-  it("keeps panning anchored to the height it is looking at", () => {
-    const camera = new HexSceneCamera();
-    camera.resize(1280, 800);
-    camera.recenter({ x: 0, y: 0 }, RELIEF_CEILING);
-    // The plane a drag is measured against rises with the target, so the point under the pointer
-    // stays under it. Against a fixed sea-level plane a drag on a hilltop would overshoot.
-    const ground = camera.groundAt(640, 400);
-    expect(ground.y).toBeCloseTo(RELIEF_CEILING, 6);
+    // The drag plane rises with the target too, so the point under the pointer stays under it.
+    // Against a fixed sea-level plane a drag on a hilltop would overshoot.
+    expect(camera.groundAt(640, 400).y).toBeCloseTo(RELIEF_CEILING, 6);
   });
 
   it("fades distance by the screenful rather than by a fixed reach", () => {
