@@ -555,7 +555,27 @@ partially activated physical model.
    continental) and the factory demo are recorded: title stamp save 38 / world 11 / definitions 29,
    a new-game walk and creative belt placement, extractor refusal naming a missing deposit, legacy
    catalogue rows refused with the 1 m² export path, and a 390-wide touch session with the movement
-   pad. Review still stands between this local activation bundle and a push.
+   pad.
+
+   The activation has now been reviewed. It found one defect, and the defect was the boundary
+   itself: `compatibility()` refuses a legacy-scale file before the ladder, but the ladder's own
+   rungs stop at `[37, 28, 16]`. The current build's tuple `[38, 29, 16]` was never added, so `to`
+   resolved to -1, `migrates` was pinned false, and every save-37 file was refused with "Save
+   format is 37; this build is 38" — a file native migrates by stamp, and the one kind of save an
+   early player of this activation would actually hold. The suite could not see it: `build` in
+   `tests/saveSlots.test.ts` is synthetic at definitions 10 / technology 5, so `to` is -1 for every
+   case it asserts and no test distinguished a stuck ladder from a working one. The rung is
+   restored and pinned by a case built from the shipped catalogue numbers rather than the
+   synthetic build. Note that refusing everything at or below save 36 makes the ladder's rows
+   below `[37, 28, 16]`, and both world/scenario replay branches, unreachable; they are kept as
+   history, not as live paths.
+
+   On 2026-09-01 the user also settled the movement question the rescale reopened: the player
+   keeps the physical 3 m/s walk and 5 m/s run, so `PLAYER_SPEED` stays 55 and a hex takes about
+   1.8 s to cross on foot. An in-flight change restoring the pre-rescale cells-per-second feel
+   (`PLAYER_SPEED` 275, a 15 m/s walk and a 25 m/s run) was discarded rather than finished:
+   relabelling the player was the same move the phase already refused for belts, which were given
+   real transit cadence instead of being called a 54 m/s conveyor.
 
 4. **Sparse disturbed water.** Add water departure state, active-region equilibrium, frontier
    boundaries, pumps, flood/drain commands and save/load/checksum coverage. Re-measure the active
@@ -564,10 +584,10 @@ partially activated physical model.
    an accelerated deterministic harness. Ship only after protected infrastructure and finite work
    bounds are visible and tested.
 
-The next implementing agent reviews the unpushed activation before any push. Slice 3's remaining
-definition surfaces and the desktop/mobile journeys against the physical opening are in the tree
-at save 38 / definitions 29. Keep `belt-cadence-demo.png` untracked. Do not start slice 4 or push
-a partial activation. The flowing-water front must never run on the old band elevations; the
+The activation bundle has been reviewed and its one defect fixed; slice 3 is complete in the tree at
+save 38 / definitions 29, and the full gate is green. What remains is the user's call to push, which
+no agent should make unasked. Keep `belt-cadence-demo.png` untracked. Do not start slice 4 before
+that push lands. The flowing-water front must never run on the old band elevations; the
 prototype and ground spine keep the scale, drainage and running predicates independently testable
 now that the save boundary makes mistakes expensive.
 

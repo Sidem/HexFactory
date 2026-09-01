@@ -205,6 +205,7 @@ export function compatibility(
     [35, 26, 15],
     [36, 27, 16],
     [37, 28, 16],
+    [38, 29, 16],
   ];
   if (envelope.saveVersion <= 36 && build.versions.save >= 37) {
     mismatches.push({

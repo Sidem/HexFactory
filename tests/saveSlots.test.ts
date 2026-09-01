@@ -27,6 +27,14 @@ import {
   type StorageLike,
   writeCatalog,
 } from "../src/core/saveSlots";
+import shippedDefinitions from "../src/data/definitions.json";
+import shippedScenarios from "../src/data/scenarios.json";
+import shippedTechnologies from "../src/data/technologies.json";
+
+// Native owns `WORLD_GENERATOR_VERSION`, so there is no catalogue to read it from here. The ladder
+// only consults the world stamp for pre-v32 upgrades, so any value the envelope and the build
+// agree on exercises the rung this test is about.
+const shippedWorldVersion = 11;
 
 const continental = {
   elevation_coarse_cell: 24,
@@ -312,6 +320,44 @@ describe("compatibility", () => {
     expect(describeMismatches(result.mismatches)).toBe(
       "This factory was built at one square metre per hex. The ground is a different scale now; export the file to keep a copy.",
     );
+  });
+
+  // Save 37 is the oldest file this build can still open: 36 and below are the 1 m² scale and are
+  // refused above. Native migrates 37 by stamp, so the host must offer Load for it, and it only
+  // does while the ladder runs unbroken from [37, 28, 16] to the build's own tuple. The synthetic
+  // `build` above cannot catch a break: its tuple was never on the ladder, so `to` is -1 for every
+  // case it asserts and nothing there distinguishes a stuck `migrates` from a working one. Read the
+  // build end from the shipped catalogues so a release that adds a rung for itself keeps passing
+  // and one that forgets fails here.
+  it("still opens the oldest supported save against the shipped catalogue numbers", () => {
+    const shipped: CurrentBuild = {
+      ...build,
+      versions: {
+        save: SAVE_VERSION,
+        world: shippedWorldVersion,
+        definitions: shippedDefinitions.version,
+        technology: shippedTechnologies.version,
+      },
+      scenarios: shippedScenarios.scenarios.map((scenario) => ({
+        key: scenario.key,
+        name: scenario.name,
+        version: scenario.version,
+      })),
+    };
+    const oldest = shippedScenarios.scenarios[0]!;
+    const parsed = parseHxf1(
+      envelope({
+        save_version: 37,
+        world_generator_version: shippedWorldVersion,
+        definition_version: 28,
+        technology_version: 16,
+        scenario_key: oldest.key,
+        scenario_version: oldest.version,
+      }),
+    )!;
+    const result = compatibility(parsed, shipped);
+    expect(describeMismatches(result.mismatches)).toBe("");
+    expect(result.compatible).toBe(true);
   });
 
   it("refuses a scenario whose own version moved, even when the catalogue version did not", () => {

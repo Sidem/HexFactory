@@ -27,8 +27,14 @@ on the catalogue at save 38 / world 11 / definitions 29 / scenarios 8 / wire 21.
 `factory_wasm::terra` is now in the wasm artifact, new worlds select `GroundSpine::physical`, and
 save 36 is refused with an export path because its 1 m² scale cannot be resumed as 25 m² ground.
 Save 37 advances by stamp onto the reservation catalogue. Desktop and mobile journeys against the
-physical opening are recorded. This activation is not pushed: the next agent must review before
-any push. Do not start slice 4 or push the partial activation. The unrelated untracked `belt-cadence-demo.png`
+physical opening are recorded. The activation has been reviewed: it was refusing save-37 files
+because `compatibility()` in `src/core/saveSlots.ts` never gained the current build's own rung,
+`[38, 29, 16]`, so `migrates` was pinned false. The rung is restored and pinned against the shipped
+catalogue numbers, because the suite's synthetic `build` cannot catch a missing one. The player also
+keeps the physical 3 m/s walk and 5 m/s run at the user's decision on 2026-09-01: `PLAYER_SPEED`
+stays 55, and relabelling the player the way the phase refused to relabel belts is not on the table.
+The bundle is reviewed and green but still unpushed; pushing is the user's call. Do not start slice 4
+before that push lands. The unrelated untracked `belt-cadence-demo.png`
 belongs to the user and must stay out of commits. Pipes were brought forward and the ground rework was requested outright; neither reorders
 the table. Release numbers after v0.46.0 are unassigned. Do not reorder those phases without the
 user. On 2026-08-29 the user moved supported floors and vertical transport from row 7 to row 10,

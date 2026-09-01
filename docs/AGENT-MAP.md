@@ -398,13 +398,13 @@ Data or fixture; inspect keys before loading the full file.
 
 - recipeOutputs:4, recipeYield:8, recipeShare:15, productionRoutes:23, productionRecipe:40
 
-### `src/core/saveSlots.ts` — 778 lines / 24.1 KiB
+### `src/core/saveSlots.ts` — 779 lines / 24.2 KiB
 
 - SAVE_VERSION:32, SAVE_CATALOG_KEY:33, LEGACY_SAVE_PREFIX:34, HXF1_PREFIX:35, AUTOSAVE_SLOT_NAME:36, SAVE_FILE_SUFFIX:38, CATALOG_DOWNLOAD_NAME:39, StorageLike:41, GameVersions:49, RememberedConfig:57, SaveSlot:67, VersionMismatch:78
-- SlotCompatibility:84, CatalogScenario:89, CatalogPreset:95, CurrentBuild:101, ParsedEnvelope:107, CatalogRead:118, FileImport:123, FileImportOptions:128, parseHxf1:135, compatibility:176, describeMismatches:301, configFromEnvelope:315
-- slotFromPayload:339, defaultSaveName:366, formatSavedAt:379, formatConfig:386, formatVersions:395, readCatalog:399, catalogDocument:418, writeCatalog:422, saveFileName:431, fileStem:445, slotsFromFileText:458, asHxf1Payload:532
-- slotFromImportedEntry:543, nameFromFile:555, upsertSlot:569, replaceNamedSlot:577, uniqueSlotName:596, removeSlot:607, latestCompatible:611, CloseRisk:623, unsavedRunAtRisk:644, slotsNewestFirst:649, importLegacySlots:657, newSaveId:693
-- legacyName:697, asSlot:701, asVersions:724, asConfig:743, isRecord:760, asUint:764, asString:770, capitalize:774
+- SlotCompatibility:84, CatalogScenario:89, CatalogPreset:95, CurrentBuild:101, ParsedEnvelope:107, CatalogRead:118, FileImport:123, FileImportOptions:128, parseHxf1:135, compatibility:176, describeMismatches:302, configFromEnvelope:316
+- slotFromPayload:340, defaultSaveName:367, formatSavedAt:380, formatConfig:387, formatVersions:396, readCatalog:400, catalogDocument:419, writeCatalog:423, saveFileName:432, fileStem:446, slotsFromFileText:459, asHxf1Payload:533
+- slotFromImportedEntry:544, nameFromFile:556, upsertSlot:570, replaceNamedSlot:578, uniqueSlotName:597, removeSlot:608, latestCompatible:612, CloseRisk:624, unsavedRunAtRisk:645, slotsNewestFirst:650, importLegacySlots:658, newSaveId:694
+- legacyName:698, asSlot:702, asVersions:725, asConfig:744, isRecord:761, asUint:765, asString:771, capitalize:775
 
 ### `src/core/skills.ts` — 101 lines / 3.8 KiB
 
@@ -714,9 +714,9 @@ Data or fixture; inspect keys before loading the full file.
 
 - joint:13
 
-### `tests/saveSlots.test.ts` — 584 lines / 16.9 KiB
+### `tests/saveSlots.test.ts` — 630 lines / 19.0 KiB
 
-- envelope:52, memoryStorage:69
+- envelope:60, memoryStorage:77
 
 ### `tests/snapshotWire.test.ts` — 154 lines / 5.8 KiB
 
