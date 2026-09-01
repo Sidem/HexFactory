@@ -593,9 +593,9 @@ partially activated physical model.
    an accelerated deterministic harness. Ship only after protected infrastructure and finite work
    bounds are visible and tested.
 
-The activation bundle has been reviewed and its one defect fixed; slice 3 is complete in the tree at
-save 38 / definitions 29, and the full gate is green. What remains is the user's call to push, which
-no agent should make unasked. Keep `belt-cadence-demo.png` untracked. Do not start slice 4 before
+The activation bundle has been reviewed, its one defect fixed and the player's speed settled; slice 3
+is complete in the tree at save 38 / definitions 29, and the full gate is green. What remains is the
+user's call to push, which no agent should make unasked. Do not start slice 4 before
 that push lands. The flowing-water front must never run on the old band elevations; the
 prototype and ground spine keep the scale, drainage and running predicates independently testable
 now that the save boundary makes mistakes expensive.
