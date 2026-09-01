@@ -217,6 +217,29 @@ why the row leads with clarity as well as icons; items 2 and 4 belong to row 10 
 4. Add a deterministic stacked-floor/lift capacity tier and rerun Low, Medium and High before a
    floor release. The current 6,144-entity record is already near the desktop gate.
 
+### Start here next session — three items, then back to row 8 slice 5
+
+Left unfinished on 2026-09-01. The test reduction the user asked for is **done and pushed**
+(660 tests to 323; `npm run quality` green), so nothing below is blocked.
+
+1. **Slope shading contrast.** The world reads flat, and measurement says it is a shading problem,
+   not a generation one: 53.5 m of relief is already in view. Fix it in
+   `src/rendering/three/terrainSurface.ts` (with `terrainStyle.ts` for the palette). Do **not**
+   retune generation amplitude — that was tried and rejected on the measurement.
+2. **Frontier fade at the survey rim.** Discovery no longer opens jagged, but the rim is still a
+   hard edge. Fade it where the surveyed set ends, in the same renderer path.
+3. **Altitude in the tile inspector.** The inspect panel prints q and r only. Add a third readout
+   beside them: `index.html` around line 993 (`.inspect-coord`, `#inspect-q` / `#inspect-r`), filled
+   in `src/main.ts` near line 2477. The number is `TerrainSnapshot.height` plus the matching
+   `GroundCell.elevation` overlay, both in native height units at 250 mm per quantum, sea level at
+   zero — `src/rendering/three/terrainMeshes.ts:210` already sums exactly that pair. Show metres,
+   signed, one decimal. Do not invent a second conversion constant; the quantum is in
+   `factory-wasm/src/scale.rs` and reaches the host through `sceneScale`.
+
+Two corrections to the analysis this work came from, both measured, so they are not re-derived:
+the material map is **not** ">99% Lowland" (world 11 measured Hills at 889 per mille), and the
+landing site flattens far less than that analysis claimed.
+
 Rows 5 and 6 (both shipped), flowing water and the primitive human were added on 2026-08-28 at the
 user's direction. Their direction and priority are approved; the costs, rates and tuning hypotheses
 in their briefs are not, and still need the validation each brief names.
