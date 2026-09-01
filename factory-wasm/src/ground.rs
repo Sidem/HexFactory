@@ -36,9 +36,9 @@ pub(super) struct GroundCell {
     pub r: i32,
     /// `0` is untreated. Otherwise a `SurfaceDefinition` id.
     pub surface: DefinitionId,
-    /// Steps of cut (negative) or fill (positive) against the natural band, bounded by
-    /// [`MAX_GRADE_STEPS`].
-    pub elevation: i8,
+    /// Steps of cut (negative) or fill (positive) against the generated bed, bounded by the
+    /// active ground source's content limit.
+    pub elevation: i16,
     /// The surface bill actually paid. Sandbox paving never becomes a material source, on the same
     /// rule as a boundary's `paid`.
     pub paid: Vec<Ingredient>,
@@ -348,18 +348,48 @@ impl Core {
         let cell = self.ground.get(&(q, r));
         FinishedGround {
             generated: self.generated_ground_at(q, r),
-            earthwork: GroundDelta::new(i16::from(cell.map_or(0, |cell| cell.elevation))),
+            earthwork: GroundDelta::new(cell.map_or(0, |cell| cell.elevation)),
             erosion: GroundDelta::default(),
             surface: cell.map_or(0, |cell| cell.surface),
         }
     }
 
     /// Whether the heights this world publishes are physical quanta rather than legacy band steps.
-    /// Asked by the cross-language scale fixture only: nothing in the running game branches on it,
-    /// because a world is built from one source and keeps it.
-    #[cfg(test)]
     pub(super) fn ground_is_physical(&self) -> bool {
         self.ground_spine.is_physical()
+    }
+
+    pub(super) fn walk_step_limit(&self) -> i32 {
+        if self.ground_is_physical() {
+            scale::MAX_WALK_STEP_QUANTA
+        } else {
+            MAX_WALK_STEP
+        }
+    }
+
+    pub(super) fn build_step_limit(&self) -> i32 {
+        if self.ground_is_physical() {
+            scale::MAX_BUILD_STEP_QUANTA
+        } else {
+            MAX_BUILD_STEP
+        }
+    }
+
+    fn grade_limit(&self) -> i32 {
+        if self.ground_is_physical() {
+            scale::EARTHWORK_LIMIT_QUANTA
+        } else {
+            i32::from(MAX_GRADE_STEPS)
+        }
+    }
+
+    pub(super) fn grade_step_delta(&self, steps: u8) -> i32 {
+        let index = steps.clamp(1, 3) as usize - 1;
+        if self.ground_is_physical() {
+            scale::EARTHWORK_STEPS_QUANTA[index]
+        } else {
+            (index + 1) as i32
+        }
     }
 
     /// The finished height of this hex: the generated band plus whatever has been cut or filled.
@@ -402,7 +432,7 @@ impl Core {
     /// face they could not climb would strand them at the bottom of their own excavation.
     pub(super) fn grade_blocks(&self, from: (i32, i32), to: (i32, i32)) -> bool {
         (self.ground_elevation_at(from.0, from.1) - self.ground_elevation_at(to.0, to.1)).abs()
-            > MAX_WALK_STEP
+            > self.walk_step_limit()
     }
 
     /// Memoizes a pure digest of the overlay, on the same terms as the boundary digest: the cache is
@@ -634,8 +664,8 @@ impl Core {
             }
         }
         // Zero is what a host that predates the depth control sends, and one step is what it meant.
-        let steps = i32::from(edit.steps.clamp(1, MAX_GRADE_STEPS as u8));
-        let limit = i32::from(MAX_GRADE_STEPS);
+        let steps = self.grade_step_delta(edit.steps);
+        let limit = self.grade_limit();
         // The grade every other cell is evened onto. Naming the datum explicitly is what makes
         // levelling a decision the player can see before they make it: the lowest cell fills the
         // spoil heap, the highest spends it, and the first one picked is their own eye.
@@ -715,16 +745,16 @@ impl Core {
                     if wanted == current {
                         blocked.insert(
                             cell,
-                            format!("Already cut or filled the full {MAX_GRADE_STEPS} steps"),
+                            format!("Already cut or filled the full {limit} steps"),
                         );
                         continue;
                     }
-                    next.elevation = wanted as i8;
+                    next.elevation = wanted as i16;
                 }
                 GroundAction::Level => {
                     let wanted = i64::from(target) - i64::from(natural);
                     next.elevation =
-                        wanted.clamp(i64::from(-MAX_GRADE_STEPS), i64::from(MAX_GRADE_STEPS)) as i8;
+                        wanted.clamp(i64::from(-limit), i64::from(limit)) as i16;
                 }
             }
             let after = (!next.is_untouched()).then_some(next);
@@ -783,9 +813,7 @@ impl Core {
         match after.get(&cell) {
             Some(entry) => FinishedGround {
                 generated: self.generated_ground_at(cell.0, cell.1),
-                earthwork: GroundDelta::new(i16::from(
-                    entry.as_ref().map_or(0, |cell| cell.elevation),
-                )),
+                earthwork: GroundDelta::new(entry.as_ref().map_or(0, |cell| cell.elevation)),
                 erosion: GroundDelta::default(),
                 surface: entry.as_ref().map_or(0, |cell| cell.surface),
             },
@@ -825,7 +853,7 @@ impl Core {
                 let neighbour = (cell.0 + dq, cell.1 + dr);
                 !self.ground_finished_blocks(after, neighbour)
                     && (elevation - self.ground_finished(after, neighbour).elevation().get()).abs()
-                        > MAX_WALK_STEP
+                        > self.walk_step_limit()
             });
             if retained {
                 retaining += 1;
@@ -886,7 +914,7 @@ impl Core {
             let neighbour = (standing.0 + dq, standing.1 + dr);
             !self.ground_finished_blocks(after, neighbour)
                 && (here - self.ground_finished(after, neighbour).elevation().get()).abs()
-                    <= MAX_WALK_STEP
+                    <= self.walk_step_limit()
         });
         if !escapes {
             return Err("That grade would leave you with no way out of this hex".into());
@@ -1103,7 +1131,9 @@ pub(super) fn validate_saved_ground(
 ) -> Result<(), String> {
     let mut seen = BTreeSet::new();
     for cell in saved {
-        if !seen.insert((cell.q, cell.r)) || cell.elevation.abs() > MAX_GRADE_STEPS {
+        if !seen.insert((cell.q, cell.r))
+            || i32::from(cell.elevation.abs()) > scale::EARTHWORK_LIMIT_QUANTA
+        {
             return Err("Invalid saved ground identity or grade".into());
         }
         if cell.surface == 0 {

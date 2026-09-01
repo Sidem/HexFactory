@@ -603,7 +603,10 @@ defect it prevents; a change that contradicts one needs an argument, not an over
   a plain belt starves whichever lane loses the ascending-id race. Both cursors are saved and
   checksummed state, because a rotation the save forgets is a factory that restores differently than
   it ran. `transfer_cargo` therefore runs two passes — mergers first, then everything else in
-  ascending entity id.
+  ascending entity id. A belt is a length of conveyor, not a one-tick hop: `advance_belt_lanes`
+  runs first, an item takes `belt_transit_ticks()` to cross a hex, and `can_accept` spaces entries
+  by `belt_slot_ticks()` so one belt carries one extractor's 120 items a minute. `lane` is saved
+  and hashed; `cargo` is only the exit slot waiting to be handed on.
 - An underpass is one arm in the graph trace, not a second lattice. `trace_output` is
   `trace_underpass(...).or_else(trace_ray(...))`: an entrance rays past the entities in between to
   the first partner within `MAX_UNDERPASS_SPAN`, and the exit is simply the underpass that found no
@@ -680,7 +683,10 @@ defect it prevents; a change that contradicts one needs an argument, not an over
   native sends `null` — so the encoding is transport and nothing above `FactoryHost` knows which one
   delivered a frame. Every value still becomes a JavaScript number on arrival, so the 2^53 rule
   below is unchanged by the format. `snapshot_delta_json` stays as the oracle the encoder is pinned
-  against; it is not a fallback path and the game must not ship on it.
+  against; it is not a fallback path and the game must not ship on it. Wire 21 puts
+  `belt_transit_ticks` in every header and an optional `lane` of in-transit items on a belt, each
+  coded as ticks since it stepped on rather than as a fraction that would dirty every belt every
+  tick.
 - The wire format is pinned in two places at once and both must move together. Rust round trips
   every delta a running factory produces inside
   `dirty_tracked_deltas_match_a_full_snapshot_diff`; `fixtures/snapshot-delta-wire.json` carries

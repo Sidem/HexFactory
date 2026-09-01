@@ -904,8 +904,9 @@ describe("Visual Depth terrain and quality contracts", () => {
       materials,
     );
     const snapshot = minimalSnapshot();
+    snapshot.tick = 13;
     const from = entity(1, 2, "belt", 0, 0, 0, 2);
-    from.cargo = { item_id: 1, quantity: 1 };
+    from.lane = [{ cargo: { item_id: 1, quantity: 1 }, entered: 0 }];
     from.status = "carrying";
     snapshot.buildings.push(from, entity(2, 2, "belt", 1, 0, 0));
     const terrain = new Map([
@@ -923,8 +924,7 @@ describe("Visual Depth terrain and quality contracts", () => {
 
     const cargo = layer.group.getObjectByName("moving-cargo") as InstancedMesh;
     const start = new Matrix4();
-    const end = new Matrix4();
-    const settled = new Matrix4();
+    const later = new Matrix4();
     layer.update(0, false);
     cargo.getMatrixAt(0, start);
     // One loaded belt draws one item, and it is drawn large enough and high enough to be the thing
@@ -935,18 +935,35 @@ describe("Visual Depth terrain and quality contracts", () => {
     cargo.geometry.computeBoundingSphere();
     expect(cargo.geometry.boundingSphere?.radius ?? 0).toBeGreaterThan(0.15);
     expect(start.elements[13]!).toBeGreaterThan(0.1 + 0.23);
+    // An item halfway across a 27-tick hex creeps toward the next belt between snapshots.
     layer.update(250, false);
-    cargo.getMatrixAt(0, end);
-    layer.update(600, false);
-    cargo.getMatrixAt(0, settled);
-    expect(end.elements).not.toEqual(start.elements);
-    expect(settled.elements).toEqual(end.elements);
+    cargo.getMatrixAt(0, later);
+    expect(later.elements[12]!).toBeGreaterThan(start.elements[12]!);
 
+    from.lane = [];
+    from.cargo = { item_id: 1, quantity: 1 };
     from.status = "output blocked";
     layer.setSnapshot(snapshot, terrain, 0);
+    const blocked = layer.group.getObjectByName(
+      "moving-cargo",
+    ) as InstancedMesh;
+    const settled = new Matrix4();
+    const settledLater = new Matrix4();
     layer.update(0, false);
-    cargo.getMatrixAt(0, settled);
-    expect(settled.elements).toEqual(end.elements);
+    blocked.getMatrixAt(0, settled);
+    layer.update(250, false);
+    blocked.getMatrixAt(0, settledLater);
+    expect(settledLater.elements).toEqual(settled.elements);
+    expect(settled.elements[12]!).toBeGreaterThan(later.elements[12]!);
+
+    from.lane = [
+      { cargo: { item_id: 1, quantity: 1 }, entered: 0 },
+      { cargo: { item_id: 1, quantity: 1 }, entered: 5 },
+    ];
+    layer.setSnapshot(snapshot, terrain, 0);
+    const jammed = layer.group.getObjectByName("moving-cargo") as InstancedMesh;
+    layer.update(0, false);
+    expect(jammed.count).toBe(3);
 
     layer.dispose();
     for (const material of materials.materials) material.dispose();
@@ -1892,6 +1909,7 @@ function minimalSnapshot(): FactorySnapshot {
     seed: 1,
     tick: 0,
     checksum: 0,
+    belt_transit_ticks: 27,
     delivered: 0,
     delivered_by_item: [],
     insight: 0,

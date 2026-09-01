@@ -5,12 +5,11 @@
 //! physics allows. Nothing here is a world parameter and nothing here is a slider: physical scale
 //! is a property of the build, not of a preset.
 //!
-//! **This module is inert in v0.46.** Slice 1 of the phase is a baseline and a prototype with no
-//! production toggle, so these constants are declared, derived and tested but not yet read by
-//! placement, walking, generation or the wire. Slice 2 threads typed ground through the native
-//! simulation behind a legacy-unit adapter; slice 3 activates these physical conversions at the
-//! compatibility boundary. Until then the shipped 1 m² cell and the seven presentation bands
-//! remain the live model, and the two must not be mixed.
+//! Belt cadence now reads these conversions: an item crosses one 5.37 m hex in
+//! [`belt_transit_ticks`] at [`BELT_SPEED_MM_S`]. Placement, walking and generated ground still go
+//! through the legacy-unit adapter until the rest of the slice-3 compatibility bundle switches with
+//! them. The shipped 1 m² cell and the seven presentation bands remain the live *ground* model, and
+//! the two must not be mixed.
 //!
 //! Every value is an integer in a named unit. Millimetres carry linear measure, because the height
 //! quantum is 250 mm and the cell spacing is 5,373 mm — both exact in millimetres and both
@@ -75,13 +74,88 @@ pub const WALK_SPEED_MM_S: i32 = 3_000;
 /// Running counterpart to [`WALK_SPEED_MM_S`].
 pub const RUN_SPEED_MM_S: i32 = 5_000;
 
+/// How fast a belt carries an item along its lane, in millimetres per second.
+///
+/// Two metres a second is a heavy-duty industrial conveyor. The shipped belt hands its cargo on
+/// after a single tick, which at 10 TPS is one 5.37 m cell every 0.1 s — 54 m/s, a rifle round on a
+/// rubber band. The plan asks for a bounded integer transit cadence rather than a relabelling, so
+/// this is the speed and every belt number below is derived from it.
+pub const BELT_SPEED_MM_S: i32 = 2_000;
+
+/// How far apart two items sit on a belt, in millimetres.
+///
+/// One item per *shipped* cell — the 1 m² hex the game has had until now, 1.075 m across. Items did
+/// not get bigger when the ground did, so the spacing that used to be one hex apart is the spacing
+/// they still sit at. Together with [`BELT_SPEED_MM_S`] this fixes throughput at two items a second
+/// without either number being chosen for throughput: a belt carries exactly what one extractor
+/// produces, which is a ratio a player can read off the machines rather than off a table.
+pub const BELT_ITEM_SPACING_MM: i32 = 1_075;
+
+/// Simulation ticks per second. Belt cadence is counted in ticks, so the conversion from metres to
+/// ticks needs the rate the ticks arrive at.
+pub const TICKS_PER_SECOND: i32 = 10;
+
+/// How many ticks an item takes to cross one belt cell, from the hex it entered to the hex it is
+/// offered onward from.
+///
+/// The latency of a belt, not its throughput. Rounded to nearest so a lane of `n` cells is `n`
+/// times this and never drifts.
+pub const fn belt_transit_ticks() -> i64 {
+    let numerator = CELL_SPACING_MM as i64 * TICKS_PER_SECOND as i64;
+    let denominator = BELT_SPEED_MM_S as i64;
+    (numerator + denominator / 2) / denominator
+}
+
+/// The minimum gap between two items entering the same belt, in ticks.
+///
+/// How long the belt takes to carry one item spacing past its entrance. A belt accepts an item only
+/// once the one before it has travelled that far, so the lane fills at the speed it moves rather
+/// than all at once at the entrance. This is the number that actually sets throughput: one item
+/// every `belt_slot_ticks()` ticks.
+pub const fn belt_slot_ticks() -> i64 {
+    let numerator = BELT_ITEM_SPACING_MM as i64 * TICKS_PER_SECOND as i64;
+    let denominator = BELT_SPEED_MM_S as i64;
+    let ticks = (numerator + denominator / 2) / denominator;
+    if ticks < 1 {
+        1
+    } else {
+        ticks
+    }
+}
+
+/// How many items one belt cell holds while they are crossing it.
+///
+/// Little's law over the two cadence numbers above, rounded *up*: an item occupies the belt for
+/// `belt_transit_ticks()` and one arrives every `belt_slot_ticks()`, so a belt running at cadence
+/// is carrying that ratio at any instant. Deriving it from the ticks rather than from
+/// `CELL_SPACING_MM / BELT_ITEM_SPACING_MM` is what keeps capacity from throttling the very
+/// throughput the other two constants state: those two divisions disagree in the last place,
+/// because 5.37 m at 2 m/s is 26.9 ticks rounded to 27, and the belt would then be one item short
+/// of the flow it is supposed to sustain. Rounding up means the nominal 1.075 m spacing is the
+/// spacing of a *moving* belt; a jammed one packs its items closer, as a real conveyor does.
+pub const fn belt_lane_slots() -> i64 {
+    let transit = belt_transit_ticks();
+    let slot = belt_slot_ticks();
+    let slots = (transit + slot - 1) / slot;
+    if slots < 1 {
+        1
+    } else {
+        slots
+    }
+}
+
+/// What a belt carries, in items per minute, at the cadence above. A reporting figure.
+pub const fn belt_items_per_minute() -> i64 {
+    TICKS_PER_SECOND as i64 * 60 / belt_slot_ticks()
+}
+
 /// The largest height difference between neighbours that a *building pad* may span, in height
 /// quanta, absent an explicit foundation class. One quantum is 0.25 m over 5.37 m.
 ///
 /// Slice 1 proposal, pending the slice 3 retune. `MAX_BUILD_STEP == MAX_WALK_STEP` does not
 /// survive this phase: retaining walls, foundations and stairs are the exceptions, and they are
 /// stated per definition rather than as one global number.
-pub const MAX_BUILD_STEP_QUANTA: i32 = 1;
+pub const MAX_BUILD_STEP_QUANTA: i32 = 2;
 
 /// The largest height difference between neighbours a player may walk, in height quanta. Four
 /// quanta is 1.0 m over 5.37 m, about 18.6% or 10.5 degrees.
@@ -215,6 +289,33 @@ mod tests {
         );
     }
 
+    /// The belt's cadence is derived from its speed and its item spacing, and neither of those was
+    /// chosen to hit a throughput number. What falls out is one belt carrying exactly one
+    /// extractor's 120 items a minute, at 5.37 m in 2.7 s — about 2 m/s.
+    #[test]
+    fn belt_cadence_follows_from_speed_and_spacing() {
+        assert_eq!(belt_transit_ticks(), 27);
+        assert_eq!(belt_slot_ticks(), 5);
+        assert_eq!(belt_lane_slots(), 6);
+        assert_eq!(belt_items_per_minute(), 120);
+        // The lane's own speed, back out of the cadence, is the speed it was derived from.
+        let mm_per_tick = cells_to_mm(1) / belt_transit_ticks();
+        let mm_per_second = mm_per_tick * TICKS_PER_SECOND as i64;
+        assert!((mm_per_second - BELT_SPEED_MM_S as i64).abs() <= 100);
+    }
+
+    /// Capacity is never what limits a flowing belt. This is the property the two cadence numbers
+    /// have to satisfy for a line to actually carry [`belt_items_per_minute`]: the belt must have
+    /// room for everything that is in flight when items arrive on cadence, or the entrance stalls
+    /// and the stated rate is fiction. It is asserted separately from the values above because it
+    /// is the *reason* for them, and a future change to speed or spacing has to keep it.
+    #[test]
+    fn a_belt_has_room_for_everything_in_flight_at_cadence() {
+        assert!(belt_lane_slots() * belt_slot_ticks() >= belt_transit_ticks());
+        // And no more than one item of slack, or the belt is quietly a buffer rather than a lane.
+        assert!((belt_lane_slots() - 1) * belt_slot_ticks() < belt_transit_ticks());
+    }
+
     /// The two conversions are inverses within half a cell, in both directions and across zero.
     #[test]
     fn cell_and_millimetre_conversions_round_trip() {
@@ -230,7 +331,7 @@ mod tests {
     #[test]
     fn build_and_walk_thresholds_have_parted() {
         assert!(MAX_BUILD_STEP_QUANTA < MAX_WALK_STEP_QUANTA);
-        assert_eq!(neighbour_slope_percent(MAX_BUILD_STEP_QUANTA), 4);
+        assert_eq!(neighbour_slope_percent(MAX_BUILD_STEP_QUANTA), 9);
         assert_eq!(neighbour_slope_percent(MAX_WALK_STEP_QUANTA), 18);
     }
 

@@ -3,10 +3,7 @@
 //! `docs/HEXFACTORY-PLAN.md#phase-8--flowing-water` refuses to put a flowing-water front on the
 //! shipped ridge-noise rivers, and refuses to let a flow simulation grow the generated world. This
 //! module exists to falsify the replacement cheaply, before the save boundary makes it expensive.
-//! It is **native only** — like `capacity` and `survey`, it is never compiled into the wasm
-//! artifact — so nothing in the game can read it by accident. Slice 2 promoted the typed boundary
-//! into the production ground spine; slice 3 now exercises this physical source through native-only
-//! `GroundSpine` tests before the compatibility envelopes select it in wasm.
+//! Slice 3 selects this generator for new worlds. The survey harness stays native-only.
 //!
 //! # What is being tested
 //!
@@ -42,6 +39,7 @@
 use std::cmp::Reverse;
 use std::collections::{BTreeMap, BTreeSet, BinaryHeap, VecDeque};
 use std::rc::Rc;
+#[cfg(not(target_arch = "wasm32"))]
 use std::time::Instant;
 
 use crate::scale::{BED_MAX_QUANTA, BED_MIN_QUANTA, SEA_LEVEL_QUANTA};
@@ -1536,6 +1534,7 @@ pub fn survey_at(seed: u32, span: i32, centre: (i32, i32)) -> TerraSurvey {
     let (cq, cr) = centre;
     let mut terra = Terra::new(seed);
 
+    #[cfg(not(target_arch = "wasm32"))]
     let solve_started = Instant::now();
     let mut provinces = Vec::new();
     for pr in -half..(span - half) {
@@ -1544,8 +1543,12 @@ pub fn survey_at(seed: u32, span: i32, centre: (i32, i32)) -> TerraSurvey {
             terra.province(cq + pq, cr + pr);
         }
     }
+    #[cfg(not(target_arch = "wasm32"))]
     let solve_micros = solve_started.elapsed().as_micros();
+    #[cfg(target_arch = "wasm32")]
+    let solve_micros = 0u128;
 
+    #[cfg(not(target_arch = "wasm32"))]
     let sweep_started = Instant::now();
     let mut result = TerraSurvey {
         seed,
@@ -1706,7 +1709,10 @@ pub fn survey_at(seed: u32, span: i32, centre: (i32, i32)) -> TerraSurvey {
             }
         }
     }
-    result.sweep_micros = sweep_started.elapsed().as_micros();
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        result.sweep_micros = sweep_started.elapsed().as_micros();
+    }
     result
 }
 

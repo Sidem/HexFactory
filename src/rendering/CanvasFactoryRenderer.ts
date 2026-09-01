@@ -30,6 +30,7 @@ import {
   type RendererDiagnostics,
 } from "./FactoryRenderer";
 import {
+  beltLaneTravel,
   cargoTravel,
   facingTip,
   NORTH,
@@ -965,14 +966,8 @@ export class CanvasFactoryRenderer implements FactoryRenderer {
         center.y - size * 0.4,
       );
     }
-    if (building.cargo) {
-      const item = this.itemsById.get(building.cargo.item_id);
-      const travel = cargoTravel(
-        this.now - this.cargoTickAt,
-        this.cargoTickMs,
-        this.reducedMotion,
-        building.status === "output blocked",
-      );
+    const drawCargo = (itemId: number, travel: number): void => {
+      const item = this.itemsById.get(itemId);
       const cargoPoint = {
         x: center.x + (tip.x - center.x) * travel,
         y: center.y + (tip.y - center.y) * travel,
@@ -999,6 +994,34 @@ export class CanvasFactoryRenderer implements FactoryRenderer {
           cargoPoint.y,
           size * 0.55,
         );
+    };
+    const transit = this.snapshot?.belt_transit_ticks ?? 27;
+    const tick = this.snapshot?.tick ?? 0;
+    for (const item of building.lane ?? []) {
+      drawCargo(
+        item.cargo.item_id,
+        beltLaneTravel(
+          item.entered,
+          tick,
+          transit,
+          this.now - this.cargoTickAt,
+          this.cargoTickMs,
+          this.reducedMotion,
+        ),
+      );
+    }
+    if (building.cargo) {
+      drawCargo(
+        building.cargo.item_id,
+        building.kind === "belt"
+          ? 1
+          : cargoTravel(
+              this.now - this.cargoTickAt,
+              this.cargoTickMs,
+              this.reducedMotion,
+              building.status === "output blocked",
+            ),
+      );
     }
   }
 

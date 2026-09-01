@@ -665,6 +665,28 @@ export function cargoTravel(
   return Math.max(0, Math.min(1, elapsed / Math.max(1, duration)));
 }
 
+/**
+ * How far an item has travelled along the belt it is crossing, as a 0–1 fraction of that hex.
+ *
+ * Native publishes the tick the item stepped on rather than the fraction, so a still line does not
+ * re-send every belt every tick. The host adds the visual remainder of the current simulation tick
+ * so items creep between snapshots instead of jumping 5.37 m at once.
+ */
+export function beltLaneTravel(
+  entered: number,
+  tick: number,
+  transitTicks: number,
+  elapsed: number,
+  duration: number,
+  reducedMotion: boolean,
+): number {
+  const transit = Math.max(1, transitTicks);
+  const visual = reducedMotion
+    ? 0
+    : Math.max(0, Math.min(1, elapsed / Math.max(1, duration)));
+  return Math.max(0, Math.min(1, (tick - entered + visual) / transit));
+}
+
 export function workCycle(
   building: EntitySnapshot,
   now: number,

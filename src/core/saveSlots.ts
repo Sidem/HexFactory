@@ -27,7 +27,7 @@
 // exactly the world it already was, so only the stamps move: definition catalog 23 advances to 24.
 // v31 opens masonry: definition catalog 25, technology catalog 13, world generator 9. Old worlds
 // keep the site_rules they were generated with, so existing deposits do not move.
-export const SAVE_VERSION = 36;
+export const SAVE_VERSION = 37;
 export const SAVE_CATALOG_KEY = "hexfactory:saves:v1";
 export const LEGACY_SAVE_PREFIX = "hexfactory:hxf1:";
 export const HXF1_PREFIX = "HXF1\n";
@@ -202,7 +202,16 @@ export function compatibility(
     [34, 26, 15],
     [35, 26, 15],
     [36, 27, 16],
+    [37, 28, 16],
   ];
+  if (envelope.saveVersion <= 36 && build.versions.save >= 37) {
+    mismatches.push({
+      field: "world scale",
+      expected: "25 m² hex",
+      found: "1 m² hex",
+    });
+    return { compatible: false, mismatches };
+  }
   const from = released.findIndex(
     ([save, definitions, technology]) =>
       save === envelope.saveVersion &&
@@ -292,6 +301,9 @@ export function describeMismatches(mismatches: VersionMismatch[]): string {
     .map((item) => {
       if (item.expected === "a shipped scenario") {
         return `Scenario “${item.found}” is not in this build.`;
+      }
+      if (item.field === "world scale") {
+        return `This factory was built at one square metre per hex. The ground is a different scale now; export the file to keep a copy.`;
       }
       return `${capitalize(item.field)} is ${item.found}; this build is ${item.expected}.`;
     })

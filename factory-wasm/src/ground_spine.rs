@@ -1,11 +1,10 @@
 //! Phase 8's production ground spine and the prepared physical source.
 //!
 //! The seven shipped [`Terrain`] bands currently answer four different questions at once: height,
-//! material, water and presentation. This module separates those answers without activating the
-//! Phase 8 physical generator. [`GroundSpine::generated_uncached_at`] is the full source oracle;
-//! the cache only holds surveyed chunks and must always echo that oracle. Production still selects
-//! [`GroundSpine::legacy`], while native slice-3 tests can select [`GroundSpine::physical`] and
-//! exercise the exact typed boundary before the save/world/wire envelopes move together.
+//! material, water and presentation. This module separates those answers. New worlds select
+//! [`GroundSpine::physical`]; a save from before the 25 m² hex is refused rather than mixed.
+//! [`GroundSpine::generated_uncached_at`] is the full source oracle; the cache only holds surveyed
+//! chunks and must always echo that oracle.
 //!
 //! Heights in this slice are deliberately generator-native units. The legacy source produces the
 //! shipped presentation steps; the physical source will produce 0.25 m quanta when it activates.
@@ -107,7 +106,6 @@ impl GeneratedGround {
     }
 }
 
-#[cfg(test)]
 impl GeneratedGround {
     fn from_physical(
         terra: &mut crate::terra::Terra,
@@ -133,17 +131,24 @@ impl GeneratedGround {
         // into the old seven-band authority.
         let substrate = if bed <= crate::scale::SEA_LEVEL_QUANTA + 8 {
             Substrate::Sand
-        } else if max_step > crate::scale::MAX_WALK_STEP_QUANTA || bed >= 1_600 {
+        } else if max_step > crate::scale::MAX_WALK_STEP_QUANTA {
             Substrate::Rock
-        } else if bed >= 320 {
+        } else if max_step > crate::scale::MAX_BUILD_STEP_QUANTA || bed >= 600 {
             Substrate::Soil
         } else {
             Substrate::Meadow
         };
+        let wet_neighbour = DIRECTIONS.iter().any(|&(dq, dr)| {
+            terra
+                .water(source.0 + dq, source.1 + dr)
+                .is_wet()
+        });
         let presentation = if depth_quanta >= crate::scale::WADE_LIMIT_QUANTA {
             Terrain::DeepWater
         } else if depth_quanta > 0 {
             Terrain::ShallowWater
+        } else if wet_neighbour {
+            Terrain::Shore
         } else {
             match substrate {
                 Substrate::Sand => Terrain::Shore,
@@ -208,7 +213,6 @@ pub(super) const fn legacy_band_elevation(terrain: Terrain) -> i32 {
 /// Pure generated ground plus a cache restricted to surveyed chunks.
 enum GroundSource {
     Legacy,
-    #[cfg(test)]
     Physical {
         terra: RefCell<crate::terra::Terra>,
         origin: (i32, i32),
@@ -224,6 +228,7 @@ pub(super) struct GroundSpine {
 }
 
 impl GroundSpine {
+    #[allow(dead_code)]
     pub(super) fn legacy(params: &WorldParams, seed: u32, generated_environment: bool) -> Self {
         Self {
             params: params.clone(),
@@ -234,9 +239,7 @@ impl GroundSpine {
         }
     }
 
-    /// Prepared physical source for native activation tests. The wasm build has no constructor and
-    /// production still selects [`GroundSpine::legacy`], so this cannot create a mixed-scale run.
-    #[cfg(test)]
+    /// New-world ground: drainage-first absolute bed, translated so the opening sits on a dry shelf.
     pub(super) fn physical(params: &WorldParams, seed: u32, generated_environment: bool) -> Self {
         let mut terra = crate::terra::Terra::new(seed);
         let landing = terra.landing_site();
@@ -255,13 +258,17 @@ impl GroundSpine {
     /// Whether the height this spine publishes is a physical 0.25 m quantum rather than a legacy
     /// presentation band step. Nothing in a snapshot says which, and the renderer has to know: the
     /// same integer means seventeen times as much ground once the physical source answers.
-    #[cfg(test)]
     pub(super) fn is_physical(&self) -> bool {
-        match self.source {
-            GroundSource::Legacy => false,
-            #[cfg(test)]
-            GroundSource::Physical { .. } => true,
-        }
+        matches!(self.source, GroundSource::Physical { .. })
+    }
+
+    pub(super) fn presentation_at(&self, q: i32, r: i32) -> Terrain {
+        self.generated_at(q, r).presentation
+    }
+
+    pub(super) fn wet_at(&self, q: i32, r: i32) -> bool {
+        let ground = self.generated_at(q, r);
+        ground.hydrology.depth_quanta > 0 || ground.presentation.is_water()
     }
 
     pub(super) fn generated_at(&self, q: i32, r: i32) -> GeneratedGround {
@@ -302,7 +309,6 @@ impl GroundSpine {
                 r,
                 self.generated_environment,
             )),
-            #[cfg(test)]
             GroundSource::Physical { terra, origin } => GeneratedGround::from_physical(
                 &mut terra.borrow_mut(),
                 *origin,

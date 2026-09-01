@@ -76,6 +76,7 @@ const snapshot: FactorySnapshot = {
   seed: 1213486160,
   tick: 12,
   checksum: 123,
+  belt_transit_ticks: 27,
   delivered: 2,
   delivered_by_item: [{ item_id: 1, quantity: 2 }],
   insight: 4,

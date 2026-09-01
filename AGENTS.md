@@ -20,7 +20,7 @@ rivers are placed, and building footprints are reauthored around the new scale. 
 native survey/prototype, not a production toggle; **it is delivered in v0.46.0**. Slice 2 now supplies
 the typed production ground spine behind the old presentation, and the next work is slice 3, content
 and renderer activation at the declared compatibility boundary. `factory_wasm::scale` states the
-scale contract and is read by nothing that ships; `factory_wasm::terra` is the drainage prototype and
+scale contract; belt cadence now reads it, and nothing else that ships does. `factory_wasm::terra` is the drainage prototype and
 is compiled out of the wasm artifact; `factory_wasm::ground_spine` separates generated bed,
 substrate, initial hydrology and finished ground behind a legacy-unit adapter and surveyed-chunk
 cache. Slice 3 development has prepared a native-only physical source and a deterministic dry

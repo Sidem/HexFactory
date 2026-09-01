@@ -355,7 +355,7 @@ fn petroleum_migration_verifies_original_checksum_and_does_not_reroll_legacy_sit
     core.world_params
         .site_rules
         .retain(|rule| rule.item_id != CRUDE_OIL);
-    core.fields = WorldFields::new(&core.world_params, core.seed);
+    core.fields = WorldFields::new(&core.world_params, core.seed, &core.ground_spine);
     core.place(2, 0, 3, 0, Some(1)).unwrap();
     let mut envelope: serde_json::Value = serde_json::from_str(
         core.save_string()
@@ -370,20 +370,20 @@ fn petroleum_migration_verifies_original_checksum_and_does_not_reroll_legacy_sit
     envelope["world_generator_version"] = 9.into();
     envelope["checksum"] = core.checksum_for_world(9).into();
     let save = format!("{SAVE_PREFIX}{envelope}");
-    let restored =
-        Core::from_save(&core.definitions, &core.technologies, &scenarios, &save).unwrap();
-    assert_eq!(restored.world_params, core.world_params);
-    assert_eq!(restored.checksum(), core.checksum());
+    match Core::from_save(&core.definitions, &core.technologies, &scenarios, &save) {
+        Ok(_) => panic!("pre-scale-break worlds are refused"),
+        Err(err) => assert!(err.contains("one square metre"), "{err}"),
+    }
     envelope["state"]["insight"] = 999.into();
-    assert!(Core::from_save(
+    match Core::from_save(
         &core.definitions,
         &core.technologies,
         &scenarios,
-        &format!("{SAVE_PREFIX}{envelope}")
-    )
-    .err()
-    .unwrap()
-    .contains("checksum"));
+        &format!("{SAVE_PREFIX}{envelope}"),
+    ) {
+        Ok(_) => panic!("pre-scale-break worlds are refused"),
+        Err(err) => assert!(err.contains("one square metre"), "{err}"),
+    }
 }
 
 #[test]

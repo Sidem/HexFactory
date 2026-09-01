@@ -456,6 +456,16 @@ export interface WorldPreset {
 
 export type Cargo = Ingredient;
 
+/**
+ * One item still crossing a belt hex. `entered` is the simulation tick it stepped on, so the host
+ * can draw it at `(tick - entered) / belt_transit_ticks` of the way over the belt without the
+ * fraction itself travelling on the wire.
+ */
+export interface LaneItem {
+  cargo: Cargo;
+  entered: number;
+}
+
 export interface OutputRouteSnapshot extends AxialCoordinate {
   item_id: number;
   /** One of the six exterior footprint sides, clockwise from east. */
@@ -478,6 +488,12 @@ export interface EntitySnapshot extends AxialCoordinate {
   recipe_id?: number | null;
   scenario_owned: boolean;
   cargo?: Cargo | null;
+  /**
+   * Items still crossing this belt, oldest first. Omitted when empty, which is every machine,
+   * container and idle belt. `cargo` is the item that has finished crossing and waits to be
+   * handed on.
+   */
+  lane?: LaneItem[];
   inventory: Ingredient[];
   input_inventory?: Ingredient[];
   fuel_inventory?: Ingredient[];
@@ -690,6 +706,12 @@ export interface FactorySnapshot {
   seed: number;
   tick: number;
   checksum: number;
+  /**
+   * Ticks an item takes to cross one belt hex. Native publishes the number the simulation uses so
+   * the host does not keep its own copy. A live snapshot always carries it; tests may omit it and
+   * the renderer then uses the derived cadence of 27.
+   */
+  belt_transit_ticks?: number;
   delivered: number;
   delivered_by_item: Ingredient[];
   insight: number;

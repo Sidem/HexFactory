@@ -40,7 +40,7 @@ import type {
  */
 
 const MAGIC = 0x48584644; // "HXFD"
-const VERSION = 20;
+const VERSION = 21;
 
 /** Wire code is the index. Pinned against Rust by `fixtures/snapshot-delta-wire.json`. */
 const KINDS: BuildingKind[] = [
@@ -140,6 +140,7 @@ const ENTITY_FLAG = {
   fuelInventory: 1 << 12,
   outputInventory: 1 << 13,
   outputRoutes: 1 << 14,
+  lane: 1 << 15,
 } as const;
 
 const PATCH_REPLACE = 1 << 0;
@@ -241,6 +242,7 @@ export function decodeSnapshotDelta(buffer: ArrayBuffer): FactorySnapshotDelta {
     revision: reader.uvarint(),
     tick: reader.uvarint(),
     checksum: reader.u32Fixed(),
+    belt_transit_ticks: reader.uvarint(),
   };
   const mask = reader.uvarint();
   const has = (bit: number): boolean => (mask & bit) !== 0;
@@ -317,7 +319,7 @@ export function decodeSnapshotDelta(buffer: ArrayBuffer): FactorySnapshotDelta {
   if (has(GROUP.chunks)) delta.chunks = readChunks(reader);
   if (has(GROUP.terrain)) delta.terrain = readTerrain(reader);
   if (has(GROUP.resources)) delta.resources = readResources(reader);
-  if (has(GROUP.buildings)) delta.buildings = readBuildings(reader);
+  if (has(GROUP.buildings)) delta.buildings = readBuildings(reader, delta.tick);
   if (has(GROUP.events)) {
     const count = reader.uvarint();
     const events: string[] = new Array<string>(count);
@@ -591,7 +593,7 @@ function readResources(reader: Reader): ResourcesPatch {
   return patch;
 }
 
-function readBuildings(reader: Reader): BuildingsPatch {
+function readBuildings(reader: Reader, tick: number): BuildingsPatch {
   const replace = (reader.u8() & PATCH_REPLACE) !== 0;
   const count = reader.uvarint();
   const changed: EntitySnapshot[] = new Array<EntitySnapshot>(count);
@@ -613,6 +615,18 @@ function readBuildings(reader: Reader): BuildingsPatch {
       (flags & ENTITY_FLAG.cargo) !== 0
         ? { item_id: reader.uvarint(), quantity: reader.uvarint() }
         : null;
+    const lane =
+      (flags & ENTITY_FLAG.lane) !== 0
+        ? Array.from({ length: reader.uvarint() }, () => {
+            const item_id = reader.uvarint();
+            const quantity = reader.uvarint();
+            const elapsed = reader.uvarint();
+            return {
+              cargo: { item_id, quantity },
+              entered: Math.max(0, tick - elapsed),
+            };
+          })
+        : [];
     const inventory = reader.ingredients();
     const input_inventory =
       (flags & ENTITY_FLAG.inputInventory) !== 0 ? reader.ingredients() : [];
@@ -700,6 +714,7 @@ function readBuildings(reader: Reader): BuildingsPatch {
     // Same rule: absent rather than an empty array, because an empty list is what every entity
     // that is not a splitter has, and native skips it for exactly that reason.
     if (branch_ids.length > 0) entity.branch_ids = branch_ids;
+    if (lane.length > 0) entity.lane = lane;
     changed[index] = entity;
   }
   const removedCount = reader.uvarint();

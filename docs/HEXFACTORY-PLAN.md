@@ -529,8 +529,21 @@ partially activated physical model.
    about twenty map lookups rather than one test per instance, and nothing about it is simulation
    truth: native still answers for legality. Wire 19 and every other envelope are unchanged.
 
-   The remaining work in this slice is footprint/cadence/opening content, the native height wire,
-   heightfield/water renderer integration and the one-way activation bundle above.
+   A belt is now 5.37 m of conveyor rather than a one-tick hop. Native cadence is derived from
+   2 m/s and a 1.075 m item spacing: 27 ticks to cross a hex, one item every five ticks, six slots
+   on the lane, 120 items a minute — exactly one extractor. Items in flight are real saved state
+   (`lane` plus the exit `cargo` slot), hashed, and published on wire 21 as elapsed ticks against
+   the header's `belt_transit_ticks` so a still line does not re-send every belt every tick. The
+   host draws each in-transit item at `(tick - entered) / belt_transit_ticks` of the way over its
+   hex and parks the exit slot at the far end.
+
+   Local unpushed work already reauthored the catalogue onto physical footprints, publishes
+   native height samples on wire 20, draws a continuous landform, and puts items on a 5.37 m belt
+   cadence (wire 21). New worlds now construct `GroundSpine::physical` and `terra` is in the wasm
+   artifact. Save 37 / world 11 / definitions 28; a save 36 file is refused as the old 1 m² scale
+   with an export path. Opening retune is in progress: the default seed opens, but about forty
+   native tests still assume the old landing platter, 1-step grades, or a loadable pre-37 save.
+   Do not push until those tests and `npm run quality` are green.
 
 4. **Sparse disturbed water.** Add water departure state, active-region equilibrium, frontier
    boundaries, pumps, flood/drain commands and save/load/checksum coverage. Re-measure the active

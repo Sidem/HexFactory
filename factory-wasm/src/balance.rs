@@ -1640,15 +1640,16 @@ fn access(economy: &Economy) -> Vec<MaterialAccess> {
     // through concrete, and a boiler drinks it directly.
     required.entry(WATER_ITEM).or_insert(0);
 
-    let fields = WorldFields::new(&params, seed);
-    let guaranteed = guaranteed_patches(&fields);
+    let spine = GroundSpine::physical(&params, seed, true);
+    let fields = WorldFields::new(&params, seed, &spine);
+    let guaranteed = guaranteed_patches(&fields, &spine);
     let mut rows = Vec::new();
     for (&item_id, &required_by) in &required {
         let promise = guaranteed.get(&item_id).copied();
         let (nearest, reachable) = if item_id == WATER_ITEM {
             nearest_water(&params, seed)
         } else {
-            nearest_field(&fields, item_id)
+            nearest_field(&fields, item_id, &spine)
         };
         rows.push(MaterialAccess {
             material: economy.item_key(item_id),
@@ -1666,21 +1667,34 @@ fn access(economy: &Economy) -> Vec<MaterialAccess> {
 }
 
 /// Something can stand here, and what it stands on is not a cliff or a basin.
-fn standable(params: &WorldParams, seed: u32, cell: (i32, i32)) -> bool {
-    !terrain_at(params, seed, cell.0, cell.1, true).blocks_movement()
+fn standable(
+    params: &WorldParams,
+    seed: u32,
+    cell: (i32, i32),
+    spine: &GroundSpine,
+) -> bool {
+    let _ = (params, seed);
+    !spine.presentation_at(cell.0, cell.1).blocks_movement()
 }
 
 /// What the bootstrap pass promised, per material: the walk to the nearest hex of the guaranteed
 /// patch, and how many hexes that patch holds.
-fn guaranteed_patches(fields: &WorldFields) -> BTreeMap<ItemId, (u32, u32)> {
+fn guaranteed_patches(
+    fields: &WorldFields,
+    spine: &GroundSpine,
+) -> BTreeMap<ItemId, (u32, u32)> {
     fields
-        .guarantees()
+        .guarantees(spine)
         .into_iter()
         .map(|(item_id, walk, hexes)| (item_id, (walk, hexes)))
         .collect()
 }
 
-fn nearest_field(fields: &WorldFields, item_id: ItemId) -> (Option<u32>, bool) {
+fn nearest_field(
+    fields: &WorldFields,
+    item_id: ItemId,
+    spine: &GroundSpine,
+) -> (Option<u32>, bool) {
     let params = &fields.params;
     let seed = fields.seed;
     let mut nearest = None;
@@ -1689,7 +1703,7 @@ fn nearest_field(fields: &WorldFields, item_id: ItemId) -> (Option<u32>, bool) {
         if axial_distance((0, 0), cell) <= LANDING_CLEAR_RADIUS {
             continue;
         }
-        let Some(field) = fields.field_at(cell.0, cell.1, true) else {
+        let Some(field) = fields.field_at(cell.0, cell.1, true, spine) else {
             continue;
         };
         if field.item_id != item_id {
@@ -1702,16 +1716,17 @@ fn nearest_field(fields: &WorldFields, item_id: ItemId) -> (Option<u32>, bool) {
         reachable = reachable
             || hexes_in_radius(cell, EXTRACT_RADIUS)
                 .into_iter()
-                .any(|neighbour| standable(params, seed, neighbour));
+                .any(|neighbour| standable(params, seed, neighbour, spine));
     }
     (nearest, reachable)
 }
 
 fn nearest_water(params: &WorldParams, seed: u32) -> (Option<u32>, bool) {
+    let spine = GroundSpine::physical(params, seed, true);
     let mut nearest = None;
     let mut reachable = false;
     for cell in hexes_in_radius((0, 0), YIELD_RADIUS) {
-        if !terrain_at(params, seed, cell.0, cell.1, true).is_water() {
+        if !spine.wet_at(cell.0, cell.1) {
             continue;
         }
         let distance = axial_distance((0, 0), cell) as u32;
@@ -1720,7 +1735,7 @@ fn nearest_water(params: &WorldParams, seed: u32) -> (Option<u32>, bool) {
         reachable = reachable
             || hexes_in_radius(cell, PUMP_RADIUS)
                 .into_iter()
-                .any(|neighbour| standable(params, seed, neighbour));
+                .any(|neighbour| standable(params, seed, neighbour, &spine));
     }
     (nearest, reachable)
 }
@@ -1733,13 +1748,14 @@ fn extraction(economy: &Economy) -> Vec<SiteYield> {
     let seed = survey::default_seed();
     let mut rows = Vec::new();
     for preset in world_presets() {
-        let world = WorldFields::new(&preset.params, seed);
+        let spine = GroundSpine::physical(&preset.params, seed, true);
+        let world = WorldFields::new(&preset.params, seed, &spine);
         let mut fields: BTreeMap<(i32, i32), ResourceState> = BTreeMap::new();
         for cell in hexes_in_radius((0, 0), YIELD_RADIUS) {
             if axial_distance((0, 0), cell) <= LANDING_CLEAR_RADIUS {
                 continue;
             }
-            if let Some(field) = world.field_at(cell.0, cell.1, true) {
+            if let Some(field) = world.field_at(cell.0, cell.1, true, &spine) {
                 fields.insert(cell, field);
             }
         }

@@ -25,7 +25,12 @@ import type {
 } from "../../core/types";
 import { TRANSPORT_DIRECTIONS } from "../../core/directions";
 import { MAX_UNDERPASS_SPAN } from "../../core/definitions";
-import { cargoTravel, stallMark, trimOf } from "../buildingLook";
+import {
+  beltLaneTravel,
+  cargoTravel,
+  stallMark,
+  trimOf,
+} from "../buildingLook";
 import { BUILDING_COLORS } from "../FactoryRenderer";
 import { WORLD_SCALE } from "../landmarks";
 import {
@@ -311,7 +316,14 @@ export class WorldInstanceLayer {
       this.resourcesIdentity = snapshot.resources;
       this.rebuildResources(snapshot.resources);
     }
-    this.ensureDynamicCapacity(snapshot.buildings.length);
+    const movingCargo = snapshot.buildings.reduce(
+      (count, building) =>
+        count + (building.cargo ? 1 : 0) + (building.lane?.length ?? 0),
+      0,
+    );
+    this.ensureDynamicCapacity(
+      Math.max(snapshot.buildings.length, movingCargo),
+    );
     return structureChanged;
   }
 
@@ -1511,7 +1523,8 @@ export class WorldInstanceLayer {
         this.progressMesh.setColorAt(progresses, color.set("#7fe0c0"));
         progresses += 1;
       }
-      if (building.cargo) {
+      const lane = building.lane ?? [];
+      if (building.cargo || lane.length > 0) {
         const target = building.next_id
           ? this.pointById.get(building.next_id)
           : undefined;
@@ -1540,29 +1553,53 @@ export class WorldInstanceLayer {
             CARGO_RIDE_HEIGHT +
             (targetHeight - height - CARGO_RIDE_HEIGHT) * fraction;
         }
-        const travel = cargoTravel(
-          now - this.cargoTickAt,
-          this.cargoTickMs,
-          reducedMotion,
-          building.status === "output blocked",
-        );
-        matrix.compose(
-          position.set(
-            center.x + (tx - center.x) * travel,
-            height +
-              CARGO_RIDE_HEIGHT +
-              (targetHeight - height - CARGO_RIDE_HEIGHT) * travel,
-            center.z + (tz - center.z) * travel,
-          ),
-          quaternion,
-          scale.set(1, 1, 1),
-        );
-        this.cargoMesh.setMatrixAt(cargos, matrix);
-        this.cargoMesh.setColorAt(
-          cargos,
-          color.set(this.items.get(building.cargo.item_id)?.color ?? "#ffffff"),
-        );
-        cargos += 1;
+        const place = (itemId: number, travel: number): void => {
+          if (cargos >= this.cargoMesh!.instanceMatrix.count) return;
+          matrix.compose(
+            position.set(
+              center.x + (tx! - center.x) * travel,
+              height +
+                CARGO_RIDE_HEIGHT +
+                (targetHeight - height - CARGO_RIDE_HEIGHT) * travel,
+              center.z + (tz! - center.z) * travel,
+            ),
+            quaternion,
+            scale.set(1, 1, 1),
+          );
+          this.cargoMesh!.setMatrixAt(cargos, matrix);
+          this.cargoMesh!.setColorAt(
+            cargos,
+            color.set(this.items.get(itemId)?.color ?? "#ffffff"),
+          );
+          cargos += 1;
+        };
+        const transit = snapshot.belt_transit_ticks ?? 27;
+        for (const item of lane) {
+          place(
+            item.cargo.item_id,
+            beltLaneTravel(
+              item.entered,
+              snapshot.tick,
+              transit,
+              now - this.cargoTickAt,
+              this.cargoTickMs,
+              reducedMotion,
+            ),
+          );
+        }
+        if (building.cargo) {
+          place(
+            building.cargo.item_id,
+            building.kind === "belt"
+              ? 1
+              : cargoTravel(
+                  now - this.cargoTickAt,
+                  this.cargoTickMs,
+                  reducedMotion,
+                  building.status === "output blocked",
+                ),
+          );
+        }
       }
       const definition = this.definitions.get(building.definition_id);
       const plume = plumeFor(building, definition);

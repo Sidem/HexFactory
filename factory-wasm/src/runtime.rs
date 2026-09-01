@@ -15,6 +15,8 @@ pub(super) struct RuntimeIndex {
     pub(super) transport_order: Vec<usize>,
     /// Only entities with native per-tick machine work, in stable-id order.
     pub(super) machine_order: Vec<usize>,
+    /// Belts, in stable-id order, so the lane pass walks the conveyors instead of the factory.
+    pub(super) belt_order: Vec<usize>,
     /// Whether an entity definition arbitrates its incoming edges as a merger.
     pub(super) mergers: Vec<bool>,
     /// Compiled incoming transport edges. Feeders retain stable-id order.
@@ -55,6 +57,13 @@ impl RuntimeIndex {
             .iter()
             .copied()
             .filter(|&index| !graph[index].is_empty())
+            .collect();
+        // Every belt, not just the connected ones: a belt with its output erased is still carrying
+        // what it was carrying, and those items still have to arrive at its far end.
+        self.belt_order = entity_order
+            .iter()
+            .copied()
+            .filter(|&index| entities[index].kind == BuildingKind::Belt)
             .collect();
 
         self.feeders = vec![Vec::new(); entities.len()];

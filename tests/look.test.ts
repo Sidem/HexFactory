@@ -8,6 +8,7 @@ import scenarios from "../src/data/scenarios.json";
 import {
   BUILDING_SHAPE_VERSION,
   BUILDING_SHAPES,
+  beltLaneTravel,
   cargoTravel,
   facingTip,
   NORTH,
@@ -426,5 +427,13 @@ describe("cargo presentation", () => {
     expect(cargoTravel(500, 250, false, false)).toBe(1);
     expect(cargoTravel(0, 250, false, true)).toBe(1);
     expect(cargoTravel(0, 250, true, false)).toBe(1);
+  });
+
+  it("places a belt item by how long it has been crossing that hex", () => {
+    expect(beltLaneTravel(0, 13, 27, 0, 250, false)).toBeCloseTo(13 / 27);
+    expect(beltLaneTravel(0, 13, 27, 250, 250, false)).toBeCloseTo(14 / 27);
+    expect(beltLaneTravel(0, 13, 27, 250, 250, true)).toBeCloseTo(13 / 27);
+    expect(beltLaneTravel(0, 40, 27, 0, 250, false)).toBe(1);
+    expect(beltLaneTravel(10, 10, 27, 0, 250, false)).toBe(0);
   });
 });

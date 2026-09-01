@@ -32,7 +32,7 @@ function bytesOf(hex: string): ArrayBuffer {
 describe("binary snapshot delta", () => {
   it("agrees with the Rust encoder on the format's identity", () => {
     expect(fixture.magic).toBe("HXFD");
-    expect(fixture.version).toBe(20);
+    expect(fixture.version).toBe(21);
   });
 
   it("reads prepared ground as a signed grade beside an unsigned surface", () => {
@@ -74,11 +74,19 @@ describe("binary snapshot delta", () => {
     );
     expect(decoded.buildings?.changed?.map((entity) => entity.kind)).toEqual([
       "belt",
+      "belt",
       "composer",
     ]);
     expect(decoded.buildings?.changed?.map((entity) => entity.status)).toEqual([
       "idle",
+      "output blocked",
       "composing",
+    ]);
+    expect(decoded.belt_transit_ticks).toBe(27);
+    expect(decoded.buildings?.changed?.[1]?.lane).toEqual([
+      { cargo: { item_id: 1, quantity: 1 }, entered: 300 },
+      { cargo: { item_id: 4, quantity: 2 }, entered: 495 },
+      { cargo: { item_id: 1, quantity: 1 }, entered: 512 },
     ]);
     expect(decoded.terrain?.changed?.map((tile) => tile.terrain)).toEqual([
       "cliff",

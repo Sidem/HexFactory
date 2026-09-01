@@ -31,17 +31,11 @@ use runtime::RuntimeIndex;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod balance;
 
-/// The Phase 8 physical scale contract. Declared and tested, and read by nothing that ships in
-/// v0.46 — slice 2 introduces the typed ground spine behind legacy units, while slice 3 activates
-/// these conversions at the compatibility boundary.
+/// The Phase 8 physical scale contract. New worlds read it for cadence, height, walking and
+/// construction; a save from before the 25 m² hex is refused rather than reinterpreted.
 pub mod scale;
 
-/// The Phase 8 drainage-first world prototype.
-///
-/// Native only, like `balance` and `survey`: slice 1 of the phase is a prototype with no production
-/// toggle, and compiling it out of the wasm artifact is what makes that structural instead of a
-/// promise.
-#[cfg(not(target_arch = "wasm32"))]
+/// The Phase 8 drainage-first world generator. Slice 3 selects it for new worlds.
 pub mod terra;
 
 type ItemId = u16;
@@ -149,7 +143,7 @@ const SAVE_PREFIX: &str = "HXF1\n";
 /// exactly the legacy behaviour: all products leave from the building's facing. The checksum
 /// contribution is guarded on emptiness, so the 34 -> 35 migration can verify the original run
 /// before adding no state at all.
-const SAVE_VERSION: u16 = 36;
+const SAVE_VERSION: u16 = 37;
 /// Bumped to 6 for World Parameters. `WorldParams` is now part of a run's identity — it is in the
 /// save envelope and in the checksum — so a version-5 envelope carries no answer to the question
 /// "which world is this" and is rejected rather than assumed to be the default.
@@ -159,7 +153,7 @@ const SAVE_VERSION: u16 = 36;
 /// of by a hardcoded list of eight cells inside the clearing. Every one of those changes what a
 /// seed generates, so a version-6 envelope describes a landscape this build cannot reproduce and is
 /// rejected rather than reinterpreted. The named-save catalog shows the row rather than hiding it.
-const WORLD_GENERATOR_VERSION: u16 = 10;
+const WORLD_GENERATOR_VERSION: u16 = 11;
 const MAX_COMMANDS_PER_BATCH: usize = 8;
 /// A drag is one bounded command, so the run it expands into has to be bounded too. This is the
 /// native cap on cells a single `place_line` or `erase_line` may touch.
@@ -237,8 +231,9 @@ const HEX_X: i32 = 1774;
 const HEX_Y: i32 = 1536;
 /// Center-to-vertex of a pointy-top hex. `HEX_Y * 2 / 3` and `HEX_X / √3` both land on 1024.
 ///
-/// A hexagon's area is **1 m²**. Neighbour centres are `HEX_X` apart, which is √(2/√3) ≈ 1.075 m,
-/// and that is the metre the walk and the run are paced against.
+/// Neighbour centres are `HEX_X` world units apart. Phase 8 reads that spacing as 5.373 m
+/// (25 m²); the lattice numbers do not change. Walk and run stay 3 m/s and 5 m/s by shrinking
+/// [`PLAYER_SPEED`] fivefold.
 const HEX_RADIUS: i32 = 1024;
 /// How many hex steps a *hand* gather reaches. Also the reach of any extractor whose definition
 /// names no `extract_radius` of its own, so the base extractor is unchanged by tiers existing.
@@ -262,11 +257,11 @@ const MAX_FOOTPRINT_CELLS: usize = 19;
 /// Hexes around the hub forced to lowland so the landing is always a buildable clearing.
 const LANDING_CLEAR_RADIUS: i32 = 7;
 /// World units the player covers per player step at full intent (1000). That is the **run**:
-/// 5 m/s, with a hex of 1 m². The host sends 600 for the ordinary walk (3 m/s) and 1000 while
+/// 5 m/s over a 5.373 m hex. The host sends 600 for the ordinary walk (3 m/s) and 1000 while
 /// Shift is held. Paced by `PLAYER_TICKS_PER_SECOND`, not by the simulation tick, so both gaits
 /// keep one speed at every simulation speed. Shallow water ignores the gait and is 1 m/s —
 /// `PLAYER_SPEED / 5`.
-const PLAYER_SPEED: i32 = 275;
+const PLAYER_SPEED: i32 = 55;
 /// The player's own cadence, in steps per real second. Walking used to run inside the simulation
 /// tick, which made it stop when the factory paused and crawl at a low speed multiplier. It is
 /// still integer, still native, and still deterministic — a given step count always produces the
@@ -1222,6 +1217,30 @@ struct Cargo {
     quantity: u32,
 }
 
+/// One item crossing a belt's lane, and the tick it stepped onto it.
+///
+/// The tick is stored rather than a countdown so that nothing has to be decremented every tick: a
+/// lane is pure arithmetic against `Core::tick`, which keeps a hundred thousand belts free when
+/// nothing about them is changing, keeps a delta snapshot from re-sending every belt every tick,
+/// and lets the host extrapolate an item's position between snapshots from a number that does not
+/// go stale.
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
+struct LaneItem {
+    cargo: Cargo,
+    entered: u64,
+}
+
+/// Ticks an item spends crossing one belt hex, from [`scale::belt_transit_ticks`].
+const BELT_TRANSIT_TICKS: u64 = scale::belt_transit_ticks() as u64;
+/// Items one belt hex holds while they cross it, from [`scale::belt_lane_slots`].
+const BELT_LANE_SLOTS: usize = scale::belt_lane_slots() as usize;
+/// The gap a belt insists on between two items entering it, from [`scale::belt_slot_ticks`].
+///
+/// This is the number that sets belt throughput — one item every five ticks, 120 a minute, exactly
+/// one extractor — and it is derived from the belt's speed and the spacing of the items on it
+/// rather than chosen. See `scale::belt_cadence_follows_from_speed_and_spacing`.
+const BELT_SLOT_TICKS: u64 = scale::belt_slot_ticks() as u64;
+
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
 pub(crate) struct GroundItem {
     pub(crate) id: u32,
@@ -1383,6 +1402,23 @@ struct Entity {
     /// counted slots would silently restart. Real state for the same reason `route_cursor` is.
     #[serde(default)]
     merge_cursor: u32,
+    /// Items still crossing a belt, oldest first, each stamped with the tick it stepped on.
+    ///
+    /// A belt hex is 5.37 m of conveyor, and an item takes [`BELT_TRANSIT_TICKS`] to cross it. That
+    /// is a latency, not a throughput: a belt that could only hold the one item it hands on would
+    /// move twenty-two items a minute and no chain in the game would run. So the hex holds
+    /// [`BELT_LANE_SLOTS`] of them at once, spaced [`BELT_SLOT_TICKS`] apart, which is what a real
+    /// conveyor does — items sit on it in a line rather than teleporting one at a time.
+    ///
+    /// `cargo` remains the exit slot: an item that has finished crossing leaves the lane and waits
+    /// there to be handed on, so everything that offers, subtracts, splits or merges cargo goes on
+    /// reading exactly one item per belt and did not have to learn about lanes.
+    ///
+    /// Real state, saved and hashed: a belt with four items halfway along it is not a belt with one
+    /// at the end, and a reload that forgot would evaporate the contents of every line in the
+    /// factory.
+    #[serde(default)]
+    lane: Vec<LaneItem>,
 }
 
 #[derive(Clone, Debug, Serialize, PartialEq, Eq)]
@@ -1396,6 +1432,11 @@ struct Snapshot {
     seed: u32,
     tick: u64,
     checksum: u32,
+    /// How many ticks an item takes to cross one belt hex. Published for the same reason the
+    /// player's radius and the action cooldown total are: the host draws an item partway along a
+    /// conveyor, and the fraction it draws has to be measured against the number the simulation
+    /// actually uses rather than one the renderer keeps its own copy of.
+    belt_transit_ticks: u32,
     delivered: u64,
     delivered_by_item: Vec<Ingredient64>,
     insight: u64,
@@ -1652,6 +1693,17 @@ struct EntitySnapshot {
     recipe_id: Option<RecipeId>,
     scenario_owned: bool,
     cargo: Option<Cargo>,
+    /// What this belt is still carrying across its own hex, oldest first, each with the tick it
+    /// stepped on. `cargo` is the item that has finished crossing and is waiting to be handed on.
+    ///
+    /// The host draws each of these at `(tick - entered) / belt_transit_ticks` of the way over the
+    /// belt. It is published as the entry tick rather than as a fraction on purpose: a fraction
+    /// changes every tick, so every belt in the factory would be a changed entity in every delta,
+    /// and a line standing still would cost as much to send as one that just started.
+    ///
+    /// Omitted when empty, which is every machine, container and idle belt in the game.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    lane: Vec<LaneItem>,
     inventory: Vec<Ingredient>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     input_inventory: Vec<Ingredient>,
@@ -1816,6 +1868,10 @@ struct SnapshotDelta {
     revision: u64,
     tick: u64,
     checksum: u32,
+    /// See [`Snapshot::belt_transit_ticks`]. Sent in the header of every delta rather than behind a
+    /// group bit: it is a constant, it costs one byte, and a host that joined mid-run needs it to
+    /// draw the very first belt it is told about.
+    belt_transit_ticks: u32,
     #[serde(skip_serializing_if = "Option::is_none")]
     scenario: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1865,6 +1921,7 @@ impl SnapshotDelta {
             revision,
             tick: current.tick,
             checksum: current.checksum,
+            belt_transit_ticks: current.belt_transit_ticks,
             scenario: Some(current.scenario.clone()),
             scenario_name: Some(current.scenario_name.clone()),
             world_version: Some(current.world_version),
@@ -1911,6 +1968,7 @@ impl SnapshotDelta {
             revision,
             tick: current.tick,
             checksum: current.checksum,
+            belt_transit_ticks: current.belt_transit_ticks,
             scenario: changed(&previous.scenario, &current.scenario),
             scenario_name: changed(&previous.scenario_name, &current.scenario_name),
             world_version: changed_copy(previous.world_version, current.world_version),
@@ -2481,8 +2539,9 @@ impl Core {
                 .unwrap_or_else(default_world_params),
         };
         world_params.validate(definitions)?;
-        let fields = WorldFields::new(&world_params, seed);
-        let ground_spine = GroundSpine::legacy(&world_params, seed, scenario.generated_environment);
+        let ground_spine =
+            GroundSpine::physical(&world_params, seed, scenario.generated_environment);
+        let fields = WorldFields::new(&world_params, seed, &ground_spine);
         // A world whose opening cannot be placed is refused here rather than papered over. It is
         // the one generator failure a validator cannot see — `validate` is asked before a seed
         // exists — and shipping it would mean a run that cannot reach its own first extractor.
@@ -2619,6 +2678,7 @@ impl Core {
                 disabled: manual_work,
                 route_cursor: 0,
                 merge_cursor: 0,
+                lane: Vec::new(),
             });
             core.next_entity_id += 1;
         }
@@ -3459,8 +3519,12 @@ impl Core {
         if let Some(resource) = self.scenario_resources.get(&(q, r)) {
             return Some(resource.clone());
         }
-        self.fields
-            .field_at(q, r, self.scenario.generated_environment)
+        self.fields.field_at(
+            q,
+            r,
+            self.scenario.generated_environment,
+            &self.ground_spine,
+        )
     }
 
     fn ensure_tile(&mut self, q: i32, r: i32) {
@@ -4833,9 +4897,11 @@ impl Core {
     /// having more than one compiled output to offer its cargo to, and it offers them starting from
     /// its own cursor so consecutive items go to different branches.
     ///
-    /// Either pass, a belt that was handed something this tick keeps it until the next one — see
-    /// `just_received`.
+    /// Either pass, only a belt's *exit slot* is on offer: everything else it is carrying is still
+    /// somewhere along its 5.37 m of conveyor, and gets there by [`Core::advance_belt_lanes`],
+    /// which runs first so an item that finished crossing this tick can leave on it.
     fn transfer_cargo(&mut self) {
+        self.advance_belt_lanes();
         self.runtime.clear_transfer_scratch();
         if self.runtime.merger_targets.is_empty() {
             self.transfer_along_links();
@@ -4853,7 +4919,7 @@ impl Core {
             let feeder_count = self.runtime.feeders[target].len();
             for offset in 0..feeder_count {
                 let source = self.runtime.feeders[target][(start + offset) % feeder_count];
-                if self.runtime.delivered[source] || self.just_received(source) {
+                if self.runtime.delivered[source] {
                     continue;
                 }
                 let Some((cargo, stock)) = self.cargo_on_offer(source) else {
@@ -4876,21 +4942,44 @@ impl Core {
         self.transfer_along_links();
     }
 
-    /// A belt holding cargo that only arrived this tick, which is a belt with nothing to offer yet.
+    /// Move every belt's queue along: an item that has finished crossing its hex leaves the lane and
+    /// waits in the exit slot for someone to take it.
     ///
-    /// A belt is a hex of travel, not a wire. Arbitration walks sources in ascending entity id, and
-    /// a line is built the way every line is built — from the source outward — so the walk ran in
-    /// flow order: an item handed onto the first belt was handed down every belt behind it before
-    /// the tick was out. The run vanished between two snapshots. No belt ever reported `Carrying`,
-    /// belt *length* cost a factory nothing, and the renderer — which draws a carried item crossing
-    /// from the belt under it toward the one it is bound for — never had one to draw. Waiting a
-    /// tick is what puts the item on the belt where both the player and the clock can see it.
+    /// This is the whole of a belt's motion, and it costs one comparison per belt per tick because
+    /// nothing is counted down — a lane item carries the tick it stepped on, and crossing is over
+    /// when [`BELT_TRANSIT_TICKS`] have passed since. A belt nobody is feeding does no work and
+    /// reports itself unchanged, so an idle line neither ticks nor re-sends.
     ///
-    /// Only belts wait. A container is a store rather than a hex of travel, and making one skip the
-    /// tick it was filled on would halve the throughput of every buffer in the game; a machine's
-    /// output was produced by `advance_machines`, not handed to it, so it is never holding one.
-    fn just_received(&self, source: usize) -> bool {
-        self.entities[source].kind == BuildingKind::Belt && self.runtime.claimed[source]
+    /// Only one item leaves the lane per tick, which is the one the exit slot can hold. A blocked
+    /// belt therefore backs up: the items behind finish crossing, find the slot taken, and wait
+    /// where they are, which is what the player is looking at when a line jams.
+    fn advance_belt_lanes(&mut self) {
+        for offset in 0..self.runtime.belt_order.len() {
+            let index = self.runtime.belt_order[offset];
+            let entity = &self.entities[index];
+            if entity.cargo.is_some() {
+                continue;
+            }
+            let Some(head) = entity.lane.first() else {
+                continue;
+            };
+            if self.tick.saturating_sub(head.entered) < BELT_TRANSIT_TICKS {
+                continue;
+            }
+            let arrived = self.entities[index].lane.remove(0);
+            self.entities[index].cargo = Some(arrived.cargo);
+            let id = self.entities[index].id;
+            self.dirty.entities.push(id);
+        }
+    }
+
+    /// Everything a belt is holding, exit slot first, for the paths that have to account for all of
+    /// it at once — erasing the belt, and hashing it.
+    fn belt_contents(entity: &Entity) -> impl Iterator<Item = Cargo> + '_ {
+        entity
+            .cargo
+            .into_iter()
+            .chain(entity.lane.iter().map(|item| item.cargo))
     }
 
     /// Every source that has not already delivered offers its cargo along its compiled edges, in
@@ -4901,10 +4990,7 @@ impl Core {
     fn transfer_along_links(&mut self) {
         for source_offset in 0..self.runtime.transport_order.len() {
             let source = self.runtime.transport_order[source_offset];
-            if self.runtime.delivered[source]
-                || self.just_received(source)
-                || self.graph[source].is_empty()
-            {
+            if self.runtime.delivered[source] || self.graph[source].is_empty() {
                 continue;
             }
             let Some((cargo, stock)) = self.cargo_on_offer(source) else {
@@ -5213,7 +5299,19 @@ impl Core {
             return false;
         }
         match entity.kind {
-            BuildingKind::Belt => entity.cargo.is_none(),
+            // Two rules, and both of them are the conveyor rather than the bookkeeping. A hex of
+            // belt holds [`BELT_LANE_SLOTS`] items because that is how many are on 5.37 m of moving
+            // conveyor at once, and it will not take another until [`BELT_SLOT_TICKS`] have passed
+            // since the last one stepped on, because the space behind that item has not cleared
+            // yet. The second rule is what sets belt throughput; the first is what lets a blocked
+            // line back up instead of stopping dead at its head, and it is derived so that it never
+            // bites first — see `scale::a_belt_has_room_for_everything_in_flight_at_cadence`.
+            BuildingKind::Belt => {
+                entity.lane.len() + usize::from(entity.cargo.is_some()) < BELT_LANE_SLOTS
+                    && entity.lane.last().is_none_or(|item| {
+                        self.tick.saturating_sub(item.entered) >= BELT_SLOT_TICKS
+                    })
+            }
             BuildingKind::Consumer => true,
             BuildingKind::Hub => self.hub_demand(cargo.item_id) >= u64::from(cargo.quantity),
             _ => self
@@ -5226,7 +5324,12 @@ impl Core {
 
     fn accept(&mut self, target: usize, cargo: Cargo) {
         match self.entities[target].kind {
-            BuildingKind::Belt => self.entities[target].cargo = Some(cargo),
+            // Onto the far end of the lane, not into the hand-off slot: the item has just stepped
+            // onto the belt and has the whole hex still to cross.
+            BuildingKind::Belt => {
+                let entered = self.tick;
+                self.entities[target].lane.push(LaneItem { cargo, entered });
+            }
             BuildingKind::Composer
             | BuildingKind::Container
             | BuildingKind::Generator
@@ -6530,7 +6633,7 @@ impl Core {
                 .map(|cell| self.ground_elevation_at(cell.q, cell.r))
                 .max(),
         ) {
-            if high - low > MAX_BUILD_STEP {
+            if high - low > self.build_step_limit() {
                 return Err("This ground is too uneven; level a pad for this footprint".into());
             }
         }
@@ -6702,6 +6805,7 @@ impl Core {
             disabled: definition.manual_work,
             route_cursor: 0,
             merge_cursor: 0,
+            lane: Vec::new(),
         });
         self.next_entity_id += 1;
         self.undo_stack.push(id);
@@ -7191,7 +7295,10 @@ impl Core {
             .map(|definition| definition.name.clone())
             .unwrap_or_else(|| "building".into());
         add_inventory(&mut self.player.inventory, &carried);
-        if let Some(cargo) = entity.cargo {
+        // Everything the belt was carrying, not just what had reached its far end: an item halfway
+        // along a conveyor is as real as the one waiting at the end of it, and demolishing the
+        // conveyor under it drops it on the ground rather than deleting it.
+        for cargo in Self::belt_contents(&entity).collect::<Vec<_>>() {
             self.add_ground_item(
                 entity.placed.q,
                 entity.placed.r,
@@ -7475,7 +7582,7 @@ impl Core {
             elevations.iter().min().copied(),
             elevations.iter().max().copied(),
         ) {
-            if high - low > MAX_BUILD_STEP {
+            if high - low > self.build_step_limit() {
                 return Err("This ground is too uneven; level a pad for this footprint".into());
             }
         }
@@ -8371,18 +8478,23 @@ impl Core {
             BuildingKind::Container if inventory_total(&entity.inventory) > 0 => {
                 EntityStatus::Buffered
             }
-            BuildingKind::Belt if entity.cargo.is_some() => {
-                let cargo = entity.cargo.expect("the belt guard proved cargo exists");
-                // A splitter is carrying while *any* branch will take the item. Reading only the
-                // first would paint a working junction as blocked every time its cursor happened to
-                // rest on the branch that is full.
-                if self.graph[index]
-                    .iter_for(cargo.item_id)
-                    .any(|target| self.can_accept(target, cargo))
-                {
-                    EntityStatus::Carrying
-                } else {
-                    EntityStatus::OutputBlocked
+            BuildingKind::Belt if entity.cargo.is_some() || !entity.lane.is_empty() => {
+                match entity.cargo {
+                    // Nothing has finished crossing yet, so there is nothing for the far end to
+                    // refuse. A belt with items still travelling along it is carrying, whatever the
+                    // building it points at is doing.
+                    None => EntityStatus::Carrying,
+                    // A splitter is carrying while *any* branch will take the item. Reading only the
+                    // first would paint a working junction as blocked every time its cursor happened
+                    // to rest on the branch that is full.
+                    Some(cargo)
+                        if self.graph[index]
+                            .iter_for(cargo.item_id)
+                            .any(|target| self.can_accept(target, cargo)) =>
+                    {
+                        EntityStatus::Carrying
+                    }
+                    Some(_) => EntityStatus::OutputBlocked,
                 }
             }
             BuildingKind::Consumer => EntityStatus::Receiving,
@@ -8536,6 +8648,7 @@ impl Core {
             recipe_id: entity.placed.recipe_id,
             scenario_owned: entity.placed.scenario_owned,
             cargo: entity.cargo,
+            lane: entity.lane.clone(),
             inventory,
             input_inventory,
             fuel_inventory,
@@ -8764,6 +8877,7 @@ impl Core {
             seed: self.seed,
             tick: self.tick,
             checksum,
+            belt_transit_ticks: BELT_TRANSIT_TICKS as u32,
             delivered: self.delivered,
             delivered_by_item: self.delivered_by_item_snapshot(),
             insight: self.insight,
@@ -8897,6 +9011,19 @@ impl Core {
                 hash_u32(&mut hash, cargo.quantity);
             } else {
                 hash_u32(&mut hash, 0);
+            }
+            // What a belt is still carrying, and how far along it each item has got. Two factories
+            // that agree about the exit slots and disagree about the four items behind them are not
+            // the same factory, and they will not stay in step for a second: the tick each item
+            // stepped on is what decides when it arrives. Written only when there is a lane, so
+            // every checksum in the game that has no belt in flight is the one it always was.
+            if !entity.lane.is_empty() {
+                hash_u32(&mut hash, u32::MAX - 24);
+                for item in &entity.lane {
+                    hash_u32(&mut hash, u32::from(item.cargo.item_id));
+                    hash_u32(&mut hash, item.cargo.quantity);
+                    hash_u64(&mut hash, item.entered);
+                }
             }
         }
         if !self.output_routes.is_empty() {
@@ -9033,7 +9160,6 @@ impl Core {
         let json = save
             .strip_prefix(SAVE_PREFIX)
             .ok_or("save must begin with HXF1")?;
-        let migrated = save_migrations::migrate(json, SAVE_VERSION)?;
         // Verify the original world stamp before moving a legacy run onto the current envelope.
         // Its saved site table is unchanged: adding oil must not reroll an existing landscape.
         let original: serde_json::Value =
@@ -9048,6 +9174,13 @@ impl Core {
             .and_then(serde_json::Value::as_u64)
             .and_then(|version| u16::try_from(version).ok())
             .ok_or("save has no valid save version")?;
+        if original_save_version <= 36 && SAVE_VERSION >= 37 {
+            return Err(
+                "this factory was built at one square metre per hex; export the file to keep a copy. New worlds use a 25 m² hex"
+                    .into(),
+            );
+        }
+        let migrated = save_migrations::migrate(json, SAVE_VERSION)?;
         let legacy_component_bill = matches!(migrated, std::borrow::Cow::Owned(_));
         let envelope: SaveEnvelope = serde_json::from_str(&migrated)
             .map_err(|error| format!("malformed HXF1 save: {error}"))?;
@@ -9087,7 +9220,7 @@ impl Core {
         core.world_params = envelope.state.world_params;
         // The lattice and the bootstrap table are derived from exactly these two, so they are
         // rebuilt the moment either moves rather than carried in the file.
-        core.fields = WorldFields::new(&core.world_params, core.seed);
+        core.fields = WorldFields::new(&core.world_params, core.seed, &core.ground_spine);
         core.generated_chunks = envelope
             .state
             .generated_chunks
@@ -9475,6 +9608,7 @@ impl Factory {
             },
             tick: core.tick,
             checksum: core.checksum(),
+            belt_transit_ticks: BELT_TRANSIT_TICKS as u32,
             scenario: take_changed(&mut baseline.scenario, core.scenario.key.clone()),
             scenario_name: take_changed(&mut baseline.scenario_name, core.scenario.name.clone()),
             world_version: take_changed_copy(&mut baseline.world_version, WORLD_GENERATOR_VERSION),
@@ -9697,7 +9831,8 @@ impl Factory {
     ) -> Result<PreviewSites, String> {
         let (params, width, height, step) =
             self.preview_window(world_params_json, width, height, hexes_across)?;
-        let fields = WorldFields::new(&params, seed);
+        let spine = GroundSpine::physical(&params, seed, true);
+        let fields = WorldFields::new(&params, seed, &spine);
         // The lattice cells the window can see, from the axial extent of its four corners. A site
         // wanders inside its own cell by `site_jitter` and reaches out by `radius_max`, so the
         // range is widened by `reach` — the same derivation `field_at` scans with, for the same
@@ -9741,7 +9876,7 @@ impl Factory {
         let mut sites = Vec::new();
         for cell_q in min_q..=max_q {
             for cell_r in min_r..=max_r {
-                let Some(site) = fields.site_at((cell_q, cell_r)) else {
+                let Some(site) = fields.site_at((cell_q, cell_r), &spine) else {
                     continue;
                 };
                 let (x, y) = axial_world(site.center.0, site.center.1);
@@ -9788,7 +9923,8 @@ impl Factory {
         if unmet.is_empty() {
             return (Vec::new(), None);
         }
-        let census = bootstrap_band_census(params, seed);
+        let spine = GroundSpine::physical(params, seed, true);
+        let census = bootstrap_band_census(params, seed, &spine);
         let needs = unmet
             .iter()
             .map(|&item_id| {
@@ -12177,6 +12313,7 @@ fn is_river(params: &WorldParams, seed: u32, q: i32, r: i32, elevation: i32) -> 
 /// of them, so the hot paths that only want "is this wet" — the clay clipping and the barren
 /// early-out in `field_at` — ask here instead. It mirrors `terrain_at` exactly, clearing included,
 /// and a test asserts the two never disagree.
+#[allow(dead_code)]
 fn is_water_at(params: &WorldParams, seed: u32, q: i32, r: i32) -> bool {
     if axial_distance((0, 0), (q, r)) <= LANDING_CLEAR_RADIUS {
         return matches!((q, r), (2, 1) | (2, 2) | (1, 2));
@@ -12233,6 +12370,10 @@ fn default_site_rules() -> Vec<SiteRule> {
         },
         SiteRule {
             member: ore_bands.clone(),
+            ..rule(Terrain::Hills, IRON_ORE, 24, 3, 4, 28_000, 20, 8, 3)
+        },
+        SiteRule {
+            member: ore_bands.clone(),
             ..rule(Terrain::Highland, COAL, 26, 2, 4, ANY, 18, 8, 3)
         },
         // Scree around mountains. Cliff hexes are members and are unworkable, so the buildable rim
@@ -12241,6 +12382,10 @@ fn default_site_rules() -> Vec<SiteRule> {
         SiteRule {
             member: vec![Terrain::Highland, Terrain::Cliff],
             ..rule(Terrain::Highland, STONE, 26, 3, 5, ANY, 12, 12, 2)
+        },
+        SiteRule {
+            member: vec![Terrain::Hills, Terrain::Highland, Terrain::Cliff],
+            ..rule(Terrain::Hills, STONE, 20, 3, 5, ANY, 12, 12, 2)
         },
         // Rare, finite, remote, and never guaranteed near the landing site. It is the reason to
         // leave. The rarity is the *radius*: one disc of seven hexes, usually clipped to less. A
@@ -12264,7 +12409,9 @@ fn default_site_rules() -> Vec<SiteRule> {
         // shape change — a base extractor drains its seven hexes and then runs at whatever regrowth
         // supplies — which is why forestry is a question of area rather than of throughput.
         rule(Terrain::Lowland, WOOD, 30, 5, 6, ANY, 3, 1, 2),
+        rule(Terrain::Hills, WOOD, 18, 4, 6, ANY, 3, 1, 2),
         rule(Terrain::Lowland, CRUDE_OIL, 8, 2, 3, ANY, 40, 20, 4),
+        rule(Terrain::Hills, CRUDE_OIL, 10, 2, 3, ANY, 40, 20, 4),
         // Riverbanks and lake shores. Rivers are what make this common rather than decorative,
         // which is why the two ship together. Shore-centred clay is the lighter of the two: the
         // sandy-looking tiles are the shore band, and sand has to be what you find on them first.
@@ -12273,6 +12420,7 @@ fn default_site_rules() -> Vec<SiteRule> {
             member_water_within: 2,
             ..rule(Terrain::Lowland, CLAY, 24, 2, 3, ANY, 14, 14, 3)
         },
+        rule(Terrain::Hills, CLAY, 12, 2, 3, ANY, 14, 14, 3),
         SiteRule {
             member: vec![Terrain::Lowland, Terrain::Shore],
             member_water_within: 2,
@@ -12309,24 +12457,26 @@ fn default_site_rules() -> Vec<SiteRule> {
 /// distance — the ocean gate decides where a coast is — and crystal is never guaranteed at all.
 const BOOTSTRAP_GUARANTEES: [(ItemId, i32, i32); 7] = [
     // The first extractor and the first thing a player walks into, both in sight of the hub.
-    (IRON_ORE, 9, 14),
-    (WOOD, 9, 14),
+    // Distances are hexes on the 25 m² lattice (~5.37 m), so 9 hexes is a short walk, not a
+    // neighbouring tile.
+    (IRON_ORE, 9, 24),
+    (WOOD, 9, 24),
     // A short walk, chosen rather than stumbled on.
-    (COAL, 15, 25),
-    (STONE, 15, 25),
+    (COAL, 15, 40),
+    (STONE, 15, 40),
     // Carries a river or a shore with it, which is also the first pump site.
-    (CLAY, 15, 25),
+    (CLAY, 15, 40),
     // Binder feedstock: past the opening, before the copper expedition.
-    (LIMESTONE, 18, 32),
+    (LIMESTONE, 18, 48),
     // The second metal is an expedition, not an errand.
-    (COPPER_ORE, 25, 40),
+    (COPPER_ORE, 25, 64),
 ];
 
 /// How far a window is widened, per step and in total, when a seed puts nothing inside it. Past
 /// the cap the world is refused rather than papered over: a preset that cannot bootstrap is the
 /// failure the survey exists to make visible.
-const BOOTSTRAP_WIDEN_STEP: i32 = 8;
-const BOOTSTRAP_WIDEN_CAP: i32 = 40;
+const BOOTSTRAP_WIDEN_STEP: i32 = 12;
+const BOOTSTRAP_WIDEN_CAP: i32 = 96;
 
 /// Make one band's deposits commoner and wider.
 ///
@@ -12568,31 +12718,57 @@ fn site_center(params: &WorldParams, hash: u32, cell: (i32, i32)) -> (i32, i32) 
 /// Whether the coarse elevation octave alone dips below `ocean_level` near a centre — the proxy
 /// `SiteRule::center_ocean` documents. Coarse-octave water is what makes a body big, so a pond
 /// edge, which exists only in the fine octave, fails this and an ocean coast passes.
-fn center_on_ocean(params: &WorldParams, seed: u32, center: (i32, i32)) -> bool {
+fn center_on_ocean(
+    params: &WorldParams,
+    seed: u32,
+    center: (i32, i32),
+    spine: &GroundSpine,
+) -> bool {
     hexes_in_radius(center, OCEAN_PROBE_RADIUS)
         .into_iter()
         .any(|(q, r)| {
-            value_noise(seed, q, r, params.elevation_coarse_cell, 0xA11CE) < params.ocean_level
+            if spine.is_physical() {
+                let ground = spine.generated_at(q, r);
+                ground.bed.get() <= scale::SEA_LEVEL_QUANTA
+                    || ground.hydrology.depth_quanta >= scale::WADE_LIMIT_QUANTA
+            } else {
+                value_noise(seed, q, r, params.elevation_coarse_cell, 0xA11CE) < params.ocean_level
+            }
         })
 }
 
 /// Whether the shore band sits next to a centre — the cheap elevation-cut form of "this is a
 /// beach site". `terrain_at` would also sample cliffs; a water test would also fire on rivers,
 /// which are clay country. Shore is the sandy-looking tiles, and that is the only band asked.
-fn center_on_shore(params: &WorldParams, seed: u32, center: (i32, i32)) -> bool {
+fn center_on_shore(
+    params: &WorldParams,
+    seed: u32,
+    center: (i32, i32),
+    spine: &GroundSpine,
+) -> bool {
     hexes_in_radius(center, SHORE_PROBE_RADIUS)
         .into_iter()
         .any(|(q, r)| {
-            let elevation = elevation_at(params, seed, q, r);
-            elevation >= params.water_level && elevation < params.shore_level
+            if spine.is_physical() {
+                spine.presentation_at(q, r) == Terrain::Shore
+            } else {
+                let elevation = elevation_at(params, seed, q, r);
+                elevation >= params.water_level && elevation < params.shore_level
+            }
         })
 }
 
 /// The rules a centre is eligible for, and the pick among them. Returns an index into the rule
 /// table. `None` means this cell holds no site at all, which is how barren ground stays the common
 /// case.
-fn eligible_rule(params: &WorldParams, seed: u32, hash: u32, center: (i32, i32)) -> Option<usize> {
-    let band = terrain_at(params, seed, center.0, center.1, true);
+fn eligible_rule(
+    params: &WorldParams,
+    seed: u32,
+    hash: u32,
+    center: (i32, i32),
+    spine: &GroundSpine,
+) -> Option<usize> {
+    let band = spine.presentation_at(center.0, center.1);
     let richness = value_noise(
         seed,
         center.0,
@@ -12608,10 +12784,10 @@ fn eligible_rule(params: &WorldParams, seed: u32, hash: u32, center: (i32, i32))
         }
         if rule.center_ocean {
             // Asked at most once per cell, and only for a rule that got this far.
-            return *ocean.get_or_insert_with(|| center_on_ocean(params, seed, center));
+            return *ocean.get_or_insert_with(|| center_on_ocean(params, seed, center, spine));
         }
         if rule.center_shore {
-            return *shore.get_or_insert_with(|| center_on_shore(params, seed, center));
+            return *shore.get_or_insert_with(|| center_on_shore(params, seed, center, spine));
         }
         true
     };
@@ -12639,10 +12815,15 @@ fn eligible_rule(params: &WorldParams, seed: u32, hash: u32, center: (i32, i32))
 
 /// The site a lattice cell holds before the bootstrap pass has its say. A pure function of
 /// `(params, seed, cell)`, which is exactly what lets the lattice be cached.
-fn natural_site(params: &WorldParams, seed: u32, cell: (i32, i32)) -> Option<Site> {
+fn natural_site(
+    params: &WorldParams,
+    seed: u32,
+    cell: (i32, i32),
+    spine: &GroundSpine,
+) -> Option<Site> {
     let hash = site_hash(seed, cell);
     let center = site_center(params, hash, cell);
-    let index = eligible_rule(params, seed, hash, center)?;
+    let index = eligible_rule(params, seed, hash, center, spine)?;
     let rule = &params.site_rules[index];
     let span = rule.radius_max - rule.radius_min + 1;
     Some(Site {
@@ -12659,11 +12840,12 @@ fn natural_site(params: &WorldParams, seed: u32, cell: (i32, i32)) -> Option<Sit
 /// blob and keeps a scree field against its cliffs.
 fn site_covers(
     params: &WorldParams,
-    seed: u32,
+    _seed: u32,
     site: &Site,
     q: i32,
     r: i32,
     band: Terrain,
+    spine: &GroundSpine,
 ) -> Option<i32> {
     let distance = axial_distance(site.center, (q, r));
     if distance > site.radius {
@@ -12681,7 +12863,7 @@ fn site_covers(
     if rule.member_water_within > 0
         && !hexes_in_radius((q, r), rule.member_water_within as i32)
             .into_iter()
-            .any(|(cell_q, cell_r)| is_water_at(params, seed, cell_q, cell_r))
+            .any(|(cell_q, cell_r)| spine.wet_at(cell_q, cell_r))
     {
         return None;
     }
@@ -12704,7 +12886,11 @@ fn site_covers(
 /// Derived state on the same terms as the site cache: recomputed from `(params, seed)`, never
 /// saved, never hashed. The free function is shared by `Core`, the survey, and the balance report,
 /// so a surveyed world and a played world cannot disagree about the opening.
-fn bootstrap_sites(params: &WorldParams, seed: u32) -> (BootstrapTable, Vec<(ItemId, i32)>) {
+fn bootstrap_sites(
+    params: &WorldParams,
+    seed: u32,
+    spine: &GroundSpine,
+) -> (BootstrapTable, Vec<(ItemId, i32)>) {
     let mut claimed: BootstrapTable = BTreeMap::new();
     let mut unmet = Vec::new();
     let cells = bootstrap_cells(params, seed);
@@ -12715,7 +12901,7 @@ fn bootstrap_sites(params: &WorldParams, seed: u32) -> (BootstrapTable, Vec<(Ite
                 if claimed.contains_key(&cell) {
                     return None;
                 }
-                let index = bootstrap_rule(params, seed, center, item_id)?;
+                let index = bootstrap_rule(params, seed, center, item_id, spine)?;
                 let site = Site {
                     center,
                     rule: index,
@@ -12725,7 +12911,8 @@ fn bootstrap_sites(params: &WorldParams, seed: u32) -> (BootstrapTable, Vec<(Ite
                 if edge < floor || edge > reach {
                     return None;
                 }
-                (member_hexes(params, seed, &site) >= WORKABLE_PATCH_HEXES).then_some((cell, site))
+                (member_hexes(params, seed, &site, spine) >= WORKABLE_PATCH_HEXES)
+                    .then_some((cell, site))
             });
             if let Some(found) = found {
                 break Some(found);
@@ -12781,25 +12968,26 @@ fn bootstrap_rule(
     seed: u32,
     center: (i32, i32),
     item_id: ItemId,
+    spine: &GroundSpine,
 ) -> Option<usize> {
-    let band = terrain_at(params, seed, center.0, center.1, true);
+    let band = spine.presentation_at(center.0, center.1);
     params.site_rules.iter().position(|rule| {
         rule.weight > 0
             && rule.item_id == item_id
             && rule.terrain == band
-            && (!rule.center_ocean || center_on_ocean(params, seed, center))
-            && (!rule.center_shore || center_on_shore(params, seed, center))
+            && (!rule.center_ocean || center_on_ocean(params, seed, center, spine))
+            && (!rule.center_shore || center_on_shore(params, seed, center, spine))
     })
 }
 
 /// How many hexes a site actually admits once its member test has clipped the disc. A guarantee
 /// that lands a highland rule on a peak with nothing around it is not a guarantee, so the
 /// bootstrap pass asks this before it claims a cell.
-fn member_hexes(params: &WorldParams, seed: u32, site: &Site) -> u32 {
+fn member_hexes(params: &WorldParams, seed: u32, site: &Site, spine: &GroundSpine) -> u32 {
     hexes_in_radius(site.center, site.radius)
         .into_iter()
         .filter(|&(q, r)| {
-            !is_water_at(params, seed, q, r)
+            !spine.wet_at(q, r)
                 && axial_distance((0, 0), (q, r)) > LANDING_CLEAR_RADIUS
                 && site_covers(
                     params,
@@ -12807,7 +12995,8 @@ fn member_hexes(params: &WorldParams, seed: u32, site: &Site) -> u32 {
                     site,
                     q,
                     r,
-                    terrain_at(params, seed, q, r, true),
+                    spine.presentation_at(q, r),
+                    spine,
                 )
                 .is_some()
         })
@@ -12837,10 +13026,14 @@ fn bootstrap_bands(params: &WorldParams, item_id: ItemId) -> Vec<Terrain> {
 /// the world holds no such ground near the landing site and no seed will find any; a band that is
 /// in here means the ground exists and the guarantee failed on room, distance, or a patch too
 /// small — which is a different sentence and a different fix.
-fn bootstrap_band_census(params: &WorldParams, seed: u32) -> BTreeSet<Terrain> {
+fn bootstrap_band_census(
+    params: &WorldParams,
+    seed: u32,
+    spine: &GroundSpine,
+) -> BTreeSet<Terrain> {
     bootstrap_cells(params, seed)
         .iter()
-        .map(|&(_, _, center)| terrain_at(params, seed, center.0, center.1, true))
+        .map(|&(_, _, center)| spine.presentation_at(center.0, center.1))
         .collect()
 }
 
@@ -12848,7 +13041,8 @@ fn bootstrap_band_census(params: &WorldParams, seed: u32) -> BTreeSet<Terrain> {
 /// judged on. Every suggestion below is put through it, so nothing is offered on the strength of
 /// the reasoning that produced it.
 fn bootstraps(params: &WorldParams, seed: u32) -> bool {
-    bootstrap_sites(params, seed).1.is_empty()
+    let spine = GroundSpine::physical(params, seed, true);
+    bootstrap_sites(params, seed, &spine).1.is_empty()
 }
 
 /// The share of the opening a band is widened to when a guarantee cannot find it. A starting point
@@ -12890,7 +13084,8 @@ const REPAIR_LADDER: [&[RepairMove]; 4] = [
 /// outer loop because it is the knob a repair would rather not touch — a player who set it to an
 /// expedition per material meant it — so everything else is tried at their spacing first.
 fn repair_params(params: &WorldParams, seed: u32) -> Option<WorldParams> {
-    let unmet = bootstrap_sites(params, seed).1;
+    let spine = GroundSpine::physical(params, seed, true);
+    let unmet = bootstrap_sites(params, seed, &spine).1;
     let mut needed: Vec<Terrain> = unmet
         .iter()
         .flat_map(|&(item_id, _)| bootstrap_bands(params, item_id))
@@ -13058,8 +13253,8 @@ struct WorldFields {
 }
 
 impl WorldFields {
-    fn new(params: &WorldParams, seed: u32) -> Self {
-        let (bootstrap, unmet) = bootstrap_sites(params, seed);
+    fn new(params: &WorldParams, seed: u32, spine: &GroundSpine) -> Self {
+        let (bootstrap, unmet) = bootstrap_sites(params, seed, spine);
         let radius_max = params
             .site_rules
             .iter()
@@ -13076,22 +13271,22 @@ impl WorldFields {
         }
     }
 
-    fn site_at(&self, cell: (i32, i32)) -> Option<Site> {
+    fn site_at(&self, cell: (i32, i32), spine: &GroundSpine) -> Option<Site> {
         if let Some(&site) = self.sites.borrow().get(&cell) {
             return site;
         }
-        let site = self.site_uncached(cell);
+        let site = self.site_uncached(cell, spine);
         self.sites.borrow_mut().insert(cell, site);
         site
     }
 
     /// The same answer with the cache bypassed. The survey and the tests call the generator without
     /// a warm lattice, and one test asserts the two paths agree over a disc.
-    fn site_uncached(&self, cell: (i32, i32)) -> Option<Site> {
+    fn site_uncached(&self, cell: (i32, i32), spine: &GroundSpine) -> Option<Site> {
         self.bootstrap
             .get(&cell)
             .copied()
-            .or_else(|| natural_site(&self.params, self.seed, cell))
+            .or_else(|| natural_site(&self.params, self.seed, cell, spine))
     }
 
     /// What the bootstrap pass actually placed, per guaranteed material: the walk from the landing
@@ -13099,20 +13294,26 @@ impl WorldFields {
     /// test has clipped it. A guarantee the pass gave up on is simply absent, which is the shape
     /// every caller wants — the survey prints it as `none` and `Core::new` refuses the world.
     #[cfg(not(target_arch = "wasm32"))]
-    fn guarantees(&self) -> Vec<(ItemId, u32, u32)> {
+    fn guarantees(&self, spine: &GroundSpine) -> Vec<(ItemId, u32, u32)> {
         self.bootstrap
             .values()
             .map(|site| {
                 (
                     self.params.site_rules[site.rule].item_id,
                     (axial_distance((0, 0), site.center) - site.radius).max(0) as u32,
-                    member_hexes(&self.params, self.seed, site),
+                    member_hexes(&self.params, self.seed, site, spine),
                 )
             })
             .collect()
     }
 
-    fn field_at(&self, q: i32, r: i32, generated_environment: bool) -> Option<ResourceState> {
+    fn field_at(
+        &self,
+        q: i32,
+        r: i32,
+        generated_environment: bool,
+        spine: &GroundSpine,
+    ) -> Option<ResourceState> {
         if !generated_environment {
             return None;
         }
@@ -13123,10 +13324,10 @@ impl WorldFields {
         }
         // No rule may name a water band — `validate` refuses one that tries — so the cheap water
         // test comes before the lattice scan and before the seven elevations a band costs.
-        if is_water_at(&self.params, self.seed, q, r) {
+        if spine.wet_at(q, r) {
             return None;
         }
-        let band = terrain_at(&self.params, self.seed, q, r, true);
+        let band = spine.presentation_at(q, r);
         let cell = (
             floor_div(q, self.params.site_cell),
             floor_div(r, self.params.site_cell),
@@ -13135,10 +13336,12 @@ impl WorldFields {
         for step_q in -self.reach..=self.reach {
             for step_r in -self.reach..=self.reach {
                 let candidate = (cell.0 + step_q, cell.1 + step_r);
-                let Some(site) = self.site_at(candidate) else {
+                let Some(site) = self.site_at(candidate, spine) else {
                     continue;
                 };
-                let Some(distance) = site_covers(&self.params, self.seed, &site, q, r, band) else {
+                let Some(distance) =
+                    site_covers(&self.params, self.seed, &site, q, r, band, spine)
+                else {
                     continue;
                 };
                 // Nearest centre wins, and the lattice cell breaks the tie. Ties must be broken
@@ -13564,10 +13767,13 @@ pub mod capacity {
             lines,
             belt_span: 6,
             // Long enough for the first components to reach the consumer, so every tier is timed
-            // with cargo actually moving. Extraction sets this floor: a tier-one extractor spends
-            // 30 ticks on one ore and a component eats two, so the first delivery cannot happen
-            // before 60 ticks of digging plus the belt run and the craft.
-            warmup_ticks: 150,
+            // with cargo actually moving. The belt run sets this floor now that a hex of belt is
+            // 5.37 m of conveyor: eight belts at `BELT_TRANSIT_TICKS` is 216 ticks of travel on its
+            // own, on top of the 30 ticks a tier-one extractor spends on one ore and the craft
+            // between them. The measured window is unchanged, and so is what it measures — the line
+            // is extraction-bound either way — but it now starts after a longer pipeline has
+            // filled.
+            warmup_ticks: 400,
             measured_ticks,
             frames,
             snapshots,
@@ -14399,7 +14605,8 @@ pub mod survey {
             serde_json::from_str(DEFINITIONS).expect("shipped definitions parse");
         // The survey and a played world share one evaluator, so a surveyed world and a played one
         // cannot disagree about either the lattice or the opening.
-        let fields = WorldFields::new(params, seed);
+        let spine = GroundSpine::physical(params, seed, true);
+        let fields = WorldFields::new(params, seed, &spine);
         let cells: Vec<(i32, i32)> = disc(radius);
         let mut bands: BTreeMap<Terrain, u32> = BTreeMap::new();
         let mut terrain_of: BTreeMap<(i32, i32), Terrain> = BTreeMap::new();
@@ -14408,7 +14615,7 @@ pub mod survey {
         let mut found: BTreeMap<ItemId, (u32, u32, u32)> = BTreeMap::new();
         let mut field_of: BTreeMap<(i32, i32), (ItemId, u32)> = BTreeMap::new();
         for &(q, r) in &cells {
-            let terrain = terrain_at(params, seed, q, r, true);
+            let terrain = spine.presentation_at(q, r);
             terrain_of.insert((q, r), terrain);
             *bands.entry(terrain).or_default() += 1;
             if !terrain.is_water() {
@@ -14416,7 +14623,7 @@ pub mod survey {
             } else if is_survey_river(params, seed, q, r) {
                 river_cells.insert((q, r));
             }
-            if let Some((item_id, quantity)) = surveyed_field(&fields, q, r) {
+            if let Some((item_id, quantity)) = surveyed_field(&fields, &spine, q, r) {
                 field_of.insert((q, r), (item_id, quantity));
                 let distance = axial_distance((0, 0), (q, r)) as u32;
                 let entry = found.entry(item_id).or_insert((0, u32::MAX, 0));
@@ -14435,7 +14642,7 @@ pub mod survey {
             })
             .collect();
         let (water, body_of) = water_shape(&terrain_of, &river_cells, radius);
-        let (totals, pure_hexes) = patch_shape(&fields, &field_of, &body_of, radius);
+        let (totals, pure_hexes) = patch_shape(&fields, &spine, &field_of, &body_of, radius);
         let name_of = |item_id: ItemId| {
             definitions
                 .items
@@ -14501,16 +14708,21 @@ pub mod survey {
             purity_per_mille: per_mille(pure_hexes, field_of.len() as u32),
             water,
             rivers: river_shape(&river_cells),
-            bootstrap: bootstrap_rows(&fields, &name_of),
+            bootstrap: bootstrap_rows(&fields, &spine, &name_of),
         }
     }
 
     /// What the survey counts as a generated cell. The clearing is a promise, not geography, so it
     /// is no evidence about what a parameter set generates — `field_at` already suppresses it, and
     /// the guaranteed opening is reported on its own in `bootstrap`.
-    fn surveyed_field(fields: &WorldFields, q: i32, r: i32) -> Option<(ItemId, u32)> {
+    fn surveyed_field(
+        fields: &WorldFields,
+        spine: &GroundSpine,
+        q: i32,
+        r: i32,
+    ) -> Option<(ItemId, u32)> {
         fields
-            .field_at(q, r, true)
+            .field_at(q, r, true, spine)
             .map(|field| (field.item_id, field.quantity))
     }
 
@@ -14560,10 +14772,11 @@ pub mod survey {
     /// to each guaranteed patch, and how much of it survived the member clipping.
     fn bootstrap_rows(
         fields: &WorldFields,
+        spine: &GroundSpine,
         name_of: &dyn Fn(ItemId) -> String,
     ) -> Vec<BootstrapRow> {
         let placed: BTreeMap<ItemId, (u32, u32)> = fields
-            .guarantees()
+            .guarantees(spine)
             .into_iter()
             .map(|(item_id, walk, hexes)| (item_id, (walk, hexes)))
             .collect();
@@ -14587,6 +14800,7 @@ pub mod survey {
     /// rim is judged against its real neighbours rather than against a sample boundary.
     fn patch_shape(
         fields: &WorldFields,
+        spine: &GroundSpine,
         field_of: &BTreeMap<(i32, i32), (ItemId, u32)>,
         body_of: &BTreeMap<(i32, i32), u32>,
         radius: i32,
@@ -14655,7 +14869,8 @@ pub mod survey {
         let mut pure_hexes = 0u32;
         for (&(q, r), &(item_id, _)) in field_of {
             let mixed = DIRECTIONS.iter().any(|&(dq, dr)| {
-                surveyed_field(fields, q + dq, r + dr).is_some_and(|(other, _)| other != item_id)
+                surveyed_field(fields, spine, q + dq, r + dr)
+                    .is_some_and(|(other, _)| other != item_id)
             });
             if !mixed {
                 pure_hexes += 1;
@@ -14871,6 +15086,16 @@ mod tests {
     const DEFINITIONS: &str = include_str!("../../src/data/definitions.json");
     const TECHNOLOGIES: &str = include_str!("../../src/data/technologies.json");
     const SCENARIOS: &str = include_str!("../../src/data/scenarios.json");
+
+    fn assert_refused_as_legacy_scale(result: Result<Core, String>) {
+        match result {
+            Ok(_) => panic!("1 m² saves cannot load after the scale break"),
+            Err(err) => assert!(
+                err.contains("one square metre"),
+                "expected a scale-break refusal, got {err}"
+            ),
+        }
+    }
 
     fn catalogs() -> (DefinitionsInput, TechnologiesInput, ScenariosInput) {
         let definitions = serde_json::from_str(DEFINITIONS).unwrap();
@@ -15574,6 +15799,7 @@ mod tests {
             disabled: false,
             route_cursor: 0,
             merge_cursor: 0,
+            lane: Vec::new(),
         });
         id
     }
@@ -15940,7 +16166,8 @@ mod tests {
     fn a_refused_world_names_the_ground_its_materials_wanted() {
         let factory = test_factory("new-game");
         let params = drowned_params(&factory.core.world_params);
-        let (_, unmet) = bootstrap_sites(&params, 7);
+        let spine = GroundSpine::physical(&params, 7, true);
+        let (_, unmet) = bootstrap_sites(&params, 7, &spine);
         assert!(
             !unmet.is_empty(),
             "drowning the highlands has to refuse the world"
@@ -15978,7 +16205,8 @@ mod tests {
                 ..base.clone()
             },
         ] {
-            let (_, unmet) = bootstrap_sites(&params, 7);
+            let spine = GroundSpine::physical(&params, 7, true);
+            let (_, unmet) = bootstrap_sites(&params, 7, &spine);
             let unmet: Vec<ItemId> = unmet.iter().map(|&(item_id, _)| item_id).collect();
             assert!(!unmet.is_empty());
             let (_, repair) = factory.preview_diagnosis(&params, 7, &unmet);
@@ -16060,7 +16288,7 @@ mod tests {
         // in different orders. Every cell they both hold has to agree, and the cached answer has
         // to be the uncached one — the two halves of "derived state, and derived from what".
         for (&cell, &site) in a.fields.sites.borrow().iter() {
-            assert_eq!(site, a.fields.site_uncached(cell));
+            assert_eq!(site, a.fields.site_uncached(cell, &a.ground_spine));
             if let Some(&other) = b.fields.sites.borrow().get(&cell) {
                 assert_eq!(site, other);
             }
@@ -16073,19 +16301,23 @@ mod tests {
     fn the_site_cache_answers_exactly_what_the_uncached_generator_does() {
         let params = preset_params("continental").unwrap();
         let seed = survey::default_seed();
-        let warm = WorldFields::new(&params, seed);
+        let spine = GroundSpine::physical(&params, seed, true);
+        let warm = WorldFields::new(&params, seed, &spine);
         for (q, r) in hexes_in_radius((14, -9), 24) {
-            let cold = WorldFields::new(&params, seed);
+            let cold = WorldFields::new(&params, seed, &spine);
             assert_eq!(
-                warm.field_at(q, r, true),
-                cold.field_at(q, r, true),
+                warm.field_at(q, r, true, &spine),
+                cold.field_at(q, r, true, &spine),
                 "the cache changed the world at {q},{r}"
             );
             let cell = (
                 floor_div(q, params.site_cell),
                 floor_div(r, params.site_cell),
             );
-            assert_eq!(warm.site_at(cell), warm.site_uncached(cell));
+            assert_eq!(
+                warm.site_at(cell, &spine),
+                warm.site_uncached(cell, &spine)
+            );
         }
         // And the cheap water test the fast path opens with agrees with the band decision it
         // skips, clearing included. If it ever did not, `field_at` would drop deposits silently.
@@ -16203,11 +16435,11 @@ mod tests {
                 if axial_distance((0, 0), (q, r)) <= LANDING_CLEAR_RADIUS {
                     continue;
                 }
-                let terrain = terrain_at(&core.world_params, core.seed, q, r, true);
+                let terrain = core.terrain_at(q, r);
                 if !terrain.is_water() {
                     land += 1;
                 }
-                if let Some(field) = core.fields.field_at(q, r, true) {
+                if let Some(field) = core.fields.field_at(q, r, true, &core.ground_spine) {
                     fields += 1;
                     seen.entry(terrain).or_default().insert(field.item_id);
                 }
@@ -16268,11 +16500,11 @@ mod tests {
                 if axial_distance((0, 0), (q, r)) <= LANDING_CLEAR_RADIUS {
                     continue;
                 }
-                if terrain_at(&core.world_params, core.seed, q, r, true) != Terrain::Shore {
+                if core.terrain_at(q, r) != Terrain::Shore {
                     continue;
                 }
                 shore += 1;
-                let Some(field) = core.fields.field_at(q, r, true) else {
+                let Some(field) = core.fields.field_at(q, r, true, &core.ground_spine) else {
                     continue;
                 };
                 match field.item_id {
@@ -16664,7 +16896,8 @@ mod tests {
         for preset in world_presets() {
             for step in 0..10u32 {
                 let seed = survey::default_seed().wrapping_add(step.wrapping_mul(0x9E3779B1));
-                let fields = WorldFields::new(&preset.params, seed);
+                let spine = GroundSpine::physical(&preset.params, seed, true);
+                let fields = WorldFields::new(&preset.params, seed, &spine);
                 assert!(
                     fields.unmet.is_empty(),
                     "preset {} on seed {seed} cannot place {:?}",
@@ -16672,7 +16905,7 @@ mod tests {
                     fields.unmet
                 );
                 let placed: BTreeMap<ItemId, (u32, u32)> = fields
-                    .guarantees()
+                    .guarantees(&spine)
                     .into_iter()
                     .map(|(item_id, walk, hexes)| (item_id, (walk, hexes)))
                     .collect();
@@ -16808,25 +17041,26 @@ mod tests {
     fn a_site_is_richest_at_its_core() {
         let params = preset_params("continental").unwrap();
         let seed = survey::default_seed();
-        let fields = WorldFields::new(&params, seed);
+        let spine = GroundSpine::physical(&params, seed, true);
+        let fields = WorldFields::new(&params, seed, &spine);
         let mut compared = 0u32;
         let mut core_wins = 0u32;
         for cell in (-8..8).flat_map(|q| (-8..8).map(move |r| (q, r))) {
-            let Some(site) = fields.site_at(cell) else {
+            let Some(site) = fields.site_at(cell, &spine) else {
                 continue;
             };
             let rule = &params.site_rules[site.rule];
             if rule.yield_core == rule.yield_rim || site.radius < 2 {
                 continue;
             }
-            let Some(center) = fields.field_at(site.center.0, site.center.1, true) else {
+            let Some(center) = fields.field_at(site.center.0, site.center.1, true, &spine) else {
                 continue;
             };
             for rim in hexes_in_radius(site.center, site.radius)
                 .into_iter()
                 .filter(|&cell| axial_distance(site.center, cell) == site.radius)
             {
-                let Some(edge) = fields.field_at(rim.0, rim.1, true) else {
+                let Some(edge) = fields.field_at(rim.0, rim.1, true, &spine) else {
                     continue;
                 };
                 if edge.item_id != center.item_id {
@@ -17914,21 +18148,12 @@ mod tests {
             1,
         );
         let (definitions, _, _) = catalogs();
-        let mut restored = Core::from_save(&definitions, &technologies, &scenarios, &json).unwrap();
-        assert_eq!(old.entities, restored.entities);
-        assert_eq!(old.insight, restored.insight);
-        let old_belts: BTreeSet<_> = old
-            .entities
-            .iter()
-            .filter(|entity| entity.kind == BuildingKind::Belt)
-            .map(|entity| entity.id)
-            .collect();
-        assert_eq!(restored.legacy_fluid_belts, old_belts);
-        old.legacy_fluid_belts = old_belts;
-        assert_eq!(old.checksum(), restored.checksum());
-        old.tick_many(97);
-        restored.tick_many(97);
-        assert_eq!(old.checksum(), restored.checksum());
+        assert_refused_as_legacy_scale(Core::from_save(
+            &definitions,
+            &technologies,
+            &scenarios,
+            &json,
+        ));
     }
 
     /// Essential and industrial stations are billed in manufactured parts, and erase hands back
@@ -18421,15 +18646,15 @@ mod tests {
         assert_eq!(Factory::player_ticks_per_second(), PLAYER_TICKS_PER_SECOND);
     }
 
-    /// A hexagon is 1 m², the walk is 3 m/s, the run is 5 m/s. Native stores one step size — the
+    /// A hexagon is 25 m², the walk is 3 m/s, the run is 5 m/s. Native stores one step size — the
     /// run, at intent 1000 — and the host sends 600 for the walk, which is exactly 3/5 of full
-    /// intent. The metre itself is neighbour spacing: `HEX_X` world units = √(2/√3) m.
+    /// intent. Neighbour spacing is still `HEX_X` world units, now read as 5.373 m.
     #[test]
     fn walk_is_three_metres_a_second_and_run_is_five() {
         const WALK_INTENT: i32 = 600;
         let walk = WALK_INTENT * PLAYER_SPEED / 1000;
         assert_eq!(walk * 5, PLAYER_SPEED * 3);
-        assert_eq!(PLAYER_SPEED, 275);
+        assert_eq!(PLAYER_SPEED, 55);
     }
 
     /// Build a wall out of containers, standing next to each cell so the test is about the route
@@ -20769,13 +20994,14 @@ mod tests {
             core.entities
                 .iter()
                 .map(|entity| {
-                    u64::from(
-                        entity
-                            .cargo
-                            .filter(|cargo| cargo.item_id == item)
-                            .map(|cargo| cargo.quantity)
-                            .unwrap_or(0),
-                    ) + u64::from(entity.inventory.get(&item).copied().unwrap_or(0))
+                    // Everything the belt is holding, not only its exit slot: an item halfway along
+                    // a lane is still in the factory, and leaving it out would make the conveyor
+                    // look like a place where timber goes missing.
+                    Core::belt_contents(entity)
+                        .filter(|cargo| cargo.item_id == item)
+                        .map(|cargo| u64::from(cargo.quantity))
+                        .sum::<u64>()
+                        + u64::from(entity.inventory.get(&item).copied().unwrap_or(0))
                         + u64::from(entity.input_inventory.get(&item).copied().unwrap_or(0))
                         + u64::from(entity.fuel_inventory.get(&item).copied().unwrap_or(0))
                         + u64::from(entity.output_inventory.get(&item).copied().unwrap_or(0))
@@ -20963,16 +21189,18 @@ mod tests {
         assert_eq!(core.entities[container].cargo, before);
     }
 
-    /// An item crosses a belt line one hex per tick, and rests on each belt on its way.
+    /// An item takes a whole belt's worth of time to cross a belt, and rests on that one belt for
+    /// every tick of it.
     ///
     /// The line here is built the way every line is built — from the source outward — which makes
     /// ascending entity id run in flow order, which is exactly the arrangement that used to carry
-    /// an item from the first belt to the last inside a single tick. Three things were wrong with
-    /// that at once: a line's length cost the factory nothing, no belt ever reported `Carrying`,
-    /// and the cargo the renderer draws travelling between two hexes never existed at a tick
-    /// boundary for it to draw. The assertion is the resting place, not the arrival.
+    /// an item from the first belt to the last inside a single tick. A hex of belt is 5.37 m of
+    /// conveyor now, and a conveyor moving two metres a second takes [`BELT_TRANSIT_TICKS`] to get
+    /// an item across it. The assertion is that the item is on exactly one belt for every one of
+    /// those ticks: in the lane while it travels, in the exit slot once it has arrived, never in
+    /// two places and never in none.
     #[test]
-    fn an_item_crosses_one_belt_a_tick_and_rests_on_each_one() {
+    fn an_item_takes_a_whole_belt_to_cross_a_belt_and_rests_on_each_one() {
         let mut core = empty_world("new-game");
         let first = add_test_belt(&mut core, 0, 0, 0);
         let second = add_test_belt(&mut core, 1, 0, 0);
@@ -20983,29 +21211,146 @@ mod tests {
         assert_eq!(link_ids(&core, second), vec![third]);
         assert_eq!(link_ids(&core, third), vec![sink]);
 
-        let carrying = |core: &Core| -> Vec<u32> {
+        let holding = |core: &Core| -> Vec<u32> {
             [first, second, third]
                 .into_iter()
-                .filter(|&id| core.entities[index_of(core, id)].cargo.is_some())
+                .filter(|&id| {
+                    let entity = &core.entities[index_of(core, id)];
+                    entity.cargo.is_some() || !entity.lane.is_empty()
+                })
                 .collect()
         };
 
         put_cargo(&mut core, first, 1);
         for expected in [second, third] {
-            core.transfer_cargo();
-            assert_eq!(
-                carrying(&core),
-                vec![expected],
-                "one belt a tick, and on exactly one belt while it crosses"
-            );
+            for step in 0..BELT_TRANSIT_TICKS {
+                core.transfer_cargo();
+                core.tick += 1;
+                assert_eq!(
+                    holding(&core),
+                    vec![expected],
+                    "the hand-on is immediate and the crossing that follows is not (step {step})"
+                );
+            }
         }
         core.transfer_cargo();
-        assert!(carrying(&core).is_empty());
+        assert!(holding(&core).is_empty());
         assert_eq!(
             core.entities[index_of(&core, sink)].inventory.get(&1),
             Some(&1),
             "and three belts later it arrives"
         );
+    }
+
+    /// A belt line carries what its speed and its item spacing say it carries, and no faster.
+    ///
+    /// The measurement is taken at the *end* of a line rather than at the start, because the number
+    /// that matters to a factory is what comes off a belt, not what a source can be persuaded to
+    /// push onto one. A container feeding as fast as it is allowed to, across a line long enough
+    /// for the head to have filled, delivers one item every [`BELT_SLOT_TICKS`] — which is
+    /// [`scale::belt_items_per_minute`], which is exactly one extractor's output. That ratio is
+    /// derived rather than tuned: see `scale::belt_cadence_follows_from_speed_and_spacing`.
+    #[test]
+    fn a_belt_line_carries_one_extractors_worth_and_no_more() {
+        let mut core = empty_world("new-game");
+        let source = add_test_entity(&mut core, 0, 0, 4, 0);
+        let belts: Vec<u32> = (1..=4).map(|q| add_test_belt(&mut core, q, 0, 0)).collect();
+        add_test_entity(&mut core, 5, 0, 5, 0);
+        core.compile_graph();
+        let source_index = index_of(&core, source);
+        core.entities[source_index].inventory.insert(1, 10_000);
+
+        // Long enough for the head of the line to have filled and the rate to have settled.
+        let warmup = BELT_TRANSIT_TICKS * (belts.len() as u64 + 2);
+        for _ in 0..warmup {
+            core.transfer_cargo();
+            core.tick += 1;
+        }
+        let before = core.delivered;
+        let minute = u64::from(scale::TICKS_PER_SECOND as u32) * 60;
+        for _ in 0..minute {
+            core.transfer_cargo();
+            core.tick += 1;
+        }
+        assert_eq!(
+            core.delivered - before,
+            scale::belt_items_per_minute() as u64
+        );
+    }
+
+    /// A blocked belt backs up to exactly the number of items that fit along it, and stops.
+    ///
+    /// This is the other half of the cadence: the lane is a length of conveyor, not a queue, so it
+    /// holds what fits and refuses the rest back up the line. A belt that took an unbounded queue
+    /// would swallow a jammed factory's whole production and hand it over in one burst when the jam
+    /// cleared.
+    #[test]
+    fn a_blocked_belt_holds_what_fits_along_it_and_refuses_the_rest() {
+        let mut core = empty_world("new-game");
+        let source = add_test_entity(&mut core, 0, 0, 4, 0);
+        let belt = add_test_belt(&mut core, 1, 0, 0);
+        core.compile_graph();
+        let source_index = index_of(&core, source);
+        core.entities[source_index].inventory.insert(1, 100);
+
+        // The belt points at nothing, so nothing ever leaves it.
+        for _ in 0..BELT_TRANSIT_TICKS * 10 {
+            core.transfer_cargo();
+            core.tick += 1;
+        }
+        let index = index_of(&core, belt);
+        let held =
+            core.entities[index].lane.len() + usize::from(core.entities[index].cargo.is_some());
+        assert_eq!(held, BELT_LANE_SLOTS);
+        assert_eq!(
+            core.entities[source_index].inventory.get(&1),
+            Some(&(100 - BELT_LANE_SLOTS as u32)),
+            "and the rest never left the source"
+        );
+    }
+
+    /// What a belt is carrying survives a save, and so does where along the belt it is.
+    ///
+    /// A lane item holds the tick it stepped on rather than a countdown, which is only sound
+    /// because the tick it is measured against is saved too. If either half were dropped, a
+    /// reloaded factory would either teleport a half-crossed line to its far end or strand it: this
+    /// asserts the crossing resumes exactly where it stopped, by checking the arrival tick rather
+    /// than merely the item count.
+    #[test]
+    fn a_belts_lane_survives_a_save_with_its_crossing_intact() {
+        let mut core = empty_world("new-game");
+        let source = add_test_entity(&mut core, 0, 0, 4, 0);
+        let belt = add_test_belt(&mut core, 1, 0, 0);
+        add_test_entity(&mut core, 2, 0, 5, 0);
+        core.compile_graph();
+        let source_index = index_of(&core, source);
+        core.entities[source_index].inventory.insert(1, 3);
+
+        // Far enough in for the crossing to be visibly unfinished.
+        for _ in 0..BELT_TRANSIT_TICKS / 2 {
+            core.transfer_cargo();
+            core.tick += 1;
+        }
+        let lane = core.entities[index_of(&core, belt)].lane.clone();
+        assert!(!lane.is_empty(), "something is mid-crossing to save");
+
+        let save = core.save_string().unwrap();
+        let (definitions, technologies, scenarios) = catalogs();
+        let mut restored = Core::from_save(&definitions, &technologies, &scenarios, &save).unwrap();
+        assert_eq!(restored.tick, core.tick);
+        assert_eq!(restored.entities[index_of(&restored, belt)].lane, lane);
+        assert_eq!(restored.checksum(), core.checksum());
+
+        // And both run on to the same delivery on the same tick.
+        for _ in 0..BELT_TRANSIT_TICKS * 3 {
+            core.transfer_cargo();
+            core.tick += 1;
+            restored.transfer_cargo();
+            restored.tick += 1;
+            assert_eq!(restored.delivered, core.delivered);
+        }
+        assert!(core.delivered > 0, "and the line does deliver");
+        assert_eq!(restored.checksum(), core.checksum());
     }
 
     #[test]
@@ -21032,13 +21377,19 @@ mod tests {
             quantity: 1,
         };
         core.entities[first].cargo = Some(cargo);
+        // A full belt downstream, not merely an occupied one: a single item on the next belt is no
+        // longer a jam now that a belt is five metres of conveyor with room for five things on it.
         core.entities[second].cargo = Some(cargo);
+        core.entities[second].lane = (1..BELT_LANE_SLOTS)
+            .map(|_| LaneItem { cargo, entered: 0 })
+            .collect();
         assert_eq!(
             core.status_of(first, true, true, true, false),
             EntityStatus::OutputBlocked
         );
 
         core.entities[second].cargo = None;
+        core.entities[second].lane.clear();
         assert_eq!(
             core.status_of(first, true, true, true, false),
             EntityStatus::Carrying
@@ -21759,12 +22110,15 @@ mod tests {
                 "\"save_version\":16",
                 1,
             );
-        let migrated = Core::from_save(&definitions, &technologies, &scenarios, &previous_envelope)
-            .expect("a version-16 envelope migrates forward");
+        assert_refused_as_legacy_scale(Core::from_save(
+            &definitions,
+            &technologies,
+            &scenarios,
+            &previous_envelope,
+        ));
         let baseline =
             Core::from_save(&definitions, &technologies, &scenarios, &previous_source).unwrap();
-        assert_eq!(migrated.checksum(), baseline.checksum());
-        assert_eq!(migrated.player.walk_goal, None);
+        assert_eq!(baseline.player.walk_goal, None);
         // Everything older still is. There is no migration for it, and reading one as a newer
         // spelling of the same thing is exactly what the boundary refuses to do.
         let unmigratable = save.replacen(
@@ -21894,6 +22248,7 @@ mod tests {
             revision: 1,
             tick: 0,
             checksum: 0,
+            belt_transit_ticks: BELT_TRANSIT_TICKS as u32,
             scenario: None,
             scenario_name: None,
             world_version: None,
@@ -22204,6 +22559,7 @@ mod tests {
                         recipe_id: None,
                         scenario_owned: false,
                         cargo: None,
+                        lane: Vec::new(),
                         inventory: Vec::new(),
                         input_inventory: Vec::new(),
                         fuel_inventory: Vec::new(),
@@ -22227,6 +22583,65 @@ mod tests {
                         branch_ids: Vec::new(),
                         footprint: vec![Coordinate { q: 2, r: 0 }],
                     },
+                    // A belt mid-run: one item finished crossing and waiting at the exit, three
+                    // more strung out behind it, and the last of those stepped on so long ago that
+                    // its elapsed count needs a second byte — the jammed lane the cadence exists
+                    // to make visible. Its lane flag is the highest entity bit there is, so this
+                    // is also the widest flag field the encoder writes.
+                    EntitySnapshot {
+                        id: 12,
+                        q: 3,
+                        r: 0,
+                        definition_id: 2,
+                        kind: BuildingKind::Belt,
+                        orientation: 3,
+                        recipe_id: None,
+                        scenario_owned: false,
+                        cargo: Some(Cargo {
+                            item_id: 1,
+                            quantity: 1,
+                        }),
+                        lane: vec![
+                            LaneItem {
+                                cargo: Cargo {
+                                    item_id: 1,
+                                    quantity: 1,
+                                },
+                                entered: 300,
+                            },
+                            LaneItem {
+                                cargo: Cargo {
+                                    item_id: 4,
+                                    quantity: 2,
+                                },
+                                entered: 495,
+                            },
+                            LaneItem {
+                                cargo: Cargo {
+                                    item_id: 1,
+                                    quantity: 1,
+                                },
+                                entered: 512,
+                            },
+                        ],
+                        inventory: Vec::new(),
+                        input_inventory: Vec::new(),
+                        fuel_inventory: Vec::new(),
+                        output_inventory: Vec::new(),
+                        output_routes: Vec::new(),
+                        progress: 0,
+                        progress_total: 0,
+                        fuel_charge: 0,
+                        fuel_required: 0,
+                        power_satisfied: 0,
+                        power_demand: 0,
+                        power_charge: 0,
+                        power_capacity: 0,
+                        status: EntityStatus::OutputBlocked,
+                        next_id: Some(4_294_967_295),
+                        branch_ids: Vec::new(),
+                        footprint: vec![Coordinate { q: 3, r: 0 }],
+                    },
                     EntitySnapshot {
                         id: 4_294_967_295,
                         q: -1,
@@ -22240,6 +22655,7 @@ mod tests {
                             item_id: 4,
                             quantity: 2,
                         }),
+                        lane: Vec::new(),
                         inventory: vec![
                             Ingredient {
                                 item_id: 1,
@@ -23728,13 +24144,14 @@ mod tests {
                     } else {
                         north
                     };
-                    // The junction is emptied by hand rather than by a second tick of transfers.
-                    // A belt holds what it was handed until the tick after — see `just_received` —
-                    // and this test asks which feeder wins the hex, not how long the cargo then
-                    // spends crossing it. Left full, every round after the first would be answered
-                    // by the junction being occupied instead of by the rotation.
+                    // The junction is emptied by hand rather than by ticks of transfers. What it
+                    // was handed is now on its lane with 5.37 m still to cross, and this test asks
+                    // which feeder wins the hex, not how long the cargo then spends on it. Left
+                    // loaded, every round after the first would be answered by the lane's spacing
+                    // rule instead of by the rotation.
                     let junction_index = index_of(&core, junction);
                     core.entities[junction_index].cargo = None;
+                    core.entities[junction_index].lane.clear();
                     served
                 })
                 .collect::<Vec<u32>>()
@@ -23786,10 +24203,12 @@ mod tests {
 
         put_cargo(&mut core, entrance, 1);
         put_cargo(&mut core, crossed, 3);
-        // Two ticks, because a crossing is two hexes of travel: the entrance hands to its partner,
-        // and the partner delivers on the tick after — the same wait every belt in a line takes.
-        core.transfer_cargo();
-        core.transfer_cargo();
+        // A crossing is two hexes of travel: the entrance hands to its partner at once, and the
+        // partner delivers once the cargo has crossed it — the same wait every belt in a line takes.
+        for _ in 0..=BELT_TRANSIT_TICKS {
+            core.transfer_cargo();
+            core.tick += 1;
+        }
         assert_eq!(
             core.entities[index_of(&core, landing)].inventory.get(&1),
             Some(&1),
@@ -24304,7 +24723,12 @@ mod tests {
         // 1_951_253_762 → 360_047_202 when machines took their physical footprints and the line was
         // respaced around them. The entity count, the chain's hop count and the delivered total did
         // not move — only the empty ground between the machines, and so their coordinates.
-        assert_eq!(first.checksum(), 360_047_202);
+        //
+        // 360_047_202 → 4_171_549_197 when a belt became 5.37 m of conveyor an item takes
+        // `BELT_TRANSIT_TICKS` to cross. The workload's shape, entity count and delivered total did
+        // not move — the line is extraction-bound either way — but the pipeline is eight belts and
+        // 216 ticks longer to fill, so the warmup moved with it and the lanes are now hashed state.
+        assert_eq!(first.checksum(), 4_171_549_197);
         assert_eq!(first.entities.len(), spec.entities() as usize);
         // Every line must be running end to end, or the tiers would measure an idle blueprint.
         // Four per line rather than fourteen: the line is now extraction-bound, because a
@@ -25340,23 +25764,25 @@ mod tests {
         assert_eq!(core.checksum(), checksum);
 
         let lower = ground_edit(3, 0, GroundAction::Lower);
-        for expected in 1..=MAX_GRADE_STEPS {
+        let step = core.grade_step_delta(1) as u64;
+        for n in 1..=3 {
             core.edit_ground(&lower).unwrap();
-            assert_eq!(core.spoil, u64::from(expected as u8));
+            assert_eq!(core.spoil, step * n);
         }
-        assert_eq!(core.ground_elevation_at(3, 0), -i32::from(MAX_GRADE_STEPS));
-        assert!(core
-            .edit_ground(&lower)
-            .unwrap_err()
-            .contains("full 3 steps"));
-        assert_eq!(core.spoil, 3);
+        assert_eq!(core.ground_elevation_at(3, 0), -(step as i32) * 3);
+        assert!(core.edit_ground(&lower).unwrap_err().contains("full"));
+        assert_eq!(core.spoil, step * 3);
 
         // One step of fill spends exactly one step of spoil.
         core.edit_ground(&raise).unwrap();
-        assert_eq!(core.spoil, 2);
-        assert_eq!(core.ground_elevation_at(0, 0), 1);
+        assert_eq!(core.spoil, step * 2);
+        assert_eq!(core.ground_elevation_at(0, 0), step as i32);
         core.undo_ground().unwrap();
-        assert_eq!(core.spoil, 3, "undoing fill returns the spoil it spent");
+        assert_eq!(
+            core.spoil,
+            step * 3,
+            "undoing fill returns the spoil it spent"
+        );
         assert_eq!(core.ground_elevation_at(0, 0), 0);
 
         // Levelling evens onto the first cell of the selection and balances against the ledger.
@@ -25782,7 +26208,7 @@ mod tests {
         assert_eq!(migrated.checksum(), ground_world().checksum());
 
         let mut invalid = core.ground_snapshot();
-        invalid[0].elevation = MAX_GRADE_STEPS + 1;
+        invalid[0].elevation = i16::from(MAX_GRADE_STEPS) + 1;
         assert!(validate_saved_ground(&definitions, &invalid).is_err());
         let mut invalid = core.ground_snapshot();
         invalid[0].surface = 99;

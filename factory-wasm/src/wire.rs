@@ -107,7 +107,13 @@ pub(crate) const WIRE_MAGIC: [u8; 4] = *b"HXFD";
 /// flag so a newly surveyed chunk travels once instead of resending the surveyed world. All three
 /// changes are in the same group, and none of them is additive: a version-19 host would read the
 /// height of one tile as the coordinates of the next.
-pub(crate) const WIRE_VERSION: u8 = 20;
+///
+/// Version 21 puts the items travelling along a belt on the wire. The header gained one uvarint —
+/// how many ticks it takes to cross a belt hex — and an entity gained an optional lane of items,
+/// each with the ticks since it stepped on. Both are in front of fields a version-20 host already
+/// reads, so this is a break rather than an addition: the old reader would take the cadence for a
+/// group mask and decode the rest of the buffer as noise.
+pub(crate) const WIRE_VERSION: u8 = 21;
 
 /// Which optional groups the buffer carries, in the order they are written.
 mod group {
@@ -165,6 +171,9 @@ mod entity_flag {
     pub(super) const FUEL_INVENTORY: u16 = 1 << 12;
     pub(super) const OUTPUT_INVENTORY: u16 = 1 << 13;
     pub(super) const OUTPUT_ROUTES: u16 = 1 << 14;
+    /// Items still crossing a belt hex. High, so an idle belt — which is most belts most of the
+    /// time — pays nothing for the lane it is not carrying.
+    pub(super) const LANE: u16 = 1 << 15;
 }
 
 /// Set on a group whose list replaces the host's rather than patching it.
@@ -322,6 +331,9 @@ pub(crate) fn encode_delta(delta: &SnapshotDelta) -> Vec<u8> {
     writer.uvarint(delta.revision);
     writer.uvarint(delta.tick);
     writer.u32_fixed(delta.checksum);
+    // A constant, in the header, unconditionally: it costs one byte, and a host that joins mid-run
+    // needs it to draw the first belt it is told about rather than the second.
+    writer.uvarint(u64::from(delta.belt_transit_ticks));
 
     let mut mask = 0u32;
     let mut set = |bit: u32, present: bool| {
@@ -436,7 +448,7 @@ pub(crate) fn encode_delta(delta: &SnapshotDelta) -> Vec<u8> {
     }
     if let Some(buildings) = &delta.buildings {
         writer.u8(if buildings.replace { PATCH_REPLACE } else { 0 });
-        write_entities(&mut writer, &buildings.changed);
+        write_entities(&mut writer, &buildings.changed, delta.tick);
         writer.uvarint(buildings.removed.len() as u64);
         let mut previous = 0u32;
         for &id in &buildings.removed {
@@ -644,7 +656,10 @@ impl Cell {
     }
 }
 
-fn write_entities(writer: &mut Writer, entities: &[EntitySnapshot]) {
+/// `tick` is the delta's own tick, and every lane entry is coded against it: an item that stepped
+/// onto its belt two ticks ago travels as `2` rather than as a nine-digit absolute tick, which is
+/// the difference between one byte and five on every item moving in the factory.
+fn write_entities(writer: &mut Writer, entities: &[EntitySnapshot], tick: u64) {
     writer.uvarint(entities.len() as u64);
     let mut previous_id = 0u32;
     for entity in entities {
@@ -667,6 +682,9 @@ fn write_entities(writer: &mut Writer, entities: &[EntitySnapshot]) {
         }
         if entity.cargo.is_some() {
             flags |= entity_flag::CARGO;
+        }
+        if !entity.lane.is_empty() {
+            flags |= entity_flag::LANE;
         }
         if entity.fuel_charge != 0 {
             flags |= entity_flag::FUEL_CHARGE;
@@ -712,6 +730,14 @@ fn write_entities(writer: &mut Writer, entities: &[EntitySnapshot]) {
         if let Some(cargo) = entity.cargo {
             writer.uvarint(u64::from(cargo.item_id));
             writer.uvarint(u64::from(cargo.quantity));
+        }
+        if flags & entity_flag::LANE != 0 {
+            writer.uvarint(entity.lane.len() as u64);
+            for item in &entity.lane {
+                writer.uvarint(u64::from(item.cargo.item_id));
+                writer.uvarint(u64::from(item.cargo.quantity));
+                writer.uvarint(tick.saturating_sub(item.entered));
+            }
         }
         writer.ingredients(&entity.inventory);
         if flags & entity_flag::INPUT_INVENTORY != 0 {
@@ -914,6 +940,7 @@ pub(crate) mod decode {
         let revision = reader.uvarint();
         let tick = reader.uvarint();
         let checksum = reader.u32_fixed();
+        let belt_transit_ticks = reader.uvarint() as u32;
         let mask = reader.uvarint() as u32;
         let has = |bit: u32| mask & bit != 0;
 
@@ -1031,7 +1058,7 @@ pub(crate) mod decode {
         });
         let buildings = has(group::BUILDINGS).then(|| {
             let replace = reader.u8() & PATCH_REPLACE != 0;
-            let changed = read_entities(&mut reader);
+            let changed = read_entities(&mut reader, tick);
             let removed_count = reader.count();
             let mut previous = 0u32;
             let removed = (0..removed_count)
@@ -1144,7 +1171,7 @@ pub(crate) mod decode {
                     q: reader.svarint() as i32,
                     r: reader.svarint() as i32,
                     surface: reader.uvarint() as u16,
-                    elevation: reader.svarint() as i8,
+                    elevation: reader.svarint() as i16,
                     paid: reader.ingredients(),
                 })
                 .collect()
@@ -1163,6 +1190,7 @@ pub(crate) mod decode {
             revision,
             tick,
             checksum,
+            belt_transit_ticks,
             scenario,
             scenario_name,
             world_version,
@@ -1257,7 +1285,7 @@ pub(crate) mod decode {
         }
     }
 
-    fn read_entities(reader: &mut Reader) -> Vec<EntitySnapshot> {
+    fn read_entities(reader: &mut Reader, tick: u64) -> Vec<EntitySnapshot> {
         let count = reader.count();
         let mut id = 0u32;
         let mut entities = Vec::with_capacity(count);
@@ -1275,6 +1303,22 @@ pub(crate) mod decode {
                 item_id: reader.uvarint() as ItemId,
                 quantity: reader.uvarint() as u32,
             });
+            let lane = if flags & entity_flag::LANE != 0 {
+                let count = reader.count();
+                (0..count)
+                    .map(|_| {
+                        let item_id = reader.uvarint() as ItemId;
+                        let quantity = reader.uvarint() as u32;
+                        let elapsed = reader.uvarint();
+                        LaneItem {
+                            cargo: Cargo { item_id, quantity },
+                            entered: tick.saturating_sub(elapsed),
+                        }
+                    })
+                    .collect()
+            } else {
+                Vec::new()
+            };
             let inventory = reader.ingredients();
             let input_inventory = if flags & entity_flag::INPUT_INVENTORY != 0 {
                 reader.ingredients()
@@ -1372,6 +1416,7 @@ pub(crate) mod decode {
                 recipe_id,
                 scenario_owned: flags & entity_flag::SCENARIO_OWNED != 0,
                 cargo,
+                lane,
                 inventory,
                 input_inventory,
                 fuel_inventory,
