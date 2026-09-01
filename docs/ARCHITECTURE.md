@@ -141,7 +141,7 @@ The Rust `Core` owns all state that can change a game result:
 
    The search costs shallow water five, the ratio between the ford speed and the walking speed, so
    the route it returns is the fastest one rather than the shortest one; an unweighted search sends
-   the player wading at 1 m/s across water they would have walked around. It reads terrain through
+   the player wading at 5 m/s across water they would have walked around. It reads terrain through
    the pure `terrain_at` and blocking through `runtime.occupied`, and calls neither `ensure_tile` nor
    `generate_chunk`: considering a hex must not survey it, because `generated_chunks` is a checksum
    input. Ties break on `(f, g, q, r)` rather than on heap order, so the same click answers the same
@@ -544,7 +544,7 @@ defect it prevents; a change that contradicts one needs an argument, not an over
   simulation could not keep.
 - **The search answers with the fastest way, not the shortest one, and surveys nothing to find it.**
   The A\* costs shallow water `PLAYER_SPEED / (PLAYER_SPEED / 5)` because that is the fraction of
-  speed a ford actually costs; an unweighted search sends the player wading at 1 m/s across water
+  speed a ford actually costs; an unweighted search sends the player wading at 5 m/s across water
   they would have walked round. It reads terrain through the pure `terrain_at` and blocking through
   `runtime.occupied`, and calls neither `ensure_tile` nor `generate_chunk`: considering a hex must
   not survey it, because `generated_chunks` is a checksum input. It is bounded by

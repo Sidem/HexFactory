@@ -318,7 +318,7 @@ excluded** so that `largest body` still means ocean; rivers as hexes / runs / lo
 | Highlands   |    35 |     0 |     113 |   410 |      416 |    23 |     85 / 3 / 25 | 63110 / 144 / 17988 |    995 |
 | Basin       |    45 |   198 |     524 |   211 |       16 |     2 | 717 / 58 / 7360 |  40103 / 98 / 19096 |    998 |
 
-A hexagon is 1 m²; the walk is 3 m/s. Continental's 512-hex landform is a three-minute crossing,
+A hexagon is 25 m²; the walk is 15 m/s. Continental's 512-hex landform is a three-minute crossing,
 basin's 960-hex one is six, and a river of eight to ten hexes is a real river. The opening inside
 ~80 hexes is still the cell-8 mix the bootstrap windows were tuned against, so the first minute does
 not wait on a coast.

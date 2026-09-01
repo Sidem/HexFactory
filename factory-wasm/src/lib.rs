@@ -237,8 +237,9 @@ const HEX_Y: i32 = 1536;
 /// Center-to-vertex of a pointy-top hex. `HEX_Y * 2 / 3` and `HEX_X / √3` both land on 1024.
 ///
 /// Neighbour centres are `HEX_X` world units apart. Phase 8 reads that spacing as 5.373 m
-/// (25 m²); the lattice numbers do not change. Walk and run stay 3 m/s and 5 m/s by shrinking
-/// [`PLAYER_SPEED`] fivefold.
+/// (25 m²); the lattice numbers do not change. [`PLAYER_SPEED`] is unchanged across the rescale,
+/// so the player still crosses a hex in the time they always did and every stated speed is five
+/// times what it was.
 const HEX_RADIUS: i32 = 1024;
 /// How many hex steps a *hand* gather reaches. Also the reach of any extractor whose definition
 /// names no `extract_radius` of its own, so the base extractor is unchanged by tiers existing.
@@ -267,11 +268,20 @@ const MAX_CLEARANCE_CELLS: usize = MAX_FOOTPRINT_CELLS;
 /// Hexes around the hub forced to lowland so the landing is always a buildable clearing.
 const LANDING_CLEAR_RADIUS: i32 = 7;
 /// World units the player covers per player step at full intent (1000). That is the **run**:
-/// 5 m/s over a 5.373 m hex. The host sends 600 for the ordinary walk (3 m/s) and 1000 while
+/// 25 m/s over a 5.373 m hex. The host sends 600 for the ordinary walk (15 m/s) and 1000 while
 /// Shift is held. Paced by `PLAYER_TICKS_PER_SECOND`, not by the simulation tick, so both gaits
-/// keep one speed at every simulation speed. Shallow water ignores the gait and is 1 m/s —
+/// keep one speed at every simulation speed. Shallow water ignores the gait and is 5 m/s —
 /// `PLAYER_SPEED / 5`.
-const PLAYER_SPEED: i32 = 55;
+///
+/// The number did not move when the ground did. A hex became 25 m² rather than 1 m², and holding
+/// the speed in metres would have made every journey in the game five times longer in the hand —
+/// a biome crossing measured in quarter-hours, a river detour that costs a minute. Distance is
+/// what the rescale was for; travel time is not. So the player covers hexes at the rate they
+/// always did, and the honest reading of that is a vehicle, not a walk: this is 15 m/s on foot
+/// and 25 m/s at a run. Belts were given real transit instead of a relabelling because a belt is
+/// a machine the factory's throughput is measured against; the player is not, and nothing in the
+/// simulation reads a speed in metres per second.
+const PLAYER_SPEED: i32 = 275;
 /// The player's own cadence, in steps per real second. Walking used to run inside the simulation
 /// tick, which made it stop when the factory paused and crawl at a low speed multiplier. It is
 /// still integer, still native, and still deterministic — a given step count always produces the
@@ -1310,7 +1320,7 @@ enum Terrain {
 
 impl Terrain {
     fn blocks_movement(self) -> bool {
-        // Shallows are a ford, not a wall: the player can wade them at 1 m/s. Construction still
+        // Shallows are a ford, not a wall: the player can wade them at 5 m/s. Construction still
         // refuses them, which is why `blocks_construction` is a separate predicate and not this
         // one reused. Deep water and cliff stay impassable.
         matches!(self, Terrain::DeepWater | Terrain::Cliff)
@@ -6114,7 +6124,7 @@ impl Core {
     /// anything the walk does not pay, or failing to charge it for something the walk does, produces
     /// a route that is short on the map and slow in the hand.
     ///
-    /// The surface does not modify the ford. Shallows are a 1 m/s crawl in `player_step` regardless,
+    /// The surface does not modify the ford. Shallows are a 5 m/s crawl in `player_step` regardless,
     /// and pretending a decked river bank crosses faster would be the search inventing a preference.
     fn walk_step_cost(&self, from: (i32, i32), q: i32, r: i32) -> u32 {
         let base = if self.terrain_at(q, r) == Terrain::ShallowWater {
@@ -6328,7 +6338,7 @@ impl Core {
     /// One player-clock step, in world units. Land uses the host's intent against `PLAYER_SPEED`,
     /// scaled by the surface underfoot — the same integer percentage the route search prices, so
     /// the road that looked faster on the map is the road that is faster in the hand.
-    /// Shallows are a 1 m/s ford: walk and run collapse to the same crawl, so holding Shift in a
+    /// Shallows are a 5 m/s ford: walk and run collapse to the same crawl, so holding Shift in a
     /// river does not buy a faster crossing, and neither does decking its bank.
     fn player_step(&self) -> (i32, i32) {
         let mut intent_x = self.player.move_x;
@@ -12472,7 +12482,7 @@ impl WorldParams {
 /// The largest feature cell a parameter set may ask for. A cell is a lattice stride, so this is a
 /// bound on how far apart two sampled corners may be — not a taste judgement. It keeps a
 /// pathological value from making an entire surveyed world one interpolated slope. 1024 hexes is
-/// a six-minute walk at 3 m/s, which is the scale oceans and ranges are allowed to ask for.
+/// a six-minute walk at 15 m/s, which is the scale oceans and ranges are allowed to ask for.
 const MAX_FEATURE_CELL: i32 = 1024;
 /// Landforms smaller than this are opening-sized: the bootstrap windows were tuned against a
 /// coarse cell of 8, and a synthetic scale sweep (cell 4 vs 24) has to measure feature size, not a
@@ -12874,7 +12884,7 @@ fn world_presets() -> Vec<WorldPreset> {
             name: "Continental",
             description: "Mixed coasts and inland ranges. The shipped default.",
             params: WorldParams {
-                // A hex is 1 m² and the walk is 3 m/s, so a landform of 512 hexes is a three-minute
+                // A hex is 25 m² and the walk is 15 m/s, so a landform of 512 hexes is a three-minute
                 // crossing — plains and ranges you travel, not tiles you glance over. Weight 68
                 // lets the coarse octave hold a coastline together; the fine octave is local
                 // relief, not a second landform scale.
@@ -12908,7 +12918,7 @@ fn world_presets() -> Vec<WorldPreset> {
             name: "Archipelago",
             description: "Small islands in scattered water. Short coasts, long walks.",
             params: WorldParams {
-                // Islands you walk across, not tiles you step over: ~130 m / 45 s at 3 m/s, still
+                // Islands you walk across, not tiles you step over: ~690 m / 45 s at 15 m/s, still
                 // the small end of the four. Weight 60 holds a shore together at this cell without
                 // turning the preset into one continent.
                 elevation_coarse_cell: 128,
@@ -18892,7 +18902,7 @@ mod tests {
         assert_eq!(core.terrain_at(1, -1), Terrain::Cliff);
     }
 
-    /// Shallows are a 1 m/s ford: walkable, not buildable, and the gait does not matter once
+    /// Shallows are a 5 m/s ford: walkable, not buildable, and the gait does not matter once
     /// you are in the water. Deep water stays a wall.
     #[test]
     fn shallow_water_is_a_slow_ford() {
@@ -18917,7 +18927,7 @@ mod tests {
         assert_eq!(
             core.player.x,
             start.0 + ford,
-            "wading is 1 m/s at any gait, not 3/5 of it"
+            "wading is 5 m/s at any gait, not 3/5 of it"
         );
 
         // Still not a building site: the player can stand in it, a pump cannot.
@@ -19034,15 +19044,32 @@ mod tests {
         assert_eq!(Factory::player_ticks_per_second(), PLAYER_TICKS_PER_SECOND);
     }
 
-    /// A hexagon is 25 m², the walk is 3 m/s, the run is 5 m/s. Native stores one step size — the
+    /// A hexagon is 25 m², the walk is 15 m/s, the run is 25 m/s. Native stores one step size — the
     /// run, at intent 1000 — and the host sends 600 for the walk, which is exactly 3/5 of full
     /// intent. Neighbour spacing is still `HEX_X` world units, now read as 5.373 m.
+    ///
+    /// The gait ratio is the structural half and holds at any speed; the pinned constant is the
+    /// half that carries the decision. `PLAYER_SPEED` stayed at 275 across the rescale, so a hex
+    /// still takes about 0.36 s to cross at a walk and the metre figures moved instead.
     #[test]
-    fn walk_is_three_metres_a_second_and_run_is_five() {
+    fn walk_is_fifteen_metres_a_second_and_run_is_twenty_five() {
         const WALK_INTENT: i32 = 600;
         let walk = WALK_INTENT * PLAYER_SPEED / 1000;
         assert_eq!(walk * 5, PLAYER_SPEED * 3);
-        assert_eq!(PLAYER_SPEED, 55);
+        assert_eq!(PLAYER_SPEED, 275);
+
+        // Metres a second, out of world units a step: 30 steps a second over `HEX_X` units of
+        // 5.373 m. Integer throughout, and the run lands on 25 m/s to the metre.
+        let run_mm_s = PLAYER_SPEED as i64
+            * PLAYER_TICKS_PER_SECOND as i64
+            * crate::scale::CELL_SPACING_MM as i64
+            / HEX_X as i64;
+        assert_eq!(run_mm_s / 1_000, 24);
+        assert_eq!((run_mm_s + 500) / 1_000, 25);
+        let walk_mm_s =
+            walk as i64 * PLAYER_TICKS_PER_SECOND as i64 * crate::scale::CELL_SPACING_MM as i64
+                / HEX_X as i64;
+        assert_eq!((walk_mm_s + 500) / 1_000, 15);
     }
 
     /// Build a wall out of containers, standing next to each cell so the test is about the route
@@ -19159,7 +19186,7 @@ mod tests {
         }
         // Three hexes wading costs eleven; four hexes round the south of the water costs four. A
         // search that costed every hex the same would have returned the three, and the player would
-        // have spent two of them crossing at 1 m/s.
+        // have spent two of them crossing at 5 m/s.
         assert_eq!(core.walk_path.len(), 4);
         assert_eq!(axial_distance((0, 2), (3, 2)), 3);
     }

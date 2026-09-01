@@ -68,11 +68,16 @@ pub const EARTHWORK_LIMIT_QUANTA: i32 = 32;
 /// never a divisor inside the ledger itself.
 pub const SPOIL_UNIT_LITRES: i64 = 6_250_000;
 
-/// Player walking and running speed, in millimetres per second. The stated 3 m/s and 5 m/s are
-/// preserved across the rescale by changing world-units per step, not by changing the speed.
-pub const WALK_SPEED_MM_S: i32 = 3_000;
+/// Player walking and running speed, in millimetres per second.
+///
+/// What the rescale preserved is the *step*: `PLAYER_SPEED` is unchanged, so the player crosses a
+/// hex in the time they always did and it is the metre figures that moved, from 3 and 5 to 15 and
+/// 25. Distance is what a 25 m² hex buys; making every journey five times longer in the hand is
+/// not, and a biome measured in quarter-hours is the cost this refuses to pay. These are the
+/// derived numbers — the constant is `PLAYER_SPEED` in `lib.rs`, and its doc carries the decision.
+pub const WALK_SPEED_MM_S: i32 = 15_000;
 /// Running counterpart to [`WALK_SPEED_MM_S`].
-pub const RUN_SPEED_MM_S: i32 = 5_000;
+pub const RUN_SPEED_MM_S: i32 = 25_000;
 
 /// How fast a belt carries an item along its lane, in millimetres per second.
 ///
@@ -276,13 +281,14 @@ mod tests {
         assert_eq!(SPOIL_UNIT_LITRES / 1_000_000, 6); // 6.25 m³, floored.
     }
 
-    /// Walking is still 3 m/s and running still 5 m/s; what changed is how far one step carries.
-    /// A step is now about 1.79 s rather than about 0.36 s, which is the whole reason cadence has
-    /// to be re-derived rather than relabelled.
+    /// A step still takes about 0.36 s walking, exactly as it did at the old scale: the player's
+    /// world-units per step did not move, so the cell got five times wider and the speed in metres
+    /// went with it. The belt is the opposite case — its speed is the fixed thing and its cadence
+    /// was re-derived — which is why these two live side by side here.
     #[test]
     fn step_durations_follow_from_speed_and_spacing() {
-        assert_eq!(walk_step_ms(), 1_791);
-        assert_eq!(run_step_ms(), 1_075);
+        assert_eq!(walk_step_ms(), 358);
+        assert_eq!(run_step_ms(), 215);
         assert!(
             run_step_ms() * 5 == walk_step_ms() * 3
                 || (run_step_ms() * 5 - walk_step_ms() * 3).abs() <= 4

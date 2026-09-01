@@ -275,8 +275,8 @@ describe("bounded host input", () => {
       x: 424,
       y: -424,
     });
-    // Walking is a smaller intent, never a smaller step: native `PLAYER_SPEED` is the 5 m/s run
-    // at intent 1000, and the host sends 600 for the 3 m/s walk. Shift is the run, not a precision
+    // Walking is a smaller intent, never a smaller step: native `PLAYER_SPEED` is the 25 m/s run
+    // at intent 1000, and the host sends 600 for the 15 m/s walk. Shift is the run, not a precision
     // crawl — the world is scaled so a biome takes minutes, and getting across it is what Shift is
     // for.
     expect(movementIntent(new Set(["KeyD"]))).toEqual({

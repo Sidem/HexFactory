@@ -31,7 +31,7 @@ export const TERRAIN_INFO: Record<Terrain, TerrainInfo> = {
   },
   shallow_water: {
     name: "Shallow water",
-    note: "ford at 1 m/s",
+    note: "ford at 5 m/s",
     passable: true,
     buildable: false,
     fill: "#1a5474dd",

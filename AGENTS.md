@@ -30,12 +30,14 @@ Save 37 advances by stamp onto the reservation catalogue. Desktop and mobile jou
 physical opening are recorded. The activation has been reviewed: it was refusing save-37 files
 because `compatibility()` in `src/core/saveSlots.ts` never gained the current build's own rung,
 `[38, 29, 16]`, so `migrates` was pinned false. The rung is restored and pinned against the shipped
-catalogue numbers, because the suite's synthetic `build` cannot catch a missing one. The player also
-keeps the physical 3 m/s walk and 5 m/s run at the user's decision on 2026-09-01: `PLAYER_SPEED`
-stays 55, and relabelling the player the way the phase refused to relabel belts is not on the table.
-The bundle is reviewed and green but still unpushed; pushing is the user's call. Do not start slice 4
-before that push lands. The unrelated untracked `belt-cadence-demo.png`
-belongs to the user and must stay out of commits. Pipes were brought forward and the ground rework was requested outright; neither reorders
+catalogue numbers, because the suite's synthetic `build` cannot catch a missing one. On 2026-09-01
+the user also settled movement for traversal rather than for physical plausibility: `PLAYER_SPEED`
+stays at 275 across the rescale, so the player crosses a hex in the time they always did and the
+stated speeds move to a 15 m/s walk, a 25 m/s run and a 5 m/s ford. This is not the belt relabelling
+the phase refused — the factory reads a belt's speed and balances against it, and nothing reads the
+player's — so the figures are restated everywhere rather than held. The bundle is reviewed and green
+but still unpushed; pushing is the user's call. Do not start slice 4
+before that push lands. Pipes were brought forward and the ground rework was requested outright; neither reorders
 the table. Release numbers after v0.46.0 are unassigned. Do not reorder those phases without the
 user. On 2026-08-29 the user moved supported floors and vertical transport from row 7 to row 10,
 behind flowing water and Living Lattice, so the player learns the shipped ground-level systems

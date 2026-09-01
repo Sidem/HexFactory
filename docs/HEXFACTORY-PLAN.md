@@ -406,8 +406,10 @@ atomic enlarged-footprint legality check; it never silently overlaps a neighbour
 
 Audit every rule whose unit was secretly “hexes”: player speed and radius, hand gathering,
 construction reach, extractor discs, pole coverage, belts, pipes, bridge spans, underpasses, roads,
-walking search bounds, opening guarantees and camera zoom. Preserve the stated 3 m/s walk and 5 m/s
-run by changing world-units per player step. Hand gathering no longer inherits an extractor's
+walking search bounds, opening guarantees and camera zoom. Hold the player's world-units per step
+and let the stated speed ride the rescale: the walk and run become 15 m/s and 25 m/s, because a hex
+that takes five times as long to cross buys distance by spending the player's time on nothing. Hand
+gathering no longer inherits an extractor's
 one-hex disc. A belt currently moves one 5.37 m segment per 0.1 s after the rescale; introduce bounded
 integer transit cadence rather than relabelling that as a believable 54 m/s conveyor. Re-run balance
 and journey measurements after these changes; do not tune by prose.
@@ -570,12 +572,19 @@ partially activated physical model.
    below `[37, 28, 16]`, and both world/scenario replay branches, unreachable; they are kept as
    history, not as live paths.
 
-   On 2026-09-01 the user also settled the movement question the rescale reopened: the player
-   keeps the physical 3 m/s walk and 5 m/s run, so `PLAYER_SPEED` stays 55 and a hex takes about
-   1.8 s to cross on foot. An in-flight change restoring the pre-rescale cells-per-second feel
-   (`PLAYER_SPEED` 275, a 15 m/s walk and a 25 m/s run) was discarded rather than finished:
-   relabelling the player was the same move the phase already refused for belts, which were given
-   real transit cadence instead of being called a 54 m/s conveyor.
+   On 2026-09-01 the user settled the movement question the rescale reopened, and settled it for
+   traversal: `PLAYER_SPEED` stays at 275, unchanged across the rescale, so a hex still takes about
+   0.36 s to cross at a walk and the metre figures move instead — a 15 m/s walk, a 25 m/s run, a
+   5 m/s ford. Holding 3 m/s would have multiplied every journey in the game by five, which is the
+   one thing a 25 m² hex was not meant to buy: the rescale was for distance, not for time spent
+   covering it. The brief's original instruction to preserve the stated speeds is superseded here.
+
+   This is not the belt case wearing different clothes. A belt's speed is read by the factory —
+   throughput, cadence, the ratio against an extractor — so relabelling one would have falsified a
+   number the player balances against, and belts were given real transit instead. Nothing in the
+   simulation reads the player's speed in metres per second; it reads world units per step. So the
+   honest thing is not to hold the metre figure but to say plainly what the figure now is, which
+   every doc, comment and test that quoted 3/5/1 m/s now does.
 
 4. **Sparse disturbed water.** Add water departure state, active-region equilibrium, frontier
    boundaries, pumps, flood/drain commands and save/load/checksum coverage. Re-measure the active

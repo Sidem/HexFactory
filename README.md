@@ -142,8 +142,9 @@ its whole shape on screen with the blocking hex marked in red and named in the t
 - `I` opens the cargo pack, `O` research, `B` the construction catalogue, and `P` the objective and
   controls reference. One workspace opens at a time, beside the inspector on wide screens. `T` pauses, `M` mutes, and
   `Escape` returns to inspection and clears the open panels.
-- Hold `Shift` while walking to run. One hexagon is about 1 m²; the walk is 3 m/s and the run is
-  5 m/s. Shallow water is a 1 m/s ford and can carry bridge-supported transport; deep water still blocks.
+- Hold `Shift` while walking to run. One hexagon is about 25 m², and you cross one in roughly a
+  third of a second at a walk — call it 15 m/s, and 25 m/s at a run. Shallow water is a 5 m/s ford
+  and can carry bridge-supported transport; deep water still blocks.
 - `C` opens creative mode, which can also be switched on before a run starts from the title screen.
   It researches the whole tree, drops construction costs and refunds, hands you any material in the
   catalogue, and lets you widen the pack up to 240 slots. Nothing else changes: recipes, power, fuel,

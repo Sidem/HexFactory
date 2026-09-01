@@ -91,7 +91,7 @@ its own fill and edge.
 | Band          | Fill      | Edge      | Role                                           |
 | ------------- | --------- | --------- | ---------------------------------------------- |
 | Deep water    | `#0f3550` | `#3f9ad0` | Impassable basin; pumped from the shore        |
-| Shallow water | `#1a5474` | `#5cb6d8` | Walkable 1 m/s ford; bridgeable, not buildable |
+| Shallow water | `#1a5474` | `#5cb6d8` | Walkable 5 m/s ford; bridgeable, not buildable |
 | Shore         | `#c4a56a` | `#e0c88a` | Walkable, buildable; sand and clay             |
 | Lowland       | `#1a3a32` | —         | Default surveyed ground; flora and clay        |
 | Hills         | `#48604d` | `#6f8a6c` | Walkable, buildable; copper ore and coal       |
