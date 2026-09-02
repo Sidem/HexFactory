@@ -254,17 +254,90 @@ impl Core {
         }
     }
 
-    pub(crate) fn stock_accepts_item(
+    /// Whether this machine has a firebox and would burn this item in it.
+    ///
+    /// Asked apart from `stock_kind_for_item` because burning is a property of the machine and the
+    /// item, not of which compartment automatic delivery happens to prefer.
+    pub(crate) fn burns_item(&self, target: usize, item_id: ItemId) -> bool {
+        if self.fuel_value(item_id) == 0 {
+            return false;
+        }
+        let entity = &self.entities[target];
+        match entity.kind {
+            BuildingKind::Composer => entity
+                .placed
+                .recipe_id
+                .and_then(|id| self.recipe(id))
+                .is_some_and(|recipe| recipe.fuel > 0),
+            BuildingKind::Generator | BuildingKind::Boiler => matches!(
+                self.building_definition(entity.placed.definition_id)
+                    .and_then(|definition| definition.power_source),
+                Some(PowerSource::Burner) | None
+            ),
+            _ => false,
+        }
+    }
+
+    /// Whether this item has an honest use for *one named compartment*, independent of which
+    /// compartment an automatic delivery would choose.
+    ///
+    /// This is the half `stock_kind_for_item` cannot answer. Coal is a steel ingredient and also
+    /// something that burns, so on a smelter set to steel it qualifies for `Input` **and** for
+    /// `Fuel`; one item with two honest destinations had one compartment to express them in, and a
+    /// named Fuel slot refused the lump purely because the auto rule had already spoken for it.
+    /// Precedence is right and stays; it simply does not get to speak for a slot the player named.
+    pub(crate) fn stock_admits_item(
         &self,
         target: usize,
         stock: StockKind,
         item_id: ItemId,
     ) -> bool {
+        let entity = &self.entities[target];
         match stock {
             StockKind::Auto => self.stock_kind_for_item(target, item_id).is_some(),
+            // An output compartment is what the machine produced, never somewhere to put things.
             StockKind::Output => false,
-            named => self.stock_kind_for_item(target, item_id) == Some(named),
+            // Only a container stores into the shared pool. A machine's legacy version-15 stock
+            // also lives in `inventory`, but it is reached by classification, never by delivery.
+            StockKind::Inventory => {
+                entity.kind == BuildingKind::Container
+                    && self.stock_kind_for_item(target, item_id) == Some(StockKind::Inventory)
+            }
+            StockKind::Input => match entity.kind {
+                BuildingKind::Composer => entity
+                    .placed
+                    .recipe_id
+                    .and_then(|id| self.recipe(id))
+                    .is_some_and(|recipe| {
+                        recipe.inputs.iter().any(|input| input.item_id == item_id)
+                    }),
+                BuildingKind::Boiler => item_id == WATER_ITEM,
+                _ => false,
+            },
+            StockKind::Fuel => self.burns_item(target, item_id),
         }
+    }
+
+    /// Which compartment an *automatic* delivery of this cargo lands in, or `None` if none of them
+    /// wants it or has the room.
+    ///
+    /// Inputs still outrank fuel — feeding a steel line must not divert its own bill into the
+    /// firebox — but precedence now yields once the input compartment is full. A rule that could
+    /// only ever answer `Input` filled that compartment to capacity and then refused the belt
+    /// forever with the firebox still empty, so a belt-fed steel smelter could not run at all.
+    /// Surplus past the reserved bill is exactly what a firebox is for.
+    pub(crate) fn delivery_stock_for_item(
+        &self,
+        target: usize,
+        item_id: ItemId,
+        quantity: u32,
+    ) -> Option<StockKind> {
+        [StockKind::Input, StockKind::Fuel, StockKind::Inventory]
+            .into_iter()
+            .find(|&stock| {
+                self.stock_admits_item(target, stock, item_id)
+                    && self.room_for_stock(target, stock, item_id) >= quantity
+            })
     }
 
     /// Quantity visible in one compartment. Version-15 machine stock still lives in `inventory`;
@@ -473,10 +546,8 @@ impl Core {
             BuildingKind::Consumer => true,
             BuildingKind::Hub => self.hub_demand(cargo.item_id) >= u64::from(cargo.quantity),
             _ => self
-                .stock_kind_for_item(target, cargo.item_id)
-                .is_some_and(|stock| {
-                    self.room_for_stock(target, stock, cargo.item_id) >= cargo.quantity
-                }),
+                .delivery_stock_for_item(target, cargo.item_id, cargo.quantity)
+                .is_some(),
         }
     }
 
@@ -492,7 +563,11 @@ impl Core {
             | BuildingKind::Container
             | BuildingKind::Generator
             | BuildingKind::Boiler => {
-                if let Some(stock) = self.stock_kind_for_item(target, cargo.item_id) {
+                // The same resolver `can_accept` asked, so the cargo lands in the compartment that
+                // agreed to take it rather than in the one precedence named first.
+                if let Some(stock) =
+                    self.delivery_stock_for_item(target, cargo.item_id, cargo.quantity)
+                {
                     self.add_stock(target, stock, cargo);
                 }
             }

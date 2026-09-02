@@ -67,12 +67,19 @@ impl Core {
         }
         let index = self.hand_transfer_target(q, r, "withdraw")?;
         let stock = if stock == StockKind::Auto {
-            self.stock_kind_for_item(index, item_id)
-                .or_else(|| {
-                    (self.stock_quantity(index, StockKind::Output, item_id) > 0)
-                        .then_some(StockKind::Output)
-                })
-                .unwrap_or(StockKind::Inventory)
+            // Take from wherever the item actually is. Now that coal can sit in a smelter's named
+            // Fuel slot while the recipe also bills it as an input, the compartment precedence
+            // names first is no longer the only one that can be holding it.
+            [
+                StockKind::Input,
+                StockKind::Fuel,
+                StockKind::Inventory,
+                StockKind::Output,
+            ]
+            .into_iter()
+            .find(|&candidate| self.stock_quantity(index, candidate, item_id) > 0)
+            .or_else(|| self.stock_kind_for_item(index, item_id))
+            .unwrap_or(StockKind::Inventory)
         } else {
             stock
         };
@@ -406,12 +413,15 @@ impl Core {
             return Err("you are not carrying any of that item".into());
         }
         let stock = if stock == StockKind::Auto {
-            self.stock_kind_for_item(index, item_id)
+            // The compartment that will actually take one, falling back to the one precedence
+            // names so a machine that wants the item but is full still says so.
+            self.delivery_stock_for_item(index, item_id, 1)
+                .or_else(|| self.stock_kind_for_item(index, item_id))
                 .ok_or("this building has no use for that")?
         } else {
             stock
         };
-        if !self.stock_accepts_item(index, stock, item_id) {
+        if !self.stock_admits_item(index, stock, item_id) {
             return Err("this building has no use for that".into());
         }
         let moved = quantity
@@ -521,7 +531,7 @@ impl Core {
         }
         let hand = self.player.hand.ok_or("your hand is empty")?;
         let index = self.hand_transfer_target(q, r, "place")?;
-        if !self.stock_accepts_item(index, stock, hand.item_id) {
+        if !self.stock_admits_item(index, stock, hand.item_id) {
             return Err("that item does not belong in this compartment".into());
         }
         let moved =

@@ -138,6 +138,7 @@ impl Core {
                     self.drop_player_stack(q, r, quantity)
                 }
                 InputCommand::SetRecipe { q, r, recipe_id } => self.set_recipe(q, r, recipe_id),
+                InputCommand::CancelCraft { q, r } => self.cancel_craft(q, r),
                 InputCommand::SetEnabled { q, r, enabled } => self.set_enabled(q, r, enabled),
                 InputCommand::Undo => self.undo(),
                 InputCommand::PurchaseSkill { skill_id } => self.purchase_skill(skill_id),

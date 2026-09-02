@@ -423,12 +423,25 @@ export function injectFragment(source: string, family: SurfaceFamily): string {
         "#include <emissivemap_fragment>",
         "#include <emissivemap_fragment>\ntotalEmissiveRadiance = hfAlbedo * hfFill + hfGlow;",
       )
-      // Opaque dither keeps draw ordering and shadows stable while the last two survey rings
-      // dissolve into fog. Interior fragments take the cheap branch and never evaluate the hash;
-      // the native surveyed set and pick surface remain exact.
+      // The frontier dissolves into the sky by colour rather than by coverage.
+      //
+      // It used to discard on a screen-space hash. That kept the surface opaque for draw ordering
+      // and shadow baking, but it punched the background through the last two survey rings, and the
+      // haze meant to hide those holes never reached them: the near end of the haze sits 0.6 of a
+      // screenful beyond the target, which under this projection is where the top edge of the view
+      // already is, so ground at the frontier is not hazed at any zoom. Measured on 2026-09-02 —
+      // the holes stood at 293–340 of a possible 765 against the ground around them at every zoom
+      // the frontier was on screen, byte-identical on Low, Medium and High.
+      //
+      // Mixing toward `fogColor` after the fog chunk leaves every fragment opaque and
+      // depth-writing, so draw order and the shadow pass are untouched — and the colour pass now
+      // agrees with the shadow pass instead of contradicting it. The mix rides after fog rather
+      // than before tone mapping so it lands in the same space the background was cleared in, which
+      // is what makes a fully dissolved fragment indistinguishable from sky rather than merely
+      // close to it.
       .replace(
-        "#include <opaque_fragment>",
-        "#include <opaque_fragment>\nif ( hfFrontier < 0.999 && hfHash12( floor( gl_FragCoord.xy ) ) > clamp( hfFrontier, 0.0, 1.0 ) ) discard;",
+        "#include <fog_fragment>",
+        "#include <fog_fragment>\ngl_FragColor.rgb = mix( fogColor, gl_FragColor.rgb, clamp( hfFrontier, 0.0, 1.0 ) );",
       )
   );
 }

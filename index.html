@@ -98,7 +98,6 @@
         </button>
         <div class="command-actions">
           <button
-            id="insight-chip"
             class="resource-chip hud-chip panel-toggle"
             type="button"
             data-panel-target="research-panel"
@@ -129,7 +128,6 @@
             >
           </button>
           <button
-            id="carry-chip"
             class="resource-chip hud-chip panel-toggle"
             type="button"
             data-panel-target="inventory-panel"
@@ -968,7 +966,7 @@
                 ×
               </button>
             </div>
-            <div id="selection-value" class="inspector">
+            <div class="inspector">
               <p class="inspect-empty" id="inspect-empty">
                 Click a hex to read what stands on it.
               </p>
@@ -1025,6 +1023,9 @@
                     </div>
                     <span id="inspect-progress-amount"></span>
                   </div>
+                  <button type="button" id="inspect-cancel-craft" hidden>
+                    Cancel craft
+                  </button>
                   <div class="inspect-meter" id="inspect-fuel-meter" hidden>
                     <span class="inspect-meter-label">Fuel</span>
                     <div class="inspect-meter-track">
@@ -1136,7 +1137,6 @@
                   <div class="inspect-stock" id="inspect-load" hidden>
                     <span class="inspect-kind">Put in from your pack</span>
                     <div
-                      id="inspector-load"
                       class="inspect-stock-list"
                       aria-label="Items you can load into this building"
                     ></div>
@@ -1529,7 +1529,6 @@
               aria-label="Hotbar. Press 1 to 9 to select a slot."
             ></div>
             <button
-              id="open-build"
               class="shelf-more panel-toggle"
               type="button"
               data-panel-target="build-panel"
@@ -1541,7 +1540,6 @@
               <span aria-hidden="true">⊞</span><small>Build · B</small>
             </button>
             <button
-              id="open-recipes"
               class="shelf-more panel-toggle"
               type="button"
               data-panel-target="recipe-panel"
@@ -1717,7 +1715,7 @@
                 >
                   <div class="title-view-header">
                     <h3>Saved games</h3>
-                    <p id="title-saves-note" class="title-view-note">
+                    <p class="title-view-note">
                       Saves live in this browser until you export them. An
                       exported file can be imported here on this machine or
                       another.

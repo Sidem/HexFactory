@@ -8,10 +8,10 @@ impl Core {
     /// edit, and it enforces the same category rule placement does, so a kiln can no more be
     /// reassigned to a circuit than it could be built with one.
     ///
-    /// A machine mid-craft is refused rather than reassigned: its reserved inputs belong to the job
-    /// it is running, and deciding what happens to a part-finished one is a question worth its own
-    /// pass — the same reason `withdraw` reaches into a machine's free stock and never into
-    /// `reserved_inputs`.
+    /// A machine mid-craft is still refused rather than reassigned: its reserved inputs belong to
+    /// the job it is running, and reassigning underneath one would decide the abort rule silently.
+    /// It is no longer a dead end, though — [`Core::cancel_craft`] is the explicit way out, and the
+    /// host is expected to offer it by confirmation rather than to reassign behind the player.
     pub(crate) fn set_recipe(&mut self, q: i32, r: i32, recipe_id: RecipeId) -> Result<(), String> {
         if !self.within_build_range_of_target(q, r) {
             return Err("recipe target is outside build range".into());
@@ -54,6 +54,72 @@ impl Core {
         self.compile_graph();
         self.dirty.entities.push(id);
         self.events.push(format!("Set recipe to {}", recipe.name));
+        Ok(())
+    }
+
+    /// Abandon the craft a machine is part way through, returning what it reserved.
+    ///
+    /// A manual workshop disables itself the moment a recipe is set, so a composer stopped at 55%
+    /// used to keep that progress for good: `set_recipe` refuses a machine mid-craft and `withdraw`
+    /// never reaches `reserved_inputs`, which left demolition as the only way out of a part-finished
+    /// job. Demolition is not an abort rule; it is the absence of one.
+    ///
+    /// **The refund is full**, because `erase_refund` already hands `reserved_inputs` back in full.
+    /// A lossy abort would make demolish-and-rebuild strictly cheaper than cancelling, and a rule
+    /// that pays the player to take the building down is the one thing this must not be.
+    ///
+    /// **The ingredients go back to the ingredient compartment they came from**, not into the pack.
+    /// The machine un-reserves them rather than unloading itself, so a full pack cannot refuse a
+    /// cancel and nothing travels anywhere the player has to catch. That compartment may briefly
+    /// hold more than its stated capacity, because a belt can top the buffer back up while a craft
+    /// runs; capacity bounds delivery rather than storage, delivery stops until it drains, and the
+    /// transient is the same one a legacy version-15 machine already carries.
+    ///
+    /// **Fuel and output are untouched.** The heat is spent — exactly as it is for a burner the
+    /// player takes coal back out of — and finished goods belong to crafts that did complete.
+    ///
+    /// Bounded and range-checked like every other edit. Progress and `reserved_inputs` are both
+    /// checksummed, so the result is exact across a save; there is no undo, the same answer
+    /// `set_recipe` gives, because `undo` covers placement rather than the run of the factory.
+    pub(crate) fn cancel_craft(&mut self, q: i32, r: i32) -> Result<(), String> {
+        if !self.within_build_range_of_target(q, r) {
+            return Err("cancel target is outside build range".into());
+        }
+        let index = self.entity_at(q, r).ok_or("no machine at that hex")?;
+        if self.entities[index].kind != BuildingKind::Composer {
+            return Err("only machines that run recipes can be stopped mid-craft".into());
+        }
+        if self.entities[index].placed.scenario_owned {
+            return Err("scenario-owned objects are protected".into());
+        }
+        if self.entities[index].progress == 0 {
+            return Err("this machine is not mid-craft".into());
+        }
+        let reserved = std::mem::take(&mut self.entities[index].reserved_inputs);
+        let returned: Vec<String> = reserved
+            .iter()
+            .map(|(&item_id, &quantity)| {
+                let name = self
+                    .item_definition(item_id)
+                    .map(|definition| definition.name.clone())
+                    .unwrap_or_else(|| format!("item {item_id}"));
+                format!("{quantity} × {name}")
+            })
+            .collect();
+        for (item_id, quantity) in reserved {
+            *self.entities[index]
+                .input_inventory
+                .entry(item_id)
+                .or_default() += quantity;
+        }
+        self.entities[index].progress = 0;
+        let id = self.entities[index].id;
+        self.dirty.entities.push(id);
+        self.events.push(if returned.is_empty() {
+            "Cancelled the craft in progress".into()
+        } else {
+            format!("Cancelled the craft; {} returned", returned.join(", "))
+        });
         Ok(())
     }
 

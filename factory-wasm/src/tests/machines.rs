@@ -241,6 +241,79 @@ fn a_machine_runs_only_its_own_category_and_is_reassigned_only_between_crafts() 
     assert!(core.set_recipe(0, 4, 6).is_err());
 }
 
+/// The explicit way out of the dead end the test above establishes.
+///
+/// A composer mid-craft refuses reassignment and holds its reserved ingredients out of reach of
+/// `withdraw`, which left demolition as the only exit from a job the player no longer wants. This
+/// is the abort rule that replaces it: the refund is exactly one batch of the running recipe, back
+/// into the ingredient compartment it came from; fuel and finished goods do not move; and the
+/// machine afterwards is one that is simply between crafts again — including across a save, since
+/// progress and the reservation are both checksummed.
+#[test]
+fn a_cancelled_craft_returns_its_reserved_inputs_and_leaves_fuel_and_output_alone() {
+    let (definitions, technologies, scenarios) = catalogs();
+    let mut core = game("new-game");
+    core.researched.extend([1, 2, 3, 5, 6]);
+    core.player.inventory.extend([(1, 40), (6, 40), (8, 20)]);
+    set_player_hex(&mut core, 0, 3);
+    stock_for(&mut core, 8, 1);
+    core.place(0, 4, 8, 0, Some(6)).unwrap();
+    core.set_recipe(0, 4, 7).unwrap();
+    let index = core.entity_at(0, 4).unwrap();
+
+    // Bounded and refused exactly like the reassignment it stands beside. A machine with nothing
+    // running is a refusal rather than a quiet success: the host draws this control from
+    // `progress`, so the two must never disagree about whether there is a craft to abandon.
+    assert!(core.cancel_craft(1 << 20, 0).is_err());
+    assert!(core.cancel_craft(0, 2).unwrap_err().contains("no machine"));
+    assert!(core
+        .cancel_craft(0, 4)
+        .unwrap_err()
+        .contains("not mid-craft"));
+
+    // Char wood bills six wood and no heat, so the coal in the firebox is there to be left alone
+    // rather than to be spent, and the charcoal is a craft that already finished.
+    core.entities[index].input_inventory.insert(9, 12);
+    core.entities[index].fuel_inventory.insert(5, 3);
+    core.entities[index].output_inventory.insert(15, 1);
+    core.tick_many(2);
+    assert!(core.entities[index].progress > 0);
+    assert_eq!(core.entities[index].reserved_inputs.get(&9), Some(&6));
+    assert_eq!(core.entities[index].input_inventory.get(&9), Some(&6));
+
+    core.cancel_craft(0, 4).unwrap();
+    assert_eq!(core.entities[index].progress, 0);
+    assert!(core.entities[index].reserved_inputs.is_empty());
+    assert_eq!(core.entities[index].input_inventory.get(&9), Some(&12));
+    assert_eq!(core.entities[index].fuel_inventory.get(&5), Some(&3));
+    assert_eq!(core.entities[index].output_inventory.get(&15), Some(&1));
+    assert!(core
+        .events
+        .iter()
+        .any(|event| event.contains("Cancelled the craft") && event.contains("Wood")));
+
+    // Between crafts again, which is the whole point: the reassignment refused a moment ago now
+    // goes through, and the machine is not carrying anything from the job it abandoned.
+    core.set_recipe(0, 4, 6).unwrap();
+    core.set_recipe(0, 4, 7).unwrap();
+
+    // Exact across a save. Metering is a harness hook that no file carries, so both sides are put
+    // on the same footing before the comparison — the claim is about the cancelled machine, not
+    // about the hook.
+    core.power_unmetered = false;
+    let save = core.save_string().unwrap();
+    let mut restored = Core::from_save(&definitions, &technologies, &scenarios, &save).unwrap();
+    assert_eq!(restored.checksum(), core.checksum());
+    let restored_index = restored.entity_at(0, 4).unwrap();
+    assert_eq!(
+        restored.entities[restored_index].input_inventory.get(&9),
+        Some(&12)
+    );
+    core.tick_many(30);
+    restored.tick_many(30);
+    assert_eq!(restored.checksum(), core.checksum());
+}
+
 #[test]
 fn skills_are_finite_atomic_and_isolated_from_research() {
     let mut core = game("new-game");

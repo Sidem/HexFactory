@@ -959,6 +959,12 @@ export type NativeInputCommand =
    */
   | { type: "set_recipe"; q: number; r: number; recipe_id: number }
   /**
+   * Abandon a part-finished craft. Native returns the reserved ingredients to the machine's own
+   * ingredient compartment in full, leaves fuel and output alone, and refuses a machine that is
+   * not mid-craft. The confirmation belongs to the host; every unit of the accounting is native's.
+   */
+  | { type: "cancel_craft"; q: number; r: number }
+  /**
    * Switch a working machine off, or back on. Carries the state it wants rather than a toggle, so
    * a doubled press or a replayed command lands on the same answer instead of flipping the
    * machine back. Native refuses the kinds that have no work to stop — a belt, a shelf, a wire.

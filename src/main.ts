@@ -2483,6 +2483,17 @@ function renderInspector(): void {
       building.progress_total,
       building.progress_total > 0,
     );
+    // Offered only where native will honour it — a composer, part way through a craft, that the
+    // scenario does not own — because a button whose whole behaviour is to explain why it refused
+    // is worse than no button. The coordinates ride on the element so the click reads the machine
+    // it was drawn for rather than whatever the inspector has moved on to.
+    const cancelButton = required<HTMLButtonElement>("inspect-cancel-craft");
+    cancelButton.hidden =
+      building.kind !== "composer" ||
+      building.progress === 0 ||
+      building.scenario_owned;
+    cancelButton.dataset.q = String(building.q);
+    cancelButton.dataset.r = String(building.r);
     setMeter(
       required<HTMLElement>("inspect-fuel-meter"),
       required<HTMLElement>("inspect-fuel-fill"),
@@ -4107,12 +4118,33 @@ required<HTMLSelectElement>("machine-recipe").addEventListener(
   "change",
   (event) => {
     const select = event.currentTarget as HTMLSelectElement;
-    enqueue({
-      type: "set_recipe",
-      q: Number(select.dataset.q),
-      r: Number(select.dataset.r),
-      recipe_id: Number(select.value),
+    const q = Number(select.dataset.q);
+    const r = Number(select.dataset.r);
+    const recipe_id = Number(select.value);
+    const assign = (): void =>
+      void enqueue({ type: "set_recipe", q, r, recipe_id });
+    const building = buildingAt({ q, r });
+    if (!building || building.progress === 0) {
+      assign();
+      return;
+    }
+    // Native refuses a reassignment mid-craft, so this used to be a control that silently did
+    // nothing. It now asks, and on a yes clears the craft ahead of the new assignment. The list
+    // snaps back first because a `<select>` showing a recipe the machine never took would state an
+    // assignment that is not true — the snapshot puts it forward again once native agrees.
+    select.value = String(building.recipe_id ?? "");
+    cancelCraft(building, assign);
+  },
+);
+required<HTMLButtonElement>("inspect-cancel-craft").addEventListener(
+  "click",
+  (event) => {
+    const button = event.currentTarget as HTMLButtonElement;
+    const building = buildingAt({
+      q: Number(button.dataset.q),
+      r: Number(button.dataset.r),
     });
+    if (building && building.progress > 0) cancelCraft(building);
   },
 );
 required<HTMLButtonElement>("inspect-upgrade").addEventListener(
@@ -4557,6 +4589,44 @@ function heldStock(
 
 const SPILL_NOTE =
   "What fits goes back to your pack. Anything that does not fit falls at the site, and ground items disappear after about a minute of simulation time.";
+
+/**
+ * Abandon a part-finished craft, asking first and naming what comes back.
+ *
+ * What native returns is exactly one batch of the recipe the machine is running: it moves those
+ * ingredients out of the input buffer when progress starts, and refuses `set_recipe` for as long as
+ * progress lasts, so the assignment cannot have drifted underneath. That is why the list is read
+ * from the definitions the host already holds instead of a new snapshot field — it is the same set,
+ * and it costs nothing on the wire.
+ *
+ * `then` runs on acceptance, after the cancel is queued, so a recipe change that had to clear a
+ * craft first reaches native behind it in the same batch and is applied in that order.
+ */
+function cancelCraft(building: EntitySnapshot, then?: () => void): void {
+  const recipe = host.definitions.recipes.find(
+    ({ id }) => id === building.recipe_id,
+  );
+  confirmDialog.ask(
+    {
+      title: recipe ? `Cancel the ${recipe.name} craft?` : "Cancel the craft?",
+      rows: (recipe?.inputs ?? []).map((input) => ({
+        text: `${input.quantity} × ${itemById(input.item_id)?.name ?? "item"}`,
+        paint: (host_) =>
+          void paintChip(host_, input.item_id, { named: false }),
+      })),
+      note: CANCEL_NOTE,
+      accept: "Cancel the craft",
+      cancel: "Keep working",
+    },
+    () => {
+      enqueue({ type: "cancel_craft", q: building.q, r: building.r });
+      then?.();
+    },
+  );
+}
+
+const CANCEL_NOTE =
+  "The progress so far is lost. The ingredients go back to the machine's own ingredient slot, and its fuel and finished goods are left alone.";
 
 /**
  * A removal drag, asked about once for the whole sweep.

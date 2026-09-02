@@ -90,7 +90,6 @@ import {
   FIELD_RESOURCE_SHAPES,
   plumeFor,
   powerWireLinks,
-  WAYFINDER_VISUAL_SCALE,
   WorldInstanceLayer,
 } from "../src/rendering/three/worldInstances";
 
@@ -392,32 +391,14 @@ describe("Visual Depth generated geometry", () => {
     );
   });
 
-  it("keeps the Wayfinder human-sized and gives the wind turbine the skyline", () => {
-    expect(WAYFINDER_VISUAL_SCALE).toBeGreaterThanOrEqual(3);
+  // The Wayfinder's own half of this claim lives in `tests/playerRig.test.ts`, beside the rig.
+  it("gives the wind turbine the skyline", () => {
     expect(MACHINE_SILHOUETTE_SCALE.wind).toBeGreaterThan(
       MACHINE_SILHOUETTE_SCALE.pole * 3,
     );
     expect(MACHINE_SILHOUETTE_SCALE.extractor).toBeGreaterThan(
       MACHINE_SILHOUETTE_SCALE.pole,
     );
-    const materials = createWorldMaterials();
-    const layer = new WorldInstanceLayer(
-      {
-        boundaries: [],
-        surfaces: [],
-        version: 1,
-        items: [],
-        recipes: [],
-        requests: [],
-        buildings: [],
-      },
-      materials,
-    );
-    expect(layer.group.getObjectByName("player")?.scale.x).toBe(
-      WAYFINDER_VISUAL_SCALE,
-    );
-    layer.dispose();
-    for (const material of materials.materials) material.dispose();
   });
 
   it("spins an upright turbine in its vertical rotor disc", () => {
@@ -1374,6 +1355,7 @@ describe("Terrain surfaces", () => {
       [ShaderLib.physical.fragmentShader, "#include <roughnessmap_fragment>"],
       [ShaderLib.physical.fragmentShader, "#include <normal_fragment_maps>"],
       [ShaderLib.physical.fragmentShader, "#include <emissivemap_fragment>"],
+      [ShaderLib.physical.fragmentShader, "#include <fog_fragment>"],
     ] as const;
     for (const [source, anchor] of anchors)
       expect(source.split(anchor).length - 1).toBe(1);
@@ -1389,8 +1371,14 @@ describe("Terrain surfaces", () => {
     expect(shader.fragmentShader).toContain("void hfRelief()");
     expect(shader.fragmentShader).toContain("hfRelief();");
     expect(shader.fragmentShader).toContain("diffuseColor.rgb *= hfAlbedo;");
+    // The frontier dissolves by colour and stays opaque. It rides after the fog chunk so a fully
+    // dissolved fragment is the background exactly rather than approximately, and the absence of a
+    // `discard` is the half of the claim that draw ordering and shadow baking depend on.
     expect(shader.fragmentShader).toContain(
-      "hfFrontier < 0.999 && hfHash12( floor( gl_FragCoord.xy ) )",
+      "gl_FragColor.rgb = mix( fogColor, gl_FragColor.rgb, clamp( hfFrontier, 0.0, 1.0 ) );",
+    );
+    expect(shader.fragmentShader).not.toContain(
+      "hfHash12( floor( gl_FragCoord",
     );
     expect(shader.fragmentShader).toContain(
       "roughnessFactor = clamp( hfRough, 0.04, 1.0 );",

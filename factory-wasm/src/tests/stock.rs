@@ -854,3 +854,91 @@ fn dropped_items_land_are_picked_up_despawn_and_survive_a_save() {
     let restored = Core::from_save(&definitions, &technologies, &scenarios, &save).unwrap();
     assert_eq!(restored.ground_items, before_ground);
 }
+
+/// An item with two honest destinations reaches both, and a full ingredient buffer no longer
+/// starves the firebox behind it.
+///
+/// Coal is billed by `Smelt steel` *and* burns, and one resolver had to answer for both. Select
+/// `Melt glass` and coal was fuel; select `Smelt steel` and the same lump became an ingredient, so
+/// a named Fuel slot refused it — a player saw one smelter take coal and its neighbour refuse it
+/// for no visible reason. Worse, automatic delivery could only ever answer `Input`, so a belt of
+/// coal filled the ingredient buffer to capacity and then backed up with an empty firebox: a
+/// belt-fed steel smelter could not run at all.
+///
+/// The precedence is not the defect and does not move. Feeding steel still fills its bill before
+/// its firebox. What changed is that precedence stops speaking for a compartment the player named,
+/// and yields once the compartment it prefers is full.
+#[test]
+fn an_item_that_is_both_ingredient_and_fuel_reaches_either_compartment_by_hand_and_by_belt() {
+    let mut core = game("new-game");
+    core.researched.extend([1, 2, 3, 5, 8]);
+    core.player.build_range = 1 << 20;
+    set_player_hex(&mut core, 0, 3);
+    stock_for(&mut core, 7, 1);
+    core.place(0, 5, 7, 0, Some(5)).unwrap();
+    let smelter = core.entity_at(0, 5).unwrap();
+
+    // By hand, into the slot the player pointed at, with steel selected.
+    core.player.inventory.clear();
+    core.player.inventory.insert(5, 24);
+    core.store_into(0, 5, StockKind::Fuel, 5, 4).unwrap();
+    core.store_into(0, 5, StockKind::Input, 5, 4).unwrap();
+    assert_eq!(core.entities[smelter].fuel_inventory.get(&5), Some(&4));
+    assert_eq!(core.entities[smelter].input_inventory.get(&5), Some(&4));
+
+    // The cursor stack obeys the same rule the hand does.
+    core.pickup_player_stack(5, 2).unwrap();
+    core.place_building_stack(0, 5, StockKind::Fuel, 2).unwrap();
+    assert_eq!(core.entities[smelter].fuel_inventory.get(&5), Some(&6));
+
+    // Automatic delivery is unchanged while the bill can still take the item: inputs first.
+    core.store(0, 5, 5, 2).unwrap();
+    assert_eq!(core.entities[smelter].input_inventory.get(&5), Some(&6));
+    assert_eq!(core.entities[smelter].fuel_inventory.get(&5), Some(&6));
+
+    // A withdrawal with no named compartment finds the coal wherever it actually sits.
+    core.entities[smelter].input_inventory.clear();
+    core.withdraw(0, 5, 5, 6).unwrap();
+    assert_eq!(core.entities[smelter].fuel_inventory.get(&5), None);
+
+    // And precedence yields once the ingredient buffer is full, so a belt keeps feeding the
+    // firebox instead of backing up against a machine that could never light.
+    let capacity = core
+        .building_definition(7)
+        .and_then(|definition| definition.capacity)
+        .unwrap();
+    core.entities[smelter].input_inventory.insert(5, capacity);
+    core.entities[smelter].fuel_inventory.clear();
+    let cargo = Cargo {
+        item_id: 5,
+        quantity: 1,
+    };
+    assert!(core.can_accept(smelter, cargo));
+    assert_eq!(
+        core.delivery_stock_for_item(smelter, 5, 1),
+        Some(StockKind::Fuel)
+    );
+    core.accept(smelter, cargo);
+    assert_eq!(core.entities[smelter].fuel_inventory.get(&5), Some(&1));
+
+    // With both compartments full the belt still backs up rather than voiding the cargo.
+    core.entities[smelter].fuel_inventory.insert(5, capacity);
+    assert!(!core.can_accept(smelter, cargo));
+
+    // Glass bills no coal, so coal there is fuel and nothing else — an ingredient slot that never
+    // wanted it still says so.
+    core.entities[smelter].input_inventory.clear();
+    core.entities[smelter].fuel_inventory.clear();
+    core.set_recipe(0, 5, 4).unwrap();
+    assert!(core.stock_admits_item(smelter, StockKind::Fuel, 5));
+    assert!(!core.stock_admits_item(smelter, StockKind::Input, 5));
+
+    // A burner-only machine is untouched: it has a firebox and no bill, and iron ore is neither.
+    core.player.inventory.clear();
+    stock_for(&mut core, 13, 1);
+    let (q, r) = try_place_near(&mut core, (0, 3), 13);
+    let generator = core.entity_at(q, r).unwrap();
+    assert!(core.stock_admits_item(generator, StockKind::Fuel, 5));
+    assert!(!core.stock_admits_item(generator, StockKind::Input, 5));
+    assert!(!core.stock_admits_item(generator, StockKind::Fuel, 1));
+}

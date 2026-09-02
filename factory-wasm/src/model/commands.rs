@@ -182,6 +182,12 @@ enum InputCommand {
         r: i32,
         recipe_id: RecipeId,
     },
+    /// Abandon a part-finished craft, returning its reserved ingredients to the machine's own
+    /// ingredient compartment. The way out of a stopped manual workshop that is not demolition.
+    CancelCraft {
+        q: i32,
+        r: i32,
+    },
     Undo,
     PurchaseSkill {
         skill_id: u16,

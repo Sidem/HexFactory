@@ -645,6 +645,19 @@
 .withdraw-button[hidden] {
   display: none;
 }
+/* The way out of a part-finished craft, directly under the meter it clears. It is short rather
+   than the grid's full width so it reads as an action on that meter and not as the panel's
+   heading, and it is only present while there is progress to abandon. It carries the withdraw
+   button's shape here rather than its class, because it is the only button on this panel that is
+   not a transfer control and the markup is shorter for saying so once. */
+#inspect-cancel-craft {
+  justify-self: start;
+  padding: 5px 9px;
+  font-size: 0.66rem;
+}
+#inspect-cancel-craft[hidden] {
+  display: none;
+}
 /* The machine's own switch, sharing the small-button shape with the transfer controls. A stopped
    machine wears the stop tone, so the button and the status line beside it agree at a glance. */
 .inspect-switch {

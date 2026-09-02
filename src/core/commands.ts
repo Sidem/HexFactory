@@ -231,6 +231,10 @@ export function encodeCommand(command: NativeInputCommand): EncodedCommand {
         opcode: 11,
         args: [command.q, command.r, command.recipe_id],
       };
+    // No recipe id: the machine already knows which job it is abandoning, and naming a second one
+    // here would let the host describe a cancel of something native is not running.
+    case "cancel_craft":
+      return { opcode: 36, args: [command.q, command.r] };
     case "upgrade":
       return { opcode: 13, args: [command.q, command.r] };
     case "gather_at":

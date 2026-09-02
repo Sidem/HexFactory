@@ -114,7 +114,7 @@ describe("physical heightfield terrain", () => {
     dispose(built);
   });
 
-  it("carries a three-ring dissolve weight into the terrain shader", () => {
+  it("carries a dissolve weight that falls to nothing across the frontier", () => {
     const samples: HeightfieldSample[] = [];
     for (let q = -2; q <= 2; q += 1) {
       for (let r = -2; r <= 2; r += 1) {
@@ -126,13 +126,29 @@ describe("physical heightfield terrain", () => {
     const weights = [
       ...built.ground.getAttribute("frontierFade").array,
     ] as number[];
+    // The three ring values still reach the surface through the cell-centre vertices, and the
+    // corners between them carry the means that turn those rings into a gradient rather than three
+    // hex-shaped bands. The shader paints this weight now instead of dithering on it, so a step
+    // between rings would be visible as a step.
     for (const expected of [0.42, 0.76, 1])
       expect(weights.some((value) => Math.abs(value - expected) < 1e-5)).toBe(
         true,
       );
-    expect([...built.frontier.getAttribute("frontierFade").array]).toEqual(
-      expect.arrayContaining([expect.closeTo(0.22, 5)]),
+    expect(weights.some((value) => value > 0.42 && value < 0.76 - 1e-5)).toBe(
+      true,
     );
+    // Nothing on the surface reaches the background, and nothing goes past it either: the disc
+    // fades towards sky and the outermost corners are the closest it gets.
+    expect(Math.min(...weights)).toBeGreaterThan(0);
+    expect(Math.min(...weights)).toBeLessThan(0.42);
+    expect(Math.max(...weights)).toBe(1);
+    // The skirt behind the rim reaches the background exactly, so its unlit face never reads as a
+    // dark band under the horizon.
+    const skirt = [
+      ...built.frontier.getAttribute("frontierFade").array,
+    ] as number[];
+    expect(Math.min(...skirt)).toBe(0);
+    expect(Math.max(...skirt)).toBeLessThan(0.42);
 
     dispose(built);
   });

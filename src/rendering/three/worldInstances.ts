@@ -7,13 +7,11 @@ import {
   IcosahedronGeometry,
   InstancedMesh,
   Matrix4,
-  Mesh,
   OctahedronGeometry,
   Quaternion,
-  RingGeometry,
   Vector3,
 } from "three";
-import { axialToPixel, pixelToAxial } from "@hexlife/embed/hex";
+import { axialToPixel } from "@hexlife/embed/hex";
 
 import type {
   BuildingDefinition,
@@ -40,6 +38,7 @@ import {
   type MachinePartInstance,
 } from "./machineMeshes";
 import type { WorldMaterials } from "./materials";
+import { PlayerRig } from "./playerRig";
 import type { TerrainCell } from "./terrainMeshes";
 import { heightAt, stableVariation } from "./terrainMeshes";
 import {
@@ -82,9 +81,6 @@ export const FIELD_RESOURCE_SHAPES = Object.freeze({
   log: "trunk-and-canopy",
 });
 
-/** A person must read at world scale, not as another inventory token dropped on one hex. */
-export const WAYFINDER_VISUAL_SCALE = 3.2;
-
 export class WorldInstanceLayer {
   readonly group = new Group();
   readonly geometryLibrary = new PartGeometryLibrary();
@@ -126,7 +122,6 @@ export class WorldInstanceLayer {
   private staticGroup = new Group();
   private resourceGroup = new Group();
   private readonly dynamicGroup = new Group();
-  private readonly playerGroup = new Group();
   private partBuckets: PartBucket[] = [];
   private structureKey = "";
   private resourcesIdentity: FactorySnapshot["resources"] | null = null;
@@ -137,19 +132,7 @@ export class WorldInstanceLayer {
   private cargoMesh: InstancedMesh | null = null;
   private groundItemMesh: InstancedMesh | null = null;
   private plumeMesh: InstancedMesh | null = null;
-  private readonly playerBody: Mesh;
-  private readonly playerShell: Mesh;
-  private readonly playerHead: Mesh;
-  private readonly playerFacing: Mesh;
-  private readonly playerPack: Mesh;
-  private readonly playerBeacon: Mesh;
-  private readonly playerLeftLeg: Mesh;
-  private readonly playerRightLeg: Mesh;
-  private readonly playerLeftArm: Mesh;
-  private readonly playerRightArm: Mesh;
-  private readonly playerTool: Mesh;
-  private readonly playerWork: Mesh;
-  private readonly playerMeshes: readonly Mesh[];
+  private readonly player: PlayerRig;
   private readonly pointById = new Map<number, { x: number; z: number }>();
   private readonly groundById = new Map<number, number>();
   private readonly buildingById = new Map<number, EntitySnapshot>();
@@ -175,95 +158,13 @@ export class WorldInstanceLayer {
     this.staticGroup.name = "static-factory";
     this.resourceGroup.name = "field-resources";
     this.dynamicGroup.name = "dynamic-factory-state";
-    this.playerGroup.name = "player";
-    this.playerGroup.scale.setScalar(WAYFINDER_VISUAL_SCALE);
+    this.player = new PlayerRig(materials);
     this.group.add(
       this.staticGroup,
       this.resourceGroup,
       this.dynamicGroup,
-      this.playerGroup,
+      this.player.group,
     );
-    // The wayfinder casts no shadow. The shadow map is baked on demand rather than every
-    // frame, so the one caster that moves continuously would leave its shadow standing a
-    // stride behind it until the next bake caught up.
-    this.playerBody = new Mesh(
-      new CylinderGeometry(0.13, 0.16, 0.25, 7),
-      materials.wayfinderHull,
-    );
-    this.playerBody.position.y = 0.31;
-    this.playerShell = new Mesh(
-      new CylinderGeometry(0.17, 0.14, 0.13, 7),
-      materials.wayfinderShell,
-    );
-    this.playerShell.position.y = 0.43;
-    this.playerHead = new Mesh(
-      new IcosahedronGeometry(0.095, 1),
-      materials.wayfinderShell,
-    );
-    this.playerHead.position.y = 0.535;
-    this.playerFacing = new Mesh(
-      new BoxGeometry(0.115, 0.045, 0.035),
-      materials.wayfinderSignal,
-    );
-    this.playerFacing.position.set(0, 0.545, 0.083);
-    this.playerPack = new Mesh(
-      new BoxGeometry(0.17, 0.22, 0.1),
-      materials.wayfinderBrass,
-    );
-    this.playerPack.position.set(0, 0.34, -0.13);
-    this.playerBeacon = new Mesh(
-      new OctahedronGeometry(0.035, 0),
-      materials.wayfinderBrass,
-    );
-    this.playerBeacon.position.set(0, 0.65, -0.025);
-    this.playerLeftLeg = new Mesh(
-      new CylinderGeometry(0.04, 0.05, 0.2, 6),
-      materials.wayfinderHull,
-    );
-    this.playerLeftLeg.position.set(-0.07, 0.105, 0);
-    this.playerRightLeg = new Mesh(
-      new CylinderGeometry(0.04, 0.05, 0.2, 6),
-      materials.wayfinderHull,
-    );
-    this.playerRightLeg.position.set(0.07, 0.105, 0);
-    this.playerLeftArm = new Mesh(
-      new CylinderGeometry(0.03, 0.04, 0.21, 6),
-      materials.wayfinderShell,
-    );
-    this.playerLeftArm.position.set(-0.17, 0.34, 0.015);
-    this.playerLeftArm.rotation.z = -0.18;
-    this.playerRightArm = new Mesh(
-      new CylinderGeometry(0.03, 0.04, 0.21, 6),
-      materials.wayfinderShell,
-    );
-    this.playerRightArm.position.set(0.17, 0.34, 0.015);
-    this.playerRightArm.rotation.z = 0.18;
-    this.playerTool = new Mesh(
-      new CylinderGeometry(0.025, 0.04, 0.24, 6),
-      materials.wayfinderBrass,
-    );
-    this.playerTool.position.set(0.22, 0.25, 0.075);
-    this.playerTool.rotation.z = -0.5;
-    this.playerWork = new Mesh(
-      new RingGeometry(0.31, 0.36, 32),
-      materials.overlaySelection,
-    );
-    this.playerWork.rotateX(-Math.PI / 2);
-    this.playerWork.position.y = 0.025;
-    this.playerMeshes = [
-      this.playerBody,
-      this.playerShell,
-      this.playerHead,
-      this.playerFacing,
-      this.playerPack,
-      this.playerBeacon,
-      this.playerLeftLeg,
-      this.playerRightLeg,
-      this.playerLeftArm,
-      this.playerRightArm,
-      this.playerTool,
-    ];
-    this.playerGroup.add(...this.playerMeshes, this.playerWork);
   }
 
   setSnapshot(
@@ -345,10 +246,19 @@ export class WorldInstanceLayer {
       bucket.mesh.instanceMatrix.needsUpdate = true;
     }
     this.updateDynamicBuildings(snapshot, now, reducedMotion);
-    if (this.playerDirty) {
-      this.playerDirty = false;
-      this.updatePlayer(snapshot);
-    }
+    // Every frame, not only on a new snapshot. The pose is cheap, and the gait has to ease out
+    // between snapshots: measuring displacement on snapshot frames alone made the legs step at the
+    // simulation's cadence rather than the display's.
+    this.player.update(
+      snapshot,
+      now,
+      this.playerDirty,
+      // A snapshot arrives every tick or so, and one that reports no displacement is the ordinary
+      // case mid-step rather than evidence of a stop.
+      Math.min(500, Math.max(180, this.cargoTickMs * 2)),
+      (q, r) => this.groundHeight(q, r),
+    );
+    this.playerDirty = false;
   }
 
   dispose(): void {
@@ -359,8 +269,7 @@ export class WorldInstanceLayer {
       geometry.detail.dispose();
     }
     this.curvedTransportGeometry.clear();
-    for (const mesh of this.playerMeshes) mesh.geometry.dispose();
-    this.playerWork.geometry.dispose();
+    this.player.dispose();
   }
 
   private rebuildStatic(snapshot: FactorySnapshot): void {
@@ -1681,33 +1590,6 @@ export class WorldInstanceLayer {
     }
     this.groundItemMesh.count = groundItems;
     markInstancesDirty(this.groundItemMesh);
-  }
-
-  private updatePlayer(snapshot: FactorySnapshot): void {
-    const player = snapshot.player;
-    const axial = pixelToAxial(player, WORLD_SCALE);
-    const height = this.groundHeight(axial.q, axial.r);
-    const x = player.x / WORLD_SCALE;
-    const z = player.y / WORLD_SCALE;
-    this.playerGroup.position.set(x, height + 0.02, z);
-    const facing = Math.atan2(player.facing_x, player.facing_y);
-    this.playerGroup.rotation.y = facing;
-    const walking = player.walk_path.length > 0;
-    const stride = walking
-      ? Math.sin(((player.x + player.y) / WORLD_SCALE) * 8) * 0.48
-      : 0;
-    this.playerBody.rotation.x = walking ? -0.06 : 0;
-    this.playerShell.rotation.x = walking ? -0.04 : 0;
-    this.playerLeftLeg.rotation.x = stride;
-    this.playerRightLeg.rotation.x = -stride;
-    this.playerLeftArm.rotation.x = -stride * 0.72;
-    this.playerRightArm.rotation.x = stride * 0.72;
-    const total = player.action_cooldown_total;
-    const done = total > 0 ? 1 - player.action_cooldown / total : 0;
-    this.playerTool.visible = player.action_cooldown > 0;
-    this.playerTool.rotation.z = -0.5 - done * 0.75;
-    this.playerWork.visible = player.action_cooldown > 0;
-    this.playerWork.scale.setScalar(Math.max(0.05, done));
   }
 
   private groundHeight(q: number, r: number): number {

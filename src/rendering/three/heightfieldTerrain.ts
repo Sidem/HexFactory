@@ -160,15 +160,14 @@ export function buildHeightfieldGeometry(
         cellByKey,
         options.cliffThreshold,
       );
+      const firstFade = cornerFrontier(cell, corner, frontierByKey);
+      const secondFade = cornerFrontier(cell, corner + 1, frontierByKey);
       // Winding is counter-clockwise when viewed from above, so generated normals face +Y.
-      ground.triangle(
-        centre,
-        second,
-        first,
-        substrate,
-        cell.look,
+      ground.triangle(centre, second, first, substrate, cell.look, [
         frontierFade,
-      );
+        secondFade,
+        firstFade,
+      ]);
 
       if (cell.waterDepth > 0) {
         const waterCentre = cellCentre(cell, cell.waterHeight);
@@ -180,7 +179,7 @@ export function buildHeightfieldGeometry(
           waterFirst,
           cell.dischargeClass,
           cell.waterLook,
-          frontierFade,
+          [frontierFade, secondFade, firstFade],
         );
       }
     }
@@ -198,6 +197,10 @@ export function buildHeightfieldGeometry(
         options.cliffThreshold,
       );
       if (!neighbour) {
+        // The skirt is what stands behind the dissolving rim, and it is lit from above, so it has
+        // no light of its own to show. Its top edge picks up the rim's own weight and its bottom
+        // edge goes to nothing: painted, it reaches sky before it reaches the depth where its
+        // unlit face would have read as a dark band under the horizon.
         frontier.quad(
           first,
           second,
@@ -205,7 +208,12 @@ export function buildHeightfieldGeometry(
           { ...first, y: first.y - frontierDepth },
           substrate,
           cell.look,
-          0.22,
+          [
+            cornerFrontier(cell, edge, frontierByKey),
+            cornerFrontier(cell, edge + 1, frontierByKey),
+            0,
+            0,
+          ],
         );
         continue;
       }
@@ -230,6 +238,11 @@ export function buildHeightfieldGeometry(
         cellByKey,
         options.cliffThreshold,
       );
+      // A vertical face is shared by two cells, and both ends of it are hex corners the surrounding
+      // cells already agree a weight for, so it takes the same corner values the surface above and
+      // below it takes rather than one flat minimum for the whole face.
+      const cliffFirst = cornerFrontier(cell, edge, frontierByKey);
+      const cliffSecond = cornerFrontier(cell, edge + 1, frontierByKey);
       cliffs.quad(
         first,
         second,
@@ -237,10 +250,7 @@ export function buildHeightfieldGeometry(
         { ...first, y: neighbourFirst.y },
         substrate,
         cell.look,
-        Math.min(
-          frontierFade,
-          frontierByKey.get(cellKey(neighbour.q, neighbour.r)) ?? 1,
-        ),
+        [cliffFirst, cliffSecond, cliffSecond, cliffFirst],
       );
     }
   }
@@ -466,6 +476,49 @@ function mean(values: readonly number[]): number {
   return values.reduce((sum, value) => sum + value, 0) / values.length;
 }
 
+/**
+ * The dissolve weight one face carries: one number for the whole face, or one per vertex in the
+ * order the vertices were given.
+ *
+ * Per-vertex exists because the weight is now read as a colour rather than as a coverage. A single
+ * number per cell used to be enough when a screen-space hash was scattering the difference between
+ * rings; painted instead, the same three values would draw as three hex-shaped bands with visible
+ * steps between them. Interpolating across the face turns the same rings into one gradient.
+ */
+type FrontierWeights = number | readonly number[];
+
+function weight(weights: FrontierWeights, vertex: number): number {
+  return typeof weights === "number" ? weights : (weights[vertex] ?? 1);
+}
+
+/**
+ * The dissolve weight at one hex corner: the mean over the three cells that meet there, counting a
+ * cell outside the survey as nothing.
+ *
+ * This is what carries the fade past the outermost ring. A corner with two unsurveyed neighbours is
+ * already two thirds of the way to sky whatever its own cell says, so the surveyed disc ends in a
+ * horizon rather than at the edge of its last ring — and every cell sharing a corner agrees on its
+ * value, so no seam opens along the way.
+ */
+function cornerFrontier(
+  cell: HeightfieldSample,
+  rawCorner: number,
+  frontierByKey: ReadonlyMap<string, number>,
+): number {
+  const corner = modulo(rawCorner, DIRECTIONS.length);
+  const previous = DIRECTIONS[modulo(corner - 1, DIRECTIONS.length)]!;
+  const next = DIRECTIONS[corner]!;
+  return mean([
+    frontierByKey.get(cellKey(cell.q, cell.r)) ?? 0,
+    ...[previous, next].map(
+      (direction) =>
+        frontierByKey.get(
+          cellKey(cell.q + direction.q, cell.r + direction.r),
+        ) ?? 0,
+    ),
+  ]);
+}
+
 function modulo(value: number, divisor: number): number {
   return ((value % divisor) + divisor) % divisor;
 }
@@ -493,7 +546,7 @@ class GeometryWriter {
     third: Point3,
     channel: number,
     bucket: number = channel,
-    frontier: number = 1,
+    frontier: FrontierWeights = 1,
   ): void {
     let indices = this.#indicesByBucket.get(bucket);
     if (!indices) {
@@ -501,9 +554,9 @@ class GeometryWriter {
       this.#indicesByBucket.set(bucket, indices);
     }
     indices.push(
-      this.vertex(first, channel, frontier),
-      this.vertex(second, channel, frontier),
-      this.vertex(third, channel, frontier),
+      this.vertex(first, channel, weight(frontier, 0)),
+      this.vertex(second, channel, weight(frontier, 1)),
+      this.vertex(third, channel, weight(frontier, 2)),
     );
   }
 
@@ -514,10 +567,18 @@ class GeometryWriter {
     fourth: Point3,
     channel: number,
     bucket: number = channel,
-    frontier: number = 1,
+    frontier: FrontierWeights = 1,
   ): void {
-    this.triangle(first, second, third, channel, bucket, frontier);
-    this.triangle(first, third, fourth, channel, bucket, frontier);
+    this.triangle(first, second, third, channel, bucket, [
+      weight(frontier, 0),
+      weight(frontier, 1),
+      weight(frontier, 2),
+    ]);
+    this.triangle(first, third, fourth, channel, bucket, [
+      weight(frontier, 0),
+      weight(frontier, 2),
+      weight(frontier, 3),
+    ]);
   }
 
   finish(): { geometry: BufferGeometry; buckets: GeometryBuckets } {

@@ -97,55 +97,73 @@ synonyms lengthen the catalogue without deepening the factory.
 Four defects and six requests. The defects sit ahead of row 9; each request is placed against the row that
 owns its system. Three of the four are traced to a named line, so work starts from the cause.
 
-**Defect — a smelter refuses coal into Fuel while Steel is selected.** Select Sand → Glass, put coal in Fuel,
-switch back to Steel, and the same smelter accepts it. `stock_kind_for_item` in
+**Three defects and one request shipped on 2026-09-02.** What each one turned out to be is recorded against
+it below, because in two cases the measurement contradicted the diagnosis written here.
+
+**Defect — a smelter refuses coal into Fuel while Steel is selected. Fixed.** Select Sand → Glass, put coal in
+Fuel, switch back to Steel, and the same smelter accepts it. `stock_kind_for_item` in
 `factory-wasm/src/core/transport.rs` resolves exactly one compartment per item and lets inputs outrank fuel
 deliberately, so feeding steel does not divert its own bill into the firebox. Steel bills two coal → `Input`,
 so `stock_accepts_item` refuses the named Fuel slot; Glass bills none, so the same lump is `Fuel`. **The
 precedence rule is right and the arbitration is the defect** — an item that is both has two honest
-destinations and one compartment to express them in. Settle the rule first: an explicitly named target stock
-is honoured whenever the item qualifies for it at all, and only `StockKind::Auto` keeps inputs-outrank-fuel.
-Then apply it to the belt path (`accepts_item`) and the hand path in one change, covering coal into Fuel and
-into Input by hand and belt, automatic delivery still filling inputs first, burner-only machines unchanged.
+destinations and one compartment to express them in. Settled as written: `stock_admits_item` qualifies an item
+for a named compartment independently, so an explicitly named target is honoured whenever the item qualifies
+at all, and `delivery_stock_for_item` keeps inputs-outrank-fuel for `Auto` while letting it fall through to
+Fuel once Input is full. That last part was the deadlock behind the report — `charge_fuel` burns from
+`fuel_inventory` and the legacy `inventory` and never from `input_inventory`, so a belt-fed steel smelter
+filled its ingredient buffer and then stood with an empty firebox.
 
-**Defect — black dots along the unexplored border.** Measure before guessing: capture the rim at each zoom
-step on Low, Medium and High. Three suspects interact. The frontier dither in
-`src/rendering/three/terrainSurface.ts` discards fragments on a screen-space hash, so the last two survey
-rings are deliberately full of holes; the frontier skirt from `heightfieldTerrain.ts`, dropped to
-`WORLD_FLOOR` in `terrainMeshes.ts`, stands behind them unlit from above; and the distance fog in
-`ThreeFactoryRenderer.ts`, meant to swallow that seam, is scaled to a fraction of the screen rather than to
-fixed scene units, so its cover changes with zoom — the axis to check along. The dither is opaque by design
-because draw ordering and shadow baking depend on it; do not answer this by making the rim transparent
-without re-checking both.
+**Defect — black dots along the unexplored border. Fixed, and the diagnosis below was wrong.** The hypothesis
+was that the fog "cover changes with zoom — the axis to check along". Measured along that axis first: hole
+contrast stood at 293–340 of a possible 765 against the surrounding ground at _every_ zoom the frontier was on
+screen, byte-identical on Low, Medium and High. The arithmetic says why it had to be. Ground displacement per
+screen-vertical unit under this projection is `1/sin θ` = 1.58, so the top edge of the view already sits
+0.613 of a span of extra view depth away — essentially exactly `HAZE_START` = 0.6. Ground at the frontier is
+never hazed, at any zoom, so no scaling of the fog could have covered the dither. The fix therefore leaves
+coverage alone and dissolves the frontier by **colour**: `terrainSurface.ts` mixes toward `fogColor` after the
+fog chunk instead of discarding on a screen-space hash, which keeps every fragment opaque and depth-writing,
+so draw ordering and shadow baking are untouched and the colour pass now agrees with the shadow pass rather
+than contradicting it. `heightfieldTerrain.ts` carries the weight per vertex, averaged across the cells
+sharing each corner, so three ring values read as a gradient rather than three hex-shaped bands. Verified:
+speckle count fell from 9669/15067/19448/6997/399 to 48/62/80/3/0 across zoom 0.55→2.2, and the lit-against-
+background outline from 34152/52202/65594 to 2887/3680/2708 — a wide dithered ribbon became a thin silhouette.
 
-**Defect — WASD walking has no gait, and click-to-move hitches.** Both causes are in the player pose update in
-`src/rendering/three/worldInstances.ts`, and both are presentation only. The gait is gated on
-`player.walk_path.length > 0` — the pathfinding route rather than motion — so a player on the keys is not
-"walking" by that test and both legs hold at zero; gate it on displacement. The stride phase is
-`sin(((player.x + player.y) / WORLD_SCALE) * 8)`, a function of position rather than distance travelled, so a
-heading along which `x + y` barely changes nearly freezes the cycle, every waypoint turn moves the phase
-discontinuously, and arrival snaps to zero — the hitching. Drive the phase from accumulated distance or the
-player clock, and ease the last step into idle.
+**Defect — WASD walking has no gait, and click-to-move hitches. Fixed.** Both causes were where this said, in
+the player pose update in `src/rendering/three/worldInstances.ts`, and both are presentation only: the gait
+was gated on `player.walk_path.length > 0` and the stride phase was a function of position. Displacement now
+answers both. One thing this diagnosis missed: the cadence the old phase ran at was itself wrong, so
+reproducing it would have kept the defect. At 8 radians a hex the legs ran a little over six cycles a second
+with 1.29 radians of phase between consecutive poses — under five poses a cycle, which strobes rather than
+swings. 1.4 puts 0.225 radians between poses and the walk at 0.92–1.07 cycles a second. Verified on a
+click-to-move route across fourteen waypoint turns: the leg angle sweeps through every one without a break.
 
-**Defect — clay and sand are hard to find, and deposits read as circles.** Two claims; only the second is safe
-to act on directly. `default_site_rules` in `factory-wasm/src/model/world_sites.rs` already carries four clay
-rules and two sand rules, and its comments record two earlier corrections of this exact shape. Scarcity is a
-measurement question first: run `npm run survey` across the presets and read the clay and sand counts and
-first distances before any weight moves — if both are present within reach, the defect is legibility and the
-fix is not in the generator. The shape half is not in doubt: sites are placed from a jittered lattice with a
-radius, which is what makes a deposit read as a blob. Replacing that falloff with a noise-masked,
-drainage-aware shape moves the world generator envelope, must keep every preset completable and must re-pass
-the survey's access gates — scheduled work, not a tuning pass.
+**Defect — clay and sand are hard to find, and deposits read as circles. Measured, not shipped; needs a
+decision.** `npm run survey` across continental, archipelago, highlands and basin (exit 0) answers the
+scarcity claim as this section predicted it might. Clay: 407/27/492/404 patches, nearest at 21/37/32/21 hexes,
+and present in `BOOTSTRAP_GUARANTEES` on every preset. Sand: 608/36/459/608 patches, nearest at 39/49/42/39
+hexes — the farthest of any material — with the smallest patches (mean 6–9 cells, mean yield 117–153 against
+clay's 198–311), and the only common material absent from the guaranteed opening on all four presets, which
+`world_sites.rs` records as deliberate: the ocean gate decides where a coast is, so sand cannot be guaranteed
+by distance. So both are present and reachable, and by this section's own test the scarcity half is
+legibility. **That surface already exists** — the minimap paints the shore band, `terrainLegend.ts` names it
+"sand and clay", and the gather card already inlines "Shore grit" and "Damp shore and lowland earth" — which
+leaves nothing to ship there and puts the whole defect on the generator. The shape half is unchanged from the
+reading below, and both remaining moves — a noise-masked deposit shape, or widening sand's opening — bump
+`WORLD_GENERATOR_VERSION`, and `persistence.rs:301` refuses every existing save on a mismatch. **That is the
+decision: it costs every save in the wild.** Scheduled work, not a tuning pass.
 
-**Request — a composer stopped mid-craft can be neither reassigned nor cleared.** `Core::set_recipe` in
-`factory-wasm/src/core/configuration.rs` refuses whenever `progress > 0`, because the reserved inputs belong
-to the running job — but a manual-work machine is disabled the moment a recipe is set, so a composer stopped
-at 55% keeps that progress indefinitely and the only move is demolition. Decide the abort rule first: a full
-refund is the honest default, since demolishing already returns `reserved_inputs` and a lossy abort would make
-demolish-and-rebuild cheaper. Then add a cancel beside `set_recipe` that clears progress, returns the reserved
-inputs and leaves fuel and output alone, stating its bound, undo behaviour and checksum exactness.
-`set_recipe` then stops being a dead end: mid-craft it asks for confirmation naming what will be discarded.
-The confirmation is UI; the accounting is native.
+**Request — a composer stopped mid-craft can be neither reassigned nor cleared. Shipped.** `Core::set_recipe`
+in `factory-wasm/src/core/configuration.rs` refuses whenever `progress > 0`, because the reserved inputs
+belong to the running job — but a manual-work machine is disabled the moment a recipe is set, so a composer
+stopped at 55% kept that progress indefinitely and the only move was demolition. The abort rule is the full
+refund this proposed, on the stated grounds: demolishing already returns `reserved_inputs`, so a lossy abort
+would have made demolish-and-rebuild cheaper. `Core::cancel_craft` clears progress, returns the reserved
+inputs to `input_inventory` and leaves fuel and output alone; the test pins the refund, the two untouched
+compartments, every refusal, and checksum exactness across a save. `set_recipe` is no longer a dead end:
+mid-craft the `<select>` snaps back and asks, naming what will be discarded, and on a yes the cancel is queued
+ahead of the assignment. No wire change was needed — `advance_composer` reserves exactly `recipe.inputs` at
+craft start and `set_recipe` refuses mid-craft, so the running recipe's inputs _are_ the reserved set and the
+host names them from definitions it already holds. The confirmation is UI; the accounting is native.
 
 **Request — fertile riverbank soil**, placed on row 9. Phase 8 shipped the drainage model, so a fertile bank
 is derived rather than invented: a cell adjacent to a drainage edge and within a stated height of the water
