@@ -1,0 +1,19 @@
+{
+  "allow": {
+    "factory-wasm/src/lib.rs": "T05-T12",
+    "src/main.ts": "T16-T19",
+    "factory-wasm/src/balance.rs": "backlog",
+    "factory-wasm/src/terra.rs": "backlog",
+    "factory-wasm/src/hydrology.rs": "backlog",
+    "factory-wasm/src/wire.rs": "backlog",
+    "factory-wasm/src/ground.rs": "backlog",
+    "src/rendering/three/worldInstances.ts": "backlog",
+    "src/styles.css": "T15",
+    "index.html": "T14",
+    "tests/host.test.ts": "backlog",
+    "tests/visualDepth.test.ts": "backlog",
+    "docs/HEXFACTORY-PLAN.md": "T04",
+    "docs/AGENT-MAP.md": "T04",
+    "AGENTS.md": "T02"
+  }
+}

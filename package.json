@@ -25,7 +25,9 @@
     "bench:browser": "npm run build:wasm:bench && vite",
     "agent:map": "node scripts/agent-map.mjs",
     "agent:map:check": "node scripts/agent-map.mjs --check",
-    "quality": "npm run audit && npm run agent:map:check && npm run format && npm run lint && npm run typecheck && npm run test:run && npm run test:rust && npm run build"
+    "context:budget": "node scripts/context-budget.mjs",
+    "context:check": "node scripts/context-budget.mjs --check",
+    "quality": "npm run audit && npm run context:check && npm run agent:map:check && npm run format && npm run lint && npm run typecheck && npm run test:run && npm run test:rust && npm run build"
   },
   "dependencies": {
     "@hexlife/embed": "1.15.0",

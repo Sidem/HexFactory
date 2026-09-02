@@ -19,29 +19,29 @@ budget failures                15 files
 
 ## Board
 
-| # | Task | Blocks on | Risk | Est. tokens |
-|---|---|---|---|---|
-| T00 | Land the two tooling scripts | — | none | 5k |
-| T01 | Waiver file + wire into `quality` | T00 | none | 5k |
-| T02 | Cut root `AGENTS.md` to invariants | — | none | 15k |
-| T03 | Per-directory `AGENTS.md` files | T02 | none | 25k |
-| T04 | Route-table `AGENT-MAP.md` + `.agent/` | T02 | none | 30k |
-| T05 | Move `#[cfg(test)] mod tests` out of `lib.rs` | T00 | none | 10k |
-| T06 | Split the extracted tests by domain | T05 | none | 15k |
-| T07 | Bench modules to `src/bin/` | T05 | low | 10k |
-| T08 | `pub(crate)` pass on `struct Core` | T07 | low | 10k |
-| T09 | Author the `impl Core` split map | T08 | none | 15k |
-| T10 | Execute the split, one module at a time | T09 | medium | 60k |
-| T11 | `impl Factory` → `api.rs` | T10 | low | 10k |
-| T12 | Residual `lib.rs` types → `core/types.rs` | T10 | medium | 40k |
-| T13 | Comment → ADR pass (opportunistic) | T10 | low | ongoing |
-| T14 | `index.html` id manifest | — | low | 25k |
-| T15 | Split `styles.css` | T14 | low | 25k |
-| T16 | `AppContext` type for `main.ts` | — | medium | 40k |
-| T17 | Convert renderers to take `ctx`, in place | T16 | medium | 150k+ |
-| T18 | Move renderer clusters to `src/panels/` | T17 | low | 40k |
-| T19 | Input + lifecycle out of `main.ts` | T18 | medium | 50k |
-| T20 | Repo hygiene: PNGs out of root | — | none | 5k |
+| #   | Task                                          | Blocks on | Risk   | Est. tokens |
+| --- | --------------------------------------------- | --------- | ------ | ----------- |
+| T00 | Land the two tooling scripts                  | —         | none   | 5k          |
+| T01 | Waiver file + wire into `quality`             | T00       | none   | 5k          |
+| T02 | Cut root `AGENTS.md` to invariants            | —         | none   | 15k         |
+| T03 | Per-directory `AGENTS.md` files               | T02       | none   | 25k         |
+| T04 | Route-table `AGENT-MAP.md` + `.agent/`        | T02       | none   | 30k         |
+| T05 | Move `#[cfg(test)] mod tests` out of `lib.rs` | T00       | none   | 10k         |
+| T06 | Split the extracted tests by domain           | T05       | none   | 15k         |
+| T07 | Bench modules to `src/bin/`                   | T05       | low    | 10k         |
+| T08 | `pub(crate)` pass on `struct Core`            | T07       | low    | 10k         |
+| T09 | Author the `impl Core` split map              | T08       | none   | 15k         |
+| T10 | Execute the split, one module at a time       | T09       | medium | 60k         |
+| T11 | `impl Factory` → `api.rs`                     | T10       | low    | 10k         |
+| T12 | Residual `lib.rs` types → `core/types.rs`     | T10       | medium | 40k         |
+| T13 | Comment → ADR pass (opportunistic)            | T10       | low    | ongoing     |
+| T14 | `index.html` id manifest                      | —         | low    | 25k         |
+| T15 | Split `styles.css`                            | T14       | low    | 25k         |
+| T16 | `AppContext` type for `main.ts`               | —         | medium | 40k         |
+| T17 | Convert renderers to take `ctx`, in place     | T16       | medium | 150k+       |
+| T18 | Move renderer clusters to `src/panels/`       | T17       | low    | 40k         |
+| T19 | Input + lifecycle out of `main.ts`            | T18       | medium | 50k         |
+| T20 | Repo hygiene: PNGs out of root                | —         | none   | 5k          |
 
 T02–T04, T14–T15 and T20 are independent of the Rust work and can run in parallel.
 
@@ -397,3 +397,12 @@ T05 done 2026-09-xx — lib.rs 1153 -> 715 KB, 412 tests green, waiver kept (T06
 ```
 
 Nothing else. The next agent reads this file and the board, not your transcript.
+
+---
+
+## Handoff log
+
+```
+T00 done 2026-09-02 — tooling landed, budget report 15 failures / 69 KB always-paid, inventory 235 methods (T01 next)
+T01 done 2026-09-02 — .agent-budget.json waives all 15 failures, context:budget + context:check added, context:check wired into quality after audit, fail-on-delete verified (T05 next)
+```
