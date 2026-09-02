@@ -1,6 +1,7 @@
 {
   "allow": {
     "factory-wasm/src/lib.rs": "T05-T12",
+    "factory-wasm/src/tests/mod.rs": "T06",
     "src/main.ts": "T16-T19",
     "factory-wasm/src/balance.rs": "backlog",
     "factory-wasm/src/terra.rs": "backlog",

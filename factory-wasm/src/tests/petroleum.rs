@@ -2,11 +2,11 @@ use super::*;
 
 fn test_core() -> (Core, ScenariosInput) {
     let definitions =
-        serde_json::from_str(include_str!("../../src/data/definitions.json")).unwrap();
+        serde_json::from_str(include_str!("../../../src/data/definitions.json")).unwrap();
     let technologies =
-        serde_json::from_str(include_str!("../../src/data/technologies.json")).unwrap();
+        serde_json::from_str(include_str!("../../../src/data/technologies.json")).unwrap();
     let mut scenarios: ScenariosInput =
-        serde_json::from_str(include_str!("../../src/data/scenarios.json")).unwrap();
+        serde_json::from_str(include_str!("../../../src/data/scenarios.json")).unwrap();
     let scenario = &mut scenarios.scenarios[0];
     scenario.generated_environment = false;
     scenario.buildings.clear();
