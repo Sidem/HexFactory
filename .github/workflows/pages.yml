@@ -3,6 +3,11 @@ name: Quality and Pages
 on:
   push:
     branches: [main]
+    paths-ignore:
+      - ".agent/**"
+      - "docs/**"
+      - "AGENTS.md"
+      - "README.md"
   workflow_dispatch:
 
 permissions:
@@ -12,7 +17,7 @@ permissions:
 
 concurrency:
   group: pages
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   quality:
@@ -46,9 +51,3 @@ jobs:
           path: dist
       - id: deployment
         uses: actions/deploy-pages@v4
-
-  verify-artifact:
-    runs-on: ubuntu-latest
-    needs: quality
-    steps:
-      - run: echo "Quality gates and Pages artifact upload completed."

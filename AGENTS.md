@@ -14,6 +14,16 @@ and phase order live in `docs/HEXFACTORY-PLAN.md`; never reorder phases without 
 
 Source and tests are authoritative. Generated indexes only locate them.
 
+## Shared memory
+
+- Repository source, tests, current documents, and git history remain authoritative.
+- MemPalace is selective context, not a mandatory session preamble. Use only the Raspberry Pi hub at
+  `http://192.168.0.32:8765/mcp`; never fall back to a local palace.
+- The canonical policy is drawer `drawer_mempalace_ops_3e4e973b501392cd3f14059f`. Load it once when
+  adopting a new protocol version, not on every session.
+- Identities are `windows-codex`, `windows-claude`, `windows-grok`, and
+  `windows-antigravity` for Gemini hosted by Antigravity. Sign every memory write.
+
 ## Invariants
 
 - Rust/Wasm owns every running tick, quantity, inventory, recipe, progress, player position,

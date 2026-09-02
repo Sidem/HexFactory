@@ -17,6 +17,7 @@ mod world;
 mod worldgen;
 
 use super::*;
+use std::sync::OnceLock;
 
 const DEFINITIONS: &str = include_str!("../../../src/data/definitions.json");
 const TECHNOLOGIES: &str = include_str!("../../../src/data/technologies.json");
@@ -33,11 +34,17 @@ fn assert_refused_as_legacy_scale(result: Result<Core, String>) {
 }
 
 fn catalogs() -> (DefinitionsInput, TechnologiesInput, ScenariosInput) {
-    let definitions = serde_json::from_str(DEFINITIONS).unwrap();
-    let technologies = serde_json::from_str(TECHNOLOGIES).unwrap();
-    let scenarios = serde_json::from_str(SCENARIOS).unwrap();
-    validate_all(&definitions, &technologies, &scenarios).unwrap();
-    (definitions, technologies, scenarios)
+    static CATALOGS: OnceLock<(DefinitionsInput, TechnologiesInput, ScenariosInput)> =
+        OnceLock::new();
+    CATALOGS
+        .get_or_init(|| {
+            let definitions = serde_json::from_str(DEFINITIONS).unwrap();
+            let technologies = serde_json::from_str(TECHNOLOGIES).unwrap();
+            let scenarios = serde_json::from_str(SCENARIOS).unwrap();
+            validate_all(&definitions, &technologies, &scenarios).unwrap();
+            (definitions, technologies, scenarios)
+        })
+        .clone()
 }
 
 /// The bounded idle batch the host sends on a frame with no held key.

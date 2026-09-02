@@ -22,8 +22,8 @@ fn the_economy_holds_at_every_step_of_the_curve() {
         );
     }
 
-    let mut broken: DefinitionsInput = serde_json::from_str(DEFINITIONS).unwrap();
-    let technologies: TechnologiesInput = serde_json::from_str(TECHNOLOGIES).unwrap();
+    let (definitions, technologies, _) = catalogs();
+    let mut broken = definitions.clone();
     let cutter = broken
         .buildings
         .iter_mut()
@@ -33,7 +33,7 @@ fn the_economy_holds_at_every_step_of_the_curve() {
         item_id: STONE,
         quantity: 1,
     }];
-    let broken = balance::compute_from(broken, technologies);
+    let broken = balance::compute_from(broken, technologies.clone());
     assert!(
         broken.curve.iter().any(|step| !step.holds),
         "a cheaper-than-its-predecessor building has to fail the curve"
@@ -54,7 +54,6 @@ fn the_economy_holds_at_every_step_of_the_curve() {
     // many you can afford to run and to power rather than of raw rate. The reason the old rule
     // existed still holds and is still guarded: what must never happen is an upgrade that leaves
     // a player slower than their own hands with no way up.
-    let report = balance::compute();
     let rate_for = |building: &str, item: &str| -> u64 {
         report
             .machines
@@ -131,7 +130,6 @@ fn the_economy_holds_at_every_step_of_the_curve() {
     // kiln burns more than the worst real one and nobody would run it. Fuel is a property of the
     // item, so this is the one place the round trip can be checked at all — nothing in a recipe
     // row knows what its inputs burn for.
-    let report = balance::compute();
     let converted: Vec<_> = report
         .fuel
         .iter()
@@ -163,7 +161,6 @@ fn the_economy_holds_at_every_step_of_the_curve() {
     // be offering the same rate for two ore as for the plate they became. So every row whose item
     // comes out of a recipe has to beat every row whose item comes out of the ground — measured
     // through the whole tree, fuel included, which is the only comparison that is not a guess.
-    let report = balance::compute();
     let raw: Vec<_> = report
         .requests
         .iter()
@@ -199,7 +196,6 @@ fn the_economy_holds_at_every_step_of_the_curve() {
     // could deliver every commission the hub will ever make and still be locked out of research
     // with nothing left to sell. The surplus is deliberate: it has to be possible to spend on the
     // wrong branch first and still finish, or the "choice" of what to research is a quiz.
-    let report = balance::compute();
     let budget = &report.budget;
     assert!(
         budget.project_insight >= budget.research_cost,
@@ -228,15 +224,11 @@ fn the_economy_holds_at_every_step_of_the_curve() {
     // the entire lifetime income of hand-gathering, so the assertion is now a hard floor rather
     // than a rate comparison: a player who never builds a machine cannot finish the tree, and the
     // processed rows are the only way across.
-    let report = balance::compute();
-    let tree: u32 = {
-        let technologies: TechnologiesInput = serde_json::from_str(TECHNOLOGIES).unwrap();
-        technologies
-            .technologies
-            .iter()
-            .map(|technology| technology.cost)
-            .sum()
-    };
+    let tree: u32 = technologies
+        .technologies
+        .iter()
+        .map(|technology| technology.cost)
+        .sum();
     let raw_cycle: u32 = report
         .requests
         .iter()
@@ -255,7 +247,6 @@ fn the_economy_holds_at_every_step_of_the_curve() {
     // Two separate questions, and the second is the one that bites: stone is generated on cliffs
     // that nothing can stand on, so "the world holds some" and "you can reach some" are different
     // claims and only the second one makes it a material rather than scenery.
-    let report = balance::compute();
     assert!(report.access.len() >= 9, "eight fields and water");
     for material in &report.access {
         if material.material == "sand" || material.material == "crystal" {
@@ -305,7 +296,6 @@ fn the_economy_holds_at_every_step_of_the_curve() {
     // the project the hub actually builds cannot be paid for out of that chain: it needs more than
     // one raw material, it costs strictly more, and — like every powered machine in this game — it
     // cannot be run at all without an On-site Power branch nothing else forces.
-    let report = balance::compute();
     let founding: Vec<_> = report
         .contracts
         .iter()
@@ -329,7 +319,6 @@ fn the_economy_holds_at_every_step_of_the_curve() {
     );
     for stage in &founding {
         let needs_power = stage.opening.buildings.iter().any(|key| {
-            let (definitions, _, _) = catalogs();
             definitions
                 .buildings
                 .iter()
@@ -354,9 +343,6 @@ fn the_economy_holds_at_every_step_of_the_curve() {
     // `power_progress` returns zero off a network, so a plan naming a smelter and no generator is
     // a plan for a factory that stands still. This is the same defect the scripted next action
     // had, asserted here against the numbers rather than against the sentence.
-    let report = balance::compute();
-    let definitions: DefinitionsInput =
-        serde_json::from_str(include_str!("../../../src/data/definitions.json")).unwrap();
     let building = |key: &str| {
         definitions
             .buildings
@@ -393,7 +379,6 @@ fn the_economy_holds_at_every_step_of_the_curve() {
     // v0.16 the pump made one water every six ticks, which is six pumps drawing 24 of the
     // turbine's 48 before a single machine ran — leaving the mid-game workhorse behind a hydro
     // generator that cost exactly the same and needed neither fuel nor plumbing.
-    let report = balance::compute();
     for plant in &report.power {
         assert!(
             plant.net_output > 0,
@@ -430,8 +415,6 @@ fn the_economy_holds_at_every_step_of_the_curve() {
     // no longer exists: the hub buys a given bill exactly once. An opening's cost is now a
     // shopping list — whole projects, cheapest per item first, until the insight is raised — and
     // this recomputes that list from the catalogue rather than trusting the field.
-    let report = balance::compute();
-    let (definitions, _, _) = catalogs();
     let mut multi = 0;
     let openings = report
         .openings
@@ -505,8 +488,6 @@ fn the_economy_holds_at_every_step_of_the_curve() {
     // standing start, which skipped the delivery every real opening makes before it places one.
     // The resolver now folds the owed stage's bill into the opening it blocks — and a stage does
     // not commission itself, or nothing would ever resolve.
-    let report = balance::compute();
-    let (_, technologies, _) = catalogs();
     let granted: BTreeSet<&str> = technologies
         .technologies
         .iter()
