@@ -377,11 +377,11 @@ describe("the economy's stated curve", () => {
     expect(budget.granted_technologies.length).toBeGreaterThan(0);
 
     // Personal skill is a separate purse, and the journey funds the whole ladder and not a point
-    // more: three milestones, three upgrades.
-    expect(budget.skill_points).toBe(3);
-    expect(budget.skill_cost).toBe(3);
+    // more: four milestones, four upgrades.
+    expect(budget.skill_points).toBe(4);
+    expect(budget.skill_cost).toBe(4);
     expect(budget.skill_cost).toBeLessThanOrEqual(budget.skill_points);
-    expect(budget.skill_milestones).toBe(3);
+    expect(budget.skill_milestones).toBe(4);
     expect(budget.research_cost).toBe(162);
     expect(budget.project_insight).toBe(706);
   });
