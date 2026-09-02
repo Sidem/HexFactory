@@ -60,12 +60,6 @@
       "targetBytes": 51200,
       "owner": "render test split backlog",
       "expires": "2026-11-01"
-    },
-    "docs/HEXFACTORY-PLAN.md": {
-      "baselineBytes": 94154,
-      "targetBytes": 81920,
-      "owner": "living lattice plan cleanup",
-      "expires": "2026-11-01"
     }
   }
 }

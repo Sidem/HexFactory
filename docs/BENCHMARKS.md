@@ -1,217 +1,13 @@
 # HexFactory capacity benchmarks
 
-## Handling and Clarity paving check — v0.41.0
+Capacity is measured, never asserted, and the measurement orders the work. Every number here came
+from the committed harness; the raw reports live in `docs/benchmarks/` and are the source for
+anything trimmed out of this file.
 
-The focused [625-cell Low paving report](benchmarks/handling-clarity-paving-low.json) uses
-`paving-bench.html` and the production renderer. At 1200×720, DPR 1, Chromium 151 on Windows,
-60 warmup frames and 240 measured frames per material yielded 249–303 µs mean CPU submission
-for paved cases (p95 300–400 µs). The untreated control measured 318 µs mean. Each single-material
-yard adds one draw call and one geometry, with no added texture. RAF p95 was 16.7–16.8 ms.
-This is a synthetic level yard, not a native simulation or GPU completion measurement, and is not
-evidence of a speedup over the previous release. The full capacity records below remain unchanged.
-This section is the surviving procedure and limitation record; the shipped release itself has
-collapsed to its one ledger line in `HEXFACTORY-PLAN.md`.
+**Current records.** Native and browser frame: **v0.43.0**. Generation: **v0.21**. Payload:
+**v0.12.2**. Phase 8 ground, water and erosion: the slice records below.
 
-## Phase 8 slice 1 — the pre-rescale baseline and the drainage prototype — v0.46.0
-
-Phase 8 replaces a 1 m² presentation-band cell with a 25 m² cell carrying signed absolute height in
-0.25 m quanta. Slice 1 ships no production toggle: `factory_wasm::scale` is declared and inert, and
-`factory_wasm::terra` is compiled out of the wasm artifact entirely. What slice 1 does ship is this
-record, so that the slices which do move the envelope have something to be compared against.
-
-### The world as it stands, before anything moves
-
-Seed 1213486160, `npm run survey`, at each preset's landform radius. Bands in per mille of hexes:
-
-| preset      | hexes     | DeepWater | ShallowWater | Shore | Lowland | Hills | Highland | Cliff | purity | rivers        |
-| ----------- | --------- | --------- | ------------ | ----- | ------- | ----- | -------- | ----- | ------ | ------------- |
-| continental | 1,771,777 | 0         | 30           | 61    | 302     | 354   | 238      | 12    | 987    | 45,604 in 129 |
-| archipelago | 111,169   | 19        | 91           | 190   | 317     | 142   | 202      | 35    | 979    | none          |
-| highlands   | 1,771,777 | 0         | 35           | 0     | 113     | 410   | 416      | 23    | 994    | 63,110 in 144 |
-| basin       | 1,771,777 | 4         | 41           | 198   | 524     | 211   | 16       | 2     | 991    | 40,103 in 98  |
-
-`npm run balance` at definitions v27 / technologies v16: guaranteed opening walks of ore 9–14, wood
-9–14, coal 15–25, stone 15–25, clay 15–25, limestone 18–32, copper-ore 25–40; first smelter at 53
-gathers and 130 machine ticks; first power at 36 gathers; the `new-game/foundry` contract at 110
-gathers. `npm run bench` xlarge (512 lines, 6,144 entities): 284.8 µs tick, 1,534.7 µs frame,
-17,675 delta bytes. **These are the numbers the rescale has to be judged against**, because every
-one of them is quoted in metres, in walking time, or in cells whose physical size is about to change
-by five in linear scale.
-
-### The drainage prototype
-
-`npm run terra`. Native only. Two samples at the same seed, because where a sample is taken decides
-what it can say:
-
-| sample             | provinces | elevation      | walkable ‰ | buildable ‰ | channel ‰ | springs | lakes | lake cells | to sea        | to lake | cycles | uphill |
-| ------------------ | --------- | -------------- | ---------- | ----------- | --------- | ------- | ----- | ---------- | ------------- | ------- | ------ | ------ |
-| inland, centre 0,0 | 81        | 659.7–1130.5 m | 996        | 616         | 30        | 88      | 1,409 | 3,967      | 0 / 5,184     | 4,459   | 0      | 0      |
-| coastal, `--coast` | 81        | −160.2–179.7 m | 1000       | 888         | 27        | 43      | 1,370 | 7,089      | 2,499 / 5,184 | 2,674   | 0      | 0      |
-
-Solve cost is 5–6 ms per province, 460–486 ms for 81 provinces, 1.3 M cells.
-
-**What holds.** Zero cycles and zero uphill edges in both samples, and zero unterminated walks: the
-drainage invariants are not tuned in, they follow from defining head as a pure global field and flow
-as steepest descent on it under a total coordinate order. Query-order independence, seam agreement
-from either province, and a bounded per-cell province cost are asserted by the module's own tests.
-No frontier basins in either sample — every depression resolved inside its budget.
-
-**What the numbers say to slice 2.**
-
-1. **Sample the coast, not the origin.** The inland sample reports 0 walks to the sea, which reads
-   as a drainage failure and is not one: there is no sea in it. At this seed the origin is 300 m
-   under water and the default survey square is upland. `survey_at` and `--coast` exist because a
-   statistic about river mouths taken where there is no coast is not a weak result, it is a wrong
-   one.
-2. **Closed basins are set by the noise octaves, not by the drainage.** 1,409 lakes over 81
-   provinces is one closed basin per ~950 cells. Real humid landscapes outside karst and glaciated
-   terrain have essentially none. They sit at the lattice corners of the value-noise octaves, on the
-   interfluves that no valley cross-section reaches.
-3. **Springs are rare — about one per province.** `CHANNEL_CLASS_MIN` puts the first visible channel
-   at ~5 ha of catchment, which is physically defensible and probably too austere for a world a
-   player is meant to find water in.
-
-**A measured negative result, kept because it cost a round and would otherwise be retried.** The
-obvious fix for (2) is to carve the whole flow tree rather than only its channel-class threads, so
-the interfluves slope toward some watercourse instead of being left to noise. Implemented and
-measured, this made things **worse**: lakes rose 2.1× (1,409 → 3,016) and lake cells 3.1× (3,967 →
-12,197), with solve cost doubling to 12 ms per province. The cause is that incision subtracts a
-**constant depth per class**, so a thread crossing rising ground leaves a flat-bottomed trench with
-a lip — it manufactures closed basins faster than the lateral shaping removes them. The change was
-reverted. The version that would work is a **graded long profile**: propagate an absolute descending
-floor elevation down the tree instead of subtracting a constant. That changes what `head` means and
-requires floor elevations to agree across province seams, so it belongs to the slice that moves the
-envelope, not to the prototype.
-
-An earlier round of the same kind is worth recording for the same reason: carrying the height field
-in whole 0.25 m quanta produced 32,694 micro-lakes, because 216 per mille of neighbour pairs were
-**exactly** equal — an integer quarter-metre field over gentle ground is flat almost everywhere, and
-every flat's coordinate-minimum becomes a pit. Carrying the field internally in milli-quanta and
-publishing whole quanta cut that 23×, to the 1,409 above. **Any later stage that rounds height to
-quanta before resolving depressions will bring all 32,694 back.**
-
-## Phase 8 slice 4 — sparse disturbed water
-
-`npm run water`, release-native on Windows, seed 1213486160. The committed
-[raw report](benchmarks/phase8-water.json) is produced by the same native `Core` production runs.
-A maximum command disturbance of 32 depth quanta reached a fixed point over 41 active cells in 53
-sweeps and 40 transfers; 31 quanta reached the surveyed frontier and were retained against their
-named continuation cells. The solve took 385 µs in this run. That is a one-run local latency datum,
-not a cross-machine performance claim.
-
-The settled case advanced 100,000 ordinary simulation ticks in 4,036 µs with neither a water dirty
-mark nor any change to the departure set. The important measurement is the two false fields, not the
-timer: a settled world schedules zero water solves and resends zero water groups. Water work is paid
-by the bounded command, earthwork, pump draw or newly surveyed frontier that woke it; there is no
-per-cell standing-water tick.
-
-## Phase 8 slice 5 — geomorphic epochs
-
-`npm run erosion`, release-native on Windows, seed 1213486160. The committed
-[raw report](benchmarks/phase8-erosion.json) drives the same `Core::run_geomorphic_epoch` production
-path without waiting the ordinary 36,000-tick cadence. Across 121 explicitly surveyed measurement
-chunks, one epoch inspected 121 chunks, 7,744 generated cells and 1,086 wet flowing edges, finding
-117 bends. The first outside bank moved one 0.25 m quantum after eight accelerated epochs; the
-paired inside bank received one quantum, then the existing bounded water solve reflowed from those
-cells.
-
-The pass took 308,590 µs for all eight accelerated epochs in this one run. This is a local tuning
-datum, not a cross-machine performance claim. The structural bounds are the claim: at most 256
-surveyed chunks, 65,536 generated cells, 4,096 wet flowing edges and 64 bank changes per epoch, in a
-deterministic rotating coordinate window. This run reached none of those bounds (`truncated: false`,
-one change), and save/load reproduced its checksum. Ordinary play pays no geomorphic work between
-hourly epochs; straight, dry and protected reaches do no change work at an epoch either.
-
-## Ground you can see — what "the world looks flat" turned out to measure
-
-Seed 1213486160, `npm run terra` and `npm run survey`, world generator 12.
-
-### A viewport is the unit the complaint is about
-
-The slope histogram cannot answer "does this world look flat". A field of uncorrelated centimetre
-noise and a hillside produce similar neighbour steps, and only one of them is a landform: the
-difference is whether the steps accumulate over the distance the camera frames or cancel out inside
-it. So `TerraSurvey` gained two numbers — the elevation range inside one `VIEWPORT_CELL` (40 cells,
-215 m) disc, over sampled centres, as a median and as the flattest tenth.
-
-```
-viewport       54.2 m of relief across 429 m, flattest tenth 23.5 m
-```
-
-**That is not a flat world**, and the measurement is why the roadmap's amplitude retune was
-rejected rather than shipped. Raising `HILLSLOPE_QUANTA` and adding a meso-scale ridge octave under
-it was implemented and measured: viewport relief went **down**, 53.5 m → 49.7 m, while buildable
-ground fell 64 per mille. The change is reverted and the rejection is recorded on the constant in
-`factory-wasm/src/terra.rs` so it is not retried.
-
-### The material map was the whole of it
-
-`npm run survey` on `continental` at radius 768, bands in per mille of hexes:
-
-| build        | DeepWater | ShallowWater | Shore | Lowland | Hills | Highland | Cliff |
-| ------------ | --------- | ------------ | ----- | ------- | ----- | -------- | ----- |
-| world 11     | —         | —            | —     | 0       | 889   | 0        | 9     |
-| **world 12** | 10        | 48           | 48    | **663** | 214   | 3        | 11    |
-
-The old substrate rule selected Soil on any bed at or above 600 quanta — 150 m — which the
-continental field clears almost everywhere. One clause therefore chose the same material for 889 per
-mille of the world, and no amount of relief in the height field could have shown through it. The
-rule now reads the gradient a cell sits on, sampled across `MATERIAL_STENCIL` (3) cells so the fine
-relief grain averages away instead of speckling the ground, and elevation only names genuinely high
-ground at `ALPINE_QUANTA`. Every band in `terrainStyle.ts` has its own colour, so the fix reaches the
-screen.
-
-### Rivers you bridge
-
-`channel_depth` cut 0.5 m to 5 m across half-widths of 3 to 21 cells — a 3 to 4 per cent grade, which
-the eye reads as ground that happens to be wet. It now cuts 2.25 m to 9.75 m, putting the bank at 8
-to 14 per cent, past `MAX_BUILD_STEP_QUANTA` on the steepest part of the flank.
-
-|        | 4–7 quanta steps | viewport relief | buildable at 2 |
-| ------ | ---------------- | --------------- | -------------- |
-| before | 57‰              | 53.5 m          | 779‰           |
-| after  | **82‰**          | 54.2 m          | 747‰           |
-
-32 per mille of buildable ground for a river that is an obstacle. Taken deliberately.
-
-### Discovery is a radius, not a ring of chunks
-
-`Core::survey_radius` restates the survey envelope as a distance from the player's own hex rather
-than a count of chunk-lattice rings. Standing at a chunk's edge previously left the frontier one cell
-ahead and fifteen behind, and a chunk is an axial parallelogram rather than a disc, so the opened
-world read as a stepped, lopsided blot. `rings * size + size / 2` is deliberately area-preserving:
-at one ring it is a 469-cell disc against the 448 cells the seven-chunk opening covered, and it stays
-within a few per cent at two and three rings. Chunks are still the unit of generation, so the
-outermost opened cell lands on a chunk boundary; what is uniform is the guarantee that no direction
-is surveyed less far than the radius.
-
-Capacity is measured, never asserted, and the measurement orders the work. Every number here was
-produced by the committed harness; the raw reports live in `docs/benchmarks/` and are the source for
-any table that was trimmed out of this document.
-
-**Current records.** Native: **v0.43.0 current-build audit**. Browser frame: **v0.43.0 profile ladders**.
-Generation: **v0.21**. Payload: **Binary Delta v0.12.2**.
-
-v0.37 shipped boundary correctness and small-browser interaction checks but no large-perimeter
-capacity measurement, and the historical factory ladders do not establish boundary capacity.
-
-**Two caveats travel with those records.**
-
-- **The v0.24 and v0.25 browser records are historical baselines, not current renderer evidence.**
-  Current Three.js claims must name the v0.43 Low, Medium, or High record. The reference desktop is
-  the support target; integrated-GPU laptop qualification was withdrawn by user decision on
-  2026-08-27.
-- **Every tier checksum below is historical.** v0.18, v0.19, v0.20, v0.21, and the world-scale
-  pass, and v0.22 each moved the pinned workload checksum: `2402899979` → `1679299541` →
-  `914129621` → `780276626` → `325426962` → `3745973835` → `1543489001` → `841205484` →
-  `3799495709`. The first three added
-  saved, checksummed state; v0.21 and the scale pass moved `WORLD_GENERATOR_VERSION`, and v0.22
-  moved the definition protocol and entity roster, all of which the checksum reads. None of them
-  changed the workload's shape, entity counts, or delivered totals, so **the timings remain
-  comparable while the checksums do not.** A checksum change invalidates checksum comparisons, not
-  timing ones — say which of the two a record claims.
-
-Run the ladders:
+## Running the ladders
 
 ```bash
 npm run bench
@@ -221,78 +17,42 @@ npm run bench
 npm run bench:browser
 ```
 
-`npm run bench -- --quick` runs a reduced ladder and `--json <path>` writes the machine-readable
-report. The browser command builds the harness artifact and starts the dev server; open
-`/HexFactory/bench.html` and press **Run full ladder**.
+`--quick` runs a reduced ladder, `--json <path>` writes the machine-readable report. The browser
+command builds the harness and starts the dev server; open `/HexFactory/bench.html` and press **Run
+full ladder**. `npm run survey`, `npm run terra`, `npm run water` and `npm run erosion` reproduce the
+generation, drainage, water and erosion records.
 
-Neither is part of `npm run quality`: shared CI runners do not produce comparable timings. The test
-gate instead pins the workload's checksum and asserts the harness still runs, so recorded numbers
-cannot silently stop being comparable. The harness compiles into wasm only under `--features bench`,
-so the deployed artifact never carries it (v0.12.2: shipped 520.0 KiB, harness build 563.8 KiB).
+Neither ladder is part of `npm run quality` — shared CI runners do not produce comparable timings.
+The gate instead pins the workload checksum and asserts the harness still runs. The harness compiles
+into wasm only under `--features bench`, so the deployed artifact never carries it.
 
-## What is measured
+## The workload
 
-Since v0.33.0 the harness explicitly pins its historical `2 ore -> 1 component`, eight-tick,
-fuel-free recipe inside the bench-only catalogue. Gameplay now uses plates and gears; applying
-that bill to this isolated one-input line would measure a stalled factory. The existing pinned
-checksum (2,222,187,037), entity count and four deliveries per line still pass. This preserves the
-workload, not a new timing measurement or evidence for the gameplay component chain.
-
-Six tiers of the same shape, differing only in how many production lines run at once. One line is:
+Six tiers of one shape, differing only in how many lines run at once:
 
 `extractor → 6 belts → composer → belt → container → belt → consumer`
 
-Every line sits on its own effectively inexhaustible deposit, three rows away from its neighbours,
-and runs east. The consumer always accepts, so a tier reaches a steady state and stays there: the
-extractor cadence of 5 and the two-ore, eight-tick recipe make each line deliver one component every
-ten ticks for the whole measured run. Tiers differ in size, not in behaviour.
+Each line sits on its own inexhaustible deposit and the consumer always accepts, so a tier reaches
+steady state and stays there. The bench catalogue pins its own historical `2 ore -> 1 component`,
+eight-tick, fuel-free recipe: gameplay moved to plates and gears, and applying that bill to this
+one-input line would measure a stalled factory.
 
-Each tier is measured in separately timed phases, each on its own freshly warmed core so no
-measurement inherits a state the previous one left.
+`tick` is one simulation tick alone; `frame` adds a bounded command batch and one encoded delta;
+`snapshot` is one complete native snapshot, built only for the host's first frame since v0.7 and
+kept as the baseline the incremental delta is measured against. Browser-only metrics are what a
+native run cannot see: `round trip` (postMessage, buffer transfer, decode, both scheduling hops),
+`apply` (`applySnapshotDelta` on the main thread), `world` and `minimap` draws, and `browser frame`
+as the end-to-end total.
 
-| Metric          | What it times                                                               |
-| --------------- | --------------------------------------------------------------------------- |
-| `tick`          | one simulation tick, with no snapshot and no serialization                  |
-| `snapshot`      | building one complete native snapshot, before serialization                 |
-| `checksum`      | one native checksum, which every delta carries                              |
-| `frame`         | one worker frame: bounded command batch, one tick, and one encoded delta    |
-| `delta bytes`   | the encoded delta payload that frame sends across the worker boundary       |
-| `json bytes`    | what the same frames would have cost as JSON, the encoding's own comparison |
-| `compile`       | one full deterministic transport compile, as used on load and restore       |
-| `recompile`     | the incremental transport machinery alone, for one edit                     |
-| `edit`          | one complete public rotate edit, legality checks included                   |
-| `round trip`    | browser only: the same frame, requested and received over the worker RPC    |
-| `apply`         | browser only: the main thread merging that delta into its cached snapshot   |
-| `host frame`    | browser only: `round trip + apply`, one simulated frame, excluding render   |
-| `world`         | browser only: the world renderer's `draw` at a pinned 1440×900 viewport     |
-| `minimap`       | browser only: the minimap renderer's `draw` at the shipped 178 px square    |
-| `render`        | browser only: `world + minimap`                                             |
-| `browser frame` | browser only: `host frame + render`, one frame end to end                   |
+Only the sample budgets differ between the two records. A browser clamps `performance.now` to 100 µs
+unless cross-origin isolated, so each phase repeats its block until it has run at least 20 ms; every
+metric is a mean, so the two stay comparable, and each tier's checksum comes from a core advanced
+exactly once through its tick budget.
 
-`recompile` and `compile` are directly comparable — the incremental path is timed without the edit
-path's legality work.
+## Native — v0.43.0, reference desktop
 
-`snapshot` is not part of a frame. Since v0.7 the complete snapshot is built only for the host's
-first frame, and it is kept in the ladder as the baseline the incremental delta is measured against.
-
-The host metrics are what a native run cannot see. `frame` stops at the edge of wasm; `round trip`
-is `postMessage` out, the transfer of the delta buffer, the main thread's decode, and both
-scheduling hops; `apply` is `applySnapshotDelta` merging the per-entity patch.
-
-**Sample budgets differ between the two records, and only the sample budgets.** A native clock
-resolves nanoseconds, so each phase runs its tier's fixed sample block once. A browser clamps
-`performance.now` to 100 µs unless the page is cross-origin isolated, so each phase repeats its
-block until it has run at least 20 ms — holding the clock step to 0.5% of the phase. Every metric is
-a mean per tick, per frame, or per edit, so the two remain comparable; the workload never changes,
-and each tier's checksum comes from a separate core advanced exactly once through its tick budget so
-extra samples cannot move it.
-
-## Native — the current record (v0.43.0 audit)
-
-Recorded 2026-08-29 on the same Ryzen 7 5800X / Windows 11 reference desktop with the shipped
-release profile. Raw report:
-[`capacity-v0.43-native.json`](benchmarks/capacity-v0.43-native.json), SHA-256
-`7C6F28C832D6D4D21A77A112DF0D0A3FBFD6E8DCA3FBEAFADA5696C426F9ED0F`.
+Ryzen 7 5800X / Windows 11, shipped release profile (`opt-level = "s"`, LTO, `wasm-opt -Oz`).
+[`capacity-v0.43-native.json`](benchmarks/capacity-v0.43-native.json).
 
 | tier   | entities | tick µs | snapshot µs | checksum µs | frame µs | compile µs | recompile µs | edit µs |
 | ------ | -------: | ------: | ----------: | ----------: | -------: | ---------: | -----------: | ------: |
@@ -303,435 +63,154 @@ release profile. Raw report:
 | large  |    3,072 |   134.0 |     1,753.8 |       202.2 |    687.9 |    1,027.7 |      1,894.6 | 2,174.8 |
 | xlarge |    6,144 |   286.9 |     3,488.0 |       411.9 |  1,372.2 |    1,906.1 |      4,045.5 | 3,887.8 |
 
-The xlarge tick is 1.7% of a 60 Hz frame and the complete in-wasm frame is 8.2%; at the shipped
-10 tps the tick itself is not the player-facing limit on this machine. Complete snapshots remain an
-opening/load baseline rather than a recurring frame cost. The current workload still walks every
-runtime-indexed machine, power participant and transport source, and power allocation constructs
-ordered request and plant groups each tick. This record says that work fits; it does not prove that
-the scheduler or its allocations are optimal.
+The xlarge tick is 1.7% of a 60 Hz frame and the complete in-wasm frame 8.2%; at the shipped 10 tps
+the tick is not the player-facing limit on this machine. This record says the work fits — it does not
+say the scheduler is optimal. Every runtime-indexed machine, power participant and transport source
+is still visited each tick, and power allocation builds ordered groups each time.
 
-Do not read the higher absolute values than v0.25.1 as a regression percentage. Definitions,
-geometry-era state, generation and the pinned checksum all moved across eight releases, so the old
-and new records are not a same-build A/B. What is settled is narrower: v0.25.1 can no longer be
-quoted as current-build cost.
+## Browser frame — v0.43.0, three profiles
 
-## Native — v0.25.1 runtime-index baseline
+Same desktop, Chromium 151, 1440×900 at DPR 1, 178 px minimap. Raw reports:
+[Low](benchmarks/capacity-v0.43-browser-low.json),
+[Medium](benchmarks/capacity-v0.43-browser-medium.json),
+[High](benchmarks/capacity-v0.43-browser-high.json).
 
-Host: AMD Ryzen 7 5800X (8 cores / 16 threads), Windows 11 Pro 10.0.26200, rustc 1.87.0,
-`factory-wasm` built with the shipped release profile (`opt-level = "s"`, LTO, `wasm-opt -Oz`).
-Recorded 2026-08-24. Raw reports: the current
-[`runtime-index record`](benchmarks/capacity-v0.25.1-native-runtime-index.json) and its immediately
-preceding [`same-build baseline`](benchmarks/capacity-v0.25.1-native.json).
+| profile | 12    | 192   | 768     | 1,536   | 3,072   | 6,144           |
+| ------- | ----- | ----- | ------- | ------- | ------- | --------------- |
+| Low     | 633.0 | 827.3 | 1,443.4 | 2,521.7 | 3,198.2 | 5,386.4 (32.3%) |
+| Medium  | 628.4 | 748.2 | 1,639.3 | 2,012.4 | 2,978.0 | 5,576.5 (33.5%) |
+| High    | 845.4 | 641.7 | 1,104.8 | 1,835.3 | 3,425.9 | 5,656.0 (33.9%) |
 
-| tier   | entities | tick µs | snapshot µs | checksum µs | frame µs | compile µs | recompile µs |
-| ------ | -------: | ------: | ----------: | ----------: | -------: | ---------: | -----------: |
-| line   |       12 |     0.4 |        12.3 |         1.7 |      4.3 |        3.0 |          7.9 |
-| small  |      192 |     5.3 |        59.0 |        13.9 |     27.0 |       36.2 |        100.7 |
-| medium |      768 |    24.6 |       239.3 |        52.0 |    104.4 |      174.0 |        344.5 |
-| wide   |    1,536 |    48.9 |       621.5 |       106.8 |    221.7 |      374.7 |        778.4 |
-| large  |    3,072 |    89.9 |     1,207.2 |       216.9 |    522.9 |      778.6 |      1,559.8 |
-| xlarge |    6,144 |   219.9 |     2,851.2 |       497.4 |    906.8 |    1,724.0 |      3,320.2 |
+Complete browser frames in µs; the percentage is the share of a 60 Hz frame.
 
-The runtime index moves stable entity order, machine order, reverse feeder edges, and merger targets
-to topology compilation rather than rebuilding them every tick. Against the same-build baseline,
-xlarge tick fell 275.2 → 219.9 µs (20.1%) while the complete native frame moved 902.8 → 906.8 µs
-(0.4%, inside the historical noise floor). Full compile rose 1,316.1 → 1,724.0 µs because it now
-builds those indexes once; a topology edit pays that cost so every subsequent tick does not. The
-record supports the tick improvement and the placement of work, not a claim that the complete frame
-meaningfully changed. `line` is below the useful timer scale; read the larger tiers.
+**All three pass the 35% desktop gate with only 1.1–2.7 points to spare.** That is a pass, not
+headroom: one desktop, one browser, a 100 µs clock step. A milestone that adds a permanent visual
+bucket adds its own workload tier and repeats all three profiles first.
 
-What this deliberately does **not** say is anything about generation. The ladder's scenario
-sets `generated_environment: false` and never calls `terrain_at` or `field_at`, which is exactly why
-the site lattice needs its own measurement below — and the ladder being flat across a milestone that
-rewrote generation is the evidence that the two paths are as separate as that flag claims.
+**Draw calls stay 34–36 from 12 through 6,144 entities**, with 36 geometries, one or three textures
+and 2.55 M triangles at xlarge. Instances rather than entity count own submission. The reference
+desktop is the support target (decided 2026-08-27); integrated-GPU laptop qualification was
+withdrawn, not deferred.
 
-### Payload, from v0.12.2
+## Payload — v0.12.2 binary delta
 
-The delta crosses the worker boundary as a compact binary buffer that is transferred rather than
-structured-cloned. The two columns are the same frames measured both ways, not two runs compared.
+The delta crosses the worker boundary as a compact buffer that is transferred, not structured-cloned.
+Both columns are the same frames measured both ways.
 
 | tier   | entities | delta bytes | json bytes | ratio |
 | ------ | -------: | ----------: | ---------: | ----: |
 | line   |       12 |         104 |      1,319 | 12.7× |
-| small  |      192 |       1,376 |     19,764 | 14.4× |
 | medium |      768 |       5,803 |     79,477 | 13.7× |
-| wide   |    1,536 |      11,819 |    159,709 | 13.5× |
-| large  |    3,072 |      23,723 |    320,754 | 13.5× |
 | xlarge |    6,144 |      47,531 |    644,759 | 13.6× |
 
-The saving comes from varints instead of decimal text, one byte per closed-set enum, delta-coded
-entity ids and tile coordinates, and a bit per absent option instead of a field name and a `null`.
-The encoder cost 3.7 KiB of shipped wasm, `snapshot_delta_json` retained as its oracle included.
+Varints instead of decimal text, one byte per closed-set enum, delta-coded ids and tile coordinates,
+one bit per absent option. It cost 3.7 KiB of shipped wasm, `snapshot_delta_json` kept as its oracle
+included. The boundary went from 57–61% of a host frame to a fixed ~62 µs round-trip floor: below
+`wide`, sending less now buys almost nothing.
 
-## Generation — the current record (v0.21)
+## Generation — v0.21 site lattice
 
-v0.21 made a deposit a **site** rather than a per-hex decision, so `field_at` stopped reading three
-noise channels at one hex and started scanning every lattice cell within reach of it. The naive form
-of that is roughly 350 noise samples per hex and was never shippable; the shipped form caches the
-site lattice, which is `site_cell²` hexes per entry, so every hex of a chunk hits it warm.
+`survey.exe` on `continental`, five runs, medians differenced to cancel start-up. Both builds
+measured in one session, because the survey itself grew reporting between them.
 
-Measured with `survey.exe` on `continental` at two radii, five runs each, taking medians and
-differencing to cancel process start-up. **Both builds were measured on this host in the same
-session**, because the v0.16 figure below is not comparable to either: the survey itself grew patch
-statistics in v0.20.1 and river, beach, and bootstrap reporting in v0.21, and none of that is
-generation.
+| build   | radius 48 (7,057) | radius 96 (27,937) | µs per hex |
+| ------- | ----------------: | -----------------: | ---------: |
+| v0.20.1 |           15.2 ms |            26.0 ms |       0.52 |
+| v0.21   |           20.7 ms |            50.3 ms |       1.42 |
 
-| build                         | radius 48 (7,057) | radius 96 (27,937) | µs per hex |
-| ----------------------------- | ----------------: | -----------------: | ---------: |
-| v0.16, as recorded 2026-08-18 |           10.6 ms |            18.0 ms |       0.35 |
-| v0.20.1 (`535f8d8`)           |           15.2 ms |            26.0 ms |       0.52 |
-| **v0.21**                     |       **20.7 ms** |        **50.3 ms** |   **1.42** |
+2.7× against the model it replaced, and it buys one material per patch. A chunk is 64 hexes, so
+generating one costs ≤ 91 µs and `ensure_neighborhood`'s seven chunks ≤ 640 µs — about 4% of a 60 Hz
+frame, paid only when the player walks into unsurveyed ground and never in the tick. The figure is an
+upper bound: it includes the survey's own bookkeeping.
 
-**2.7× against the model it replaced, and it buys the milestone's whole point.** The figure covers
-terrain, field, and the survey's own bookkeeping, so it is an upper bound on generation alone and
-the v0.21 row carries more bookkeeping than the v0.20.1 row does.
+**Purity is what decided the site model.** Purity is the share of resource hexes whose radius-1 disc
+holds one material — whether an extractor works a field or straddles two. Target 950. Across the four
+presets it rose from 474–662 to 965–992. Before it, stone had no workable patch anywhere in 26,307
+land hexes on `continental`, and neither did wood on `archipelago`.
 
-What it means in the game: a chunk is 64 hexes, so generating one costs at most ~91 µs and
-`ensure_neighborhood`'s seven chunks at most ~640 µs — about 4% of a 60 Hz frame, paid only when the
-player walks into unsurveyed ground, and never in the tick.
+**Still unmeasured:** the site cache's hit rate under a walk rather than under a survey that sweeps a
+disc in lattice order. If chunk generation ever appears in a frame, look there first.
 
-**What is still not measured** is the cache's hit rate under a real walk, as opposed to under a
-survey that sweeps a disc in lattice order. A walking player crosses cells in a worse order than
-that, and the map only ever grows. If chunk generation ever shows up in a frame, that is the first
-place to look.
+## Phase 8 — ground, water and erosion
 
-## Generation — what the shipped presets actually contain
+Seed 1213486160, world generator 12, release-native.
 
-A threshold is not a proportion, so a preset's claims about its own landscape come from
-`npm run survey` rather than from reading its parameters. This is the reference survey for the four
-shipped presets, and it is measurement rather than roadmap, which is why it lives here.
+**Drainage holds by construction, not by tuning.** `npm run terra` reports zero cycles, zero uphill
+edges and zero unterminated walks in both the inland and `--coast` samples: head is a pure global
+field and flow is steepest descent on it under a total coordinate order. Solve cost is 5–6 ms per
+province, 460–486 ms for 81 provinces over 1.3 M cells. Sample the coast, not the origin — a
+statistic about river mouths taken where there is no sea is a wrong result, not a weak one.
 
-At seed 1,213,486,160 after the world-scale pass. Each preset is sampled at its landform radius
-(continental / highlands / basin 768, archipelago 192), because a 96-hex disc is the opening, not a
-landform. Bands in parts per thousand; water as bodies / mean body / largest body, **rivers
-excluded** so that `largest body` still means ocean; rivers as hexes / runs / longest run.
+**Two negative results, kept because each cost a round and would otherwise be retried.**
 
-| preset      | water | shore | lowland | hills | highland | cliff |    water bodies |              rivers | purity |
-| ----------- | ----: | ----: | ------: | ----: | -------: | ----: | --------------: | ------------------: | -----: |
-| Continental |    30 |    61 |     302 |   354 |      238 |    12 |  504 / 19 / 446 |  45604 / 129 / 8801 |    991 |
-| Archipelago |   110 |   190 |     317 |   142 |      202 |    35 | 253 / 48 / 2247 |                   — |    981 |
-| Highlands   |    35 |     0 |     113 |   410 |      416 |    23 |     85 / 3 / 25 | 63110 / 144 / 17988 |    995 |
-| Basin       |    45 |   198 |     524 |   211 |       16 |     2 | 717 / 58 / 7360 |  40103 / 98 / 19096 |    998 |
+- **Do not round the height field to quanta before depressions are resolved.** A whole-quanta field
+  put 216 per mille of neighbour pairs at exactly equal height and manufactured 32,694 micro-lakes.
+  Carrying it in milli-quanta internally and publishing whole quanta cut that 23×, to 1,409.
+- **Do not carve the whole flow tree to remove closed basins.** Lakes rose 2.1× and lake cells 3.1×,
+  and solve cost doubled: incision subtracts a constant depth per class, so a thread crossing rising
+  ground leaves a flat-bottomed trench with a lip. The graded long profile is what worked — an
+  absolute descending floor elevation propagated down the tree, seam elevations agreeing from either
+  side.
 
-A hexagon is 25 m²; the walk is 15 m/s. Continental's 512-hex landform is a three-minute crossing,
-basin's 960-hex one is six, and a river of eight to ten hexes is a real river. The opening inside
-~80 hexes is still the cell-8 mix the bootstrap windows were tuned against, so the first minute does
-not wait on a coast.
+**A viewport is the unit "the world looks flat" was about**, not a slope histogram: uncorrelated
+centimetre noise and a hillside give similar neighbour steps, and only one accumulates over the
+distance the camera frames. Measured, the world carries **54.2 m of relief across 429 m**.
 
-`basin` is the ocean preset: largest standing body 7,360 hexes and truncated, and the water nearest
-a sand patch averages **2,494**. `archipelago` holds a 2,247-hex body inside a 192-hex sample.
-`continental` on this seed is inland — no sand in 768 hexes, largest standing body 446 — which is a
-continent, not a missing ocean; the coast is the walk. `highlands` still has no ocean worth the name
-(largest body 25) and keeps `ocean_level` where those basins pass it, so the little sand it holds
-(five patches, nearest 336 hexes) sits on the largest water it actually has.
+- **Do not retune generation amplitude.** Raising `HILLSLOPE_QUANTA` with a meso-scale ridge octave
+  took viewport relief _down_ 53.5 → 49.7 m while buildable ground fell 64 per mille. Rejected; the
+  rejection is recorded on the constant in `factory-wasm/src/terra.rs`.
+- **What was flat was the material map.** The old substrate rule chose Soil above 600 quanta, which
+  the continental field clears almost everywhere, so one clause painted 889 per mille of the world.
+  World 12 reads the gradient across a three-cell stencil instead: lowland 663, hills 214, shore 48.
+- **Rivers are obstacles deliberately.** `channel_depth` now cuts 2.25–9.75 m where it cut 0.5–5 m,
+  taking banks from 3–4 per cent to 8–14 per cent, past `MAX_BUILD_STEP_QUANTA` on the steepest
+  flank. It costs 32 per mille of buildable ground and was taken on purpose.
 
-**Purity is what decided the v0.21 site model.** Purity is the share of resource hexes whose
-radius-1 disc holds one material, which is what decides whether an extractor works a field or
-straddles two. Target 950; the shipped seed at radius 96, before and after v0.21:
+**Water work is paid by the disturbance that woke it.** `npm run water`: a 32-quanta command reached
+a fixed point over 41 active cells in 53 sweeps and 40 transfers, and 31 quanta that reached the
+surveyed frontier were retained against their named continuation cells. A settled world advanced
+100,000 ticks with **no water dirty mark and no change to the departure set** — the two false fields
+are the measurement, not the timer. There is no per-cell standing-water tick.
 
-| preset        | purity before | purity after | worst before | worst after              |
-| ------------- | ------------: | -----------: | ------------ | ------------------------ |
-| `continental` |           532 |          971 | stone 0      | sand 895                 |
-| `archipelago` |           474 |          965 | wood 36      | sand 940                 |
-| `highlands`   |           662 |          990 | crystal 28   | clay 977                 |
-| `basin`       |           631 |          992 | crystal 71   | crystal 809 _(21 cells)_ |
+**Erosion is bounded, not budgeted-by-timer.** `npm run erosion`: one epoch inspected 121 chunks,
+7,744 cells and 1,086 wet flowing edges, finding 117 bends; the first outside bank moved one quantum
+after eight accelerated epochs and the paired inside bank received one. The claim is the structural
+bound — at most 256 chunks, 65,536 cells, 4,096 edges and 64 bank changes per epoch in a
+deterministic rotating window — and this run reached none of them. Straight, dry and protected
+reaches do no work at an epoch at all.
 
-Stone had **no workable patch anywhere in 26,307 land hexes** on `continental` before this — its
-largest patch was 3 hexes against a base extractor's 7 — and neither did wood on `archipelago`.
-Every preset now clears 19 hexes for iron, coal, copper and stone and 61 for forests.
-`archipelago`'s landform scale moved from 4 to 5 and its blend from 45 to 52, because at the old
-numbers no band held a contiguous run wider than a deposit and every disc came out a crescent.
+## Limits
 
-## Browser frame — v0.24 hybrid renderer baseline
+- **One browser, one shell, one machine.** No Firefox, Safari, mobile or low-core figure exists.
+- **One workload shape.** Uniform straight lines with an always-accepting sink: no
+  backpressure-saturated networks, long turning runs, dense multi-cell packing or deposits running
+  dry. Dirty tracking is measured near its worst case (~43% of entities change every tick).
+- **One run per tier, no confidence interval.** Treat differences under ~20% as noise. The `line`
+  tier's compile, recompile and edit figures move by more than that between runs.
+- **The camera follows the player** in the browser record; off-screen entities are clipped, not
+  drawn. A zoomed-out view or DPR 2 is a different measurement.
+- **`apply` is the coarsest number here**, against a 100 µs clock step — treat as ±10%. Round trip
+  and merge are timed in separate passes; the game interleaves them.
+- **The ladder locates no ceiling.** Every tier fits inside a 60 Hz frame; "above 6,144 entities" is
+  the whole of what it says about the limit.
+- **A checksum change invalidates checksum comparisons, not timing ones.** Several releases moved the
+  pinned workload checksum without changing the workload's shape, entity counts or delivered totals.
+  Say which of the two a record claims. Likewise the v0.24 and v0.25 browser records are historical
+  baselines, not current renderer evidence.
 
-Recorded 2026-08-23 before Visual Depth renderer work, from the dirty-but-green v0.24 worktree at
-base commit `34b68d5e3a3f9fcc9d5db50ebd1898b272f7f4de`. The only source changes present were the
-intentional harvest work-before-yield change and the uncommitted Visual Depth planning documents;
-`npm run quality` passed before the run. Raw report:
-[`benchmarks/capacity-v0.24-browser.json`](benchmarks/capacity-v0.24-browser.json), SHA-256
-`9B1A3D06BA566937848D875BD28AE7F2B99E4539E0A8C234609CEE3CEF7FCC98`.
+## Follow-ups, in the order the measurement supports
 
-Host: AMD Ryzen 7 5800X, Windows 11, Chromium 151, 16 hardware threads. The page was not
-cross-origin isolated and both clocks reported a 100 µs step. The renderer viewport was the pinned
-1440×900 at DPR 1 and the minimap was 178 px. Reproduce with `npm run bench:browser`, open
-`/HexFactory/bench.html`, and press **Run full ladder**.
-
-| tier   | entities | host frame µs | world µs | minimap µs | render µs | browser frame µs | frame share |
-| ------ | -------: | ------------: | -------: | ---------: | --------: | ---------------: | ----------: |
-| line   |       12 |          80.8 |    303.0 |        4.3 |     307.3 |            388.1 |        2.3% |
-| small  |      192 |         111.0 |    227.3 |        5.3 |     232.6 |            343.6 |        2.1% |
-| medium |      768 |         250.0 |    277.8 |        3.1 |     280.9 |            530.9 |        3.2% |
-| wide   |    1,536 |         453.3 |    628.1 |        3.5 |     631.6 |          1,085.0 |        6.5% |
-| large  |    3,072 |         835.0 |    600.0 |        3.7 |     603.7 |          1,438.7 |        8.6% |
-| xlarge |    6,144 |       1,440.0 |  1,281.3 |        3.8 |   1,285.1 |          2,725.1 |       16.4% |
-
-The complete xlarge browser frame used 16.4% of a 60 Hz frame on this desktop. All six applied
-snapshots retained their full entity counts. This baseline supports only the renderer it measured;
-it is the comparison row v0.25 must replace.
-
-The shipped opening was also captured at 1440×900, 1366×768, and 390×844, and the Factory demo at
-the same three viewports, under `docs/screenshots/`. At 1440×900 the real game canvas measured
-1280×656 CSS/device pixels after its two desktop rails; at 1366×768 it measured 1366×704; at
-390×844 it measured 390×786. Browser logs contained no warnings or errors during the captures.
-
-Context loss was not recoverable inside the v0.24 renderer: both WebGL renderers prevent the
-`webglcontextlost` default and set a permanent `lost` flag, but register no
-`webglcontextrestored` handler. Drawing therefore stops until a page reload constructs fresh
-contexts. Visual Depth must replace this source-inspected baseline with an exercised restore path.
-
-## Browser frame — the current v0.43.0 audit
-
-Recorded 2026-08-29 on the Ryzen 7 5800X / Windows 11 reference desktop in Chromium 151, at
-1440×900, DPR 1 and a 178 px minimap. Each profile ran the complete six-tier ladder and every
-applied snapshot retained its full entity count. Raw reports and SHA-256:
-
-- [`benchmarks/capacity-v0.43-browser-low.json`](benchmarks/capacity-v0.43-browser-low.json) —
-  `4BCF85F7C70B9DC09DE0D9A506DC11BDA33E3808B33DDC9463B0DE8739683BAD`
-- [`benchmarks/capacity-v0.43-browser-medium.json`](benchmarks/capacity-v0.43-browser-medium.json) —
-  `8F65194CF3A434796F1079F809DFFA1FF1B7A6655EC5081608D4593A72F3CFEC`
-- [`benchmarks/capacity-v0.43-browser-high.json`](benchmarks/capacity-v0.43-browser-high.json) —
-  `6C69DEEB4C6445C8182B3BA025C4CE382DB58599578040F6A8312CEBA4DC3D50`
-
-| profile | tier   | entities | browser frame µs | frame share | draw calls | triangles | geometries | textures |
-| ------- | ------ | -------: | ---------------: | ----------: | ---------: | --------: | ---------: | -------: |
-| Low     | line   |       12 |            633.0 |        3.8% |         34 |    24,464 |         36 |        1 |
-| Low     | small  |      192 |            827.3 |        5.0% |         35 |    96,232 |         36 |        1 |
-| Low     | medium |      768 |          1,443.4 |        8.7% |         34 |   329,960 |         36 |        1 |
-| Low     | wide   |    1,536 |          2,521.7 |       15.1% |         36 |   654,312 |         36 |        1 |
-| Low     | large  |    3,072 |          3,198.2 |       19.2% |         34 | 1,268,744 |         36 |        1 |
-| Low     | xlarge |    6,144 |          5,386.4 |       32.3% |         35 | 2,546,696 |         36 |        1 |
-| Medium  | line   |       12 |            628.4 |        3.8% |         34 |    24,464 |         36 |        3 |
-| Medium  | small  |      192 |            748.2 |        4.5% |         35 |    96,232 |         36 |        3 |
-| Medium  | medium |      768 |          1,639.3 |        9.8% |         34 |   329,960 |         36 |        3 |
-| Medium  | wide   |    1,536 |          2,012.4 |       12.1% |         36 |   654,312 |         36 |        3 |
-| Medium  | large  |    3,072 |          2,978.0 |       17.9% |         34 | 1,268,744 |         36 |        3 |
-| Medium  | xlarge |    6,144 |          5,576.5 |       33.5% |         35 | 2,546,696 |         36 |        3 |
-| High    | line   |       12 |            845.4 |        5.1% |         34 |    24,464 |         36 |        3 |
-| High    | small  |      192 |            641.7 |        3.9% |         35 |    96,232 |         36 |        3 |
-| High    | medium |      768 |          1,104.8 |        6.6% |         34 |   329,960 |         36 |        3 |
-| High    | wide   |    1,536 |          1,835.3 |       11.0% |         36 |   654,312 |         36 |        3 |
-| High    | large  |    3,072 |          3,425.9 |       20.6% |         34 | 1,268,744 |         36 |        3 |
-| High    | xlarge |    6,144 |          5,656.0 |       33.9% |         35 | 2,546,696 |         36 |        3 |
-
-Every profile remains under the plan's 35% desktop ceiling, but the xlarge tier now leaves only
-1.1–2.7 percentage points of margin. That is a pass, not abundant headroom: the browser clocks step
-in 100 µs increments and this is one desktop. Phase 7 must add a stacked-floor/lift workload and
-repeat the three profiles before it adds another permanent visual bucket.
-
-Draw calls remain 34–36 from 12 through 6,144 entities, so instances rather than entity count still
-own submission. The fixed vocabulary is larger than v0.25's 14–16 calls and 18 geometries: this
-record has 36 geometries, one or three textures and 2.55 million triangles at xlarge. That is the
-cost of the current shipped scene, not evidence that one particular release caused it; the older
-record is not a same-build A/B. This browser API still provides no GPU-completion or GPU-memory
-telemetry.
-
-## Browser frame — v0.25 Visual Depth baseline
-
-Recorded 2026-08-23 after the production Three.js cutover, on the same Ryzen 7 5800X / Windows 11 /
-Chromium 151 desktop, at 1440×900, DPR 1, a 178 px minimap, and the same 100 µs browser clocks. Each
-profile ran the complete six-tier ladder and every applied snapshot retained its full entity count.
-Raw reports and SHA-256:
-
-- [`benchmarks/capacity-v0.25-browser-low.json`](benchmarks/capacity-v0.25-browser-low.json) —
-  `916D678270300D05E31738214A3CD6AD7829BA177E156A5E7777BD4C552DE190`
-- [`benchmarks/capacity-v0.25-browser-medium.json`](benchmarks/capacity-v0.25-browser-medium.json) —
-  `9B3A30AA7FBC6DD159605DABA57F61312BCE2FA18B2FA17280C2AD03023E14A1`
-- [`benchmarks/capacity-v0.25-browser-high.json`](benchmarks/capacity-v0.25-browser-high.json) —
-  `1465FDC37DE1B7539C500CBF1706476C0B867934C6267F311B389A9DB358BF3F`
-
-| profile | tier   | entities | browser frame µs | frame share | draw calls | triangles | geometries | textures |
-| ------- | ------ | -------: | ---------------: | ----------: | ---------: | --------: | ---------: | -------: |
-| Low     | line   |       12 |            433.4 |        2.6% |         14 |    21,650 |         18 |        1 |
-| Low     | small  |      192 |            430.3 |        2.6% |         15 |    54,598 |         18 |        1 |
-| Low     | medium |      768 |            760.5 |        4.6% |         14 |   164,102 |         18 |        1 |
-| Low     | wide   |    1,536 |          1,356.9 |        8.1% |         16 |   322,822 |         18 |        1 |
-| Low     | large  |    3,072 |          2,042.4 |       12.3% |         14 |   605,990 |         18 |        1 |
-| Low     | xlarge |    6,144 |          4,562.5 |       27.4% |         15 | 1,221,414 |         18 |        1 |
-| Medium  | line   |       12 |            347.7 |        2.1% |         14 |    21,650 |         18 |        3 |
-| Medium  | small  |      192 |            392.1 |        2.4% |         15 |    54,598 |         18 |        3 |
-| Medium  | medium |      768 |            806.4 |        4.8% |         14 |   164,102 |         18 |        3 |
-| Medium  | wide   |    1,536 |          1,183.6 |        7.1% |         16 |   322,822 |         18 |        3 |
-| Medium  | large  |    3,072 |          2,539.6 |       15.2% |         14 |   605,990 |         18 |        3 |
-| Medium  | xlarge |    6,144 |          4,191.2 |       25.1% |         15 | 1,221,414 |         18 |        3 |
-| High    | line   |       12 |            386.1 |        2.3% |         14 |    21,650 |         18 |        3 |
-| High    | small  |      192 |            488.4 |        2.9% |         15 |    54,598 |         18 |        3 |
-| High    | medium |      768 |            854.9 |        5.1% |         14 |   164,102 |         18 |        3 |
-| High    | wide   |    1,536 |          1,445.9 |        8.7% |         16 |   322,822 |         18 |        3 |
-| High    | large  |    3,072 |          2,088.5 |       12.5% |         14 |   605,990 |         18 |        3 |
-| High    | xlarge |    6,144 |          3,623.3 |       21.7% |         15 | 1,221,414 |         18 |        3 |
-
-The desktop gate is green: every recorded profile stays below the plan's 35% ceiling at every tier.
-The largest tier's render p95 was 2.6 ms Low, 2.2 ms Medium, and 2.1 ms High. The draw-call range is
-14–16 from 12 through 6,144 entities, proving that visual buckets rather than building count own the
-calls. JavaScript heap at the largest tier was 94.3 MiB Low, 101.2 MiB Medium, and 137.5 MiB High;
-this browser API is not GPU-memory telemetry. Renderer memory stayed at 18 geometries and one or
-three textures. Repeated New Game, Factory demo, and load transitions in the real game converged on
-22 retained geometries and one texture after both scene vocabularies had been visited, rather than
-growing per transition.
-
-An interactive Low-profile run exercised walking, all six orbits, zoom extremes, panel changes, and
-construction with a rolling 240-frame p95 of 0.6 ms (0.9 ms once immediately after restoring a
-save). Forced context loss/restoration rebuilt and redrew a nonblank retained scene; background
-benchmark work followed by returning to the game also redrew cleanly. Reduced motion, desktop,
-laptop-size, narrow, and mobile layouts were exercised. PNG pixel checks found nonblank, varied
-output at every required viewport, and browser logs contained no warnings or errors.
-
-No qualifying physical Intel Iris Xe / AMD Vega-class-or-weaker laptop was available for this
-historical record. That support target was later withdrawn on 2026-08-27; this baseline makes no
-integrated-GPU support claim.
-
-## Browser frame — historical v0.13.1 record
-
-Same host, `factory-wasm` 0.13.0, recorded 2026-08-18. Raw report:
-[`benchmarks/capacity-v0.13.1-browser.json`](benchmarks/capacity-v0.13.1-browser.json). Viewport
-pinned at 1440×900 world, 178 px minimap, `BASE_HEX_SIZE` 22, `devicePixelRatio` 1. Chromium 151, 16
-hardware threads, `performance.now` observed at a 100 µs step, page not cross-origin isolated.
-
-| tier   | entities | host frame µs | world µs | minimap µs | render µs | browser frame µs | sim share | frame share |
-| ------ | -------: | ------------: | -------: | ---------: | --------: | ---------------: | --------: | ----------: |
-| line   |       12 |          60.0 |    254.4 |       15.4 |     269.9 |            329.9 |      0.4% |        2.0% |
-| small  |      192 |         126.0 |    295.6 |       43.9 |     339.4 |            465.4 |      0.8% |        2.8% |
-| medium |      768 |         349.0 |    418.7 |       53.3 |     472.1 |            821.1 |      2.1% |        4.9% |
-| wide   |    1,536 |         561.7 |    495.1 |       76.9 |     572.0 |          1,133.7 |      3.4% |        6.8% |
-| large  |    3,072 |       1,025.0 |    648.4 |      120.5 |     768.9 |          1,793.9 |      6.1% |       10.8% |
-| xlarge |    6,144 |       1,980.0 |    990.5 |      200.0 |   1,190.5 |          3,170.5 |     11.9% |       19.0% |
-
-**1. A complete browser frame at the largest measured tier was 19.0% of 60 Hz** on the Canvas 2D
-renderer, against 18.2% before Stage B and the first Stage C motion pass. That is a 9% world-draw
-increase for the whole art generator.
-
-**2. The environment is the floor, not the entity count.** Twelve entities cost 254 µs of world
-draw; 6,144 cost 991 µs. Fringes, baked tiles, and silhouettes ride on the listed terrain and entity
-sets, not on a walk of every surveyed hex — a first version that did walk every surveyed hex
-measured about 8 ms and was refused.
-
-**3. The world canvas was the render cost; the minimap was not**, at 6–15% of `render` at every
-tier.
-
-**4. Neither record locates a ceiling.** What the ladder says about the limit is only that a
-complete frame at 6,144 entities fits.
-
-### Capacity tiers against a 16,667 µs frame
-
-`sim share` is the cost of advancing a tick and merging the result. `frame share` is the complete
-browser frame, render included, and exists only from v0.12.4.
-
-| tier   | entities | sim share v0.8 | sim share v0.12.2 | frame share v0.12.4 | frame share v0.13.1 | verdict     |
-| ------ | -------: | -------------: | ----------------: | ------------------: | ------------------: | ----------- |
-| line   |       12 |           0.6% |              0.4% |                2.2% |                2.0% | comfortable |
-| small  |      192 |           2.5% |              0.8% |                3.3% |                2.8% | comfortable |
-| medium |      768 |           8.3% |              1.9% |                5.8% |                4.9% | comfortable |
-| wide   |    1,536 |          15.8% |              3.3% |                6.4% |                6.8% | comfortable |
-| large  |    3,072 |          30.1% |              6.0% |               11.6% |               10.8% | comfortable |
-| xlarge |    6,144 |          62.1% |             11.0% |               18.2% |               19.0% | comfortable |
-
-## Record history
-
-Each row is a full report in `docs/benchmarks/`. The headline is what the run was for.
-
-- v0.43.0 (both, 2026-08-29) — **Current native and browser records.** The 6,144-entity native
-  frame was 1,372 µs. Complete browser frames were 5,386 µs Low, 5,577 µs Medium and 5,656 µs
-  High: all pass the 35% desktop gate, with only 1.1–2.7 percentage points left. Draw calls remained
-  34–36 across the ladder. This is a current-build audit, not an A/B against v0.25.
-- v0.25 (browser, 2026-08-23) — **Visual Depth baseline.** Low, Medium, and High each
-  completed the six-tier Three.js ladder. The 6,144-entity browser frame was 4,562 µs Low,
-  4,191 µs Medium, and 3,623 µs High on this desktop; all stayed below 35% of 60 Hz. Draw calls
-  remained 14–16 and geometry counts remained 18.
-- v0.24 (browser, 2026-08-23) — **Pre-Visual-Depth browser baseline.** The hybrid
-  instanced-WebGL2/Canvas world completed the 6,144-entity tier in 2,725 µs, 16.4% of 60 Hz, with
-  1,281 µs in the world draw. Six viewport comparison captures record the shipped opening and demo.
-- v0.21 (native, 2026-08-20) — **Current generation record.** Flat against v0.16, which is the point:
-  the ladder never generates, and a milestone that rewrote generation had to leave it untouched.
-  Generation itself moved 0.52 → 1.42 µs/hex, both re-measured on this host so the comparison is
-  against the same harness rather than against the v0.16 line.
-- v0.16 (native, 2026-08-18) — Flat against v0.13; first measurement of generation at 0.35 µs/hex,
-  on a survey that has since grown patch, river, and bootstrap reporting.
-- v0.15 (browser, 2026-08-18) — An A/B, **not a comparable record** — different browser and a
-  non-compositing pane. World draw 1,767 µs for the shape grammar against 2,057 µs for the `switch`
-  it replaced, ranges overlapping: no regression detectable, not demonstrably faster. The minimap,
-  which never imports the grammar, held at 428 µs ± 2.6% across all five runs, which is what makes
-  the A/B trustworthy. All six tier checksums identical — the presentation-only claim demonstrated
-  rather than asserted.
-- v0.13.1 (browser, 2026-08-18) — Historical simulation-half record; Stage B and first Stage C
-  motion fit in the measured headroom.
-- v0.13 (native, 2026-08-18) — Tick about 1.4× v0.12.2 at the largest tier, from refreshing supply
-  and demand once per tick. An all-pairs compile over every powered machine was caught here — it
-  made xlarge compile 61× slower — and replaced by pole-to-pole plus machine-to-pole before the
-  record was taken.
-- v0.12.4 (browser, 2026-08-18) — The first complete browser frame: 18.2% of 60 Hz at 6,144
-  entities, render 1,069 µs of it. The unknown 89% of a frame is gone, and Stage C stopped being
-  gated on ignorance.
-- v0.12.2 (both, 2026-08-18) — **Current payload record.** Payload 13.6× smaller, boundary 21.7×
-  cheaper (6,085 → 280 µs), host frame from 62.1% of 60 Hz to 11.0%. The 10 µs/KB law is replaced by
-  a fixed round-trip floor of ~62 µs: below `wide`, sending less now buys almost nothing.
-- v0.12.1 (native, 2026-08-17) — No new regression; the generator bump changed which cells exist,
-  not how the ladder is built.
-- v0.12 (native, 2026-08-17) — The checksum got 3.0× cheaper — v0.11's sparse tile overlay, measured
-  for the first time, taking this workload from 25,024 stored tiles to 512. Found and fixed two
-  v0.12 regressions before recording: 86 KB of delta spent publishing `fuel_charge` on belts, and a
-  `field_at` that scanned the scenario's resource list per hex (snapshot 7,480 µs → 2,220 µs).
-- v0.8 (both, 2026-08-17) — The first browser tiers, and they moved the roadmap. Wasm costs
-  1.19–1.23× native at the four largest tiers, so three releases of native work transferred intact.
-  The worker boundary was 57–61% of a host frame at a flat 9–13 µs/KB — the finding the binary delta
-  encoding was built from.
-- v0.7 (native, —) — Sparse snapshot: frame 16.8× cheaper at the largest tier.
-- v0.6 (native, —) — Sparse cost: tick 233× cheaper, delta payload 2.3× smaller.
-- v0.5.1 (native, —) — The first recorded ladder.
-
-## Limits of this measurement
-
-- **One browser, one shell, one machine.** No Firefox, Safari, mobile, or low-core-count figure
-  exists, and a phone is not represented by anything here. One Chromium version on one desktop is
-  the whole browser evidence.
-- **One workload shape.** Uniform straight lines with an always-accepting sink. It does not cover
-  backpressure-saturated networks, long turning belt runs, dense multi-cell packing, or deposits
-  running dry.
-- **Dirty tracking is measured near its worst case.** Roughly 43% of this workload's entities change
-  every tick, so a quiet blueprint sends proportionally less.
-- **One run per tier, no confidence interval.** Treat differences under roughly 20% as noise. Three
-  full browser runs at v0.12.2 put the largest tier's host frame at ±7%, which supports that rule
-  rather than replacing it. The `line` tier's compile, recompile, and edit figures move by more than
-  20% between runs and should not be read closely.
-- **The camera follows the player** in the browser record. Off-screen entities are walked and
-  clipped, not drawn. A zoomed-out view, or a 2× device pixel ratio, is a different measurement.
-- **`apply` is the coarsest number here**, running against a 100 µs clock step; treat it as ±10%.
-- **The round trip and the merge are timed in separate passes.** The game interleaves them; their
-  sum is a fair account of the work, but the cache behaviour of the interleaving is not represented.
-- **The release profile is tuned for wasm size** (`opt-level = "s"`, LTO, `wasm-opt -Oz`), matching
-  what ships. A speed-tuned build would be faster and would not represent the artifact.
-- **Timings include allocation.** No allocator was pinned or replaced.
-- **The ladder no longer brackets a ceiling.** Every tier fits inside a 60 Hz frame. Treat "above
-  6,144 entities" as the whole of what it says about the limit.
-
-## Live follow-ups, in the order the measurement supports
-
-1. **Add Phase 7's workload before adding Phase 7's visual cost.** Stack visible/faded floor cells,
-   active lifts and cross-level graph edges into a deterministic tier. Repeat all three desktop
-   profiles before shipping: the current xlarge profile leaves only 1.1–2.7 percentage points under
-   the 35% gate, and the present straight-line factory contains no upper floor to price.
-2. **Measure the scheduler under the shapes the game now owns.** Add junction-dense,
-   backpressured and power-dense tiers. Source inspection finds bounded but recurring ordered-map
-   and vector construction in power allocation, and runtime orders are still visited every tick;
-   the straight always-accepting line cannot say whether active sets or reused scratch would pay.
-3. **Measure the site cache under a walk rather than under a survey.** The generation record sweeps
-   a disc in lattice order, which is the cache's best case. A walking player crosses cells in a worse
-   one, and `generate_chunk` is the path that pays for it. Nothing here resolves that today.
-4. **Batch the transport recompile inside a construction drag.** A 32-cell run recompiles 32 times,
-   once on pointer release rather than per frame. No tier measures it, so it is a known cost and not
-   yet a measured one.
-5. **Re-examine incremental transport recompilation.** At xlarge the current affected-component
-   path costs 4.05 ms against 1.91 ms for a full compile. Do not remove it on that alone: the tier is
-   one connected line, while its tested behaviour under local component splits and merges is a
-   correctness asset. Add affected-size reporting first.
-6. **Measure `apply` with a finer clock before optimizing it.** The current 120–185 µs xlarge means
-   are only one or two 100 µs browser steps per sample.
-7. **Extend the ladder past 6,144 only after the Phase 7 workload exists.** The present ladder is
-   close to the support gate but still does not locate a technical ceiling; more copies of the old
-   shape would answer a less urgent question than the first stacked factory.
-8. **An incremental checksum** remains last. It is determinism-critical work for a small share of
-   the current native frame; optimize it only if a later record moves that share materially.
-
-Record a new run by adding a dated report under `docs/benchmarks/` and updating the tables above.
-**Checksum comparisons are valid only while the pinned workload checksum in the Rust test gate is
-unchanged; timing comparisons survive a checksum change as long as the workload's shape, entity
-counts, and delivered totals do not move.**
+1. **Add a milestone's workload before adding its visual cost.** Stacked floors, lifts and
+   cross-level graph edges need a deterministic tier and all three profiles repeated; xlarge leaves
+   1.1–2.7 points under the gate.
+2. **Measure the scheduler under the shapes the game now owns** — junction-dense, backpressured and
+   power-dense tiers. The straight always-accepting line cannot say whether active sets or reused
+   scratch would pay.
+3. **Measure the site cache under a walk**, not under a lattice-order survey sweep.
+4. **Batch the transport recompile inside a construction drag.** A 32-cell run recompiles 32 times.
+5. **Re-examine incremental recompilation.** At xlarge the affected-component path costs 4.05 ms
+   against 1.91 ms for a full compile — but the tier is one connected line, and the incremental
+   path's tested behaviour under splits and merges is a correctness asset. Add affected-size
+   reporting before touching it.
+6. **Extend the ladder past 6,144** only once a new workload shape exists; more copies of the same
+   line do not locate a ceiling.
