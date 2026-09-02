@@ -256,18 +256,30 @@ const methods = blocks.flatMap((b) => methodsIn(src, mask, b));
 
 if (cmd === "inventory") {
   if (has("json")) {
-    console.log(JSON.stringify({ file, type: typeName, blocks: blocks.length, methods }, null, 2));
+    console.log(
+      JSON.stringify(
+        { file, type: typeName, blocks: blocks.length, methods },
+        null,
+        2,
+      ),
+    );
   } else {
-    console.log(`${file}  impl ${typeName}  (${blocks.length} block(s), ${methods.length} methods)`);
+    console.log(
+      `${file}  impl ${typeName}  (${blocks.length} block(s), ${methods.length} methods)`,
+    );
     for (const b of blocks)
-      console.log(`  block lines ${lineOf(src, b.start)}-${lineOf(src, b.end)}`);
+      console.log(
+        `  block lines ${lineOf(src, b.start)}-${lineOf(src, b.end)}`,
+      );
     console.log();
     for (const m of methods)
       console.log(
         `${String(m.bytes).padStart(7)}  L${String(m.line).padStart(6)}-${String(m.endLine).padEnd(6)}  ${m.name}`,
       );
     const total = methods.reduce((a, m) => a + m.bytes, 0);
-    console.log(`\ntotal in methods: ${(total / 1024).toFixed(0)} KB of ${(src.length / 1024).toFixed(0)} KB file`);
+    console.log(
+      `\ntotal in methods: ${(total / 1024).toFixed(0)} KB of ${(src.length / 1024).toFixed(0)} KB file`,
+    );
   }
   process.exit(0);
 }
@@ -299,7 +311,8 @@ for (const [name, mod] of Object.entries(map)) {
 // Cut spans back-to-front so offsets stay valid.
 const cuts = [...groups.values()].flat().sort((a, b) => b.start - a.start);
 let rewritten = src;
-for (const c of cuts) rewritten = rewritten.slice(0, c.start) + rewritten.slice(c.end);
+for (const c of cuts)
+  rewritten = rewritten.slice(0, c.start) + rewritten.slice(c.end);
 rewritten = rewritten.replace(/\n{3,}/g, "\n\n");
 
 const header = (mod) =>
