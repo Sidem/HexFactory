@@ -5,6 +5,7 @@ import scenarios from "../data/scenarios.json";
 import technologies from "../data/technologies.json";
 import type {
   FactorySnapshot,
+  LandscapeLod,
   LinePreviewCell,
   NativeFactory,
   NativeInputCommand,
@@ -101,6 +102,8 @@ async function handle(request: WorkerRequest): Promise<unknown> {
       // Not part of the per-frame delta: a world's parameters change only when the world does,
       // so the host asks after `newGame` and `load` rather than paying for them every frame.
       return JSON.parse(factory.world_params_json()) as WorldParams;
+    case "landscapeLod":
+      return JSON.parse(factory.landscape_lod_json()) as LandscapeLod;
     case "worldPreview": {
       const width = Number(payload.width ?? 0);
       const height = Number(payload.height ?? 0);

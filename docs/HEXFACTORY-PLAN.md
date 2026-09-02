@@ -59,16 +59,16 @@ grammar, so a tier stays a data row. The world renders through Three.js; the min
 
 | Envelope              | Version |
 | --------------------- | ------: |
-| `HXF1` save           |      41 |
+| `HXF1` save           |      42 |
 | Definitions           |      30 |
-| Technologies          |      16 |
+| Technologies          |      17 |
 | Scenarios             |       8 |
-| World generator       |      12 |
+| World generator       |      13 |
 | Wire (snapshot delta) |      23 |
 
-These are the completed Phase 8 numbers, on `main` and not yet carrying a release number. Save 36 and
-below is the old 1 m² world, refused with an export path rather than migrated; 37 advances by stamp to
-38, 38 to 39, 39 to 40, and 40 adopts empty live-erosion state at 41.
+These are the v0.47.0 Phase 8 numbers. Save 36 and below is the old 1 m² world; world generator 12
+and below predates the noise-shaped resource lattice. Both are refused with an export path rather
+than remapped. Same-generator 25 m² saves migrate through the adjacent format ladder.
 
 **Measured capacity.** The v0.43 audit puts the complete 6,144-entity browser frame at 32.3% / 33.5% /
 33.9% of 60 Hz on Low / Medium / High on the reference desktop at 1440×900 DPR 1 — all pass the 35%
@@ -76,9 +76,10 @@ gate, by only 1.1–2.7 points. The native frame is 1.37 ms at the same tier, th
 Generation costs at most 1.42 µs per hex. **The reference desktop is the support target** (2026-08-27);
 integrated-GPU laptops are not a supported configuration. No claim beyond a recorded tier.
 
-**Last release: v0.46.0 Shaped Ground.** **On `main` since, unreleased: the complete Phase 8 scale
-break** — one construction hex is 25 m², altitude is physical native height, drainage and sparse water
-answer the ground, and bounded geomorphic epochs let surveyed rivers answer what the player built.
+**Last release: v0.47.0 Flowing Water.** Phase 8 is shipped: one construction hex is 25 m², altitude
+is physical native height, drainage and sparse water answer the ground, bounded geomorphic epochs let
+surveyed rivers answer what the player built, and a native coarse horizon carries distant landform
+without surveying it.
 
 **Where it is weak.** The foundation is strong and unusually trustworthy; the game is still a polished
 short-form vertical slice. The first two hub stages and 27 finite projects give the present roster a
@@ -137,8 +138,7 @@ with 1.29 radians of phase between consecutive poses — under five poses a cycl
 swings. 1.4 puts 0.225 radians between poses and the walk at 0.92–1.07 cycles a second. Verified on a
 click-to-move route across fourteen waypoint turns: the leg angle sweeps through every one without a break.
 
-**Defect — clay and sand are hard to find, and deposits read as circles. Measured, not shipped; needs a
-decision.** `npm run survey` across continental, archipelago, highlands and basin (exit 0) answers the
+**Defect — clay and sand are hard to find, and deposits read as circles. Fixed.** `npm run survey` across continental, archipelago, highlands and basin (exit 0) answers the
 scarcity claim as this section predicted it might. Clay: 407/27/492/404 patches, nearest at 21/37/32/21 hexes,
 and present in `BOOTSTRAP_GUARANTEES` on every preset. Sand: 608/36/459/608 patches, nearest at 39/49/42/39
 hexes — the farthest of any material — with the smallest patches (mean 6–9 cells, mean yield 117–153 against
@@ -150,7 +150,11 @@ legibility. **That surface already exists** — the minimap paints the shore ban
 leaves nothing to ship there and puts the whole defect on the generator. The shape half is unchanged from the
 reading below, and both remaining moves — a noise-masked deposit shape, or widening sand's opening — bump
 `WORLD_GENERATOR_VERSION`, and `persistence.rs:301` refuses every existing save on a mismatch. **That is the
-decision: it costs every save in the wild.** Scheduled work, not a tuning pass.
+decision: it costs every save in the wild.** The user accepted that cost on 2026-09-02. v0.47.0 chose the
+noise-masked shape: a smooth deterministic channel moves only the outer ring by one hex, keeping the site
+core connected and single-material. World generator 13 makes the save break explicit. The repeated survey
+still passes all opening guarantees; sand remains nearest at 39/49/42/39 hexes and its patches remain small,
+while global resource purity stays at 998/1000/998/998 per mille.
 
 **Request — a composer stopped mid-craft can be neither reassigned nor cleared. Shipped.** `Core::set_recipe`
 in `factory-wasm/src/core/configuration.rs` refuses whenever `progress > 0`, because the reserved inputs
@@ -173,15 +177,17 @@ world generator envelopes; and a fertile band along every river is a great deal 
 needs a scarcity rule before it becomes the answer to every placement question. Row 9 tags the ground; row 11
 decides what grows on it.
 
-**Four further requests sit in the rows that own them**: animals that breed and can be overhunted (row 9), a
-swimming rung between the ford and the bridge (row 11), and biome flora and props and a coastal harbour with
-vessels (both on the longer horizon, each named with what it waits on).
+**Open-water swimming shipped ahead of row 9 at the user's direction on 2026-09-02.** It is a funded personal
+skill after Field Survey. Native route finding, collision and movement admit deep water only when it is owned,
+at one eighth of dry-ground speed; construction remains blocked. The remaining requests are animals that
+breed and can be overhunted (row 9), and biome flora and props and a coastal harbour with vessels (both on the
+longer horizon, each named with what it waits on).
 
 ### The phase order
 
 Phases 1 to 7 are **shipped**; pipes shipped between rows 7 and 8 as v0.45.0 without reordering the sequence.
 
-- **8 — Flowing water.** Complete on `main`, unreleased.
+- **8 — Flowing water.** Shipped as v0.47.0.
 - **9 — Living Lattice.** Animals, biomatter and waste as one ecological system, plus the riverbank
   fertile-soil tag row 11's food chain needs. Reuses phase 4's joint-output costing.
 - **10 — Supported floors and vertical transport.** Support classes, the first upper floor, stairs, belt
@@ -203,21 +209,20 @@ complete the enclosure work — roofs, rebar and steel frames attach to row 10, 
 
 **Entry work, not a new phase.** Item 1 belongs to row 7; items 2–4 are gates on row 10.
 
-1. Make guidance name the first executable action and remove the initial hub/mission duplication; add
-   construction search and a visible narrow-dock overflow cue.
+1. **Done in v0.44.0.** Guidance names the first executable action and removes the initial hub/mission
+   duplication; construction search and a visible narrow-dock overflow cue are shipped.
 2. Before level IDs widen native state, mechanically move the inline native tests and capacity harness out of
    `lib.rs`, then extract only the occupancy/placement/transport slices row 10 must touch. Split the
    corresponding session/panel wiring out of `main.ts`. Preserve behaviour, checksum, save and wire at each
    step; this is not authority for a rewrite.
-3. State the supported save-migration window in player-facing text. Phase 8 made the boundary explicit, tested
-   and exportable; what is missing is the promise itself, rather than a player discovering it from a disabled
-   Load button.
+3. **Done in v0.47.0.** Saved games states the promise: same-generator 25 m² format migrations are supported;
+   generator and scale changes never remap terrain, and incompatible rows remain exportable.
 4. Add a deterministic stacked-floor/lift capacity tier and rerun Low, Medium and High before a floor release.
    The 6,144-entity record is already near the desktop gate.
 
 ## Phase 8 — Flowing water
 
-**Complete on `main`, unreleased.** Water stopped being a property of a cell. The phase owned the scale,
+**Shipped as v0.47.0.** Water stopped being a property of a cell. The phase owned the scale,
 altitude, footprint and rendering break that realistic mountains, valleys, springs and rivers required. The
 shipped rules live in [`ARCHITECTURE.md`](ARCHITECTURE.md); the measurements, including three rejected
 changes, live in [`BENCHMARKS.md`](BENCHMARKS.md) and are reproduced by `npm run terra`, `npm run water` and
@@ -281,11 +286,11 @@ removes the region from the schedule. **No full-world or permanent per-cell wate
   a river answer what the player built. Erosion may expose or bury a surface resource only through an explicit
   rule — never as a side effect of lowering ground.
 
-### Still owed
+### Closeout delivered
 
-A distant aggregated terrain LOD, before mountain scale is claimed: a peak the camera cannot show until the
-player stands on it has not solved sense of place. And the player-facing migration window, per entry work item
-3 above.
+The distant aggregated terrain LOD is native generated, read-only and checksum-neutral. It carries broad
+height and water surface to a coarse horizon mesh without surveying cells, exposing fields or entering the
+pick surface. Saved games states the migration window and export promise per entry work item 3 above.
 
 ## Phase 9 — Living Lattice
 
@@ -482,6 +487,9 @@ definition that never reaches it is a definition nothing has compared against th
 An index, newest first — one line per release, and the envelope numbers only where one moved. The reasoning
 behind any shipped rule is in the git history and in the code that implements it.
 
+- **v0.47.0** Flowing Water — physical 25 m² ground, drainage-first valleys, sparse disturbed water,
+  geomorphic epochs, a native coarse horizon, noise-shaped resource rims and Open-water Swimming. Save 42 /
+  technologies 17 / world 13.
 - **v0.46.0** Shaped Ground — earthworks named by a shape and two anchors, with a depth, a levelling datum, a
   64-hex ceiling, and a refused edit that keeps its footprint and names the obstructing hex.
 - **v0.45.0** Sealed Routes — pipes carry loose fluid through the compiled graph, belts carry solids and sealed

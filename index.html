@@ -24,11 +24,6 @@
       aria-labelledby="ground-heading"
       hidden
     ></section>
-    <!--
-      The mark, defined once. A hexagon holding three linked cells: the tile the world is made of,
-      and the network the game is about. Both places that wear it point at this, so the logo cannot
-      drift between the command bar and the title screen.
-    -->
     <svg class="brand-sprite" aria-hidden="true" focusable="false">
       <symbol id="hf-mark" viewBox="0 0 48 48">
         <path
@@ -169,11 +164,6 @@
             <span class="utility-icon" aria-hidden="true">⏱</span
             ><small class="utility-label">Timer</small>
           </button>
-          <!--
-            Always on screen, because the switch that turns creative on lives behind it: hiding the
-            button until the run is already creative would leave the keyboard as the only way in.
-            main.ts lights it instead, so a priced run and a sandbox one are told apart at a glance.
-          -->
           <button
             id="creative-chip"
             class="icon-button utility-button panel-toggle"
@@ -209,11 +199,6 @@
           aria-label="Interactive HexFactory world map. Use WASD or the on-screen movement pad to explore, then choose a construction tool and select a hex to build. The player faces wherever the pointer is."
         ></canvas>
 
-        <!--
-          The next step, in permanent chrome. A player should never have to know that a key hides
-          the one useful sentence, so this is on screen from the first frame; pressing it opens the
-          full brief behind the same toggle P uses.
-        -->
         <button
           id="next-step"
           class="next-step panel-toggle"
@@ -593,11 +578,6 @@
             <div id="build-groups" class="build-groups"></div>
           </aside>
 
-          <!--
-            The recipe lookup. The catalogue answers "what can this machine do"; this answers the
-            question a stuck player actually asks — "where does a gear come from" and "what is
-            copper wire for" — by searching every recipe from either side of the arrow.
-          -->
           <aside
             id="recipe-panel"
             class="glass-panel recipe-panel"
@@ -816,8 +796,9 @@
                   <p>
                     Move with <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd
                     ><kbd>D</kbd> at a walk, and hold <kbd>Shift</kbd> to run.
-                    Shallow water can be forded at a crawl; deep water cannot.
-                    The player always faces the pointer.
+                    Shallow water can be forded at a crawl. Deep water requires
+                    the Open-water Swimming skill and stays slower and
+                    unbuildable. The player always faces the pointer.
                     <kbd>Space</kbd> centres the camera back on the player,
                     <kbd>M</kbd> mutes the feedback sounds, and dragging with
                     the middle button — or with <kbd>Shift</kbd> held and the
@@ -1252,6 +1233,10 @@
               wrote them. An older run stays in the list; if this version cannot
               load it, the row says why. Export writes a file you can keep
               outside this browser; Import reads that file back into the list.
+              Compatibility promise: saves from the 25&nbsp;m&sup2; era migrate
+              while their world-generator stamp still matches. Scale and
+              generator changes never rewrite terrain; incompatible rows remain
+              exportable.
             </p>
             <label
               >Save name<input
@@ -1718,7 +1703,10 @@
                     <p class="title-view-note">
                       Saves live in this browser until you export them. An
                       exported file can be imported here on this machine or
-                      another.
+                      another. Saves from the 25&nbsp;m&sup2; era migrate while
+                      their world-generator stamp still matches. Scale and
+                      generator changes never rewrite terrain; incompatible
+                      saves remain exportable.
                     </p>
                     <div class="title-save-file-actions">
                       <button id="title-import-saves" type="button">

@@ -362,7 +362,7 @@ fn skills_are_finite_atomic_and_isolated_from_research() {
     core.purchase_skill(1).unwrap();
     core.set_creative(true);
     assert_eq!(core.skills.purchased, BTreeSet::from([1]));
-    assert_eq!(core.skills.granted, BTreeSet::from([2, 3]));
+    assert_eq!(core.skills.granted, BTreeSet::from([2, 3, 4]));
     core.set_creative(false);
     core.observe_skill_event(SkillEvent::PoweredCraft);
     core.observe_skill_event(SkillEvent::ContractStage {

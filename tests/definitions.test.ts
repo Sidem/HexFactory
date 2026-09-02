@@ -219,6 +219,13 @@ describe("data-defined content", () => {
         scenario.contract.stages.map((stage) => stage.key),
       ),
     );
+    expect(
+      technologies.skills.find(({ key }) => key === "open-water-swimming"),
+    ).toMatchObject({
+      branch: "mobility",
+      prerequisites: [3],
+      effect: { kind: "swimming", amount: 1 },
+    });
     for (const technology of technologies.technologies) {
       if (technology.grant?.kind === "contract_stage")
         expect(commissionKeys.has(technology.grant.key)).toBe(true);

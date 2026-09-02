@@ -1,5 +1,5 @@
 {
-  "version": 16,
+  "version": 17,
   "technologies": [
     {
       "id": 1,
@@ -407,6 +407,19 @@
         "kind": "survey_range",
         "amount": 1
       }
+    },
+    {
+      "id": 4,
+      "key": "open-water-swimming",
+      "name": "Open-water Swimming",
+      "description": "Cross deep water under your own power. Swimming is slower than a ford and does not make water buildable; bridges and transport still need proper sites.",
+      "branch": "mobility",
+      "prerequisites": [3],
+      "cost": 1,
+      "effect": {
+        "kind": "swimming",
+        "amount": 1
+      }
     }
   ],
   "skill_milestones": [
@@ -439,6 +452,17 @@
       "points": 1,
       "event": {
         "kind": "powered_craft"
+      }
+    },
+    {
+      "id": 4,
+      "key": "working-foundry",
+      "name": "A working foundry",
+      "description": "Finish the foundry module for the landing hub and prove the industrial line can sustain it.",
+      "points": 1,
+      "event": {
+        "kind": "contract_stage",
+        "key": "foundry"
       }
     }
   ]

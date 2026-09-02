@@ -516,7 +516,7 @@ fn natural_site(
 /// blob and keeps a scree field against its cliffs.
 fn site_covers(
     params: &WorldParams,
-    _seed: u32,
+    seed: u32,
     site: &Site,
     q: i32,
     r: i32,
@@ -524,7 +524,12 @@ fn site_covers(
     spine: &GroundSpine,
 ) -> Option<i32> {
     let distance = axial_distance(site.center, (q, r));
-    if distance > site.radius {
+    // Smooth noise moves the rim by one hex in either direction. Only the edge can change, so the
+    // patch stays connected around its centre instead of becoming per-cell confetti or returning
+    // to the mixed-material model the site lattice replaced.
+    let shape = value_noise(seed, q, r, SITE_SHAPE_CELL, SITE_SHAPE_OCTAVE);
+    let edge_jitter = (shape * 3 / (NOISE_MAX + 1)) - 1;
+    if distance > (site.radius + edge_jitter).max(1) {
         return None;
     }
     let rule = &params.site_rules[site.rule];

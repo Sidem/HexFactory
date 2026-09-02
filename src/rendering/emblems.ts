@@ -158,6 +158,8 @@ const BRANCHES: Record<string, string> = {
   construction: '<path d="M6 26 26 6M6 26h20M6 26V8m6 12h5"/>',
   surveying:
     '<circle cx="16" cy="12" r="5"/><path d="M16 17v7m-5 4h10M16 5V3M9 12H6m20 0h-3M4 28h24"/>',
+  mobility:
+    '<path d="M3 20c3-4 6 4 10 0s7 4 11 0 5 0 5 0M3 26c3-4 6 4 10 0s7 4 11 0 5 0 5 0M10 13l6-5 7 4"/>',
 };
 
 export const BUILDING_EMBLEM_KEYS = Object.keys(BUILDINGS);

@@ -270,6 +270,9 @@ export class CanvasFactoryRenderer implements FactoryRenderer {
     this.markDirty();
   }
 
+  /** The compatibility canvas has no horizon layer; the production Three.js renderer owns it. */
+  setLandscapeLod(): void {}
+
   setBoundaryPreview(preview: BoundaryPreview | null): void {
     this.boundaryPreview = preview;
     this.markDirty();

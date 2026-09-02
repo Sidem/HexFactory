@@ -7,6 +7,7 @@ import type {
   ChunkSnapshot,
   EntitySnapshot,
   FactorySnapshot,
+  LandscapeLod,
   GroundPreview,
   LinePreviewCell,
   PlacementPreview,
@@ -76,6 +77,7 @@ export interface FactoryRenderer {
   /** True while the view is still easing toward a requested orbit, so the scene moves on its own. */
   readonly cameraSettling: boolean;
   setSnapshot(snapshot: FactorySnapshot): void;
+  setLandscapeLod(lod: LandscapeLod): void;
   setBoundaryPreview(preview: BoundaryPreview | null): void;
   /**
    * The lattice vertices a selection is pinned to. Separate from the preview because the first

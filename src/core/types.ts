@@ -246,7 +246,7 @@ export interface TechnologyDefinition {
 }
 
 export type SkillEffect = {
-  kind: "carry_slots" | "build_range" | "survey_range";
+  kind: "carry_slots" | "build_range" | "survey_range" | "swimming";
   amount: number;
 };
 export interface SkillDefinition {
@@ -254,7 +254,7 @@ export interface SkillDefinition {
   key: string;
   name: string;
   description: string;
-  branch: "carrying" | "construction" | "surveying";
+  branch: "carrying" | "construction" | "surveying" | "mobility";
   prerequisites: number[];
   cost: number;
   effect: SkillEffect;
@@ -420,6 +420,21 @@ export interface WorldPreview {
   needs: WorldPreviewNeed[];
   /** A verified way out of a refused world, or null when there is none and when none was needed. */
   repair: WorldPreviewRepair | null;
+}
+
+/** Native-generated, non-interactive terrain used only to carry the landform to the horizon. */
+export interface LandscapeLod {
+  step: number;
+  anchor_q: number;
+  anchor_r: number;
+  cells: {
+    q: number;
+    r: number;
+    x: number;
+    y: number;
+    height: number;
+    terrain: Terrain;
+  }[];
 }
 
 /**
@@ -1049,6 +1064,7 @@ export interface NativeFactory {
     height: number,
     hexesAcross: number,
   ): string;
+  landscape_lod_json(): string;
   apply_commands_json(commands: string): void;
   advance_json(commands: string, count: number, playerSteps: number): void;
   placement_preview_json(

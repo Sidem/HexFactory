@@ -19,6 +19,7 @@ import type {
   BuildingDefinition,
   Definitions,
   FactorySnapshot,
+  LandscapeLod,
   GroundPreview,
   LinePreviewCell,
   PlacementPreview,
@@ -44,6 +45,7 @@ import {
 import { BoundaryMeshes } from "./boundaryMeshes";
 import { GroundMeshes } from "./groundMeshes";
 import { WorldInstanceLayer } from "./worldInstances";
+import { DistantTerrain } from "./distantTerrain";
 
 /** Clear colour, background and distance haze — one colour, so distance dissolves into nothing. */
 const SKY = "#142129";
@@ -59,6 +61,7 @@ export class ThreeFactoryRenderer implements FactoryRenderer {
   private readonly overlays: SpatialOverlays;
   private readonly boundaries: BoundaryMeshes;
   private readonly ground = new GroundMeshes();
+  private readonly distantTerrain = new DistantTerrain();
   private readonly surfaces: Definitions["surfaces"];
   private readonly keyLight = new DirectionalLight("#ffe4b0", 2.6);
   private readonly fillLight = new HemisphereLight("#c9eef0", "#273b32", 1.6);
@@ -133,6 +136,7 @@ export class ThreeFactoryRenderer implements FactoryRenderer {
     this.surfaces = definitions.surfaces;
     this.scene.add(this.boundaries.group);
     this.scene.add(this.ground.group);
+    this.scene.add(this.distantTerrain.group);
     this.scene.add(
       this.fillLight,
       this.ambient,
@@ -209,6 +213,11 @@ export class ThreeFactoryRenderer implements FactoryRenderer {
       this.compiled = true;
     }
     this.prepUs = smooth(this.prepUs, (performance.now() - started) * 1000);
+    this.markDirty();
+  }
+
+  setLandscapeLod(lod: LandscapeLod): void {
+    this.distantTerrain.set(lod);
     this.markDirty();
   }
 
@@ -492,6 +501,7 @@ export class ThreeFactoryRenderer implements FactoryRenderer {
     this.overlays.dispose();
     this.boundaries.dispose();
     this.ground.dispose();
+    this.distantTerrain.dispose();
     for (const material of this.materials.materials) material.dispose();
     this.renderer.dispose();
   }

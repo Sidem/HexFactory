@@ -44,6 +44,8 @@ const GLYPHS: Record<string, string> = {
     '<path d="m5 27 9-22 4 22M9 18h11M10 8h10M16 5l11 6-11 6M3 28h20"/><circle cx="14" cy="5" r="2"/><path d="M25 21v8m-4-4h8"/>',
   "field-survey":
     '<circle cx="13" cy="10" r="3"/><path d="M13 13v3M7 16h12M9 16 5 29m8-13v13m4-13 4 13M3 29h22"/><path d="M21 5a10 10 0 0 1 5 6M20 10a5 5 0 0 1 2 3"/>',
+  "open-water-swimming":
+    '<path d="M3 22c3-4 6 4 10 0s7 4 11 0 5 0 5 0M3 27c3-4 6 4 10 0s7 4 11 0 5 0 5 0"/><circle cx="11" cy="10" r="3"/><path d="m14 14 6 3 5-5M7 18l7-4 4-7"/>',
   "fired-masonry":
     '<path d="M4 26V12l4-4h4l4 4v14H4Zm12 0V10l4-5h4l4 5v16H16ZM3 26h26M8 16h4m-4 5h4m12-9h4m-4 5h4"/>',
 };
@@ -73,6 +75,7 @@ export function researchBranchColor(branch: string): string {
         carrying: "#c6adeb",
         construction: "#e0b48a",
         surveying: "#8fd4ff",
+        mobility: "#79d7d0",
       } as Record<string, string>
     )[branch] ?? "#a9c4c0"
   );

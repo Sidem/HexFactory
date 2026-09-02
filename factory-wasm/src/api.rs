@@ -164,6 +164,12 @@ impl Factory {
         serde_json::to_string(&sites).map_err(|error| js_error(error.to_string()))
     }
 
+    /// Coarse generated height around the running player for the horizon mesh. Unlike surveying,
+    /// this is a read-only view: asking for it changes neither generated chunks nor the checksum.
+    pub fn landscape_lod_json(&self) -> Result<String, JsValue> {
+        serde_json::to_string(&self.landscape_lod()).map_err(|error| js_error(error.to_string()))
+    }
+
     pub fn apply_commands_json(&mut self, commands_json: &str) -> Result<(), JsValue> {
         self.core.apply_commands(commands_json).map_err(js_error)
     }

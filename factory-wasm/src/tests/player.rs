@@ -184,6 +184,37 @@ fn movement_intent_aim_and_cadence_are_native() {
     assert_eq!((walk_mm_s + 500) / 1_000, 15);
 }
 
+#[test]
+fn swimming_is_a_learned_deep_water_route_and_not_a_building_rule() {
+    let mut core = field_game("new-game");
+    let deep = (-512..=512)
+        .flat_map(|q| (-512..=512).map(move |r| (q, r)))
+        .find(|&(q, r)| {
+            core.terrain_at(q, r) == Terrain::DeepWater
+                && !core.runtime.occupied.contains_key(&(q, r))
+        })
+        .expect("the physical world has open deep water");
+
+    assert!(core.terrain_blocks_movement(deep.0, deep.1));
+    assert!(!core.walkable_hex(deep.0, deep.1));
+
+    // Mobility follows surveying in the authored skill ladder and spends a real journey point.
+    core.skills.purchased.insert(3);
+    core.skills.points = 1;
+    core.purchase_skill(4).unwrap();
+    assert!(core.can_swim());
+    assert!(core.walkable_hex(deep.0, deep.1));
+    assert!(
+        core.terrain_blocks_movement(deep.0, deep.1),
+        "learning to swim must not make deep water a construction surface"
+    );
+
+    set_player_hex(&mut core, deep.0, deep.1);
+    core.set_move_intent(1000, 0).unwrap();
+    assert_eq!(core.player_step(), (PLAYER_SPEED / SWIM_SPEED_DIVISOR, 0));
+    assert_eq!(core.walk_step_cost(deep, deep.0, deep.1), WALK_SWIM_COST);
+}
+
 /// The whole gesture, end to end: a click names a hex, native finds the way, and the player
 /// walks it without another command being sent.
 #[test]

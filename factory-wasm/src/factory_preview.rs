@@ -3,7 +3,77 @@
 
 use super::*;
 
+pub(crate) const LANDSCAPE_LOD_STEP: i32 = 8;
+pub(crate) const LANDSCAPE_LOD_RADIUS: i32 = 16;
+pub(crate) const LANDSCAPE_LOD_INNER_RADIUS: i32 = 3;
+
+#[derive(Serialize)]
+pub(crate) struct LandscapeLod {
+    pub(crate) step: i32,
+    pub(crate) anchor_q: i32,
+    pub(crate) anchor_r: i32,
+    pub(crate) cells: Vec<LandscapeLodCell>,
+}
+
+#[derive(Serialize)]
+pub(crate) struct LandscapeLodCell {
+    pub(crate) q: i32,
+    pub(crate) r: i32,
+    x: i32,
+    y: i32,
+    height: i32,
+    terrain: Terrain,
+}
+
 impl Factory {
+    /// A coarse, presentation-only landform around the running player. It reads the uncached
+    /// generated source and never inserts a chunk, field, or hydrology departure into the world.
+    /// Seven samples per vertex are averaged with a small peak bias: broad mountains survive the
+    /// reduction while one-cell noise cannot turn into a false distant spire.
+    pub(crate) fn landscape_lod(&self) -> LandscapeLod {
+        let here = world_to_axial(self.core.player.x, self.core.player.y);
+        let anchor_q = floor_div(here.0, LANDSCAPE_LOD_STEP) * LANDSCAPE_LOD_STEP;
+        let anchor_r = floor_div(here.1, LANDSCAPE_LOD_STEP) * LANDSCAPE_LOD_STEP;
+        let mut cells = Vec::new();
+        for coarse_r in -LANDSCAPE_LOD_RADIUS..=LANDSCAPE_LOD_RADIUS {
+            for coarse_q in -LANDSCAPE_LOD_RADIUS..=LANDSCAPE_LOD_RADIUS {
+                let distance = axial_distance((0, 0), (coarse_q, coarse_r));
+                if !(LANDSCAPE_LOD_INNER_RADIUS..=LANDSCAPE_LOD_RADIUS).contains(&distance) {
+                    continue;
+                }
+                let q = anchor_q + coarse_q * LANDSCAPE_LOD_STEP;
+                let r = anchor_r + coarse_r * LANDSCAPE_LOD_STEP;
+                let centre = self.core.generated_ground_at(q, r);
+                let mut sum = centre.bed.get() + centre.hydrology.depth_quanta;
+                let mut peak = sum;
+                for (dq, dr) in DIRECTIONS {
+                    let sample = self.core.generated_ground_at(
+                        q + dq * (LANDSCAPE_LOD_STEP / 2),
+                        r + dr * (LANDSCAPE_LOD_STEP / 2),
+                    );
+                    let height = sample.bed.get() + sample.hydrology.depth_quanta;
+                    sum += height;
+                    peak = peak.max(height);
+                }
+                let (x, y) = axial_world(q, r);
+                cells.push(LandscapeLodCell {
+                    q,
+                    r,
+                    x,
+                    y,
+                    height: (sum + peak * 2) / 9,
+                    terrain: centre.presentation,
+                });
+            }
+        }
+        LandscapeLod {
+            step: LANDSCAPE_LOD_STEP,
+            anchor_q,
+            anchor_r,
+            cells,
+        }
+    }
+
     /// The parameters, the clamped preview size, and the world units one preview pixel covers.
     ///
     /// Shared by both preview exports so the terrain raster and the site overlay are pictures of

@@ -115,7 +115,7 @@ const SAVE_PREFIX: &str = "HXF1\n";
 ///
 /// Version 41 carries sparse live-erosion deltas and outside-bank stress. Both default to nothing,
 /// so a version-40 factory verifies before adopting the new catalogue resistance data.
-const SAVE_VERSION: u16 = 41;
+const SAVE_VERSION: u16 = 42;
 /// Bumped to 6 for World Parameters. `WorldParams` is now part of a run's identity — it is in the
 /// save envelope and in the checksum — so a version-5 envelope carries no answer to the question
 /// "which world is this" and is rejected rather than assumed to be the default.
@@ -135,7 +135,7 @@ const SAVE_VERSION: u16 = 41;
 /// you bridge or ford rather than a stripe of blue laid on a plain. Both are the bed itself, so a
 /// version-11 envelope names a landscape this build cannot reproduce and is rejected rather than
 /// reinterpreted — export the file to keep a copy.
-const WORLD_GENERATOR_VERSION: u16 = 12;
+const WORLD_GENERATOR_VERSION: u16 = 13;
 const MAX_COMMANDS_PER_BATCH: usize = 8;
 /// A drag is one bounded command, so the run it expands into has to be bounded too. This is the
 /// native cap on cells a single `place_line` or `erase_line` may touch.
@@ -297,6 +297,10 @@ const WALK_STEP_COST: u32 = 100;
 /// the goal rather than the shortest. A river is a real obstacle to a route because it is a real
 /// obstacle to the player, and a bridge is worth building because the search will use it.
 const WALK_SHALLOW_COST: u32 = 5 * WALK_STEP_COST;
+/// A swimmer crosses deep water at one eighth of dry-ground speed. The route pays the exact same
+/// factor, so an autonomous walk only swims where that is genuinely the fastest available way.
+const WALK_SWIM_COST: u32 = 8 * WALK_STEP_COST;
+const SWIM_SPEED_DIVISOR: i32 = 8;
 /// Walking speed on untreated ground, in percent — the number every surface is measured against.
 const UNTREATED_MOVEMENT: u32 = 100;
 /// The fastest a surface may ever declare itself, in percent.

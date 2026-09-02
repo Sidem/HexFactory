@@ -49,7 +49,9 @@ fn capacity_workload_is_deterministic_and_actually_produces() {
     // 2_303_878_214 → 1_013_018_297 when the same pass moved `WORLD_GENERATOR_VERSION` to 12,
     // which `checksum_for_world` hashes first. Nothing in the workload moved with it; this is
     // the stamp, not the state.
-    assert_eq!(first.checksum(), 1_013_018_297);
+    // 1_013_018_297 → 1_628_779_640 when noise-shaped site rims moved the stamp to 13. The
+    // measurement scenario has generation disabled, so again only the version input changed.
+    assert_eq!(first.checksum(), 1_628_779_640);
     assert_eq!(first.entities.len(), spec.entities() as usize);
     // Every line must be running end to end, or the tiers would measure an idle blueprint.
     // Four per line rather than fourteen: the line is now extraction-bound, because a

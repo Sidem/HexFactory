@@ -34,7 +34,7 @@ import shippedTechnologies from "../src/data/technologies.json";
 // Native owns `WORLD_GENERATOR_VERSION`, so there is no catalogue to read it from here. The ladder
 // only consults the world stamp for pre-v32 upgrades, so any value the envelope and the build
 // agree on exercises the rung this test is about.
-const shippedWorldVersion = 12;
+const shippedWorldVersion = 13;
 
 const continental = {
   elevation_coarse_cell: 24,
@@ -369,9 +369,9 @@ describe("compatibility", () => {
   });
 
   // The world stamp is the gate a terrain change closes, and it closes on files the format ladder
-  // would happily carry. Every save written before world generator 12 stands on ground this build
-  // no longer lays down — the substrate rule and the river incision both moved — so the host must
-  // refuse it here rather than let native reproduce a landscape it cannot.
+  // would happily carry. Every save written before the current generator stands on resource shapes
+  // this build no longer lays down, so the host must refuse it here rather than let native
+  // reproduce a landscape it cannot.
   it("refuses a save written against an earlier world, however current its format", () => {
     const shipped: CurrentBuild = {
       ...build,

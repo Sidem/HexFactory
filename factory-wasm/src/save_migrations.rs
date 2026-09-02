@@ -266,6 +266,20 @@ pub(super) fn migrate<'a>(json: &'a str, target_version: u16) -> Result<Cow<'a, 
         version = 41;
     }
 
+    // Version 42 adds one authored player skill and its funding milestone. Existing skill state is
+    // already keyed by stable IDs and needs no rewrite; only the catalogue stamp moves. The world
+    // generator also moved for noise-shaped resource edges, so an old world reaches the explicit
+    // generator refusal after this adjacent format step and keeps its export path.
+    if version == 41 && target_version >= 42 {
+        if let Some(object) = value.as_object_mut() {
+            object.insert("save_version".into(), Value::from(42));
+            if object.get("technology_version") == Some(&Value::from(16)) {
+                object.insert("technology_version".into(), Value::from(17));
+            }
+        }
+        version = 42;
+    }
+
     if version == target_version {
         return Ok(Cow::Owned(serde_json::to_string(&value).map_err(
             |error| format!("migrated save could not be written: {error}"),

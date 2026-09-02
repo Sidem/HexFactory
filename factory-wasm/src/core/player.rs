@@ -101,7 +101,7 @@ impl Core {
     /// chunk — deliberately. `generated_chunks` is a checksum input, so a search that surveyed the
     /// ground it considered would make *thinking about* a route change the run's checksum.
     pub(crate) fn walkable_hex(&self, q: i32, r: i32) -> bool {
-        if self.terrain_blocks_movement(q, r) {
+        if self.player_terrain_blocks_movement(q, r) {
             return false;
         }
         !self
@@ -129,7 +129,9 @@ impl Core {
     /// The surface does not modify the ford. Shallows are a 5 m/s crawl in `player_step` regardless,
     /// and pretending a decked river bank crosses faster would be the search inventing a preference.
     pub(crate) fn walk_step_cost(&self, from: (i32, i32), q: i32, r: i32) -> u32 {
-        let base = if self.shallow_water_at(q, r) {
+        let base = if self.deep_water_at(q, r) {
+            WALK_SWIM_COST
+        } else if self.shallow_water_at(q, r) {
             WALK_SHALLOW_COST
         } else {
             WALK_STEP_COST * UNTREATED_MOVEMENT / self.movement_factor_at(q, r)
@@ -348,7 +350,13 @@ impl Core {
         let (q, r) = world_to_axial(self.player.x, self.player.y);
         let mut speed =
             PLAYER_SPEED * self.movement_factor_at(q, r) as i32 / UNTREATED_MOVEMENT as i32;
-        if self.in_or_entering_shallows() {
+        if self.can_swim() && self.in_or_entering_deep_water() {
+            speed = PLAYER_SPEED / SWIM_SPEED_DIVISOR;
+            let diagonal = intent_x != 0 && intent_y != 0;
+            let magnitude = if diagonal { 707 } else { 1000 };
+            intent_x = intent_x.signum() * magnitude;
+            intent_y = intent_y.signum() * magnitude;
+        } else if self.in_or_entering_shallows() {
             speed = PLAYER_SPEED / 5;
             let diagonal = intent_x != 0 && intent_y != 0;
             let magnitude = if diagonal { 707 } else { 1000 };
@@ -385,9 +393,40 @@ impl Core {
         depth > 0 && depth < scale::WADE_LIMIT_QUANTA
     }
 
+    /// Deep water is a depth, not a colour. The legacy band path exists only for the pinned old
+    /// fixture; production reads the same native water predicate as pumps and earthworks.
+    pub(crate) fn deep_water_at(&self, q: i32, r: i32) -> bool {
+        if !self.ground_is_physical() {
+            return self.terrain_at(q, r) == Terrain::DeepWater;
+        }
+        self.water_depth_at(q, r) >= scale::WADE_LIMIT_QUANTA
+    }
+
+    pub(crate) fn can_swim(&self) -> bool {
+        self.skills.bonuses(&self.technologies).can_swim
+    }
+
+    /// Only the player movement rule is relaxed. Deep water remains blocking terrain for every
+    /// construction, machine, and transport predicate.
+    pub(crate) fn player_terrain_blocks_movement(&self, q: i32, r: i32) -> bool {
+        self.terrain_blocks_movement(q, r) && !(self.can_swim() && self.deep_water_at(q, r))
+    }
+
+    pub(crate) fn in_or_entering_deep_water(&self) -> bool {
+        let dx = i32::from(self.player.move_x) * PLAYER_SPEED / 1000;
+        let dy = i32::from(self.player.move_y) * PLAYER_SPEED / 1000;
+        let deep_at = |x: i32, y: i32| {
+            let (q, r) = world_to_axial(x, y);
+            self.deep_water_at(q, r)
+        };
+        deep_at(self.player.x, self.player.y)
+            || deep_at(self.player.x + dx, self.player.y)
+            || deep_at(self.player.x, self.player.y + dy)
+    }
+
     pub(crate) fn player_blocked(&self, x: i32, y: i32) -> bool {
         let (q, r) = world_to_axial(x, y);
-        let feature_collision = self.terrain_blocks_movement(q, r);
+        let feature_collision = self.player_terrain_blocks_movement(q, r);
         feature_collision
             // A retaining face stops the body exactly where it stops the route. The step is measured
             // between the hex being left and the hex being entered, so standing still on a terrace

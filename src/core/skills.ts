@@ -17,6 +17,7 @@ export function validateSkills(data: Partial<Technologies>): void {
   let carry = 0;
   let reach = 0;
   let survey = 0;
+  let swimming = 0;
   for (const skill of data.skills) {
     if (
       !skill ||
@@ -26,15 +27,18 @@ export function validateSkills(data: Partial<Technologies>): void {
       keys.has(skill.key) ||
       !skill.name?.trim() ||
       !skill.description?.trim() ||
-      !["carrying", "construction", "surveying"].includes(skill.branch) ||
+      !["carrying", "construction", "surveying", "mobility"].includes(
+        skill.branch,
+      ) ||
       !positive(skill.cost, 100) ||
       !Array.isArray(skill.prerequisites) ||
       new Set(skill.prerequisites).size !== skill.prerequisites.length ||
       !skill.effect ||
-      !["carry_slots", "build_range", "survey_range"].includes(
+      !["carry_slots", "build_range", "survey_range", "swimming"].includes(
         skill.effect.kind,
       ) ||
       !positive(skill.effect.amount, 32) ||
+      (skill.effect.kind === "swimming" && skill.effect.amount !== 1) ||
       (skill.legacy_technology_id !== undefined &&
         (!positive(skill.legacy_technology_id, 65535) ||
           legacy.has(skill.legacy_technology_id) ||
@@ -47,11 +51,13 @@ export function validateSkills(data: Partial<Technologies>): void {
       legacy.add(skill.legacy_technology_id);
     if (skill.effect.kind === "carry_slots") carry += skill.effect.amount;
     else if (skill.effect.kind === "build_range") reach += skill.effect.amount;
-    else survey += skill.effect.amount;
+    else if (skill.effect.kind === "survey_range")
+      survey += skill.effect.amount;
+    else swimming += skill.effect.amount;
   }
   // The survey bound is the tight one: a ring is `3n(n+1)+1` chunks, so a ladder of them costs the
   // generator far more world than the other two effects ever ask for. Native holds the same three.
-  if (carry > 120 || reach > 32 || survey > 2)
+  if (carry > 120 || reach > 32 || survey > 2 || swimming > 1)
     throw new TypeError("Skill effects exceed player bounds");
   for (const skill of data.skills)
     if (skill.prerequisites.some((id) => !ids.has(id)))

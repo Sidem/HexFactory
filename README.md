@@ -105,14 +105,18 @@ the first hex you picked, the lowest in the selection, or the highest. `[` and `
 visible from above instead of hiding under the ground they cut, and an edit the game refuses keeps
 its whole shape on screen with the blocking hex marked in red and named in the tray.
 
-**The ground got twenty-five times bigger (on the live build, not yet numbered).** One hexagon is now
-about 25 m² instead of 1 m², and the height under it is real: valleys are carved by drainage before
-rivers are placed, so a cliff is a cliff rather than a knee-high step, and a biome takes minutes to
-cross. Machines were redrawn around the new scale, and a belt is now a 5.37 m conveyor an item takes
-real time to ride rather than a one-tick hop. **Saves from before this change cannot be opened.** A
-1 m² factory has no honest reading at 25 m² — its buildings would overlap and its ground has no
-drainage history — so the game refuses those files by name and offers to export them instead of
-pretending to resume them. Saves made since the change carry forward.
+**Flowing Water (v0.47.0)** makes one hexagon about 25 m² instead of 1 m² and gives the ground a
+physical height. Drainage carves valleys before springs, rivers and coastlines are placed; earthworks
+disturb water in bounded native regions, and slow geomorphic epochs let a surveyed river answer a
+dam or channel without turning water into a permanent world tick. A coarse native horizon now keeps
+distant ranges visible without surveying them. Resource sites retain pure cores but use smooth
+noise-shaped rims instead of perfect circles. Learn **Open-water Swimming** after Field Survey to
+cross deep water at a slower pace; it changes player movement only, never construction legality.
+
+**Saves from before the scale or current generator change cannot be opened.** A remapped factory
+would not be the factory that was saved, so incompatible rows say why and remain exportable. The
+Saved games screen states the standing promise: 25 m²-era format migrations are supported while the
+world-generator stamp matches; generator and scale changes never rewrite terrain.
 
 ## Controls
 
@@ -153,7 +157,8 @@ pretending to resume them. Saves made since the change carry forward.
   `Escape` returns to inspection and clears the open panels.
 - Hold `Shift` while walking to run. One hexagon is about 25 m², and you cross one in roughly a
   third of a second at a walk — call it 15 m/s, and 25 m/s at a run. Shallow water is a 5 m/s ford
-  and can carry bridge-supported transport; deep water still blocks.
+  and can carry bridge-supported transport. Deep water blocks until you learn Open-water Swimming,
+  then remains slower and unbuildable.
 - `C` opens creative mode, which can also be switched on before a run starts from the title screen.
   It researches the whole tree, drops construction costs and refunds, hands you any material in the
   catalogue, and lets you widen the pack up to 240 slots. Nothing else changes: recipes, power, fuel,

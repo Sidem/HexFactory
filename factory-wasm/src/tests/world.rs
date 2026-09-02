@@ -1,4 +1,7 @@
 use super::*;
+use crate::factory_preview::{
+    LANDSCAPE_LOD_INNER_RADIUS, LANDSCAPE_LOD_RADIUS, LANDSCAPE_LOD_STEP,
+};
 
 #[test]
 fn native_and_host_agree_on_directions_passability_heights_and_hexes() {
@@ -599,6 +602,29 @@ fn materials_are_generated_where_geography_says_and_harvested_within_a_radius() 
         sand >= clay,
         "sand should be the common field on shore, saw {sand} sand vs {clay} clay on {shore} \
              shore hexes"
+    );
+}
+
+#[test]
+fn distant_landscape_is_coarse_native_truth_without_surveying() {
+    let factory = test_factory("new-game");
+    let chunks = factory.core.generated_chunks.clone();
+    let checksum = factory.core.checksum_for_world(WORLD_GENERATOR_VERSION);
+    let lod = factory.landscape_lod();
+
+    assert_eq!(lod.step, LANDSCAPE_LOD_STEP);
+    assert!(lod.cells.len() > 500, "the horizon ring is not a landform");
+    assert!(lod.cells.iter().all(|cell| {
+        let dq = (cell.q - lod.anchor_q) / lod.step;
+        let dr = (cell.r - lod.anchor_r) / lod.step;
+        let distance = axial_distance((0, 0), (dq, dr));
+        (LANDSCAPE_LOD_INNER_RADIUS..=LANDSCAPE_LOD_RADIUS).contains(&distance)
+    }));
+    assert_eq!(factory.core.generated_chunks, chunks);
+    assert_eq!(
+        factory.core.checksum_for_world(WORLD_GENERATOR_VERSION),
+        checksum,
+        "looking at the horizon must not survey or change the run"
     );
 }
 

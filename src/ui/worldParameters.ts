@@ -190,7 +190,7 @@ export const WORLD_PARAMETER_GROUPS: readonly WorldParameterGroup[] = [
       {
         key: "deep_water_moisture",
         label: "Deep water cut",
-        hint: "Water wetter than this is deep water, which cannot be forded or built on. Shallow water can be walked.",
+        hint: "Water wetter than this is deep water, which needs the Open-water Swimming skill and cannot be built on. Shallow water can be walked.",
         min: -1,
         max: NOISE_MAX,
         step: 128,

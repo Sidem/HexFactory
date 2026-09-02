@@ -102,6 +102,10 @@ const RIVER_OCTAVE: u32 = 0xF10DE;
 /// The octave the richness channel is sampled on. It gates a site's *centre* now rather than every
 /// hex, which is what leaves the world with rich and poor country without deciding materials.
 const RICHNESS_OCTAVE: u32 = 0x0E55;
+/// A smooth, site-independent edge mask. It perturbs only the outside ring of a deposit, keeping
+/// one material per site while stopping every unconstrained field from reading as a perfect disc.
+const SITE_SHAPE_OCTAVE: u32 = 0x5A9E;
+const SITE_SHAPE_CELL: i32 = 3;
 /// How far from an ocean-gated centre the coarse octave is probed for open sea.
 const OCEAN_PROBE_RADIUS: i32 = 2;
 /// How far a shore-gated centre may stand from the shore band and still count as a beach site.

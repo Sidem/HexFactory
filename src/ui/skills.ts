@@ -47,6 +47,12 @@ const BRANCHES: Record<
     capacity: "survey",
     unit: ["ring", "rings"],
   },
+  swimming: {
+    label: "04 / Mobility",
+    gain: ["deep-water route", "deep-water routes"],
+    capacity: "deep-water access",
+    unit: ["route", "routes"],
+  },
 };
 
 const count = (amount: number, [one, many]: [string, string]) =>
@@ -76,7 +82,7 @@ export function skillView(skill: SkillDefinition, snapshot: FactorySnapshot) {
   };
 }
 
-/** Three legible upgrade branches and the full, finite journey that pays for them. */
+/** Legible upgrade branches and the full, finite journey that pays for them. */
 export class SkillsView {
   private snapshot: FactorySnapshot | null = null;
   constructor(

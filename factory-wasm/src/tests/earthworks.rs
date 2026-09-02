@@ -1153,10 +1153,11 @@ fn save_40_adopts_empty_geomorphology_without_changing_its_checksum() {
         .find(|scenario| scenario.key == "new-game")
         .unwrap();
     let core = Core::new(&definitions, &technologies, scenario, None, None).unwrap();
-    let save_41 = core.save_string().unwrap();
-    let save_40 = save_41
-        .replacen("\"save_version\":41", "\"save_version\":40", 1)
+    let save_42 = core.save_string().unwrap();
+    let save_40 = save_42
+        .replacen("\"save_version\":42", "\"save_version\":40", 1)
         .replacen("\"definition_version\":30", "\"definition_version\":29", 1)
+        .replacen("\"technology_version\":17", "\"technology_version\":16", 1)
         .replacen(",\"bank_stress\":[]", "", 1);
     let restored = Core::from_save(&definitions, &technologies, &scenarios, &save_40).unwrap();
     assert!(restored.bank_stress.is_empty());

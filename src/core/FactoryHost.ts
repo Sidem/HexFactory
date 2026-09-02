@@ -20,6 +20,7 @@ import type {
   WorldPreview,
   GroundEdit,
   GroundPreview,
+  LandscapeLod,
 } from "./types";
 
 export type FactoryWorkerMethod =
@@ -34,7 +35,8 @@ export type FactoryWorkerMethod =
   | "save"
   | "load"
   | "worldParams"
-  | "worldPreview";
+  | "worldPreview"
+  | "landscapeLod";
 
 /**
  * How a caller names the world a new game is generated with: a preset key, a complete parameter
@@ -356,6 +358,11 @@ export class FactoryHost {
       height,
       hexesAcross,
     });
+  }
+
+  /** Read-only coarse landform around the running player; it surveys and saves nothing. */
+  landscapeLod(): Promise<LandscapeLod> {
+    return this.transport.request<LandscapeLod>("landscapeLod");
   }
 
   /** The preset whose parameters these are, if any. A hand-tuned set matches none. */
