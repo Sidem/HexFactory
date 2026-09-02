@@ -36,10 +36,9 @@ import { createWorldMaterials, type WorldMaterials } from "./materials";
 import { SpatialOverlays, type SpatialOverlayState } from "./overlays";
 import { QUALITY_SETTINGS } from "./quality";
 import {
-  buildTerrainMeshes,
   heightAtWorld,
   pickTerrainCell,
-  type TerrainBuild,
+  TerrainMeshCache,
   type TerrainPick,
 } from "./terrainMeshes";
 import { BoundaryMeshes } from "./boundaryMeshes";
@@ -79,7 +78,7 @@ export class ThreeFactoryRenderer implements FactoryRenderer {
   private buildReach: ReachRadii | null = null;
   private gathering = false;
   private dragPath: LinePreviewCell[] = [];
-  private terrain: TerrainBuild | null = null;
+  private terrain: TerrainMeshCache | null = null;
   private lastChunks: FactorySnapshot["chunks"] | null = null;
   private lastTerrain: FactorySnapshot["terrain"] | null = null;
   private lastGround: FactorySnapshot["ground"] | null = null;
@@ -176,15 +175,15 @@ export class ThreeFactoryRenderer implements FactoryRenderer {
   setSnapshot(snapshot: FactorySnapshot): void {
     const started = performance.now();
     this.snapshot = snapshot;
-    if (
+    const terrainChanged =
       snapshot.chunks !== this.lastChunks ||
       snapshot.terrain !== this.lastTerrain ||
       // Grading moves the walked surface, so a ground change rebuilds the landform for the same
       // reason a survey does: everything standing on it takes its height from here. Disturbed
       // water is the same overlay for the water surface.
       snapshot.ground !== this.lastGround ||
-      snapshot.water !== this.lastWater
-    ) {
+      snapshot.water !== this.lastWater;
+    if (terrainChanged) {
       this.lastChunks = snapshot.chunks;
       this.lastTerrain = snapshot.terrain;
       this.lastGround = snapshot.ground;
@@ -203,7 +202,7 @@ export class ThreeFactoryRenderer implements FactoryRenderer {
       this.terrain?.cellByKey ?? this.emptyTerrain,
     );
     this.overlaysDirty = true;
-    if (structureChanged || boundariesChanged)
+    if (terrainChanged || structureChanged || boundariesChanged)
       this.renderer.shadowMap.needsUpdate = true;
     if (!this.compiled) {
       this.renderer.compile(this.scene, this.camera.camera);
@@ -403,6 +402,8 @@ export class ThreeFactoryRenderer implements FactoryRenderer {
     this.syncLayout();
     const snapshot = this.snapshot;
     if (snapshot) {
+      if (this.terrain)
+        this.terrain.grid.visible = this.buildMode || this.gridToggled;
       const started = performance.now();
       this.worldInstances.update(this.now, this.motionReduced);
       if (this.overlaysDirty) {
@@ -505,17 +506,18 @@ export class ThreeFactoryRenderer implements FactoryRenderer {
   }
 
   private rebuildTerrain(snapshot: FactorySnapshot): void {
-    this.disposeTerrain();
-    this.terrain = buildTerrainMeshes(snapshot, this.materials, this.surfaces);
-    this.scene.add(this.terrain.group);
-    this.overlays.setTerrain(this.terrain.cells);
-    this.ground.setTerrain(this.terrain.cellByKey);
+    if (!this.terrain) {
+      this.terrain = new TerrainMeshCache(this.materials, this.surfaces);
+      this.scene.add(this.terrain.group);
+      this.ground.setTerrain(this.terrain.cellByKey);
+    }
+    this.terrain.update(snapshot);
   }
 
   private disposeTerrain(): void {
     if (!this.terrain) return;
     this.scene.remove(this.terrain.group);
-    for (const geometry of this.terrain.geometries) geometry.dispose();
+    this.terrain.dispose();
     this.terrain = null;
   }
 

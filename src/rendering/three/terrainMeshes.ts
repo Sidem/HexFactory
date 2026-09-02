@@ -22,6 +22,7 @@ import type {
   TerrainSnapshot,
   WorldPoint,
 } from "../../core/types";
+import { hexCorner } from "../hexDraw";
 import { WORLD_SCALE } from "../landmarks";
 import { CLIFF_THRESHOLD, HEIGHT_UNIT_HEIGHT } from "../sceneScale";
 import {
@@ -58,6 +59,8 @@ const TERRAIN_LOOKS = Object.keys(TERRAIN_STYLE) as readonly Terrain[];
 const TERRAIN_LOOK: ReadonlyMap<Terrain, number> = new Map(
   TERRAIN_LOOKS.map((terrain, index) => [terrain, index]),
 );
+/** Corner blending needs one neighbour; the frontier dissolve uses two rings. */
+const SAMPLE_HALO = 2;
 
 export interface TerrainCell {
   readonly q: number;
@@ -90,6 +93,13 @@ export interface TerrainBuild {
   readonly ceiling: number;
   /** The one object a pointer ray is cast against. */
   readonly surface: Group;
+}
+
+interface TerrainChunkBuild {
+  readonly surface: Group;
+  readonly extras: Group;
+  readonly grid: LineSegments;
+  readonly geometries: readonly BufferGeometry[];
 }
 
 /** A scene-space ray, as the camera hands one over. */
@@ -195,6 +205,295 @@ export function buildTerrainMeshes(
       WORLD_FLOOR,
     ),
   };
+}
+
+/**
+ * Incremental terrain presentation, partitioned by native generation chunk.
+ *
+ * The original Phase 8 heightfield was one mesh for every surveyed cell. That made slopes easy to
+ * join, but it also meant discovering 64 cells rebuilt every cell ever seen and left the result as
+ * one uncullable draw object. This cache keeps the exact same heightfield rules while giving each
+ * native chunk its own meshes. A two-cell halo supplies the neighbours used by corner blending;
+ * occupancy for the two-ring frontier fade is the whole surveyed world, so a chunk seam is not
+ * mistaken for unexplored ground. The `includes` predicate makes only the centre chunk emit
+ * triangles. Adding or changing one chunk therefore rebuilds at most its existing 3x3 neighbourhood,
+ * and Three.js can frustum-cull every other chunk's meshes.
+ */
+
+export class TerrainMeshCache implements TerrainBuild {
+  readonly group = new Group();
+  readonly surface = new Group();
+  readonly grid = new Group();
+  readonly cellByKey = new Map<string, TerrainCell>();
+  readonly cells: TerrainCell[] = [];
+  ceiling = WORLD_FLOOR;
+
+  private readonly chunks = new Map<string, TerrainChunkBuild>();
+  private readonly cellsByChunk = new Map<string, Map<string, TerrainCell>>();
+  private readonly tileByKey = new Map<string, TerrainSnapshot>();
+  private readonly cellIndexByKey = new Map<string, number>();
+  private groundByKey = new Map<string, FactorySnapshot["ground"][number]>();
+  private waterByKey = new Map<string, FactorySnapshot["water"][number]>();
+  private activeChunks = new Set<string>();
+  private chunkSize = 1;
+  private lastChunks: FactorySnapshot["chunks"] | null = null;
+  private lastTerrain: FactorySnapshot["terrain"] | null = null;
+  private lastGround: FactorySnapshot["ground"] | null = null;
+  private lastWater: FactorySnapshot["water"] | null = null;
+
+  constructor(
+    private readonly materials: WorldMaterials,
+    private readonly surfaces: readonly SurfaceDefinition[] = [],
+  ) {
+    this.group.name = "surveyed-terrain";
+    this.surface.name = "terrain-surface";
+    this.grid.name = "construction-grid";
+    this.grid.visible = false;
+    this.group.add(this.surface, this.grid);
+  }
+
+  /** Geometry currently retained by Three.js; exposed for the renderer's disposal contract. */
+  get geometries(): readonly BufferGeometry[] {
+    return [...this.chunks.values()].flatMap((chunk) => chunk.geometries);
+  }
+
+  /**
+   * Bring the cache to one native snapshot. Returns the number of chunk meshes rebuilt, which is
+   * useful to pin the bounded exploration cost without timing-sensitive tests.
+   */
+  update(snapshot: FactorySnapshot): number {
+    const nextSize = inferChunkSize(snapshot);
+    if (this.needsReset(snapshot, nextSize)) {
+      this.reset(snapshot, nextSize);
+      return this.chunks.size;
+    }
+
+    const dirty = new Set<string>();
+    const nextActive = new Set(
+      snapshot.chunks.map(({ chunk_q, chunk_r }) => chunkKey(chunk_q, chunk_r)),
+    );
+    for (const key of nextActive)
+      if (!this.activeChunks.has(key)) dirty.add(key);
+    this.activeChunks = nextActive;
+
+    if (snapshot.ground !== this.lastGround) {
+      const next = keyedCells(snapshot.ground);
+      addChangedKeys(this.groundByKey, next, dirty, this.chunkSize);
+      this.groundByKey = next;
+    }
+    if (snapshot.water !== this.lastWater) {
+      const next = keyedCells(snapshot.water);
+      addChangedKeys(this.waterByKey, next, dirty, this.chunkSize);
+      this.waterByKey = next;
+    }
+
+    if (snapshot.terrain !== this.lastTerrain) {
+      const start = this.lastTerrain?.length ?? 0;
+      for (const tile of snapshot.terrain.slice(start)) {
+        this.tileByKey.set(cellKey(tile.q, tile.r), tile);
+        dirty.add(ownerKey(tile.q, tile.r, this.chunkSize));
+      }
+    }
+
+    // Ground and water marks name their owner chunk above. Refresh every cell in a dirty owner;
+    // this is 64 cells in production and keeps removed sparse overrides correct as well.
+    for (const key of dirty) this.refreshChunkCells(key);
+    const rebuilt = this.rebuildAffected(dirty);
+    this.remember(snapshot);
+    return rebuilt;
+  }
+
+  dispose(): void {
+    for (const key of [...this.chunks.keys()]) this.disposeChunk(key);
+    this.cellByKey.clear();
+    this.cells.length = 0;
+    this.cellsByChunk.clear();
+    this.tileByKey.clear();
+    this.cellIndexByKey.clear();
+  }
+
+  private needsReset(snapshot: FactorySnapshot, nextSize: number): boolean {
+    if (!this.lastTerrain || nextSize !== this.chunkSize) return true;
+    if (this.lastChunks && snapshot.chunks.length < this.lastChunks.length)
+      return true;
+    if (snapshot.terrain === this.lastTerrain) return false;
+    if (snapshot.terrain.length <= this.lastTerrain.length) return true;
+    if (this.lastTerrain.length === 0) return false;
+    // applyTerrainPatch preserves the old object references and appends newly surveyed chunks.
+    // A load/reset replaces them, even when it happens to contain more cells than the old world.
+    return (
+      snapshot.terrain[0] !== this.lastTerrain[0] ||
+      snapshot.terrain[this.lastTerrain.length - 1] !==
+        this.lastTerrain[this.lastTerrain.length - 1]
+    );
+  }
+
+  private reset(snapshot: FactorySnapshot, chunkSize: number): void {
+    for (const key of [...this.chunks.keys()]) this.disposeChunk(key);
+    this.cellByKey.clear();
+    this.cells.length = 0;
+    this.cellsByChunk.clear();
+    this.tileByKey.clear();
+    this.cellIndexByKey.clear();
+    this.ceiling = WORLD_FLOOR;
+    this.chunkSize = chunkSize;
+    this.activeChunks = new Set(
+      snapshot.chunks.map(({ chunk_q, chunk_r }) => chunkKey(chunk_q, chunk_r)),
+    );
+    this.groundByKey = keyedCells(snapshot.ground);
+    this.waterByKey = keyedCells(snapshot.water);
+    for (const tile of snapshot.terrain)
+      this.tileByKey.set(cellKey(tile.q, tile.r), tile);
+    for (const key of this.activeChunks) this.refreshChunkCells(key);
+    for (const key of this.activeChunks) this.rebuildChunk(key);
+    this.remember(snapshot);
+  }
+
+  private remember(snapshot: FactorySnapshot): void {
+    this.lastChunks = snapshot.chunks;
+    this.lastTerrain = snapshot.terrain;
+    this.lastGround = snapshot.ground;
+    this.lastWater = snapshot.water;
+  }
+
+  private refreshChunkCells(key: string): void {
+    if (!this.activeChunks.has(key)) return;
+    const [chunkQ, chunkR] = parseChunkKey(key);
+    let bucket = this.cellsByChunk.get(key);
+    if (!bucket) {
+      bucket = new Map();
+      this.cellsByChunk.set(key, bucket);
+    }
+    const q0 = chunkQ * this.chunkSize;
+    const r0 = chunkR * this.chunkSize;
+    for (let r = r0; r < r0 + this.chunkSize; r += 1) {
+      for (let q = q0; q < q0 + this.chunkSize; q += 1) {
+        const keyAt = cellKey(q, r);
+        const tile = this.tileByKey.get(keyAt);
+        if (!tile) continue;
+        const previous = this.cellByKey.get(keyAt);
+        const cell = terrainCell(
+          tile,
+          this.groundByKey.get(keyAt),
+          this.waterByKey.get(keyAt),
+        );
+        this.cellByKey.set(keyAt, cell);
+        bucket.set(keyAt, cell);
+        const index = this.cellIndexByKey.get(keyAt);
+        if (index === undefined) {
+          this.cellIndexByKey.set(keyAt, this.cells.length);
+          this.cells.push(cell);
+        } else {
+          this.cells[index] = cell;
+        }
+        if (cell.height >= this.ceiling) this.ceiling = cell.height;
+        else if (previous?.height === this.ceiling)
+          this.ceiling = this.cells.reduce(
+            (highest, entry) => Math.max(highest, entry.height),
+            WORLD_FLOOR,
+          );
+      }
+    }
+  }
+
+  private rebuildAffected(dirty: ReadonlySet<string>): number {
+    const affected = new Set<string>();
+    for (const key of dirty) {
+      const [chunkQ, chunkR] = parseChunkKey(key);
+      for (let dr = -1; dr <= 1; dr += 1)
+        for (let dq = -1; dq <= 1; dq += 1) {
+          const neighbour = chunkKey(chunkQ + dq, chunkR + dr);
+          if (this.activeChunks.has(neighbour)) affected.add(neighbour);
+        }
+    }
+    for (const key of affected) this.rebuildChunk(key);
+    return affected.size;
+  }
+
+  private rebuildChunk(key: string): void {
+    this.disposeChunk(key);
+    const owned = this.cellsByChunk.get(key);
+    if (!owned?.size) return;
+    const [chunkQ, chunkR] = parseChunkKey(key);
+    const samples = haloSamples(chunkQ, chunkR, this.chunkSize, this.cellByKey);
+    const ownedKeys = new Set(owned.keys());
+    const built = buildHeightfieldGeometry(samples.map(heightfieldSample), {
+      cliffThreshold: CLIFF_THRESHOLD,
+      frontierDepth: Math.max(0.01, -WORLD_FLOOR),
+      includes: (sample) => ownedKeys.has(cellKey(sample.q, sample.r)),
+      occupied: (q, r) => this.cellByKey.has(cellKey(q, r)),
+    });
+    const surface = new Group();
+    surface.name = `terrain-chunk-surface-${key}`;
+    for (const [name, geometry, buckets] of [
+      ["ground", built.ground, built.buckets.ground],
+      ["cliffs", built.cliffs, built.buckets.cliffs],
+      ["frontier-skirt", built.frontier, built.buckets.frontier],
+    ] as const) {
+      const mesh = bandMesh(
+        `${name}-${key}`,
+        geometry,
+        buckets,
+        this.materials,
+      );
+      if (mesh) surface.add(mesh);
+    }
+    const extras = new Group();
+    extras.name = `terrain-chunk-${key}`;
+    const water = bandMesh(
+      `water-${key}`,
+      built.water,
+      built.buckets.water,
+      this.materials,
+    );
+    if (water) {
+      water.renderOrder = 10;
+      extras.add(water);
+    }
+    const frontier = frontierLines(
+      [...owned.values()],
+      this.materials,
+      this.cellByKey,
+    );
+    extras.add(frontier.mesh);
+    const caps = surfaceCaps(
+      [...owned.values()],
+      this.surfaces,
+      this.materials,
+    );
+    if (caps) for (const mesh of caps.meshes) extras.add(mesh);
+    const gridGeometry = constructionGridGeometry([...owned.values()]);
+    const grid = new LineSegments(gridGeometry, this.materials.grid);
+    grid.name = `construction-grid-${key}`;
+    grid.renderOrder = 35;
+    this.surface.add(surface);
+    this.group.add(extras);
+    this.grid.add(grid);
+    this.chunks.set(key, {
+      surface,
+      extras,
+      grid,
+      geometries: [
+        built.ground,
+        built.water,
+        built.cliffs,
+        built.frontier,
+        frontier.geometry,
+        gridGeometry,
+        ...(caps ? [caps.geometry] : []),
+      ],
+    });
+  }
+
+  private disposeChunk(key: string): void {
+    const chunk = this.chunks.get(key);
+    if (!chunk) return;
+    this.surface.remove(chunk.surface);
+    this.group.remove(chunk.extras);
+    this.grid.remove(chunk.grid);
+    for (const geometry of chunk.geometries) geometry.dispose();
+    this.chunks.delete(key);
+  }
 }
 
 /** One published tile joined with whatever earthwork and water the player has moved on top of it. */
@@ -439,12 +738,14 @@ export function stableVariation(q: number, r: number): number {
 function frontierLines(
   cells: readonly TerrainCell[],
   materials: WorldMaterials,
+  knownCells: ReadonlyMap<string, TerrainCell> = new Map(
+    cells.map((cell) => [cellKey(cell.q, cell.r), cell]),
+  ),
 ): { mesh: LineSegments; geometry: BufferGeometry } {
-  const generated = new Set(cells.map(({ q, r }) => cellKey(q, r)));
   const positions: number[] = [];
   for (const cell of cells) {
     for (const direction of ADJACENCY_DIRECTIONS) {
-      if (generated.has(cellKey(cell.q + direction.q, cell.r + direction.r)))
+      if (knownCells.has(cellKey(cell.q + direction.q, cell.r + direction.r)))
         continue;
       const neighbour = axialToPixel(direction, 1, { x: 0, y: 0 });
       const distance = Math.hypot(neighbour.x, neighbour.y);
@@ -465,8 +766,97 @@ function frontierLines(
   }
   const geometry = new BufferGeometry();
   geometry.setAttribute("position", new Float32BufferAttribute(positions, 3));
+  if (positions.length > 0) geometry.computeBoundingSphere();
   const mesh = new LineSegments(geometry, materials.frontier);
   mesh.name = "survey-frontier";
   mesh.renderOrder = 30;
   return { mesh, geometry };
+}
+
+function constructionGridGeometry(
+  cells: readonly TerrainCell[],
+): BufferGeometry {
+  const positions: number[] = [];
+  for (const cell of cells) {
+    for (let corner = 0; corner < 6; corner += 1) {
+      const first = hexCorner({ x: cell.x, y: cell.z }, HEX_RADIUS, corner);
+      const second = hexCorner(
+        { x: cell.x, y: cell.z },
+        HEX_RADIUS,
+        corner + 1,
+      );
+      const height = cell.height + 0.018;
+      positions.push(first.x, height, first.y, second.x, height, second.y);
+    }
+  }
+  const geometry = new BufferGeometry();
+  geometry.setAttribute("position", new Float32BufferAttribute(positions, 3));
+  if (positions.length > 0) geometry.computeBoundingSphere();
+  return geometry;
+}
+
+function inferChunkSize(snapshot: FactorySnapshot): number {
+  if (snapshot.chunks.length === 0) return 1;
+  const cellsPerChunk = snapshot.terrain.length / snapshot.chunks.length;
+  const size = Math.sqrt(cellsPerChunk);
+  // Production snapshots contain every cell of every chunk, so this is exact. Keeping a bounded
+  // fallback makes deliberately tiny renderer fixtures useful without inventing a second native
+  // chunk-size field on the wire.
+  return Number.isInteger(size) && size > 0
+    ? size
+    : Math.max(1, Math.round(size));
+}
+
+function keyedCells<T extends { readonly q: number; readonly r: number }>(
+  cells: readonly T[],
+): Map<string, T> {
+  return new Map(cells.map((cell) => [cellKey(cell.q, cell.r), cell]));
+}
+
+function addChangedKeys<T extends { readonly q: number; readonly r: number }>(
+  previous: ReadonlyMap<string, T>,
+  next: ReadonlyMap<string, T>,
+  dirty: Set<string>,
+  chunkSize: number,
+): void {
+  for (const [key, cell] of previous) {
+    if (next.get(key) !== cell) dirty.add(ownerKey(cell.q, cell.r, chunkSize));
+  }
+  for (const [key, cell] of next) {
+    if (previous.get(key) !== cell)
+      dirty.add(ownerKey(cell.q, cell.r, chunkSize));
+  }
+}
+
+function haloSamples(
+  chunkQ: number,
+  chunkR: number,
+  chunkSize: number,
+  cellByKey: ReadonlyMap<string, TerrainCell>,
+): TerrainCell[] {
+  const q0 = chunkQ * chunkSize - SAMPLE_HALO;
+  const r0 = chunkR * chunkSize - SAMPLE_HALO;
+  const q1 = (chunkQ + 1) * chunkSize + SAMPLE_HALO;
+  const r1 = (chunkR + 1) * chunkSize + SAMPLE_HALO;
+  const samples: TerrainCell[] = [];
+  for (let r = r0; r < r1; r += 1) {
+    for (let q = q0; q < q1; q += 1) {
+      const cell = cellByKey.get(cellKey(q, r));
+      if (cell) samples.push(cell);
+    }
+  }
+  return samples;
+}
+
+function ownerKey(q: number, r: number, chunkSize: number): string {
+  return chunkKey(Math.floor(q / chunkSize), Math.floor(r / chunkSize));
+}
+
+function chunkKey(q: number, r: number): string {
+  return `${q},${r}`;
+}
+
+function parseChunkKey(key: string): [number, number] {
+  const comma = key.indexOf(",");
+  return [Number(key.slice(0, comma)), Number(key.slice(comma + 1))];
 }

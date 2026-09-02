@@ -37,6 +37,7 @@ import {
   applyBuildingsPatch,
   applyResourcesPatch,
   applySnapshotDelta,
+  applyTerrainPatch,
 } from "../src/core/snapshotDelta";
 import {
   bandAt,
@@ -1257,6 +1258,30 @@ describe("availability and expanded snapshot adapter", () => {
         checksum: 456,
       }).snapshot.resources,
     ).toBe(deposits);
+  });
+
+  it("appends newly surveyed terrain without rewriting the cells already held", () => {
+    const held = snapshot.terrain;
+    const opened = {
+      q: 8,
+      r: 0,
+      x: 0,
+      y: 0,
+      radius: 1024,
+      terrain: "lowland" as const,
+      height: 0,
+      substrate: "meadow" as const,
+      water_depth: 0,
+      discharge: 0,
+    };
+    const patched = applyTerrainPatch(held, { changed: [opened] });
+    expect(patched).toHaveLength(held.length + 1);
+    expect(patched[0]).toBe(held[0]);
+    expect(patched[patched.length - 1]).toBe(opened);
+    expect(applyTerrainPatch(held, { changed: [] })).toBe(held);
+    expect(
+      applyTerrainPatch(held, { replace: true, changed: [opened] }),
+    ).toEqual([opened]);
   });
 
   it("rejects missing or out-of-order snapshot revisions", () => {

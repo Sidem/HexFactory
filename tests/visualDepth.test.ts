@@ -64,6 +64,7 @@ import {
   heightAtWorld,
   HEX_RADIUS,
   pickTerrainCell,
+  TerrainMeshCache,
   terrainAt,
   type TerrainCell,
 } from "../src/rendering/three/terrainMeshes";
@@ -1317,6 +1318,124 @@ describe("Visual Depth terrain and quality contracts", () => {
     // scanned that rectangle and called every gap surveyed lowland, and nothing does now.
     expect(terrainAt(built.cellByKey, -1, 0)).toBeUndefined();
     for (const geometry of built.geometries) geometry.dispose();
+    for (const material of materials.materials) material.dispose();
+  });
+
+  it("bounds exploration rebuilds to the new native chunk and its neighbours", () => {
+    const materials = createWorldMaterials();
+    const cache = new TerrainMeshCache(materials);
+    const chunk = (chunk_q: number, chunk_r: number) => ({
+      chunk_q,
+      chunk_r,
+      entity_count: 0,
+      x: chunk_q * WORLD_SCALE * 2,
+      y: chunk_r * WORLD_SCALE * 2,
+      span: WORLD_SCALE * 2,
+    });
+    const tiles = (chunk_q: number, chunk_r: number) => {
+      const result: TerrainSnapshot[] = [];
+      for (let r = chunk_r * 2; r < chunk_r * 2 + 2; r += 1)
+        for (let q = chunk_q * 2; q < chunk_q * 2 + 2; q += 1)
+          result.push(lowlandTile(q, r));
+      return result;
+    };
+    const initial = {
+      ...minimalSnapshot(),
+      chunks: [chunk(0, 0), chunk(1, 0), chunk(4, 0)],
+      terrain: [...tiles(0, 0), ...tiles(1, 0), ...tiles(4, 0)],
+    };
+    cache.update(initial);
+    const untouched = cache.surface.getObjectByName(
+      "terrain-chunk-surface-0,0",
+    );
+    const neighbour = cache.surface.getObjectByName(
+      "terrain-chunk-surface-1,0",
+    );
+
+    const explored = {
+      ...initial,
+      chunks: [...initial.chunks, chunk(2, 0)],
+      // The host's terrain patch preserves every old object and appends the 64 production cells.
+      terrain: [...initial.terrain, ...tiles(2, 0)],
+    };
+    expect(cache.update(explored)).toBe(2);
+    expect(cache.surface.getObjectByName("terrain-chunk-surface-0,0")).toBe(
+      untouched,
+    );
+    expect(cache.surface.getObjectByName("terrain-chunk-surface-1,0")).not.toBe(
+      neighbour,
+    );
+    expect(
+      cache.surface.getObjectByName("terrain-chunk-surface-2,0"),
+    ).toBeTruthy();
+    const distant = cache.surface.getObjectByName("terrain-chunk-surface-4,0");
+
+    const far = {
+      ...explored,
+      chunks: [...explored.chunks, chunk(10, 8)],
+      terrain: [...explored.terrain, ...tiles(10, 8)],
+    };
+    expect(cache.update(far)).toBe(1);
+    expect(cache.surface.getObjectByName("terrain-chunk-surface-0,0")).toBe(
+      untouched,
+    );
+    expect(cache.surface.getObjectByName("terrain-chunk-surface-4,0")).toBe(
+      distant,
+    );
+
+    cache.dispose();
+    for (const material of materials.materials) material.dispose();
+  });
+
+  it("does not keep fog dissolve on the seams of fully surveyed chunks", () => {
+    const materials = createWorldMaterials();
+    const cache = new TerrainMeshCache(materials);
+    const chunk = (chunk_q: number, chunk_r: number) => ({
+      chunk_q,
+      chunk_r,
+      entity_count: 0,
+      x: chunk_q * WORLD_SCALE * 2,
+      y: chunk_r * WORLD_SCALE * 2,
+      span: WORLD_SCALE * 2,
+    });
+    const tiles = (chunk_q: number, chunk_r: number) => {
+      const result: TerrainSnapshot[] = [];
+      for (let r = chunk_r * 2; r < chunk_r * 2 + 2; r += 1)
+        for (let q = chunk_q * 2; q < chunk_q * 2 + 2; q += 1)
+          result.push(lowlandTile(q, r));
+      return result;
+    };
+    const chunks: ReturnType<typeof chunk>[] = [];
+    const terrain: TerrainSnapshot[] = [];
+    // Five chunks on a side leaves the centre more than two cells from the real survey rim, so
+    // the two-ring dissolve cannot reach it. A 3x3 of these 2-cell chunks still sits inside that
+    // fade and would pass even if seams were wrongly painted.
+    for (let chunkR = -2; chunkR <= 2; chunkR += 1)
+      for (let chunkQ = -2; chunkQ <= 2; chunkQ += 1) {
+        chunks.push(chunk(chunkQ, chunkR));
+        terrain.push(...tiles(chunkQ, chunkR));
+      }
+    cache.update({ ...minimalSnapshot(), chunks, terrain });
+
+    const interior = cache.surface.getObjectByName("terrain-chunk-surface-0,0");
+    const ground = interior?.getObjectByName("terrain-ground-0,0") as
+      | Mesh
+      | undefined;
+    expect(ground).toBeTruthy();
+    const fade = [
+      ...(ground!.geometry.getAttribute("frontierFade").array as Float32Array),
+    ];
+    expect(Math.min(...fade)).toBe(1);
+    expect(
+      interior?.getObjectByName("terrain-frontier-skirt-0,0"),
+    ).toBeUndefined();
+    expect(
+      cache.surface
+        .getObjectByName("terrain-chunk-surface--2,-2")
+        ?.getObjectByName("terrain-frontier-skirt--2,-2"),
+    ).toBeTruthy();
+
+    cache.dispose();
     for (const material of materials.materials) material.dispose();
   });
 });

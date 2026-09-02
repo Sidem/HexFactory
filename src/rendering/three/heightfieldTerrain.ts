@@ -60,6 +60,17 @@ export interface HeightfieldOptions {
   readonly cliffThreshold: number;
   /** How far the survey frontier drops below its last published edge. */
   readonly frontierDepth?: number;
+  /**
+   * Samples available to resolve seams may be wider than the cells this geometry owns. The
+   * predicate keeps the halo as input without drawing it a second time in the neighbouring mesh.
+   */
+  readonly includes?: (sample: HeightfieldSample) => boolean;
+  /**
+   * Which cells are actually surveyed. Defaults to the sample set. A chunked builder passes the
+   * whole discovered world so a mesh halo is not mistaken for the fog frontier — otherwise every
+   * chunk edge would keep the dissolve meant only for unsurveyed ground.
+   */
+  readonly occupied?: (q: number, r: number) => boolean;
 }
 
 /**
@@ -136,7 +147,8 @@ export function buildHeightfieldGeometry(
       );
     cellByKey.set(key, sample);
   }
-  const frontierByKey = frontierFactors(cells, cellByKey);
+  const occupied = options.occupied ?? ((q, r) => cellByKey.has(cellKey(q, r)));
+  const frontierByKey = frontierFactors(cells, occupied);
 
   const ground = new GeometryWriter("substrate");
   const water = new GeometryWriter("discharge");
@@ -144,6 +156,7 @@ export function buildHeightfieldGeometry(
   const frontier = new GeometryWriter("substrate");
 
   for (const cell of cells) {
+    if (options.includes && !options.includes(cell)) continue;
     const frontierFade = frontierByKey.get(cellKey(cell.q, cell.r)) ?? 1;
     const substrate = SUBSTRATE_CODE[cell.substrate];
     const centre = cellCentre(cell, cell.height);
@@ -160,8 +173,13 @@ export function buildHeightfieldGeometry(
         cellByKey,
         options.cliffThreshold,
       );
-      const firstFade = cornerFrontier(cell, corner, frontierByKey);
-      const secondFade = cornerFrontier(cell, corner + 1, frontierByKey);
+      const firstFade = cornerFrontier(cell, corner, frontierByKey, occupied);
+      const secondFade = cornerFrontier(
+        cell,
+        corner + 1,
+        frontierByKey,
+        occupied,
+      );
       // Winding is counter-clockwise when viewed from above, so generated normals face +Y.
       ground.triangle(centre, second, first, substrate, cell.look, [
         frontierFade,
@@ -209,8 +227,8 @@ export function buildHeightfieldGeometry(
           substrate,
           cell.look,
           [
-            cornerFrontier(cell, edge, frontierByKey),
-            cornerFrontier(cell, edge + 1, frontierByKey),
+            cornerFrontier(cell, edge, frontierByKey, occupied),
+            cornerFrontier(cell, edge + 1, frontierByKey, occupied),
             0,
             0,
           ],
@@ -241,8 +259,13 @@ export function buildHeightfieldGeometry(
       // A vertical face is shared by two cells, and both ends of it are hex corners the surrounding
       // cells already agree a weight for, so it takes the same corner values the surface above and
       // below it takes rather than one flat minimum for the whole face.
-      const cliffFirst = cornerFrontier(cell, edge, frontierByKey);
-      const cliffSecond = cornerFrontier(cell, edge + 1, frontierByKey);
+      const cliffFirst = cornerFrontier(cell, edge, frontierByKey, occupied);
+      const cliffSecond = cornerFrontier(
+        cell,
+        edge + 1,
+        frontierByKey,
+        occupied,
+      );
       cliffs.quad(
         first,
         second,
@@ -282,15 +305,11 @@ export function buildHeightfieldGeometry(
  */
 function frontierFactors(
   cells: readonly HeightfieldSample[],
-  cellByKey: ReadonlyMap<string, HeightfieldSample>,
+  occupied: (q: number, r: number) => boolean,
 ): ReadonlyMap<string, number> {
   const rim = new Set<string>();
   for (const cell of cells) {
-    if (
-      DIRECTIONS.some(
-        ({ q, r }) => !cellByKey.has(cellKey(cell.q + q, cell.r + r)),
-      )
-    )
+    if (DIRECTIONS.some(({ q, r }) => !occupied(cell.q + q, cell.r + r)))
       rim.add(cellKey(cell.q, cell.r));
   }
   const factors = new Map<string, number>();
@@ -504,19 +523,34 @@ function cornerFrontier(
   cell: HeightfieldSample,
   rawCorner: number,
   frontierByKey: ReadonlyMap<string, number>,
+  occupied: (q: number, r: number) => boolean,
 ): number {
   const corner = modulo(rawCorner, DIRECTIONS.length);
   const previous = DIRECTIONS[modulo(corner - 1, DIRECTIONS.length)]!;
   const next = DIRECTIONS[corner]!;
-  return mean([
-    frontierByKey.get(cellKey(cell.q, cell.r)) ?? 0,
-    ...[previous, next].map(
-      (direction) =>
-        frontierByKey.get(
-          cellKey(cell.q + direction.q, cell.r + direction.r),
-        ) ?? 0,
-    ),
-  ]);
+  return mean(
+    [
+      { q: cell.q, r: cell.r },
+      {
+        q: cell.q + previous.q,
+        r: cell.r + previous.r,
+      },
+      { q: cell.q + next.q, r: cell.r + next.r },
+    ].map(({ q, r }) => occupancyFade(q, r, frontierByKey, occupied)),
+  );
+}
+
+function occupancyFade(
+  q: number,
+  r: number,
+  frontierByKey: ReadonlyMap<string, number>,
+  occupied: (q: number, r: number) => boolean,
+): number {
+  const known = frontierByKey.get(cellKey(q, r));
+  if (known !== undefined) return known;
+  // Surveyed ground beyond this mesh's sample halo is ordinary interior, not fog. Only a cell
+  // the world has never published dissolves to sky.
+  return occupied(q, r) ? 1 : 0;
 }
 
 function modulo(value: number, divisor: number): number {

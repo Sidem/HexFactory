@@ -97,11 +97,6 @@ export function applyResourcesPatch(
  * Merge a per-cell terrain patch. Native world generation is the only path that adds a tile, and
  * nothing ever changes or removes one, so an incremental patch is exactly the chunks surveyed since
  * the host last heard: they append, and every tile already held stays where it is.
- *
- * A key match still substitutes rather than appending twice. That costs one map of the surveyed
- * world on a frame that surveys, which is the frame that was already going to rebuild the terrain
- * mesh, and it means a mark that turns out to repeat a chunk cannot leave the host holding the same
- * cell twice.
  */
 export function applyTerrainPatch(
   current: TerrainSnapshot[],
@@ -110,18 +105,7 @@ export function applyTerrainPatch(
   if (patch.replace) return patch.changed ?? [];
   const changed = patch.changed ?? [];
   if (changed.length === 0) return current;
-  const at = new Map(current.map((tile, index) => [tileKey(tile), index]));
-  const next = [...current];
-  for (const tile of changed) {
-    const key = tileKey(tile);
-    const index = at.get(key);
-    if (index === undefined) {
-      at.set(key, next.push(tile) - 1);
-      continue;
-    }
-    next[index] = tile;
-  }
-  return next;
+  return current.concat(changed);
 }
 
 function tileKey(cell: { q: number; r: number }): string {

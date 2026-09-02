@@ -153,6 +153,65 @@ describe("physical heightfield terrain", () => {
     dispose(built);
   });
 
+  it("keeps halo samples as seam input without drawing them a second time", () => {
+    const owned = dry(0, 0, 0);
+    const neighbour = dry(1, 0, 0);
+    const both = buildHeightfieldGeometry([owned, neighbour], {
+      cliffThreshold: 1,
+    });
+    const clipped = buildHeightfieldGeometry([owned, neighbour], {
+      cliffThreshold: 1,
+      includes: (sample) => sample.q === 0 && sample.r === 0,
+    });
+    const alone = buildHeightfieldGeometry([owned], { cliffThreshold: 1 });
+
+    expect(triangles(clipped.ground)).toBe(triangles(alone.ground));
+    expect(triangles(both.ground)).toBe(triangles(alone.ground) * 2);
+    // The owned cell still sees its neighbour, so the shared edge is a slope rather than a skirt.
+    expect(triangles(clipped.frontier)).toBeLessThan(triangles(alone.frontier));
+
+    dispose(both);
+    dispose(clipped);
+    dispose(alone);
+  });
+
+  it("does not treat a mesh halo as the survey frontier", () => {
+    const world: HeightfieldSample[] = [];
+    for (let q = -2; q <= 2; q += 1)
+      for (let r = -2; r <= 2; r += 1) world.push(dry(q, r, 0));
+    const known = new Set(world.map((cell) => `${cell.q},${cell.r}`));
+    const halo = world.filter(
+      (cell) => Math.abs(cell.q) <= 1 && Math.abs(cell.r) <= 1,
+    );
+    const origin = (sample: HeightfieldSample) =>
+      sample.q === 0 && sample.r === 0;
+
+    const mistaken = buildHeightfieldGeometry(halo, {
+      cliffThreshold: 1,
+      includes: origin,
+    });
+    const occupied = buildHeightfieldGeometry(halo, {
+      cliffThreshold: 1,
+      includes: origin,
+      occupied: (q, r) => known.has(`${q},${r}`),
+    });
+
+    const mistakenFade = [
+      ...mistaken.ground.getAttribute("frontierFade").array,
+    ] as number[];
+    const occupiedFade = [
+      ...occupied.ground.getAttribute("frontierFade").array,
+    ] as number[];
+    // The halo's own outer ring is not unsurveyed ground. Painting it as fog left a diamond of
+    // shade on every chunk seam once the heightfield was partitioned.
+    expect(Math.min(...mistakenFade)).toBeLessThan(1);
+    expect(Math.min(...occupiedFade)).toBe(1);
+    expect(triangles(occupied.frontier)).toBe(0);
+
+    dispose(mistaken);
+    dispose(occupied);
+  });
+
   it("builds water as its own native-level surface", () => {
     const wet: HeightfieldSample = {
       ...dry(0, 0, -0.5, "sand"),
