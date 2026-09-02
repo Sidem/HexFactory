@@ -407,4 +407,5 @@ T00 done 2026-09-02 — tooling landed, budget report 15 failures / 69 KB always
 T01 done 2026-09-02 — .agent-budget.json waives all 15 failures, context:budget + context:check added, context:check wired into quality after audit, fail-on-delete verified (T05 next)
 T05 done 2026-09-02 — lib.rs 1153 -> 687 KB, tests/mod.rs 426 KB + tests/petroleum.rs 16 KB, 97 tests green (was 97), include_str paths shifted one level, new waiver tests/mod.rs -> T06 (T06 next)
 T06 done 2026-09-02 — tests/mod.rs 426 -> 23 KB across 16 domain files, largest earthworks.rs 44 KB, 97 tests green, tests/mod.rs waiver deleted; domains wire/ground/boundaries/capacity renamed wire_format/earthworks/walls/throughput to clear crate module names (T07 next)
+T07 done 2026-09-02 — lib.rs 687 -> 618 KB, bench modules out of line as src/{capacity,survey,water_bench,erosion_bench}.rs, all six bins run, 97 tests green; kept them library modules rather than src/bin/ because the bins do `use factory_wasm::capacity` and the tests call crate::capacity, so src/bin/ would strand them (T08 next)
 ```
