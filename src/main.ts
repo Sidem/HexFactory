@@ -16,6 +16,7 @@ import {
 } from "./core/availability";
 import { cueForEvent, FeedbackAudio } from "./audio/feedback";
 import { halfTransfer } from "./core/commands";
+import { exportTextFile } from "./core/fileExport";
 import { supportsRecipe } from "./core/definitions";
 import { recipeOutputs } from "./core/recipes";
 import { productionNote } from "./ui/production";
@@ -29,22 +30,12 @@ import {
   AUTOSAVE_SLOT_NAME,
   CATALOG_DOWNLOAD_NAME,
   catalogDocument,
-  compatibility,
-  describeMismatches,
-  formatConfig,
-  formatSavedAt,
-  formatVersions,
-  importLegacySlots,
   latestCompatible,
-  parseHxf1,
   readCatalog,
-  removeSlot,
   replaceNamedSlot,
-  SAVE_VERSION,
   saveFileName,
   slotFromPayload,
   slotsFromFileText,
-  slotsNewestFirst,
   uniqueSlotName,
   unsavedRunAtRisk,
   upsertSlot,
@@ -65,12 +56,7 @@ import {
   type CheckpointContext,
   type RunTimings,
 } from "./core/checkpoints";
-import {
-  bandAt,
-  TERRAIN_INFO,
-  TERRAIN_ORDER,
-  terrainAccess,
-} from "./core/terrain";
+import { bandAt, terrainAccess } from "./core/terrain";
 import { HEIGHT_UNIT_METRES } from "./rendering/sceneScale";
 import {
   CORNER_START,
@@ -108,7 +94,6 @@ import {
   recipeCategoryAccent,
   recipeCategoryEmblemSvg,
 } from "./rendering/emblems";
-import { itemIconSvg } from "./rendering/icons";
 import {
   createItemChip,
   fillItemChip,
@@ -133,6 +118,16 @@ import { PanelController } from "./ui/panels";
 import { ConfirmDialog } from "./ui/confirm";
 import { machineStockSlots } from "./ui/stockSlots";
 import { WorldParameterForm } from "./ui/worldParameters";
+import { PreferencesController } from "./app/preferences";
+import { currentBuild as buildInfo } from "./app/buildInfo";
+import { SaveUi } from "./app/saveUi";
+import { renderTerrainLegend } from "./ui/terrainLegend";
+import { paintHexFace, setItemGlyph, setMeter } from "./ui/paint";
+import {
+  isKeyboardFocusedControl,
+  isPointerActivatedControl,
+  isTypingTarget,
+} from "./input/focus";
 import {
   applyChanges,
   PREVIEW_HEIGHT,
@@ -146,25 +141,8 @@ import "./theme.css";
 
 type Tool = "inspect" | "erase" | "rotate" | "upgrade" | number;
 
-/**
- * What this build will load. Native still refuses on these numbers; the catalog only reports them.
- * `SAVE_VERSION` is the one literal because native does not publish it.
- */
 function currentBuild(): CurrentBuild {
-  return {
-    versions: {
-      save: SAVE_VERSION,
-      world: snapshot.world_version,
-      definitions: host.definitions.version,
-      technology: host.technologies.version,
-    },
-    scenarios: host.scenarios.scenarios.map((scenario) => ({
-      key: scenario.key,
-      name: scenario.name,
-      version: scenario.version,
-    })),
-    worldPresets: host.worldPresets,
-  };
+  return buildInfo(host, snapshot);
 }
 /** The first orientation index off the six-edge table. Matches `NORTH` in the core. */
 const NORTH = CORNER_START;
@@ -212,17 +190,10 @@ const PANEL_KEYS: Record<string, string> = {
  */
 const SILENT_EVENTS = new Set(["action cooling down"]);
 const canvas = required<HTMLCanvasElement>("factory-canvas");
-const soundButton = required<HTMLButtonElement>("sound");
-const muteInput = required<HTMLInputElement>("mute");
-const reduceMotionInput = required<HTMLInputElement>("reduce-motion");
-const graphicsProfileInput = required<HTMLSelectElement>("graphics-profile");
-/** Comfort settings are preferences about a room, so they live beside the hotbar, not in a save. */
-const MOTION_KEY = "hexfactory:reduced-motion:v1";
 required<HTMLElement>("simulation-rate").textContent =
   `Simulation: ${SIMULATION_TICKS_PER_SECOND} ticks per second`;
 const scenarioInput = required<HTMLSelectElement>("scenario");
 const seedInput = required<HTMLInputElement>("seed");
-const saveNameInput = required<HTMLInputElement>("save-name");
 const worldPresetInput = required<HTMLSelectElement>("world-preset");
 const worldPresetDescription = required<HTMLParagraphElement>(
   "world-preset-description",
@@ -238,11 +209,9 @@ const creativeItems = required<HTMLDivElement>("creative-items");
 
 const titleScreen = required<HTMLElement>("title-screen");
 const titleContinue = required<HTMLButtonElement>("title-continue");
-const titleContinueSub = required<HTMLElement>("title-continue-sub");
 const titleTabSaves = required<HTMLButtonElement>("title-tab-saves");
 const titleTabNew = required<HTMLButtonElement>("title-tab-new");
 const titleResume = required<HTMLButtonElement>("title-resume");
-const titleSavesBadge = required<HTMLElement>("title-saves-badge");
 const titleSavesView = required<HTMLElement>("title-saves-view");
 const titleNewGameView = required<HTMLElement>("title-new-game-view");
 const titleScenarioChoices = required<HTMLDivElement>("title-scenario-choices");
@@ -263,13 +232,6 @@ const titleWorldParametersReset = required<HTMLButtonElement>(
 const titleStartGame = required<HTMLButtonElement>("title-start-game");
 const saveFileInput = required<HTMLInputElement>("save-file-input");
 const titleCreativeInput = required<HTMLInputElement>("title-creative");
-const titleMuteInput = required<HTMLInputElement>("title-mute");
-const titleReduceMotionInput = required<HTMLInputElement>(
-  "title-reduce-motion",
-);
-const titleGraphicsProfileInput = required<HTMLSelectElement>(
-  "title-graphics-profile",
-);
 const sessionMainMenu = required<HTMLButtonElement>("session-main-menu");
 const input = new BoundedInputQueue();
 const audio = new FeedbackAudio();
@@ -283,6 +245,7 @@ const renderer: FactoryRenderer = new ThreeFactoryRenderer(
   host.definitions,
   initialGraphics,
 );
+const preferences = new PreferencesController(audio, renderer);
 const boundaryTool = new BoundaryTool(
   required<HTMLElement>("boundary-panel"),
   host,
@@ -407,7 +370,7 @@ const researchTree = new ResearchTree(
 
 let snapshot = host.snapshot();
 /** Which named slot Save will overwrite, if any. Presentation only — the catalog is the store. */
-let selectedSaveId: string | null = null;
+const saveUi = new SaveUi();
 /**
  * What this run's save is called. The title screen asks once, and everything that writes — the
  * auto-save and the Save button alike — targets that one name, so a run keeps a single catalogue
@@ -1896,41 +1859,6 @@ function renderTechnologies(): void {
  * research list is. `quantity` is the whole stored amount: native clamps it to what the container
  * holds and to what the player can still carry, and reports how much actually moved.
  */
-function paintHexFace(
-  hex: HTMLElement,
-  fill: string,
-  stroke: string,
-  impassable: boolean,
-): void {
-  hex.style.setProperty("--band-fill", fill);
-  hex.style.setProperty("--band-stroke", stroke);
-  hex.classList.toggle("impassable", impassable);
-}
-
-function setMeter(
-  row: HTMLElement,
-  fill: HTMLElement,
-  amount: HTMLElement,
-  current: number,
-  total: number,
-  visible: boolean,
-): void {
-  row.hidden = !visible;
-  if (!visible) return;
-  const ratio = total > 0 ? Math.min(1, Math.max(0, current / total)) : 0;
-  fill.style.width = `${ratio * 100}%`;
-  amount.textContent = `${current} / ${total}`;
-}
-
-function setItemGlyph(
-  element: HTMLElement,
-  icon: string | undefined,
-  color: string | undefined,
-): void {
-  element.style.setProperty("--item-color", color ?? "transparent");
-  element.innerHTML = icon && color ? itemIconSvg(icon, color) : "";
-}
-
 /**
  * The kinds a hand can reach into, mirroring `stock_is_reachable_by_hand` in the core.
  *
@@ -3173,57 +3101,6 @@ function showFeedback(message: string): void {
   );
 }
 
-/**
- * Sound is optional to the player, never absent from the product. The control is in permanent
- * chrome beside pause for the same reason: a game that only makes noise is a game somebody has to
- * mute by leaving.
- */
-function setMuted(value: boolean): void {
-  audio.setMuted(value);
-  muteInput.checked = value;
-  titleMuteInput.checked = value;
-  part(soundButton, ".utility-icon").textContent = value ? "♪̸" : "♪";
-  part(soundButton, ".utility-label").textContent = value ? "Muted" : "Sound";
-  soundButton.setAttribute("aria-pressed", String(!value));
-  soundButton.setAttribute(
-    "aria-label",
-    value ? "Unmute feedback sounds" : "Mute feedback sounds",
-  );
-  soundButton.title = value
-    ? "Unmute feedback sounds (M)"
-    : "Mute feedback sounds (M)";
-}
-
-function setReducedMotion(value: boolean): void {
-  reduceMotionInput.checked = value;
-  titleReduceMotionInput.checked = value;
-  renderer.setReducedMotion(value);
-  try {
-    window.localStorage.setItem(MOTION_KEY, value ? "1" : "0");
-  } catch {
-    // The preference is lost, the session is not.
-  }
-}
-
-function setGraphicsProfile(value: GraphicsProfile): void {
-  graphicsProfileInput.value = value;
-  titleGraphicsProfileInput.value = value;
-  renderer.setGraphicsProfile(value);
-  try {
-    window.localStorage.setItem(GRAPHICS_STORAGE_KEY, value);
-  } catch {
-    // The preference is lost, the factory is not.
-  }
-}
-
-function loadReducedMotion(): boolean {
-  try {
-    return window.localStorage.getItem(MOTION_KEY) === "1";
-  } catch {
-    return false;
-  }
-}
-
 function syncSessionInputs(next: FactorySnapshot): void {
   confirmDialog.dismiss();
   endStackDrag();
@@ -3319,20 +3196,6 @@ async function flushHoverPreview(): Promise<void> {
   }
   previewPending = false;
 }
-
-soundButton.addEventListener("click", () => setMuted(!audio.isMuted));
-muteInput.addEventListener("change", () => setMuted(muteInput.checked));
-reduceMotionInput.addEventListener("change", () =>
-  setReducedMotion(reduceMotionInput.checked),
-);
-graphicsProfileInput.addEventListener("change", () => {
-  const profile = parseGraphicsProfile(graphicsProfileInput.value);
-  if (profile) setGraphicsProfile(profile);
-});
-titleGraphicsProfileInput.addEventListener("change", () => {
-  const profile = parseGraphicsProfile(titleGraphicsProfileInput.value);
-  if (profile) setGraphicsProfile(profile);
-});
 
 required<HTMLButtonElement>("build-scope").addEventListener("click", () => {
   showAllBuildings = !showAllBuildings;
@@ -3788,7 +3651,7 @@ titleSeedRandom.addEventListener("click", () => {
 /** The one place the run's save name is set, so the panel field and the catalogue cannot disagree. */
 function setRunName(name: string): void {
   runName = name;
-  saveNameInput.value = name;
+  saveUi.setName(name);
 }
 
 /**
@@ -3851,13 +3714,6 @@ sessionMainMenu.addEventListener("click", () => {
   closePanels();
   openTitleScreen();
 });
-titleMuteInput.addEventListener("change", () =>
-  setMuted(titleMuteInput.checked),
-);
-titleReduceMotionInput.addEventListener("change", () =>
-  setReducedMotion(titleReduceMotionInput.checked),
-);
-
 titleContinue.addEventListener("click", () => {
   const slot = latestCompatible(
     readCatalog(localStorage).slots,
@@ -3894,7 +3750,7 @@ titleStartGame.addEventListener("click", async () => {
     setRunName(
       typed || uniqueSlotName(fallback, readCatalog(localStorage).slots),
     );
-    selectedSaveId = null;
+    saveUi.clearSelection();
     beginRun(next);
     update(next);
     syncSessionInputs(next);
@@ -4020,10 +3876,10 @@ required<HTMLButtonElement>("save").addEventListener("click", async () => {
   try {
     const payload = await host.save();
     const build = currentBuild();
-    const named = saveNameInput.value.trim();
-    const selected = selectedSaveId
+    const named = saveUi.name;
+    const selected = saveUi.selectedId
       ? readCatalog(localStorage).slots.find(
-          (slot) => slot.id === selectedSaveId,
+          (slot) => slot.id === saveUi.selectedId,
         )
       : undefined;
     const overwriteName =
@@ -4054,7 +3910,7 @@ required<HTMLButtonElement>("save").addEventListener("click", async () => {
         : replaceNamedSlot(slots, drafted);
     writeCatalog(localStorage, nextSlots);
     markSaved(tick);
-    selectedSaveId = drafted.id;
+    saveUi.select(drafted);
     // Saving under a name adopts it: the auto-save follows the player rather than continuing to
     // write to the name they just moved away from.
     setRunName(drafted.name);
@@ -4893,7 +4749,7 @@ window.addEventListener("keydown", (event) => {
   else if (event.code === "Space") renderer.recenter();
   else if (event.code === "Comma") orbitView(-1);
   else if (event.code === "Period") orbitView(1);
-  else if (event.code === "KeyM") setMuted(!audio.isMuted);
+  else if (event.code === "KeyM") preferences.toggleMuted();
   else if (event.code in PANEL_KEYS)
     togglePanel(PANEL_KEYS[event.code] as string);
   else if (event.code === "KeyF") {
@@ -5465,31 +5321,6 @@ function togglePanel(id: string): void {
   requestWorldPreview();
 }
 
-/**
- * The band legend. It leads with the category rather than the colour — hatched swatches are the
- * ground the player cannot stand on — and both halves come from the same table the renderer draws
- * from, so the legend cannot describe a world the map is not drawing.
- */
-function renderTerrainLegend(): void {
-  const element = required<HTMLDivElement>("terrain-legend");
-  for (const terrain of TERRAIN_ORDER) {
-    const band = TERRAIN_INFO[terrain];
-    const row = document.createElement("div");
-    row.setAttribute("role", "listitem");
-    const swatch = document.createElement("i");
-    swatch.style.setProperty("--band-fill", band.fill);
-    swatch.style.setProperty("--band-stroke", band.stroke);
-    if (!band.passable) swatch.className = "impassable";
-    const name = document.createElement("span");
-    name.textContent = band.name;
-    const access = document.createElement("small");
-    access.textContent = terrainAccess(band);
-    if (!band.passable) access.className = "impassable-label";
-    row.append(swatch, name, access);
-    element.append(row);
-  }
-}
-
 function frame(now: number): void {
   const budget = frameClock.update(now, {
     // Player time accrues only while the player has work. A standing walk goal is work: nobody is
@@ -5624,128 +5455,11 @@ window.addEventListener("beforeunload", (event) => {
 });
 
 function updateContinueState(message?: string): void {
-  const build = currentBuild();
-  let slots: SaveSlot[] = [];
-  let imported = 0;
-  let error: string | undefined;
-  try {
-    const pulled = importLegacySlots(localStorage, build);
-    imported = pulled.imported;
-    const read =
-      imported > 0 ? { slots: pulled.slots } : readCatalog(localStorage);
-    slots = read.slots;
-    error = "error" in read ? read.error : undefined;
-  } catch (caught) {
-    error = `Save list failed: ${String(caught)}`;
-  }
-  const compatible = latestCompatible(slots, build);
-  required<HTMLButtonElement>("continue").disabled = !compatible;
-  titleContinue.disabled = !compatible;
-  titleContinueSub.textContent = compatible
-    ? `Restore “${compatible.name}”`
-    : "No saved factory found";
-  titleSavesBadge.textContent = String(slots.length);
-  renderSaveSlots(slots, build);
-  renderTitleSaveSlots(slots, build);
-  // Read off the build rather than typed into the markup. The literal in index.html still said
-  // "Definitions 11" two catalog bumps later, because nothing was keeping it honest.
-  required<HTMLElement>("title-envelope-info").textContent =
-    `Save ${build.versions.save} · Definitions ${build.versions.definitions} · World ${build.versions.world}`;
-  const importedNote =
-    imported > 0
-      ? `Imported ${imported} previous run${imported === 1 ? "" : "s"} from an older slot. `
-      : "";
   const scenarioVersion =
     host.scenarios.scenarios.find(
       (scenario) => scenario.key === snapshot.scenario,
     )?.version ?? 0;
-  const titleStatus = required("title-save-status");
-  titleStatus.textContent = message ?? error ?? "";
-  titleStatus.hidden = !titleStatus.textContent;
-  required<HTMLElement>("save-status").textContent =
-    message ??
-    importedNote +
-      (error
-        ? error
-        : compatible
-          ? `Continue loads “${compatible.name}”. This build is ${formatVersions({ ...build.versions, scenario: scenarioVersion })}.`
-          : slots.length > 0
-            ? "Saved runs are listed below. None of them can load in this build."
-            : "No local save yet.");
-}
-
-function renderSaveSlots(slots: SaveSlot[], build: CurrentBuild): void {
-  paintSaveSlotList(required("save-slots"), slots, build, "save-slot");
-}
-
-function renderTitleSaveSlots(slots: SaveSlot[], build: CurrentBuild): void {
-  paintSaveSlotList(
-    required("title-save-slots"),
-    slots,
-    build,
-    "save-slot title-save-slot",
-  );
-}
-
-function paintSaveSlotList(
-  board: HTMLElement,
-  slots: SaveSlot[],
-  build: CurrentBuild,
-  rowClass: string,
-): void {
-  const ordered = slotsNewestFirst(slots);
-  const rows = syncChildren(
-    board,
-    ordered.map((slot) => slot.id),
-    () => {
-      const row = document.createElement("li");
-      row.className = rowClass;
-      row.innerHTML = `<button type="button" class="save-slot-select"><strong></strong><span class="save-slot-when"></span><span class="save-slot-config"></span><span class="save-slot-versions"></span><span class="save-slot-issue"></span></button><div class="save-slot-actions"><button type="button" class="save-slot-load">Load</button><button type="button" class="save-slot-export">Export</button><button type="button" class="save-slot-delete">Delete</button></div>`;
-      return row;
-    },
-  );
-  ordered.forEach((slot, index) => {
-    const row = rows[index];
-    if (!row) return;
-    const envelope = parseHxf1(slot.payload);
-    const check = envelope
-      ? compatibility(envelope, build)
-      : {
-          compatible: false,
-          mismatches: [
-            {
-              field: "save",
-              expected: "a readable HXF1 file",
-              found: "unreadable",
-            },
-          ],
-        };
-    row.classList.toggle("selected", slot.id === selectedSaveId);
-    row.classList.toggle("incompatible", !check.compatible);
-    part(row, "strong").textContent = slot.name;
-    part(row, ".save-slot-when").textContent = formatSavedAt(slot.savedAt);
-    part(row, ".save-slot-config").textContent = formatConfig(slot.config);
-    part(row, ".save-slot-versions").textContent = formatVersions(
-      slot.versions,
-    );
-    part(row, ".save-slot-issue").textContent = check.compatible
-      ? ""
-      : describeMismatches(check.mismatches);
-    const select = part<HTMLButtonElement>(row, ".save-slot-select");
-    select.dataset.slotId = slot.id;
-    select.setAttribute("aria-pressed", String(slot.id === selectedSaveId));
-    select.setAttribute("aria-label", `Select save ${slot.name}`);
-    const load = part<HTMLButtonElement>(row, ".save-slot-load");
-    load.dataset.slotId = slot.id;
-    load.disabled = !check.compatible;
-    load.setAttribute("aria-label", `Load ${slot.name}`);
-    const exported = part<HTMLButtonElement>(row, ".save-slot-export");
-    exported.dataset.slotId = slot.id;
-    exported.setAttribute("aria-label", `Export ${slot.name}`);
-    const remove = part<HTMLButtonElement>(row, ".save-slot-delete");
-    remove.dataset.slotId = slot.id;
-    remove.setAttribute("aria-label", `Delete ${slot.name}`);
-  });
+  saveUi.update(currentBuild(), scenarioVersion, message);
 }
 
 async function loadSlot(slot: SaveSlot): Promise<void> {
@@ -5766,7 +5480,7 @@ async function loadSlot(slot: SaveSlot): Promise<void> {
     renderer.recenter();
     // The catalogue already holds exactly this state, so the close guard starts from clean.
     markSaved(next.tick);
-    selectedSaveId = slot.id;
+    saveUi.select(slot);
     setRunName(slot.name);
     showFeedback(`Restored “${slot.name}”`);
     closePanels();
@@ -5775,122 +5489,6 @@ async function loadSlot(slot: SaveSlot): Promise<void> {
   } catch (error) {
     updateContinueState(`Load rejected: ${String(error)}`);
   }
-}
-
-function handleSaveSlotClick(event: Event): void {
-  const target = event.target as HTMLElement;
-  const load = target.closest<HTMLButtonElement>(".save-slot-load");
-  const exported = target.closest<HTMLButtonElement>(".save-slot-export");
-  const remove = target.closest<HTMLButtonElement>(".save-slot-delete");
-  const select = target.closest<HTMLButtonElement>(".save-slot-select");
-  const id = (load ?? exported ?? remove ?? select)?.dataset.slotId;
-  if (!id) return;
-  const { slots, error } = readCatalog(localStorage);
-  if (error) {
-    updateContinueState(error);
-    return;
-  }
-  const slot = slots.find((entry) => entry.id === id);
-  if (!slot) return;
-  if (load) {
-    void loadSlot(slot);
-    return;
-  }
-  if (exported) {
-    void exportSlotFile(slot);
-    return;
-  }
-  if (remove) {
-    if (!window.confirm(`Delete “${slot.name}”? This cannot be undone.`))
-      return;
-    if (slot.sourceKey) localStorage.removeItem(slot.sourceKey);
-    writeCatalog(localStorage, removeSlot(slots, slot.id));
-    if (selectedSaveId === slot.id) {
-      selectedSaveId = null;
-      if (saveNameInput.value === slot.name) saveNameInput.value = "";
-    }
-    updateContinueState(`Deleted “${slot.name}”.`);
-    return;
-  }
-  selectedSaveId = slot.id;
-  saveNameInput.value = slot.name;
-  updateContinueState();
-}
-
-required<HTMLElement>("save-slots").addEventListener(
-  "click",
-  handleSaveSlotClick,
-);
-required<HTMLElement>("title-save-slots").addEventListener(
-  "click",
-  handleSaveSlotClick,
-);
-
-function downloadTextFile(filename: string, text: string): void {
-  const blob = new Blob([text], { type: "text/plain;charset=utf-8" });
-  const url = URL.createObjectURL(blob);
-  const anchor = document.createElement("a");
-  anchor.href = url;
-  anchor.download = filename;
-  anchor.rel = "noopener";
-  document.body.append(anchor);
-  anchor.click();
-  anchor.remove();
-  URL.revokeObjectURL(url);
-}
-
-interface SaveFilePickerWindow {
-  showSaveFilePicker?: (options: {
-    suggestedName?: string;
-    types?: Array<{
-      description?: string;
-      accept: Record<string, string[]>;
-    }>;
-  }) => Promise<{
-    createWritable: () => Promise<{
-      write: (data: string) => Promise<void>;
-      close: () => Promise<void>;
-    }>;
-  }>;
-}
-
-async function exportTextFile(
-  filename: string,
-  text: string,
-  kind: "save" | "catalog",
-): Promise<boolean> {
-  const picker = (window as SaveFilePickerWindow).showSaveFilePicker;
-  if (typeof picker === "function") {
-    try {
-      const handle = await picker({
-        suggestedName: filename,
-        types:
-          kind === "catalog"
-            ? [
-                {
-                  description: "HexFactory save list",
-                  accept: { "application/json": [".json"] },
-                },
-              ]
-            : [
-                {
-                  description: "HexFactory save",
-                  accept: { "text/plain": [".hxf1"] },
-                },
-              ],
-      });
-      const writable = await handle.createWritable();
-      await writable.write(text);
-      await writable.close();
-      return true;
-    } catch (error) {
-      if (error instanceof DOMException && error.name === "AbortError") {
-        return false;
-      }
-    }
-  }
-  downloadTextFile(filename, text);
-  return true;
 }
 
 async function exportSlotFile(slot: SaveSlot): Promise<void> {
@@ -5904,12 +5502,17 @@ async function exportSlotFile(slot: SaveSlot): Promise<void> {
   showFeedback(`Exported “${slot.name}”`);
 }
 
+saveUi.bind({
+  load: (slot) => void loadSlot(slot),
+  export: (slot) => void exportSlotFile(slot),
+  refresh: (message) => updateContinueState(message),
+});
+
 async function exportCurrentSave(): Promise<void> {
   try {
     const payload = await host.save();
     const build = currentBuild();
-    const named =
-      saveNameInput.value.trim() || runName || snapshot.scenario_name || "Save";
+    const named = saveUi.name || runName || snapshot.scenario_name || "Save";
     const drafted = slotFromPayload(payload, named, build, Date.now());
     if (!drafted) {
       updateContinueState("Export failed: the envelope was not readable HXF1.");
@@ -6004,52 +5607,6 @@ async function importSaveFiles(files: FileList | null): Promise<void> {
   if (message) showFeedback(message);
 }
 
-/*
- * Whether a key belongs to the focused control instead of to the world.
- *
- * Only a field that consumes what you type does. A button keeps focus after it is clicked, and
- * counting that as typing left every binding dead until the canvas was clicked again: pressing a
- * panel toggle meant you could no longer walk, and Space no longer recentred. The world owns the
- * keys unless the player is actually filling something in.
- */
-function isTypingTarget(target: EventTarget | null): boolean {
-  if (
-    target instanceof HTMLInputElement ||
-    target instanceof HTMLSelectElement ||
-    target instanceof HTMLTextAreaElement
-  )
-    return true;
-  return target instanceof HTMLElement && target.isContentEditable;
-}
-
-/*
- * The one exception, and the reason it is narrow. A control the keyboard itself reached keeps its
- * own Space, so the panels stay operable without a mouse; `:focus-visible` is what tells that
- * apart from a button the mouse merely left focused, which is the case the world takes back.
- */
-function isKeyboardFocusedControl(target: EventTarget | null): boolean {
-  if (!(target instanceof HTMLElement)) return false;
-  if (!isPointerActivatedControl(target)) return false;
-  try {
-    return target.matches(":focus-visible");
-  } catch {
-    return false;
-  }
-}
-
-function isPointerActivatedControl(target: EventTarget | null): boolean {
-  if (
-    target instanceof HTMLButtonElement ||
-    target instanceof HTMLAnchorElement ||
-    (target instanceof HTMLElement && target.tagName === "SUMMARY")
-  )
-    return true;
-  return (
-    target instanceof HTMLInputElement &&
-    (target.type === "checkbox" || target.type === "radio")
-  );
-}
-
 window.addEventListener("pointerup", (event) => {
   // A clicked button keeps focus, and Space then activates it instead of recentring. Give the
   // keys back to the world once the pointer is done; a tabbed control still has :focus-visible.
@@ -6128,9 +5685,7 @@ for (const button of document.querySelectorAll<HTMLButtonElement>(
 
 renderTerrainLegend();
 panels.restore();
-setMuted(audio.isMuted);
-setReducedMotion(loadReducedMotion());
-setGraphicsProfile(initialGraphics);
+preferences.applyInitial(initialGraphics);
 // A reload is a discontinuity for the same reason a load is: the tab was gone for an unknown
 // stretch. The records survive so the ladder is not lost, and the run says why it cannot be raced.
 run = readRun(localStorage);
@@ -6184,7 +5739,7 @@ window.__hexFactory = {
   renderer: () => renderer.getDiagnostics(),
   orbit: (step) => orbitView(step),
   profile: (profile) => {
-    if (profile) setGraphicsProfile(profile);
+    if (profile) preferences.setGraphicsProfile(profile);
     return renderer.getGraphicsProfile();
   },
   pick: (x, y) => ({

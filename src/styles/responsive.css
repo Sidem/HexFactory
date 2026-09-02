@@ -1,0 +1,253 @@
+@media (max-width: 1080px) {
+  .command-bar {
+    grid-template-columns: 180px 1fr auto;
+  }
+  .rail-right {
+    top: 62px;
+    max-height: calc(100% - 148px);
+  }
+  .utility-label {
+    display: none;
+  }
+  .icon-button.utility-button {
+    width: 36px;
+    height: 36px;
+  }
+  .inventory-peek {
+    display: none;
+  }
+  /* Below this width the world is too narrow to keep a standing inspector beside it, so the one
+     panel that is open by default goes behind its key like the rest. From here on a workspace and
+     the inspector share the same space, which is what `--panels-abreast` tells the host: nothing
+     may open itself, because opening it would take the machine away. */
+  :root {
+    --panels-abreast: 0;
+  }
+  .inspector-panel {
+    display: none;
+  }
+  .inspector-panel.open {
+    display: block;
+  }
+  .inspector-panel .panel-close,
+  #inspector-toggle {
+    display: grid;
+    place-items: center;
+  }
+  .build-dock {
+    max-width: calc(100% - 230px);
+    left: calc(50% - 100px);
+  }
+}
+
+@media (max-width: 720px) {
+  .app-shell {
+    grid-template-rows: 58px minmax(0, 1fr);
+  }
+  /* Narrow enough that the card would cover the world it is describing. The same sentence is one
+     press away behind P, and the header still names the stage. */
+  .next-step {
+    display: none;
+  }
+  .command-bar {
+    grid-template-columns: auto 1fr auto;
+    gap: 8px;
+    padding: 7px 9px;
+  }
+  .brand > span:last-child,
+  .mission-kicker {
+    display: none;
+  }
+  .brand-mark {
+    width: 36px;
+  }
+  .mission-strip {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 3px 8px;
+    padding: 4px 8px;
+    border-left: 1px solid #2c423d;
+    border-right: 0;
+  }
+  .mission-strip strong {
+    font-size: 0.73rem;
+  }
+  .mission-progress {
+    grid-column: 1;
+  }
+  #objective-value {
+    grid-column: 2;
+    max-width: 76px;
+    overflow: hidden;
+    font-size: 0.66rem;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .mission-open {
+    display: none;
+  }
+  .resource-chip {
+    padding: 0.38rem 0.52rem;
+  }
+  .hud-chip-copy small {
+    display: none;
+  }
+  .command-actions > .utility-button {
+    display: none;
+  }
+  .command-actions > #play,
+  .command-actions > .utility-button:last-child {
+    display: grid;
+  }
+  .command-actions {
+    gap: 5px;
+  }
+  .command-actions .icon-button {
+    width: 34px;
+    height: 34px;
+  }
+  /* One rectangle, one workspace. The same interaction model now holds at every width. */
+  .panel-rail,
+  .rail-left,
+  .rail-right {
+    top: 8px;
+    right: 8px;
+    left: 8px;
+    width: auto;
+    max-width: none;
+    max-height: calc(100% - 148px);
+  }
+  .glass-panel,
+  .inspector-panel,
+  .build-panel,
+  .quest-panel,
+  .session-panel {
+    width: auto;
+    max-width: none;
+    display: none;
+  }
+  .glass-panel.open,
+  .inspector-panel.open,
+  .session-panel.open {
+    display: block;
+  }
+  .title-screen {
+    padding: 0;
+  }
+  .title-modal {
+    width: 100vw;
+    height: 100vh;
+    max-height: 100vh;
+    border-radius: 0;
+    border: none;
+  }
+  .title-body {
+    grid-template-columns: 1fr;
+  }
+  .title-nav {
+    border-right: 0;
+    border-bottom: 1px solid #203530;
+    padding: 12px 16px;
+  }
+  .view-actions {
+    top: 8px;
+    left: 8px;
+    flex-wrap: wrap;
+  }
+  .view-actions .icon-button {
+    width: 36px;
+    height: 36px;
+  }
+  .view-button > small {
+    display: none;
+  }
+  .minimap-frame {
+    right: 8px;
+    bottom: 76px;
+    padding: 5px;
+  }
+  #minimap {
+    width: 104px;
+    height: 104px;
+  }
+  .home-readout {
+    font-size: 0.56rem;
+  }
+  .build-dock {
+    right: 8px;
+    bottom: 8px;
+    left: 8px;
+    max-width: none;
+    transform: none;
+    padding: 5px;
+  }
+  .tool-shelf {
+    flex: 1;
+  }
+  .tool-shelf button,
+  .rotate-button,
+  .field-actions button {
+    flex-basis: 54px;
+    min-width: 52px;
+    height: 50px;
+  }
+  .touch-controls {
+    position: absolute;
+    z-index: 7;
+    bottom: 78px;
+    left: 12px;
+    display: grid;
+    grid-template: repeat(3, 42px) / repeat(3, 42px);
+    gap: 3px;
+  }
+  .touch-controls button {
+    padding: 0;
+    border-radius: 50%;
+    background: #10201dcf;
+    backdrop-filter: blur(8px);
+    touch-action: none;
+  }
+  .touch-controls button:nth-child(1) {
+    grid-area: 1 / 2;
+  }
+  .touch-controls button:nth-child(2) {
+    grid-area: 2 / 1;
+  }
+  .touch-controls button:nth-child(3) {
+    grid-area: 2 / 2;
+  }
+  .touch-controls button:nth-child(4) {
+    grid-area: 2 / 3;
+  }
+  .feedback {
+    bottom: 196px;
+  }
+  .victory {
+    top: 54px;
+    width: calc(100% - 32px);
+  }
+}
+
+@media (max-width: 480px) {
+  .mission-strip strong {
+    display: none;
+  }
+  #objective-value {
+    grid-row: 1;
+    grid-column: 1;
+    max-width: none;
+  }
+  .mission-progress {
+    grid-row: 2;
+    grid-column: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.001ms !important;
+    animation-duration: 0.001ms !important;
+  }
+}

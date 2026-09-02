@@ -1,0 +1,734 @@
+/*
+ * Gather and deliver stay in the dock rather than behind a key: they are the loop a new player
+ * needs in the first minute, and a control that has to be discovered before it can be used is the
+ * defect the pillars call out.
+ */
+.field-actions {
+  display: flex;
+  gap: 5px;
+  margin-right: 7px;
+  padding-right: 7px;
+  border-right: 1px solid #3c534d;
+}
+/*
+ * The shelf scrolls sideways when the dock is wider than the window allows, and it used to do so
+ * with the scrollbar explicitly hidden and nothing in its place: on a narrow layout the last slots
+ * and the catalogue opener simply were not there, with no sign that anything had been cut off. A
+ * control the player cannot find is the same defect as a control that does not exist.
+ *
+ * So the hidden bar is replaced by cues that say the same thing better. The edge that has more
+ * content behind it fades, and a nudge button appears on that side; both are driven by
+ * `overflow-start` / `overflow-end` on the dock, which `main.ts` sets from the real scroll position.
+ * When the shelf fits, none of this is visible and the dock looks exactly as it did.
+ */
+.tool-shelf {
+  display: flex;
+  gap: 5px;
+  min-width: 0;
+  overflow-x: auto;
+  scroll-behavior: smooth;
+  scrollbar-width: none;
+}
+.tool-shelf::-webkit-scrollbar {
+  display: none;
+}
+.build-dock.overflow-start .tool-shelf {
+  mask-image: linear-gradient(90deg, #0000, #000 26px);
+}
+.build-dock.overflow-end .tool-shelf {
+  mask-image: linear-gradient(270deg, #0000, #000 26px);
+}
+.build-dock.overflow-start.overflow-end .tool-shelf {
+  mask-image: linear-gradient(
+    90deg,
+    #0000,
+    #000 26px,
+    #000 calc(100% - 26px),
+    #0000
+  );
+}
+/* Outside the toolbar's own child list on purpose: these nudge the view, they are not build tools,
+   and they must not join the roving order a player arrows through to pick one. */
+.shelf-nudge {
+  position: absolute;
+  z-index: 2;
+  top: 8px;
+  bottom: 8px;
+  display: none;
+  place-items: center;
+  width: 20px;
+  padding: 0;
+  border: 1px solid #4a625c;
+  border-radius: 7px;
+  background: #0d1c19f2;
+  color: #cfe6de;
+  font-size: 0.72rem;
+  line-height: 1;
+}
+.shelf-nudge:hover {
+  border-color: var(--gold);
+  color: var(--gold);
+}
+.shelf-nudge[data-nudge="back"] {
+  left: 4px;
+}
+.shelf-nudge[data-nudge="forward"] {
+  right: 4px;
+}
+.build-dock.overflow-start .shelf-nudge[data-nudge="back"],
+.build-dock.overflow-end .shelf-nudge[data-nudge="forward"] {
+  display: grid;
+}
+/* Every button on the shelf is one width — the fixed tools and the nine slots alike — so the bar
+   reads as one row of the same kind of thing rather than two sizes of button that happen to sit
+   together. It is wide enough for a caption and no wider. */
+.build-dock .tool-shelf button {
+  flex: 0 0 56px;
+  min-width: 56px;
+  padding: 4px 3px;
+}
+.shelf-divider {
+  flex: 0 0 1px;
+  align-self: stretch;
+  margin: 4px 3px;
+  background: #2c443e;
+}
+.hotbar-slots {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 5px;
+}
+/* A slot is a button with its digit drawn on it, so the binding is visible instead of memorized.
+   It used to be narrow and caption-less so that nine slots beside the tools and the catalogue button
+   would fit without scrolling — but that traded a name the player can read for a bar that fits, and
+   a slot is worth reading. It now carries the same emblem and caption as every other dock button.
+   The bar overflows sooner because of it; the fades and nudges above are what make that legible. */
+.build-dock .hotbar-slot {
+  position: relative;
+  padding: 4px 3px;
+}
+.hotbar-key {
+  position: absolute;
+  top: 2px;
+  left: 4px;
+  color: #6f8c84;
+  font-size: 0.54rem;
+  font-style: normal;
+  font-weight: 700;
+  line-height: 1;
+  pointer-events: none;
+}
+.hotbar-slot.active .hotbar-key {
+  color: var(--gold);
+}
+.hotbar-slot.empty {
+  border-style: dashed;
+  border-color: #2f4a44;
+  background: #0a1614a8;
+}
+.hotbar-slot.empty > span::after {
+  content: "+";
+  color: #47635c;
+  font-weight: 400;
+}
+.hotbar-slot.drop-target {
+  border-color: var(--gold);
+  box-shadow: 0 0 0 1px #f6c85f66 inset;
+}
+/* A slot locked by research is refused rather than switched off, because `disabled` would swallow
+   the click on its own × as well and strand the pin on the bar. The dimming rides on the contents
+   so the clear affordance stays at full strength — the one control a locked slot must still offer. */
+.hotbar-slot[aria-disabled="true"] {
+  cursor: not-allowed;
+}
+.hotbar-slot[aria-disabled="true"] > span,
+.hotbar-slot[aria-disabled="true"] > small,
+.hotbar-slot[aria-disabled="true"] > .hotbar-key {
+  opacity: 0.43;
+}
+.hotbar-slot[aria-disabled="true"] .hotbar-clear {
+  cursor: pointer;
+}
+/* The clear affordance stays out of the way until the slot is worth clearing. */
+.hotbar-clear {
+  position: absolute;
+  top: 1px;
+  right: 2px;
+  display: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #22352fdd;
+  color: #d9e9e3;
+  font-size: 0.62rem;
+  font-style: normal;
+  font-weight: 700;
+  line-height: 14px;
+  text-align: center;
+}
+.hotbar-slot:not(.empty):hover .hotbar-clear,
+.hotbar-slot:not(.empty):focus-visible .hotbar-clear {
+  display: block;
+}
+.hotbar-clear:hover {
+  background: #7a2f2c;
+  color: #ffd9d7;
+}
+.build-dock .tool-shelf > .shelf-more {
+  flex: 0 0 56px;
+  min-width: 56px;
+  border-color: #3d5f57;
+  background: #12241fdd;
+}
+.shelf-more:hover {
+  border-color: var(--gold);
+}
+.tool-shelf button,
+.rotate-button,
+.field-actions button {
+  display: grid;
+  flex: 0 0 62px;
+  place-items: center;
+  gap: 3px;
+  min-width: 58px;
+  height: 70px;
+  padding: 4px 5px;
+}
+/* The picture is the thing being clicked and the caption is its label, so the picture gets the
+   room: a 32px emblem box draws at 24px, and a text glyph is set to match it rather than to match
+   the caption under it. A pinned building draws its emblem here; a pinned tool keeps its text
+   glyph, which is the useful distinction — one is a machine you are about to place, the other is a
+   mode you are about to enter. */
+.tool-shelf button > span,
+.rotate-button > span,
+.field-actions button > span {
+  --emblem-size: 32px;
+  font-size: 1.5rem;
+  font-weight: 900;
+  line-height: 1;
+}
+/* Two lines rather than one, because a two-word machine name is the common case here and
+   "Manual Wo…" is not a name. The clamp still cuts anything longer off, so the button cannot grow
+   under a caption; the full name stays in the tooltip and in the catalogue. */
+.tool-shelf small,
+.rotate-button small,
+.field-actions small {
+  display: -webkit-box;
+  overflow: hidden;
+  max-width: 100%;
+  color: #a9beb6;
+  font-size: 0.58rem;
+  line-height: 1.15;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: normal;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+.field-actions .primary-action small {
+  color: #ffe9b4;
+}
+.tool-shelf button.locked {
+  opacity: 0.5;
+}
+.tool-shelf button.active {
+  border-color: var(--gold);
+  box-shadow: inset 0 -2px var(--gold);
+  background: #3a351e;
+}
+.rotate-button {
+  margin-left: 5px;
+  border-left-color: #627870;
+}
+/* The job a machine is set to build — in the dock before placing, in the inspector after. */
+.recipe-picker {
+  display: grid;
+  flex: 0 0 auto;
+  align-content: center;
+  gap: 2px;
+  margin-left: 5px;
+  max-width: 158px;
+}
+.recipe-picker[hidden] {
+  display: none;
+}
+.recipe-picker select {
+  max-width: 100%;
+  padding: 5px 6px;
+  font-size: 0.68rem;
+}
+.inspector-panel .recipe-picker {
+  margin-top: 8px;
+  margin-left: 0;
+  max-width: none;
+}
+
+/*
+ * The next step, in permanent chrome. The top-left corner is a stack, read downward: the view
+ * buttons, then this card, then whatever panel is open. It used to share the corner with the
+ * buttons, which drew over the one sentence a new player needs, so it now starts below them and
+ * the panels start below its heading — opening one covers the world under the card rather than
+ * the sentence itself. It reads as a card the player can press rather than a toast that will go
+ * away.
+ */
+.next-step {
+  position: absolute;
+  z-index: 6;
+  top: 70px;
+  left: 14px;
+  display: grid;
+  gap: 3px;
+  width: min(336px, calc(100% - 340px));
+  padding: 9px 12px;
+  border: 1px solid #45605a;
+  border-radius: 12px;
+  background: #0b1a17e6;
+  box-shadow: 0 14px 40px #0009;
+  backdrop-filter: blur(12px);
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.game-stage:has(.rail-left .glass-panel.open) .next-step,
+.game-stage:has(.glass-panel.open) .view-actions {
+  visibility: hidden;
+  opacity: 0;
+  pointer-events: none;
+}
+.next-step:hover,
+.next-step[aria-expanded="true"] {
+  border-color: var(--gold);
+}
+.next-step strong {
+  font-size: 0.88rem;
+  line-height: 1.25;
+}
+.next-step small {
+  color: #b9ccc5;
+  font-size: 0.72rem;
+  line-height: 1.45;
+}
+
+/* The bill, as lines rather than a sentence: one row per item, each with both its numbers. */
+.contract-bill {
+  display: grid;
+  gap: 6px;
+  margin: 9px 0 0;
+  padding: 0;
+  list-style: none;
+}
+/* The bill is a fetch list, so every line is one chip and nothing else. It used to be a colour
+   swatch with no glyph — see `.item-chip` for why that was the worst place for one. */
+.contract-line .item-chip-name {
+  font-size: 0.78rem;
+}
+.contract-line .item-chip-count,
+.request-line .item-chip-count {
+  color: var(--gold);
+  font-size: 0.74rem;
+  font-weight: 800;
+}
+.contract-line .item-chip-meter b,
+.request-line .item-chip-meter b {
+  background: linear-gradient(90deg, var(--gold), #fff09b);
+  transition: width 280ms ease;
+}
+
+.quest-requests {
+  margin-top: 8px;
+}
+.request-board {
+  display: grid;
+  gap: 9px;
+  margin: 9px 0 0;
+  padding: 0;
+  list-style: none;
+}
+/* Two lines per row: the offer, then the sentence under it. The chip carries the item, the count,
+   and the bar, and the price sits beside it. */
+.request-line {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 5px 8px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #24393450;
+}
+.request-line:last-child {
+  padding-bottom: 0;
+  border-bottom: 0;
+}
+.request-item {
+  min-width: 0;
+}
+.request-line .item-chip-name {
+  font-size: 0.78rem;
+}
+.request-price {
+  color: var(--gold);
+  font-size: 0.74rem;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.request-brief {
+  grid-column: 1 / -1;
+  color: #b9ccc5;
+  font-size: 0.7rem;
+  line-height: 1.45;
+}
+
+/* The whole bill of work, under the board. Demand is finite, so what is left has to be readable
+   without hunting: the summary carries the count and the insight still on the table. */
+.project-catalogue {
+  margin-top: 10px;
+}
+.project-catalogue > summary {
+  cursor: pointer;
+  color: #cfe0da;
+  font-size: 0.74rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+.project-catalogue > summary #project-catalogue-count {
+  color: var(--gold);
+  font-variant-numeric: tabular-nums;
+  font-weight: 800;
+}
+.project-catalogue-note {
+  margin: 6px 0 0;
+  color: #91a8a1;
+  font-size: 0.68rem;
+  line-height: 1.45;
+}
+.project-catalogue-list {
+  max-height: 260px;
+  overflow-y: auto;
+}
+/* Four columns rather than two: the state and the control sit beside the price. */
+.project-line {
+  grid-template-columns: minmax(0, 1fr) auto auto auto;
+}
+.project-state {
+  color: #91a8a1;
+  font-size: 0.68rem;
+  white-space: nowrap;
+}
+.project-line[data-state="posted"] .project-state {
+  color: var(--gold);
+}
+.project-line[data-state="complete"] {
+  opacity: 0.55;
+}
+.project-line[data-state="complete"] .project-state {
+  color: #7fd6a8;
+}
+.project-line[data-state="locked"] {
+  opacity: 0.7;
+}
+.project-post {
+  padding: 3px 9px;
+  border: 1px solid #2f4a43;
+  border-radius: 5px;
+  background: #16241f;
+  color: #cfe0da;
+  font-size: 0.68rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+.project-post:hover:not(:disabled) {
+  border-color: var(--gold);
+  color: var(--gold);
+}
+.project-post:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.comfort-settings {
+  display: grid;
+  gap: 7px;
+}
+.comfort-settings .switch {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #cfe0da;
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+.comfort-settings .switch input {
+  width: 15px;
+  height: 15px;
+  accent-color: var(--gold);
+}
+.comfort-note {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.68rem;
+  line-height: 1.45;
+}
+
+/* Progressive disclosure: the control that says what is being held back, and hands it over. */
+/*
+ * Finding a building in the catalogue.
+ *
+ * Thirty definitions across five groups is past the point where scanning is a reasonable ask, and
+ * the reach/everything toggle answers a different question — what is *available* — not "where is
+ * the crusher". Search matches name, description and group, so a player who half-remembers what a
+ * machine does can still reach it, and it deliberately looks past the reach filter: typing a name
+ * is an explicit request for that thing, and hiding it because it is locked would be answering a
+ * question nobody asked.
+ */
+/*
+ * The search is the panel's own control rather than a row that scrolls away with the results it
+ * filters: refining a query meant scrolling back up to reach the box, which is the one place in a
+ * long catalogue a player is guaranteed to be far from. It sticks to the panel's inner top edge,
+ * and it is offset by the panel's own padding and painted solid so nothing passes behind it.
+ */
+.build-find {
+  position: sticky;
+  z-index: 2;
+  top: -15px;
+  display: grid;
+  gap: 6px;
+  margin: 0 -15px 10px;
+  padding: 15px 15px 8px;
+  background: var(--panel-solid);
+}
+#build-search,
+#recipe-search {
+  width: 100%;
+  padding: 0.4rem 0.6rem;
+  border: 1px solid #35524b;
+  border-radius: 9px;
+  background: #0a1815d0;
+  color: #e6f4ee;
+  font-size: 0.74rem;
+}
+#build-search::placeholder,
+#recipe-search::placeholder {
+  color: #6f8c84;
+}
+#build-search:focus-visible,
+#recipe-search:focus-visible {
+  border-color: var(--gold);
+  outline: none;
+}
+/*
+ * The recipe lookup's results. Two answers to the same query, kept apart because they are different
+ * facts: what makes the thing you searched for, and what spends it. A row reads left to right —
+ * process emblem, name, time — then wraps to the materials and to the machines that run it, so a
+ * scan down the column compares the same three things in the same places.
+ */
+.recipe-results {
+  display: grid;
+  gap: 14px;
+}
+.recipe-group[hidden] {
+  display: none;
+}
+.recipe-group h3 {
+  margin: 0 0 6px;
+  font-size: 0.82rem;
+  letter-spacing: -0.01em;
+}
+.recipe-list {
+  display: grid;
+  gap: 5px;
+}
+.lookup-row {
+  gap: 4px 7px;
+  padding: 7px 9px;
+}
+.lookup-name {
+  font-size: 0.76rem;
+}
+.lookup-flow {
+  display: flex;
+  flex: 1 0 100%;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+}
+.lookup-machines {
+  flex: 1 0 100%;
+  color: var(--muted);
+  font-size: 0.64rem;
+}
+/* A recipe no research has reached is still worth reading — it is how a player learns what to aim
+   at — so it is dimmed rather than withheld, and the click says which machine is still missing. */
+.lookup-row.locked .lookup-machines {
+  color: #b0906a;
+}
+.lookup-row.locked .recipe-emblem,
+.lookup-row.locked .lookup-flow {
+  opacity: 0.62;
+}
+.recipe-arrow[hidden] {
+  display: none;
+}
+.build-empty {
+  margin: 0 0 10px;
+  color: var(--muted);
+  font-size: 0.74rem;
+}
+.build-empty[hidden] {
+  display: none;
+}
+.scope-toggle {
+  width: 100%;
+  padding: 0.4rem 0.6rem;
+  border: 1px dashed #4a625c;
+  border-radius: 9px;
+  background: #10201cc0;
+  color: #b9ccc5;
+  font-size: 0.72rem;
+  cursor: pointer;
+}
+.scope-toggle:hover {
+  border-color: var(--gold);
+  color: #fff3c8;
+}
+
+/*
+  Creative mode. A test bed rather than a second game, so it borrows the panel vocabulary whole and
+  adds only what it has to: a switch, a pack size, and one row per material.
+*/
+.creative-panel {
+  width: 336px;
+}
+.creative-panel.open {
+  display: grid;
+  gap: 10px;
+}
+.creative-panel .switch {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #cfe0da;
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+.creative-panel .switch input {
+  width: 15px;
+  height: 15px;
+  accent-color: var(--gold);
+}
+.creative-note {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.68rem;
+  line-height: 1.45;
+}
+.creative-slots {
+  display: flex;
+  align-items: end;
+  gap: 8px;
+}
+.creative-slots label {
+  display: grid;
+  flex: 1 1 auto;
+  gap: 5px;
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+.creative-grant {
+  display: grid;
+  gap: 6px;
+}
+/*
+  Twenty-three materials is more than a panel can show at once, so the list scrolls inside the panel
+  rather than growing it past the viewport. Each row keeps its own scrollbar gutter.
+*/
+.creative-items {
+  display: grid;
+  gap: 5px;
+  overflow-y: auto;
+  max-height: 40vh;
+  padding-right: 4px;
+}
+.creative-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 7px;
+  border: 1px solid #2a4038;
+  border-radius: 9px;
+  background: #0a1815c4;
+}
+.creative-item-chip {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.creative-item-chip .chip {
+  width: 100%;
+}
+.creative-item-actions {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 4px;
+}
+.creative-item-actions button {
+  padding: 2px 7px;
+  font-size: 0.68rem;
+}
+/* A sandbox run should be readable from the toolbar, not only from the panel it is switched in. */
+.icon-button.creative-on {
+  border-color: var(--gold);
+  color: var(--gold);
+}
+
+.feedback {
+  position: absolute;
+  z-index: 18;
+  left: 50%;
+  bottom: 86px;
+  max-width: min(500px, 80%);
+  opacity: 0;
+  translate: -50% 10px;
+  padding: 0.65rem 0.9rem;
+  border: 1px solid #5a7d74;
+  border-radius: 9px;
+  background: #0d1c19f2;
+  pointer-events: none;
+  text-align: center;
+  transition:
+    opacity 160ms ease,
+    translate 160ms ease;
+}
+.feedback.visible {
+  opacity: 1;
+  translate: -50% 0;
+}
+.victory {
+  position: absolute;
+  z-index: 17;
+  top: 18px;
+  left: 50%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  translate: -50% 0;
+  padding: 0.75rem 1rem;
+  border-radius: 12px;
+  color: #1c1a0c;
+  background: linear-gradient(135deg, #fff0a0, var(--gold));
+  box-shadow: 0 12px 45px #0009;
+}
+.victory[hidden] {
+  display: none;
+}
+.victory > span {
+  font-size: 1.4rem;
+}
+.victory div {
+  display: grid;
+}
+.victory small {
+  max-width: 360px;
+  font-size: 0.68rem;
+}
+.touch-controls {
+  display: none;
+}

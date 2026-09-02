@@ -1,0 +1,763 @@
+/* The construction catalogue. Wide enough for a recipe to read as one line of materials. */
+.build-panel {
+  width: min(560px, calc(100vw - 28px));
+}
+.build-panel.open {
+  display: block;
+}
+.recipe-panel {
+  width: min(560px, calc(100vw - 28px));
+}
+.recipe-panel.open {
+  display: block;
+}
+.build-groups {
+  display: grid;
+  gap: 16px;
+}
+.build-group h3 {
+  margin: 0;
+  font-size: 0.86rem;
+  letter-spacing: -0.01em;
+}
+.build-group > p {
+  margin: 2px 0 8px;
+  color: var(--muted);
+  font-size: 0.72rem;
+  line-height: 1.45;
+}
+.build-group[hidden] {
+  display: none;
+}
+.build-cards {
+  display: grid;
+  gap: 8px;
+}
+.build-card {
+  display: grid;
+  gap: 6px;
+  padding: 9px 10px;
+  border: 1px solid #2a4038;
+  border-radius: 9px;
+  background: #0a1815c4;
+  cursor: pointer;
+}
+.build-card:hover {
+  border-color: #43695f;
+}
+.build-card.active {
+  border-color: var(--gold);
+  background: #16241bcc;
+}
+.build-card.locked {
+  opacity: 0.62;
+  cursor: not-allowed;
+}
+/* Locked keeps its emblem — a player deciding what to research next needs to recognise the machine
+   they cannot build yet. The plate goes dashed instead, so the state is still readable at a glance. */
+.build-card.locked .build-stamp {
+  border-style: dashed;
+}
+.build-card.unaffordable .build-cost .ingredient-list {
+  color: #ff9e9b;
+}
+.build-card header {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+/*
+ * The fixed emblem box, shared by every family `src/rendering/emblems.ts` draws.
+ *
+ * Fixed is the whole point. A box that resizes to its artwork means redrawing one emblem reflows
+ * the card it sits on, so the size is declared here once and every drawing is fitted into it. The
+ * accent arrives as `--emblem-color` and the SVG inherits it through `currentColor`, which is why
+ * no drawing carries a colour of its own.
+ */
+.emblem {
+  position: relative;
+  display: grid;
+  flex: 0 0 var(--emblem-size, 32px);
+  place-items: center;
+  width: var(--emblem-size, 32px);
+  height: var(--emblem-size, 32px);
+  color: var(--emblem-color, #8fd4ff);
+}
+.emblem > svg {
+  width: 76%;
+  height: 76%;
+}
+/* A rank is an overlay, never baked into the drawing — Extractor II is the extractor plus a badge,
+   so the two tiers stay recognisably the same machine. */
+.emblem-rank {
+  position: absolute;
+  right: -2px;
+  bottom: -3px;
+  padding: 0 2px;
+  border-radius: 4px;
+  background: #06110eee;
+  color: var(--emblem-color, #8fd4ff);
+  font-size: 0.48rem;
+  font-style: normal;
+  font-weight: 800;
+  line-height: 1.4;
+}
+/* The fallback: a generic plate plus the definition's own short text. Never a blank button. */
+.emblem-generic > svg {
+  opacity: 0.45;
+}
+.emblem-generic::after {
+  content: attr(data-text);
+  position: absolute;
+  color: #eef8f3;
+  font-size: 0.44rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+}
+.build-stamp {
+  --emblem-size: 32px;
+  border: 1px solid var(--emblem-color, #8fd4ff);
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--emblem-color, #8fd4ff) 18%, #08130f);
+}
+.build-card-title {
+  display: grid;
+  flex: 1 1 auto;
+  gap: 3px;
+  min-width: 0;
+}
+.build-card-title strong {
+  font-size: 0.84rem;
+}
+.build-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.build-chip {
+  padding: 1px 6px;
+  border: 1px solid #37554d;
+  border-radius: 99px;
+  color: #a9c6bd;
+  font-size: 0.6rem;
+  white-space: nowrap;
+}
+.build-pin {
+  flex: 0 0 auto;
+  padding: 4px 9px;
+  font-size: 0.66rem;
+}
+.build-card.pinned .build-pin {
+  border-color: #b48d37;
+  color: var(--gold);
+}
+.build-card-copy {
+  margin: 0;
+  color: #b6cbc3;
+  font-size: 0.72rem;
+  line-height: 1.45;
+}
+/* Costs and recipes share one vocabulary: a glyph, a count, a name. */
+.build-cost,
+.recipe-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+}
+.build-cost[hidden],
+.build-recipes[hidden] {
+  display: none;
+}
+.ingredient-label {
+  color: var(--muted);
+  font-size: 0.64rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.ingredient-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  align-items: center;
+}
+.ingredient {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+}
+
+/*
+ * The item chip: the only way an item is ever drawn.
+ *
+ * Eight places used to render "an item and a quantity" and no two agreed — three orderings of
+ * glyph, name and count, three spellings of the same number, and two places (the contract bill and
+ * the request board) where an item was a bare colour swatch with no glyph at all. Colour alone is
+ * not an identity in this catalogue: Iron plate, Gravel, and Concrete are three greys, and those
+ * two boards are precisely where the player is being told to go and fetch a specific one.
+ *
+ * `.named`, `.metered`, and `.short` are modifiers on this one markup. There is no second shape,
+ * and there is no variant without a glyph.
+ */
+.item-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  font-size: 0.72rem;
+  line-height: 1.25;
+}
+.item-chip-glyph {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 21px;
+  height: 21px;
+  border-radius: 6px;
+  color: var(--item-color, var(--muted));
+  background: color-mix(in srgb, var(--item-color) 13%, transparent);
+  box-shadow: inset 0 0 0 1px
+    color-mix(in srgb, var(--item-color) 42%, transparent);
+}
+.item-chip-glyph svg {
+  display: block;
+  width: 16px;
+  height: 16px;
+}
+.item-chip.short {
+  gap: 4px;
+}
+.item-chip.short .item-chip-glyph {
+  width: 18px;
+  height: 18px;
+  border-radius: 5px;
+}
+.item-chip.short .item-chip-glyph svg {
+  width: 14px;
+  height: 14px;
+}
+.item-chip.empty .item-chip-glyph {
+  background: transparent;
+  box-shadow: inset 0 0 0 1px #24382f;
+}
+.item-chip-name {
+  overflow: hidden;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.item-chip-count {
+  flex: none;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.item-chip.covered .item-chip-count {
+  color: var(--mint);
+}
+.item-chip.shortfall .item-chip-count,
+.item-chip-short {
+  color: var(--gold);
+  font-variant-numeric: tabular-nums;
+}
+.item-chip-short {
+  flex: none;
+  font-size: 0.64rem;
+  white-space: nowrap;
+}
+.item-chip-name[hidden],
+.item-chip-count[hidden],
+.item-chip-short[hidden],
+.item-chip-meter[hidden] {
+  display: none;
+}
+/* A metered chip owns its row: the numbers sit on one line and the bar spans beneath them. */
+.item-chip.metered {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 3px 7px;
+  width: 100%;
+}
+.item-chip.metered .item-chip-short {
+  grid-column: 3;
+}
+.item-chip-meter {
+  display: block;
+  grid-column: 1 / -1;
+  overflow: hidden;
+  height: 4px;
+  border-radius: 999px;
+  background: #0b1714;
+  box-shadow: inset 0 0 0 1px #24382f;
+}
+.item-chip-meter b {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--item-color) 60%, #0e2620),
+    var(--item-color)
+  );
+}
+.build-recipes {
+  display: grid;
+  gap: 4px;
+  margin-top: 2px;
+}
+/*
+ * A card's recipes are the detail behind it, not part of its resting shape. Drawing every row for
+ * every machine turned the catalogue into a wall of chips to scroll past, and the rows a player is
+ * scrolling past are precisely the ones they are not choosing between. The card keeps its name,
+ * cost and chips at rest and opens its recipes under the pointer; `:focus-within` opens the same
+ * list for a keyboard, which reaches the rows by tabbing through the card's own Pin, and the held
+ * machine keeps its list open because that is the one a recipe is being chosen for. Searching every
+ * recipe by ingredient is the recipe panel's job, and it is one key away.
+ *
+ * Only where there is a pointer to hover with. On a touch screen there is no such gesture, and a
+ * list that can never be opened is worse than a long one.
+ */
+@media (hover: hover) {
+  .build-card .build-recipes {
+    display: none;
+  }
+  .build-card:hover .build-recipes:not([hidden]),
+  .build-card:focus-within .build-recipes:not([hidden]),
+  .build-card.active .build-recipes:not([hidden]) {
+    display: grid;
+  }
+}
+.recipe-row {
+  width: 100%;
+  padding: 5px 7px;
+  border: 1px solid #263d36;
+  border-radius: 7px;
+  background: #08120fb0;
+  text-align: left;
+}
+.recipe-row:hover {
+  border-color: #43695f;
+}
+.recipe-row.chosen {
+  border-color: var(--gold);
+  background: #1a1c12b0;
+}
+/* The category emblem says what kind of process this row is, which matters on the stations that run
+   more than one: a workshop offering assembly and cutting reads as two different jobs at a glance
+   rather than as two rows of chips that happen to differ. */
+.recipe-emblem {
+  --emblem-size: 18px;
+  flex: 0 0 18px;
+}
+.recipe-arrow {
+  color: var(--gold);
+  font-size: 0.82rem;
+  font-style: normal;
+}
+.recipe-meta {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 0.62rem;
+  white-space: nowrap;
+}
+.panel-heading {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 12px;
+}
+.panel-heading h2 {
+  margin: 3px 0 0;
+  font-size: 1.05rem;
+  letter-spacing: -0.02em;
+}
+.panel-close {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  font-size: 1.2rem;
+}
+.inspector-panel .panel-close,
+#inspector-toggle {
+  display: none;
+}
+.next-action-detail,
+.panel-copy {
+  margin: 10px 0 13px;
+  color: #b9ccc5;
+  font-size: 0.78rem;
+  line-height: 1.5;
+}
+.panel-link {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0 0 12px;
+  padding: 9px 11px;
+  border: 1px solid #3d5b53;
+  border-radius: 9px;
+  background: #132722;
+  color: #dbe8e3;
+  font: inherit;
+  font-size: 0.72rem;
+  font-weight: 750;
+  text-align: left;
+  cursor: pointer;
+}
+.panel-link:hover,
+.panel-link:focus-visible {
+  border-color: var(--gold);
+  color: #fff3c8;
+}
+.controls-reference {
+  margin-top: 12px;
+  border-top: 1px solid #324a44;
+}
+.controls-reference summary {
+  padding: 11px 0 3px;
+  color: #a9bcb6;
+  font-size: 0.7rem;
+  font-weight: 800;
+  cursor: pointer;
+}
+.controls-reference[open] summary {
+  color: var(--gold);
+}
+.controls-reference-body {
+  padding-bottom: 2px;
+}
+.primary-action {
+  border-color: #b48d37;
+  background: #443717;
+  color: #fff3c8;
+  font-weight: 800;
+}
+.inventory {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(52px, 1fr));
+  gap: 6px;
+  margin-top: 8px;
+}
+.inventory-slot {
+  display: grid;
+  justify-items: center;
+  gap: 3px;
+  min-height: 52px;
+  padding: 7px 4px;
+  border: 1px dashed #2b423c;
+  border-radius: 8px;
+  background: #08130fa8;
+  cursor: pointer;
+  user-select: none;
+}
+.inventory-slot.filled {
+  border-style: solid;
+  border-color: color-mix(in srgb, var(--item-color) 55%, transparent);
+  background: #091714c7;
+}
+.inventory-slot:hover,
+.inventory-slot:focus-visible,
+.machine-stock-slot:hover,
+.machine-stock-slot:focus-visible {
+  border-color: var(--gold);
+  background: #14251fcf;
+  outline: none;
+}
+/* A slot is a drag handle, so the browser must not claim the gesture first: without this a finger
+   press scrolls the panel and the stack never lifts. Losing scroll-from-a-slot is the trade every
+   drag interface makes, and the panel still scrolls from everywhere between them. */
+.inventory-slot,
+.machine-stock-slot {
+  touch-action: none;
+}
+/* While a stack is in the air, the slots that could take it say so before the player commits, and
+   the one under the pointer says it louder. Nothing has been sent to native at this point — this is
+   the interface answering a question the simulation has not been asked yet. */
+.dragging-stack .inventory-slot.drop-ready,
+.dragging-stack .machine-stock-slot.drop-ready {
+  border-style: solid;
+  border-color: var(--mint);
+  background: #10241dcf;
+}
+.dragging-stack .inventory-slot.drop-over,
+.dragging-stack .machine-stock-slot.drop-over {
+  border-color: var(--mint);
+  background: #16342a;
+  box-shadow: 0 0 0 2px #72e2b455;
+}
+/* The pointer is holding something, everywhere, not only over the grid it started in. */
+.dragging-stack,
+.dragging-stack * {
+  cursor: grabbing !important;
+}
+.inventory-slot .item-chip {
+  flex-direction: column;
+  gap: 3px;
+}
+.inventory-slot .item-chip-glyph {
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
+}
+.inventory-slot .item-chip-glyph svg {
+  width: 20px;
+  height: 20px;
+}
+.inventory-slot .item-chip-count {
+  color: var(--ink);
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.quest-objective {
+  margin-top: 4px;
+  padding: 9px 10px;
+  border-radius: 8px;
+  background: #091714c7;
+}
+.quest-objective p {
+  margin: 5px 0 0;
+  color: #d7e5df;
+  font-size: 0.74rem;
+  line-height: 1.5;
+}
+.control-block {
+  margin-top: 15px;
+  padding-top: 12px;
+  border-top: 1px solid #324a44;
+}
+.control-block p {
+  margin: 6px 0 0;
+  color: #b9ccc5;
+  font-size: 0.73rem;
+  line-height: 1.55;
+}
+/* The legend earns its place by naming the category, not the colour: hatched means impassable. */
+.terrain-legend {
+  display: grid;
+  gap: 5px;
+  margin-top: 10px;
+}
+.terrain-legend > div {
+  display: grid;
+  grid-template-columns: 18px 1fr auto;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.68rem;
+  color: #c7dad3;
+}
+.terrain-legend i {
+  height: 15px;
+  border: 1px solid var(--band-stroke);
+  border-radius: 3px;
+  background: var(--band-fill);
+}
+.terrain-legend i.impassable {
+  background-image: repeating-linear-gradient(
+    -45deg,
+    var(--band-stroke) 0 1px,
+    transparent 1px 4px
+  );
+}
+.terrain-legend small {
+  color: var(--muted);
+  font-size: 0.6rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+.terrain-legend .impassable-label {
+  color: #ffbdb2;
+}
+
+.inspect-heading-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 3px;
+}
+.inspect-heading-row h2 {
+  margin: 0;
+}
+.inspect-status {
+  display: inline-grid;
+  place-items: center;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: #243832;
+  color: #c7dad3;
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.inspect-status[hidden] {
+  display: none;
+}
+.inspect-status.live {
+  background: #16382c;
+  color: var(--mint);
+  box-shadow: inset 0 0 0 1px #2f6b55;
+}
+.inspect-status.wait {
+  background: #24322e;
+  color: #b9ccc5;
+}
+.inspect-status.stop {
+  background: #3a1f1c;
+  color: var(--danger);
+  box-shadow: inset 0 0 0 1px #875c57;
+}
+.inspect-status.hub {
+  background: #3a3014;
+  color: var(--gold);
+  box-shadow: inset 0 0 0 1px #8a7030;
+}
+.inspector {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+  color: #d7e5df;
+  font-size: 0.72rem;
+  line-height: 1.4;
+}
+.inspect-empty {
+  margin: 0;
+  padding: 12px 10px;
+  border-radius: 8px;
+  background: #091714c7;
+  color: var(--muted);
+}
+.inspect-sheet {
+  display: grid;
+  gap: 8px;
+}
+.inspect-empty[hidden],
+.inspect-sheet[hidden],
+.inspect-place[hidden],
+.inspect-field[hidden],
+.inspect-machine[hidden],
+.inspect-cargo[hidden],
+.inspect-stock[hidden],
+.inspect-output-routing[hidden],
+#inspect-load[hidden],
+.inspect-meter[hidden],
+.inspect-chip[hidden],
+.inspect-tier[hidden],
+.inspect-reach[hidden],
+#inspect-upgrade[hidden],
+.inspect-facing-tick[hidden] {
+  display: none;
+}
+.inspect-tier {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding-top: 6px;
+  border-top: 1px solid #243832;
+}
+.inspect-reach {
+  color: #d7e5df;
+  font-size: 0.68rem;
+  font-variant-numeric: tabular-nums;
+}
+#inspect-upgrade {
+  margin-left: auto;
+}
+#inspect-upgrade:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.inspect-identity,
+.inspect-place,
+.inspect-field,
+.inspect-machine {
+  padding: 9px;
+  border-radius: 8px;
+  background: #091714c7;
+}
+.inspect-identity {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  gap: 12px;
+}
+.inspect-portrait {
+  position: relative;
+  width: 52px;
+  height: 58px;
+}
+.inspect-band-swatch {
+  display: block;
+  background: var(--band-fill, #2a4a3c);
+  border: 1px solid var(--band-stroke, #4d7a62);
+}
+.inspect-hex {
+  display: block;
+  background: var(--band-fill, #2a4a3c);
+  position: absolute;
+  inset: 4px 6px;
+  clip-path: polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%);
+}
+.inspect-hex.impassable,
+.inspect-band-swatch.impassable {
+  background-image: repeating-linear-gradient(
+    -45deg,
+    var(--band-stroke) 0 1px,
+    transparent 1px 4px
+  );
+}
+.inspect-portrait-mark {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: #f4f7f5;
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-shadow: 0 1px 2px #000a;
+  pointer-events: none;
+}
+.inspect-portrait-mark svg {
+  width: 22px;
+  height: 22px;
+  display: block;
+  filter: drop-shadow(0 1px 2px #000a);
+}
+.inspect-facing-tick {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 0;
+  height: 0;
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+  border-bottom: 7px solid var(--gold);
+  margin: -3.5px 0 0 -4px;
+  filter: drop-shadow(0 0 4px #f6c85f88);
+  transform-origin: 50% 3.5px;
+}
+.inspect-facing-tick.dir-0 {
+  transform: rotate(90deg) translateY(-18px);
+}
+.inspect-facing-tick.dir-1 {
+  transform: rotate(150deg) translateY(-18px);
+}
+.inspect-facing-tick.dir-2 {
+  transform: rotate(210deg) translateY(-18px);
+}
+.inspect-facing-tick.dir-3 {
+  transform: rotate(270deg) translateY(-18px);
+}
+.inspect-facing-tick.dir-4 {
+  transform: rotate(330deg) translateY(-18px);
+}
+.inspect-facing-tick.dir-5 {
+  transform: rotate(30deg) translateY(-18px);
+}

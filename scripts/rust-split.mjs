@@ -9,7 +9,7 @@
  *   node scripts/rust-split.mjs inventory factory-wasm/src/lib.rs --impl Core
  *   node scripts/rust-split.mjs inventory factory-wasm/src/lib.rs --impl Core --json > /tmp/core.json
  *   node scripts/rust-split.mjs apply factory-wasm/src/lib.rs --impl Core \
- *        --map scripts/core-split.map.json --out-dir factory-wasm/src/core --dry-run
+ *        --lines 2816-3164 --module catalog --out-dir factory-wasm/src/core --dry-run
  *
  * The map file is `{ "method_name": "module_stem", ... }`. Methods absent from
  * the map stay put. Emitted modules contain `impl Core { ... }` with the moved
@@ -238,7 +238,7 @@ const has = (name) => argv.includes(`--${name}`);
 
 if (!cmd || !file || !["inventory", "apply"].includes(cmd)) {
   console.error(
-    "usage: rust-split.mjs <inventory|apply> <file.rs> --impl <Type> [--map m.json --out-dir dir] [--json] [--dry-run]",
+    "usage: rust-split.mjs <inventory|apply> <file.rs> --impl <Type> [--map m.json | --lines first-last --module name] --out-dir dir [--json] [--dry-run]",
   );
   process.exit(2);
 }
@@ -288,11 +288,35 @@ if (cmd === "inventory") {
 
 const mapPath = flag("map");
 const outDir = flag("out-dir");
-if (!mapPath || !outDir) {
-  console.error("apply requires --map <file.json> and --out-dir <dir>");
+const lineRange = flag("lines");
+const rangeModule = flag("module");
+if ((!mapPath && !(lineRange && rangeModule)) || !outDir) {
+  console.error(
+    "apply requires --out-dir and either --map or --lines with --module",
+  );
   process.exit(2);
 }
-const map = JSON.parse(readFileSync(mapPath, "utf8"));
+let map;
+if (mapPath) {
+  map = JSON.parse(readFileSync(mapPath, "utf8"));
+} else {
+  const match = /^(\d+)-(\d+)$/.exec(lineRange);
+  if (!match) {
+    console.error("--lines must be first-last");
+    process.exit(2);
+  }
+  const first = Number(match[1]);
+  const last = Number(match[2]);
+  map = Object.fromEntries(
+    methods
+      .filter((method) => method.line >= first && method.endLine <= last)
+      .map((method) => [method.name, rangeModule]),
+  );
+  if (!Object.keys(map).length) {
+    console.error(`no methods wholly inside lines ${lineRange}`);
+    process.exit(1);
+  }
+}
 const dryRun = has("dry-run");
 
 const byName = new Map(methods.map((m) => [m.name, m]));
@@ -320,23 +344,36 @@ const header = (mod) =>
   `//! Methods moved verbatim; add the imports the compiler asks for.\n\n` +
   `use super::*;\n\n`;
 
+function crateVisibleMethod(source) {
+  return source.replace(
+    /^(\s*)(?=(?:(?:default|const|async|unsafe)\s+|extern\s+"[^"]*"\s+)*fn\s)/m,
+    "$1pub(crate) ",
+  );
+}
+
 let moved = 0;
 const plan = [];
 for (const [mod, list] of groups) {
   list.sort((a, b) => a.start - b.start);
-  const body = list.map((m) => src.slice(m.start, m.end)).join("\n\n");
+  const body = list
+    .map((m) => crateVisibleMethod(src.slice(m.start, m.end)))
+    .join("\n\n");
   const content = `${header(mod)}impl ${typeName} {\n${body}\n}\n`;
   const target = join(outDir, `${mod}.rs`);
-  plan.push({ target, methods: list.length, bytes: content.length });
+  plan.push({ target, methods: list.length, bytes: content.length, content });
   moved += list.reduce((a, m) => a + m.bytes, 0);
-  if (!dryRun) {
-    mkdirSync(outDir, { recursive: true });
-    if (existsSync(target)) {
-      console.error(`refusing to overwrite ${target}`);
-      process.exit(1);
-    }
-    writeFileSync(target, content);
+}
+
+if (!dryRun) {
+  const collisions = plan.filter(({ target }) => existsSync(target));
+  if (collisions.length) {
+    console.error(
+      `refusing to overwrite: ${collisions.map(({ target }) => target).join(", ")}`,
+    );
+    process.exit(1);
   }
+  mkdirSync(outDir, { recursive: true });
+  for (const { target, content } of plan) writeFileSync(target, content);
 }
 
 for (const p of plan)

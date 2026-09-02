@@ -1,123 +1,153 @@
-import { readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { relative, resolve } from "node:path";
 
 const root = resolve(import.meta.dirname, "..");
-const outputPath = resolve(root, "docs/AGENT-MAP.md");
+const routerPath = resolve(root, "docs/AGENT-MAP.md");
+const shardRoot = resolve(root, ".agent");
 const roots = ["factory-wasm/src", "src", "tests"];
+const MAX_ROUTER_BYTES = 4 * 1024;
+const MAX_SHARD_BYTES = 8 * 1024;
+const MAX_DECLARATIONS_PER_FILE = 4;
 
 const routes = [
   [
     "Fences, gates and edge construction",
+    "native",
     "factory-wasm/src/boundaries.rs; src/ui/boundaries.ts; src/rendering/three/boundaryMeshes.ts",
     "BoundaryEdit, boundary_transaction, BoundaryTool, BoundaryMeshes",
   ],
   [
     "Ground grading, paving and roads",
+    "native",
     "factory-wasm/src/ground_spine.rs; factory-wasm/src/ground.rs; src/ui/ground.ts; src/rendering/three/pavingSurface.ts",
     "GroundSpine, FinishedGround, GroundEdit, ground_transaction, GroundTool, PavingSurface",
   ],
   [
-    "Native tick, determinism",
-    "factory-wasm/src/lib.rs",
-    "advance_ticks, checksum, Core",
+    "Native tick and determinism",
+    "simulation",
+    "factory-wasm/src/core/tick.rs; factory-wasm/src/core/snapshots.rs",
+    "advance, checksum",
   ],
   [
-    "Transport, junctions, arbitration",
-    "factory-wasm/src/runtime.rs; factory-wasm/src/lib.rs",
+    "Transport, junctions and arbitration",
+    "simulation",
+    "factory-wasm/src/runtime.rs; factory-wasm/src/core/graph.rs; factory-wasm/src/core/transport.rs",
     "compile_graph, transfer_cargo",
   ],
-  ["Power", "factory-wasm/src/lib.rs", "compile_power, distribute_power"],
+  [
+    "Power",
+    "simulation",
+    "factory-wasm/src/core/power.rs",
+    "compile_power, distribute_power",
+  ],
   [
     "World generation and fields",
-    "factory-wasm/src/lib.rs",
+    "native",
+    "factory-wasm/src/terra.rs; factory-wasm/src/lib.rs",
     "WorldParams, WorldFields, terrain_at",
   ],
   [
     "Save compatibility",
-    "factory-wasm/src/save_migrations.rs; factory-wasm/src/lib.rs",
+    "simulation",
+    "factory-wasm/src/save_migrations.rs; factory-wasm/src/core/persistence.rs",
     "migrate, from_save, SavedState",
   ],
   [
     "Binary snapshots",
+    "browser",
     "factory-wasm/src/wire.rs; src/core/snapshotWire.ts",
     "encode_snapshot_delta, decodeSnapshotDelta",
   ],
   [
-    "Worker/host boundary",
+    "Worker and host boundary",
+    "browser",
     "src/core/factory.worker.ts; src/core/FactoryHost.ts",
     "handle, applyDelta",
   ],
-  ["Frame loop and application wiring", "src/main.ts", "frame, update"],
   [
-    "Research tree and icons",
-    "src/ui/researchTree.ts; src/ui/researchGraph.ts; src/rendering/researchIcons.ts",
-    "ResearchTree, layoutResearch, researchIconSvg",
+    "Frame loop and application wiring",
+    "browser",
+    "src/main.ts",
+    "frame, update",
   ],
   [
-    "Skills and surveyed range",
-    "factory-wasm/src/skills.rs; src/data/technologies.json; src/ui/skills.ts",
-    "SkillEffect, observe_skill_event, SkillsView, skillView",
+    "Research tree, skills and icons",
+    "browser",
+    "src/ui/researchTree.ts; src/ui/researchGraph.ts; src/ui/skills.ts; src/rendering/researchIcons.ts",
+    "ResearchTree, SkillsView, layoutResearch",
   ],
   [
     "Panels and keyed DOM",
+    "browser",
     "src/ui/panels.ts; src/ui/dom.ts",
     "PanelController, syncChildren",
   ],
   [
     "Input commands",
+    "browser",
     "src/core/input.ts; src/core/commands.ts; src/main.ts",
     "BoundedInputQueue, enqueue",
   ],
   [
-    "Definitions and balance",
-    "src/data/*.json; src/core/definitions.ts; factory-wasm/src/balance.rs",
-    "validateDefinitions, Economy",
+    "Definitions, recipes and balance",
+    "native",
+    "src/data/*.json; src/core/definitions.ts; factory-wasm/src/balance.rs; factory-wasm/src/recipes.rs",
+    "validateDefinitions, Economy, outputs",
   ],
   [
-    "Petroleum and joint-output recipes",
-    "factory-wasm/src/recipes.rs; factory-wasm/src/petroleum_tests.rs; src/data/definitions.json; src/ui/production.ts",
-    "outputs, cost_allocation, oil-refining, productionNote",
-  ],
-  [
-    "Contracts, requests and scenarios",
+    "Contracts, requests and guidance",
+    "browser",
     "src/data/scenarios.json; src/core/guidance.ts; factory-wasm/src/lib.rs",
-    "ContractDefinition, request_eligible, advance_contract, nextAction",
+    "ContractDefinition, advance_contract, nextAction",
   ],
   [
     "Title screen and save catalogue",
-    "src/core/saveSlots.ts; src/main.ts; factory-wasm/src/save_migrations.rs",
-    "SaveSlot, compatibility, openTitleScreen, migrate",
+    "browser",
+    "src/core/saveSlots.ts; src/main.ts",
+    "SaveSlot, openTitleScreen, compatibility",
   ],
   [
-    "Guidance and progression UI",
-    "src/core/guidance.ts; src/main.ts",
-    "nextAction, renderNextAction",
-  ],
-  [
-    "Three.js world",
-    "src/rendering/three/ThreeFactoryRenderer.ts; src/rendering/three/worldInstances.ts",
-    "ThreeFactoryRenderer, WorldInstances",
-  ],
-  [
-    "Camera, orbit, zoom and graphics profiles",
-    "src/rendering/three/HexSceneCamera.ts; src/rendering/three/ThreeFactoryRenderer.ts; src/rendering/three/quality.ts",
-    "HexSceneCamera, orbit, zoom, GraphicsProfile",
+    "Three.js world and camera",
+    "rendering",
+    "src/rendering/three/ThreeFactoryRenderer.ts; src/rendering/three/worldInstances.ts; src/rendering/three/HexSceneCamera.ts",
+    "ThreeFactoryRenderer, WorldInstances, HexSceneCamera",
   ],
   [
     "Machine appearance",
+    "rendering",
     "src/rendering/shapeGrammar.ts; src/rendering/three/machineMeshes.ts",
     "buildingParts, createMachineMeshes",
   ],
   [
     "Terrain appearance",
+    "rendering",
     "src/rendering/three/terrainSurface.ts; src/rendering/three/terrainMeshes.ts",
     "terrainSurface, createTerrainMeshes",
   ],
   [
-    "Performance ladder",
-    "factory-wasm/src/lib.rs; src/bench; docs/BENCHMARKS.md",
+    "Performance measurements",
+    "benchmark",
+    "factory-wasm/src/capacity.rs; src/bench; docs/BENCHMARKS.md",
     "capacity, browser frame",
   ],
+  ["Native tests", "tests", "factory-wasm/src/tests", "nearest named test"],
+  ["Browser tests", "tests", "tests", "nearest describe or test"],
+];
+
+const shardNames = [
+  "native",
+  "simulation",
+  "browser",
+  "rendering",
+  "benchmark",
+  "tests",
 ];
 
 function walk(directory) {
@@ -129,7 +159,6 @@ function walk(directory) {
 }
 
 function declarations(path, source) {
-  const rows = [];
   const patterns = path.endsWith(".rs")
     ? [
         /^\s*(?:pub(?:\([^)]*\))?\s+)?(?:struct|enum|trait|type|mod)\s+([A-Za-z0-9_]+)/,
@@ -141,6 +170,7 @@ function declarations(path, source) {
         /^\s*(?:async\s+)?function\s+([A-Za-z0-9_]+)/,
         /^\s*class\s+([A-Za-z0-9_]+)/,
       ];
+  const rows = [];
   source.split(/\r?\n/).forEach((line, index) => {
     for (const pattern of patterns) {
       const match = line.match(pattern);
@@ -153,79 +183,97 @@ function declarations(path, source) {
   return rows;
 }
 
-function group(path) {
-  if (path.startsWith("factory-wasm")) return "Native Rust";
-  if (path.startsWith("src/rendering")) return "Rendering";
-  if (path.startsWith("src/core")) return "Browser core";
-  if (path.startsWith("src/ui")) return "Browser UI";
-  if (path.startsWith("src/bench")) return "Browser benchmark";
-  if (path.startsWith("src/admin")) return "Browser admin";
-  if (path.startsWith("tests")) return "TypeScript tests";
-  return "Application";
+function domain(path) {
+  if (path.startsWith("factory-wasm/src/tests/") || path.startsWith("tests/"))
+    return "tests";
+  if (path.startsWith("factory-wasm/src/core/")) return "simulation";
+  if (path.startsWith("factory-wasm/")) return "native";
+  if (path.startsWith("src/rendering/")) return "rendering";
+  if (path.startsWith("src/bench/") || path.startsWith("src/admin/"))
+    return "benchmark";
+  return "browser";
 }
 
-const files = roots
+const inventory = roots
   .flatMap(walk)
   .filter((path) => /\.(?:rs|ts|json)$/.test(path) && !path.includes("/pkg"))
-  .sort();
+  .sort()
+  .map((path) => {
+    const source = readFileSync(resolve(root, path), "utf8");
+    return {
+      path,
+      domain: domain(path),
+      lines: source.split(/\r?\n/).length,
+      bytes: statSync(resolve(root, path)).size,
+      declarations: /\.(?:rs|ts)$/.test(path) ? declarations(path, source) : [],
+    };
+  });
 
-const inventory = files.map((path) => {
-  const absolute = resolve(root, path);
-  const source = readFileSync(absolute, "utf8");
-  return {
-    path,
-    lines: source.split(/\r?\n/).length,
-    bytes: statSync(absolute).size,
-    declarations: /\.(?:rs|ts)$/.test(path) ? declarations(path, source) : [],
-  };
-});
-
-const generated = [];
-generated.push("# Agent map (generated)", "");
-generated.push(
-  "Generated by `npm run agent:map`. Start with the task route, then inspect named declarations with `rg -n`; do not read a large file from top to bottom unless the task truly spans it.",
+const router = [
+  "# Agent map (generated)",
   "",
-  "## Task routes",
+  "Choose one route. Open only that domain index, then localize its named anchors with `rg -n`.",
   "",
-  "| Task | Read first | Localize with |",
-  "| --- | --- | --- |",
-);
-for (const [task, paths, anchors] of routes)
-  generated.push(`| ${task} | \`${paths}\` | \`${anchors}\` |`);
+  "| Task | Domain index |",
+  "| --- | --- |",
+  ...routes.map(
+    ([task, route]) => `| ${task} | [${route}](../.agent/${route}.md) |`,
+  ),
+  "",
+  "Run `npm run agent:map` after declarations move; quality fails when any generated index is stale.",
+  "",
+].join("\n");
 
-for (const section of [...new Set(inventory.map(({ path }) => group(path)))]) {
-  generated.push("", `## ${section}`, "");
-  for (const file of inventory.filter(({ path }) => group(path) === section)) {
-    const size = `${file.lines} lines / ${(file.bytes / 1024).toFixed(1)} KiB`;
-    generated.push(`### \`${file.path}\` — ${size}`, "");
-    if (file.declarations.length === 0) {
-      generated.push(
-        "Data or fixture; inspect keys before loading the full file.",
-        "",
-      );
-      continue;
-    }
-    const chunks = [];
-    for (let index = 0; index < file.declarations.length; index += 12)
-      chunks.push(file.declarations.slice(index, index + 12).join(", "));
-    generated.push(...chunks.map((chunk) => `- ${chunk}`), "");
+function shard(name) {
+  const lines = [
+    `# ${name} route (generated)`,
+    "",
+    "Read the named file and a bounded range around the anchor; do not read oversized files end to end.",
+    "",
+    "## Tasks",
+    "",
+  ];
+  for (const [task, , paths, anchors] of routes.filter(
+    ([, route]) => route === name,
+  )) {
+    lines.push(`- **${task}:** \`${paths}\` — \`${anchors}\``);
   }
+  lines.push("", "## Files", "");
+  for (const file of inventory.filter((entry) => entry.domain === name)) {
+    const sample = file.declarations
+      .slice(0, MAX_DECLARATIONS_PER_FILE)
+      .join(", ");
+    lines.push(
+      `- \`${file.path}\` — ${file.lines} lines / ${(file.bytes / 1024).toFixed(1)} KiB${sample ? ` — ${sample}${file.declarations.length > MAX_DECLARATIONS_PER_FILE ? ", …" : ""}` : ""}`,
+    );
+  }
+  lines.push("");
+  return lines.join("\n");
 }
 
-generated.push(
-  "## Refresh contract",
-  "",
-  "`npm run agent:map:check` fails when this map is stale. The complete quality gate runs that check.",
-);
+const outputs = new Map([[routerPath, router]]);
+for (const name of shardNames)
+  outputs.set(resolve(shardRoot, `${name}.md`), shard(name));
 
-const output = `${generated.join("\n")}\n`;
+for (const [path, output] of outputs) {
+  const limit = path === routerPath ? MAX_ROUTER_BYTES : MAX_SHARD_BYTES;
+  if (Buffer.byteLength(output) > limit)
+    throw new Error(`${relative(root, path)} exceeds ${limit} bytes`);
+}
+
 if (process.argv.includes("--check")) {
-  const current = readFileSync(outputPath, "utf8");
-  if (current !== output) {
-    process.stderr.write("docs/AGENT-MAP.md is stale; run npm run agent:map\n");
-    process.exitCode = 1;
+  for (const [path, output] of outputs) {
+    if (!existsSync(path) || readFileSync(path, "utf8") !== output) {
+      process.stderr.write(
+        `${relative(root, path)} is stale; run npm run agent:map\n`,
+      );
+      process.exitCode = 1;
+    }
   }
 } else {
-  writeFileSync(outputPath, output);
-  process.stdout.write(`wrote ${relative(root, outputPath)}\n`);
+  mkdirSync(shardRoot, { recursive: true });
+  for (const [path, output] of outputs) {
+    writeFileSync(path, output);
+    process.stdout.write(`wrote ${relative(root, path)}\n`);
+  }
 }

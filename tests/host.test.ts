@@ -59,6 +59,7 @@ import type {
 } from "../src/core/types";
 import definitions from "../src/data/definitions.json";
 import technologiesJson from "../src/data/technologies.json";
+import { readStyles } from "./sourceGraph";
 
 const technologies = technologiesJson as unknown as Technologies;
 import { HexCamera, isSurveyed } from "../src/rendering/CanvasFactoryRenderer";
@@ -684,10 +685,7 @@ describe("bounded host input", () => {
       new URL("../src/main.ts", import.meta.url),
       "utf8",
     );
-    const css = readFileSync(
-      new URL("../src/styles.css", import.meta.url),
-      "utf8",
-    );
+    const css = readStyles();
     const html = readFileSync(
       new URL("../index.html", import.meta.url),
       "utf8",
@@ -751,10 +749,7 @@ describe("bounded host input", () => {
       new URL("../src/main.ts", import.meta.url),
       "utf8",
     );
-    const css = readFileSync(
-      new URL("../src/styles.css", import.meta.url),
-      "utf8",
-    );
+    const css = readStyles();
     const html = readFileSync(
       new URL("../index.html", import.meta.url),
       "utf8",
@@ -885,6 +880,10 @@ describe("bounded host input", () => {
     expect(research).toContain("technologyAvailability(tech, this.snapshot)");
     expect(main).toContain("researchTree.update(snapshot)");
     expect(main).toContain("if (researchDialog.open || skillsDialog.open)");
+    const saveList = readFileSync(
+      new URL("../src/ui/saveList.ts", import.meta.url),
+      "utf8",
+    );
     // The hotbar's buttons are built once, so it needs no reconciler — but rewriting their inner
     // nodes on every snapshot loses a click the same way, so it patches text instead.
     const hotbar = main.slice(
@@ -892,11 +891,7 @@ describe("bounded host input", () => {
       main.indexOf("\n}", main.indexOf("function renderHotbar(")),
     );
     expect(hotbar).not.toMatch(/innerHTML\s*=/);
-    for (const renderer of [
-      "renderInventory",
-      "renderInspectorActions",
-      "paintSaveSlotList",
-    ]) {
+    for (const renderer of ["renderInventory", "renderInspectorActions"]) {
       const body = main.slice(
         main.indexOf(`function ${renderer}(`),
         main.indexOf("\n}", main.indexOf(`function ${renderer}(`)),
@@ -905,6 +900,8 @@ describe("bounded host input", () => {
         "syncChildren(",
       );
     }
+    expect(saveList).toContain("function paintSaveSlotList(");
+    expect(saveList).toContain("syncChildren(");
   });
 
   it("provides a Title Screen overlay with dedicated saves catalog and new factory launch", () => {
@@ -916,10 +913,7 @@ describe("bounded host input", () => {
       new URL("../index.html", import.meta.url),
       "utf8",
     );
-    const css = readFileSync(
-      new URL("../src/styles.css", import.meta.url),
-      "utf8",
-    );
+    const css = readStyles();
     expect(html).toContain('id="title-screen"');
     expect(html).toContain('id="title-continue"');
     expect(html).toContain('id="title-save-slots"');
@@ -951,10 +945,12 @@ describe("bounded host input", () => {
       new URL("../index.html", import.meta.url),
       "utf8",
     );
-    const rust = readFileSync(
-      new URL("../factory-wasm/src/lib.rs", import.meta.url),
-      "utf8",
-    );
+    const rust = [
+      "../factory-wasm/src/core/inventory.rs",
+      "../factory-wasm/src/core/configuration.rs",
+    ]
+      .map((path) => readFileSync(new URL(path, import.meta.url), "utf8"))
+      .join("\n");
     // Two lists of building kinds exist in both languages, and they decide different things: native
     // decides whether a transfer happens, the host decides whether a button is drawn. Drifting
     // apart shows a control that earns a refusal, or hides one that would have worked — neither is
@@ -1007,19 +1003,14 @@ describe("bounded host input", () => {
   });
 
   it("keeps the envelope numbers level with native's, and shows the ones it is running", () => {
-    // Native does not publish `SAVE_VERSION`, so the host copies it, and a copy drifts silently:
-    // the slot catalog went on advertising 11 after native moved to 12, which makes a save this
-    // build wrote look like one from a build that no longer exists. Read native's back instead.
     const rust = readFileSync(
-      new URL("../factory-wasm/src/lib.rs", import.meta.url),
+      new URL("../factory-wasm/src/model/constants.rs", import.meta.url),
       "utf8",
     );
     const declared = rust.match(/const SAVE_VERSION: u16 = (\d+);/);
     expect(declared).not.toBeNull();
     expect(SAVE_VERSION).toBe(Number(declared![1]));
 
-    // And the title screen fills that number in at runtime rather than carrying one typed into
-    // the markup, which is the same drift one level further out.
     const main = readFileSync(
       new URL("../src/main.ts", import.meta.url),
       "utf8",
@@ -1028,8 +1019,13 @@ describe("bounded host input", () => {
       new URL("../index.html", import.meta.url),
       "utf8",
     );
+    const saveUi = readFileSync(
+      new URL("../src/app/saveUi.ts", import.meta.url),
+      "utf8",
+    );
     expect(html).toContain('id="title-envelope-info"></span>');
-    expect(main).toContain('required<HTMLElement>("title-envelope-info")');
+    expect(main).toContain("saveUi.update(");
+    expect(saveUi).toContain('required<HTMLElement>("title-envelope-info")');
   });
 });
 
@@ -1341,10 +1337,7 @@ describe("availability and expanded snapshot adapter", () => {
       new URL("../index.html", import.meta.url),
       "utf8",
     );
-    const styles = readFileSync(
-      new URL("../src/styles.css", import.meta.url),
-      "utf8",
-    );
+    const styles = readStyles();
     const main = readFileSync(
       new URL("../src/main.ts", import.meta.url),
       "utf8",
@@ -1564,8 +1557,9 @@ describe("availability and expanded snapshot adapter", () => {
       new URL("../src/main.ts", import.meta.url),
       "utf8",
     );
-    const css = readFileSync(
-      new URL("../src/styles.css", import.meta.url),
+    const css = readStyles();
+    const focus = readFileSync(
+      new URL("../src/input/focus.ts", import.meta.url),
       "utf8",
     );
     // Pack, research, and the objective guide wait behind I, O, and P.
@@ -1582,7 +1576,7 @@ describe("availability and expanded snapshot adapter", () => {
     expect(main).toContain('event.code === "Delete"');
     expect(main).toContain("deleteBuildingUnderCursorOrSelected()");
     expect(main).toContain("target.blur()");
-    expect(main).toContain('target.tagName === "SUMMARY"');
+    expect(focus).toContain('target.tagName === "SUMMARY"');
     expect(main).not.toContain('event.code === "KeyT"');
     expect(main).not.toContain("setPlaying");
     expect(main).not.toContain("speedInput");
@@ -1683,10 +1677,7 @@ describe("availability and expanded snapshot adapter", () => {
       new URL("../index.html", import.meta.url),
       "utf8",
     );
-    const css = readFileSync(
-      new URL("../src/styles.css", import.meta.url),
-      "utf8",
-    );
+    const css = readStyles();
     // The heading is the hex, not the active tool. Coordinates are a labelled chip.
     expect(html).toContain('id="inspect-title"');
     expect(html).toContain('id="inspect-q"');

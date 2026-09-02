@@ -1,19 +1,71 @@
 {
+  "version": 1,
   "allow": {
-    "factory-wasm/src/lib.rs": "T05-T12",
-    "src/main.ts": "T16-T19",
-    "factory-wasm/src/balance.rs": "backlog",
-    "factory-wasm/src/terra.rs": "backlog",
-    "factory-wasm/src/hydrology.rs": "backlog",
-    "factory-wasm/src/wire.rs": "backlog",
-    "factory-wasm/src/ground.rs": "backlog",
-    "src/rendering/three/worldInstances.ts": "backlog",
-    "src/styles.css": "T15",
-    "index.html": "T14",
-    "tests/host.test.ts": "backlog",
-    "tests/visualDepth.test.ts": "backlog",
-    "docs/HEXFACTORY-PLAN.md": "T04",
-    "docs/AGENT-MAP.md": "T04",
-    "AGENTS.md": "T02"
+    "src/main.ts": {
+      "baselineBytes": 232072,
+      "targetBytes": 12288,
+      "owner": "browser feature controllers",
+      "expires": "2026-10-01"
+    },
+    "factory-wasm/src/balance.rs": {
+      "baselineBytes": 101954,
+      "targetBytes": 51200,
+      "owner": "balance module backlog",
+      "expires": "2026-11-01"
+    },
+    "factory-wasm/src/terra.rs": {
+      "baselineBytes": 95219,
+      "targetBytes": 51200,
+      "owner": "terrain module backlog",
+      "expires": "2026-11-01"
+    },
+    "factory-wasm/src/hydrology.rs": {
+      "baselineBytes": 65865,
+      "targetBytes": 51200,
+      "owner": "hydrology module backlog",
+      "expires": "2026-11-01"
+    },
+    "factory-wasm/src/wire.rs": {
+      "baselineBytes": 61285,
+      "targetBytes": 51200,
+      "owner": "wire module backlog",
+      "expires": "2026-11-01"
+    },
+    "factory-wasm/src/ground.rs": {
+      "baselineBytes": 54688,
+      "targetBytes": 51200,
+      "owner": "ground module backlog",
+      "expires": "2026-11-01"
+    },
+    "src/rendering/three/worldInstances.ts": {
+      "baselineBytes": 69733,
+      "targetBytes": 51200,
+      "owner": "world rendering backlog",
+      "expires": "2026-11-01"
+    },
+    "index.html": {
+      "baselineBytes": 77274,
+      "targetBytes": 51200,
+      "owner": "feature DOM ownership",
+      "expires": "2026-10-15"
+    },
+    "tests/host.test.ts": {
+      "baselineBytes": 79135,
+      "targetBytes": 51200,
+      "owner": "host test split backlog",
+      "expires": "2026-11-01"
+    },
+    "tests/visualDepth.test.ts": {
+      "baselineBytes": 72745,
+      "targetBytes": 51200,
+      "owner": "render test split backlog",
+      "expires": "2026-11-01"
+    },
+    "docs/HEXFACTORY-PLAN.md": {
+      "baselineBytes": 94154,
+      "targetBytes": 81920,
+      "owner": "living lattice plan cleanup",
+      "expires": "2026-11-01"
+    }
   }
 }
