@@ -4,7 +4,7 @@
  * a grandfathered file to grow. Use --json for machine-readable output.
  */
 
-import { existsSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 
 const KB = 1024;
@@ -69,6 +69,22 @@ function listedFiles() {
     .filter((path) => !SKIP.test(path) && existsSync(path));
 }
 
+/**
+ * What the file costs a context window, independent of how the checkout stores its line endings.
+ *
+ * A Windows clone with `core.autocrlf=true` writes the same content one byte per line larger than
+ * the blob git committed. Measuring the working copy would make every ratchet that much tighter
+ * here than in CI and can fail a debt entry that nobody has touched — which is exactly a budget
+ * reporting something other than the size of the thing it is budgeting. Measure the content.
+ */
+function contentBytes(path) {
+  const bytes = readFileSync(path);
+  let carriage = 0;
+  for (let i = 0; i + 1 < bytes.length; i++)
+    if (bytes[i] === 0x0d && bytes[i + 1] === 0x0a) carriage++;
+  return bytes.length - carriage;
+}
+
 function readConfig() {
   return existsSync(".agent-budget.json")
     ? JSON.parse(readFileSync(".agent-budget.json", "utf8"))
@@ -79,7 +95,7 @@ export function evaluateBudget({
   files = listedFiles(),
   config = readConfig(),
   today = TODAY,
-  sizeOf = (path) => statSync(path).size,
+  sizeOf = contentBytes,
 } = {}) {
   const errors = [];
   if (config.version !== 1)

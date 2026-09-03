@@ -80,17 +80,25 @@ fn strength_under(seed: u32, q: i32, r: i32, surface_mq: i32, level_mq: i32) -> 
 /// The strength a reach of this discharge class can cut through.
 ///
 /// Discharge is the `A` in the stream-power law and the class counts it, so a bigger river wins
-/// against harder rock: the top class cuts anything, and it is the small channels that hang.
+/// against harder rock, and it is the small channels that hang. What the top class cannot do is cut
+/// *anything*: the hardest hundredth of the rock stops even a continental river, which is where the
+/// rapids on a large river come from.
 ///
-/// The offset is the tuned number, not the slope, and it is tuned against drainage rather than
-/// taste. Every sill is a bed with a pool behind it, and a world of pools is the failure this
-/// module could most easily cause: at 30 the smallest streams lost to two beds in three and the
-/// sample filled with 84 lakes over 344 cells, at 60 with 30 over 166. Here it is 11 over 58
-/// against the 7 over 45 the same sample holds with sills disabled entirely: four more ponds, and
-/// every one of the 576 drainage walks still ends exactly where it ended without them. The sills
-/// and the falls are bought for four ponds.
+/// The offset is the tuned number, and it is tuned against drainage rather than taste. Every sill is
+/// a bed with a pool behind it, and a world of pools is the failure this module could most easily
+/// cause: at 30 the smallest streams lost to two beds in three and the sample filled with 84 lakes
+/// over 344 cells, at 60 with 30 over 166.
+///
+/// The slope answers to [`crate::terra::discharge_class`], because a class no longer means what it
+/// meant when the slope was four. A class used to be five times the catchment of the one below and
+/// above the channel threshold is now two, so four per class was the same rock hardness bought for
+/// less than half the water: the recalibrated ladder put the reference seed's upland provinces
+/// entirely into classes that cut everything and their sills went to zero. Three per class is what
+/// both claims survive — the nine-province upland sample keeps 6 sills and 8 falls, and the
+/// archipelago opening keeps its clay 43 hexes out, where a shallower slope moved it to 97 by
+/// leaving the coastal trunks hanging above their graded beds.
 pub(crate) fn cut_power(class: u8) -> i32 {
-    76 + i32::from(class) * 4
+    84 + i32::from(class.saturating_sub(crate::terra::CHANNEL_CLASS_MIN)) * 3
 }
 
 /// How far down a reach of this class actually gets, in milli-quanta.
@@ -178,11 +186,16 @@ mod tests {
             strength_under(SEED, 0, 0, surface, surface - mantle / 2)
                 < rock_strength(SEED, 0, 0, surface - mantle / 2).max(1)
         );
-        assert!(cut_power(7) > 100, "the largest river cuts anything");
+        assert!(
+            cut_power(7) < 100,
+            "the hardest rock has to be able to stop even the largest river"
+        );
         assert!(cut_power(CHANNEL_CLASS_MIN) < cut_power(7));
 
-        // A class the rock can stop never cuts below one it cannot, anywhere along a traverse.
+        // A class the rock can stop never cuts below one it cannot, anywhere along a traverse, and
+        // a continental river hangs on far less of the ground than a stream does.
         let mut sills = 0;
+        let mut large_sills = 0;
         for q in 0..256 {
             let target = base_mq(SEED, q, 0) - 20 * MQ as i32;
             let small = erodible_floor_mq(SEED, q, 0, CHANNEL_CLASS_MIN, target);
@@ -192,12 +205,16 @@ mod tests {
                 "a floor is never below the bed asked for"
             );
             assert!(small >= large, "a stream cannot outcut a river at ({q},0)");
-            assert_eq!(large, target, "the top class reaches its graded bed");
             sills += i32::from(small > target);
+            large_sills += i32::from(large > target);
         }
         assert!(
             (1..128).contains(&sills),
             "sills should be real but uncommon; found {sills} in 256 cells"
+        );
+        assert!(
+            large_sills * 4 <= sills,
+            "the top class hung on {large_sills} of the {sills} beds a stream lost"
         );
     }
 

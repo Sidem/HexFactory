@@ -64,6 +64,26 @@ test("context accounting separates root, route, and scoped instructions", () => 
   assert.equal(result.scopedInstructions, 3_000);
 });
 
+test("a CRLF checkout measures the same as the committed content", () => {
+  const directory = mkdtempSync(join(tmpdir(), "hexfactory-context-"));
+  try {
+    spawnSync("git", ["init", "-q"], { cwd: directory });
+    // 50,000 bytes of content stored as 75,000 on a `core.autocrlf=true` clone: inside the source
+    // limit as git holds it, over it as Windows writes it.
+    writeFileSync(join(directory, "crlf.ts"), "x\r\n".repeat(25_000));
+    const run = spawnSync(process.execPath, [script, "--json"], {
+      cwd: directory,
+      encoding: "utf8",
+    });
+    assert.equal(run.status, 0);
+    const result = JSON.parse(run.stdout);
+    assert.equal(result.rows[0].bytes, 50_000);
+    assert.equal(result.failures.length, 0);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 test("the CLI includes untracked source files", () => {
   const directory = mkdtempSync(join(tmpdir(), "hexfactory-context-"));
   try {

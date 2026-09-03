@@ -452,17 +452,31 @@ fn materials_are_generated_where_geography_says_and_harvested_within_a_radius() 
     for cell in hexes_in_radius((0, 0), LANDING_CLEAR_RADIUS) {
         assert_eq!(core.field_at(cell.0, cell.1), None);
     }
-    let cell = *core
+    // A guaranteed site is a disc that carries field, not a centre that does. A rule with a
+    // water-proximity clause seats its disc on ground whose middle hex can fail that clause, so the
+    // claim is that every site opens something and the sample is the smallest hex that answers.
+    let discs: Vec<Vec<(i32, i32)>> = core
         .fields
         .bootstrap
         .values()
-        .map(|site| site.center)
-        .min()
-        .as_ref()
-        .expect("a new world guarantees an opening");
+        .map(|site| hexes_in_radius(site.center, site.radius))
+        .collect();
+    let mut opening: Option<(i32, i32)> = None;
+    for disc in &discs {
+        let mut carried = false;
+        for &(q, r) in disc {
+            if core.field_at(q, r).is_none() {
+                continue;
+            }
+            carried = true;
+            opening = Some(opening.map_or((q, r), |best| best.min((q, r))));
+        }
+        assert!(carried, "a guaranteed site carries no field at all");
+    }
+    let cell = opening.expect("a new world guarantees an opening");
     let quantity = core
         .field_at(cell.0, cell.1)
-        .expect("a site centre")
+        .expect("a hex that just reported field")
         .quantity;
     assert!(quantity > 0);
     assert_eq!(core.deposit_quantity(cell), quantity);

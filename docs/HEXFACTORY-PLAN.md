@@ -1,682 +1,192 @@
 # HexFactory — goal, state, and roadmap
 
-This is the live document: what the game is for, what exists today, and what to build next.
-Architecture decisions are in `docs/ARCHITECTURE.md`, the invariants an agent must not break are in
-`AGENTS.md`, art rules are in `docs/ART.md`, and every performance claim is backed by
-`docs/BENCHMARKS.md`.
-
-**Keep this file short.** It is a working document, not a book. A shipped release collapses to one
-ledger line; a completed phase collapses to the constraints that outlived it. Reasoning lives in the
-git history and on the constants it constrains.
-
-## The goal
-
-A beautiful, open-ended factory-automation game that is fun to play for its own sake, fascinating to
-keep exploring, and a pleasure to control — Factorio's automation depth, Satisfactory's sense of place
-and scale, and Minecraft's freedom to build what you want where you want, in hexagonal space.
-
-The deterministic Rust/Wasm core, the sparse architecture, the compiled transport graph and the narrow
-`@hexlife/embed` dependency are means, not ends. Where an architectural preference and the player's
-experience genuinely conflict, the player's experience wins and the architecture finds another way to
-pay for it. That weakens no invariant — determinism, native ownership of the tick, sparse cost and
-measured-before-claimed stay non-negotiable — but it decides how milestones are chosen: engineering
-work earns its place by naming the player-visible thing it enables.
-
-Inspiration, never imitation. Original neutral shapes, names and systems only. Permanent, not a scope
-item.
-
-### Design pillars
-
-- **Fun is a requirement, not a polish pass.** A release that is correct, fast and joyless has not met
-  its acceptance criteria. Every milestone states what it makes better to play.
-- **Controls must be obvious in the first minute and precise in the hundredth hour.** A control that
-  needs explaining is a defect in the control.
-- **The player should always know what just happened and what to try next.** Feedback is part of the
-  mechanic, not decoration.
-- **The world should reward looking at it.** Readability first, beauty close behind.
-- **Open-ended, not aimless.** Progression opens options rather than prescribing a route. Victory is a
-  milestone in a longer game, never a wall.
-- **The world and the factory answer each other.** Geography, living populations, extraction, waste and
-  recovery change one another visibly.
-- **Hexagonal space earns its place.** A system becomes hex-native only when faces, rings, fronts or
-  multiple approach directions change a legible decision. No invisible adjacency bonuses.
-- **Nothing may stutter.** Frame stability, instant response and exact restores are player-experience
-  features. This is what the measured capacity ladder protects.
-
-## Where the project stands
-
-A run today: land beside a hub in a world chosen by preset or raw parameters; walk out under fog across
-rivers and coastline, on the keys or by clicking a selected hex a second time; find fields of ten raw
-materials; cross rivers on bridges; gather from forests that visibly thin and regrow; fill the hub's
-posted requests and its staged founding contract; research the rest; and build a powered, automated line
-of buildings and 26 recipes — belts that split, merge, climb the two-row period and pass under the lanes
-they cross. Fence a yard or raise brick and concrete walls straight across hexes on the vertex lattice.
-Refine oil into bitumen and fuel, mix asphalt, lay roads over gravel. No landform is permanent: one
-`Lower` cut takes a cliff face down. Buildings are generated low-poly instanced geometry from the shape
-grammar, so a tier stays a data row. The world renders through Three.js; the minimap is WebGL2.
-
-**Envelope numbers** — native refuses a load on all six, and the save catalog shows which one moved:
-
-| Envelope              | Version |
-| --------------------- | ------: |
-| `HXF1` save           |      44 |
-| Definitions           |      30 |
-| Technologies          |      18 |
-| Scenarios             |       8 |
-| World generator       |      16 |
-| Wire (snapshot delta) |      23 |
-
-These are the current development envelopes after the post-v0.47 river-profile, rock-strength and
-river-hierarchy work; v0.47.0 shipped at save 42 / technologies 17 / world 13. Save 36 and below is
-the old 1 m² world; world generator 12 and below predates the noise-shaped resource lattice. Both
-are refused with an export path rather than remapped. Same-generator 25 m² saves migrate through
-the adjacent format ladder.
-
-**Measured capacity.** The v0.43 audit puts the complete 6,144-entity browser frame at 32.3% / 33.5% /
-33.9% of 60 Hz on Low / Medium / High on the reference desktop at 1440×900 DPR 1 — all pass the 35%
-gate, by only 1.1–2.7 points. The native frame is 1.37 ms at the same tier, the tick 0.287 ms.
-Generation costs at most 1.42 µs per hex. **The reference desktop is the support target** (2026-08-27);
-integrated-GPU laptops are not a supported configuration. No claim beyond a recorded tier.
-
-**Last release: v0.47.0 Flowing Water.** Phase 8 is shipped: one construction hex is 25 m², altitude
-is physical native height, drainage and sparse water answer the ground, bounded geomorphic epochs let
-surveyed rivers answer what the player built, and the native coarse landform query remains read-only.
-Presentation stops at the surveyed frontier; drawing that query beyond it made altitude look discovered.
-
-**Where it is weak.** The foundation is strong and unusually trustworthy; the game is still a polished
-short-form vertical slice. The first two hub stages and 27 finite projects give the present roster a
-reason to exist, but an established factory has no programme after the foundry module. Rows 9, 11 and 12
-are the planned answer; do not invent repeatable filler quests in the meantime. Two concrete debts: file
-concentration still costs an agent more context than the behaviours require (`factory-wasm/src/lib.rs`
-is over 27,000 lines, `src/main.ts` 5,482), and the production build warns on an 816 kB main chunk
-beside a 1.22 MB Wasm artifact with no stated startup payload budget. Keep the generic Extractor as the
-starter and add a player-facing machine family only when it brings a distinct decision — recoloured
-synonyms lengthen the catalogue without deepening the factory.
-
-## What to do next
-
-### Playtest report — 2026-09-02
-
-Four defects and six requests. The defects sit ahead of row 9; each request is placed against the row that
-owns its system. Three of the four are traced to a named line, so work starts from the cause.
-
-**Three defects and one request shipped on 2026-09-02.** What each one turned out to be is recorded against
-it below, because in two cases the measurement contradicted the diagnosis written here.
-
-**Defect — a smelter refuses coal into Fuel while Steel is selected. Fixed.** Select Sand → Glass, put coal in
-Fuel, switch back to Steel, and the same smelter accepts it. `stock_kind_for_item` in
-`factory-wasm/src/core/transport.rs` resolves exactly one compartment per item and lets inputs outrank fuel
-deliberately, so feeding steel does not divert its own bill into the firebox. Steel bills two coal → `Input`,
-so `stock_accepts_item` refuses the named Fuel slot; Glass bills none, so the same lump is `Fuel`. **The
-precedence rule is right and the arbitration is the defect** — an item that is both has two honest
-destinations and one compartment to express them in. Settled as written: `stock_admits_item` qualifies an item
-for a named compartment independently, so an explicitly named target is honoured whenever the item qualifies
-at all, and `delivery_stock_for_item` keeps inputs-outrank-fuel for `Auto` while letting it fall through to
-Fuel once Input is full. That last part was the deadlock behind the report — `charge_fuel` burns from
-`fuel_inventory` and the legacy `inventory` and never from `input_inventory`, so a belt-fed steel smelter
-filled its ingredient buffer and then stood with an empty firebox.
-
-**Defect — black dots along the unexplored border. Fixed, and the diagnosis below was wrong.** The hypothesis
-was that the fog "cover changes with zoom — the axis to check along". Measured along that axis first: hole
-contrast stood at 293–340 of a possible 765 against the surrounding ground at _every_ zoom the frontier was on
-screen, byte-identical on Low, Medium and High. The arithmetic says why it had to be. Ground displacement per
-screen-vertical unit under this projection is `1/sin θ` = 1.58, so the top edge of the view already sits
-0.613 of a span of extra view depth away — essentially exactly `HAZE_START` = 0.6. Ground at the frontier is
-never hazed, at any zoom, so no scaling of the fog could have covered the dither. The fix therefore leaves
-coverage alone and dissolves the frontier by **colour**: `terrainSurface.ts` mixes toward `fogColor` after the
-fog chunk instead of discarding on a screen-space hash, which keeps every fragment opaque and depth-writing,
-so draw ordering and shadow baking are untouched and the colour pass now agrees with the shadow pass rather
-than contradicting it. `heightfieldTerrain.ts` carries the weight per vertex, averaged across the cells
-sharing each corner, so three ring values read as a gradient rather than three hex-shaped bands. Verified:
-speckle count fell from 9669/15067/19448/6997/399 to 48/62/80/3/0 across zoom 0.55→2.2, and the lit-against-
-background outline from 34152/52202/65594 to 2887/3680/2708 — a wide dithered ribbon became a thin silhouette.
-
-**Defect — WASD walking has no gait, and click-to-move hitches. Fixed.** Both causes were where this said, in
-the player pose update in `src/rendering/three/worldInstances.ts`, and both are presentation only: the gait
-was gated on `player.walk_path.length > 0` and the stride phase was a function of position. Displacement now
-answers both. One thing this diagnosis missed: the cadence the old phase ran at was itself wrong, so
-reproducing it would have kept the defect. At 8 radians a hex the legs ran a little over six cycles a second
-with 1.29 radians of phase between consecutive poses — under five poses a cycle, which strobes rather than
-swings. 1.4 puts 0.225 radians between poses and the walk at 0.92–1.07 cycles a second. Verified on a
-click-to-move route across fourteen waypoint turns: the leg angle sweeps through every one without a break.
-
-**Defect — clay and sand are hard to find, and deposits read as circles. Fixed.** `npm run survey` across continental, archipelago, highlands and basin (exit 0) answers the
-scarcity claim as this section predicted it might. Clay: 407/27/492/404 patches, nearest at 21/37/32/21 hexes,
-and present in `BOOTSTRAP_GUARANTEES` on every preset. Sand: 608/36/459/608 patches, nearest at 39/49/42/39
-hexes — the farthest of any material — with the smallest patches (mean 6–9 cells, mean yield 117–153 against
-clay's 198–311), and the only common material absent from the guaranteed opening on all four presets, which
-`world_sites.rs` records as deliberate: the ocean gate decides where a coast is, so sand cannot be guaranteed
-by distance. So both are present and reachable, and by this section's own test the scarcity half is
-legibility. **That surface already exists** — the minimap paints the shore band, `terrainLegend.ts` names it
-"sand and clay", and the gather card already inlines "Shore grit" and "Damp shore and lowland earth" — which
-leaves nothing to ship there and puts the whole defect on the generator. The shape half is unchanged from the
-reading below, and both remaining moves — a noise-masked deposit shape, or widening sand's opening — bump
-`WORLD_GENERATOR_VERSION`, and `persistence.rs:301` refuses every existing save on a mismatch. **That is the
-decision: it costs every save in the wild.** The user accepted that cost on 2026-09-02. v0.47.0 chose the
-noise-masked shape: a smooth deterministic channel moves only the outer ring by one hex, keeping the site
-core connected and single-material. World generator 13 makes the save break explicit. The repeated survey
-still passes all opening guarantees; sand remains nearest at 39/49/42/39 hexes and its patches remain small,
-while global resource purity stays at 998/1000/998/998 per mille.
-
-**Request — a composer stopped mid-craft can be neither reassigned nor cleared. Shipped.** `Core::set_recipe`
-in `factory-wasm/src/core/configuration.rs` refuses whenever `progress > 0`, because the reserved inputs
-belong to the running job — but a manual-work machine is disabled the moment a recipe is set, so a composer
-stopped at 55% kept that progress indefinitely and the only move was demolition. The abort rule is the full
-refund this proposed, on the stated grounds: demolishing already returns `reserved_inputs`, so a lossy abort
-would have made demolish-and-rebuild cheaper. `Core::cancel_craft` clears progress, returns the reserved
-inputs to `input_inventory` and leaves fuel and output alone; the test pins the refund, the two untouched
-compartments, every refusal, and checksum exactness across a save. `set_recipe` is no longer a dead end:
-mid-craft the `<select>` snaps back and asks, naming what will be discarded, and on a yes the cancel is queued
-ahead of the assignment. No wire change was needed — `advance_composer` reserves exactly `recipe.inputs` at
-craft start and `set_recipe` refuses mid-craft, so the running recipe's inputs _are_ the reserved set and the
-host names them from definitions it already holds. The confirmation is UI; the accounting is native.
-
-**Request — fertile riverbank soil**, placed on row 9. Phase 8 shipped the drainage model, so a fertile bank
-is derived rather than invented: a cell adjacent to a drainage edge and within a stated height of the water
-surface, tagged by the same deterministic generation that produced the bed. Two costs first. `Substrate` is a
-four-value wire-coded enum in `ground_spine.rs`, decoded in `wire.rs`, so a fifth value moves the wire and
-world generator envelopes; and a fertile band along every river is a great deal of favoured ground, so it
-needs a scarcity rule before it becomes the answer to every placement question. Row 9 tags the ground; row 11
-decides what grows on it.
-
-**Open-water swimming shipped ahead of row 9 at the user's direction on 2026-09-02.** It is a funded personal
-skill after Field Survey. Native route finding, collision and movement admit deep water only when it is owned,
-at one eighth of dry-ground speed; construction remains blocked. The remaining requests are animals that
-breed and can be overhunted (row 9), and biome flora and props and a coastal harbour with vessels (both on the
-longer horizon, each named with what it waits on).
-
-### The phase order
-
-Phases 1 to 7 are **shipped**; pipes shipped between rows 7 and 8 as v0.45.0 without reordering the sequence.
-
-- **8 — Flowing water.** Shipped as v0.47.0.
-- **9 — Living Lattice.** Animals, biomatter and waste as one ecological system, plus the riverbank
-  fertile-soil tag row 11's food chain needs. Reuses phase 4's joint-output costing.
-- **10 — Supported floors and vertical transport.** Support classes, the first upper floor, stairs, belt
-  lifts, a layer view. Needs the beams and concrete phases 3 and 4 produce.
-- **11 — The primitive human.** Needs and attributes. Depends on rows 9 and 10 for a food supply worth
-  automating; revises the skills budget rather than sitting beside it.
-- **12 — Regional Discovery.** Survey tools, distant sites, outposts — the play half of regional variation.
-
-These are delivery phases, not one giant release, and a phase may ship as several versions. Do not start a
-later row in parallel with an earlier one unless the user changes priority; an unmet gate is resolved or
-brought back to the user rather than answered by switching rows. Necessary fixes, measurements and shared
-prerequisites are part of delivering a row; optional extensions stay optional.
-
-**Floors moved behind Living Lattice on 2026-08-29 at the user's direction**, for player progression rather
-than engineering: the player should learn the ground-level systems before the game asks them to think in
-levels. Rows 5 and 6, flowing water and the primitive human were added 2026-08-28 at the user's direction;
-their priority is approved, their costs and tuning hypotheses are not. Masonry and the vertex lattice did not
-complete the enclosure work — roofs, rebar and steel frames attach to row 10, because they are structural.
-
-**Entry work, not a new phase.** Item 1 belongs to row 7; items 2–4 are gates on row 10.
-
-1. **Done in v0.44.0.** Guidance names the first executable action and removes the initial hub/mission
-   duplication; construction search and a visible narrow-dock overflow cue are shipped.
-2. Before level IDs widen native state, mechanically move the inline native tests and capacity harness out of
-   `lib.rs`, then extract only the occupancy/placement/transport slices row 10 must touch. Split the
-   corresponding session/panel wiring out of `main.ts`. Preserve behaviour, checksum, save and wire at each
-   step; this is not authority for a rewrite.
-3. **Done in v0.47.0.** Saved games states the promise: same-generator 25 m² format migrations are supported;
-   generator and scale changes never remap terrain, and incompatible rows remain exportable.
-4. Add a deterministic stacked-floor/lift capacity tier and rerun Low, Medium and High before a floor release.
-   The 6,144-entity record is already near the desktop gate.
-
-## Phase 8 — Flowing water
-
-**Shipped as v0.47.0.** Water stopped being a property of a cell. The phase owned the scale,
-altitude, footprint and rendering break that realistic mountains, valleys, springs and rivers required. The
-shipped rules live in [`ARCHITECTURE.md`](ARCHITECTURE.md); the measurements, including three rejected
-changes, live in [`BENCHMARKS.md`](BENCHMARKS.md) and are reproduced by `npm run terra`, `npm run water` and
-`npm run erosion`. What follows is only what still constrains work on this ground.
-
-### The scale contract
-
-One physical system, not independent knobs, and it supersedes the old 1 m² ledger globally — physical scale
-is not another world slider.
-
-- **One construction hex is 25 m².** The axial lattice and pointy-top topology are unchanged; the physical
-  interpretation moved by five in linear scale, so neighbouring centres stand about 5.37 m apart. Never
-  multiply `HEX_X`, `HEX_Y` or saved coordinates — retune metre-derived rates and reaches instead.
-- **One height quantum is 0.25 m.** Generated bed elevation is a signed absolute integer with sea level at
-  zero, so a 2,000 m summit is ordinary data rather than a terrain enum.
-- **Earthworks name metres.** Raise and Lower are 0.5, 1.0 and 1.5 m; the content limit is ±8 m from the
-  generated bed, not the storage limit; one quarter-metre cell layer is one spoil unit (6.25 m³).
-- **Movement and construction do not share one threshold.** Walking reads slope, steps, surface and water
-  depth; a multi-cell building needs a pad within one quantum unless its foundation class says otherwise.
-- **`PLAYER_SPEED` stays at 275** (settled 2026-09-01). A hex still takes about 0.36 s to cross and the metre
-  figures moved instead — a 20 m/s walk, a 25 m/s run, a 5 m/s ford. Holding 3 m/s would have multiplied every
-  journey by five, which is the one thing a 25 m² hex was not meant to buy. This is not the belt case in
-  different clothes: the factory reads a belt's speed and balances against it; nothing reads the player's.
-
-Four facts the old `Terrain` band conflated are now separate, and the split is permanent:
-
-```text
-generated bed elevation + earthwork delta + erosion/deposition delta = finished ground elevation
-surface/substrate material                                           = separate derived identity
-water depth, surface and discharge                                   = separate hydrology
-resource field                                                       = already separate
-```
-
-Generated bed, substrate and initial hydrology are pure functions of generator version, seed, parameters and
-coordinate, cached as derived data only. Only the earthwork delta, the erosion delta, departures from water
-equilibrium and non-zero erosion accumulators are saved and checksummed. Never save a generated height because
-a renderer needs it, and never duplicate the height generator in TypeScript.
-
-### Water is equilibrium plus sparse disturbance
-
-A spring is a boundary condition with a finite rated discharge, not a cell that injects a water item forever.
-Generated rivers carry a stable flow field whose surface can animate while the simulation is settled, costing
-no tick work.
-
-The player creates sparse hydrology state only by changing the equilibrium — cutting a channel, raising a dam,
-opening an outlet, pumping a pond, diverting a spring, flooding a pad, draining a basin. Such a change
-schedules a bounded **active region**; native resolves depth, surface and discharge to a fixed point, then
-removes the region from the schedule. **No full-world or permanent per-cell water kernel is allowed.**
-
-- Spreading water may never insert a chunk into `generated_chunks`. Disturbed flow stops at the surveyed
-  frontier against a deterministic boundary flux and resumes when survey exposes the next region.
-- Oceans and untouched rivers are derived boundary conditions, not running entities. Only disturbed cells
-  carry saved departure state.
-- Source discharge creates water and terminal outlets remove it, so global conservation is not claimed; local
-  transfers must neither duplicate nor lose depth, and every solve terminates within an explicit budget.
-- Neighbouring sources never manufacture another source. Springs are generator identity or an explicit
-  construction, never an emergent adjacency trick.
-- A pump draws against local depth and replenishing discharge, and reports its named source and limiting rate.
-  Loose water in pipes stays factory cargo; pipe transport is not a hydraulic pressure simulation.
-- **Live erosion is a sparse geomorphic epoch, not a fast terrain tool.** It exists so an old factory can watch
-  a river answer what the player built. Erosion may expose or bury a surface resource only through an explicit
-  rule — never as a side effect of lowering ground.
-
-### Water runs downhill — world generator 14
-
-Rivers were routed by a minimum spanning tree whose edge cost was dominated by a hash term four orders of
-magnitude larger than the climb term, so the network was a maze that ignored altitude, and the bed was cut a
-constant depth under whatever noise the cell had. A reach could climb. **A channel now carries a hydraulic
-grade line** — the water surface elevation it stands at — and everything follows from it:
-
-- **Routing is a priority flood over the node lattice**, not a spanning tree. A node's filled level is at
-  least its parent's plus a fixed drop, so a reach descends by construction rather than by tuning.
-- **Springs are eased by altitude.** The moisture bar drops with height to a capped floor, which is
-  orographic lift stated as one subtraction, and puts headwaters in the mountains.
-- **The bed is cut to an absolute elevation**, seeded from the grade line and spread by a Dijkstra at
-  `VALLEY_BANK_MQ` — one `MAX_WALK_STEP_QUANTA` per cell. Inside the wetted width the floor is imposed so the
-  hillslope term cannot leave a lip in a river; outside it may only cut.
-- **A reach is drawn cell by cell down the ground**, not rasterised as a straight segment. That is what the
-  angular look was.
-
-Sea level was already one global datum and elevated lakes already pool at their spill level, so neither
-needed work. **Draining an elevated lake already works** through the departure solve. **A dam holds but does
-not fill**: `settle()` has no inflow term, so raising a bed backs up what is standing there and nothing more
-— a reservoir needs a source term keyed to the reach's discharge class, which is the next piece of work here
-and the thing hydropower is waiting on. Head drop and discharge class are both published now, so the power a
-reach can yield is derivable without further generation work.
-
-World generator 14 rejects every version-13 save: every bed and every water surface moved.
-
-### The ground has a strength — world generator 15
-
-Erodibility was one constant, so a grade line was always reached and every valley on every seed had the same
-cross-section. **The rock now has a strength field** and the incision stops where the discharge cannot pay for
-it:
-
-- **Strength is banded, not classed.** A low-frequency lateral field decides where the hard rock is; depth
-  below the surface decides how much of it a cut meets — a soft weathered mantle over a harder bed. It is a
-  number with a physical meaning, sampled per cell, not a `match` on a rock type.
-- **Cutting power scales with discharge class**, so a large river still reaches its grade line through ground
-  that stops a creek. Where it cannot, the bed stops above the grade line and the reach leaves a **sill** — a
-  step the water crosses and a walker may not, because the drop is past the wade limit.
-- **The bank grade is drawn from the same field.** Soft ground gives the wider valley, hard ground the tighter
-  one, over a span whose soft end is world 14's single constant — so no valley the new rule cuts is wider than
-  one already shipped.
-- **The survey gates it.** `terra_survey` counts sills, counts edges falling past the wade limit and reports
-  the deepest, alongside the existing cycle, uphill-edge and drainage-walk invariants.
-
-Sills are what the slice is for: a crossing a walker must go around, or bridge, that the water put there. They
-are also nearly free — measured against a run with cutting power raised until nothing can be stopped, they cost
-four ponds and change no drainage-walk termination at all. Both results are in `docs/BENCHMARKS.md`.
-
-World generator 15 rejects every version-14 save: bed elevations moved wherever the rock refused the cut.
-
-### Rivers gather — world generator 16
-
-The default inland opening exposed two wrong choices: class-1 hillslope gullies became one-cell permanent
-streams, each outlined by a one-cell shore stripe, and the landing search ignored the continent and chose a
-dry shelf beside an arbitrary coordinate. The drainage graph and continental field are unchanged; what
-becomes a river and where a player enters that landscape are not.
-
-- **Class 1 remains hillslope drainage and no longer cuts a channel.** Permanent water begins at class 2,
-  after five class-1 catchments join. In the fixed inland sample, one-cell centreline cells fall 600 → 144;
-  the remainder are genuine class-2 streams.
-- **Wet width now states the hierarchy directly:** class 2 is one cell, classes 3–4 are three, class 5 is
-  five, class 6 is seven and class 7 is nine. Suppressing a lower class never narrows a higher one.
-- **The graded floor includes dry alluvium:** one cell on streams and medium rivers, two on classes 5–7.
-  The same native nearest-channel solve owns water and bench, so the sand cannot detach at a bend.
-- **A new game begins on the coastal plain.** The landing search anchors itself on a region containing both
-  land and sea, chooses among its lowest dry provinces, and still requires the original dry, walkable,
-  buildable clearing. The landing is at most 100 m above the zero-metre sea datum and an ocean beach must
-  lie within 24 cells. The smooth continental field already rises inland through hills and massifs; the
-  drainage-first carve puts the joined main stems at the bottoms of the valleys descending back through the
-  low plain.
-
-On the fixed inland sample, channel density falls 17 → 14 per mille and wet coverage 64 → 55 while
-walkable/buildable edges improve 946/731 → 954/741 per mille. Drainage remains at zero cycles, zero uphill
-edges and zero unterminated walks. The default landing moves from 774.75 m to 4.75 m above sea level; the
-nearest ocean cell is 10 hexes, about 53 m, away and the macro drainage reaches the ocean in one province
-step. `landing_shelves_are_deterministic_dry_and_buildable` pins the 100 m / 24-cell coastal contract across
-three seeds, and the all-preset opening test pins it against forty preset/seed pairs.
-
-World generator 16 rejects every version-15 save: suppressed gullies, widened beds and alluvial benches
-move generated ground. Save 44 carries an older file to that explicit refusal and preserves its export path.
-
-### The mobility ladder
-
-Skill Points bought one rank each of Carrying, Construction reach and Surveying range, and a milestone bought
-one point. Both halves now have depth: **Carrying and Construction reach run to three ranks**, and travel speed
-joins them as a fourth branch at three levels, each multiplying walking and running pace by 1.25.
-
-- **Pace is fitness, not boots.** The bonus multiplies the step after every surface branch — ground, ford and
-  swim alike — so the ratios the route search prices a path in stay exactly the ones a faster player walks.
-- **The journey still funds the whole ladder and not a point more.** There are four milestone events and there
-  is no room for more, so they were made worth more: 1 / 4 / 6 / 9 points against a total skill cost of 20. The
-  budget assertion is unchanged and still exact.
-
-### Closeout delivered
-
-The distant aggregated terrain LOD is native generated, read-only and checksum-neutral. It carries broad
-height and water surface without surveying cells, exposing fields or entering the pick surface. It is not
-drawn beyond the surveyed frontier: its large altitude triangles read as discovered terrain at close zoom.
-Saved games states the migration window and export promise per entry work item 3 above.
-
-## Phase 9 — Living Lattice
-
-Animals, biomatter and waste as one milestone. This is the first system that makes HexFactory something other
-than a factory game drawn on hexes: a living population moves, feeds, breeds, recovers and can be depleted
-past recovery across hex neighbourhoods. Biomatter comes from that population rather than from a renamed
-static field, and waste is a byproduct with a visible destination — a recovery loop, a damaged habitat, or a
-refining step. Producer, byproduct and consumer are designed together so none is decorative.
-
-This is **not** a pollution-and-enemy-wave substitute. The pressure is ecological consequence and opportunity,
-not a timer that sends attackers. A player should be able to preserve a productive migration, intensify it
-carefully, exhaust it for an urgent contract, or repair a region they damaged.
-
-**The 2026-09-02 playtest asked for the concrete form of that**, and it is this brief rather than an addition
-to it: sparse herd entities that graze, grow toward a local carrying capacity, and thin toward local
-extinction when harvested past it. That is also the producer the waste and recovery loops need. Two things
-must be true before it ships — overharvesting is recoverable in some places and permanent in others, so the
-choice is real, and the player can see which of the two they are doing while there is still time to stop.
-**Riverbank fertile soil lands here too**, as ground rather than gameplay: row 9 owes the tag and nothing that
-grows on it, on the terms the playtest report states.
-
-Hex topology earns itself here: movement and propagation use six neighbours, a herd or recovery front has a
-perimeter, extraction reach is a ring, and machines expose meaningful faces when a process has directional
-intake, output, heat or waste. Do not add generic adjacency percentages that collapse into one solved
-blueprint. Rust/Wasm owns every ecological tick, through sparse scheduled populations or active fronts.
-
-Three things earlier milestones already hand over:
-
-- **Reuse the joint-output foundation the petroleum row delivered** — named-route costing, multi-output stock
-  handling, allocation, contract expansion and guidance. Check the allocation stays valid for ecological
-  inputs and outputs; secondary outputs are not automatically free.
-- **A new contract stage is a data row.** Stages live in `scenarios.json`, `HUB_LADDER` has one entry per
-  stage the hub can finish, and `tests/look.test.ts` fails if a shipped contract can complete a stage the
-  ladder cannot draw.
-- **Guidance follows the contract for free, but only through recipes.** `nextAction` walks recipe inputs and
-  categories, so an ecological _process_ with no recipe row will not appear at all. The one thing that must
-  not happen is a hub asking for something the next step cannot explain.
-
-**Acceptance.** One complete loop produces useful biomatter and a waste stream with at least two legible
-responses of different ecological outcome. The same installation in two habitat states does not have the same
-answer, and the reason is visible in the world. A population recovers, migrates and collapses
-deterministically, reproduced exactly by saves and checksums. The founding hub asks for something from the
-loop, and every new definition reaches `fixtures/balance.json`.
-
-## Phase 10 — Supported floors and vertical transport
-
-Ground plus one usable upper floor first; expand only after it is legible and measured. The destination is a
-multi-level building — machines on several floors with belts moving material within and between them, inside
-one structure the player reads as a single works. Not a voxel editor and not a structural-collapse simulator.
-
-- **Logical levels:** position becomes an axial cell plus an explicit level ID; floor 1 is not occupied by the
-  machine below it. Foundation grade and floor index stay distinct. Existing corner belts stay planar.
-- **Supports and loads:** definition-driven load classes and maximum spans; the preview names the cells needing
-  columns and the machines that are too heavy. Recalculate changed support regions on edit, never every
-  building every tick. No surprise collapse, and no inventory lost to one.
-- **Floor openings:** stairs, lifts, columns and shafts reserve full footprint and headroom across levels. An
-  apparently empty cell cannot hide a conflicting shaft above it.
-- **Belt lifts:** explicit intake/output endpoints join compiled graph edges across levels; cargo, progress,
-  buffers, capacity and energy stay native, with identical conservation and backpressure. Removing a loaded
-  lift recovers its stock or refuses safely; a direction change cannot teleport or duplicate cargo, and
-  existing underpasses must not acquire cross-level connections.
-- **Player access:** stairs first, elevators later; walking, reach and interaction resolve the correct level.
-  Adjacent positions on different floors never connect implicitly — define explicit risers, pipes included.
-- **Editing view:** active-floor selection, hide/fade above, ghosted context below, layer-aware selection,
-  marked shaft destinations. Picking intersects the selected logical plane and never reads height from a mesh.
-
-**The structural half of the enclosure family lands here**, because it exists to carry a floor: reinforced
-concrete wall and column for heavy decks, steel frame and cladding for larger clear spans with stated load
-limits, roofs per material with automatic cutaway. Higher floors and heavier equipment should be what creates
-demand for beams and rebar — a first small upper room must not require reinforced concrete. Underground strata
-stay a separate decision.
-
-**Acceptance.** A useful stacked factory with no hidden routing, load and removal validation, full cargo
-conservation, and readability and performance evidence at the recorded tier. If one upper floor cannot be
-edited confidently at normal zoom, fix the layer view before expanding scope.
-
-## Phase 11 — The primitive human
-
-The player becomes a primitive human with needs and attributes rather than a camera with a pack. **This
-reverses a standing guardrail deliberately.** The old wording — do not invent endurance, hunger or a movement
-grind to fill empty branches — was written against padding, not against the genre, and it survives in a
-stricter form that governs every bullet below:
-
-> A need must create a **reason to build** something. A need that only makes existing actions slower is a
-> tax, and a tax is the failure mode the original guardrail was pointing at.
-
-Hunger is the test case: hunger that interrupts factory work to walk to a stockpile is a tax; hunger that makes
-foraging, farming, cooking, preserving and storing worth automating is a system.
-
-- **Attributes are bounded and legible.** Strength raises carry weight and hand-work speed; it never becomes an
-  invisible multiplier on every rate. Each attribute states its exact effect and ceiling.
-- **One player-progression story, not two.** Skill Points already buy Carrying, Construction reach, Surveying
-  range and travel pace, the first two and the last at three ranks each. Either attributes replace those ranks
-  or they set the base the ranks modify — never two currencies buying the same bonus.
-- **Native state.** Hunger, condition and attributes are saved and checksummed, owned by the player clock that
-  runs independent of the simulation rate — so whether a need advances while the factory is paused is an
-  explicit decision.
-- **It depends on rows 9 and 10.** Needs built before there is anything to satisfy them with are the grind.
-- **Deep water is the missing traversal rung, and it belongs here because it is a need.** Asked for 2026-09-02.
-  Both ends exist: a wade limit separates the ford from water that refuses, and bridges cross what the ford
-  cannot. Swimming is the middle, and the guardrail decides its shape — it earns its place by making something
-  worth building or carrying, such as a shore swum once and then bridged because it will be used daily. Stamina
-  in water is where a condition need can legitimately bite, because the alternative is visible and buildable.
-- **No death spiral, and no idle decay as a difficulty knob.** Failing to eat narrows options recoverably.
-
-**Acceptance.** Every need names the thing it makes worth building, and a playtest confirms a player built that
-thing because of the need rather than in spite of it. No existing action becomes slower without a stated
-compensation. Attributes and Skill Points have one reconciled budget, migrated without taking anything from an
-existing save.
-
-## Phase 12 — Regional Discovery
-
-The generation half moved forward into v0.21 — the bootstrap guarantee and the survey that proves every preset
-works. What remains is the play system, starting from a world that already has readable landforms, rivers and
-real deposits.
-
-Advanced materials and ecological opportunities belong to readable regions that require travel, surveying and
-eventually outposts. Every preset stays completable, but "completable" no longer means "sample platter at
-spawn." A third low-frequency generation channel may create dry and wet variants of one elevation band, but
-generation is not the milestone: a region has to announce itself through shape, colour, life, sound and
-material behaviour; the survey tool hints rather than reveals; and a distant discovery must create a reason to
-establish a specialized site rather than carry one stack home. Landing contracts and later hub modules provide
-that reason.
-
-Signal crystal is the strongest candidate for a later hex-native automation language — relays along faces,
-triangular links, closed rings. It stays a candidate until Living Lattice proves which signals the player
-actually needs; do not build a programmable system in search of a problem.
-
-**Acceptance.** Every preset remains completable, measured by a survey reporting first advanced-region
-distance, regional extent and access from buildable ground. Crossing into a region is recognisable without
-opening the menu. At least one founding-hub project requires a sustained distant site. The minimap and home
-bearing support the expedition without revealing unsurveyed world.
-
-## Open decisions
-
-- **Does `regrowth_ticks` move** now that a forest cell holds one to four wood instead of ten to twenty-two?
-  Tuning slowed the cadence fivefold (90 → 450) so a cut forest reads as a place that has to recover. That was
-  a judgement about pace, not a measurement: what is still unmeasured is an extractor's starve rate over seven
-  cells against 450, which is what decides whether forestry is viable at all.
-- **Does the hub board lead to meaningful research rather than repeat-income farming?** Settled in v0.35.0 by
-  making demand finite — every project pays once and `repeat_insight` is gone. Quote
-  `fixtures/balance.json` for the current budget rather than a remembered pair. What would reopen it: playtest
-  evidence that the surplus is loose enough that purchase order stops being a real choice.
-- **Rails or free-floating panels** was settled by shipping the rail. What would reopen it: wanting positions
-  the player chooses, at which point saved coordinates, overlap, off-screen recovery and touch gestures all
-  come back.
-
-**Not open:** `DIRECTIONS` stays six. Twelve headings are transport only. Widening adjacency would let a boiler
-reach a turbine two rows away and a pole span a distance no player can see.
-
-**Two gates were withdrawn on 2026-08-27 by user decision** and are recorded so neither returns as a surprise:
-the timed human playtest of the opening (the opening stands on `fixtures/balance.json` instead), and physical
-integrated-GPU qualification, withdrawn with the laptop support target. What the one informal session found is
-shipped and stays shipped: players read an accidentally paused factory as a failure, so player pause,
-single-step and variable speed are gone and the rate is fixed at 10 tps.
-
-## Longer horizon
-
-Decisions rather than omissions, each with the thing it is waiting for. Necessary shared prerequisites do not
-bring their whole feature families forward.
-
-- **Hub programmes.** Player-chosen modules grow around the hub's rings and create different material demands.
-  Finite authored systems and visible construction, not endless random chores.
-- **Six-face machines.** Ports, heat, exhaust or control attached to named faces where direction creates a
-  readable routing choice. Available shapes, not mandatory bonuses.
-- **Intermittent generation and accumulators.** They arrive together. Intermittency is a deterministic function
-  of tick and position, never a runtime roll.
-- **A day cycle, and solar with it.** Chosen for what it does to the game's feel, not smuggled in as a power
-  source.
-- **Pressure and flow.** v0.45 ships deterministic one-unit pipe transport. A pressure model may deepen it only
-  when it creates readable routing choices; it is no longer a prerequisite for keeping fluid off belts.
-- **Organic tileables.** The later half of the art generator: tileable textures and shapes so a hex lattice
-  reads as organic terrain and objects. Generated, presentation-only, never a checksum input.
-- **Biome flora and props.** Asked for 2026-09-02: cacti and rocks in desert, alpine conifers and boulders on
-  the tops, reeds and driftwood on the coast. A prop table per biome drawn as sparse instanced geometry on the
-  pattern the resource fields already use, presentation only — a prop never occupies a construction cell, never
-  refuses a placement, and never reaches a save or checksum. It waits on organic tileables rather than leading
-  them, because a prop and the ground under it must be authored against one terrain vocabulary. Row 12 is where
-  it pays off.
-- **A harbour and working vessels.** Asked for 2026-09-02: a coastal building half on land and half on water,
-  producing fishing cutters or diving craft to work water-based nodes. It waits on three things, none of them
-  boat geometry. A footprint straddling the shore is the first placement whose legality is a water question
-  rather than a ground one, and that rule has to be designed rather than discovered. Water-based harvestable
-  nodes are row 9's population model in another medium and should reuse it. And a vessel needs somewhere worth
-  sailing to, which is row 12.
-- **Underground strata.** Separate sparse axial strata joined by explicit shafts or elevators, not a voxel world
-  and not an automatic consequence of adding floors.
-
-Whatever comes next, `fixtures/balance.json` remains the thing every new building or recipe has to face: a
-definition that never reaches it is a definition nothing has compared against the curve.
-
-## Shipped ledger
-
-An index, newest first — one line per release, and the envelope numbers only where one moved. The reasoning
-behind any shipped rule is in the git history and in the code that implements it.
-
-- **v0.47.0** Flowing Water — physical 25 m² ground, drainage-first valleys, sparse disturbed water,
-  geomorphic epochs, a native coarse horizon, noise-shaped resource rims and Open-water Swimming. Save 42 /
-  technologies 17 / world 13.
-- **v0.46.0** Shaped Ground — earthworks named by a shape and two anchors, with a depth, a levelling datum, a
-  64-hex ceiling, and a refused edit that keeps its footprint and names the obstructing hex.
-- **v0.45.0** Sealed Routes — pipes carry loose fluid through the compiled graph, belts carry solids and sealed
-  barrels; single-fluid tanks and two-portal underpasses. Save 36 / definitions 27.
-- **v0.44.0** Emblems and Clarity — one emblem library over every machine, category and branch, tiers as UI
-  badges, catalogue search.
-- **v0.43.0** Closer Views and Field Survey — twelve 30-degree orbit stops, 4× zoom, Field Survey as a third
-  skill. Save 34 / technologies 15.
-- **v0.42.0** Straight Walls and Yards — boundaries on the vertex lattice; twelve headings run dead straight and
-  a yard closes from two corners. Save 33 / wire 18.
-- **v0.41.0** Handling and Clarity — pointer stack dragging, named belt-target refusals, carry-and-spill
-  demolition, continuous world-space paving.
-- **v0.40.0** Petroleum Roads — powered oil wells, atomic joint-output refining, asphalt over gravel,
-  production-route accounting. Save 32 / definitions 26 / technologies 14 / world 10.
-- **v0.39.0** Masonry Enclosures — hill limestone, kiln-fired cement, four wall materials. Save 31 /
-  definitions 25 / technologies 13 / world 9.
-- **v0.38.0** Ground Works — five paved surfaces and native integer elevation in one bounded transaction, with a
-  spoil ledger, paid recovery and undo. Save 30 / definitions 24 / wire 17.
-- **v0.37.0** Timber Boundaries — edge fences and gates with bounded selection and atomic accounting. Save 29 /
-  definitions 23 / wire 16.
-- **v0.36.0** Player Skills — separate personal points and three finite native milestones. Save 28 /
-  technologies 12 / wire 15.
-- **v0.35.0** Practical Projects — hub demand becomes finite: 22 projects each pay once. Save 27 /
-  definitions 22 / wire 14.
-- **v0.34.0** Power and Tier Bills — no buildable definition bills raw ore. Save 26 / definitions 21.
-- **v0.33.0** Mechanical Components — a plate-and-gear component and a one-component founding commission.
-  Save 25 / definitions 20 / scenarios 7.
-- **v0.32.0** Industrial Bills — five industrial stations repriced in manufactured parts. Save 24 /
-  definitions 19.
-- **v0.31.0** Foundation Commissions — the first founding stage grants four technologies with typed effects.
-  Save 23 / technologies 11 / scenarios 6.
-- **v0.30.0** Research Atlas — a central technology tree with prerequisite lines, search, filters and keyboard
-  navigation. Save 22 / technologies 10.
-- **v0.29.0** Research Foundations — branch and stage registries; native publishes the availability answer.
-  Save 21 / technologies 9.
-- **v0.28.0** Essential Bills — five starter buildings billed in manufactured parts. Save 20 / definitions 18.
-- **v0.27.0** Transport Kits — belting is manufactured, not gathered. Save 19 / definitions 17.
-- **v0.26.0** Primitive Workshops — a furnace that smelts with no grid, and native attended work. Save 18 /
-  definitions 16.
-- **v0.25.3** Compartment Storage — separate ingredient, fuel and output inventories with a native cursor-held
-  stack. Save 17 / definitions 15 / wire 12.
-- **v0.25.2** Wayfinding — a second click walks the player there: goal saved, bounded A\* route derived.
-  Save 15 / wire 10.
-- **v0.25.1** Junctions — split, merge and underpass as definition flags over the existing graph. Save 14 /
-  definitions 14 / technologies 7 / wire 9.
-- **v0.25** Visual Depth — the production world becomes a near-orthographic Three.js diorama with instanced
-  machines from the shape grammar.
-- **v0.24** Creative Mode — a saved, checksummed sandbox flag that changes no rate, price or payout. Save 13 /
-  definitions 13 / wire 8.
-- **v0.23** Earned Insight — hand insight becomes a bounded first-discovery allowance. Save 11 /
-  definitions 12 / wire 6.
-- **v0.22** Crossings and Canopy — bridges, a canopy that answers harvesting, and the twelve-point rosette.
-  Definitions 11 / technologies 6 / wire 6.
-- **World scale** (2026-08-20, superseded by Phase 8) — one hexagon is 1 m²; landform cells 128–960.
-  Generator 8.
-- **v0.21** Landforms and Fields — **a deposit is a site, not a hex**; a bootstrap pass guarantees the opening
-  or refuses the world. Radius-1 purity rose from 474–662 to 965–992. Generator 7.
-- **WebGL2 renderer** (unreleased, superseded by v0.25) — world and minimap as instanced GPU geometry.
-- **v0.20.1** Panels and Item Language — `itemChip` becomes the only place an item is drawn.
-- **v0.20** Standing Requests — filling a posted hub request is the only thing that pays. Save 10 / wire 5.
-- **v0.19** Power Grid — electricity becomes energy bought per unit of work. Save 9 / technologies 5 / wire 4.
-- **v0.18** Founding Contract — an ordered contract that grows the hub, and guidance derived rather than
-  scripted. Save 8 / scenarios 5 / wire 3.
-- **v0.17** Balance — `fixtures/balance.json` becomes every figure that decides whether the economy works.
-- **v0.16** World Parameters — a world is a seed **and** a `WorldParams`; four presets ship as data rows.
-  Generator 6.
-- **v0.15** Generated Shapes — a building's drawing is a part list, total over `SilhouetteKey`.
-- **v0.14.1** Construction Catalogue — buildings grouped by kind, recipes drawn as materials, a nine-slot hotbar.
-- **v0.14** Upgrades and Tiers — `upgrade` edits the entity in place. Save 7 / technologies 4.
-- **v0.13.2** Inspector Readability — a clicked hex becomes cards rather than a text dump.
-- **v0.13.1** Look Systems — neighbour fringes, baked terrain tiles, depletion scars, category silhouettes.
-- **v0.13** Power — poles compile connected components into networks with exact brownout remainders. Save 6 /
-  technologies 3.
-- **v0.12.4** Renderer Measure — the first complete browser frame.
-- **v0.12.3** Sightlines — the player faces the cursor through a bounded `aim` carrying a world position.
-- **v0.12.2** Binary Delta — a transferred buffer decoding to exactly what JSON produced: payload 13.6× smaller.
-- **v0.12.1** Playtest Feel — sparser fields; refusals that name the missing item. Generator 5.
-- **v0.12** Material Base — resources generated where their geography says, and **fuel as a property of the
-  item**. Save 5 / generator 4.
-- **v0.11** World Shape — resource fields as a pure function of seed and hex, with only a sparse depletion
-  overlay stored. Generator 3.
-- **v0.10** Playability — one placement overlap rule, host lists patched in place, a native player cadence.
-- **v0.9** Game Feel — a belt run becomes one drag, resolved natively.
-- **v0.8** Browser Capacity — the ladder runs in the browser worker; the worker boundary made the binary
-  encoding the next milestone.
-- **v0.7** Sparse Snapshot — deltas built from dirty marks; frame cost fell 16.8×.
-- **v0.6** Sparse Cost — extractors hold a resolved deposit reference (tick 233× cheaper); fog of war.
-- **v0.5.1** Capacity Tiers — the deterministic headless ladder, 12 to 6,144 buildings.
-- **v0.5** Worker Boundary — the Wasm `Factory` moved into a dedicated module worker.
-- **v0.4** Command Surface — the world owns the viewport; derived guidance and a construction dock.
-- **v0.3.1** Transport Graph — stable-ID invalidation and affected weak-component recompilation.
-- **v0.3** Continuous Exploration — native two-axis intent with continuous collision.
-- **v0.2** Playable Game — the architecture proof became a game, with `HXF1` saves and scenarios.
-- **v0.1** Founding slice — the repository, `@hexlife/embed/hex` exactly pinned, and the first Pages deployment.
+This is the live product and development plan. Current engine rules belong in
+[`ARCHITECTURE.md`](ARCHITECTURE.md), visual rules in [`ART.md`](ART.md), and measurements in
+[`BENCHMARKS.md`](BENCHMARKS.md). Source, tests, and those focused documents are authoritative.
+
+## Goal
+
+Build a beautiful, open-ended factory-automation game in an unbounded hex world: deep enough to
+reward large systems, pleasant to explore, and precise to control. Geography, life, industry, and
+the player should affect one another visibly. Progression opens options and culminates in milestones
+without ending the world.
+
+Player experience decides scope. Determinism, native simulation ownership, sparse cost, and measured
+performance protect that experience and remain non-negotiable.
+
+### Product rules
+
+- Every milestone must create a player-visible decision or remove a player-visible obstacle.
+- Controls must be obvious initially and remain precise at scale; feedback is part of the mechanic.
+- Hex geometry matters only where faces, rings, fronts, or approach directions create a clear choice.
+- New content should reuse data-defined systems. Add a native branch only for genuinely new behavior.
+- Idle world area and idle entities should cost almost nothing. No permanent whole-world tick.
+- Keep source and documentation within the context budget. Prefer small ownership modules over broad
+  coordinators, duplicated explanations, or speculative abstraction.
+- Performance and balance claims require committed measurements.
+
+## Current game
+
+A run begins beside a landing hub in a chosen world preset. The player explores a surveyed frontier,
+crosses physical landforms and water, gathers finite resource sites, completes hub requests and
+contracts, researches technology and personal skills, and builds a powered factory. The current
+factory includes manual and fuelled work, electricity, multi-output recipes, belts, junctions,
+underpasses, pipes, storage, walls, gates, paving, roads, bridges, earthworks, and deterministic
+save/restore. Forests deplete and regrow; disturbed rivers settle and erode through bounded native
+work rather than a global water tick.
+
+One construction hex is 25 m² and one height quantum is 0.25 m. Rust/Wasm owns world and simulation
+truth; TypeScript sends bounded commands and renders native snapshots. The detailed contract is in
+[`ARCHITECTURE.md`](ARCHITECTURE.md).
+
+| Envelope        | Current |
+| --------------- | ------: |
+| Save (`HXF1`)   |      44 |
+| Definitions     |      30 |
+| Technologies    |      18 |
+| Scenarios       |       8 |
+| World generator |      16 |
+| Snapshot wire   |      23 |
+
+The latest shipped milestone is **v0.47.0 Flowing Water**. Older 1 m² worlds and worlds from another
+generator version remain exportable but are not remapped. Same-generator 25 m² save formats migrate
+through explicit adjacent steps.
+
+The v0.43 browser record advances and draws 6,144 entities at 32.3% / 33.5% / 33.9% of a 60 Hz frame
+on Low / Medium / High at 1440×900 on the reference desktop. That is the supported evidence, not a
+claim about other hardware. See [`BENCHMARKS.md`](BENCHMARKS.md).
+
+The game is still a polished short-form slice. Its main product gap is a sustained programme for an
+established factory. Its main engineering gap is context concentration: the Rust entrypoint is now
+split and the production payload has a measured budget, but `src/main.ts` still owns too many browser
+features.
+
+## Development order
+
+Complete these items in order. Fixes and prerequisites stay with the active item; do not start a
+later phase to avoid an unmet gate. A phase may ship in several small releases.
+
+### Now — restore modular headroom
+
+1. ~~Make `npm run context:check` green and prevent growth in every ratcheted file.~~ Done. Every
+   ratchet holds and two of them were retightened onto the sizes the split actually reached.
+2. Split `src/main.ts` by feature ownership, beginning with session lifecycle, workspace/panel wiring,
+   and input/build controllers. Preserve behavior and keep one bounded application composition root.
+   Choosing a world is out — `src/app/worldSetup.ts` owns both parameter forms, both preview panels,
+   the shared seed and scenario controls, and the title screen, and the root keeps only what starts,
+   loads, and names a run. `src/main.ts` is 201 KB against a 12 KB target; panel wiring and the input
+   and build controllers are the remaining feature families.
+3. Split another large module only when the active feature must change it; do not perform a broad
+   rewrite. Move its nearest tests with the behavior.
+4. ~~State and measure a production startup budget for JavaScript and Wasm before adding another major
+   client system.~~ Done. `npm run startup:check` holds the first load to 320 KB of JavaScript, 560 KB
+   of Wasm, and 896 KB together, all gzipped, and `hexfactory:ready` marks what that payload costs.
+   The measured numbers and the 750 ms time budget are in [`BENCHMARKS.md`](BENCHMARKS.md).
+
+This gate is complete when the active phase can be implemented without expanding a known context-debt
+file and the existing quality gate remains green.
+
+### Phase 9 — Living Lattice
+
+Create one sparse ecological loop rather than a catalogue of decorative resources.
+
+- Derive a scarce fertile-riverbank ground tag from native drainage, elevation, and water state.
+- Add deterministic animal populations that move, feed, breed toward local carrying capacity,
+  migrate, recover, and can collapse when overharvested. Use sparse schedules or active fronts.
+- Produce useful biomatter and a waste stream with at least two visible responses: recovery/refining
+  and habitat damage. Reuse existing joint-output routing and costing.
+- Show population health and the consequence of extraction early enough for the player to react.
+- Add the first finite hub ecology programme; guidance must derive an executable route to its bill.
+- Extend the generated art vocabulary only as needed to make habitat and population state readable.
+
+Gate: the same installation has different, legible outcomes in healthy and damaged habitat; recovery,
+migration, and collapse reproduce exactly across saves and checksums; all new definitions enter the
+balance fixture.
+
+### Phase 10 — The primitive human
+
+Give the player needs only where they create factory demand.
+
+- Build a food chain from phase 9: forage or harvest, grow, cook, preserve, store, and distribute.
+- Add bounded native needs and attributes with exact effects. Failure narrows options recoverably;
+  idle decay and death spirals are out of scope.
+- Reconcile attributes with Carrying, Construction Reach, Surveying, and Travel Pace. One benefit may
+  not be purchased through two progression currencies.
+- Keep the player clock separate from the factory clock and decide explicitly which needs advance on it.
+- Add a finite hub provision programme that uses the food system without becoming a repeatable chore.
+
+Gate: each need names something worth building, a playtest shows that the player builds it because of
+the need, and existing saves migrate without losing earned capability.
+
+### Phase 11 — Supported floors and vertical transport
+
+Ship ground plus one useful upper floor before expanding vertically.
+
+- Represent position as axial cell plus explicit level; grade and level remain separate.
+- Add definition-driven supports, loads, spans, floors, roofs, columns, stairs, shafts, and belt lifts.
+  Recompute only regions affected by edits; never surprise-collapse or lose inventory.
+- Compile cross-level transport through explicit endpoints. Adjacent cells on different levels never
+  connect implicitly, including pipes.
+- Provide a layer-aware view and picking: active level, faded context, visible openings and destinations.
+- Complete the structural enclosure family with reinforced concrete and steel frames when their load
+  decisions are needed.
+- Introduce named machine faces for ports, heat, exhaust, or control only where direction creates a
+  readable routing choice.
+- Keep current deterministic pipe transport unless vertical fluid routing proves that pressure adds a
+  clear decision. If it does, pressure and flow belong here as one bounded graph system.
+- After one upper floor is readable and measured, underground may use separate sparse strata joined by
+  explicit shafts. It is not a voxel world.
+
+Before rendering the feature, add a deterministic stacked-floor/lift capacity tier and rerun all three
+browser profiles. Gate: a useful stacked factory can be edited at normal zoom with conserved cargo,
+validated loads and removals, exact restore, and performance inside the recorded target.
+
+### Phase 12 — Regional Discovery
+
+Turn existing large-scale variation into reasons to travel and establish outposts.
+
+- Make advanced materials and ecological opportunities belong to recognisable regions while every
+  preset remains completable.
+- Add survey tools, home bearing, distant sites, and specialized outposts without revealing unsurveyed
+  terrain.
+- Finish organic generated seams and add biome flora and props as sparse instanced presentation. Props
+  never occupy cells or enter saves and checksums.
+- Add water populations using phase 9's population model, then a shore-straddling harbour and working
+  vessels when a distant water site makes the route worthwhile.
+- Add player-chosen hub programmes whose visible modules create sustained regional demand rather than
+  random repeatable jobs.
+- Use signal crystal for face/ring control only if the shipped factory has a concrete signal problem.
+
+Gate: entering a region is recognisable without a menu, the survey records its extent and access, every
+preset remains completable, and at least one hub programme requires a sustained distant site.
+
+### Phase 13 — Day and resilient power
+
+Add time variation only after regional factories make local power strategy meaningful.
+
+- Ship a day cycle and solar generation together; the cycle exists for atmosphere and play, not as a
+  hidden power prerequisite.
+- Ship intermittent generation and accumulators together. Output is a deterministic function of tick,
+  position, and published world state, never a runtime roll.
+- Let regional conditions change the useful mix without making one preset strictly dominant.
+
+Gate: the player can predict generation, size storage from visible information, and restore the same
+power outcome exactly from a save.
+
+## Active measurements and decisions
+
+- Measure extractor starvation over its seven-cell forestry reach before changing the current
+  `regrowth_ticks = 450`; visual recovery pace alone is not enough evidence.
+- Keep the generic Extractor until a new machine family creates a distinct decision. Recoloured aliases
+  do not deepen the game.
+- `DIRECTIONS` remains the six adjacent hexes. Twelve headings are routing/orientation only.
+- `fixtures/balance.json` remains the acceptance point for every new building and recipe.
+- The river hierarchy moved the opening's geography, and `fixtures/balance.json` records it. Wider
+  channels lay more bench and plane some water-adjacent lowland: sand sites 100 → 138, crude oil
+  72 → 113, stone 93 → 99, wood 2,895 → 3,058, clay 41 → 23. Every guarantee still stands — coal's
+  walk improved 16 → 15 hexes and clay's held — and mean site yields moved by under 5 per cent. Clay
+  is the material to watch: it wants lowland within two hexes of water, so it is the first thing a
+  change to channel width or bed depth deletes.
+
+Release history and settled implementation reasoning live in git history and tagged releases, not in
+this plan.

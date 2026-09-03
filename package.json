@@ -25,10 +25,12 @@
     "bench:browser": "npm run build:wasm:bench && vite",
     "agent:map": "node scripts/agent-map.mjs",
     "agent:map:check": "node scripts/agent-map.mjs --check",
-    "context:test": "node --test scripts/context-budget.test.mjs scripts/extract-range.test.mjs scripts/rust-split.test.mjs",
+    "context:test": "node --test scripts/context-budget.test.mjs scripts/extract-range.test.mjs scripts/rust-split.test.mjs scripts/startup-budget.test.mjs",
     "context:budget": "node scripts/context-budget.mjs",
     "context:check": "npm run context:test && node scripts/context-budget.mjs --check",
-    "quality": "npm run audit && npm run context:check && npm run agent:map:check && npm run format && npm run lint && npm run typecheck && npm run test:run && npm run test:rust && npm run build"
+    "startup:budget": "node scripts/startup-budget.mjs",
+    "startup:check": "node scripts/startup-budget.mjs --check",
+    "quality": "npm run audit && npm run context:check && npm run agent:map:check && npm run format && npm run lint && npm run typecheck && npm run test:run && npm run test:rust && npm run build && npm run startup:check"
   },
   "dependencies": {
     "@hexlife/embed": "1.15.0",

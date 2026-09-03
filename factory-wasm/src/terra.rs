@@ -135,8 +135,18 @@ const LANDING_PROVINCE_BUDGET: usize = 8;
 #[cfg(test)]
 const LANDING_PROVINCE_SOLVE_BUDGET: usize = LANDING_PROVINCE_BUDGET * 4;
 const LANDING_SAMPLE_STRIDE: i32 = 8;
-/// A new game must put an ocean beach inside the first pump's opening walk: about 129 m at most.
-const LANDING_BEACH_RADIUS: i32 = 24;
+/// Where the opening stands relative to the sea, in cells: a beach between 22 and 28 cells out,
+/// about 115 m to 150 m.
+///
+/// The ceiling is the first pump's opening walk — a beach further than that is a beach the opening
+/// cannot use. The floor is what makes the shore a place rather than the ground underfoot: nothing
+/// in the old rule stopped a shelf three cells from the surf, and an opening on the sand has no
+/// coastal plain around it to hold the reaches that run to the ocean, which are the widest water
+/// in the world and the reason to open here at all. A site inside the floor is still taken when
+/// the search finds nothing standing further back, because a workable shelf near the water beats
+/// an unworkable one at the right distance.
+const LANDING_BEACH_MIN: i32 = 22;
+const LANDING_BEACH_RADIUS: i32 = 28;
 /// Coastal plain ceiling for the landing itself: 100 m above the fixed sea datum.
 const LANDING_ALTITUDE_CEILING: i32 = 400;
 /// The inner pad must carry the largest initial footprint; the outer clearing must be dry and
@@ -514,18 +524,21 @@ fn graded_bed(seed: u32, cell: (i32, i32), class: u8, level_mq: i32) -> (i32, i3
     (surface.max(floor + MIN_FLOW_MQ), floor)
 }
 
-/// Half-width of the wetted channel, in cells: one cell for the first visible stream, three for a
-/// small river, five for a substantial river, and seven to nine for the two largest classes.
+/// Half-width of the wetted channel, in cells: three cells across for the first visible stream,
+/// rising one cell each side per class to thirteen for a continental river.
+///
+/// One cell of half-width per class is what makes the network read as a hierarchy rather than as a
+/// set of threads: every confluence widens the water visibly, because the class it produces is the
+/// class its two branches earned. The previous table spent its first three classes at zero, so the
+/// only two classes this generator actually reaches both drew a thread — the mouth of a river looked
+/// like its own headwater.
 ///
 /// This is stated against the absolute discharge class rather than [`CHANNEL_CLASS_MIN`], so
 /// suppressing hillslope drainage never accidentally narrows the rivers that remain.
 pub(crate) fn river_half_width(class: u8) -> i32 {
     match class {
-        0..=2 => 0,
-        3..=4 => 1,
-        5 => 2,
-        6 => 3,
-        _ => 4,
+        0..=1 => 0,
+        _ => i32::from(class) - 1,
     }
 }
 
@@ -548,6 +561,17 @@ fn bed_radius(class: u8) -> i32 {
     river_half_width(class) + river_bench_width(class)
 }
 
+/// How fast the bed climbs from the thalweg out to the waterline, in milli-quanta per cell: one
+/// quantum, a quarter of a metre.
+///
+/// Not zero, because a perfectly flat bed leaves the flow direction across a wide channel a tie,
+/// and a tie is how a flow edge ends up pointing at the far bank instead of downstream. Not the
+/// bank grade either: at 4 m to 6.4 m per cell the ground clears the water surface before the first
+/// neighbour, which is what kept every river one cell wide. [`bed_depth`] gains a quantum per class
+/// and [`river_half_width`] a cell, so the outermost wetted cell of every class carries exactly two
+/// quanta — half a metre — and the middle of the river is always its deepest part.
+const CHANNEL_CROSS_GRADE_MQ: i32 = MQ as i32;
+
 /// The most alluvium the graded floor may lay into a hollow it crosses, in milli-quanta: 1 m.
 ///
 /// A channel fills the centimetre-scale pits the relief term manufactures, because a river bed with
@@ -556,14 +580,27 @@ fn bed_radius(class: u8) -> i32 {
 /// river crossing a depression actually does.
 const FILL_LIMIT_MQ: i32 = 4_000;
 
-/// Catchment in cells to a discharge class. Logarithmic, base five: 2,048 cells is a stream and
-/// 32 million is a continental river, which is the range the classes have to stay distinct across.
+/// Catchment in cells to a discharge class.
+///
+/// The ladder does two different jobs, so it climbs at two different rates. Up to
+/// [`CHANNEL_CLASS_MIN`] it is a *threshold*: below 2,048 cells the water is on the hillslope and
+/// above 10,240 it has cut a channel, and moving either number changes how dense the network is
+/// rather than how big its rivers are. Above that it is a *width scale*, and it doubles, because a
+/// class buys one more cell of half-width and doubling the catchment is about what a river needs to
+/// earn one.
+///
+/// Base five the whole way was calibrated for a 32-million-cell continent this generator does not
+/// produce. Measured over the reference seed's 81 provinces around the landing, the largest basin
+/// reaching the sea held between 65,536 and 131,072 cells, so classes 4 and up never appeared and
+/// the entire world was two river widths: a one-cell thread and a three-cell one. Doubling puts the
+/// top of the ladder where the water actually is — 327,680 cells, twenty provinces — so a headwater,
+/// its confluences and the reach that meets the sea are told apart by the width the eye reads.
 pub fn discharge_class(catchment_cells: u64) -> u8 {
     let mut class = 0u8;
     let mut threshold = 2_048u64;
     while class < 7 && catchment_cells >= threshold {
         class += 1;
-        threshold = threshold.saturating_mul(5);
+        threshold = threshold.saturating_mul(if class < CHANNEL_CLASS_MIN { 5 } else { 2 });
     }
     class
 }
@@ -1222,13 +1259,20 @@ impl Terra {
             let base = untouched[index];
             // Inside the wetted width the floor is imposed, so a hollow under the thread is filled
             // rather than left as a hole the water would have to climb out of; the cap keeps that
-            // from raising a coastline. Outside it the floor may only cut.
+            // from raising a coastline. Outside it, and under the sea, the floor may only cut.
+            //
+            // Ground already below sea level is never filled, however close the channel is. The
+            // metre of alluvium is there to take a lip out of a river's own bed, and a reach that
+            // ends in the ocean has bed cells on the far side of the shoreline: allowing them to
+            // rise laid a causeway a bed-radius wide down every drowned reach in the archipelago,
+            // turning 3,925 hexes of sea into land and taking the landing's clay with it.
             //
             // The cut leaves a smooth ramp, and fading [`texture_mq`] back in across it was tried
             // and rejected: valley-side roughness traps drainage. Lakes went 7 → 49 and walks
             // leaving the sample 292 → 36. A graded valley is smooth because that is what letting
             // the water out costs; the material map answers for its own thresholds.
-            province.head_mq[index] = if distance <= bed_radius(class) {
+            let drowned = base < SEA_LEVEL_QUANTA * MQ as i32;
+            province.head_mq[index] = if distance <= bed_radius(class) && !drowned {
                 floor.min(base + FILL_LIMIT_MQ)
             } else {
                 base.min(floor)
@@ -1239,12 +1283,22 @@ impl Terra {
             for (dq, dr) in DIRECTIONS {
                 if let Some(neighbour) = province.domain_index(q + dq, r + dr) {
                     if valley[neighbour] == i32::MAX {
-                        let grade = crate::terra_rock::bank_grade_mq(
-                            self.seed,
-                            q + dq,
-                            r + dr,
-                            untouched[neighbour],
-                        );
+                        // Inside its own wetted width a channel has no bank: the bed climbs to the
+                        // waterline at the shallow cross grade, and the valley side starts outside
+                        // it. Without this the floor rose a bank grade — 1 m to 1.6 m — from the
+                        // centreline out, which is more than any class's water is deep, so every
+                        // river in the world was one cell wide however wide [`river_half_width`]
+                        // said it was.
+                        let grade = if distance < river_half_width(class) {
+                            CHANNEL_CROSS_GRADE_MQ
+                        } else {
+                            crate::terra_rock::bank_grade_mq(
+                                self.seed,
+                                q + dq,
+                                r + dr,
+                                untouched[neighbour],
+                            )
+                        };
                         frontier.push(Reverse((
                             floor + grade,
                             q + dq,
@@ -1520,6 +1574,9 @@ impl Terra {
         let pad_offsets = hexes_in_radius((0, 0), LANDING_PAD_RADIUS);
         let clear_offsets = hexes_in_radius((0, 0), LANDING_CLEAR_RADIUS);
         let mut best: Option<((u32, i32, u32, i32, i32, i32, i32), LandingSite)> = None;
+        // A workable shelf that sits closer to the surf than [`LANDING_BEACH_MIN`], kept in case no
+        // seed-legal site stands further back.
+        let mut close: Option<LandingSite> = None;
         for &(_, _, pq, pr) in provinces.iter().take(LANDING_PROVINCE_BUDGET) {
             let (origin_q, origin_r) = province_origin(pq, pr);
             let margin = LANDING_CLEAR_RADIUS;
@@ -1577,20 +1634,27 @@ impl Terra {
                         && pad_spread <= crate::scale::MAX_BUILD_STEP_QUANTA
                         && walk_edges == 0
                         && site.bed_quanta <= LANDING_ALTITUDE_CEILING
-                        && self.has_nearby_sea((q, r), LANDING_BEACH_RADIUS)
                     {
-                        return site;
+                        match self.sea_distance((q, r), LANDING_BEACH_RADIUS) {
+                            Some(beach) if beach >= LANDING_BEACH_MIN => return site,
+                            Some(_) => {
+                                close.get_or_insert(site);
+                            }
+                            None => {}
+                        }
                     }
                     local_q += LANDING_SAMPLE_STRIDE;
                 }
                 local_r += LANDING_SAMPLE_STRIDE;
             }
         }
-        best.map(|(_, site)| site)
+        close
+            .or_else(|| best.map(|(_, site)| site))
             .expect("the bounded landing search contains dry-ranked provinces")
     }
 
-    fn has_nearby_sea(&mut self, centre: (i32, i32), radius: i32) -> bool {
+    /// Cells to the nearest ocean hex, or `None` past `radius`.
+    fn sea_distance(&mut self, centre: (i32, i32), radius: i32) -> Option<i32> {
         for distance in 0..=radius {
             for dq in -distance..=distance {
                 for dr in -distance..=distance {
@@ -1598,12 +1662,12 @@ impl Terra {
                         continue;
                     }
                     if matches!(self.water(centre.0 + dq, centre.1 + dr), Water::Sea { .. }) {
-                        return true;
+                        return Some(distance);
                     }
                 }
             }
         }
-        false
+        None
     }
 }
 
@@ -1728,415 +1792,8 @@ pub fn coast_province(seed: u32) -> Option<(i32, i32)> {
 mod tests {
     use super::*;
 
-    const SEED: u32 = 0x5EED_A17E;
-
-    /// A modest patch, so the invariant tests cover several provinces and a seam in each
-    /// direction without making `cargo test` slow.
-    fn patch() -> Vec<(i32, i32)> {
-        let mut cells = Vec::new();
-        for r in -PROVINCE_CELL..(2 * PROVINCE_CELL) {
-            for q in -PROVINCE_CELL..(2 * PROVINCE_CELL) {
-                cells.push((q, r));
-            }
-        }
-        cells
-    }
-
-    /// The macro graph is a forest: every edge strictly decreases `(rank, pq, pr)`, so following
-    /// outlets from anywhere terminates rather than looping. Both halves are asserted — the
-    /// ordering on each edge, and the termination it is supposed to buy.
-    #[test]
-    fn province_outlets_strictly_descend_and_their_chains_terminate() {
-        for pr in -6..6 {
-            for pq in -6..6 {
-                if let Outlet::Province { pq: nq, pr: nr } = province_outlet(SEED, pq, pr) {
-                    let here = (province_rank(SEED, pq, pr), pq, pr);
-                    let there = (province_rank(SEED, nq, nr), nq, nr);
-                    assert!(
-                        there < here,
-                        "province ({pq},{pr}) drains to a higher outlet"
-                    );
-                }
-
-                // Which is the same claim followed rather than checked one edge at a time: from
-                // anywhere, the chain of outlets ends.
-                let mut current = (pq, pr);
-                let mut steps = 0;
-                while let Outlet::Province { pq: nq, pr: nr } =
-                    province_outlet(SEED, current.0, current.1)
-                {
-                    current = (nq, nr);
-                    steps += 1;
-                    assert!(
-                        steps < 4_096,
-                        "outlet chain from ({pq},{pr}) did not terminate"
-                    );
-                }
-            }
-        }
-    }
-
-    /// Both sides of a seam name the same pour point. Without this a channel would arrive at a
-    /// different cell depending on which province was asked, and every province boundary in the
-    /// world would show a tear.
-    #[test]
-    fn seam_pour_points_agree_from_both_sides() {
-        for pr in -3..3 {
-            for pq in -3..3 {
-                for (dq, dr) in PROVINCE_FACES {
-                    let neighbour = (pq + dq, pr + dr);
-                    let (mine, theirs) = seam_pour(SEED, (pq, pr), neighbour);
-                    let (their_side, my_side) = seam_pour(SEED, neighbour, (pq, pr));
-                    assert_eq!(mine, my_side);
-                    assert_eq!(theirs, their_side);
-                    assert_eq!(province_of(mine.0, mine.1), (pq, pr));
-                    assert_eq!(province_of(theirs.0, theirs.1), neighbour);
-                    assert_eq!(axial_distance(mine, theirs), 1);
-                }
-            }
-        }
-
-        // The cells on either side of a seam are computed identically whether the province was
-        // solved on its own or after its neighbours — the halo is an implementation detail, not a
-        // place where results are approximate.
-        let mut alone = Terra::new(SEED);
-        let border = alone.province(0, 0);
-        let mut surrounded = Terra::new(SEED);
-        for pr in -1..=1 {
-            for pq in -1..=1 {
-                surrounded.province(pq, pr);
-            }
-        }
-        let after = surrounded.province(0, 0);
-        for r in 0..PROVINCE_CELL {
-            for q in 0..PROVINCE_CELL {
-                assert_eq!(border.head(q, r), after.head(q, r), "height at ({q},{r})");
-                assert_eq!(border.flow(q, r), after.flow(q, r), "flow at ({q},{r})");
-            }
-        }
-    }
-
-    /// The claim caching is allowed to make, and the only one: the same answer either way — for a
-    /// single cell against the uncached oracle, and for a whole patch walked in reverse. What
-    /// caching is allowed to change is the cost, which is bounded here too.
-    #[test]
-    fn the_cache_changes_the_cost_and_nothing_else() {
-        let mut terra = Terra::new(SEED);
-        for (q, r) in [
-            (0, 0),
-            (-1, -1),
-            (PROVINCE_CELL - 1, 0),
-            (PROVINCE_CELL, 0),
-            (0, PROVINCE_CELL - 1),
-            (0, PROVINCE_CELL),
-            (-PROVINCE_CELL, -PROVINCE_CELL),
-            (3 * PROVINCE_CELL + 7, -2 * PROVINCE_CELL - 5),
-        ] {
-            assert_eq!(
-                terra.head(q, r),
-                Terra::head_uncached(SEED, q, r),
-                "cached and uncached height disagree at ({q},{r})"
-            );
-        }
-
-        // Query order cannot matter either: two caches walked in opposite directions must agree
-        // cell for cell, height, flow and water alike.
-        let cells = patch();
-        let mut forward = Terra::new(SEED);
-        let mut backward = Terra::new(SEED);
-        let mut readings = Vec::with_capacity(cells.len());
-        for &(q, r) in &cells {
-            readings.push((forward.head(q, r), forward.flow(q, r), forward.water(q, r)));
-        }
-        for (index, &(q, r)) in cells.iter().enumerate().rev() {
-            let expected = readings[index];
-            assert_eq!(
-                (
-                    backward.head(q, r),
-                    backward.flow(q, r),
-                    backward.water(q, r)
-                ),
-                expected,
-                "reverse query order changed ({q},{r})"
-            );
-        }
-
-        // And solving one cell costs a bounded number of provinces: reading a whole province does
-        // not pull in a continent.
-        let mut single = Terra::new(SEED);
-        single.head(0, 0);
-        assert_eq!(single.provinces_solved(), 1);
-        for r in 0..PROVINCE_CELL {
-            for q in 0..PROVINCE_CELL {
-                single.head(q, r);
-            }
-        }
-        assert_eq!(single.provinces_solved(), 1);
-    }
-
-    /// The drainage invariants the brief names as acceptance, over a real patch of world.
-    #[test]
-    fn drainage_never_runs_uphill_and_never_cycles() {
-        let mut terra = Terra::new(SEED);
-        for (q, r) in patch() {
-            let here = terra.head(q, r);
-            if let Some((nq, nr)) = terra.downstream(q, r) {
-                let there = terra.head(nq, nr);
-                assert!(there <= here, "({q},{r}) at {here} flows uphill to {there}");
-                let (here_mq, there_mq) = (terra.head_mq(q, r), terra.head_mq(nq, nr));
-                assert!(
-                    (there_mq, nq, nr) < (here_mq, q, r),
-                    "({q},{r}) flows to an equal-or-greater key, which would admit a cycle"
-                );
-            }
-        }
-
-        // Followed rather than checked edge by edge: every path that is not a lake reaches a
-        // declared outlet — the sea, a lake, or an honestly reported frontier basin. Nothing
-        // wanders forever.
-        for r in (-PROVINCE_CELL..(2 * PROVINCE_CELL)).step_by(7) {
-            for q in (-PROVINCE_CELL..(2 * PROVINCE_CELL)).step_by(7) {
-                let (mut cq, mut cr) = (q, r);
-                let mut steps = 0u32;
-                loop {
-                    if terra.head(cq, cr) < SEA_LEVEL_QUANTA {
-                        break;
-                    }
-                    match terra.flow(cq, cr) {
-                        Flow::To(direction) => {
-                            let (dq, dr) = DIRECTIONS[direction as usize];
-                            cq += dq;
-                            cr += dr;
-                        }
-                        Flow::Lake(_) | Flow::Frontier => break,
-                    }
-                    steps += 1;
-                    assert!(steps < 20_000, "the path from ({q},{r}) never terminated");
-                }
-            }
-        }
-
-        // A lake is where a path stops, so the same walk has to find the retained water honest: a
-        // lake reports the rim it spills over, and that rim stands at or above every cell it
-        // covers. A lake surface below its own bed would be the model lying about water.
-        let mut found = 0;
-        for pr in -1..=1 {
-            for pq in -1..=1 {
-                let province = terra.province(pq, pr);
-                for lake in province.lakes() {
-                    assert!(lake.cells > 0);
-                }
-                let (origin_q, origin_r) = province_origin(pq, pr);
-                for r in origin_r..(origin_r + PROVINCE_CELL) {
-                    for q in origin_q..(origin_q + PROVINCE_CELL) {
-                        if let Some(Flow::Lake(id)) = province.flow(q, r) {
-                            let lake = province.lake(id);
-                            let head = province.head_mq(q, r).expect("own cell");
-                            assert!(
-                                lake.spill_mq >= head,
-                                "lake surface {} is below its bed {head} at ({q},{r})",
-                                lake.spill_mq
-                            );
-                            found += 1;
-                        }
-                    }
-                }
-            }
-        }
-        // The prototype is worth nothing if it produces no basins at all; a landscape with no
-        // closed depression anywhere has been smoothed until it stopped being terrain.
-        assert!(found > 0, "no lake cells anywhere in nine provinces");
-    }
-
-    /// Springs sit above sea level, on damp ground, at the head of a channel and inside their own
-    /// province.
-    ///
-    /// Deliberately not "every province has a spring". A spring needs a channel head, and a
-    /// channel needs [`CHANNEL_CLASS_MIN`] — about five hectares of catchment — so a province gets
-    /// roughly one. Nine provinces finding none is ordinary, which is why the sample is 49 and the
-    /// assertion is about the predicate rather than the density.
-    #[test]
-    fn springs_are_wet_high_ground() {
-        let (cq, cr) = highest_province(SEED);
-        let mut found = 0;
-        for pr in cr - 3..=cr + 3 {
-            for pq in cq - 3..=cq + 3 {
-                let spine = build_spine(SEED, pq, pr, &[]);
-                for &(q, r) in &spine.springs {
-                    assert_eq!(
-                        province_of(q, r),
-                        (pq, pr),
-                        "a spring outside its own province"
-                    );
-                    // Altitude eases the threshold, but never past the cap, so this is the
-                    // weakest moisture any spring can have at any height.
-                    assert!(
-                        moisture(SEED, q, r) > SPRING_MOISTURE - SPRING_ALTITUDE_CAP,
-                        "a dry spring"
-                    );
-                    assert!(
-                        continental_mq(SEED, q, r) > SEA_LEVEL_QUANTA,
-                        "a spring below sea level"
-                    );
-                    // A spring is the top of a channel, so the cell it names has to be one.
-                    let channel = spine
-                        .channels
-                        .get(&(q, r))
-                        .expect("a spring off the channel");
-                    assert!(channel.class >= CHANNEL_CLASS_MIN);
-                    assert!(channel.wet, "a spring that starts no water");
-                    found += 1;
-                }
-            }
-        }
-        assert!(found > 0, "no springs anywhere in forty-nine provinces");
-    }
-
-    /// The province with the most height in it, within a couple of continental wavelengths.
-    ///
-    /// The origin is not land. At [`SEED`] it sits about 300 m under water, which is the generator
-    /// working — a world with a sea in it has to put some seeds in the sea. Tests that are about
-    /// hills, springs and rivers have to say where the hills are rather than assuming the origin.
-    fn highest_province(seed: u32) -> (i32, i32) {
-        let reach = CONTINENT_PROVINCES * 2;
-        let mut best = ((0, 0), i32::MIN);
-        for pr in (-reach..=reach).step_by(2) {
-            for pq in (-reach..=reach).step_by(2) {
-                let (q, r) = province_origin(pq, pr);
-                let height = continental_mq(seed, q, r);
-                if height > best.1 {
-                    best = ((pq, pr), height);
-                }
-            }
-        }
-        assert!(
-            best.1 > SEA_LEVEL_QUANTA,
-            "no land within two continental wavelengths of the origin"
-        );
-        best.0
-    }
-
-    /// Discharge classes are monotone in catchment and saturate rather than overflowing, and every
-    /// width those classes buy stays inside the halo the solve computes — which is what makes a
-    /// cell's height complete before anyone outside the province reads it.
-    #[test]
-    fn discharge_classes_are_monotone_and_no_valley_outgrows_the_halo() {
-        let mut last = 0;
-        for exponent in 0..40 {
-            let class = discharge_class(1u64 << exponent);
-            assert!(class >= last);
-            last = class;
-        }
-        assert_eq!(discharge_class(u64::MAX), 7);
-        assert_eq!(discharge_class(0), 0);
-
-        for class in 0..=7u8 {
-            assert!(valley_half_width(class) <= VALLEY_RADIUS);
-            assert!(river_half_width(class) <= VALLEY_RADIUS);
-            assert!(river_half_width(class) + river_bench_width(class) <= VALLEY_RADIUS);
-        }
-        assert_eq!(river_half_width(CHANNEL_CLASS_MIN) * 2 + 1, 1);
-        assert_eq!(river_half_width(3) * 2 + 1, 3);
-        assert_eq!(river_half_width(5) * 2 + 1, 5);
-        assert_eq!(river_half_width(6) * 2 + 1, 7);
-        assert_eq!(river_half_width(7) * 2 + 1, 9);
-        assert_eq!(river_bench_width(CHANNEL_CLASS_MIN), 1);
-        assert_eq!(river_bench_width(5), 2);
-        assert!(HALO > VALLEY_RADIUS);
-    }
-
-    #[test]
-    fn landing_shelves_are_deterministic_dry_and_buildable() {
-        for seed in [SEED, 1_213_486_160, 0xA11C_E551] {
-            let mut first = Terra::new(seed);
-            let site = first.landing_site();
-            assert!(
-                first.provinces_solved() <= LANDING_PROVINCE_SOLVE_BUDGET,
-                "landing search exceeded its province budget"
-            );
-            let mut reordered = Terra::new(seed);
-            for &(q, r) in &[(8_000, -4_000), (-6_000, 3_000), (128, 128)] {
-                reordered.head(q, r);
-            }
-            assert_eq!(site, reordered.landing_site());
-
-            let pad = hexes_in_radius((site.q, site.r), LANDING_PAD_RADIUS);
-            let clear = hexes_in_radius((site.q, site.r), LANDING_CLEAR_RADIUS);
-            let heights: Vec<_> = pad.iter().map(|&(q, r)| first.head(q, r)).collect();
-            assert!(
-                heights.iter().max().unwrap() - heights.iter().min().unwrap()
-                    <= crate::scale::MAX_BUILD_STEP_QUANTA,
-                "seed {seed} chose an uneven opening pad at {},{}",
-                site.q,
-                site.r
-            );
-            assert!(
-                clear.iter().all(|&(q, r)| !first.water(q, r).is_wet()),
-                "seed {seed} chose a wet opening at {},{}",
-                site.q,
-                site.r
-            );
-            assert!(clear
-                .iter()
-                .all(|&(q, r)| DIRECTIONS.iter().all(|&(dq, dr)| {
-                    (first.head(q, r) - first.head(q + dq, r + dr)).abs()
-                        <= crate::scale::MAX_WALK_STEP_QUANTA
-                })));
-            assert!(
-                site.bed_quanta <= LANDING_ALTITUDE_CEILING,
-                "seed {seed} landed at {} m rather than on the coastal plain",
-                f64::from(site.bed_quanta) * 0.25
-            );
-            assert!(
-                hexes_in_radius((site.q, site.r), LANDING_BEACH_RADIUS)
-                    .into_iter()
-                    .any(|(q, r)| matches!(first.water(q, r), Water::Sea { .. })),
-                "seed {seed} has no ocean beach within {LANDING_BEACH_RADIUS} cells of the landing"
-            );
-        }
-    }
-
-    /// A different seed is a different world; the same seed is the same world twice; and both are
-    /// worlds the survey certifies and the rescale earned.
-    #[test]
-    fn seeds_separate_worlds_that_survey_clean_with_real_relief() {
-        let mut first = Terra::new(SEED);
-        let mut again = Terra::new(SEED);
-        let mut other = Terra::new(SEED ^ 0x9999);
-        let mut differences = 0;
-        for r in 0..64 {
-            for q in 0..64 {
-                assert_eq!(first.head(q, r), again.head(q, r));
-                if first.head(q, r) != other.head(q, r) {
-                    differences += 1;
-                }
-            }
-        }
-        assert!(
-            differences > 3_000,
-            "two seeds produced nearly the same world"
-        );
-
-        // The relief in those worlds has to be worth the rescale: a world that is flat at
-        // 25 m² per cell has not earned the compatibility break. The wide measurement is taken on
-        // the bare height field rather than on a survey, because the claim is about the continental
-        // wavelength — 33 km — and no sample small enough to solve inside a test can span one.
-        let step = PROVINCE_CELL;
-        let reach = 32; // 32 provinces each way: 68 km, two continental wavelengths.
-        let mut low = i32::MAX;
-        let mut high = i32::MIN;
-        for r in -reach..=reach {
-            for q in -reach..=reach {
-                let height = base_mq(SEED, q * step, r * step);
-                low = low.min(height);
-                high = high.max(height);
-            }
-        }
-        let range = (high - low) / MQ as i32;
-        // 1,200 quanta is 300 m. Below that the rescale buys nothing a band enum could not fake.
-        assert!(
-            range > 1_200,
-            "only {range} quanta of relief across 68 km of the height field"
-        );
-    }
+    // The generator's own claims: that a query answers the same whoever asks, that channels descend,
+    // that a class is a width the eye can read, and that a new game opens on a shelf the landing
+    // contract describes.
+    include!("terra/tests.rs");
 }

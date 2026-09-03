@@ -594,7 +594,13 @@ mod tests {
         // rock and fall claims belong on dry land, which is what this one province of upland is.
         // World 16 deliberately removes class-1 gullies; this sample keeps the variable-hardness
         // assertion on a river that survives that hierarchy instead of pinning a discarded twig.
-        let upland = survey(1_213_486_160, 1);
+        //
+        // Nine provinces rather than one. Sills are what the small channels do, and the one province
+        // at this centre now carries nothing but two trunks: recalibrating the discharge ladder onto
+        // catchments this generator actually produces moved it from classes 2 and 3 to 6 and 7,
+        // which by design cut nearly everything. Asking one province for a sill would be asking the
+        // sample to hold a headwater it does not have.
+        let upland = survey(1_213_486_160, 3);
         assert!(
             upland.river_sills > 0 && upland.river_falls > 0,
             "{} sills and {} falls in a province of upland",

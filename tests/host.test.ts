@@ -855,6 +855,10 @@ describe("bounded host input", () => {
       new URL("../index.html", import.meta.url),
       "utf8",
     );
+    const setup = readFileSync(
+      new URL("../src/app/worldSetup.ts", import.meta.url),
+      "utf8",
+    );
     const css = readStyles();
     expect(html).toContain('id="title-screen"');
     expect(html).toContain('id="title-continue"');
@@ -869,9 +873,12 @@ describe("bounded host input", () => {
     expect(css).toContain(".title-screen");
     expect(css).toContain(".title-modal");
     expect(css).toContain(".title-save-slots");
-    expect(main).toContain("function openTitleScreen(");
-    expect(main).toContain("function closeTitleScreen(");
-    expect(main).toContain("function switchTitleTab(");
+    // The screen belongs to the world-setup feature; the composition root only opens and closes it.
+    expect(setup).toContain("open(): void");
+    expect(setup).toContain("close(): void");
+    expect(setup).toContain('showTab(tab: "saves" | "new")');
+    expect(main).toContain("worldSetup.open()");
+    expect(main).toContain("worldSetup.close()");
     expect(main).toContain("function triggerAutoSave(");
     expect(main).toContain("visibilitychange");
     expect(main).toContain("beforeunload");

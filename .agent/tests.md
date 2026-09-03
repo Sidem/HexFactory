@@ -25,11 +25,11 @@ Read the named file and a bounded range around the anchor; do not read oversized
 - `factory-wasm/src/tests/transport.rs` — 693 lines / 26.3 KiB — belts_carry_one_extractors_worth_hold_what_fits_and_report_when_blocked:4, a_composer_consumes_exact_inputs_and_backpressure_is_exact:231, splitters_mergers_and_underpasses_serve_their_lanes_in_order:370
 - `factory-wasm/src/tests/walls.rs` — 578 lines / 20.4 KiB — boundaries_are_canonical_atomic_conserving_and_block_what_crosses_them:4, masonry_walls_need_fired_masonry_and_pay_cement:515
 - `factory-wasm/src/tests/wire_format.rs` — 739 lines / 27.8 KiB — entity_status_spellings_are_what_the_host_renders:51, hex_encode:63, wire_fixture_cases:70, the_cross_language_fixtures_pin_the_format_and_the_economy:666
-- `factory-wasm/src/tests/world.rs` — 683 lines / 27.1 KiB — native_and_host_agree_on_directions_passability_heights_and_hexes:7, PassabilityEntry:27, PhysicalEntry:33, PassabilityFixture:41, …
+- `factory-wasm/src/tests/world.rs` — 697 lines / 27.9 KiB — native_and_host_agree_on_directions_passability_heights_and_hexes:7, PassabilityEntry:27, PhysicalEntry:33, PassabilityFixture:41, …
 - `factory-wasm/src/tests/worldgen.rs` — 558 lines / 22.9 KiB — every_preset_opens_a_workable_world_on_any_seed:14, world_parameters_are_checksummed_validated_and_restored_with_their_sites:321
 - `tests/admin.test.ts` — 206 lines / 6.6 KiB
 - `tests/availability.test.ts` — 304 lines / 10.1 KiB
-- `tests/balance.test.ts` — 872 lines / 34.2 KiB — openingWork:34, commissionedRequirements:74, stagedOpeningWork:94, gcd:130, …
+- `tests/balance.test.ts` — 872 lines / 33.3 KiB — openingWork:34, commissionedRequirements:74, stagedOpeningWork:94, gcd:130, …
 - `tests/bench.test.ts` — 252 lines / 6.7 KiB
 - `tests/checkpoints.test.ts` — 260 lines / 7.4 KiB — context:19, memoryStorage:32
 - `tests/componentEconomy.test.ts` — 47 lines / 2.0 KiB
@@ -40,7 +40,7 @@ Read the named file and a bounded range around the anchor; do not read oversized
 - `tests/guidance.test.ts` — 531 lines / 17.9 KiB — shippedScenario:29, boardFor:50, snapshotAt:79
 - `tests/heightfieldTerrain.test.ts` — 329 lines / 11.1 KiB — dispose:323
 - `tests/hexHostContract.test.ts` — 58 lines / 2.1 KiB
-- `tests/host.test.ts` — 2033 lines / 76.1 KiB — fakeTransport:1775
+- `tests/host.test.ts` — 2040 lines / 76.4 KiB — fakeTransport:1782
 - `tests/look.test.ts` — 429 lines / 17.4 KiB — keyOf:52
 - `tests/playerRig.test.ts` — 111 lines / 4.1 KiB — legs:28
 - `tests/production.test.ts` — 89 lines / 3.2 KiB

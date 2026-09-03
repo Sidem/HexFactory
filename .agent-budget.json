@@ -2,7 +2,7 @@
   "version": 1,
   "allow": {
     "src/main.ts": {
-      "baselineBytes": 232072,
+      "baselineBytes": 206307,
       "targetBytes": 12288,
       "owner": "browser feature controllers",
       "expires": "2026-10-01"
@@ -14,15 +14,9 @@
       "expires": "2026-11-01"
     },
     "factory-wasm/src/terra.rs": {
-      "baselineBytes": 95219,
+      "baselineBytes": 77431,
       "targetBytes": 51200,
       "owner": "terrain module backlog",
-      "expires": "2026-11-01"
-    },
-    "factory-wasm/src/hydrology.rs": {
-      "baselineBytes": 65865,
-      "targetBytes": 51200,
-      "owner": "hydrology module backlog",
       "expires": "2026-11-01"
     },
     "factory-wasm/src/wire.rs": {
