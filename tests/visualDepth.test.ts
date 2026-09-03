@@ -1304,11 +1304,14 @@ describe("Terrain surfaces", () => {
     expect(shader.fragmentShader).toContain("void hfRelief()");
     expect(shader.fragmentShader).toContain("hfRelief();");
     expect(shader.fragmentShader).toContain("diffuseColor.rgb *= hfAlbedo;");
-    // The frontier dissolves by colour and stays opaque. It rides after the fog chunk so a fully
-    // dissolved fragment is the background exactly rather than approximately, and the absence of a
-    // `discard` is the half of the claim that draw ordering and shadow baking depend on.
+    // The frontier dissolves by colour and stays opaque. Surveyed ground uses the colour captured
+    // before camera-depth fog, so altitude cannot masquerade as unexplored terrain; the explicit
+    // frontier weight is the only route to the background colour.
     expect(shader.fragmentShader).toContain(
-      "gl_FragColor.rgb = mix( fogColor, gl_FragColor.rgb, clamp( hfFrontier, 0.0, 1.0 ) );",
+      "vec3 hfSurveyed = gl_FragColor.rgb;\n#include <fog_fragment>",
+    );
+    expect(shader.fragmentShader).toContain(
+      "gl_FragColor.rgb = mix( fogColor, hfSurveyed, clamp( hfFrontier, 0.0, 1.0 ) );",
     );
     expect(shader.fragmentShader).not.toContain(
       "hfHash12( floor( gl_FragCoord",

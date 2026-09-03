@@ -433,15 +433,18 @@ export function injectFragment(source: string, family: SurfaceFamily): string {
       // the holes stood at 293–340 of a possible 765 against the ground around them at every zoom
       // the frontier was on screen, byte-identical on Low, Medium and High.
       //
-      // Mixing toward `fogColor` after the fog chunk leaves every fragment opaque and
-      // depth-writing, so draw order and the shadow pass are untouched — and the colour pass now
-      // agrees with the shadow pass instead of contradicting it. The mix rides after fog rather
-      // than before tone mapping so it lands in the same space the background was cleared in, which
-      // is what makes a fully dissolved fragment indistinguishable from sky rather than merely
-      // close to it.
+      // Preserve the terrain colour before Three's camera-depth fog runs. Physical relief can move
+      // two surveyed cells hundreds of view-depth units apart even when both are on screen, so using
+      // that fogged colour for the interior made low ground disappear into sky-coloured patches
+      // while its resource instances remained visible. Exploration already has the exact mask it
+      // needs in `hfFrontier`; camera depth must not become a second, altitude-shaped mask.
+      //
+      // Mixing the preserved colour toward `fogColor` after the fog chunk leaves every fragment
+      // opaque and depth-writing, so draw order and the shadow pass are untouched. It also lands in
+      // the same output space as the cleared background, making a fully dissolved frontier exact.
       .replace(
         "#include <fog_fragment>",
-        "#include <fog_fragment>\ngl_FragColor.rgb = mix( fogColor, gl_FragColor.rgb, clamp( hfFrontier, 0.0, 1.0 ) );",
+        "vec3 hfSurveyed = gl_FragColor.rgb;\n#include <fog_fragment>\ngl_FragColor.rgb = mix( fogColor, hfSurveyed, clamp( hfFrontier, 0.0, 1.0 ) );",
       )
   );
 }

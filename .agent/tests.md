@@ -51,6 +51,6 @@ Read the named file and a bounded range around the anchor; do not read oversized
 - `tests/sourceGraph.ts` — 14 lines / 0.4 KiB — readStyles:4
 - `tests/ui.test.ts` — 394 lines / 12.7 KiB — FakeClassList:55, element:103, harness:139
 - `tests/visualCamera.test.ts` — 177 lines / 6.5 KiB — heading:7, turnedBy:11, settle:16
-- `tests/visualDepth.test.ts` — 2010 lines / 67.7 KiB — surfaceBody:1719, uniformValue:1725, compileTerrain:1735, cliffTile:1750, …
+- `tests/visualDepth.test.ts` — 2013 lines / 67.8 KiB — surfaceBody:1722, uniformValue:1728, compileTerrain:1738, cliffTile:1753, …
 - `tests/worldParameters.test.ts` — 132 lines / 4.7 KiB — cuts:41, ascending:45
 - `tests/worldPreview.test.ts` — 264 lines / 9.1 KiB
