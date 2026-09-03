@@ -64,7 +64,6 @@ import {
   rotateAnyOrientation,
   TRANSPORT_DIRECTIONS,
 } from "./core/directions";
-import { worldToAxial } from "./core/lattice";
 import type {
   BuildingDefinition,
   BuildingKind,
@@ -750,30 +749,6 @@ function renderRun(): void {
   });
 }
 
-const LANDSCAPE_LOD_REFRESH_HEXES = 8;
-let landscapeLodKey = "";
-let landscapeLodTicket = 0;
-
-/** Refresh the native horizon only after crossing one coarse cell or changing worlds. */
-function refreshLandscapeLod(next: FactorySnapshot): void {
-  const cell = worldToAxial(next.player);
-  const key = [
-    next.seed,
-    next.world_version,
-    Math.floor(cell.q / LANDSCAPE_LOD_REFRESH_HEXES),
-    Math.floor(cell.r / LANDSCAPE_LOD_REFRESH_HEXES),
-  ].join(":");
-  if (key === landscapeLodKey) return;
-  landscapeLodKey = key;
-  const ticket = ++landscapeLodTicket;
-  void host
-    .landscapeLod()
-    .then((lod) => {
-      if (ticket === landscapeLodTicket) renderer.setLandscapeLod(lod);
-    })
-    .catch(reportWorkerError);
-}
-
 function update(next: FactorySnapshot): void {
   const previousVictory = snapshot.victory;
   const previous = snapshot;
@@ -781,7 +756,6 @@ function update(next: FactorySnapshot): void {
   refreshLandingHub();
   renderer.setHome(landingHub);
   renderer.setSnapshot(snapshot);
-  refreshLandscapeLod(snapshot);
   boundaryTool.update(snapshot);
   groundTool.update(snapshot);
   syncHoverWithCamera();

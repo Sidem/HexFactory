@@ -78,8 +78,8 @@ integrated-GPU laptops are not a supported configuration. No claim beyond a reco
 
 **Last release: v0.47.0 Flowing Water.** Phase 8 is shipped: one construction hex is 25 m², altitude
 is physical native height, drainage and sparse water answer the ground, bounded geomorphic epochs let
-surveyed rivers answer what the player built, and a native coarse horizon carries distant landform
-without surveying it.
+surveyed rivers answer what the player built, and the native coarse landform query remains read-only.
+Presentation stops at the surveyed frontier; drawing that query beyond it made altitude look discovered.
 
 **Where it is weak.** The foundation is strong and unusually trustworthy; the game is still a polished
 short-form vertical slice. The first two hub stages and 27 finite projects give the present roster a
@@ -289,8 +289,9 @@ removes the region from the schedule. **No full-world or permanent per-cell wate
 ### Closeout delivered
 
 The distant aggregated terrain LOD is native generated, read-only and checksum-neutral. It carries broad
-height and water surface to a coarse horizon mesh without surveying cells, exposing fields or entering the
-pick surface. Saved games states the migration window and export promise per entry work item 3 above.
+height and water surface without surveying cells, exposing fields or entering the pick surface. It is not
+drawn beyond the surveyed frontier: its large altitude triangles read as discovered terrain at close zoom.
+Saved games states the migration window and export promise per entry work item 3 above.
 
 ## Phase 9 — Living Lattice
 

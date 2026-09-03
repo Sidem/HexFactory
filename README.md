@@ -108,10 +108,11 @@ its whole shape on screen with the blocking hex marked in red and named in the t
 **Flowing Water (v0.47.0)** makes one hexagon about 25 m² instead of 1 m² and gives the ground a
 physical height. Drainage carves valleys before springs, rivers and coastlines are placed; earthworks
 disturb water in bounded native regions, and slow geomorphic epochs let a surveyed river answer a
-dam or channel without turning water into a permanent world tick. A coarse native horizon now keeps
-distant ranges visible without surveying them. Resource sites retain pure cores but use smooth
-noise-shaped rims instead of perfect circles. Learn **Open-water Swimming** after Field Survey to
-cross deep water at a slower pace; it changes player movement only, never construction legality.
+dam or channel without turning water into a permanent world tick. The native coarse landform query
+remains read-only, while the visible world stops cleanly at the surveyed frontier.
+Resource sites retain pure cores but use smooth noise-shaped rims instead of perfect circles. Learn
+**Open-water Swimming** after Field Survey to cross deep water at a slower pace; it changes player
+movement only, never construction legality.
 
 **Saves from before the scale or current generator change cannot be opened.** A remapped factory
 would not be the factory that was saved, so incompatible rows say why and remain exportable. The
