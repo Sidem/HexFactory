@@ -286,6 +286,32 @@ removes the region from the schedule. **No full-world or permanent per-cell wate
   a river answer what the player built. Erosion may expose or bury a surface resource only through an explicit
   rule — never as a side effect of lowering ground.
 
+### Water runs downhill — world generator 14
+
+Rivers were routed by a minimum spanning tree whose edge cost was dominated by a hash term four orders of
+magnitude larger than the climb term, so the network was a maze that ignored altitude, and the bed was cut a
+constant depth under whatever noise the cell had. A reach could climb. **A channel now carries a hydraulic
+grade line** — the water surface elevation it stands at — and everything follows from it:
+
+- **Routing is a priority flood over the node lattice**, not a spanning tree. A node's filled level is at
+  least its parent's plus a fixed drop, so a reach descends by construction rather than by tuning.
+- **Springs are eased by altitude.** The moisture bar drops with height to a capped floor, which is
+  orographic lift stated as one subtraction, and puts headwaters in the mountains.
+- **The bed is cut to an absolute elevation**, seeded from the grade line and spread by a Dijkstra at
+  `VALLEY_BANK_MQ` — one `MAX_WALK_STEP_QUANTA` per cell. Inside the wetted width the floor is imposed so the
+  hillslope term cannot leave a lip in a river; outside it may only cut.
+- **A reach is drawn cell by cell down the ground**, not rasterised as a straight segment. That is what the
+  angular look was.
+
+Sea level was already one global datum and elevated lakes already pool at their spill level, so neither
+needed work. **Draining an elevated lake already works** through the departure solve. **A dam holds but does
+not fill**: `settle()` has no inflow term, so raising a bed backs up what is standing there and nothing more
+— a reservoir needs a source term keyed to the reach's discharge class, which is the next piece of work here
+and the thing hydropower is waiting on. Head drop and discharge class are both published now, so the power a
+reach can yield is derivable without further generation work.
+
+World generator 14 rejects every version-13 save: every bed and every water surface moved.
+
 ### Closeout delivered
 
 The distant aggregated terrain LOD is native generated, read-only and checksum-neutral. It carries broad

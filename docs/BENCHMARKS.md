@@ -133,7 +133,43 @@ disc in lattice order. If chunk generation ever appears in a frame, look there f
 
 ## Phase 8 — ground, water and erosion
 
-Seed 1213486160, world generator 12, release-native.
+Seed 1213486160, world generator 14, release-native.
+
+**The graded long profile, measured.** World 13 routed channels with a minimum spanning tree whose edge
+cost was a hash four orders of magnitude larger than its climb term, and cut a constant depth under the
+noise field, so a reach could climb. World 14 floods the node lattice by priority, carries a water-surface
+elevation per reach, and cuts the bed to that elevation. Same seed, same nine provinces:
+
+|                                   | inland, world 13 | inland, world 14 | coast, world 13 | coast, world 14 |
+| --------------------------------- | ---------------- | ---------------- | --------------- | --------------- |
+| springs                           | 6                | **12**           | 3               | **4**           |
+| lakes / lake cells                | 107 / 718        | **7 / 47**       | 163 / 3,169     | **14 / 454**    |
+| walks ending in a lake            | 463 of 576       | **293**          | 346 of 576      | **255**         |
+| walks reaching the sea or leaving | 113              | **283**          | 230             | **321**         |
+| walkable / buildable per mille    | 971 / 747        | **996** / 723    | 1000 / 959      | 1000 / 931      |
+| viewport relief                   | 54.2 m           | 53.7 m           | 21.7 m          | 21.0 m          |
+| solve                             | 69 ms            | **62 ms**        | 61 ms           | **53 ms**       |
+
+Closed basins fell 15× and half again as much water leaves the region instead of pooling in it, for less
+solve time. Buildable ground pays 24 per mille: a valley side is one `MAX_WALK_STEP_QUANTA` per cell by
+construction, which is walkable and deliberately not buildable.
+
+**The grade line descends to 15 mm.** A new invariant counts flow edges between two channel cells whose
+water surface rises downstream: 0 of 1,915 at the coast, 4 of 2,411 inland, worst 15 mm — a sixteenth of a
+height quantum, and integer rounding rather than a rise. It is reported but not gated, because a confluence
+joins two reaches cut to different depths and rounding there is not a falsification.
+
+**Two more negative results from this round.**
+
+- **Do not fade the surface texture back into the valley sides.** Clamping the carve to a bare ramp costs
+  rolling ground, so `texture_mq` was faded in with distance from the thread. Valley-side roughness traps
+  drainage: lakes went 7 → 49 and walks leaving the sample 292 → 36. Reverted. A graded valley is smooth
+  because that is what letting the water out costs.
+- **The bank grade is the constant that decides how much world a river flattens.** At 2,500 milli-quanta
+  per cell the ramp climbs 15 m before the width cap stops it, which planed the shipped opening disc flat:
+  rolling ground fell 281 → 8 per mille and `highlands` lost its coal patch (largest 4 hexes against a
+  floor of 19). At 6,000 the banks cost 55 per mille of walkable ground and bought no drainage. 4,000 —
+  exactly `MAX_WALK_STEP_QUANTA` — gives 86 per mille rolling ground, 996 walkable, and the coal back at 51.
 
 **Drainage holds by construction, not by tuning.** `npm run terra` reports zero cycles, zero uphill
 edges and zero unterminated walks in both the inland and `--coast` samples: head is a pure global
@@ -146,11 +182,10 @@ statistic about river mouths taken where there is no sea is a wrong result, not 
 - **Do not round the height field to quanta before depressions are resolved.** A whole-quanta field
   put 216 per mille of neighbour pairs at exactly equal height and manufactured 32,694 micro-lakes.
   Carrying it in milli-quanta internally and publishing whole quanta cut that 23×, to 1,409.
-- **Do not carve the whole flow tree to remove closed basins.** Lakes rose 2.1× and lake cells 3.1×,
-  and solve cost doubled: incision subtracts a constant depth per class, so a thread crossing rising
-  ground leaves a flat-bottomed trench with a lip. The graded long profile is what worked — an
-  absolute descending floor elevation propagated down the tree, seam elevations agreeing from either
-  side.
+- **Do not carve the whole flow tree to remove closed basins** while incision is a constant depth per
+  class: lakes rose 2.1×, lake cells 3.1× and solve cost doubled, because a thread crossing rising
+  ground leaves a flat-bottomed trench with a lip. The graded long profile is what worked, and world
+  14 above is that result.
 
 **A viewport is the unit "the world looks flat" was about**, not a slope histogram: uncorrelated
 centimetre noise and a hillside give similar neighbour steps, and only one accumulates over the
@@ -162,9 +197,10 @@ distance the camera frames. Measured, the world carries **54.2 m of relief acros
 - **What was flat was the material map.** The old substrate rule chose Soil above 600 quanta, which
   the continental field clears almost everywhere, so one clause painted 889 per mille of the world.
   World 12 reads the gradient across a three-cell stencil instead: lowland 663, hills 214, shore 48.
-- **Rivers are obstacles deliberately.** `channel_depth` now cuts 2.25–9.75 m where it cut 0.5–5 m,
-  taking banks from 3–4 per cent to 8–14 per cent, past `MAX_BUILD_STEP_QUANTA` on the steepest
-  flank. It costs 32 per mille of buildable ground and was taken on purpose.
+- **Rivers are obstacles deliberately.** A reach's water surface stands 1.5–3.5 m below the ground it
+  was routed over and its bed 0.5–2 m below that, so class 3 and up passes `WADE_LIMIT_QUANTA`: a
+  small stream is a ford and a large one is not. The bank grade is past `MAX_BUILD_STEP_QUANTA` by
+  construction. Both cost buildable ground and both were taken on purpose.
 
 **Water work is paid by the disturbance that woke it.** `npm run water`: a 32-quanta command reached
 a fixed point over 41 active cells in 53 sweeps and 40 transfers, and 31 quanta that reached the

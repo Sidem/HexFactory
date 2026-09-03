@@ -39,14 +39,9 @@
 use std::cmp::Reverse;
 use std::collections::{BTreeMap, BTreeSet, BinaryHeap, VecDeque};
 use std::rc::Rc;
-#[cfg(not(target_arch = "wasm32"))]
-use std::time::Instant;
 
 use crate::scale::{BED_MAX_QUANTA, BED_MIN_QUANTA, SEA_LEVEL_QUANTA};
-use crate::{
-    axial_distance, coordinate_hash, cube_round_num, floor_div, hexes_in_radius, value_noise,
-    DIRECTIONS,
-};
+use crate::{axial_distance, coordinate_hash, floor_div, hexes_in_radius, value_noise, DIRECTIONS};
 
 /// The noise ceiling `value_noise` interpolates against. Mirrors the private constant in `lib.rs`;
 /// re-stated rather than exported because a prototype should not widen the production surface.
@@ -112,10 +107,23 @@ pub const LAKE_CELL_BUDGET: usize = 4_096;
 /// are logarithmic, so a saturated estimate names the top class rather than a wrong number.
 pub const UPSTREAM_PROVINCE_BUDGET: usize = 96;
 
-/// Moisture above which a channel head is a spring, on the `0..=NOISE_MAX` noise scale.
+/// Moisture above which a channel head at sea level is a spring, on the `0..=NOISE_MAX` noise
+/// scale.
 const SPRING_MOISTURE: i32 = 38_000;
 /// Wavelength of the moisture channel, in cells.
 const MOISTURE_CELL: i32 = 96;
+/// How much easier a spring is per height quantum, and the most that easing may buy.
+///
+/// Orographic lift is the reason headwaters are in the mountains rather than spread evenly over
+/// the moisture field, and a river that starts high is the one that has a fall worth using.
+const SPRING_ALTITUDE_EASE: i32 = 4;
+const SPRING_ALTITUDE_CAP: i32 = 24_000;
+
+/// Moisture a channel head at this height must carry to be a spring.
+fn spring_threshold(head_mq: i32) -> i32 {
+    let above_sea = (head_mq / MQ as i32 - SEA_LEVEL_QUANTA).max(0);
+    SPRING_MOISTURE - (above_sea.saturating_mul(SPRING_ALTITUDE_EASE)).min(SPRING_ALTITUDE_CAP)
+}
 
 /// Bounded search used to choose a new world's valley shelf. Province ranks are `O(1)`, so the
 /// wide macro search is cheap; only the eight nearest dry candidates are solved in full.
@@ -241,7 +249,7 @@ pub fn province_of(q: i32, r: i32) -> (i32, i32) {
     (floor_div(q, PROVINCE_CELL), floor_div(r, PROVINCE_CELL))
 }
 
-fn province_origin(pq: i32, pr: i32) -> (i32, i32) {
+pub(crate) fn province_origin(pq: i32, pr: i32) -> (i32, i32) {
     (pq * PROVINCE_CELL, pr * PROVINCE_CELL)
 }
 
@@ -274,7 +282,7 @@ fn continental_mq(seed: u32, q: i32, r: i32) -> i32 {
 }
 
 /// Milli-quanta in one height quantum.
-const MQ: i64 = 1_000;
+pub(crate) const MQ: i64 = 1_000;
 
 /// Height quanta from milli-quanta. Floors, so that the published height of a cell never rounds up
 /// past a neighbour it is genuinely below.
@@ -377,8 +385,10 @@ fn seam_pour(seed: u32, a: (i32, i32), b: (i32, i32)) -> ((i32, i32), (i32, i32)
                 (origin_q + PROVINCE_CELL, origin_r + step),
             )
         };
-        let low_head = continental_mq(seed, low_cell.0, low_cell.1);
-        let high_head = continental_mq(seed, high_cell.0, high_cell.1);
+        // The full field, not the continental term: a pour point is where water actually crosses
+        // the face, and the hillslope carries ten metres the continental term cannot see.
+        let low_head = base_mq(seed, low_cell.0, low_cell.1);
+        let high_head = base_mq(seed, high_cell.0, high_cell.1);
         let key = low_head.min(high_head);
         if best.is_none_or(|(current, cell, _)| (key, low_cell) < (current, cell)) {
             best = Some((key, low_cell, high_cell));
@@ -397,6 +407,10 @@ fn seam_pour(seed: u32, a: (i32, i32), b: (i32, i32)) -> ((i32, i32), (i32, i32)
 struct SpineNode {
     cell: (i32, i32),
     parent: Option<usize>,
+    /// Ground height under the node after the routing flood filled its depressions, in
+    /// milli-quanta. Strictly greater than the parent's, which is what makes the long profile
+    /// descend rather than merely tend to.
+    filled_mq: i32,
     /// Catchment in cells, accumulated from the leaves.
     catchment: u64,
     /// True when a spring stands at or above this node.
@@ -417,6 +431,13 @@ pub struct Spine {
 pub struct Channel {
     /// Always at least [`CHANNEL_CLASS_MIN`]; class 0 is the hillslope, not a channel.
     pub class: u8,
+    /// The water surface this reach carries, in milli-quanta: the hydraulic grade line.
+    ///
+    /// This, not the bed, is what makes the model gravitational. It is interpolated between node
+    /// heights that strictly descend downstream, so the surface strictly descends too, and every
+    /// other water fact — depth, bank, bed — is derived from it rather than from the noise field
+    /// the reach happens to cross.
+    pub surface_mq: i32,
     /// A channel with a spring at or above it carries water; the rest are dry valley floors, which
     /// is what stops the network from being a river system with no source.
     pub wet: bool,
@@ -430,34 +451,63 @@ pub struct Channel {
 /// water is on the hillslope, where it belongs.
 pub const CHANNEL_CLASS_MIN: u8 = 1;
 
-/// How wide a class of channel cuts, in cells, and how deep, in height quanta.
+/// The widest a class of valley may spread, in cells. The bank grade normally stops the cut well
+/// inside this; the cap is what keeps every valley inside [`VALLEY_RADIUS`] and so inside the halo.
+pub(crate) fn valley_half_width(class: u8) -> i32 {
+    (4 + i32::from(class.saturating_sub(CHANNEL_CLASS_MIN)) * 4).min(VALLEY_RADIUS)
+}
+
+/// How far a reach's water surface stands below the ground it was routed over, in height quanta:
+/// 1.5 m for the smallest channel, 4.5 m for the largest.
 ///
-/// Depth grows with class and class grows monotonically downstream, so the incision itself leans
-/// the long profile downhill. That is the mechanism that turns "channels descend" from a hope into
-/// a tendency the survey can measure.
-fn valley_half_width(class: u8) -> i32 {
-    (3 + i32::from(class.saturating_sub(CHANNEL_CLASS_MIN)) * 3).min(VALLEY_RADIUS)
+/// This is what incises a valley. A bigger river has cut longer, so it runs deeper below its own
+/// shoulders, and the two effects the eye reads as a valley — depth and width — both follow from
+/// this one number through [`VALLEY_BANK_MQ`].
+fn surface_cut(class: u8) -> i32 {
+    6 + i32::from(class.saturating_sub(CHANNEL_CLASS_MIN)) * 2
 }
 
-/// How deep a class cuts, in height quanta: 2.25 m for the smallest channel, 9.75 m for the
-/// largest.
-///
-/// The old cut was 0.5 m to 5 m, which over a half-width of 3 to 21 cells is a 3 to 4 per cent
-/// grade — a depression the eye reads as ground that happens to be wet rather than as a valley.
-/// Deepening it against the same widths puts the bank at 8 to 14 per cent, which is past
-/// [`crate::scale::MAX_BUILD_STEP_QUANTA`] on the steepest part of the flank. That is the intent:
-/// a river should be a thing you bridge, ford or terrace around, not a stripe of blue on a plain.
-fn channel_depth(class: u8) -> i32 {
-    4 + i32::from(class.saturating_sub(CHANNEL_CLASS_MIN)) * 5
+/// Water depth at the centreline, in height quanta: 0.5 m for a stream, 2 m for a continental
+/// river. Class 3 and above passes [`crate::scale::WADE_LIMIT_QUANTA`], so a small stream is a ford
+/// and a large one is not.
+pub(crate) fn bed_depth(class: u8) -> i32 {
+    1 + i32::from(class)
 }
 
-fn river_depth(class: u8) -> i32 {
-    i32::from(class)
-}
-
+/// Half-width of the wetted channel, in cells.
 fn river_half_width(class: u8) -> i32 {
     i32::from(class.saturating_sub(CHANNEL_CLASS_MIN)) / 2
 }
+
+/// How far the graded valley floor is laid down exactly rather than only cut into, in cells.
+///
+/// Inside this the generated bed *is* the graded floor, so the ±10.75 m hillslope term cannot leave
+/// a lip in the middle of a river. That flattening is the whole reason the water surface can be a
+/// smooth descending line instead of the ragged one the noise field would impose.
+fn bed_radius(class: u8) -> i32 {
+    river_half_width(class) + 1
+}
+
+/// How fast a valley side climbs away from the channel, in milli-quanta per cell: exactly
+/// [`crate::scale::MAX_WALK_STEP_QUANTA`], 1 m over 5.37 m. A bank is the steepest thing a player
+/// can still walk up, and past [`crate::scale::MAX_BUILD_STEP_QUANTA`], so a river is something to
+/// bridge or terrace around rather than a stripe of blue on a plain.
+///
+/// This is the constant that decides how much of the world a river flattens, and it was measured
+/// rather than picked. At 2,500 the ramp reached 15 m above the thread before the cap stopped it
+/// and planed the opening disc flat — rolling ground fell from 281 to 8 per mille and the shipped
+/// scenario lost its coal. At 6,000 the banks cost 55 per mille of walkable ground for no drainage
+/// gain. Here: 86 per mille rolling ground, 996 walkable, and 7 lakes where the shipped generator
+/// left 107.
+const VALLEY_BANK_MQ: i32 = 4_000;
+
+/// The most alluvium the graded floor may lay into a hollow it crosses, in milli-quanta: 1 m.
+///
+/// A channel fills the centimetre-scale pits the relief term manufactures, because a river bed with
+/// a lip in it is the defect. It does not fill a real hollow: past this the floor stops rising, the
+/// graded surface stands over the ground, and the result is a pond in the reach — which is what a
+/// river crossing a depression actually does.
+const FILL_LIMIT_MQ: i32 = 4_000;
 
 /// Catchment in cells to a discharge class. Logarithmic, base five: 2,048 cells is a stream and
 /// 32 million is a continental river, which is the range the classes have to stay distinct across.
@@ -471,15 +521,22 @@ pub fn discharge_class(catchment_cells: u64) -> u8 {
     class
 }
 
-/// Whether a spanning-tree edge is preferred. Lower is grown first.
+/// The least a node must stand above the one it drains into, in milli-quanta.
 ///
-/// The hash makes the network dendritic rather than radial; the climb term makes it hug low ground
-/// before it climbs, which is what turns a maze into something that reads as a catchment.
-fn spine_edge_cost(seed: u32, from: (i32, i32), to: (i32, i32)) -> i64 {
-    let hash = i64::from(coordinate_hash(seed ^ OCT_SPINE, from.0 + to.0, from.1 + to.1) >> 8);
-    let climb =
-        (continental_mq(seed, to.0, to.1) - continental_mq(seed, from.0, from.1)).max(0) as i64;
-    hash + climb * 4
+/// Small on purpose — 0.01 m over 43 m. It is not a gradient the eye reads; it is what makes
+/// "downstream is strictly lower" true across a filled depression as well as on open hillside, so
+/// the long profile has no flat on it for a flow direction to be undefined on.
+const NODE_DROP_MQ: i32 = 40;
+
+/// How far the routing flood may prefer one neighbour over a lower one, in milli-quanta: 0.375 m.
+///
+/// Purely dendritic character. Adjacent nodes stand 43 m apart and the hillslope term moves several
+/// quanta over that distance, so this perturbs which of two near-equal saddles a headwater takes
+/// without ever letting a thread choose real high ground over real low ground.
+const SPINE_JITTER_MQ: i32 = 1_500;
+
+fn spine_jitter(seed: u32, cell: (i32, i32)) -> i32 {
+    (coordinate_hash(seed ^ OCT_SPINE, cell.0, cell.1) % SPINE_JITTER_MQ as u32) as i32
 }
 
 fn spine_nodes_per_side() -> i32 {
@@ -494,7 +551,7 @@ fn node_cell(pq: i32, pr: i32, i: i32, j: i32) -> (i32, i32) {
     )
 }
 
-/// Builds a province's channel network. Bounded: 256 nodes, four faces, and one rasterised path
+/// Builds a province's channel network. Bounded: 256 nodes, four faces, and one traced path
 /// per edge.
 pub fn build_spine(seed: u32, pq: i32, pr: i32, inflow: &[SeamInflow]) -> Spine {
     let side = spine_nodes_per_side();
@@ -506,6 +563,7 @@ pub fn build_spine(seed: u32, pq: i32, pr: i32, inflow: &[SeamInflow]) -> Spine 
             nodes.push(SpineNode {
                 cell,
                 parent: None,
+                filled_mq: i32::MIN,
                 catchment: (SPINE_CELL * SPINE_CELL) as u64,
                 wet: false,
                 spring: false,
@@ -526,7 +584,7 @@ pub fn build_spine(seed: u32, pq: i32, pr: i32, inflow: &[SeamInflow]) -> Spine 
             let mut best: Option<(i32, i32, i32, usize)> = None;
             for (slot, node) in nodes.iter().enumerate() {
                 let key = (
-                    continental_mq(seed, node.cell.0, node.cell.1),
+                    base_mq(seed, node.cell.0, node.cell.1),
                     node.cell.0,
                     node.cell.1,
                     slot,
@@ -539,22 +597,34 @@ pub fn build_spine(seed: u32, pq: i32, pr: i32, inflow: &[SeamInflow]) -> Spine 
         }
     };
 
-    // Prim from the root: every node ends with a parent chain that reaches the root, so the
-    // network is a tree by construction and the accumulation below can be a single reverse pass.
-    let mut in_tree = vec![false; count];
+    // A priority flood outward from the outlet, which is what makes this a drainage network rather
+    // than a maze. A node enters the tree at `max(its own ground, its parent's level + a drop)`, so
+    // every node stands strictly above the one it drains into whether the ground between them fell
+    // or rose — the filled level *is* the long profile, and a depression on the way out becomes a
+    // level reach rather than a place the thread runs uphill. The jitter perturbs which of two
+    // near-equal saddles a headwater takes and never the order of two genuinely different ones.
     let mut order: Vec<usize> = Vec::with_capacity(count);
-    let mut frontier: BinaryHeap<Reverse<(i64, usize, usize)>> = BinaryHeap::new();
-    in_tree[root] = true;
-    order.push(root);
-    push_spine_edges(seed, &nodes, side, root, &in_tree, &mut frontier);
-    while let Some(Reverse((_, slot, parent))) = frontier.pop() {
-        if in_tree[slot] {
+    let mut frontier: BinaryHeap<Reverse<(i32, i32, i32, i32, usize, usize)>> = BinaryHeap::new();
+    let root_cell = nodes[root].cell;
+    let root_level = base_mq(seed, root_cell.0, root_cell.1);
+    frontier.push(Reverse((
+        root_level + spine_jitter(seed, root_cell),
+        root_level,
+        root_cell.0,
+        root_cell.1,
+        root,
+        root,
+    )));
+    while let Some(Reverse((_, level, _, _, slot, parent))) = frontier.pop() {
+        if nodes[slot].filled_mq != i32::MIN {
             continue;
         }
-        in_tree[slot] = true;
-        nodes[slot].parent = Some(parent);
+        nodes[slot].filled_mq = level;
+        if slot != root {
+            nodes[slot].parent = Some(parent);
+        }
         order.push(slot);
-        push_spine_edges(seed, &nodes, side, slot, &in_tree, &mut frontier);
+        push_spine_edges(seed, &nodes, side, slot, level, &mut frontier);
     }
 
     // Water arriving across a seam joins at the node nearest its pour point.
@@ -590,10 +660,11 @@ pub fn build_spine(seed: u32, pq: i32, pr: i32, inflow: &[SeamInflow]) -> Spine 
     }
     for slot in 0..count {
         let cell = nodes[slot].cell;
+        let head = nodes[slot].filled_mq;
         if class_of[slot] >= CHANNEL_CLASS_MIN
             && !has_channel_child[slot]
-            && moisture(seed, cell.0, cell.1) > SPRING_MOISTURE
-            && continental_mq(seed, cell.0, cell.1) > SEA_LEVEL_QUANTA
+            && moisture(seed, cell.0, cell.1) > spring_threshold(head)
+            && head > SEA_LEVEL_QUANTA * MQ as i32
         {
             nodes[slot].spring = true;
             nodes[slot].wet = true;
@@ -611,30 +682,68 @@ pub fn build_spine(seed: u32, pq: i32, pr: i32, inflow: &[SeamInflow]) -> Spine 
     }
 
     let mut channels: BTreeMap<(i32, i32), Channel> = BTreeMap::new();
-    let mut mark = |cell: (i32, i32), class: u8, wet: bool| {
+    let mut mark = |cell: (i32, i32), class: u8, surface_mq: i32, wet: bool| {
         if class < CHANNEL_CLASS_MIN {
             return;
         }
-        let entry = channels.entry(cell).or_insert(Channel { class, wet });
-        // Where two branches share a cell the wider one owns it, so a confluence never narrows.
+        let entry = channels.entry(cell).or_insert(Channel {
+            class,
+            surface_mq,
+            wet,
+        });
+        // Where two branches share a cell the wider one owns it, so a confluence never narrows,
+        // and the lower grade line owns it, so a tributary never perches over its own main stem.
         if class > entry.class {
             entry.class = class;
         }
+        entry.surface_mq = entry.surface_mq.min(surface_mq);
         entry.wet |= wet;
+    };
+
+    // A reach is drawn from its node to its parent's, with the grade line interpolated between the
+    // two filled node levels. Both ends descend, so every cell between them does.
+    let reach = |mark: &mut dyn FnMut((i32, i32), u8, i32, bool),
+                 from: (i32, i32),
+                 from_mq: i32,
+                 to: (i32, i32),
+                 to_mq: i32,
+                 class: u8,
+                 wet: bool| {
+        let path = descend_line(seed, from, to);
+        let last = (path.len() - 1).max(1) as i64;
+        let cut = surface_cut(class) * MQ as i32;
+        for (step, cell) in path.into_iter().enumerate() {
+            let t = step as i64;
+            let level = (i64::from(from_mq) * (last - t) + i64::from(to_mq) * t) / last;
+            mark(cell, class, level as i32 - cut, wet);
+        }
     };
 
     for slot in 0..count {
         let node = nodes[slot];
-        mark(node.cell, class_of[slot], node.wet);
-        if let Some(parent) = node.parent {
-            for cell in axial_line(node.cell, nodes[parent].cell) {
-                mark(cell, class_of[slot], node.wet);
-            }
+        match node.parent {
+            Some(parent) => reach(
+                &mut mark,
+                node.cell,
+                node.filled_mq,
+                nodes[parent].cell,
+                nodes[parent].filled_mq,
+                class_of[slot],
+                node.wet,
+            ),
+            None => mark(
+                node.cell,
+                class_of[slot],
+                node.filled_mq - surface_cut(class_of[slot]) * MQ as i32,
+                node.wet,
+            ),
         }
     }
 
     // Both sides of an active seam draw a stub to the shared pour point, so the channel crosses
-    // rather than stopping four cells short on each side of every province boundary.
+    // rather than stopping four cells short on each side of every province boundary. The stub ends
+    // on the pour cell's own ground, which both sides read from the same field, so the two grade
+    // lines meet at the seam instead of each ending at its own invented height.
     for (dq, dr) in PROVINCE_FACES {
         let neighbour = (pq + dq, pr + dr);
         let active =
@@ -645,9 +754,16 @@ pub fn build_spine(seed: u32, pq: i32, pr: i32, inflow: &[SeamInflow]) -> Spine 
         let (own_cell, _) = seam_pour(seed, (pq, pr), neighbour);
         let slot = nearest_node(pq, pr, own_cell);
         let node = nodes[slot];
-        for cell in axial_line(node.cell, own_cell) {
-            mark(cell, class_of[slot], node.wet);
-        }
+        let pour_mq = base_mq(seed, own_cell.0, own_cell.1).min(node.filled_mq);
+        reach(
+            &mut mark,
+            node.cell,
+            node.filled_mq,
+            own_cell,
+            pour_mq,
+            class_of[slot],
+            node.wet,
+        );
     }
 
     let springs = nodes
@@ -658,13 +774,14 @@ pub fn build_spine(seed: u32, pq: i32, pr: i32, inflow: &[SeamInflow]) -> Spine 
     Spine { channels, springs }
 }
 
+#[allow(clippy::type_complexity)]
 fn push_spine_edges(
     seed: u32,
     nodes: &[SpineNode],
     side: i32,
     slot: usize,
-    in_tree: &[bool],
-    frontier: &mut BinaryHeap<Reverse<(i64, usize, usize)>>,
+    level: i32,
+    frontier: &mut BinaryHeap<Reverse<(i32, i32, i32, i32, usize, usize)>>,
 ) {
     let i = slot as i32 % side;
     let j = slot as i32 / side;
@@ -674,11 +791,19 @@ fn push_spine_edges(
             continue;
         }
         let next = (nj * side + ni) as usize;
-        if in_tree[next] {
+        if nodes[next].filled_mq != i32::MIN {
             continue;
         }
-        let cost = spine_edge_cost(seed, nodes[slot].cell, nodes[next].cell);
-        frontier.push(Reverse((cost, next, slot)));
+        let cell = nodes[next].cell;
+        let raised = base_mq(seed, cell.0, cell.1).max(level + NODE_DROP_MQ);
+        frontier.push(Reverse((
+            raised + spine_jitter(seed, cell),
+            raised,
+            cell.0,
+            cell.1,
+            next,
+            slot,
+        )));
     }
 }
 
@@ -698,19 +823,34 @@ pub struct SeamInflow {
     pub wet: bool,
 }
 
-/// The hexes a straight line between two cells passes through.
-fn axial_line(from: (i32, i32), to: (i32, i32)) -> Vec<(i32, i32)> {
+/// The cells one reach passes through: at every step the neighbour that closes the distance to the
+/// next node and stands lowest on the ground.
+///
+/// A straight rasterised line is what made the shipped rivers read as angular segments crossing
+/// whatever was in the way. Only one or two of the six neighbours ever shorten an axial distance,
+/// so choosing between them by height costs almost nothing, arrives in exactly `axial_distance`
+/// steps, and puts the thread in the hollow rather than over the shoulder beside it.
+fn descend_line(seed: u32, from: (i32, i32), to: (i32, i32)) -> Vec<(i32, i32)> {
     let steps = axial_distance(from, to);
-    if steps == 0 {
-        return vec![from];
-    }
-    let den = i64::from(steps);
     let mut cells = Vec::with_capacity(steps as usize + 1);
-    for step in 0..=steps {
-        let t = i64::from(step);
-        let q = i64::from(from.0) * (den - t) + i64::from(to.0) * t;
-        let r = i64::from(from.1) * (den - t) + i64::from(to.1) * t;
-        cells.push(cube_round_num(q, r, -q - r, den));
+    cells.push(from);
+    let mut current = from;
+    for _ in 0..steps {
+        let remaining = axial_distance(current, to);
+        let mut best: Option<(i32, i32, i32)> = None;
+        for (dq, dr) in DIRECTIONS {
+            let next = (current.0 + dq, current.1 + dr);
+            if axial_distance(next, to) >= remaining {
+                continue;
+            }
+            let key = (base_mq(seed, next.0, next.1), next.0, next.1);
+            if best.is_none_or(|current| key < current) {
+                best = Some(key);
+            }
+        }
+        let Some((_, q, r)) = best else { break };
+        current = (q, r);
+        cells.push(current);
     }
     cells
 }
@@ -959,6 +1099,7 @@ impl Terra {
                             if channel.class > existing.class {
                                 existing.class = channel.class;
                             }
+                            existing.surface_mq = existing.surface_mq.min(channel.surface_mq);
                             existing.wet |= channel.wet;
                         })
                         .or_insert(channel);
@@ -988,39 +1129,54 @@ impl Terra {
             province.head_mq[index] = base_mq(self.seed, q, r);
         }
 
-        // 2. Cut the valleys. A widest-first sweep: pop the strongest remaining influence, keep it
-        // if it beats what a cell already has, and hand the weakened influence to the neighbours.
-        // Each cell settles once, at its maximum, which is what makes the result independent of
-        // which channel happened to be visited first.
-        //
-        // The cut is a constant depth per class, which is why it shapes the valley sides but does
-        // nothing for the long profile. Carving the whole flow tree this way was measured and made
-        // the closed-basin count worse, not better — see `docs/BENCHMARKS.md`. Grading the profile
-        // to a descending floor elevation is slice 2's work, because it changes what head means.
-        let mut incision = vec![0i32; cells];
-        let mut frontier: BinaryHeap<(i32, i32, i32, i32, usize)> = BinaryHeap::new();
+        // 2. Cut the valleys down to an absolute floor. A reach carries a known water surface, so
+        // the bed under it is an elevation and not a depth, and the long profile descends because
+        // the grade line it was seeded from descends. The sweep is a Dijkstra on that floor: pop
+        // the lowest remaining influence, settle the cell at it, and offer the floor one bank step
+        // higher to the neighbours. Each cell settles once, at the deepest floor that reaches it,
+        // so the result does not depend on which channel was visited first.
+        let mut valley = vec![i32::MAX; cells];
+        let mut frontier: BinaryHeap<Reverse<(i32, i32, i32, i32, u8, usize)>> = BinaryHeap::new();
         for (&cell, &channel) in &province.channels {
             let Some(index) = province.domain_index(cell.0, cell.1) else {
                 continue;
             };
-            let depth = channel_depth(channel.class) * MQ as i32;
-            let rate = depth / valley_half_width(channel.class).max(1);
-            frontier.push((depth, cell.0, cell.1, rate, index));
+            let floor = channel.surface_mq - bed_depth(channel.class) * MQ as i32;
+            frontier.push(Reverse((floor, cell.0, cell.1, 0, channel.class, index)));
         }
-        while let Some((value, _, _, rate, index)) = frontier.pop() {
-            if value <= incision[index] {
+        while let Some(Reverse((floor, q, r, distance, class, index))) = frontier.pop() {
+            if valley[index] != i32::MAX {
                 continue;
             }
-            incision[index] = value;
-            let (q, r) = province.domain_cell(index);
-            let next = value - rate;
-            if next <= 0 {
+            valley[index] = floor;
+            let base = province.head_mq[index];
+            // Inside the wetted width the floor is imposed, so a hollow under the thread is filled
+            // rather than left as a hole the water would have to climb out of; the cap keeps that
+            // from raising a coastline. Outside it the floor may only cut.
+            //
+            // The cut leaves a smooth ramp, and fading [`texture_mq`] back in across it was tried
+            // and rejected: valley-side roughness traps drainage. Lakes went 7 → 49 and walks
+            // leaving the sample 292 → 36. A graded valley is smooth because that is what letting
+            // the water out costs; the material map answers for its own thresholds.
+            province.head_mq[index] = if distance <= bed_radius(class) {
+                floor.min(base + FILL_LIMIT_MQ)
+            } else {
+                base.min(floor)
+            };
+            if distance >= valley_half_width(class) {
                 continue;
             }
             for (dq, dr) in DIRECTIONS {
                 if let Some(neighbour) = province.domain_index(q + dq, r + dr) {
-                    if next > incision[neighbour] {
-                        frontier.push((next, q + dq, r + dr, rate, neighbour));
+                    if valley[neighbour] == i32::MAX {
+                        frontier.push(Reverse((
+                            floor + VALLEY_BANK_MQ,
+                            q + dq,
+                            r + dr,
+                            distance + 1,
+                            class,
+                            neighbour,
+                        )));
                     }
                 }
             }
@@ -1061,12 +1217,7 @@ impl Terra {
             }
         }
 
-        // 4. Finished height. Both terms are already milli-quanta, so nothing is rounded here.
-        for index in 0..cells {
-            province.head_mq[index] -= incision[index];
-        }
-
-        // 5. Flow: the strictly lower neighbour under one total order. No fill, so there is no way
+        // 4. Flow: the strictly lower neighbour under one total order. No fill, so there is no way
         // for this step to invent an uphill edge or a cycle.
         let mut pits: Vec<(i32, i32)> = Vec::new();
         for own in 0..(PROVINCE_CELL * PROVINCE_CELL) as usize {
@@ -1078,7 +1229,7 @@ impl Terra {
             }
         }
 
-        // 6. Close what is left over. A pit is a real basin; the flood finds the rim it spills at,
+        // 5. Close what is left over. A pit is a real basin; the flood finds the rim it spills at,
         // or reports that the basin is wider than one province can answer for.
         let mut resolved: Vec<Option<LakeInfo>> = Vec::new();
         for pit in pits {
@@ -1225,7 +1376,9 @@ impl Terra {
         if !channel.wet {
             return Water::Dry;
         }
-        let surface = province.head_mq[source] + river_depth(channel.class) * MQ as i32;
+        // The reach's own grade line, not a depth over the nearest bed: the surface has to be the
+        // same height all the way across a river, and it has to fall along it.
+        let surface = channel.surface_mq;
         if surface - head >= MQ as i32 {
             Water::River {
                 depth: quanta(surface - head),
@@ -1444,476 +1597,6 @@ pub fn coast_province(seed: u32) -> Option<(i32, i32)> {
     best.map(|(province, _)| province)
 }
 
-/// What a seed's landscape actually contains, counted rather than described.
-///
-/// Every claim the Phase 8 brief makes about drainage is a claim about proportions or invariants,
-/// and both are things to be measured. `cycles` and `uphill_edges` are here to be zero; if they
-/// are ever not, the model has been falsified and no amount of tuning is the answer.
-#[derive(Clone, Debug)]
-pub struct TerraSurvey {
-    pub seed: u32,
-    /// The province the square is centred on. Recorded because "0 walks reached the sea" means
-    /// something entirely different inland than it does on a coast.
-    pub centre: (i32, i32),
-    pub provinces: u32,
-    pub cells: u64,
-    pub min_quanta: i32,
-    pub max_quanta: i32,
-    pub mean_quanta: i32,
-    /// Neighbour height differences, bucketed by height quanta: 0, 1, 2-3, 4-7, 8-15, 16+.
-    pub slope_histogram: [u64; 6],
-    /// Neighbour pairs a player could step between under
-    /// [`crate::scale::MAX_WALK_STEP_QUANTA`], and pairs a building pad could span under
-    /// [`crate::scale::MAX_BUILD_STEP_QUANTA`].
-    ///
-    /// These are the numbers that decide whether the scale contract and the generator agree. A
-    /// world can satisfy every drainage invariant and still be unplayable, and the only way that
-    /// shows up is by asking what fraction of it a person can walk across.
-    pub walkable_edges: u64,
-    pub buildable_edges: u64,
-    pub total_edges: u64,
-    pub springs: u32,
-    pub lakes: u32,
-    pub lake_cells: u64,
-    pub frontier_basins: u32,
-    pub cycles: u64,
-    pub uphill_edges: u64,
-    /// Channel cells per discharge class.
-    pub discharge_histogram: [u64; 8],
-    pub sea_cells: u64,
-    pub lake_water_cells: u64,
-    pub river_cells: u64,
-    /// Where a downstream walk ended, over a sampled set of starts.
-    pub walks: u64,
-    pub reached_sea: u64,
-    pub reached_lake: u64,
-    pub reached_frontier: u64,
-    /// Walks that were still running when they left the surveyed square. Not a failure: a river
-    /// crossing the edge of the sample is a river, and following it would mean solving provinces
-    /// the survey never asked about.
-    pub left_survey: u64,
-    pub walk_budget_exhausted: u64,
-    pub longest_walk: u32,
-    /// Elevation range inside one [`VIEWPORT_CELL`] disc, in quanta, over sampled centres: the
-    /// median view and the flattest tenth of views.
-    ///
-    /// The slope histogram cannot answer the question this does. A field of uncorrelated
-    /// centimetre noise and a hillside produce similar neighbour steps, and only one of them is a
-    /// landform: the difference is whether the steps accumulate over the distance the camera
-    /// frames or cancel out inside it. That is what these two numbers measure, and "the world
-    /// looks flat" is a claim about them and about nothing else in this report.
-    pub viewport_relief_median: i32,
-    pub viewport_relief_p10: i32,
-    pub solve_micros: u128,
-    pub sweep_micros: u128,
-}
-
-/// The radius of the ground a player has on screen at a normal zoom, in cells: about 215 m across.
-pub const VIEWPORT_CELL: i32 = 40;
-
-impl TerraSurvey {
-    pub fn water_per_mille(&self) -> u64 {
-        if self.cells == 0 {
-            return 0;
-        }
-        (self.sea_cells + self.lake_water_cells + self.river_cells) * 1_000 / self.cells
-    }
-
-    pub fn walkable_per_mille(&self) -> u64 {
-        self.walkable_edges * 1_000 / self.total_edges.max(1)
-    }
-
-    pub fn buildable_per_mille(&self) -> u64 {
-        self.buildable_edges * 1_000 / self.total_edges.max(1)
-    }
-
-    /// Channel cells as a share of the sample: the drainage density, which is the number that
-    /// separates a river network from a crazed glaze.
-    pub fn channel_per_mille(&self) -> u64 {
-        self.discharge_histogram.iter().sum::<u64>() * 1_000 / self.cells.max(1)
-    }
-
-    /// The invariants the brief names as acceptance. A survey that fails this has falsified the
-    /// model rather than found a bug to paper over.
-    pub fn invariants_hold(&self) -> bool {
-        self.cycles == 0 && self.uphill_edges == 0 && self.walk_budget_exhausted == 0
-    }
-}
-
-/// How far a downstream walk is allowed to run before the survey calls it unterminated.
-const WALK_BUDGET: u32 = 20_000;
-
-/// Surveys a square of `span` by `span` provinces, with the origin province at its centre.
-/// Surveys a square of provinces centred on the origin.
-pub fn survey(seed: u32, span: i32) -> TerraSurvey {
-    survey_at(seed, span, (0, 0))
-}
-
-/// Surveys a square of provinces centred anywhere.
-///
-/// The origin is not a representative place. Whether it is mountain, plain or seabed is a property
-/// of the seed, and a survey that only ever looks there will report "no walk reached the sea" for a
-/// sample with no sea in it and call that a drainage result. [`coast_province`] finds somewhere the
-/// question can actually be asked.
-pub fn survey_at(seed: u32, span: i32, centre: (i32, i32)) -> TerraSurvey {
-    let span = span.max(1);
-    let half = (span - 1) / 2;
-    let (cq, cr) = centre;
-    let mut terra = Terra::new(seed);
-
-    #[cfg(not(target_arch = "wasm32"))]
-    let solve_started = Instant::now();
-    let mut provinces = Vec::new();
-    for pr in -half..(span - half) {
-        for pq in -half..(span - half) {
-            provinces.push((cq + pq, cr + pr));
-            terra.province(cq + pq, cr + pr);
-        }
-    }
-    #[cfg(not(target_arch = "wasm32"))]
-    let solve_micros = solve_started.elapsed().as_micros();
-    #[cfg(target_arch = "wasm32")]
-    let solve_micros = 0u128;
-
-    #[cfg(not(target_arch = "wasm32"))]
-    let sweep_started = Instant::now();
-    let mut result = TerraSurvey {
-        seed,
-        centre,
-        provinces: provinces.len() as u32,
-        cells: 0,
-        min_quanta: i32::MAX,
-        max_quanta: i32::MIN,
-        mean_quanta: 0,
-        slope_histogram: [0; 6],
-        walkable_edges: 0,
-        buildable_edges: 0,
-        total_edges: 0,
-        springs: 0,
-        lakes: 0,
-        lake_cells: 0,
-        frontier_basins: 0,
-        cycles: 0,
-        uphill_edges: 0,
-        discharge_histogram: [0; 8],
-        sea_cells: 0,
-        lake_water_cells: 0,
-        river_cells: 0,
-        walks: 0,
-        reached_sea: 0,
-        reached_lake: 0,
-        reached_frontier: 0,
-        left_survey: 0,
-        walk_budget_exhausted: 0,
-        longest_walk: 0,
-        viewport_relief_median: 0,
-        viewport_relief_p10: 0,
-        solve_micros,
-        sweep_micros: 0,
-    };
-
-    let mut height_total: i64 = 0;
-    for &(pq, pr) in &provinces {
-        let province = terra.province(pq, pr);
-        result.springs += province.springs().len() as u32;
-        result.lakes += province.lakes().len() as u32;
-        for lake in province.lakes() {
-            result.lake_cells += u64::from(lake.cells);
-        }
-        let (origin_q, origin_r) = province_origin(pq, pr);
-        for y in 0..PROVINCE_CELL {
-            for x in 0..PROVINCE_CELL {
-                let (q, r) = (origin_q + x, origin_r + y);
-                let head = province.head(q, r).expect("own cell");
-                result.cells += 1;
-                height_total += i64::from(head);
-                result.min_quanta = result.min_quanta.min(head);
-                result.max_quanta = result.max_quanta.max(head);
-
-                for (dq, dr) in DIRECTIONS {
-                    if let Some(neighbour) = province.head(q + dq, r + dr) {
-                        let step = (head - neighbour).abs();
-                        result.slope_histogram[slope_bucket(step)] += 1;
-                        result.total_edges += 1;
-                        if step <= crate::scale::MAX_WALK_STEP_QUANTA {
-                            result.walkable_edges += 1;
-                        }
-                        if step <= crate::scale::MAX_BUILD_STEP_QUANTA {
-                            result.buildable_edges += 1;
-                        }
-                    }
-                }
-
-                if let Some(channel) = province.channel(q, r) {
-                    result.discharge_histogram[usize::from(channel.class)] += 1;
-                }
-
-                match province.flow(q, r) {
-                    Some(Flow::To(direction)) => {
-                        let (dq, dr) = DIRECTIONS[direction as usize];
-                        let (nq, nr) = (q + dq, r + dr);
-                        let neighbour = province.head(nq, nr).expect("halo covers one ring");
-                        if neighbour > head {
-                            result.uphill_edges += 1;
-                        }
-                        // Strict decrease in one total order is what forbids a cycle, so the
-                        // survey checks the order rather than walking every chain to prove it.
-                        // The order is the one flow is decided in, milli-quanta, because two cells
-                        // can share a published quantum without being at the same height.
-                        let here_mq = province.head_mq(q, r).expect("own cell");
-                        let there_mq = province.head_mq(nq, nr).expect("halo covers one ring");
-                        if (there_mq, nq, nr) >= (here_mq, q, r) {
-                            result.cycles += 1;
-                        }
-                    }
-                    Some(Flow::Frontier) => result.frontier_basins += 1,
-                    _ => {}
-                }
-            }
-        }
-    }
-    if result.cells > 0 {
-        result.mean_quanta = (height_total / result.cells as i64) as i32;
-    }
-
-    // Water and walk termination, sampled: every 16th cell in each direction, which is 1/256 of
-    // the sweep and still tens of thousands of starts.
-    for &(pq, pr) in &provinces {
-        let (origin_q, origin_r) = province_origin(pq, pr);
-        for y in (0..PROVINCE_CELL).step_by(4) {
-            for x in (0..PROVINCE_CELL).step_by(4) {
-                let (q, r) = (origin_q + x, origin_r + y);
-                match terra.water(q, r) {
-                    Water::Sea { .. } => result.sea_cells += 16,
-                    Water::Lake { .. } => result.lake_water_cells += 16,
-                    Water::River { .. } => result.river_cells += 16,
-                    Water::Dry => {}
-                }
-            }
-        }
-        for y in (0..PROVINCE_CELL).step_by(16) {
-            for x in (0..PROVINCE_CELL).step_by(16) {
-                let (mut q, mut r) = (origin_q + x, origin_r + y);
-                result.walks += 1;
-                let mut steps = 0u32;
-                loop {
-                    // Stopping at the sample's edge is what keeps the survey's cost the size of
-                    // the square it was asked about: a walk that followed a river out of the
-                    // sample would solve provinces nobody asked to see.
-                    let (wq, wr) = province_of(q, r);
-                    if wq < cq - half
-                        || wr < cr - half
-                        || wq >= cq + span - half
-                        || wr >= cr + span - half
-                    {
-                        result.left_survey += 1;
-                        break;
-                    }
-                    if terra.head(q, r) < SEA_LEVEL_QUANTA {
-                        result.reached_sea += 1;
-                        break;
-                    }
-                    match terra.flow(q, r) {
-                        Flow::To(direction) => {
-                            let (dq, dr) = DIRECTIONS[direction as usize];
-                            q += dq;
-                            r += dr;
-                            steps += 1;
-                            if steps >= WALK_BUDGET {
-                                result.walk_budget_exhausted += 1;
-                                break;
-                            }
-                        }
-                        Flow::Lake(_) => {
-                            result.reached_lake += 1;
-                            break;
-                        }
-                        Flow::Frontier => {
-                            result.reached_frontier += 1;
-                            break;
-                        }
-                    }
-                }
-                result.longest_walk = result.longest_walk.max(steps);
-            }
-        }
-    }
-    // Relief at the scale the camera frames. Centres are held one viewport inside the surveyed
-    // square so that every disc is answered from provinces this survey already solved.
-    let (low_q, low_r) = province_origin(cq - half, cr - half);
-    let side = span * PROVINCE_CELL;
-    let mut views: Vec<i32> = Vec::new();
-    let mut centre_r = VIEWPORT_CELL;
-    while centre_r < side - VIEWPORT_CELL {
-        let mut centre_q = VIEWPORT_CELL;
-        while centre_q < side - VIEWPORT_CELL {
-            let origin = (low_q + centre_q, low_r + centre_r);
-            let mut low = i32::MAX;
-            let mut high = i32::MIN;
-            for cell in hexes_in_radius(origin, VIEWPORT_CELL) {
-                let head = terra.head(cell.0, cell.1);
-                low = low.min(head);
-                high = high.max(head);
-            }
-            views.push(high - low);
-            centre_q += VIEWPORT_CELL;
-        }
-        centre_r += VIEWPORT_CELL;
-    }
-    if !views.is_empty() {
-        views.sort_unstable();
-        result.viewport_relief_median = views[views.len() / 2];
-        result.viewport_relief_p10 = views[views.len() / 10];
-    }
-
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        result.sweep_micros = sweep_started.elapsed().as_micros();
-    }
-    result
-}
-
-fn slope_bucket(difference: i32) -> usize {
-    match difference {
-        0 => 0,
-        1 => 1,
-        2..=3 => 2,
-        4..=7 => 3,
-        8..=15 => 4,
-        _ => 5,
-    }
-}
-
-/// Height quanta as a readable metre figure, to one decimal place.
-fn metres(quanta: i32) -> String {
-    let tenths = i64::from(quanta) * i64::from(crate::scale::HEIGHT_QUANTUM_MM) / 100;
-    format!("{}.{}", tenths / 10, (tenths % 10).abs())
-}
-
-pub fn format_report(survey: &TerraSurvey) -> String {
-    let mut out = String::new();
-    out.push_str(&format!(
-        "terra prototype | seed {} | centre ({},{}) | {} provinces | {} cells\n",
-        survey.seed, survey.centre.0, survey.centre.1, survey.provinces, survey.cells
-    ));
-    out.push_str(&format!(
-        "  elevation      {} m to {} m, mean {} m\n",
-        metres(survey.min_quanta),
-        metres(survey.max_quanta),
-        metres(survey.mean_quanta)
-    ));
-    let labels = ["0", "1", "2-3", "4-7", "8-15", "16+"];
-    let edges: u64 = survey.slope_histogram.iter().sum::<u64>().max(1);
-    out.push_str("  slope (quanta between neighbours)\n");
-    for (label, count) in labels.iter().zip(survey.slope_histogram.iter()) {
-        out.push_str(&format!(
-            "    {label:>5}  {count:>12}  {:>4} per mille\n",
-            count * 1_000 / edges
-        ));
-    }
-    out.push_str(&format!(
-        "  terrain        {} per mille walkable at {} quanta, {} per mille buildable at {}\n",
-        survey.walkable_per_mille(),
-        crate::scale::MAX_WALK_STEP_QUANTA,
-        survey.buildable_per_mille(),
-        crate::scale::MAX_BUILD_STEP_QUANTA
-    ));
-    out.push_str(&format!(
-        "  viewport       {} m of relief across {} m, flattest tenth {} m\n",
-        metres(survey.viewport_relief_median),
-        i64::from(VIEWPORT_CELL * 2) * i64::from(crate::scale::CELL_SPACING_MM) / 1_000,
-        metres(survey.viewport_relief_p10)
-    ));
-    out.push_str(&format!(
-        "  discharge class (channel cells, {} per mille of the sample)\n",
-        survey.channel_per_mille()
-    ));
-    for (class, count) in survey.discharge_histogram.iter().enumerate() {
-        if *count == 0 {
-            continue;
-        }
-        out.push_str(&format!(
-            "    {class:>5}  {count:>12}  valley half-width {} cells, river depth {} m\n",
-            valley_half_width(class as u8),
-            metres(river_depth(class as u8))
-        ));
-    }
-    out.push_str(&format!(
-        "  hydrology      {} springs, {} lakes over {} cells, {} frontier basins\n",
-        survey.springs, survey.lakes, survey.lake_cells, survey.frontier_basins
-    ));
-    out.push_str(&format!(
-        "  water          {} per mille wet (sea {}, lake {}, river {})\n",
-        survey.water_per_mille(),
-        survey.sea_cells,
-        survey.lake_water_cells,
-        survey.river_cells
-    ));
-    out.push_str(&format!(
-        "  invariants     {} cycles, {} uphill edges\n",
-        survey.cycles, survey.uphill_edges
-    ));
-    out.push_str(&format!(
-        "  drainage walks {} starts: {} to sea, {} to lake, {} to frontier, {} off the sample, {} unterminated, longest {}\n",
-        survey.walks,
-        survey.reached_sea,
-        survey.reached_lake,
-        survey.reached_frontier,
-        survey.left_survey,
-        survey.walk_budget_exhausted,
-        survey.longest_walk
-    ));
-    let per_province = survey.solve_micros / u128::from(survey.provinces.max(1));
-    out.push_str(&format!(
-        "  cost           {} ms to solve ({} ms per province), {} ms to sweep\n",
-        survey.solve_micros / 1_000,
-        per_province / 1_000,
-        survey.sweep_micros / 1_000
-    ));
-    out
-}
-
-pub fn format_json(survey: &TerraSurvey) -> String {
-    serde_json::json!({
-        "seed": survey.seed,
-        "centre_pq": survey.centre.0,
-        "centre_pr": survey.centre.1,
-        "provinces": survey.provinces,
-        "cells": survey.cells,
-        "min_quanta": survey.min_quanta,
-        "max_quanta": survey.max_quanta,
-        "mean_quanta": survey.mean_quanta,
-        "slope_histogram": survey.slope_histogram,
-        "walkable_per_mille": survey.walkable_per_mille(),
-        "buildable_per_mille": survey.buildable_per_mille(),
-        "channel_per_mille": survey.channel_per_mille(),
-        "springs": survey.springs,
-        "lakes": survey.lakes,
-        "lake_cells": survey.lake_cells,
-        "frontier_basins": survey.frontier_basins,
-        "cycles": survey.cycles,
-        "uphill_edges": survey.uphill_edges,
-        "discharge_histogram": survey.discharge_histogram,
-        "sea_cells": survey.sea_cells,
-        "lake_water_cells": survey.lake_water_cells,
-        "river_cells": survey.river_cells,
-        "water_per_mille": survey.water_per_mille(),
-        "walks": survey.walks,
-        "reached_sea": survey.reached_sea,
-        "reached_lake": survey.reached_lake,
-        "reached_frontier": survey.reached_frontier,
-        "left_survey": survey.left_survey,
-        "walk_budget_exhausted": survey.walk_budget_exhausted,
-        "longest_walk": survey.longest_walk,
-        "viewport_cell": VIEWPORT_CELL,
-        "viewport_relief_median": survey.viewport_relief_median,
-        "viewport_relief_p10": survey.viewport_relief_p10,
-        "solve_micros": survey.solve_micros,
-        "sweep_micros": survey.sweep_micros,
-    })
-    .to_string()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2101,10 +1784,7 @@ mod tests {
                         Flow::Lake(_) | Flow::Frontier => break,
                     }
                     steps += 1;
-                    assert!(
-                        steps < WALK_BUDGET,
-                        "the path from ({q},{r}) never terminated"
-                    );
+                    assert!(steps < 20_000, "the path from ({q},{r}) never terminated");
                 }
             }
         }
@@ -2161,7 +1841,12 @@ mod tests {
                         (pq, pr),
                         "a spring outside its own province"
                     );
-                    assert!(moisture(SEED, q, r) > SPRING_MOISTURE, "a dry spring");
+                    // Altitude eases the threshold, but never past the cap, so this is the
+                    // weakest moisture any spring can have at any height.
+                    assert!(
+                        moisture(SEED, q, r) > SPRING_MOISTURE - SPRING_ALTITUDE_CAP,
+                        "a dry spring"
+                    );
                     assert!(
                         continental_mq(SEED, q, r) > SEA_LEVEL_QUANTA,
                         "a spring below sea level"
@@ -2286,20 +1971,7 @@ mod tests {
             "two seeds produced nearly the same world"
         );
 
-        // The survey is the falsification instrument for those worlds, so it has to run and it has
-        // to report the invariants as clean. A single province keeps this quick.
-        let result = survey(SEED, 1);
-        assert_eq!(result.provinces, 1);
-        assert_eq!(result.cells, (PROVINCE_CELL * PROVINCE_CELL) as u64);
-        assert_eq!(result.cycles, 0);
-        assert_eq!(result.uphill_edges, 0);
-        assert_eq!(result.walk_budget_exhausted, 0);
-        assert!(result.invariants_hold());
-        assert!(result.max_quanta > result.min_quanta);
-        assert!(!format_report(&result).is_empty());
-        assert!(format_json(&result).contains("\"uphill_edges\":0"));
-
-        // And the relief in those worlds has to be worth the rescale: a world that is flat at
+        // The relief in those worlds has to be worth the rescale: a world that is flat at
         // 25 m² per cell has not earned the compatibility break. The wide measurement is taken on
         // the bare height field rather than on a survey, because the claim is about the continental
         // wavelength — 33 km — and no sample small enough to solve inside a test can span one.
@@ -2319,16 +1991,6 @@ mod tests {
         assert!(
             range > 1_200,
             "only {range} quanta of relief across 68 km of the height field"
-        );
-
-        // And the relief has to be there locally too, or the world is a single smooth ramp with
-        // nothing to walk around. Three provinces is 2.1 km, six per cent of a wavelength; asking
-        // that for hundreds of metres of relief would only be asking for a noisier generator.
-        let wider = survey(SEED, 3);
-        let local = wider.max_quanta - wider.min_quanta;
-        assert!(
-            local > 100,
-            "only {local} quanta of relief across three provinces"
         );
     }
 }

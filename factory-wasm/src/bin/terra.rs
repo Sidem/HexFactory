@@ -11,7 +11,7 @@
 use std::fs;
 use std::process::ExitCode;
 
-use factory_wasm::terra;
+use factory_wasm::{terra, terra_survey};
 
 /// The default sample: nine provinces, about 2.1 km on a side, which is wide enough to contain a
 /// whole small catchment and every kind of seam.
@@ -83,8 +83,8 @@ fn main() -> ExitCode {
     let mut surveys = Vec::new();
     let mut clean = true;
     for span in spans {
-        let result = terra::survey_at(seed, span, centre);
-        print!("{}", terra::format_report(&result));
+        let result = terra_survey::survey_at(seed, span, centre);
+        print!("{}", terra_survey::format_report(&result));
         println!();
         // The invariants are the point of the prototype, so failing them fails the run rather than
         // printing a report that reads fine and is wrong.
@@ -101,7 +101,7 @@ fn main() -> ExitCode {
     if let Some(path) = json_path {
         let body = surveys
             .iter()
-            .map(terra::format_json)
+            .map(terra_survey::format_json)
             .collect::<Vec<_>>()
             .join(",\n");
         if let Err(error) = fs::write(&path, format!("[\n{body}\n]\n")) {

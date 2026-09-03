@@ -135,7 +135,13 @@ const SAVE_VERSION: u16 = 42;
 /// you bridge or ford rather than a stripe of blue laid on a plain. Both are the bed itself, so a
 /// version-11 envelope names a landscape this build cannot reproduce and is rejected rather than
 /// reinterpreted — export the file to keep a copy.
-const WORLD_GENERATOR_VERSION: u16 = 13;
+///
+/// Bumped to 14 for Water Runs Downhill. A channel now carries a hydraulic grade line — the water
+/// surface it stands at — and the bed is cut to that elevation instead of to a constant depth
+/// under whatever noise the cell happened to have. Routing is a priority flood over the node
+/// lattice rather than a minimum spanning tree, so a reach descends by construction. Every bed and
+/// every water surface moved; a version-13 envelope is a different landscape.
+const WORLD_GENERATOR_VERSION: u16 = 14;
 const MAX_COMMANDS_PER_BATCH: usize = 8;
 /// A drag is one bounded command, so the run it expands into has to be bounded too. This is the
 /// native cap on cells a single `place_line` or `erase_line` may touch.

@@ -51,7 +51,9 @@ fn capacity_workload_is_deterministic_and_actually_produces() {
     // the stamp, not the state.
     // 1_013_018_297 → 1_628_779_640 when noise-shaped site rims moved the stamp to 13. The
     // measurement scenario has generation disabled, so again only the version input changed.
-    assert_eq!(first.checksum(), 1_628_779_640);
+    // 1_628_779_640 → 1_229_625_283 when the graded river profile moved the stamp to 14. Same
+    // reason: this scenario generates no terrain, so only the version input changed.
+    assert_eq!(first.checksum(), 1_229_625_283);
     assert_eq!(first.entities.len(), spec.entities() as usize);
     // Every line must be running end to end, or the tiers would measure an idle blueprint.
     // Four per line rather than fourteen: the line is now extraction-bound, because a
