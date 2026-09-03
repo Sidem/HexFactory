@@ -8,6 +8,8 @@ fn placement_and_drag_build_exactly_what_the_rules_allow_and_undo_takes_it_back(
     core.player.inventory.insert(24, 100);
     assert!(core.place(2, 0, 2, 0, None).unwrap_err().contains("locked"));
     core.researched.extend([1, 2, 3, 4]);
+    let chunks_before_refusal = core.generated_chunks.clone();
+    let checksum_before_refusal = core.checksum();
     assert!(core
         .place(2, 1, 2, 0, None)
         .unwrap_err()
@@ -16,6 +18,8 @@ fn placement_and_drag_build_exactly_what_the_rules_allow_and_undo_takes_it_back(
         .place(20, 20, 2, 0, None)
         .unwrap_err()
         .contains("range"));
+    assert_eq!(core.generated_chunks, chunks_before_refusal);
+    assert_eq!(core.checksum(), checksum_before_refusal);
     core.player.inventory.clear();
     assert!(core
         .place(2, 0, 2, 0, None)

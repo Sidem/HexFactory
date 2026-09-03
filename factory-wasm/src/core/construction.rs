@@ -257,10 +257,20 @@ impl Core {
         orientation: u8,
         recipe_id: Option<RecipeId>,
     ) -> Result<(), String> {
-        let old_links = self.graph_links_by_id();
+        // Refuse the command before surveying its target. A click outside build range used to open
+        // a detached patch of world before this check ran, so rejected placements looked like
+        // random lit islands in the fog. The legality query is pure and reads the same uncached
+        // generated ground that surveying would publish.
+        self.placement_legality(q, r, definition_id, orientation, recipe_id, true)?;
+        let surveyed = self.generated_chunks.len();
         let (x, y) = axial_world(q, r);
         self.ensure_neighborhood(x, y);
-        self.placement_legality(q, r, definition_id, orientation, recipe_id, true)?;
+        // Survey can resume water waiting at the old frontier. If this successful command opened
+        // new ground, validate once more against that now-current state before spending anything.
+        if self.generated_chunks.len() != surveyed {
+            self.placement_legality(q, r, definition_id, orientation, recipe_id, true)?;
+        }
+        let old_links = self.graph_links_by_id();
         let definition = self.building_definition(definition_id).unwrap().clone();
         if !self.creative {
             for ingredient in definition.cost_at(orientation) {
