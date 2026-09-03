@@ -30,10 +30,10 @@ Read the named file and a bounded range around the anchor; do not read oversized
 - `src/rendering/terrainLook.ts` — 437 lines / 13.1 KiB — TERRAIN_TILE_VERSION:10, BAND_RANK:19, HexLook:29, hexHash:43, …
 - `src/rendering/three/ContactSheetRenderer.ts` — 315 lines / 9.6 KiB — ContactSheetRenderer:41, contactPartColour:284, fakeEntity:295
 - `src/rendering/three/HexSceneCamera.ts` — 386 lines / 14.5 KiB — HexSceneCamera:91, clamp:383
-- `src/rendering/three/ThreeFactoryRenderer.ts` — 622 lines / 20.0 KiB — ThreeFactoryRenderer:54, smooth:613, percentile95:617
+- `src/rendering/three/ThreeFactoryRenderer.ts` — 625 lines / 20.3 KiB — ThreeFactoryRenderer:54, smooth:616, percentile95:620
 - `src/rendering/three/boundaryMeshes.ts` — 296 lines / 9.5 KiB — BoundaryMeshes:37
 - `src/rendering/three/directionAngle.ts` — 12 lines / 0.4 KiB — directionAngle:6
-- `src/rendering/three/distantTerrain.ts` — 92 lines / 2.8 KiB — DistantTerrain:18
+- `src/rendering/three/distantTerrain.ts` — 101 lines / 3.1 KiB — DistantTerrain:23
 - `src/rendering/three/groundMeshes.ts` — 214 lines / 6.9 KiB — GroundMeshes:56, perimeter:193, colorFor:205
 - `src/rendering/three/heightfieldTerrain.ts` — 673 lines / 22.1 KiB — HeightfieldSubstrate:35, HeightfieldSample:42, HeightfieldOptions:58, GeometryBuckets:84, …
 - `src/rendering/three/machineMeshes.ts` — 381 lines / 13.3 KiB — MACHINE_VISUAL_SCALE:38, MACHINE_BODY_GIRTH:50, MACHINE_SILHOUETTE_SCALE:57, MachinePartInstance:87, …

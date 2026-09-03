@@ -35,7 +35,7 @@ Read the named file and a bounded range around the anchor; do not read oversized
 - `tests/componentEconomy.test.ts` — 47 lines / 2.0 KiB
 - `tests/definitions.test.ts` — 638 lines / 23.5 KiB
 - `tests/directions.test.ts` — 74 lines / 2.8 KiB — angle:25
-- `tests/distantTerrain.test.ts` — 40 lines / 1.3 KiB
+- `tests/distantTerrain.test.ts` — 49 lines / 1.6 KiB
 - `tests/emblems.test.ts` — 220 lines / 9.2 KiB
 - `tests/frameClock.test.ts` — 42 lines / 1.3 KiB
 - `tests/guidance.test.ts` — 531 lines / 17.9 KiB — shippedScenario:29, boardFor:50, snapshotAt:79

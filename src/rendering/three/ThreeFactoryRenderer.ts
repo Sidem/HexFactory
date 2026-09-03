@@ -440,6 +440,9 @@ export class ThreeFactoryRenderer implements FactoryRenderer {
       this.prepUs = smooth(this.prepUs, (performance.now() - started) * 1000);
     }
     this.syncFog();
+    // The aggregated landform is a horizon cue at working zoom. In the map view its altitude can
+    // project huge coarse triangles beyond the survey frontier and make them look discovered.
+    this.distantTerrain.setZoom(this.camera.zoomLevel);
     // Water is the one landform that moves. Reduced motion holds the swell still rather than
     // slowing it, the same bargain every other phase in the scene makes.
     this.materials.terrainSurfaces.setMotion(!this.motionReduced);

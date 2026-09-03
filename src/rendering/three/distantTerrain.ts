@@ -13,6 +13,11 @@ import { HEIGHT_UNIT_HEIGHT } from "../sceneScale";
 import { TERRAIN_STYLE } from "./terrainStyle";
 
 const SKY = new Color("#142129");
+/**
+ * The coarse mesh is a close-view horizon aid, not a strategic map layer. Below the natural 1:1
+ * view its broad triangles are large enough to read as surveyed terrain beyond the frontier.
+ */
+const HORIZON_MIN_ZOOM = 1;
 
 /** Native's coarse generated landform, drawn only at the horizon and never used for picking. */
 export class DistantTerrain {
@@ -27,6 +32,10 @@ export class DistantTerrain {
 
   constructor() {
     this.group.name = "distant-terrain-lod";
+  }
+
+  setZoom(zoom: number): void {
+    this.group.visible = zoom >= HORIZON_MIN_ZOOM;
   }
 
   set(lod: LandscapeLod): void {

@@ -6,6 +6,15 @@ import { HEIGHT_UNIT_HEIGHT } from "../src/rendering/sceneScale";
 import { DistantTerrain } from "../src/rendering/three/distantTerrain";
 
 describe("distant terrain LOD", () => {
+  it("does not expose coarse landform in the zoomed-out survey view", () => {
+    const terrain = new DistantTerrain();
+    terrain.setZoom(0.99);
+    expect(terrain.group.visible).toBe(false);
+    terrain.setZoom(1);
+    expect(terrain.group.visible).toBe(true);
+    terrain.dispose();
+  });
+
   it("triangulates native coarse samples without creating a pick surface", () => {
     const lod: LandscapeLod = {
       step: 8,
