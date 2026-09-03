@@ -22,6 +22,14 @@ const MIN_ZOOM = 0.55;
 const MAX_ZOOM = 4;
 const CAMERA_DISTANCE = 38;
 const CAMERA_HEIGHT = 31;
+/** The camera moves over this sphere when its elevation changes. */
+const CAMERA_RADIUS = Math.hypot(CAMERA_DISTANCE, CAMERA_HEIGHT);
+const DEFAULT_TILT = Math.atan2(CAMERA_HEIGHT, CAMERA_DISTANCE);
+const MIN_TILT = (Math.PI * 20) / 180;
+const MAX_TILT = (Math.PI * 70) / 180;
+const TILT_STEP = (Math.PI * 5) / 180;
+const TILT_STEP_MS = 115;
+const TILT_MAX_MS = 700;
 /**
  * Orbit zero looks from the south-east toward north-west.
  *
@@ -51,10 +59,11 @@ const FAR_PLANE = 180;
  *
  * The rig looks down a fixed slope, so ground standing above the point being looked at sits nearer
  * along the view direction and ground below it sits further. Only the vertical component of that
- * slope matters, and it is the camera's height over its own distance from the target.
+ * slope matters. The depth range therefore budgets for the steepest elevation the player can
+ * choose; shallower views use less of that budget.
  */
-const TARGET_DEPTH = Math.hypot(CAMERA_DISTANCE, CAMERA_HEIGHT);
-const DEPTH_PER_HEIGHT = CAMERA_HEIGHT / TARGET_DEPTH;
+const TARGET_DEPTH = CAMERA_RADIUS;
+const MAX_DEPTH_PER_HEIGHT = Math.sin(MAX_TILT);
 /**
  * Where the distance haze begins and ends, in screenfuls of view depth beyond the target.
  *
@@ -75,7 +84,7 @@ const HAZE_END = 2;
  * linear, so widening the range costs precision in proportion and nothing else — and a negative
  * near plane is ordinary here: it is what lets a summit standing over the camera still be drawn.
  */
-const RELIEF_DEPTH = RELIEF_SPAN * DEPTH_PER_HEIGHT;
+const RELIEF_DEPTH = RELIEF_SPAN * MAX_DEPTH_PER_HEIGHT;
 /**
  * How far back along its own direction a pick ray starts.
  *
@@ -87,7 +96,7 @@ const RELIEF_DEPTH = RELIEF_SPAN * DEPTH_PER_HEIGHT;
  */
 const PICK_BACKOFF = RELIEF_DEPTH + 1;
 
-/** Fixed-tilt, twelve-orbit camera over the landform native published. */
+/** Target-following camera with twelve azimuth stops and bounded elevation over the landform. */
 export class HexSceneCamera {
   readonly camera = new OrthographicCamera(
     -1,
@@ -112,6 +121,11 @@ export class HexSceneCamera {
   private orbitStarted = 0;
   /** Zero whenever the camera is settled, so it doubles as the "is a sweep running" flag. */
   private orbitDuration = 0;
+  private tiltAngle = DEFAULT_TILT;
+  private tiltFrom = DEFAULT_TILT;
+  private tiltTarget = DEFAULT_TILT;
+  private tiltStarted = 0;
+  private tiltDuration = 0;
   private following = true;
 
   constructor() {
@@ -124,6 +138,14 @@ export class HexSceneCamera {
 
   get isOrbiting(): boolean {
     return this.orbitDuration > 0;
+  }
+
+  get isTilting(): boolean {
+    return this.tiltDuration > 0;
+  }
+
+  get tilt(): number {
+    return this.tiltTarget;
   }
 
   get zoomLevel(): number {
@@ -212,6 +234,47 @@ export class HexSceneCamera {
       this.orbitFrom + (this.orbitTarget - this.orbitFrom) * eased;
     this.updatePose();
     return true;
+  }
+
+  /** Move one five-degree step up or down the sphere around the current target. */
+  tiltBy(step: -1 | 1, animate = true): void {
+    const target = clamp(
+      this.tiltTarget + step * TILT_STEP,
+      MIN_TILT,
+      MAX_TILT,
+    );
+    if (target === this.tiltTarget) return;
+    if (!animate) {
+      this.settleTilt(target);
+      return;
+    }
+    // Like an azimuth sweep, repeated presses extend the motion from wherever this frame is.
+    this.tiltFrom = this.tiltAngle;
+    this.tiltTarget = target;
+    this.tiltStarted = performance.now();
+    this.tiltDuration = Math.min(
+      TILT_MAX_MS,
+      (TILT_STEP_MS * Math.abs(target - this.tiltFrom)) / TILT_STEP,
+    );
+  }
+
+  advanceTilt(now: number): boolean {
+    if (this.tiltDuration === 0) return false;
+    const progress = (now - this.tiltStarted) / this.tiltDuration;
+    if (progress >= 1) {
+      this.settleTilt(this.tiltTarget);
+      return true;
+    }
+    const eased = 0.5 - Math.cos(Math.PI * Math.max(0, progress)) / 2;
+    this.tiltAngle = this.tiltFrom + (this.tiltTarget - this.tiltFrom) * eased;
+    this.updatePose();
+    return true;
+  }
+
+  advance(now: number): boolean {
+    const orbited = this.advanceOrbit(now);
+    const tilted = this.advanceTilt(now);
+    return orbited || tilted;
   }
 
   panBy(screenX: number, screenY: number): void {
@@ -358,6 +421,14 @@ export class HexSceneCamera {
     this.poseAt(wrapped);
   }
 
+  private settleTilt(target: number): void {
+    this.tiltDuration = 0;
+    this.tiltFrom = target;
+    this.tiltTarget = target;
+    this.tiltAngle = target;
+    this.updatePose();
+  }
+
   private poseAt(angle: number): void {
     this.orbitAngle = angle;
     this.updatePose();
@@ -367,12 +438,13 @@ export class HexSceneCamera {
     // The orbit is presentation only: the native six/twelve heading indices are unchanged by it,
     // and a half-step between two hex headings moves nothing but where the scene is looked at from.
     const angle = this.orbitAngle;
+    const horizontalDistance = Math.cos(this.tiltAngle) * CAMERA_RADIUS;
     this.camera.position.set(
-      this.target.x + Math.cos(angle) * CAMERA_DISTANCE,
-      // Over the target rather than over sea level, so the tilt the whole scene is composed at is
-      // the same on a summit as on a valley floor.
-      this.target.y + CAMERA_HEIGHT,
-      this.target.z + Math.sin(angle) * CAMERA_DISTANCE,
+      this.target.x + Math.cos(angle) * horizontalDistance,
+      // Over the target rather than over sea level, so the chosen tilt is the same on a summit as
+      // on a valley floor. Horizontal reach and height share one radius: this is a dome, not a lift.
+      this.target.y + Math.sin(this.tiltAngle) * CAMERA_RADIUS,
+      this.target.z + Math.sin(angle) * horizontalDistance,
     );
     this.camera.up.set(0, 1, 0);
     this.camera.lookAt(this.target);

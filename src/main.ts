@@ -4557,6 +4557,11 @@ function orbitView(step: -1 | 1): void {
   if (pressedMovement.size) enqueue(currentMovementIntent(runningHeld));
 }
 
+function tiltView(step: -1 | 1): void {
+  renderer.tiltBy(step);
+  syncHoverWithCamera();
+}
+
 /**
  * Demolish one building, asking first when it is holding something.
  *
@@ -4843,8 +4848,10 @@ window.addEventListener("keydown", (event) => {
   // Space centres the camera, which is what the button beside it does and what a player who has
   // panned away needs most.
   else if (event.code === "Space") renderer.recenter();
-  else if (event.code === "Comma") orbitView(-1);
-  else if (event.code === "Period") orbitView(1);
+  else if (event.code === "ArrowLeft") orbitView(-1);
+  else if (event.code === "ArrowRight") orbitView(1);
+  else if (event.code === "ArrowUp") tiltView(1);
+  else if (event.code === "ArrowDown") tiltView(-1);
   else if (event.code === "KeyM") preferences.toggleMuted();
   else if (event.code in PANEL_KEYS)
     togglePanel(PANEL_KEYS[event.code] as string);

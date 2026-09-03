@@ -146,7 +146,8 @@ because the factory and the player run on separate clocks. TypeScript does not u
 coordinates, quantities, insight, research, machines, cargo or victory.
 
 `FactoryRenderer` is the replaceable world boundary; Three.js supplies its production implementation —
-an orthographic camera at fixed tilt, twelve 30-degree orbits, bounded zoom, native-snapshot-driven
+an orthographic camera on a bounded elevation dome, twelve 30-degree orbits, bounded zoom,
+native-snapshot-driven
 instance buckets and scene overlays, split by responsibility across `HexSceneCamera`, `terrainMeshes`,
 `machineMeshes`, `worldInstances`, `overlays`, shared materials and quality profiles. Lost WebGL
 contexts pause drawing and a restored context rebuilds GPU state from retained presentation state.
@@ -165,6 +166,8 @@ An orbit is an integer in `[0, 11]` and moves the instant the key is pressed; on
 eases across the 30 degrees, at the rate the old 60-degree step turned at. The sweep raises its own
 dirty frames, a step pressed mid-sweep extends the turn rather than restarting it, and reduced motion
 arrives at the same view with no sweep. Directional input reads the heading the sweep is landing on.
+Elevation similarly moves in five-degree steps over a fixed-radius sphere around the followed target,
+bounded away from both the horizon and straight overhead so projection and picking remain stable.
 
 The minimap is a 178 px instanced WebGL2 view rebuilt only when surveyed presentation state changes.
 The command bar, guidance, panels, dock, touch pad, camera following, pan/zoom, feedback and

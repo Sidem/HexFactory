@@ -43,7 +43,7 @@ Read the named file and a bounded range around the anchor; do not read oversized
 - `src/data/scenarios.json` — 168 lines / 4.8 KiB
 - `src/data/technologies.json` — 470 lines / 14.5 KiB
 - `src/input/focus.ts` — 35 lines / 1.1 KiB — isTypingTarget:2, isKeyboardFocusedControl:13, isPointerActivatedControl:23
-- `src/main.ts` — 5879 lines / 215.8 KiB — currentBuild:145, dragOwnsPointer:456, loadHotbar:602, sanitiseSlot:630, …
+- `src/main.ts` — 5886 lines / 216.0 KiB — currentBuild:145, dragOwnsPointer:456, loadHotbar:602, sanitiseSlot:630, …
 - `src/ui/boundaries.ts` — 673 lines / 24.3 KiB — nearestBoundaryDirection:103, edgeAnchors:113, BoundaryTool:131
 - `src/ui/confirm.ts` — 131 lines / 4.8 KiB — ConfirmRow:12, ConfirmRequest:19, ConfirmDialog:31
 - `src/ui/dom.ts` — 50 lines / 1.5 KiB — required:3, part:9, syncChildren:21

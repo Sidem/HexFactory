@@ -414,6 +414,9 @@ export class CanvasFactoryRenderer implements FactoryRenderer {
   /** Development fallback only: the legacy flat renderer has no orbit. */
   orbitBy(): void {}
 
+  /** Development fallback only: the legacy flat renderer has no tilt. */
+  tiltBy(): void {}
+
   setGraphicsProfile(profile: GraphicsProfile): void {
     this.profile = profile;
   }

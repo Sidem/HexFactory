@@ -8,6 +8,11 @@ function heading(camera: HexSceneCamera): number {
   return Math.atan2(camera.camera.position.z, camera.camera.position.x);
 }
 
+function elevation(camera: HexSceneCamera): number {
+  const { x, y, z } = camera.camera.position;
+  return Math.atan2(y, Math.hypot(x, z));
+}
+
 function turnedBy(camera: HexSceneCamera, from: number): number {
   const delta = heading(camera) - from;
   return delta - Math.round(delta / (Math.PI * 2)) * Math.PI * 2;
@@ -45,6 +50,40 @@ describe("Visual Depth camera", () => {
     expect(camera.zoomLevel).toBeCloseTo(4, 6);
     camera.zoomAt(720, 450, 0.0001);
     expect(camera.zoomLevel).toBeCloseTo(0.55, 6);
+  });
+
+  it("tilts over a fixed-radius dome, stays pointed at its target, and clamps safely", () => {
+    const camera = new HexSceneCamera();
+    camera.resize(1440, 900);
+    const start = elevation(camera);
+    const radius = camera.camera.position.length();
+
+    camera.tiltBy(1, false);
+    expect(elevation(camera) - start).toBeCloseTo((Math.PI * 5) / 180, 6);
+    expect(camera.camera.position.length()).toBeCloseTo(radius, 8);
+
+    for (let step = 0; step < 20; step += 1) camera.tiltBy(1, false);
+    expect(elevation(camera)).toBeCloseTo((Math.PI * 70) / 180, 6);
+    for (let step = 0; step < 20; step += 1) camera.tiltBy(-1, false);
+    expect(elevation(camera)).toBeCloseTo((Math.PI * 20) / 180, 6);
+
+    const target = camera.projectWorld({ x: 0, y: 0 });
+    expect(target.x).toBeCloseTo(720, 8);
+    expect(target.y).toBeCloseTo(450, 8);
+  });
+
+  it("eases a tilt step and snaps it under reduced motion", () => {
+    const camera = new HexSceneCamera();
+    const start = elevation(camera);
+    camera.tiltBy(1);
+    expect(camera.isTilting).toBe(true);
+    expect(camera.advance(performance.now() + 10_000)).toBe(true);
+    expect(camera.isTilting).toBe(false);
+    expect(elevation(camera) - start).toBeCloseTo((Math.PI * 5) / 180, 6);
+
+    camera.tiltBy(-1, false);
+    expect(camera.isTilting).toBe(false);
+    expect(elevation(camera)).toBeCloseTo(start, 6);
   });
 
   it("closes the full circle in twelve thirty-degree stops, and the index wraps both ways", () => {

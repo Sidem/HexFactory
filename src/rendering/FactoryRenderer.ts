@@ -105,6 +105,7 @@ export interface FactoryRenderer {
   panBy(x: number, y: number): void;
   zoomAt(clientX: number, clientY: number, factor: number): void;
   orbitBy(step: -1 | 1): void;
+  tiltBy(step: -1 | 1): void;
   recenter(): void;
   renderFrame(now: number): void;
   draw(): void;

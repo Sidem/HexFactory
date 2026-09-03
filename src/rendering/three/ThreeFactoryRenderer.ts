@@ -359,8 +359,13 @@ export class ThreeFactoryRenderer implements FactoryRenderer {
     this.markDirty();
   }
 
+  tiltBy(step: -1 | 1): void {
+    this.camera.tiltBy(step, !this.motionReduced);
+    this.markDirty();
+  }
+
   get cameraSettling(): boolean {
-    return this.camera.isOrbiting;
+    return this.camera.isOrbiting || this.camera.isTilting;
   }
 
   recenter(): void {
@@ -399,8 +404,8 @@ export class ThreeFactoryRenderer implements FactoryRenderer {
 
   renderFrame(now: number): void {
     this.now = now;
-    // The orbit sweep owns its own frames: under reduced motion nothing else redraws them.
-    if (this.camera.advanceOrbit(now)) this.needsDraw = true;
+    // Camera sweeps own their own frames: under reduced motion nothing else redraws them.
+    if (this.camera.advance(now)) this.needsDraw = true;
     if (this.needsDraw || !this.motionReduced) this.draw();
     this.needsDraw = false;
   }
