@@ -748,10 +748,7 @@ fn ground_works_conserve_spoil_gate_routes_and_survive_a_save() {
     // player — the same two multiplications in the same order `player_step` does them in, because
     // the claim is that the step matches the price and not that either number is a particular one.
     let paved = PLAYER_SPEED * 130 / 100;
-    assert_eq!(
-        core.player.x - start,
-        paved * (100 + core.move_speed_bonus() as i32) / 100
-    );
+    assert_eq!(core.player.x - start, core.apply_move_speed(paved));
 
     // A wall taller than anyone can climb is a wall to the route and to the body.
     set_player_hex(&mut core, 0, 0);

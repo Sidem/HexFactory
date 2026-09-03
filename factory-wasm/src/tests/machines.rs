@@ -317,6 +317,16 @@ fn a_cancelled_craft_returns_its_reserved_inputs_and_leaves_fuel_and_output_alon
 #[test]
 fn skills_are_finite_atomic_and_isolated_from_research() {
     let mut core = game("new-game");
+    core.advance(r#"[{"type":"set_creative","enabled":true}]"#, 0, 0)
+        .unwrap();
+    assert!(
+        !core.creative,
+        "a running standard game cannot become creative"
+    );
+    assert!(core
+        .events
+        .iter()
+        .any(|event| event.contains("starting a new game")));
     let start = core.checksum();
     assert!(core.purchase_skill(1).is_err());
     assert!(core.purchase_skill(999).is_err());

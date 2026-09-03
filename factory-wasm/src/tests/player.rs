@@ -48,12 +48,12 @@ fn movement_intent_aim_and_cadence_are_native() {
     assert_eq!(core.player.x, start.0 + ford);
 
     core.player.x = start.0;
-    core.set_move_intent(600, 0).unwrap();
+    core.set_move_intent(800, 0).unwrap();
     core.advance_player_steps(1);
     assert_eq!(
         core.player.x,
         start.0 + ford,
-        "wading is 5 m/s at any gait, not 3/5 of it"
+        "wading is 5 m/s at either gait before skill multipliers"
     );
 
     // Still not a building site: the player can stand in it, a pump cannot.
@@ -159,16 +159,16 @@ fn movement_intent_aim_and_cadence_are_native() {
     assert_eq!(slow.player.y, fast.player.y);
     assert_eq!(Factory::player_ticks_per_second(), PLAYER_TICKS_PER_SECOND);
 
-    // A hexagon is 25 m², the walk is 15 m/s, the run is 25 m/s. Native stores one step size — the
-    // run, at intent 1000 — and the host sends 600 for the walk, which is exactly 3/5 of full
+    // A hexagon is 25 m², the walk is 20 m/s, the run is 25 m/s. Native stores one step size — the
+    // run, at intent 1000 — and the host sends 800 for the walk, which is exactly 4/5 of full
     // intent. Neighbour spacing is still `HEX_X` world units, now read as 5.373 m.
     //
     // The gait ratio is the structural half and holds at any speed; the pinned constant is the
     // half that carries the decision. `PLAYER_SPEED` stayed at 275 across the rescale, so a hex
     // still takes about 0.36 s to cross at a walk and the metre figures moved instead.
-    const WALK_INTENT: i32 = 600;
+    const WALK_INTENT: i32 = 800;
     let walk = WALK_INTENT * PLAYER_SPEED / 1000;
-    assert_eq!(walk * 5, PLAYER_SPEED * 3);
+    assert_eq!(walk * 5, PLAYER_SPEED * 4);
     assert_eq!(PLAYER_SPEED, 275);
 
     // Metres a second, out of world units a step: 30 steps a second over `HEX_X` units of
@@ -181,7 +181,30 @@ fn movement_intent_aim_and_cadence_are_native() {
     let walk_mm_s =
         walk as i64 * PLAYER_TICKS_PER_SECOND as i64 * crate::scale::CELL_SPACING_MM as i64
             / HEX_X as i64;
-    assert_eq!((walk_mm_s + 500) / 1_000, 15);
+    assert_eq!((walk_mm_s + 500) / 1_000, 20);
+
+    // Pace is one three-level skill: each level multiplies both gaits by 1.25 rather than adding
+    // 25 percentage points. The exponent is applied before the gait intent, without intermediate
+    // rounding, so level three is exactly base × 1.25³ in the simulation's integer units.
+    let mut paced = game("new-game");
+    set_player_hex(&mut paced, 0, 3);
+    paced.skills.points = 6;
+    for (level, skill_id) in [(1, 9), (2, 10), (3, 11)] {
+        paced.purchase_skill(skill_id).unwrap();
+        assert_eq!(paced.move_speed_level(), level);
+        let numerator = 125_i64.pow(level);
+        let denominator = 100_i64.pow(level);
+        paced.set_move_intent(1000, 0).unwrap();
+        assert_eq!(
+            paced.player_step().0,
+            (i64::from(PLAYER_SPEED) * numerator / denominator) as i32
+        );
+        paced.set_move_intent(800, 0).unwrap();
+        assert_eq!(
+            paced.player_step().0,
+            (i64::from(PLAYER_SPEED * 800 / 1000) * numerator / denominator) as i32
+        );
+    }
 }
 
 #[test]

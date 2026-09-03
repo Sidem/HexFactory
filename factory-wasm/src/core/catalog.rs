@@ -239,7 +239,7 @@ impl Core {
         (carried, spilled)
     }
 
-    /// Turn creative mode on or off.
+    /// Set creative mode while constructing or resetting a run.
     ///
     /// Switching it on researches the whole tree. That is the entire implementation of "everything
     /// is unlocked": every gate in this file — `technology_met`, `category_unlocked`,
@@ -247,9 +247,7 @@ impl Core {
     /// `researched`, so teaching the settlement everything unlocks all of it through the paths the
     /// ordinary game uses rather than through a second set of creative-only exceptions.
     ///
-    /// What is learned stays learned when creative is switched back off, the way a Minecraft world
-    /// keeps what was built in creative. Prices and refunds do come back, so a run can be laid out
-    /// in creative and then played for real.
+    /// Running-game commands cannot call this path: game mode is fixed after world creation.
     pub(crate) fn set_creative(&mut self, enabled: bool) {
         if self.creative == enabled {
             return;

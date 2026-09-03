@@ -477,39 +477,39 @@
       "id": 9,
       "key": "travellers-pace",
       "name": "Traveller's Pace",
-      "description": "Move a tenth faster everywhere — walking, running, fording and swimming alike.",
+      "description": "Move 25% faster everywhere — walking, running, fording and swimming alike.",
       "branch": "mobility",
       "prerequisites": [],
       "cost": 1,
       "effect": {
         "kind": "move_speed",
-        "amount": 10
+        "amount": 1
       }
     },
     {
       "id": 10,
       "key": "travellers-pace-ii",
       "name": "Traveller's Pace II",
-      "description": "Another tenth on every surface. Distance stops deciding where the next outpost goes.",
+      "description": "Multiply every pace by 1.25 again. Distance stops deciding where the next outpost goes.",
       "branch": "mobility",
       "prerequisites": [9],
       "cost": 2,
       "effect": {
         "kind": "move_speed",
-        "amount": 10
+        "amount": 1
       }
     },
     {
       "id": 11,
       "key": "travellers-pace-iii",
       "name": "Traveller's Pace III",
-      "description": "A third tenth, for thirty per cent over the pace you landed with.",
+      "description": "A third 1.25× increase, for 1.953× the pace you landed with.",
       "branch": "mobility",
       "prerequisites": [10],
       "cost": 3,
       "effect": {
         "kind": "move_speed",
-        "amount": 10
+        "amount": 1
       }
     }
   ],

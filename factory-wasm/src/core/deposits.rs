@@ -389,18 +389,26 @@ impl Core {
             .min(BASE_SURVEY_RINGS + MAX_SURVEY_RING_BONUS)
     }
 
-    /// Percent added to travel speed by the mobility ladder, over the base pace.
+    /// Levels owned in the mobility ladder. Each level multiplies pace by 5/4.
     ///
     /// Derived rather than stored, for [`Core::survey_rings`]'s reason: the skills that raise it
     /// are already saved and validated, so a saved copy could only ever disagree with them. It is
     /// also not written back into [`PlayerState`] by [`Core::apply_research_effects`] — unlike the
     /// pack, which creative mode may have widened past what was earned, there is no editor for
     /// pace and so nothing a floor would have to protect.
-    pub(crate) fn move_speed_bonus(&self) -> u32 {
+    pub(crate) fn move_speed_level(&self) -> u32 {
         self.skills
             .bonuses(&self.technologies)
-            .move_speed
-            .min(MAX_MOVE_SPEED_BONUS)
+            .move_speed_levels
+            .min(MAX_MOVE_SPEED_LEVEL)
+    }
+
+    /// Apply the mobility ladder to one surface pace without compounding integer rounding.
+    pub(crate) fn apply_move_speed(&self, speed: i32) -> i32 {
+        let level = self.move_speed_level();
+        let numerator = 125_i64.pow(level);
+        let denominator = 100_i64.pow(level);
+        (i64::from(speed) * numerator / denominator) as i32
     }
 
     /// Apply earned skills through the same native player fields placement and carrying use.

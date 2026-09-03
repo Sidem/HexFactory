@@ -219,7 +219,7 @@ export class PlayerRig {
  *
  * 1.4 puts 0.225 radians between poses — some twenty-eight a cycle — and the walk at 0.92 to 1.07
  * cycles a second, which is about a person's walking cadence. The run (25 m/s against the walk's
- * 15) comes out 1.67 times that, because it is distance that winds the phase and the cadence
+ * 20) comes out 1.25 times that, because it is distance that winds the phase and the cadence
  * therefore still rises with speed.
  */
 const STRIDE_RADIANS_PER_HEX = 1.4;

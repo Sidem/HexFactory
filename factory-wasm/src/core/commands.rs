@@ -145,9 +145,14 @@ impl Core {
                 InputCommand::Research { technology_id } => self.research(technology_id),
                 InputCommand::SkipRequest { slot } => self.skip_request(slot),
                 InputCommand::PostRequest { request_id } => self.post_request(request_id),
+                // Kept in the wire vocabulary for old command recordings, but game mode is chosen
+                // only while creating a world and is immutable once that world is running.
                 InputCommand::SetCreative { enabled } => {
-                    self.set_creative(enabled);
-                    Ok(())
+                    if enabled == self.creative {
+                        Ok(())
+                    } else {
+                        Err("Creative mode is chosen when starting a new game".into())
+                    }
                 }
                 InputCommand::Grant { item_id, quantity } => self.grant(item_id, quantity),
                 InputCommand::Discard { item_id, quantity } => self.discard(item_id, quantity),

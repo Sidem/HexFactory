@@ -174,14 +174,14 @@ const BASE_SURVEY_RINGS: u32 = 1;
 /// this is a cost ceiling on world generation, not a taste: at the shipped chunk size, two rings is
 /// 1,216 hexes against one ring's 448, and three would be 2,432.
 const MAX_SURVEY_RING_BONUS: u32 = 2;
-/// The most a skill catalogue may add to travel speed, as a percentage of [`PLAYER_SPEED`].
+/// The most levels a skill catalogue may add to travel speed.
 ///
-/// A step is a jump, not a sweep: nothing is tested between where the player was and where they
-/// land. [`WALK_ARRIVE_RADIUS`] is what keeps a waypoint from being cleared, and a step that grew
-/// past it would let an autonomous walk skip its own waypoint and circle back for it forever. At
-/// this ceiling a full-intent step is 412 world units against that radius's 768, so the margin the
-/// arrival test was written with survives the whole ladder.
-const MAX_MOVE_SPEED_BONUS: u32 = 50;
+/// Each level is a 5/4 multiplier. A step is a jump, not a sweep: nothing is tested between where
+/// the player was and where they land. [`WALK_ARRIVE_RADIUS`] is what keeps a waypoint from being
+/// cleared, and a step that grew past it would let an autonomous walk skip its own waypoint and
+/// circle back for it forever. At level three a full-intent step is 537 world units against that
+/// radius's 768, so the margin the arrival test was written with survives the whole ladder.
+const MAX_MOVE_SPEED_LEVEL: u32 = 3;
 const GRAPH_TRACE_LIMIT: i32 = 8;
 /// The most outgoing transport links one entity may compile: its facing, and — for a splitter —
 /// the two flanks 60° either side of it.
@@ -271,7 +271,7 @@ const MAX_CLEARANCE_CELLS: usize = MAX_FOOTPRINT_CELLS;
 /// Hexes around the hub forced to lowland so the landing is always a buildable clearing.
 const LANDING_CLEAR_RADIUS: i32 = 7;
 /// World units the player covers per player step at full intent (1000). That is the **run**:
-/// 25 m/s over a 5.373 m hex. The host sends 600 for the ordinary walk (15 m/s) and 1000 while
+/// 25 m/s over a 5.373 m hex. The host sends 800 for the ordinary walk (20 m/s) and 1000 while
 /// Shift is held. Paced by `PLAYER_TICKS_PER_SECOND`, not by the simulation tick, so both gaits
 /// keep one speed at every simulation speed. Shallow water ignores the gait and is 5 m/s —
 /// `PLAYER_SPEED / 5`.
@@ -280,7 +280,7 @@ const LANDING_CLEAR_RADIUS: i32 = 7;
 /// the speed in metres would have made every journey in the game five times longer in the hand —
 /// a biome crossing measured in quarter-hours, a river detour that costs a minute. Distance is
 /// what the rescale was for; travel time is not. So the player covers hexes at the rate they
-/// always did, and the honest reading of that is a vehicle, not a walk: this is 15 m/s on foot
+/// always did, and the honest reading of that is a vehicle, not a walk: this is 20 m/s on foot
 /// and 25 m/s at a run. Belts were given real transit instead of a relabelling because a belt is
 /// a machine the factory's throughput is measured against; the player is not, and nothing in the
 /// simulation reads a speed in metres per second.
@@ -375,12 +375,11 @@ const MAX_BUILD_STEP: i32 = MAX_WALK_STEP;
 const MAX_GROUND_CELLS: u64 = 64;
 /// The gait an autonomous walk travels at, as a movement intent.
 ///
-/// Full intent — the run — rather than the 0.6 the unmodified movement keys ask for. A player
-/// clicks a distant hex precisely because they do not want to hold a key across it, and there is no
-/// modifier to hold on a click that has already happened. Being native's own number rather than one
+/// The unmodified walking intent. A player clicks a distant hex without holding Shift, so the
+/// standing order uses the same 1x pace as the movement keys. Being native's own number rather than one
 /// the host sends also means the host has no say in how fast a checksummed walk crosses the world:
 /// the click names *where*, and the simulation decides *how*.
-const AUTO_WALK_INTENT: i16 = 1000;
+const AUTO_WALK_INTENT: i16 = 800;
 /// Player-clock steps a walk may make no ground before it is abandoned. One second: long enough to
 /// ride out a step spent sliding along a wall, short enough that a player boxed in by a building
 /// placed across the route gets their controls back rather than jogging into it forever.
@@ -390,7 +389,7 @@ const WALK_STALL_STEPS: u32 = 30;
 /// The hex's inradius, which is the largest circle wholly inside it. Being inside it means
 /// `world_to_axial` of that position is that hex, which is what lets arrival be told apart from a
 /// route that ran out for any other reason. It also has to be comfortably larger than one step — at
-/// most `PLAYER_SPEED` raised by [`MAX_MOVE_SPEED_BONUS`], 412 — or a waypoint could be jumped clean
+/// most `PLAYER_SPEED` raised by [`MAX_MOVE_SPEED_LEVEL`], 537 — or a waypoint could be jumped clean
 /// over and the walk would circle it.
 const WALK_ARRIVE_RADIUS: i32 = HEX_Y / 2;
 /// Fastest hand gather, in player-clock steps: wood. Counted on the player's own cadence like the

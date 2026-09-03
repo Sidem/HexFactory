@@ -75,7 +75,7 @@ pub const SPOIL_UNIT_LITRES: i64 = 6_250_000;
 /// 25. Distance is what a 25 m² hex buys; making every journey five times longer in the hand is
 /// not, and a biome measured in quarter-hours is the cost this refuses to pay. These are the
 /// derived numbers — the constant is `PLAYER_SPEED` in `lib.rs`, and its doc carries the decision.
-pub const WALK_SPEED_MM_S: i32 = 15_000;
+pub const WALK_SPEED_MM_S: i32 = 20_000;
 /// Running counterpart to [`WALK_SPEED_MM_S`].
 pub const RUN_SPEED_MM_S: i32 = 25_000;
 
@@ -302,21 +302,19 @@ mod tests {
         assert!((belt_lane_slots() - 1) * belt_slot_ticks() < belt_transit_ticks());
     }
 
-    /// A step still takes about 0.36 s walking, exactly as it did at the old scale: the player's
-    /// world-units per step did not move, so the cell got five times wider and the speed in metres
-    /// went with it. The belt above is the opposite case — its speed is the fixed thing and its
-    /// cadence was re-derived.
+    /// Walking is the 1× pace and running is exactly 1.25×. The belt above is the opposite case —
+    /// its speed is the fixed thing and its cadence was re-derived.
     ///
     /// The conversions those durations are computed through are inverses within half a cell, in
     /// both directions and across zero; and the two slope thresholds the ground rules read are no
     /// longer one number, with build the stricter of them.
     #[test]
     fn movement_reads_the_lattice_through_round_tripping_conversions() {
-        assert_eq!(walk_step_ms(), 358);
+        assert_eq!(walk_step_ms(), 269);
         assert_eq!(run_step_ms(), 215);
         assert!(
-            run_step_ms() * 5 == walk_step_ms() * 3
-                || (run_step_ms() * 5 - walk_step_ms() * 3).abs() <= 4
+            run_step_ms() * 5 == walk_step_ms() * 4
+                || (run_step_ms() * 5 - walk_step_ms() * 4).abs() <= 4
         );
 
         for cells in -1_000..=1_000 {

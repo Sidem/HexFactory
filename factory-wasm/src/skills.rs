@@ -32,7 +32,7 @@ pub(super) enum SkillEffect {
     Swimming {
         amount: u32,
     },
-    /// Percent added to travel speed, on every surface at once.
+    /// One level of travel speed, multiplying every surface pace by 5/4.
     ///
     /// One number rather than one per surface, because the route search prices a walk in *time*
     /// from the same percentages [`Core::player_step`] moves at. Speeding land alone would make
@@ -51,7 +51,7 @@ pub(super) struct SkillBonuses {
     pub(super) carry_slots: u32,
     pub(super) build_range: u32,
     pub(super) survey_rings: u32,
-    pub(super) move_speed: u32,
+    pub(super) move_speed_levels: u32,
     pub(super) can_swim: bool,
 }
 
@@ -117,7 +117,7 @@ impl SkillsState {
                     SkillEffect::BuildRange { amount } => total.build_range += amount,
                     SkillEffect::SurveyRange { amount } => total.survey_rings += amount,
                     SkillEffect::Swimming { amount } => total.can_swim |= amount > 0,
-                    SkillEffect::MoveSpeed { amount } => total.move_speed += amount,
+                    SkillEffect::MoveSpeed { amount } => total.move_speed_levels += amount,
                 }
                 total
             })
@@ -150,9 +150,7 @@ impl Core {
             // the unit of generation and a ring of them is what one purchase actually buys.
             SkillEffect::SurveyRange { .. } => self.survey_rings(),
             SkillEffect::Swimming { .. } => u32::from(self.can_swim()),
-            // Percent over the base pace, which is what the ladder's ranks add up to, rather than
-            // the speed in world units the player never sees a number for.
-            SkillEffect::MoveSpeed { .. } => self.move_speed_bonus(),
+            SkillEffect::MoveSpeed { .. } => self.move_speed_level(),
         };
         let resulting_value = if complete {
             current_value
@@ -167,7 +165,7 @@ impl Core {
                 SkillEffect::SurveyRange { amount } => current_value + amount,
                 SkillEffect::Swimming { amount } => current_value.max(amount),
                 SkillEffect::MoveSpeed { amount } => {
-                    (current_value + amount).min(MAX_MOVE_SPEED_BONUS)
+                    (current_value + amount).min(MAX_MOVE_SPEED_LEVEL)
                 }
             }
         };
@@ -362,7 +360,7 @@ pub(super) fn validate_skills(technologies: &TechnologiesInput) -> Result<(), St
         || reach > 32
         || survey > MAX_SURVEY_RING_BONUS
         || swimming > 1
-        || pace > MAX_MOVE_SPEED_BONUS
+        || pace > MAX_MOVE_SPEED_LEVEL
     {
         return Err("skill effects exceed player bounds".into());
     }

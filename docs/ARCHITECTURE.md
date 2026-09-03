@@ -131,10 +131,10 @@ anchor. Native splits the refund in item-id order against a working pack — wha
 rest spills.
 
 **Creative mode** is one native flag on the core, entering `checksum()` and the save envelope, so a
-creative run is a run like any other. Turning it on inserts every technology id into `researched`,
+creative run is a run like any other. Choosing it at world creation inserts every technology id into `researched`,
 which is why nothing needed a second way to be unlocked. Placement skips the cost check, upgrades
-neither charge nor credit, and `erase_refund` returns nothing. `SetCreative`, `Grant`, `Discard` and
-`SetCarrySlots` belong to it; the last three are refused outside it. Deliberately unchanged: power,
+neither charge nor credit, and `erase_refund` returns nothing. Game mode is immutable after world
+creation; `Grant`, `Discard` and `SetCarrySlots` are refused outside Creative. Deliberately unchanged: power,
 fuel, recipe timing, belt throughput and hub payouts — a layout tested in a creative run behaves
 identically in a priced one.
 

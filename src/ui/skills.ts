@@ -55,16 +55,30 @@ const BRANCHES: Record<
   },
   move_speed: {
     label: "04 / Mobility",
-    // Per cent, because that is the unit the ladder is authored, bounded and stacked in. The
-    // speed itself is in world units per player step, a number no part of the game shows anyone.
-    gain: ["per cent faster", "per cent faster"],
+    gain: ["pace level", "pace levels"],
     capacity: "pace",
-    unit: ["per cent over the base pace", "per cent over the base pace"],
+    unit: ["level", "levels"],
   },
 };
 
 const count = (amount: number, [one, many]: [string, string]) =>
   `${amount} ${amount === 1 ? one : many}`;
+
+type SkillGroup = {
+  key: SkillEffect["kind"];
+  levels: SkillDefinition[];
+};
+
+/** One card per skill, with sequential catalogue entries presented as levels of that skill. */
+export function groupSkills(skills: SkillDefinition[]): SkillGroup[] {
+  const groups = new Map<SkillEffect["kind"], SkillDefinition[]>();
+  for (const skill of skills) {
+    const levels = groups.get(skill.effect.kind) ?? [];
+    levels.push(skill);
+    groups.set(skill.effect.kind, levels);
+  }
+  return [...groups].map(([key, levels]) => ({ key, levels }));
+}
 
 /** Text and affordances from the native purchase answer; never decides affordability. */
 export function skillView(skill: SkillDefinition, snapshot: FactorySnapshot) {
@@ -125,15 +139,16 @@ export class SkillsView {
       return;
     this.snapshot = snapshot;
     const state = snapshot.skills;
+    const groups = groupSkills(this.technologies.skills);
     part(this.root, "#skills-points").textContent = String(state.points);
     part(this.root, "#skills-points-unit").textContent =
       state.points === 1 ? "Skill Point" : "Skill Points";
     part(this.root, "#skills-summary").textContent = state.sandbox
-      ? "Sandbox save: skills are unlocked. Milestone rewards stay off, including after leaving Creative."
-      : `${state.points} Skill Point${state.points === 1 ? "" : "s"} available. ${state.purchased.length + state.granted.length} of ${this.technologies.skills.length} upgrades unlocked.`;
+      ? "Creative save: skills are unlocked and milestone rewards stay off."
+      : `${state.points} Skill Point${state.points === 1 ? "" : "s"} available. ${state.purchased.length + state.granted.length} levels unlocked across ${groups.length} skills.`;
     const rows = syncChildren(
       part(this.root, "#skill-branches"),
-      this.technologies.skills.map((s) => String(s.id)),
+      groups.map((group) => group.key),
       (key) => {
         const card = document.createElement("article");
         card.className = "skill-card";
@@ -141,18 +156,23 @@ export class SkillsView {
         <h3><span class="skill-icon"></span><span class="skill-name"></span></h3><div class="skill-benefit"></div><p class="skill-description"></p>
         <p class="skill-capacity"></p><p class="skill-requirements"></p><button type="button" class="skill-purchase"></button>`;
         const button = part<HTMLButtonElement>(card, "button");
-        button.dataset.skillPurchase = key;
         button.setAttribute("aria-describedby", `skill-requirements-${key}`);
         part(card, ".skill-requirements").id = `skill-requirements-${key}`;
         return card;
       },
     );
     rows.forEach((card, index) => {
-      const skill = this.technologies.skills[index]!;
+      const group = groups[index]!;
+      const completedLevels = group.levels.filter(
+        (skill) =>
+          snapshot.skills.availability.find((row) => row.skill_id === skill.id)
+            ?.complete,
+      ).length;
+      const skill = group.levels[completedLevels] ?? group.levels.at(-1)!;
       const view = skillView(skill, snapshot);
       const copy = BRANCHES[skill.effect.kind];
       card.dataset.branch = skill.branch;
-      card.classList.toggle("learned", view.complete);
+      card.classList.toggle("learned", completedLevels === group.levels.length);
       paintEmblem(part<HTMLElement>(card, ".skill-branch-emblem"), {
         key: skill.branch,
         markup: branchEmblemSvg(skill.branch),
@@ -160,11 +180,15 @@ export class SkillsView {
       });
       part(card, ".skill-branch").textContent = copy.label;
       part(card, ".skill-state").textContent = view.status;
-      part(card, ".skill-name").textContent = skill.name;
+      part(card, ".skill-name").textContent = group.levels[0]!.name;
       if (!part(card, ".skill-icon").hasChildNodes())
-        part(card, ".skill-icon").innerHTML = researchIconSvg(skill.key);
+        part(card, ".skill-icon").innerHTML = researchIconSvg(
+          group.levels[0]!.key,
+        );
       part(card, ".skill-benefit").textContent =
-        `+${count(skill.effect.amount, copy.gain)}`;
+        group.levels.length > 1
+          ? `Level ${completedLevels} / ${group.levels.length}`
+          : `+${count(skill.effect.amount, copy.gain)}`;
       part(card, ".skill-description").textContent = skill.description;
       const native = snapshot.skills.availability.find(
         (r) => r.skill_id === skill.id,
@@ -186,6 +210,7 @@ export class SkillsView {
           ? `First learn: ${missing.map((id) => this.technologies.skills.find((s) => s.id === id)?.name ?? id).join(", ")}`
           : `${view.canPurchase ? "Learn these in any order." : view.status + "."} Journey milestones fund the whole set.`;
       const button = part<HTMLButtonElement>(card, "button");
+      button.dataset.skillPurchase = String(skill.id);
       button.textContent = view.complete
         ? view.status
         : `Learn · ${skill.cost} Skill Point${skill.cost === 1 ? "" : "s"}`;

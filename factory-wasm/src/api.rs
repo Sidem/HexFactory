@@ -33,9 +33,8 @@ impl Factory {
             world_params,
         )
         .map_err(js_error)?;
-        // Set after construction rather than threaded through Core::new: creative is a switch the
-        // run can throw at any time, so the opening state is the same thing as throwing it on tick
-        // zero and there is one implementation of what creative does rather than two.
+        // Set after construction rather than threaded through Core::new so the opening grant has
+        // one implementation. Running-game commands cannot change the selected mode.
         core.set_creative(creative.unwrap_or(false));
         Ok(Factory {
             definitions,

@@ -243,7 +243,7 @@ is not another world slider.
 - **Movement and construction do not share one threshold.** Walking reads slope, steps, surface and water
   depth; a multi-cell building needs a pad within one quantum unless its foundation class says otherwise.
 - **`PLAYER_SPEED` stays at 275** (settled 2026-09-01). A hex still takes about 0.36 s to cross and the metre
-  figures moved instead — a 15 m/s walk, a 25 m/s run, a 5 m/s ford. Holding 3 m/s would have multiplied every
+  figures moved instead — a 20 m/s walk, a 25 m/s run, a 5 m/s ford. Holding 3 m/s would have multiplied every
   journey by five, which is the one thing a 25 m² hex was not meant to buy. This is not the belt case in
   different clothes: the factory reads a belt's speed and balances against it; nothing reads the player's.
 
@@ -340,7 +340,7 @@ World generator 15 rejects every version-14 save: bed elevations moved wherever 
 
 Skill Points bought one rank each of Carrying, Construction reach and Surveying range, and a milestone bought
 one point. Both halves now have depth: **Carrying and Construction reach run to three ranks**, and travel speed
-joins them as a fourth branch at three ranks of ten per cent each, capped by `MAX_MOVE_SPEED_BONUS`.
+joins them as a fourth branch at three levels, each multiplying walking and running pace by 1.25.
 
 - **Pace is fitness, not boots.** The bonus multiplies the step after every surface branch — ground, ford and
   swim alike — so the ratios the route search prices a path in stay exactly the ones a faster player walks.

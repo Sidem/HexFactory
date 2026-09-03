@@ -1,4 +1,4 @@
-import { skillView } from "../src/ui/skills";
+import { groupSkills, skillView } from "../src/ui/skills";
 import { readFileSync } from "node:fs";
 
 import { describe, expect, it, vi } from "vitest";
@@ -221,16 +221,13 @@ describe("bounded host input", () => {
     });
     expect(movementIntent(new Set(["KeyW", "KeyD"]))).toEqual({
       type: "move_intent",
-      x: 424,
-      y: -424,
+      x: 566,
+      y: -566,
     });
-    // Walking is a smaller intent, never a smaller step: native `PLAYER_SPEED` is the 25 m/s run
-    // at intent 1000, and the host sends 600 for the 15 m/s walk. Shift is the run, not a precision
-    // crawl — the world is scaled so a biome takes minutes, and getting across it is what Shift is
-    // for.
+    // Walking is the 1× pace at intent 800. Shift sends the 1.25× run at full intent.
     expect(movementIntent(new Set(["KeyD"]))).toEqual({
       type: "move_intent",
-      x: 600,
+      x: 800,
       y: 0,
     });
     expect(movementIntent(new Set(["KeyD"]), true)).toEqual({
@@ -1820,6 +1817,17 @@ describe("personal skills", () => {
       expect(() =>
         encodeCommand({ type: "purchase_skill", skill_id }),
       ).toThrow();
+  });
+
+  it("presents sequential ranks as levels of one skill", () => {
+    const groups = groupSkills(technologies.skills);
+    expect(groups).toHaveLength(5);
+    expect(
+      groups.find((group) => group.key === "carry_slots")?.levels,
+    ).toHaveLength(3);
+    expect(
+      groups.find((group) => group.key === "move_speed")?.levels,
+    ).toHaveLength(3);
   });
 });
 

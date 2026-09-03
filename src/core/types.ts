@@ -1010,9 +1010,8 @@ export type NativeInputCommand =
    */
   | { type: "post_request"; request_id: number }
   /**
-   * Turn creative mode on, or back off. Carried rather than toggled, like set_enabled, so a
-   * doubled press lands on the same answer. Turning it on researches the whole tree — permanently:
-   * leaving creative restores the prices and the refunds but not the ignorance.
+   * Legacy command shape retained for recorded command compatibility. Native refuses mode changes
+   * after world creation; newGame's creative flag is the only way to select Creative.
    */
   | { type: "set_creative"; enabled: boolean }
   /**

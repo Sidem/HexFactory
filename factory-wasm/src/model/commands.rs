@@ -214,12 +214,8 @@ enum InputCommand {
     PostRequest {
         request_id: RequestId,
     },
-    /// Turn creative mode on, or back off. Carried rather than toggled, for the same reason
-    /// `SetEnabled` is: a press that arrives twice lands on the same answer.
-    ///
-    /// Turning it on researches everything, permanently — a technology is a thing the settlement
-    /// knows, and creative teaching it then leaving does not unteach it. Turning it back off
-    /// restores the prices and the refunds, so a run can be set up in creative and then played.
+    /// Legacy wire spelling retained for recorded command compatibility. A running world refuses
+    /// any mode change; creative is selected only when that world is created.
     SetCreative {
         enabled: bool,
     },

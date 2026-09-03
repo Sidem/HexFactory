@@ -307,6 +307,9 @@ button.resource-chip {
   place-items: center;
   padding: 4px;
 }
+#creative-chip[hidden] {
+  display: none;
+}
 .utility-icon {
   line-height: 1;
 }

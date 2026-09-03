@@ -12,15 +12,15 @@ export const MOVEMENT_KEYS = Object.freeze({
  * How much of full native speed an ordinary walk is worth.
  *
  * A hexagon is 25 m², so a neighbour step is 5.373 m. Native `PLAYER_SPEED` 275 over 30 steps a
- * second is 25 m/s at intent 1000 — the run, held on Shift. The walk is 15 m/s, which is 3/5 of
+ * second is 25 m/s at intent 1000 — the run, held on Shift. The walk is 20 m/s, which is 4/5 of
  * that, and it is a smaller intent rather than a smaller step: native already accepts a magnitude
- * in thousandths and always did. No native rule moves for the gait; the host sends 600 or 1000.
+ * in thousandths and always did. No native rule moves for the gait; the host sends 800 or 1000.
  *
  * Only the ratio is this file's business. The speeds are five times what they were before the
  * ground was rescaled because `PLAYER_SPEED` did not move with it; that decision and its reasons
  * live on the constant in `factory-wasm/src/lib.rs`.
  */
-export const WALK_SCALE = 0.6;
+export const WALK_SCALE = 0.8;
 
 export function movementIntent(
   pressed: ReadonlySet<string>,

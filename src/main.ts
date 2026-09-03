@@ -202,7 +202,6 @@ const worldParameterFields = required<HTMLDivElement>("world-parameter-fields");
 const toolShelf = required<HTMLDivElement>("tool-shelf");
 const feedback = required<HTMLDivElement>("feedback");
 const creativeChip = required<HTMLButtonElement>("creative-chip");
-const creativeEnabledInput = required<HTMLInputElement>("creative-enabled");
 const creativeSlotsInput = required<HTMLInputElement>("creative-slots");
 const creativeClear = required<HTMLButtonElement>("creative-clear");
 const creativeItems = required<HTMLDivElement>("creative-items");
@@ -1058,7 +1057,7 @@ function renderInventory(): void {
 const CREATIVE_FILL = 4_294_967_295;
 
 /**
- * The creative panel: one switch, one pack size, and one row per material.
+ * The creative panel: one pack size and one row per material.
  *
  * Every control here reads its state out of the snapshot rather than out of the click that changed
  * it. A command native refuses — a grant with no room, a pack size that would strand stock — leaves
@@ -1068,8 +1067,8 @@ const CREATIVE_FILL = 4_294_967_295;
 function renderCreative(): void {
   const { creative, carry_slots } = snapshot.player;
   // Creative is a different game, so a creative run is not a comparable one. The mark is applied
-  // here rather than at each switch because all three ways in — the title screen, the panel toggle
-  // and the C key — arrive as the same snapshot, and the mark survives switching creative back off.
+  // here rather than trusting title-screen state because loaded and newly created runs arrive as
+  // the same snapshot. Once chosen at world creation, the mode cannot change.
   if (creative && run) {
     const marked = taintRun(run, "creative");
     if (marked !== run) {
@@ -1078,11 +1077,10 @@ function renderCreative(): void {
       renderRun();
     }
   }
+  creativeChip.hidden = !creative;
+  if (!creative && panels.isOpen("creative-panel")) panels.close();
   creativeChip.classList.toggle("creative-on", creative);
-  creativeChip.title = creative
-    ? "Creative mode is on (C)"
-    : "Creative mode (C)";
-  creativeEnabledInput.checked = creative;
+  creativeChip.title = "Creative tools (C)";
   creativeSlotsInput.value = String(carry_slots);
   for (const control of [creativeSlotsInput, creativeClear])
     control.disabled = !creative;
@@ -3808,9 +3806,6 @@ required<HTMLButtonElement>("new-game").addEventListener("click", async () => {
 // showing. `renderCreative` sets each one from the next snapshot, so a refusal native reports —
 // a pack size that would strand carried stock, a grant with nowhere to go — shows up as the
 // control returning to what the simulation actually holds, with the reason in the toast.
-creativeEnabledInput.addEventListener("change", () => {
-  enqueue({ type: "set_creative", enabled: creativeEnabledInput.checked });
-});
 creativeSlotsInput.addEventListener("change", () => {
   const slots = Number(creativeSlotsInput.value);
   if (!Number.isSafeInteger(slots) || slots < 1) {
@@ -5389,6 +5384,7 @@ function sendAim(): void {
  * chosen workspace; the right rail hides it while its own menu or timer is open.
  */
 function togglePanel(id: string): void {
+  if (id === "creative-panel" && !snapshot.player.creative) return;
   if (id === INVENTORY_PANEL && panels.isOpen(id)) packDeclined = true;
   boundaryTool.close(false);
   groundTool.close(false);
