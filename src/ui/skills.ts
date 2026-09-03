@@ -53,6 +53,14 @@ const BRANCHES: Record<
     capacity: "deep-water access",
     unit: ["route", "routes"],
   },
+  move_speed: {
+    label: "04 / Mobility",
+    // Per cent, because that is the unit the ladder is authored, bounded and stacked in. The
+    // speed itself is in world units per player step, a number no part of the game shows anyone.
+    gain: ["per cent faster", "per cent faster"],
+    capacity: "pace",
+    unit: ["per cent over the base pace", "per cent over the base pace"],
+  },
 };
 
 const count = (amount: number, [one, many]: [string, string]) =>

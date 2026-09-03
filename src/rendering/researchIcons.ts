@@ -1,3 +1,11 @@
+/** The three emblems a whole skill ladder shares, named so each rank can wear its family's. */
+const GLYPH_PACK =
+  '<rect x="7" y="8" width="18" height="21" rx="4"/><path d="M12 8V4h8v4M7 15h18M12 20h8v6h-8zM4 12v10m24-10v10"/>';
+const GLYPH_REACH =
+  '<path d="m5 27 9-22 4 22M9 18h11M10 8h10M16 5l11 6-11 6M3 28h20"/><circle cx="14" cy="5" r="2"/><path d="M25 21v8m-4-4h8"/>';
+const GLYPH_PACE =
+  '<circle cx="20" cy="6" r="3"/><path d="m20 9-4 6 5 5 1 9M16 15l-5 3m5 2-4 8M20 12l6 3M3 11h6M2 17h5M4 23h4"/>';
+
 /** Original SVG research emblems. Presentation keys never enter saves or native definitions. */
 const GLYPHS: Record<string, string> = {
   "subsurface-piping":
@@ -38,16 +46,24 @@ const GLYPHS: Record<string, string> = {
     '<path d="M13 29V17L5 9V3m14 26V17l8-8V3M13 17V3m6 14V3M2 6l3-3 3 3m2 0 6-5 6 5m2 0 3-3 3 3"/>',
   "grade-separation":
     '<path d="M3 13h8m10 0h8M3 20h8m10 0h8M12 3v26m8-26v26M12 7h8m-8 18h8M8 10l4 6-4 7m16-13-4 6 4 7"/><path stroke-dasharray="2 3" d="M12 16h8"/>',
-  "expanded-pack":
-    '<rect x="7" y="8" width="18" height="21" rx="4"/><path d="M12 8V4h8v4M7 15h18M12 20h8v6h-8zM4 12v10m24-10v10"/>',
-  "surveyed-construction":
-    '<path d="m5 27 9-22 4 22M9 18h11M10 8h10M16 5l11 6-11 6M3 28h20"/><circle cx="14" cy="5" r="2"/><path d="M25 21v8m-4-4h8"/>',
+  "expanded-pack": GLYPH_PACK,
+  "surveyed-construction": GLYPH_REACH,
   "field-survey":
     '<circle cx="13" cy="10" r="3"/><path d="M13 13v3M7 16h12M9 16 5 29m8-13v13m4-13 4 13M3 29h22"/><path d="M21 5a10 10 0 0 1 5 6M20 10a5 5 0 0 1 2 3"/>',
   "open-water-swimming":
     '<path d="M3 22c3-4 6 4 10 0s7 4 11 0 5 0 5 0M3 27c3-4 6 4 10 0s7 4 11 0 5 0 5 0"/><circle cx="11" cy="10" r="3"/><path d="m14 14 6 3 5-5M7 18l7-4 4-7"/>',
   "fired-masonry":
     '<path d="M4 26V12l4-4h4l4 4v14H4Zm12 0V10l4-5h4l4 5v16H16ZM3 26h26M8 16h4m-4 5h4m12-9h4m-4 5h4"/>',
+  "travellers-pace": GLYPH_PACE,
+  // A ladder's higher ranks wear their first rank's emblem. They are the same upgrade bought
+  // again, and three unrelated glyphs in a row would say they were three different ones; the card
+  // beside each carries the numeral. The keys still have to be here, one per authored skill.
+  "expanded-pack-ii": GLYPH_PACK,
+  "expanded-pack-iii": GLYPH_PACK,
+  "surveyed-construction-ii": GLYPH_REACH,
+  "surveyed-construction-iii": GLYPH_REACH,
+  "travellers-pace-ii": GLYPH_PACE,
+  "travellers-pace-iii": GLYPH_PACE,
 };
 
 export const RESEARCH_ICON_KEYS = Object.keys(GLYPHS);

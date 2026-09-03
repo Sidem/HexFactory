@@ -744,7 +744,14 @@ fn ground_works_conserve_spoil_gate_routes_and_survive_a_save() {
     core.set_move_intent(1000, 0).unwrap();
     let start = core.player.x;
     core.advance_player_steps(1);
-    assert_eq!(core.player.x - start, PLAYER_SPEED * 130 / 100);
+    // The paving factor the route priced, then whatever the mobility ladder is worth to this
+    // player — the same two multiplications in the same order `player_step` does them in, because
+    // the claim is that the step matches the price and not that either number is a particular one.
+    let paved = PLAYER_SPEED * 130 / 100;
+    assert_eq!(
+        core.player.x - start,
+        paved * (100 + core.move_speed_bonus() as i32) / 100
+    );
 
     // A wall taller than anyone can climb is a wall to the route and to the body.
     set_player_hex(&mut core, 0, 0);
@@ -1153,11 +1160,11 @@ fn save_40_adopts_empty_geomorphology_without_changing_its_checksum() {
         .find(|scenario| scenario.key == "new-game")
         .unwrap();
     let core = Core::new(&definitions, &technologies, scenario, None, None).unwrap();
-    let save_42 = core.save_string().unwrap();
-    let save_40 = save_42
-        .replacen("\"save_version\":42", "\"save_version\":40", 1)
+    let current = core.save_string().unwrap();
+    let save_40 = current
+        .replacen("\"save_version\":43", "\"save_version\":40", 1)
         .replacen("\"definition_version\":30", "\"definition_version\":29", 1)
-        .replacen("\"technology_version\":17", "\"technology_version\":16", 1)
+        .replacen("\"technology_version\":18", "\"technology_version\":16", 1)
         .replacen(",\"bank_stress\":[]", "", 1);
     let restored = Core::from_save(&definitions, &technologies, &scenarios, &save_40).unwrap();
     assert!(restored.bank_stress.is_empty());

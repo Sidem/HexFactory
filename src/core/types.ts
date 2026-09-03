@@ -246,7 +246,12 @@ export interface TechnologyDefinition {
 }
 
 export type SkillEffect = {
-  kind: "carry_slots" | "build_range" | "survey_range" | "swimming";
+  kind:
+    | "carry_slots"
+    | "build_range"
+    | "survey_range"
+    | "swimming"
+    | "move_speed";
   amount: number;
 };
 export interface SkillDefinition {

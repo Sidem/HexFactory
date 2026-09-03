@@ -378,6 +378,11 @@ fn petroleum_roads_require_research_and_base_and_refund_both_layers() {
         let mut measured = Vec::new();
         for surface in [0, 2, 6] {
             let (mut core, _) = test_core();
+            // At the base pace, not the creative core's fully learned one. What is being compared
+            // is what a surface buys, and a player 30 per cent faster covers six hexes in so few
+            // steps that gravel and asphalt round to the same count — the resolution of the
+            // instrument, not a fact about roads.
+            core.skills.granted.clear();
             if surface != 0 {
                 for q in -1..=distance + 1 {
                     for r in -1..=1 {

@@ -45,7 +45,7 @@ use crate::{axial_distance, coordinate_hash, floor_div, hexes_in_radius, value_n
 
 /// The noise ceiling `value_noise` interpolates against. Mirrors the private constant in `lib.rs`;
 /// re-stated rather than exported because a prototype should not widen the production surface.
-const NOISE_MAX: i32 = 65_535;
+pub(crate) const NOISE_MAX: i32 = 65_535;
 
 /// Cells along one side of a drainage province: about 687 m at the Phase 8 scale.
 ///
@@ -302,7 +302,7 @@ fn texture_mq(seed: u32, q: i32, r: i32) -> i32 {
 }
 
 /// Height before any channel is cut, in milli-quanta. Pure, unbounded, `O(1)`.
-fn base_mq(seed: u32, q: i32, r: i32) -> i32 {
+pub(crate) fn base_mq(seed: u32, q: i32, r: i32) -> i32 {
     continental_mq(seed, q, r) + texture_mq(seed, q, r)
 }
 
@@ -438,6 +438,12 @@ pub struct Channel {
     /// other water fact — depth, bank, bed — is derived from it rather than from the noise field
     /// the reach happens to cross.
     pub surface_mq: i32,
+    /// The bed under that surface, in milli-quanta: the deepest the rock let this reach cut.
+    ///
+    /// Usually `surface_mq` less the class's own depth. Where a bed of resistant rock crosses the
+    /// reach it is higher, the channel runs shallow over the sill, and the water backs up behind
+    /// it — which is why depth is read from these two numbers rather than declared per class.
+    pub floor_mq: i32,
     /// A channel with a spring at or above it carries water; the rest are dry valley floors, which
     /// is what stops the network from being a river system with no source.
     pub wet: bool,
@@ -474,6 +480,26 @@ pub(crate) fn bed_depth(class: u8) -> i32 {
     1 + i32::from(class)
 }
 
+/// The thinnest sheet of water a reach carries over a sill it could not cut, in milli-quanta:
+/// one quantum, which is the least depth [`Terra::water`] will publish at all.
+///
+/// A river crossing resistant rock runs shallow and fast rather than stopping, so this is what
+/// keeps a knickpoint a rapid instead of a dry gap in the channel.
+const MIN_FLOW_MQ: i32 = MQ as i32;
+
+/// The water surface and the bed one cell of a reach carries, in milli-quanta, given the routed
+/// ground level there.
+///
+/// Two numbers rather than a depth per class: the grade line says where the water wants to be and
+/// [`crate::terra_rock`] says how far down the rock let it get, and everything the eye reads as a
+/// pool, a rapid or a fall is the gap between them.
+fn graded_bed(seed: u32, cell: (i32, i32), class: u8, level_mq: i32) -> (i32, i32) {
+    let surface = level_mq - surface_cut(class) * MQ as i32;
+    let target = surface - bed_depth(class) * MQ as i32;
+    let floor = crate::terra_rock::erodible_floor_mq(seed, cell.0, cell.1, class, target);
+    (surface.max(floor + MIN_FLOW_MQ), floor)
+}
+
 /// Half-width of the wetted channel, in cells.
 fn river_half_width(class: u8) -> i32 {
     i32::from(class.saturating_sub(CHANNEL_CLASS_MIN)) / 2
@@ -487,19 +513,6 @@ fn river_half_width(class: u8) -> i32 {
 fn bed_radius(class: u8) -> i32 {
     river_half_width(class) + 1
 }
-
-/// How fast a valley side climbs away from the channel, in milli-quanta per cell: exactly
-/// [`crate::scale::MAX_WALK_STEP_QUANTA`], 1 m over 5.37 m. A bank is the steepest thing a player
-/// can still walk up, and past [`crate::scale::MAX_BUILD_STEP_QUANTA`], so a river is something to
-/// bridge or terrace around rather than a stripe of blue on a plain.
-///
-/// This is the constant that decides how much of the world a river flattens, and it was measured
-/// rather than picked. At 2,500 the ramp reached 15 m above the thread before the cap stopped it
-/// and planed the opening disc flat — rolling ground fell from 281 to 8 per mille and the shipped
-/// scenario lost its coal. At 6,000 the banks cost 55 per mille of walkable ground for no drainage
-/// gain. Here: 86 per mille rolling ground, 996 walkable, and 7 lakes where the shipped generator
-/// left 107.
-const VALLEY_BANK_MQ: i32 = 4_000;
 
 /// The most alluvium the graded floor may lay into a hollow it crosses, in milli-quanta: 1 m.
 ///
@@ -682,13 +695,14 @@ pub fn build_spine(seed: u32, pq: i32, pr: i32, inflow: &[SeamInflow]) -> Spine 
     }
 
     let mut channels: BTreeMap<(i32, i32), Channel> = BTreeMap::new();
-    let mut mark = |cell: (i32, i32), class: u8, surface_mq: i32, wet: bool| {
+    let mut mark = |cell: (i32, i32), class: u8, surface_mq: i32, floor_mq: i32, wet: bool| {
         if class < CHANNEL_CLASS_MIN {
             return;
         }
         let entry = channels.entry(cell).or_insert(Channel {
             class,
             surface_mq,
+            floor_mq,
             wet,
         });
         // Where two branches share a cell the wider one owns it, so a confluence never narrows,
@@ -697,25 +711,35 @@ pub fn build_spine(seed: u32, pq: i32, pr: i32, inflow: &[SeamInflow]) -> Spine 
             entry.class = class;
         }
         entry.surface_mq = entry.surface_mq.min(surface_mq);
+        entry.floor_mq = entry.floor_mq.min(floor_mq);
         entry.wet |= wet;
     };
 
     // A reach is drawn from its node to its parent's, with the grade line interpolated between the
     // two filled node levels. Both ends descend, so every cell between them does.
-    let reach = |mark: &mut dyn FnMut((i32, i32), u8, i32, bool),
-                 from: (i32, i32),
-                 from_mq: i32,
-                 to: (i32, i32),
-                 to_mq: i32,
-                 class: u8,
-                 wet: bool| {
+    let mut profile: Vec<(i32, i32)> = Vec::with_capacity(2 * SPINE_CELL as usize);
+    let mut reach = |mark: &mut dyn FnMut((i32, i32), u8, i32, i32, bool),
+                     from: (i32, i32),
+                     from_mq: i32,
+                     to: (i32, i32),
+                     to_mq: i32,
+                     class: u8,
+                     wet: bool| {
         let path = descend_line(seed, from, to);
         let last = (path.len() - 1).max(1) as i64;
-        let cut = surface_cut(class) * MQ as i32;
-        for (step, cell) in path.into_iter().enumerate() {
+        for (step, &cell) in path.iter().enumerate() {
             let t = step as i64;
             let level = (i64::from(from_mq) * (last - t) + i64::from(to_mq) * t) / last;
-            mark(cell, class, level as i32 - cut, wet);
+            profile.push(graded_bed(seed, cell, class, level as i32));
+        }
+        // A sill is a local base level: the water upstream of it stands level with its lip, and
+        // the fall is the step that leaves. One backward pass is the whole of that, and it is also
+        // what keeps the published surface non-increasing downstream through a stepped profile.
+        for step in (0..profile.len().saturating_sub(1)).rev() {
+            profile[step].0 = profile[step].0.max(profile[step + 1].0);
+        }
+        for (cell, (surface_mq, floor_mq)) in path.into_iter().zip(profile.drain(..)) {
+            mark(cell, class, surface_mq, floor_mq, wet);
         }
     };
 
@@ -731,12 +755,10 @@ pub fn build_spine(seed: u32, pq: i32, pr: i32, inflow: &[SeamInflow]) -> Spine 
                 class_of[slot],
                 node.wet,
             ),
-            None => mark(
-                node.cell,
-                class_of[slot],
-                node.filled_mq - surface_cut(class_of[slot]) * MQ as i32,
-                node.wet,
-            ),
+            None => {
+                let (surface, floor) = graded_bed(seed, node.cell, class_of[slot], node.filled_mq);
+                mark(node.cell, class_of[slot], surface, floor, node.wet);
+            }
         }
     }
 
@@ -1100,6 +1122,7 @@ impl Terra {
                                 existing.class = channel.class;
                             }
                             existing.surface_mq = existing.surface_mq.min(channel.surface_mq);
+                            existing.floor_mq = existing.floor_mq.min(channel.floor_mq);
                             existing.wet |= channel.wet;
                         })
                         .or_insert(channel);
@@ -1129,27 +1152,36 @@ impl Terra {
             province.head_mq[index] = base_mq(self.seed, q, r);
         }
 
-        // 2. Cut the valleys down to an absolute floor. A reach carries a known water surface, so
-        // the bed under it is an elevation and not a depth, and the long profile descends because
-        // the grade line it was seeded from descends. The sweep is a Dijkstra on that floor: pop
-        // the lowest remaining influence, settle the cell at it, and offer the floor one bank step
-        // higher to the neighbours. Each cell settles once, at the deepest floor that reaches it,
-        // so the result does not depend on which channel was visited first.
+        // 2. Cut the valleys down to an absolute floor. A reach carries a known water surface and
+        // a bed the rock allowed under it, so the cut is an elevation and not a depth, and the
+        // long profile descends because the grade line it was seeded from descends. The sweep is a
+        // Dijkstra on that floor: pop the lowest remaining influence, settle the cell at it, and
+        // offer the floor one bank step higher to the neighbours. Each cell settles once, at the
+        // deepest floor that reaches it, so the result does not depend on which channel was
+        // visited first. The bank step is the rock's, not a constant, which is what makes one
+        // valley a gorge and the next a floodplain.
+        let untouched = province.head_mq.clone();
         let mut valley = vec![i32::MAX; cells];
         let mut frontier: BinaryHeap<Reverse<(i32, i32, i32, i32, u8, usize)>> = BinaryHeap::new();
         for (&cell, &channel) in &province.channels {
             let Some(index) = province.domain_index(cell.0, cell.1) else {
                 continue;
             };
-            let floor = channel.surface_mq - bed_depth(channel.class) * MQ as i32;
-            frontier.push(Reverse((floor, cell.0, cell.1, 0, channel.class, index)));
+            frontier.push(Reverse((
+                channel.floor_mq,
+                cell.0,
+                cell.1,
+                0,
+                channel.class,
+                index,
+            )));
         }
         while let Some(Reverse((floor, q, r, distance, class, index))) = frontier.pop() {
             if valley[index] != i32::MAX {
                 continue;
             }
             valley[index] = floor;
-            let base = province.head_mq[index];
+            let base = untouched[index];
             // Inside the wetted width the floor is imposed, so a hollow under the thread is filled
             // rather than left as a hole the water would have to climb out of; the cap keeps that
             // from raising a coastline. Outside it the floor may only cut.
@@ -1169,8 +1201,14 @@ impl Terra {
             for (dq, dr) in DIRECTIONS {
                 if let Some(neighbour) = province.domain_index(q + dq, r + dr) {
                     if valley[neighbour] == i32::MAX {
+                        let grade = crate::terra_rock::bank_grade_mq(
+                            self.seed,
+                            q + dq,
+                            r + dr,
+                            untouched[neighbour],
+                        );
                         frontier.push(Reverse((
-                            floor + VALLEY_BANK_MQ,
+                            floor + grade,
                             q + dq,
                             r + dr,
                             distance + 1,

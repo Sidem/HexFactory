@@ -377,9 +377,11 @@ describe("the economy's stated curve", () => {
     expect(budget.granted_technologies.length).toBeGreaterThan(0);
 
     // Personal skill is a separate purse, and the journey funds the whole ladder and not a point
-    // more: four milestones, four upgrades.
-    expect(budget.skill_points).toBe(4);
-    expect(budget.skill_cost).toBe(4);
+    // more. The milestones are still the four the scenario can actually observe — two craft
+    // events and two contract stages — so a longer ladder is paid for by milestones that are
+    // worth more rather than by more of them.
+    expect(budget.skill_points).toBe(20);
+    expect(budget.skill_cost).toBe(20);
     expect(budget.skill_cost).toBeLessThanOrEqual(budget.skill_points);
     expect(budget.skill_milestones).toBe(4);
     expect(budget.research_cost).toBe(162);

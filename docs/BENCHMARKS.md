@@ -133,7 +133,7 @@ disc in lattice order. If chunk generation ever appears in a frame, look there f
 
 ## Phase 8 — ground, water and erosion
 
-Seed 1213486160, world generator 14, release-native.
+Seed 1213486160, world generators 14 and 15, release-native.
 
 **The graded long profile, measured.** World 13 routed channels with a minimum spanning tree whose edge
 cost was a hash four orders of magnitude larger than its climb term, and cut a constant depth under the
@@ -170,6 +170,46 @@ joins two reaches cut to different depths and rounding there is not a falsificat
   rolling ground fell 281 → 8 per mille and `highlands` lost its coal patch (largest 4 hexes against a
   floor of 19). At 6,000 the banks cost 55 per mille of walkable ground and bought no drainage. 4,000 —
   exactly `MAX_WALK_STEP_QUANTA` — gives 86 per mille rolling ground, 996 walkable, and the coal back at 51.
+
+### World 15 — the rock decides the cross-section
+
+Erodibility in world 14 was one constant, so every valley on every seed had the same walls and every bed
+cut to exactly its grade line. World 15 gives the ground a strength: a banded field, soft in a weathered
+mantle near the surface and harder in the bed beneath, and the incision stops where the discharge class's
+cutting power meets it. A reach that cannot reach its grade line leaves a **sill** — a step in the bed the
+water crosses and a walker may not. Same seed, same nine provinces:
+
+|                                   | inland, world 14 | inland, world 15 | coast, world 14 | coast, world 15 |
+| --------------------------------- | ---------------- | ---------------- | --------------- | --------------- |
+| springs                           | 12               | 12               | 4               | 4               |
+| lakes / lake cells                | 7 / 47           | **11 / 58**      | 14 / 454        | **14 / 415**    |
+| walks ending in a lake            | 293 of 576       | **373**          | 255 of 576      | **248**         |
+| walks reaching the sea or leaving | 283              | **203**          | 321             | **328**         |
+| walkable / buildable per mille    | 996 / 723        | **946 / 731**    | 1000 / 931      | **968 / 945**   |
+| channel cells on a sill           | 0                | **48**           | 0               | **0**           |
+| edges falling past the wade limit | 0                | **16**           | 0               | **6**           |
+| viewport relief                   | 53.7 m           | 53.7 m           | 21.0 m          | 21.0 m          |
+| solve                             | 62 ms            | 82 ms            | 53 ms           | 73 ms           |
+
+Relief is unchanged and the invariants still hold — zero cycles, zero uphill edges, 1 of 2,537 inland flow
+edges rising by 31 mm, an eighth of a quantum. What moved is inland walkable ground, 50 per mille of it,
+which is what a hard bed buys: sixteen crossings a walker must go around and forty-eight steps in the bed
+that were flat before. The coast has no sills at all, because a channel already at sea level has nothing
+left to cut.
+
+**Two negative results this round, both from measuring the mechanism on its own.**
+
+- **The bank grade may not go below world 14's 4,000 milli-quanta.** The soft end of the new span was
+  tried at 3,000, which reads better in cross-section — a soft mantle should give a wider valley. It cost
+  the shipped `continental` opening its coal: largest patch 36 → 16 hexes against a floor of 19. Deposits
+  sit on bands the relief decides, so widening every valley planes them away. The span is 4,000..6,400,
+  keeping world 14's single constant as its floor, so no valley is wider than one already shipped. The
+  6,400 ceiling is what the 25 per mille of inland walkable ground above is spent on.
+- **Sills are almost free, and were measured that way before being kept.** With the same bank span and
+  `cut_power` raised until no reach can be stopped, the inland sample gives 945 per mille walkable, 7 lakes
+  over 45 cells, 0 sills, 14 falls — and 373 walks to a lake, 203 off the sample, the same two numbers as
+  the shipped configuration. The mechanism costs four ponds and changes no drainage-walk termination at
+  all. It was kept for the crossings it creates, not for anything it does to the water.
 
 **Drainage holds by construction, not by tuning.** `npm run terra` reports zero cycles, zero uphill
 edges and zero unterminated walks in both the inland and `--coast` samples: head is a pure global

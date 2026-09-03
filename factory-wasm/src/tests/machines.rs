@@ -340,10 +340,11 @@ fn skills_are_finite_atomic_and_isolated_from_research() {
     });
     core.purchase_skill(2).unwrap();
     assert_eq!(core.player.build_range, reach + 3 * HEX_X as u32);
-    assert_eq!(core.skills.points, 0);
+    // Four points for proving the line, less the one the first rank of reach cost.
+    assert_eq!(core.skills.points, 3);
     core.observe_skill_event(SkillEvent::PoweredCraft);
     core.observe_skill_event(SkillEvent::PoweredCraft);
-    assert_eq!(core.skills.points, 1);
+    assert_eq!(core.skills.points, 9);
     let (definitions, technologies, scenarios) = catalogs();
     let mut restored = Core::from_save(
         &definitions,
@@ -362,7 +363,10 @@ fn skills_are_finite_atomic_and_isolated_from_research() {
     core.purchase_skill(1).unwrap();
     core.set_creative(true);
     assert_eq!(core.skills.purchased, BTreeSet::from([1]));
-    assert_eq!(core.skills.granted, BTreeSet::from([2, 3, 4]));
+    assert_eq!(
+        core.skills.granted,
+        BTreeSet::from([2, 3, 4, 5, 6, 7, 8, 9, 10, 11])
+    );
     core.set_creative(false);
     core.observe_skill_event(SkillEvent::PoweredCraft);
     core.observe_skill_event(SkillEvent::ContractStage {
@@ -457,10 +461,10 @@ fn skills_observe_real_power_and_commission_work_and_preserve_widened_packs() {
     let component = core.scenario.contract.stages[0].requirements[0].item_id;
     core.player.inventory.insert(component, 1);
     core.deposit_item(Some(component)).unwrap();
-    assert_eq!(core.skills.points, 1);
+    assert_eq!(core.skills.points, 4);
     assert!(core.skills.completed.contains(&2));
     core.advance_contract();
-    assert_eq!(core.skills.points, 1);
+    assert_eq!(core.skills.points, 4);
     // A widened legacy pack is a floor, not four extra slots above the creative ceiling.
     core.player.carry_slots = MAX_CARRY_SLOTS;
     let availability = core.skill_availability(&core.technologies.skills[0]);

@@ -32,15 +32,26 @@ pub(super) enum SkillEffect {
     Swimming {
         amount: u32,
     },
+    /// Percent added to travel speed, on every surface at once.
+    ///
+    /// One number rather than one per surface, because the route search prices a walk in *time*
+    /// from the same percentages [`Core::player_step`] moves at. Speeding land alone would make
+    /// the map's fastest way round no longer the fastest way in the hand — a ford would silently
+    /// become dearer than it is, and the search would send a fitter player the long way. Fitness
+    /// carries into the water; boots would not, and boots are not what this is.
+    MoveSpeed {
+        amount: u32,
+    },
 }
 
-/// What the owned skills add, by effect. Three separate ceilings apply to these, so they travel as
+/// What the owned skills add, by effect. A separate ceiling applies to each, so they travel as
 /// named fields rather than a tuple every caller has to destructure in the right order.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(super) struct SkillBonuses {
     pub(super) carry_slots: u32,
     pub(super) build_range: u32,
     pub(super) survey_rings: u32,
+    pub(super) move_speed: u32,
     pub(super) can_swim: bool,
 }
 
@@ -106,6 +117,7 @@ impl SkillsState {
                     SkillEffect::BuildRange { amount } => total.build_range += amount,
                     SkillEffect::SurveyRange { amount } => total.survey_rings += amount,
                     SkillEffect::Swimming { amount } => total.can_swim |= amount > 0,
+                    SkillEffect::MoveSpeed { amount } => total.move_speed += amount,
                 }
                 total
             })
@@ -138,6 +150,9 @@ impl Core {
             // the unit of generation and a ring of them is what one purchase actually buys.
             SkillEffect::SurveyRange { .. } => self.survey_rings(),
             SkillEffect::Swimming { .. } => u32::from(self.can_swim()),
+            // Percent over the base pace, which is what the ladder's ranks add up to, rather than
+            // the speed in world units the player never sees a number for.
+            SkillEffect::MoveSpeed { .. } => self.move_speed_bonus(),
         };
         let resulting_value = if complete {
             current_value
@@ -151,6 +166,9 @@ impl Core {
                 SkillEffect::BuildRange { amount } => current_value + amount,
                 SkillEffect::SurveyRange { amount } => current_value + amount,
                 SkillEffect::Swimming { amount } => current_value.max(amount),
+                SkillEffect::MoveSpeed { amount } => {
+                    (current_value + amount).min(MAX_MOVE_SPEED_BONUS)
+                }
             }
         };
         SkillAvailability {
@@ -222,8 +240,10 @@ impl Core {
             if milestone.event == event && self.skills.completed.insert(milestone.id) {
                 self.skills.points += milestone.points;
                 self.events.push(format!(
-                    "{} — +{} Skill Point. Open Skills to choose an upgrade.",
-                    milestone.name, milestone.points
+                    "{} — +{} Skill Point{}. Open Skills to choose an upgrade.",
+                    milestone.name,
+                    milestone.points,
+                    if milestone.points == 1 { "" } else { "s" }
                 ));
             }
         }
@@ -282,6 +302,7 @@ pub(super) fn validate_skills(technologies: &TechnologiesInput) -> Result<(), St
     let mut reach = 0u32;
     let mut survey = 0u32;
     let mut swimming = 0u32;
+    let mut pace = 0u32;
     let mut cost = 0u32;
     for skill in skills {
         let amount = match skill.effect {
@@ -299,6 +320,10 @@ pub(super) fn validate_skills(technologies: &TechnologiesInput) -> Result<(), St
             }
             SkillEffect::Swimming { amount } => {
                 swimming = swimming.saturating_add(amount);
+                amount
+            }
+            SkillEffect::MoveSpeed { amount } => {
+                pace = pace.saturating_add(amount);
                 amount
             }
         };
@@ -333,7 +358,12 @@ pub(super) fn validate_skills(technologies: &TechnologiesInput) -> Result<(), St
     // The survey bound is the tight one: a ring is `3n(n+1)+1` chunks, so the catalogue may not
     // author a ladder whose top rank asks the generator for an order of magnitude more world than
     // the shipped opening does.
-    if carry > MAX_CARRY_SLOTS / 2 || reach > 32 || survey > MAX_SURVEY_RING_BONUS || swimming > 1 {
+    if carry > MAX_CARRY_SLOTS / 2
+        || reach > 32
+        || survey > MAX_SURVEY_RING_BONUS
+        || swimming > 1
+        || pace > MAX_MOVE_SPEED_BONUS
+    {
         return Err("skill effects exceed player bounds".into());
     }
     let mut reachable = BTreeSet::new();

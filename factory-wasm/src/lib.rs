@@ -48,6 +48,9 @@ pub mod scale;
 /// The Phase 8 drainage-first world generator. Slice 3 selects it for new worlds.
 pub mod terra;
 
+/// The rock the generator carves: strength by place and by depth, and what that costs a river.
+pub mod terra_rock;
+
 /// What that generator actually produced, counted. Read by `npm run terra` and by the tests.
 pub mod terra_survey;
 

@@ -280,6 +280,22 @@ pub(super) fn migrate<'a>(json: &'a str, target_version: u16) -> Result<Cow<'a, 
         version = 42;
     }
 
+    // Version 43 carries no new saved field. The catalogue moves because three skill branches
+    // became ladders and a mobility rank joined them, and the milestones that fund them are worth
+    // more points; skill state is keyed by stable IDs, so an old file owns exactly what it owned
+    // and the ranks above it are simply unbought. The world under the save moved as well, for
+    // variable ground hardness, so the stamp advances for [`WORLD_GENERATOR_VERSION`]'s reason
+    // too: the file reaches the explicit generator refusal and keeps its export path.
+    if version == 42 && target_version >= 43 {
+        if let Some(object) = value.as_object_mut() {
+            object.insert("save_version".into(), Value::from(43));
+            if object.get("technology_version") == Some(&Value::from(17)) {
+                object.insert("technology_version".into(), Value::from(18));
+            }
+        }
+        version = 43;
+    }
+
     if version == target_version {
         return Ok(Cow::Owned(serde_json::to_string(&value).map_err(
             |error| format!("migrated save could not be written: {error}"),

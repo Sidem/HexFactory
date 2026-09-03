@@ -18,6 +18,7 @@ export function validateSkills(data: Partial<Technologies>): void {
   let reach = 0;
   let survey = 0;
   let swimming = 0;
+  let pace = 0;
   for (const skill of data.skills) {
     if (
       !skill ||
@@ -34,9 +35,13 @@ export function validateSkills(data: Partial<Technologies>): void {
       !Array.isArray(skill.prerequisites) ||
       new Set(skill.prerequisites).size !== skill.prerequisites.length ||
       !skill.effect ||
-      !["carry_slots", "build_range", "survey_range", "swimming"].includes(
-        skill.effect.kind,
-      ) ||
+      ![
+        "carry_slots",
+        "build_range",
+        "survey_range",
+        "swimming",
+        "move_speed",
+      ].includes(skill.effect.kind) ||
       !positive(skill.effect.amount, 32) ||
       (skill.effect.kind === "swimming" && skill.effect.amount !== 1) ||
       (skill.legacy_technology_id !== undefined &&
@@ -53,11 +58,13 @@ export function validateSkills(data: Partial<Technologies>): void {
     else if (skill.effect.kind === "build_range") reach += skill.effect.amount;
     else if (skill.effect.kind === "survey_range")
       survey += skill.effect.amount;
+    else if (skill.effect.kind === "move_speed") pace += skill.effect.amount;
     else swimming += skill.effect.amount;
   }
   // The survey bound is the tight one: a ring is `3n(n+1)+1` chunks, so a ladder of them costs the
-  // generator far more world than the other two effects ever ask for. Native holds the same three.
-  if (carry > 120 || reach > 32 || survey > 2 || swimming > 1)
+  // generator far more world than the other effects ever ask for. Pace is bounded by the arrival
+  // radius: a step that outgrew it would let a walk skip its own waypoint. Native holds all four.
+  if (carry > 120 || reach > 32 || survey > 2 || swimming > 1 || pace > 50)
     throw new TypeError("Skill effects exceed player bounds");
   for (const skill of data.skills)
     if (skill.prerequisites.some((id) => !ids.has(id)))

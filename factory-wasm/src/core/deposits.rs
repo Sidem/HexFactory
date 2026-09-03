@@ -389,6 +389,20 @@ impl Core {
             .min(BASE_SURVEY_RINGS + MAX_SURVEY_RING_BONUS)
     }
 
+    /// Percent added to travel speed by the mobility ladder, over the base pace.
+    ///
+    /// Derived rather than stored, for [`Core::survey_rings`]'s reason: the skills that raise it
+    /// are already saved and validated, so a saved copy could only ever disagree with them. It is
+    /// also not written back into [`PlayerState`] by [`Core::apply_research_effects`] — unlike the
+    /// pack, which creative mode may have widened past what was earned, there is no editor for
+    /// pace and so nothing a floor would have to protect.
+    pub(crate) fn move_speed_bonus(&self) -> u32 {
+        self.skills
+            .bonuses(&self.technologies)
+            .move_speed
+            .min(MAX_MOVE_SPEED_BONUS)
+    }
+
     /// Apply earned skills through the same native player fields placement and carrying use.
     /// Pack size is a floor because creative mode may have widened it further; build range has no
     /// separate editor and is therefore exactly the researched value. Survey range is not here at

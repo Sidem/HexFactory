@@ -312,6 +312,42 @@ reach can yield is derivable without further generation work.
 
 World generator 14 rejects every version-13 save: every bed and every water surface moved.
 
+### The ground has a strength — world generator 15
+
+Erodibility was one constant, so a grade line was always reached and every valley on every seed had the same
+cross-section. **The rock now has a strength field** and the incision stops where the discharge cannot pay for
+it:
+
+- **Strength is banded, not classed.** A low-frequency lateral field decides where the hard rock is; depth
+  below the surface decides how much of it a cut meets — a soft weathered mantle over a harder bed. It is a
+  number with a physical meaning, sampled per cell, not a `match` on a rock type.
+- **Cutting power scales with discharge class**, so a large river still reaches its grade line through ground
+  that stops a creek. Where it cannot, the bed stops above the grade line and the reach leaves a **sill** — a
+  step the water crosses and a walker may not, because the drop is past the wade limit.
+- **The bank grade is drawn from the same field.** Soft ground gives the wider valley, hard ground the tighter
+  one, over a span whose soft end is world 14's single constant — so no valley the new rule cuts is wider than
+  one already shipped.
+- **The survey gates it.** `terra_survey` counts sills, counts edges falling past the wade limit and reports
+  the deepest, alongside the existing cycle, uphill-edge and drainage-walk invariants.
+
+Sills are what the slice is for: a crossing a walker must go around, or bridge, that the water put there. They
+are also nearly free — measured against a run with cutting power raised until nothing can be stopped, they cost
+four ponds and change no drainage-walk termination at all. Both results are in `docs/BENCHMARKS.md`.
+
+World generator 15 rejects every version-14 save: bed elevations moved wherever the rock refused the cut.
+
+### The mobility ladder
+
+Skill Points bought one rank each of Carrying, Construction reach and Surveying range, and a milestone bought
+one point. Both halves now have depth: **Carrying and Construction reach run to three ranks**, and travel speed
+joins them as a fourth branch at three ranks of ten per cent each, capped by `MAX_MOVE_SPEED_BONUS`.
+
+- **Pace is fitness, not boots.** The bonus multiplies the step after every surface branch — ground, ford and
+  swim alike — so the ratios the route search prices a path in stay exactly the ones a faster player walks.
+- **The journey still funds the whole ladder and not a point more.** There are four milestone events and there
+  is no room for more, so they were made worth more: 1 / 4 / 6 / 9 points against a total skill cost of 20. The
+  budget assertion is unchanged and still exact.
+
 ### Closeout delivered
 
 The distant aggregated terrain LOD is native generated, read-only and checksum-neutral. It carries broad
@@ -409,9 +445,9 @@ foraging, farming, cooking, preserving and storing worth automating is a system.
 
 - **Attributes are bounded and legible.** Strength raises carry weight and hand-work speed; it never becomes an
   invisible multiplier on every rate. Each attribute states its exact effect and ceiling.
-- **One player-progression story, not two.** Skill Points already buy Carrying, Construction reach and
-  Surveying range. Either attributes replace those ranks or they set the base the ranks modify — never two
-  currencies buying the same bonus.
+- **One player-progression story, not two.** Skill Points already buy Carrying, Construction reach, Surveying
+  range and travel pace, the first two and the last at three ranks each. Either attributes replace those ranks
+  or they set the base the ranks modify — never two currencies buying the same bonus.
 - **Native state.** Hunger, condition and attributes are saved and checksummed, owned by the player clock that
   runs independent of the simulation rate — so whether a need advances while the factory is paused is an
   explicit decision.

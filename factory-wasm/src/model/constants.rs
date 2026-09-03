@@ -115,7 +115,13 @@ const SAVE_PREFIX: &str = "HXF1\n";
 ///
 /// Version 41 carries sparse live-erosion deltas and outside-bank stress. Both default to nothing,
 /// so a version-40 factory verifies before adopting the new catalogue resistance data.
-const SAVE_VERSION: u16 = 42;
+///
+/// Version 43 carries no new saved field either. Three skill branches became ladders, a mobility
+/// rank joined them and the milestones funding them are worth more; every owned skill is keyed by
+/// a stable id, so a version-42 file owns what it owned and the new ranks are simply unbought. The
+/// world moved under it as well — see [`WORLD_GENERATOR_VERSION`] — which is the version-40 case
+/// again: the stamp advances so the file reaches the generator check rather than a format error.
+const SAVE_VERSION: u16 = 43;
 /// Bumped to 6 for World Parameters. `WorldParams` is now part of a run's identity — it is in the
 /// save envelope and in the checksum — so a version-5 envelope carries no answer to the question
 /// "which world is this" and is rejected rather than assumed to be the default.
@@ -141,7 +147,13 @@ const SAVE_VERSION: u16 = 42;
 /// under whatever noise the cell happened to have. Routing is a priority flood over the node
 /// lattice rather than a minimum spanning tree, so a reach descends by construction. Every bed and
 /// every water surface moved; a version-13 envelope is a different landscape.
-const WORLD_GENERATOR_VERSION: u16 = 14;
+///
+/// Bumped to 15 for variable ground hardness. Erodibility was one constant, which is why every
+/// valley in version 14 had the same cross-section: rock strength is now a layered field of place
+/// and depth, so a reach that meets rock harder than its discharge can cut hangs its bed on a sill,
+/// pools behind it and falls past it, and a bank climbs at the grade the rock in it holds. Every
+/// bed, bank and water surface in the world moved; a version-14 envelope is a different landscape.
+const WORLD_GENERATOR_VERSION: u16 = 15;
 const MAX_COMMANDS_PER_BATCH: usize = 8;
 /// A drag is one bounded command, so the run it expands into has to be bounded too. This is the
 /// native cap on cells a single `place_line` or `erase_line` may touch.
@@ -162,6 +174,14 @@ const BASE_SURVEY_RINGS: u32 = 1;
 /// this is a cost ceiling on world generation, not a taste: at the shipped chunk size, two rings is
 /// 1,216 hexes against one ring's 448, and three would be 2,432.
 const MAX_SURVEY_RING_BONUS: u32 = 2;
+/// The most a skill catalogue may add to travel speed, as a percentage of [`PLAYER_SPEED`].
+///
+/// A step is a jump, not a sweep: nothing is tested between where the player was and where they
+/// land. [`WALK_ARRIVE_RADIUS`] is what keeps a waypoint from being cleared, and a step that grew
+/// past it would let an autonomous walk skip its own waypoint and circle back for it forever. At
+/// this ceiling a full-intent step is 412 world units against that radius's 768, so the margin the
+/// arrival test was written with survives the whole ladder.
+const MAX_MOVE_SPEED_BONUS: u32 = 50;
 const GRAPH_TRACE_LIMIT: i32 = 8;
 /// The most outgoing transport links one entity may compile: its facing, and — for a splitter —
 /// the two flanks 60° either side of it.
@@ -370,7 +390,8 @@ const WALK_STALL_STEPS: u32 = 30;
 /// The hex's inradius, which is the largest circle wholly inside it. Being inside it means
 /// `world_to_axial` of that position is that hex, which is what lets arrival be told apart from a
 /// route that ran out for any other reason. It also has to be comfortably larger than one step — at
-/// most `PLAYER_SPEED`, 275 — or a waypoint could be jumped clean over and the walk would circle it.
+/// most `PLAYER_SPEED` raised by [`MAX_MOVE_SPEED_BONUS`], 412 — or a waypoint could be jumped clean
+/// over and the walk would circle it.
 const WALK_ARRIVE_RADIUS: i32 = HEX_Y / 2;
 /// Fastest hand gather, in player-clock steps: wood. Counted on the player's own cadence like the
 /// walk, so holding the action key harvests at one rate whether the factory is paused, running at

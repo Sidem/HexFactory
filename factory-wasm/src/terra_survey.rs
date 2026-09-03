@@ -59,6 +59,16 @@ pub struct TerraSurvey {
     pub river_edges: u64,
     pub river_rises: u64,
     pub river_rise_max_mq: i32,
+    /// Channel cells the rock stopped short of their graded bed, the flow edges whose water
+    /// surface steps down further in one cell than a player can wade, and the largest such step.
+    ///
+    /// These are the falls. Nothing places one: a sill is a bed a reach lost to, the step is what
+    /// the grade line does on the far side of it, and the pool behind it is a depression the lake
+    /// solve finds on its own. Counting them is how "the rock varies" stays a claim about the
+    /// landscape rather than about the noise field.
+    pub river_sills: u64,
+    pub river_falls: u64,
+    pub river_fall_max_mq: i32,
     /// Channel cells per discharge class.
     pub discharge_histogram: [u64; 8],
     pub sea_cells: u64,
@@ -179,6 +189,9 @@ pub fn survey_at(seed: u32, span: i32, centre: (i32, i32)) -> TerraSurvey {
         river_edges: 0,
         river_rises: 0,
         river_rise_max_mq: 0,
+        river_sills: 0,
+        river_falls: 0,
+        river_fall_max_mq: 0,
         discharge_histogram: [0; 8],
         sea_cells: 0,
         lake_water_cells: 0,
@@ -230,6 +243,11 @@ pub fn survey_at(seed: u32, span: i32, centre: (i32, i32)) -> TerraSurvey {
 
                 if let Some(channel) = province.channel(q, r) {
                     result.discharge_histogram[usize::from(channel.class)] += 1;
+                    // A bed the rock held above the depth this class would otherwise have cut.
+                    if channel.floor_mq > channel.surface_mq - bed_depth(channel.class) * MQ as i32
+                    {
+                        result.river_sills += 1;
+                    }
                 }
 
                 match province.flow(q, r) {
@@ -257,6 +275,9 @@ pub fn survey_at(seed: u32, span: i32, centre: (i32, i32)) -> TerraSurvey {
                             if rise > 0 {
                                 result.river_rises += 1;
                                 result.river_rise_max_mq = result.river_rise_max_mq.max(rise);
+                            } else if -rise >= crate::scale::WADE_LIMIT_QUANTA * MQ as i32 {
+                                result.river_falls += 1;
+                                result.river_fall_max_mq = result.river_fall_max_mq.max(-rise);
                             }
                         }
                     }
@@ -452,6 +473,12 @@ pub fn format_report(survey: &TerraSurvey) -> String {
         i64::from(survey.river_rise_max_mq) * i64::from(crate::scale::HEIGHT_QUANTUM_MM) / MQ
     ));
     out.push_str(&format!(
+        "  geology        {} channel cells sit on a sill, {} edges fall past the wade limit (deepest {} mm)\n",
+        survey.river_sills,
+        survey.river_falls,
+        i64::from(survey.river_fall_max_mq) * i64::from(crate::scale::HEIGHT_QUANTUM_MM) / MQ
+    ));
+    out.push_str(&format!(
         "  drainage walks {} starts: {} to sea, {} to lake, {} to frontier, {} off the sample, {} unterminated, longest {}\n",
         survey.walks,
         survey.reached_sea,
@@ -494,6 +521,9 @@ pub fn format_json(survey: &TerraSurvey) -> String {
         "river_edges": survey.river_edges,
         "river_rises": survey.river_rises,
         "river_rise_max_mq": survey.river_rise_max_mq,
+        "river_sills": survey.river_sills,
+        "river_falls": survey.river_falls,
+        "river_fall_max_mq": survey.river_fall_max_mq,
         "discharge_histogram": survey.discharge_histogram,
         "sea_cells": survey.sea_cells,
         "lake_water_cells": survey.lake_water_cells,
@@ -556,5 +586,27 @@ mod tests {
             wider.river_edges,
             wider.river_rise_max_mq
         );
+
+        // World 15 asks the rock to stop some reaches and not others. Both halves are the claim:
+        // no sills means one erodibility everywhere again, and a sill on every reach means the
+        // network is a staircase rather than a drainage.
+        assert!(
+            (1..wider.river_edges / 4).contains(&wider.river_sills),
+            "{} sills over {} river edges",
+            wider.river_sills,
+            wider.river_edges
+        );
+
+        // A fall needs somewhere to fall to, and [`SEED`]'s origin is seabed: every channel there
+        // is drowned, so the steps are under water and none of them is a drop a walker meets. The
+        // fall claim belongs on dry land, which is what this one province of upland is.
+        let upland = survey(1_213_486_160, 1);
+        assert!(
+            upland.river_sills > 0 && upland.river_falls > 0,
+            "{} sills and {} falls in a province of upland",
+            upland.river_sills,
+            upland.river_falls
+        );
+        assert!(upland.river_fall_max_mq >= crate::scale::WADE_LIMIT_QUANTA * MQ as i32);
     }
 }

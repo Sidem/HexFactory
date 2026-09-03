@@ -38,7 +38,10 @@
 // v41 adds empty live-erosion state and definition resistance stamps.
 // v42 adds the swimming skill and its milestone. Resource-site edges become noise-shaped too, so
 // the world stamp moves and older landscapes stay export-only rather than being regenerated.
-export const SAVE_VERSION = 42;
+// v43 turns three skill branches into ladders and adds a mobility rank, so the technology stamp
+// moves; owned skills are keyed by stable ids and a v42 file keeps exactly what it bought. The
+// world stamp moves with it for variable ground hardness, which is v40's case again.
+export const SAVE_VERSION = 43;
 export const SAVE_CATALOG_KEY = "hexfactory:saves:v1";
 export const LEGACY_SAVE_PREFIX = "hexfactory:hxf1:";
 export const HXF1_PREFIX = "HXF1\n";
@@ -222,6 +225,7 @@ export function compatibility(
     [40, 29, 16],
     [41, 30, 16],
     [42, 30, 17],
+    [43, 30, 18],
   ];
   if (envelope.saveVersion <= 36 && build.versions.save >= 37) {
     mismatches.push({

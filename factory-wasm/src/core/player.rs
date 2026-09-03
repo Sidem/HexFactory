@@ -363,6 +363,10 @@ impl Core {
             intent_x = intent_x.signum() * magnitude;
             intent_y = intent_y.signum() * magnitude;
         }
+        // The mobility ladder last and on every surface alike, so the ratios between ground, ford
+        // and swim — the ratios `WALK_STEP_COST` and its neighbours price a route in — are exactly
+        // the ones a fitter player actually walks.
+        let speed = speed * (100 + self.move_speed_bonus() as i32) / 100;
         (
             i32::from(intent_x) * speed / 1000,
             i32::from(intent_y) * speed / 1000,

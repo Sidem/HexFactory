@@ -1074,16 +1074,17 @@ mod tests {
         core
     }
 
-    /// A surveyed cell the band calls dry land, on ground the player could stand on.
+    /// A dry cell in a dry disc: no pool lip refills a pump draw.
     fn dry_cell(core: &Core) -> (i32, i32) {
         let size = core.scenario.chunk_size;
+        let dry = |q: i32, r: i32| {
+            let c = core.generated_ground_at(q, r);
+            c.hydrology.depth_quanta == 0 && !c.presentation.is_water()
+        };
         core.generated_chunks
             .iter()
-            .flat_map(|&(chunk_q, chunk_r)| hexes_in_chunk(chunk_q, chunk_r, size))
-            .find(|&(q, r)| {
-                let generated = core.generated_ground_at(q, r);
-                generated.hydrology.depth_quanta == 0 && !generated.presentation.is_water()
-            })
+            .flat_map(|&(cq, cr)| hexes_in_chunk(cq, cr, size))
+            .find(|&(q, r)| dry(q, r) && DIRECTIONS.iter().all(|&(dq, dr)| dry(q + dq, r + dr)))
             .expect("the opening shelf is dry")
     }
 
@@ -1476,8 +1477,8 @@ mod tests {
         };
         core.generated_chunks
             .iter()
-            .flat_map(|&(chunk_q, chunk_r)| hexes_in_chunk(chunk_q, chunk_r, size))
-            .filter(|&cell| dry(core, cell) && diggable(core, cell, 4))
+            .flat_map(|&(cq, cr)| hexes_in_chunk(cq, cr, size))
+            .filter(|&c| dry(core, c) && diggable(core, c, 4))
             .find_map(|(q, r)| {
                 let ring: Vec<(i32, i32)> = DIRECTIONS
                     .iter()
