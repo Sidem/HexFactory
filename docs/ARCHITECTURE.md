@@ -378,6 +378,16 @@ not an oversight.
   absolute bed height in 0.25 m quanta plus water depth, surface and discharge. Its surveyed-chunk cache
   falls back to the uncached source when world identity no longer matches, and is rebuilt rather than
   saved — the uncached source is its oracle.
+- **Drainage is denser than rivers.** The native drainage tree retains class-1 hillslope flow, but a
+  permanent channel begins at class 2. Wetted width by discharge class is 1 / 3 / 3 / 5 / 7 / 9 cells
+  for classes 2–7; its graded dry bench is one cell through class 4 and two thereafter. Water and bench
+  read the same nearest-channel index and distance, so a renderer never manufactures a wider bank or a
+  detached strip of sand.
+- **The landing is a coastal shelf, not coordinate zero.** Native first locates a low region with both
+  land and ocean, then applies the same dry, walkable and buildable clearing test used everywhere else.
+  The chosen cell is at most 100 m above the global zero-metre sea datum and exact generated sea lies
+  within 24 cells. The translation changes no drainage or terrain coordinate: every physical query adds
+  the same chosen source offset.
 - **Water is stored as a departure, never as a level.** Generated hydrology is a pure function of seed
   and coordinate, so an untouched world carries no water state. `hydrology.rs` stores only
   `DisturbedWater` and forgets a cell the moment it returns to generated depth, so a world flooded and

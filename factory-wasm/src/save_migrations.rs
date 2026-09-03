@@ -296,6 +296,16 @@ pub(super) fn migrate<'a>(json: &'a str, target_version: u16) -> Result<Cow<'a, 
         version = 43;
     }
 
+    // Version 44 carries no new saved field. World 16 suppresses class-1 channels and widens the
+    // rivers that remain, so a version-43 file reaches the explicit generator refusal and keeps
+    // its export path rather than stopping at a generic missing-migration error.
+    if version == 43 && target_version >= 44 {
+        if let Some(object) = value.as_object_mut() {
+            object.insert("save_version".into(), Value::from(44));
+        }
+        version = 44;
+    }
+
     if version == target_version {
         return Ok(Cow::Owned(serde_json::to_string(&value).map_err(
             |error| format!("migrated save could not be written: {error}"),
@@ -721,6 +731,18 @@ mod tests {
         assert_eq!(value["world_generator_version"], 11);
         assert_eq!(value["state"]["entities"][0]["definition_id"], 1);
         assert_eq!(value["state"]["entities"][0]["orientation"], 0);
+
+        // Forty-four changes only generated river morphology. State and catalogues stay byte-for-
+        // byte data; the next boundary rejects the old world stamp with the exportable-world
+        // message rather than pretending the terrain can be migrated.
+        let json = r#"{"save_version":43,"definition_version":30,"technology_version":18,"world_generator_version":15,"state":{"player":{"inventory":{"1":7}}}}"#;
+        let migrated = migrate(json, 44).expect("migrated save");
+        let value: Value = serde_json::from_str(&migrated).expect("migrated json");
+        assert_eq!(value["save_version"], 44);
+        assert_eq!(value["definition_version"], 30);
+        assert_eq!(value["technology_version"], 18);
+        assert_eq!(value["world_generator_version"], 15);
+        assert_eq!(value["state"]["player"]["inventory"]["1"], 7);
     }
 
     /// A file does not stop at the rung it was written for: fifteen climbs to twenty through every

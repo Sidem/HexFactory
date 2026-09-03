@@ -26,10 +26,12 @@ fn main() -> ExitCode {
     let mut json_path: Option<String> = None;
     let mut centre = (0, 0);
     let mut coast = false;
+    let mut landing = false;
     let mut arguments = std::env::args().skip(1);
     while let Some(argument) = arguments.next() {
         match argument.as_str() {
             "--coast" => coast = true,
+            "--landing" => landing = true,
             "--centre" => match arguments.next().and_then(parse_centre) {
                 Some(value) => centre = value,
                 None => return usage("--centre requires <pq>,<pr>"),
@@ -76,6 +78,76 @@ fn main() -> ExitCode {
         }
     }
 
+    if landing {
+        let mut terra = terra::Terra::new(seed);
+        let site = terra.landing_site();
+        centre = terra::province_of(site.q, site.r);
+        eprintln!(
+            "landing at cell ({},{}) in province ({},{}), altitude {:.2} m",
+            site.q,
+            site.r,
+            centre.0,
+            centre.1,
+            f64::from(site.bed_quanta) * 0.25
+        );
+        if let Some((sea, distance)) = nearest_sea_cell(&mut terra, (site.q, site.r), 512) {
+            let metres =
+                i64::from(distance) * i64::from(factory_wasm::scale::CELL_SPACING_MM) / 1_000;
+            eprintln!(
+                "nearest ocean cell is ({},{}) at {} cells (about {} m straight-line)",
+                sea.0, sea.1, distance, metres
+            );
+        }
+        if let Some((ocean, distance)) = nearest_ocean_province(seed, centre, 96) {
+            let metres = i64::from(distance)
+                * i64::from(terra::PROVINCE_CELL)
+                * i64::from(factory_wasm::scale::CELL_SPACING_MM)
+                / 1_000;
+            eprintln!(
+                "nearest ocean-ranked province is ({},{}) at {} macro steps (about {:.1} km straight-line)",
+                ocean.0,
+                ocean.1,
+                distance,
+                metres as f64 / 1_000.0
+            );
+        }
+        if let Some((lake, distance)) = nearest_lake_cell(&mut terra, (site.q, site.r), 512) {
+            let metres =
+                i64::from(distance) * i64::from(factory_wasm::scale::CELL_SPACING_MM) / 1_000;
+            let basin_cells = terra.lake_at(lake.0, lake.1).map_or(0, |info| info.cells);
+            eprintln!(
+                "nearest visible lake cell is ({},{}) in a {}-cell basin, at {} cells (about {:.1} km straight-line)",
+                lake.0,
+                lake.1,
+                basin_cells,
+                distance,
+                metres as f64 / 1_000.0
+            );
+        } else {
+            eprintln!("no visible lake within 512 cells of the landing");
+        }
+        let mut drainage = centre;
+        for steps in 0..10_000 {
+            match terra::province_outlet(seed, drainage.0, drainage.1) {
+                terra::Outlet::Ocean => {
+                    eprintln!(
+                        "landing province drains to ocean province ({},{}) after {} macro steps",
+                        drainage.0, drainage.1, steps
+                    );
+                    break;
+                }
+                terra::Outlet::Basin => {
+                    eprintln!(
+                        "landing province drains to an inland basin at ({},{}) after {} macro steps",
+                        drainage.0, drainage.1, steps
+                    );
+                    break;
+                }
+                terra::Outlet::Province { pq, pr } => drainage = (pq, pr),
+            }
+        }
+    }
+
     eprintln!(
         "surveying the terra prototype at seed {seed}, centred on province ({},{})",
         centre.0, centre.1
@@ -118,13 +190,77 @@ fn main() -> ExitCode {
     }
 }
 
+fn nearest_ocean_province(seed: u32, centre: (i32, i32), reach: i32) -> Option<((i32, i32), i32)> {
+    for distance in 0..=reach {
+        for dq in -distance..=distance {
+            for dr in -distance..=distance {
+                let axial = (dq.abs() + dr.abs() + (dq + dr).abs()) / 2;
+                if axial != distance {
+                    continue;
+                }
+                let province = (centre.0 + dq, centre.1 + dr);
+                if terra::province_rank(seed, province.0, province.1)
+                    < factory_wasm::scale::SEA_LEVEL_QUANTA
+                {
+                    return Some((province, distance));
+                }
+            }
+        }
+    }
+    None
+}
+
+fn nearest_lake_cell(
+    terra: &mut terra::Terra,
+    centre: (i32, i32),
+    reach: i32,
+) -> Option<((i32, i32), i32)> {
+    for distance in 0..=reach {
+        for dq in -distance..=distance {
+            for dr in -distance..=distance {
+                let axial = (dq.abs() + dr.abs() + (dq + dr).abs()) / 2;
+                if axial != distance {
+                    continue;
+                }
+                let cell = (centre.0 + dq, centre.1 + dr);
+                if matches!(terra.water(cell.0, cell.1), terra::Water::Lake { .. }) {
+                    return Some((cell, distance));
+                }
+            }
+        }
+    }
+    None
+}
+
+fn nearest_sea_cell(
+    terra: &mut terra::Terra,
+    centre: (i32, i32),
+    reach: i32,
+) -> Option<((i32, i32), i32)> {
+    for distance in 0..=reach {
+        for dq in -distance..=distance {
+            for dr in -distance..=distance {
+                let axial = (dq.abs() + dr.abs() + (dq + dr).abs()) / 2;
+                if axial != distance {
+                    continue;
+                }
+                let cell = (centre.0 + dq, centre.1 + dr);
+                if matches!(terra.water(cell.0, cell.1), terra::Water::Sea { .. }) {
+                    return Some((cell, distance));
+                }
+            }
+        }
+    }
+    None
+}
+
 fn usage(message: &str) -> ExitCode {
     eprintln!("{message}");
     eprintln!("{USAGE}");
     ExitCode::FAILURE
 }
 
-const USAGE: &str = "usage: terra [--seed <n>] [--span <provinces>]... [--centre <pq>,<pr>] [--coast] [--json <path>]";
+const USAGE: &str = "usage: terra [--seed <n>] [--span <provinces>]... [--centre <pq>,<pr>] [--coast] [--landing] [--json <path>]";
 
 /// `--centre 12,-4`. Separate from the span so that where a sample is taken and how big it is stay
 /// independent questions.

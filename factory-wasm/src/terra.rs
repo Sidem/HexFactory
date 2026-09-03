@@ -125,11 +125,20 @@ fn spring_threshold(head_mq: i32) -> i32 {
     SPRING_MOISTURE - (above_sea.saturating_mul(SPRING_ALTITUDE_EASE)).min(SPRING_ALTITUDE_CAP)
 }
 
-/// Bounded search used to choose a new world's valley shelf. Province ranks are `O(1)`, so the
-/// wide macro search is cheap; only the eight nearest dry candidates are solved in full.
+/// Bounded search used to choose a new world's valley shelf. The coastal search is centred on a
+/// province that has both land and sea nearby, so a new game begins on the low plain rather than
+/// at an arbitrary inland coordinate. Province ranks are `O(1)`; only eight low dry candidates are
+/// sampled in full, plus the bounded neighbouring provinces touched by exact beach checks.
 const LANDING_PROVINCE_RADIUS: i32 = 32;
+const LANDING_COAST_RADIUS: i32 = 6;
 const LANDING_PROVINCE_BUDGET: usize = 8;
+#[cfg(test)]
+const LANDING_PROVINCE_SOLVE_BUDGET: usize = LANDING_PROVINCE_BUDGET * 4;
 const LANDING_SAMPLE_STRIDE: i32 = 8;
+/// A new game must put an ocean beach inside the first pump's opening walk: about 129 m at most.
+const LANDING_BEACH_RADIUS: i32 = 24;
+/// Coastal plain ceiling for the landing itself: 100 m above the fixed sea datum.
+const LANDING_ALTITUDE_CEILING: i32 = 400;
 /// The inner pad must carry the largest initial footprint; the outer clearing must be dry and
 /// traversable so opening material searches do not begin behind a river or retaining face.
 pub const LANDING_PAD_RADIUS: i32 = 1;
@@ -455,7 +464,12 @@ pub struct Channel {
 /// the way up. Carving every twig would put a gully every 43 m, which is two orders of magnitude
 /// denser than real drainage and would leave nowhere flat enough to build. Below this class the
 /// water is on the hillslope, where it belongs.
-pub const CHANNEL_CLASS_MIN: u8 = 1;
+///
+/// Class 1 is hillslope drainage. Cutting it made the default inland world a mesh of one-cell
+/// streams with one-cell shore stripes, so visible water now starts once five class-1 catchments
+/// have joined. The drainage still exists above this threshold; it simply has no incised bed or
+/// permanent surface water yet.
+pub const CHANNEL_CLASS_MIN: u8 = 2;
 
 /// The widest a class of valley may spread, in cells. The bank grade normally stops the cut well
 /// inside this; the cap is what keeps every valley inside [`VALLEY_RADIUS`] and so inside the halo.
@@ -500,9 +514,29 @@ fn graded_bed(seed: u32, cell: (i32, i32), class: u8, level_mq: i32) -> (i32, i3
     (surface.max(floor + MIN_FLOW_MQ), floor)
 }
 
-/// Half-width of the wetted channel, in cells.
-fn river_half_width(class: u8) -> i32 {
-    i32::from(class.saturating_sub(CHANNEL_CLASS_MIN)) / 2
+/// Half-width of the wetted channel, in cells: one cell for the first visible stream, three for a
+/// small river, five for a substantial river, and seven to nine for the two largest classes.
+///
+/// This is stated against the absolute discharge class rather than [`CHANNEL_CLASS_MIN`], so
+/// suppressing hillslope drainage never accidentally narrows the rivers that remain.
+pub(crate) fn river_half_width(class: u8) -> i32 {
+    match class {
+        0..=2 => 0,
+        3..=4 => 1,
+        5 => 2,
+        6 => 3,
+        _ => 4,
+    }
+}
+
+/// Dry alluvial bench outside each wetted bank, in cells. Large rivers earn two readable rows;
+/// small channels keep one so their banks do not consume more ground than their water.
+pub(crate) fn river_bench_width(class: u8) -> i32 {
+    if class >= 5 {
+        2
+    } else {
+        1
+    }
 }
 
 /// How far the graded valley floor is laid down exactly rather than only cut into, in cells.
@@ -511,7 +545,7 @@ fn river_half_width(class: u8) -> i32 {
 /// a lip in the middle of a river. That flattening is the whole reason the water surface can be a
 /// smooth descending line instead of the ragged one the noise field would impose.
 fn bed_radius(class: u8) -> i32 {
-    river_half_width(class) + 1
+    river_half_width(class) + river_bench_width(class)
 }
 
 /// The most alluvium the graded floor may lay into a hollow it crosses, in milli-quanta: 1 m.
@@ -886,9 +920,12 @@ pub struct Province {
     origin_r: i32,
     /// Finished height over block plus halo, in milli-quanta.
     head_mq: Vec<i32>,
-    /// The channel each domain cell is closest to under the incision solve, as a domain index, or
-    /// `usize::MAX` where no channel reaches.
+    /// The channel each domain cell is closest to across the wetted course and its dry bench, as a
+    /// domain index, or `usize::MAX` where no channel reaches.
     nearest_channel: Vec<usize>,
+    /// Hex distance to `nearest_channel`. The bounded reach is at most six cells, so one byte keeps
+    /// the generated province compact while letting water and dry alluvium share one exact shape.
+    channel_distance: Vec<u8>,
     channels: BTreeMap<(i32, i32), Channel>,
     /// Flow and lake membership, for the province's own cells only.
     flow: Vec<Flow>,
@@ -1140,6 +1177,7 @@ impl Terra {
             origin_r,
             head_mq: vec![0; cells],
             nearest_channel: vec![usize::MAX; cells],
+            channel_distance: vec![u8::MAX; cells],
             channels,
             flow: vec![Flow::Frontier; (PROVINCE_CELL * PROVINCE_CELL) as usize],
             lakes: Vec::new(),
@@ -1237,12 +1275,13 @@ impl Terra {
             }
             reached[index] = distance;
             province.nearest_channel[index] = source;
+            province.channel_distance[index] = distance as u8;
             let (source_q, source_r) = province.domain_cell(source);
             let class = province
                 .channels
                 .get(&(source_q, source_r))
                 .map_or(0, |channel| channel.class);
-            if distance >= river_half_width(class) {
+            if distance >= bed_radius(class) {
                 continue;
             }
             let (q, r) = province.domain_cell(index);
@@ -1370,6 +1409,29 @@ impl Terra {
         self.province(pq, pr).channel(q, r)
     }
 
+    /// Whether this dry cell is the generated alluvial bench of a wet river. The same nearest-
+    /// channel sweep defines water and bank, so a two-cell bench cannot detach at a bend or widen
+    /// because a presentation query happened to find a different neighbouring reach.
+    pub fn river_bench_at(&mut self, q: i32, r: i32) -> bool {
+        let (pq, pr) = province_of(q, r);
+        let province = self.province(pq, pr);
+        let Some(index) = province.domain_index(q, r) else {
+            return false;
+        };
+        let source = province.nearest_channel[index];
+        if source == usize::MAX {
+            return false;
+        }
+        let (source_q, source_r) = province.domain_cell(source);
+        let Some(channel) = province.channels.get(&(source_q, source_r)) else {
+            return false;
+        };
+        let distance = i32::from(province.channel_distance[index]);
+        channel.wet
+            && distance > river_half_width(channel.class)
+            && distance <= river_half_width(channel.class) + river_bench_width(channel.class)
+    }
+
     /// The cell this one's water runs to, or `None` at a lake, the sea or a frontier basin.
     pub fn downstream(&mut self, q: i32, r: i32) -> Option<(i32, i32)> {
         match self.flow(q, r) {
@@ -1411,7 +1473,9 @@ impl Terra {
         let Some(channel) = province.channels.get(&(source_q, source_r)) else {
             return Water::Dry;
         };
-        if !channel.wet {
+        if !channel.wet
+            || i32::from(province.channel_distance[index]) > river_half_width(channel.class)
+        {
             return Water::Dry;
         }
         // The reach's own grade line, not a depth over the nearest bed: the surface has to be the
@@ -1435,12 +1499,19 @@ impl Terra {
     /// exact shelf wins in distance order; if a hostile seed offers none inside the bound, the
     /// least-bad dry candidate is still deterministic and its score remains testable.
     pub fn landing_site(&mut self) -> LandingSite {
+        let coastal_anchor = coast_province(self.seed);
+        let anchor = coastal_anchor.unwrap_or((0, 0));
+        let search_radius = if coastal_anchor.is_some() {
+            LANDING_COAST_RADIUS
+        } else {
+            LANDING_PROVINCE_RADIUS
+        };
         let mut provinces = Vec::new();
-        for pq in -LANDING_PROVINCE_RADIUS..=LANDING_PROVINCE_RADIUS {
-            for pr in -LANDING_PROVINCE_RADIUS..=LANDING_PROVINCE_RADIUS {
+        for pq in anchor.0 - search_radius..=anchor.0 + search_radius {
+            for pr in anchor.1 - search_radius..=anchor.1 + search_radius {
                 let rank = province_rank(self.seed, pq, pr);
                 if rank >= SEA_LEVEL_QUANTA {
-                    provinces.push((axial_distance((0, 0), (pq, pr)), pq, pr, Reverse(rank)));
+                    provinces.push((rank, axial_distance(anchor, (pq, pr)), pq, pr));
                 }
             }
         }
@@ -1449,7 +1520,7 @@ impl Terra {
         let pad_offsets = hexes_in_radius((0, 0), LANDING_PAD_RADIUS);
         let clear_offsets = hexes_in_radius((0, 0), LANDING_CLEAR_RADIUS);
         let mut best: Option<((u32, i32, u32, i32, i32, i32, i32), LandingSite)> = None;
-        for &(_, pq, pr, _) in provinces.iter().take(LANDING_PROVINCE_BUDGET) {
+        for &(_, _, pq, pr) in provinces.iter().take(LANDING_PROVINCE_BUDGET) {
             let (origin_q, origin_r) = province_origin(pq, pr);
             let margin = LANDING_CLEAR_RADIUS;
             let mut local_r = margin;
@@ -1505,6 +1576,8 @@ impl Terra {
                     if water_cells == 0
                         && pad_spread <= crate::scale::MAX_BUILD_STEP_QUANTA
                         && walk_edges == 0
+                        && site.bed_quanta <= LANDING_ALTITUDE_CEILING
+                        && self.has_nearby_sea((q, r), LANDING_BEACH_RADIUS)
                     {
                         return site;
                     }
@@ -1515,6 +1588,22 @@ impl Terra {
         }
         best.map(|(_, site)| site)
             .expect("the bounded landing search contains dry-ranked provinces")
+    }
+
+    fn has_nearby_sea(&mut self, centre: (i32, i32), radius: i32) -> bool {
+        for distance in 0..=radius {
+            for dq in -distance..=distance {
+                for dr in -distance..=distance {
+                    if (dq.abs() + dr.abs() + (dq + dr).abs()) / 2 != distance {
+                        continue;
+                    }
+                    if matches!(self.water(centre.0 + dq, centre.1 + dr), Water::Sea { .. }) {
+                        return true;
+                    }
+                }
+            }
+        }
+        false
     }
 }
 
@@ -1944,7 +2033,15 @@ mod tests {
         for class in 0..=7u8 {
             assert!(valley_half_width(class) <= VALLEY_RADIUS);
             assert!(river_half_width(class) <= VALLEY_RADIUS);
+            assert!(river_half_width(class) + river_bench_width(class) <= VALLEY_RADIUS);
         }
+        assert_eq!(river_half_width(CHANNEL_CLASS_MIN) * 2 + 1, 1);
+        assert_eq!(river_half_width(3) * 2 + 1, 3);
+        assert_eq!(river_half_width(5) * 2 + 1, 5);
+        assert_eq!(river_half_width(6) * 2 + 1, 7);
+        assert_eq!(river_half_width(7) * 2 + 1, 9);
+        assert_eq!(river_bench_width(CHANNEL_CLASS_MIN), 1);
+        assert_eq!(river_bench_width(5), 2);
         assert!(HALO > VALLEY_RADIUS);
     }
 
@@ -1954,7 +2051,7 @@ mod tests {
             let mut first = Terra::new(seed);
             let site = first.landing_site();
             assert!(
-                first.provinces_solved() <= LANDING_PROVINCE_BUDGET,
+                first.provinces_solved() <= LANDING_PROVINCE_SOLVE_BUDGET,
                 "landing search exceeded its province budget"
             );
             let mut reordered = Terra::new(seed);
@@ -1985,6 +2082,17 @@ mod tests {
                     (first.head(q, r) - first.head(q + dq, r + dr)).abs()
                         <= crate::scale::MAX_WALK_STEP_QUANTA
                 })));
+            assert!(
+                site.bed_quanta <= LANDING_ALTITUDE_CEILING,
+                "seed {seed} landed at {} m rather than on the coastal plain",
+                f64::from(site.bed_quanta) * 0.25
+            );
+            assert!(
+                hexes_in_radius((site.q, site.r), LANDING_BEACH_RADIUS)
+                    .into_iter()
+                    .any(|(q, r)| matches!(first.water(q, r), Water::Sea { .. })),
+                "seed {seed} has no ocean beach within {LANDING_BEACH_RADIUS} cells of the landing"
+            );
         }
     }
 

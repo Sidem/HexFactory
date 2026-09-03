@@ -217,6 +217,38 @@ field and flow is steepest descent on it under a total coordinate order. Solve c
 province, 460–486 ms for 81 provinces over 1.3 M cells. Sample the coast, not the origin — a
 statistic about river mouths taken where there is no sea is a wrong result, not a weak one.
 
+### World 16 — visible water starts after gullies gather
+
+The old default landing made world 15's hierarchy failure legible. World 16 leaves class 1 as unincised
+hillslope drainage, preserves class 2 as the occasional one-cell stream, widens classes 3–7 to 3/3/5/7/9
+wet cells, and gives classes 5–7 two dry alluvial cells per bank. The morphology comparison stays on fixed
+inland and coast samples so moving the player does not move the ruler:
+
+|                                      | inland, world 15 | inland, world 16 | coast, world 15 | coast, world 16 |
+| ------------------------------------ | ---------------- | ---------------- | --------------- | --------------- |
+| channel density per mille            | 17               | **14**           | 13              | **10**          |
+| one-cell centreline cells            | 600              | **144**          | 873             | **361**         |
+| widest water / dry bench, cells      | 7 / 1            | **9 / 2**        | 7 / 1           | **9 / 2**       |
+| springs                              | 12               | **9**            | 4               | 4               |
+| lakes / lake cells                   | 11 / 58          | **13 / 63**      | 14 / 415        | **14 / 373**    |
+| wet coverage per mille               | 64               | **55**           | 258             | **255**         |
+| walkable / buildable per mille       | 946 / 731        | **954 / 741**    | 968 / 945       | **976 / 956**   |
+| channel cells on a sill / falls      | 48 / 16          | **34 / 12**      | 0 / 6           | 0 / 6           |
+| cycles / uphill / unterminated walks | 0 / 0 / 0        | **0 / 0 / 0**    | 0 / 0 / 0       | **0 / 0 / 0**   |
+
+The player-visible trade is deliberate: one-cell centreline cells fall 76% inland and 59% at the coast,
+while wet coverage falls only 14% inland and 1% at the coast because the surviving hierarchy spends that
+water on broader main stems. The coast keeps its mouths and gains buildable ground.
+
+**The landing now answers the continent.** World 15 placed the default seed at 774.75 m, about 26.8 km from
+an ocean-ranked province, in a macro catchment ending at an inland basin. World 16 searches the low coastal
+plain first and places the same seed at 4.75 m: the nearest ocean cell is 10 hexes / 53 m away and its macro
+drainage reaches the ocean in one province step. The contract is a dry, buildable clearing at no more than
+100 m altitude with sea inside 24 cells. `landing_shelves_are_deterministic_dry_and_buildable` checks three
+seeds; `every_preset_opens_a_workable_world_on_any_seed` checks the complete opening across forty
+preset/seed pairs. `npm run terra -- --landing` reports the translated opening, exact sea and lake distance,
+nearest ocean-ranked province and macro destination.
+
 **Two negative results, kept because each cost a round and would otherwise be retried.**
 
 - **Do not round the height field to quanta before depressions are resolved.** A whole-quanta field

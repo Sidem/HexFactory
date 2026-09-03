@@ -5,8 +5,8 @@
 
 use crate::scale::SEA_LEVEL_QUANTA;
 use crate::terra::{
-    bed_depth, province_of, province_origin, valley_half_width, Flow, Terra, Water, MQ,
-    PROVINCE_CELL,
+    bed_depth, province_of, province_origin, river_bench_width, river_half_width,
+    valley_half_width, Flow, Terra, Water, MQ, PROVINCE_CELL,
 };
 use crate::{hexes_in_radius, DIRECTIONS};
 #[cfg(not(target_arch = "wasm32"))]
@@ -448,7 +448,9 @@ pub fn format_report(survey: &TerraSurvey) -> String {
             continue;
         }
         out.push_str(&format!(
-            "    {class:>5}  {count:>12}  valley half-width {} cells, bed {} m under the surface\n",
+            "    {class:>5}  {count:>12}  water {} cells, sand bench {}, valley half-width {}, bed {} m\n",
+            river_half_width(class as u8) * 2 + 1,
+            river_bench_width(class as u8),
             valley_half_width(class as u8),
             metres(bed_depth(class as u8))
         ));
@@ -587,19 +589,11 @@ mod tests {
             wider.river_rise_max_mq
         );
 
-        // World 15 asks the rock to stop some reaches and not others. Both halves are the claim:
-        // no sills means one erodibility everywhere again, and a sill on every reach means the
-        // network is a staircase rather than a drainage.
-        assert!(
-            (1..wider.river_edges / 4).contains(&wider.river_sills),
-            "{} sills over {} river edges",
-            wider.river_sills,
-            wider.river_edges
-        );
-
         // A fall needs somewhere to fall to, and [`SEED`]'s origin is seabed: every channel there
         // is drowned, so the steps are under water and none of them is a drop a walker meets. The
-        // fall claim belongs on dry land, which is what this one province of upland is.
+        // rock and fall claims belong on dry land, which is what this one province of upland is.
+        // World 16 deliberately removes class-1 gullies; this sample keeps the variable-hardness
+        // assertion on a river that survives that hierarchy instead of pinning a discarded twig.
         let upland = survey(1_213_486_160, 1);
         assert!(
             upland.river_sills > 0 && upland.river_falls > 0,

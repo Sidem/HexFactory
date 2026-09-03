@@ -41,7 +41,9 @@
 // v43 turns three skill branches into ladders and adds a mobility rank, so the technology stamp
 // moves; owned skills are keyed by stable ids and a v42 file keeps exactly what it bought. The
 // world stamp moves with it for variable ground hardness, which is v40's case again.
-export const SAVE_VERSION = 43;
+// v44 carries no new state. The world stamp moves because class-1 gullies no longer cut permanent
+// channels and the surviving rivers have wider water and dry alluvial benches.
+export const SAVE_VERSION = 44;
 export const SAVE_CATALOG_KEY = "hexfactory:saves:v1";
 export const LEGACY_SAVE_PREFIX = "hexfactory:hxf1:";
 export const HXF1_PREFIX = "HXF1\n";
@@ -226,6 +228,7 @@ export function compatibility(
     [41, 30, 16],
     [42, 30, 17],
     [43, 30, 18],
+    [44, 30, 18],
   ];
   if (envelope.saveVersion <= 36 && build.versions.save >= 37) {
     mismatches.push({

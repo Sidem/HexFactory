@@ -183,14 +183,15 @@ impl GeneratedGround {
         } else {
             Substrate::Meadow
         };
-        let wet_neighbour = DIRECTIONS
-            .iter()
-            .any(|&(dq, dr)| terra.water(source.0 + dq, source.1 + dr).is_wet());
+        let shore_bench = terra.river_bench_at(source.0, source.1)
+            || DIRECTIONS
+                .iter()
+                .any(|&(dq, dr)| terra.water(source.0 + dq, source.1 + dr).is_wet());
         let presentation = if depth_quanta >= crate::scale::WADE_LIMIT_QUANTA {
             Terrain::DeepWater
         } else if depth_quanta > 0 {
             Terrain::ShallowWater
-        } else if wet_neighbour {
+        } else if shore_bench {
             Terrain::Shore
         } else {
             match substrate {

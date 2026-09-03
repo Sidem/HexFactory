@@ -55,7 +55,9 @@ fn capacity_workload_is_deterministic_and_actually_produces() {
     // reason: this scenario generates no terrain, so only the version input changed.
     // 1_229_625_283 → 2_597_062_050 when variable ground hardness moved the stamp to 15. Same
     // reason again: the rock field decides beds and banks, and this scenario has neither.
-    assert_eq!(first.checksum(), 2_597_062_050);
+    // 2_597_062_050 → 2_635_501_205 when the river hierarchy and coastal landing moved the stamp
+    // to 16. Generation remains disabled here, so this is still only the version input.
+    assert_eq!(first.checksum(), 2_635_501_205);
     assert_eq!(first.entities.len(), spec.entities() as usize);
     // Every line must be running end to end, or the tiers would measure an idle blueprint.
     // Four per line rather than fourteen: the line is now extraction-bound, because a

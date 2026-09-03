@@ -59,16 +59,18 @@ grammar, so a tier stays a data row. The world renders through Three.js; the min
 
 | Envelope              | Version |
 | --------------------- | ------: |
-| `HXF1` save           |      42 |
+| `HXF1` save           |      44 |
 | Definitions           |      30 |
-| Technologies          |      17 |
+| Technologies          |      18 |
 | Scenarios             |       8 |
-| World generator       |      13 |
+| World generator       |      16 |
 | Wire (snapshot delta) |      23 |
 
-These are the v0.47.0 Phase 8 numbers. Save 36 and below is the old 1 m² world; world generator 12
-and below predates the noise-shaped resource lattice. Both are refused with an export path rather
-than remapped. Same-generator 25 m² saves migrate through the adjacent format ladder.
+These are the current development envelopes after the post-v0.47 river-profile, rock-strength and
+river-hierarchy work; v0.47.0 shipped at save 42 / technologies 17 / world 13. Save 36 and below is
+the old 1 m² world; world generator 12 and below predates the noise-shaped resource lattice. Both
+are refused with an export path rather than remapped. Same-generator 25 m² saves migrate through
+the adjacent format ladder.
 
 **Measured capacity.** The v0.43 audit puts the complete 6,144-entity browser frame at 32.3% / 33.5% /
 33.9% of 60 Hz on Low / Medium / High on the reference desktop at 1440×900 DPR 1 — all pass the 35%
@@ -335,6 +337,37 @@ are also nearly free — measured against a run with cutting power raised until 
 four ponds and change no drainage-walk termination at all. Both results are in `docs/BENCHMARKS.md`.
 
 World generator 15 rejects every version-14 save: bed elevations moved wherever the rock refused the cut.
+
+### Rivers gather — world generator 16
+
+The default inland opening exposed two wrong choices: class-1 hillslope gullies became one-cell permanent
+streams, each outlined by a one-cell shore stripe, and the landing search ignored the continent and chose a
+dry shelf beside an arbitrary coordinate. The drainage graph and continental field are unchanged; what
+becomes a river and where a player enters that landscape are not.
+
+- **Class 1 remains hillslope drainage and no longer cuts a channel.** Permanent water begins at class 2,
+  after five class-1 catchments join. In the fixed inland sample, one-cell centreline cells fall 600 → 144;
+  the remainder are genuine class-2 streams.
+- **Wet width now states the hierarchy directly:** class 2 is one cell, classes 3–4 are three, class 5 is
+  five, class 6 is seven and class 7 is nine. Suppressing a lower class never narrows a higher one.
+- **The graded floor includes dry alluvium:** one cell on streams and medium rivers, two on classes 5–7.
+  The same native nearest-channel solve owns water and bench, so the sand cannot detach at a bend.
+- **A new game begins on the coastal plain.** The landing search anchors itself on a region containing both
+  land and sea, chooses among its lowest dry provinces, and still requires the original dry, walkable,
+  buildable clearing. The landing is at most 100 m above the zero-metre sea datum and an ocean beach must
+  lie within 24 cells. The smooth continental field already rises inland through hills and massifs; the
+  drainage-first carve puts the joined main stems at the bottoms of the valleys descending back through the
+  low plain.
+
+On the fixed inland sample, channel density falls 17 → 14 per mille and wet coverage 64 → 55 while
+walkable/buildable edges improve 946/731 → 954/741 per mille. Drainage remains at zero cycles, zero uphill
+edges and zero unterminated walks. The default landing moves from 774.75 m to 4.75 m above sea level; the
+nearest ocean cell is 10 hexes, about 53 m, away and the macro drainage reaches the ocean in one province
+step. `landing_shelves_are_deterministic_dry_and_buildable` pins the 100 m / 24-cell coastal contract across
+three seeds, and the all-preset opening test pins it against forty preset/seed pairs.
+
+World generator 16 rejects every version-15 save: suppressed gullies, widened beds and alluvial benches
+move generated ground. Save 44 carries an older file to that explicit refusal and preserves its export path.
 
 ### The mobility ladder
 

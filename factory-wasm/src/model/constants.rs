@@ -121,7 +121,11 @@ const SAVE_PREFIX: &str = "HXF1\n";
 /// a stable id, so a version-42 file owns what it owned and the new ranks are simply unbought. The
 /// world moved under it as well — see [`WORLD_GENERATOR_VERSION`] — which is the version-40 case
 /// again: the stamp advances so the file reaches the generator check rather than a format error.
-const SAVE_VERSION: u16 = 43;
+///
+/// Version 44 also carries no new saved field. The river hierarchy changed under the save — see
+/// [`WORLD_GENERATOR_VERSION`] — so the adjacent stamp exists to carry an older file to the
+/// explicit generator refusal and its export path rather than stopping at a generic format error.
+const SAVE_VERSION: u16 = 44;
 /// Bumped to 6 for World Parameters. `WorldParams` is now part of a run's identity — it is in the
 /// save envelope and in the checksum — so a version-5 envelope carries no answer to the question
 /// "which world is this" and is rejected rather than assumed to be the default.
@@ -153,7 +157,12 @@ const SAVE_VERSION: u16 = 43;
 /// and depth, so a reach that meets rock harder than its discharge can cut hangs its bed on a sill,
 /// pools behind it and falls past it, and a bank climbs at the grade the rock in it holds. Every
 /// bed, bank and water surface in the world moved; a version-14 envelope is a different landscape.
-const WORLD_GENERATOR_VERSION: u16 = 15;
+///
+/// Bumped to 16 for the readable river hierarchy. Class-1 hillslope drainage no longer cuts a
+/// permanent channel; medium and large rivers widen to three through nine wet cells; and their
+/// imposed graded floor includes a one- or two-cell dry alluvial bench. Beds and presentation move
+/// wherever one of those channels existed, so a version-15 envelope names a different landscape.
+const WORLD_GENERATOR_VERSION: u16 = 16;
 const MAX_COMMANDS_PER_BATCH: usize = 8;
 /// A drag is one bounded command, so the run it expands into has to be bounded too. This is the
 /// native cap on cells a single `place_line` or `erase_line` may touch.
