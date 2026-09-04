@@ -325,6 +325,31 @@ fn placement_and_drag_build_exactly_what_the_rules_allow_and_undo_takes_it_back(
     assert_eq!(restored.checksum(), core.checksum());
 }
 
+#[test]
+fn occupied_footprints_suppress_only_the_fertile_riverbank_cells_they_cover() {
+    let mut core = bare_game("new-game");
+    core.creative = true;
+    core.researched.extend([1, 2, 3, 4]);
+    let habitat = core
+        .habitat_snapshots()
+        .into_iter()
+        .find(|cell| core.entity_at(cell.q, cell.r).is_none())
+        .expect("the measured opening contains unoccupied fertile riverbank");
+    let before = core.fertile_riverbank_at(habitat.q, habitat.r).unwrap();
+    set_player_hex(&mut core, habitat.q + 1, habitat.r);
+    core.dirty = SnapshotDirty::default();
+    core.place(habitat.q, habitat.r, 2, 0, None).unwrap();
+    assert_eq!(core.fertile_riverbank_at(habitat.q, habitat.r), None);
+    assert_eq!(core.dirty.habitats, vec![(habitat.q, habitat.r)]);
+
+    core.erase(habitat.q, habitat.r).unwrap();
+    assert_eq!(
+        core.fertile_riverbank_at(habitat.q, habitat.r),
+        Some(before)
+    );
+    assert!(core.dirty.habitats.contains(&(habitat.q, habitat.r)));
+}
+
 /// Creative is one switch with three consequences: everything is known, nothing is charged, and
 /// nothing is handed back. Each is checked against the ordinary path rather than a creative-only
 /// one, because the whole value of a creative test bed is that it builds the same factory.

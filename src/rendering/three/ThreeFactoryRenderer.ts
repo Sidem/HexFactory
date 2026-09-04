@@ -43,6 +43,7 @@ import {
 } from "./terrainMeshes";
 import { BoundaryMeshes } from "./boundaryMeshes";
 import { GroundMeshes } from "./groundMeshes";
+import { HabitatMeshes } from "./habitatMeshes";
 import { WorldInstanceLayer } from "./worldInstances";
 
 /** Clear colour, background and distance haze — one colour, so distance dissolves into nothing. */
@@ -59,6 +60,7 @@ export class ThreeFactoryRenderer implements FactoryRenderer {
   private readonly overlays: SpatialOverlays;
   private readonly boundaries: BoundaryMeshes;
   private readonly ground = new GroundMeshes();
+  private readonly habitats = new HabitatMeshes();
   private readonly surfaces: Definitions["surfaces"];
   private readonly keyLight = new DirectionalLight("#ffe4b0", 2.6);
   private readonly fillLight = new HemisphereLight("#c9eef0", "#273b32", 1.6);
@@ -133,6 +135,7 @@ export class ThreeFactoryRenderer implements FactoryRenderer {
     this.surfaces = definitions.surfaces;
     this.scene.add(this.boundaries.group);
     this.scene.add(this.ground.group);
+    this.scene.add(this.habitats.group);
     this.scene.add(
       this.fillLight,
       this.ambient,
@@ -201,8 +204,17 @@ export class ThreeFactoryRenderer implements FactoryRenderer {
       snapshot.boundaries,
       this.terrain?.cellByKey ?? this.emptyTerrain,
     );
+    const habitatsChanged = this.habitats.update(
+      snapshot.habitats,
+      this.terrain?.cellByKey ?? this.emptyTerrain,
+    );
     this.overlaysDirty = true;
-    if (terrainChanged || structureChanged || boundariesChanged)
+    if (
+      terrainChanged ||
+      structureChanged ||
+      boundariesChanged ||
+      habitatsChanged
+    )
       this.renderer.shadowMap.needsUpdate = true;
     if (!this.compiled) {
       this.renderer.compile(this.scene, this.camera.camera);
@@ -502,6 +514,7 @@ export class ThreeFactoryRenderer implements FactoryRenderer {
     this.overlays.dispose();
     this.boundaries.dispose();
     this.ground.dispose();
+    this.habitats.dispose();
     for (const material of this.materials.materials) material.dispose();
     this.renderer.dispose();
   }

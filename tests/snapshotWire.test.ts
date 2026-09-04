@@ -116,6 +116,26 @@ describe("binary snapshot delta", () => {
     expect(decoded.terrain?.changed?.map((tile) => tile.discharge)).toEqual([
       0, 7,
     ]);
+    expect(decoded.habitats?.changed).toEqual([
+      {
+        q: -3,
+        r: -3,
+        x: -7983,
+        y: -4608,
+        radius: 1024,
+        capacity: 175,
+        discharge: 7,
+      },
+      {
+        q: -2,
+        r: -3,
+        x: -6209,
+        y: -4608,
+        radius: 1024,
+        capacity: 0,
+        discharge: 0,
+      },
+    ]);
 
     // The wire invariant is that nothing wider than 2^53 travels as a number. The fixture pins the
     // boundary itself, so a varint reader that used `<<` — which truncates to 32 bits — cannot pass.
@@ -130,7 +150,7 @@ describe("binary snapshot delta", () => {
 
   it("refuses a buffer it cannot prove it understands", () => {
     expect(fixture.magic).toBe("HXFD");
-    expect(fixture.version).toBe(23);
+    expect(fixture.version).toBe(24);
 
     const good = new Uint8Array(
       bytesOf(fixture.cases[0]!.bytes as unknown as string),

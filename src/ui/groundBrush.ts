@@ -1,6 +1,25 @@
-import type { GroundEdit } from "../core/types";
+import type { GroundAction, GroundEdit } from "../core/types";
 
-export type GroundBrushMode = "grade" | "surface" | "strip";
+export type GroundBrushMode = "grade" | "dig" | "mound" | "surface" | "strip";
+
+/** Which native verb each brush mode commits. */
+const ACTIONS: Readonly<Record<GroundBrushMode, GroundAction>> = {
+  grade: "smooth",
+  dig: "lower",
+  mound: "raise",
+  surface: "pave",
+  strip: "clear",
+};
+
+/** The modes whose stamp moves earth by a depth the player chooses. */
+export function movesEarth(mode: GroundBrushMode): boolean {
+  return mode === "dig" || mode === "mound";
+}
+
+/** Modes that can resolve to cut or fill and therefore occupy the player's field-work clock. */
+export function takesGroundwork(mode: GroundBrushMode): boolean {
+  return mode === "grade" || movesEarth(mode);
+}
 export interface BrushHex {
   q: number;
   r: number;
@@ -45,7 +64,13 @@ export function brushLine(from: BrushHex, to: BrushHex): BrushHex[] {
   return line;
 }
 
-/** One immediate native stamp. The disc is centred under the pointer; grade keeps the stroke datum. */
+/**
+ * One immediate native stamp. The disc is centred under the pointer; grade keeps the stroke datum.
+ *
+ * `steps` is the chosen depth, and it only reaches native for the two modes that move earth by a
+ * depth. Every other verb moves by one fixed thing — a surface is laid or it is not — so passing the
+ * tray's number through to them would let a control they ignore look as though it changed something.
+ */
 export function groundBrushEdit(
   centre: BrushHex,
   datum: BrushHex,
@@ -53,6 +78,7 @@ export function groundBrushEdit(
   mode: GroundBrushMode,
   definitionId: number,
   cover: boolean,
+  steps = 1,
 ): GroundEdit {
   const boundedRadius = Math.max(0, Math.min(2, Math.round(radius)));
   return {
@@ -65,9 +91,9 @@ export function groundBrushEdit(
     to_corner: 0,
     shape: boundedRadius === 0 ? "cell" : "disc",
     definition_id: definitionId,
-    action: mode === "grade" ? "smooth" : mode === "surface" ? "pave" : "clear",
+    action: ACTIONS[mode],
     cover,
-    steps: 1,
+    steps: movesEarth(mode) ? Math.max(1, Math.min(3, Math.round(steps))) : 1,
     reference: "first",
   };
 }

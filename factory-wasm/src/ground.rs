@@ -11,6 +11,9 @@
 //! one the player paid for.
 use super::*;
 
+mod work;
+pub(super) use work::GroundPreview;
+
 /// A prepared surface, as the data declares it.
 #[derive(Clone, Deserialize)]
 pub(super) struct SurfaceDefinition {
@@ -58,7 +61,7 @@ impl GroundCell {
     }
 }
 
-#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub(super) enum GroundAction {
     /// Lay the chosen surface.
@@ -81,7 +84,7 @@ pub(super) enum GroundAction {
 /// player happened to click. Naming it turns three separate gestures into one control: `Lowest`
 /// cuts everything down and fills the spoil heap, `Highest` fills everything up and spends it, and
 /// `First` keeps the datum the player picked by hand when neither extreme is what they meant.
-#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub(super) enum GroundReference {
     #[default]
@@ -90,7 +93,7 @@ pub(super) enum GroundReference {
     Highest,
 }
 
-#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub(super) enum GroundShape {
     Cell,
@@ -107,7 +110,7 @@ pub(super) enum GroundShape {
     Ring,
 }
 
-#[derive(Clone, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 pub(super) struct GroundEdit {
     pub q: i32,
     pub r: i32,
@@ -267,26 +270,6 @@ pub(super) struct GroundPreviewCell {
     /// The cells that *can* take the edit still resolve, are still priced, and are still applied;
     /// this one is drawn in the refusal colour with its own reason attached.
     pub blocked: Option<String>,
-}
-
-#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
-pub(super) struct GroundPreview {
-    pub cells: Vec<GroundPreviewCell>,
-    pub changes: usize,
-    pub cost: Vec<Ingredient>,
-    pub refund: Vec<Ingredient>,
-    /// Steps of material this edit digs out, and steps it puts back.
-    pub cut: u32,
-    pub fill: u32,
-    /// The spoil ledger after the edit, so the tray can show what levelling leaves behind.
-    pub spoil: u64,
-    /// How many selected cells hold a resource field the surface would cover.
-    pub covers: usize,
-    /// How many finished edges would be too steep to walk.
-    pub retaining: usize,
-    /// How many selected cells cannot take this edit and are skipped.
-    pub blocked: usize,
-    pub error: Option<String>,
 }
 
 #[derive(Clone)]
@@ -620,7 +603,11 @@ impl Core {
         // deposit, it would only put the wall back beyond reach. The stone itself is untouched:
         // the quantity is a per-hex number that no grade has ever entered, and a quarried face is
         // still gathered from, now from on top rather than from beside.
-        if !cliff && self.field_at(cell.0, cell.1).is_some() {
+        // A spent deposit is not one of them: nothing is left to be measured in the ground.
+        if !cliff
+            && self.field_at(cell.0, cell.1).is_some()
+            && !self.deposit_exhausted(cell.0, cell.1)
+        {
             return Err("A deposit sits here; grading would move ground it is measured in".into());
         }
         if world_to_axial(self.player.x, self.player.y) == cell {
@@ -644,6 +631,7 @@ impl Core {
                 refund: Vec::new(),
                 cut: 0,
                 fill: 0,
+                work_steps: 0,
                 spoil: self.spoil,
                 covers: 0,
                 retaining: 0,
@@ -677,6 +665,11 @@ impl Core {
                 .ground_confirm(edit, &cells, &after, &mut transaction)
                 .err(),
         };
+        transaction.preview.work_steps = transaction
+            .preview
+            .cut
+            .saturating_add(transaction.preview.fill)
+            .saturating_mul(GROUNDWORK_STEPS_PER_QUANTUM);
         transaction
     }
 
@@ -1023,6 +1016,9 @@ impl Core {
             WaterPlan::Restore(cells) => {
                 self.water.apply(&cells);
                 self.dirty.water = true;
+                self.dirty
+                    .habitats
+                    .extend(cells.iter().map(|cell| (cell.q, cell.r)));
             }
             WaterPlan::Settle if self.ground_is_physical() => {
                 let before = self.water.clone();
@@ -1062,6 +1058,9 @@ impl Core {
         self.player.inventory = transaction.inventory.clone();
         *self.ground_hash_cache.borrow_mut() = None;
         self.dirty.ground = true;
+        self.dirty
+            .habitats
+            .extend(transaction.undo.after.iter().map(|(cell, _)| *cell));
         if covering_changed {
             // A covered deposit leaves the published field, so the host's ordering has to be the
             // native one again rather than a patch against a list that no longer has the row.
@@ -1139,6 +1138,7 @@ impl Core {
                 refund: Vec::new(),
                 cut: 0,
                 fill: 0,
+                work_steps: 0,
                 spoil: undo.spoil_before,
                 covers: 0,
                 retaining: 0,

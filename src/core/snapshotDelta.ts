@@ -3,6 +3,8 @@ import type {
   EntitySnapshot,
   FactorySnapshot,
   FactorySnapshotDelta,
+  HabitatSnapshot,
+  HabitatsPatch,
   ResourceSnapshot,
   ResourcesPatch,
   TerrainPatch,
@@ -28,6 +30,7 @@ export function applySnapshotDelta(
   delete groups.buildings;
   delete groups.resources;
   delete groups.terrain;
+  delete groups.habitats;
   const next: FactorySnapshot = { ...snapshot, ...groups };
   if (delta.buildings)
     next.buildings = applyBuildingsPatch(snapshot.buildings, delta.buildings);
@@ -35,6 +38,8 @@ export function applySnapshotDelta(
     next.resources = applyResourcesPatch(snapshot.resources, delta.resources);
   if (delta.terrain)
     next.terrain = applyTerrainPatch(snapshot.terrain, delta.terrain);
+  if (delta.habitats)
+    next.habitats = applyHabitatsPatch(snapshot.habitats, delta.habitats);
   return { snapshot: next, revision: delta.revision };
 }
 
@@ -106,6 +111,26 @@ export function applyTerrainPatch(
   const changed = patch.changed ?? [];
   if (changed.length === 0) return current;
   return current.concat(changed);
+}
+
+export function applyHabitatsPatch(
+  current: HabitatSnapshot[],
+  patch: HabitatsPatch,
+): HabitatSnapshot[] {
+  if (patch.replace)
+    return (patch.changed ?? []).filter((cell) => cell.capacity > 0);
+  const changed = patch.changed ?? [];
+  if (changed.length === 0) return current;
+  const byKey = new Map(changed.map((cell) => [tileKey(cell), cell]));
+  const next = current
+    .filter((cell) => byKey.get(tileKey(cell))?.capacity !== 0)
+    .map((cell) => byKey.get(tileKey(cell)) ?? cell);
+  const held = new Set(current.map(tileKey));
+  for (const cell of changed) {
+    if (cell.capacity > 0 && !held.has(tileKey(cell))) next.push(cell);
+  }
+  next.sort((a, b) => a.q - b.q || a.r - b.r);
+  return next;
 }
 
 function tileKey(cell: { q: number; r: number }): string {

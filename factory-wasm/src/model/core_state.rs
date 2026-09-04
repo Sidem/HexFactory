@@ -91,6 +91,9 @@ struct Core {
     /// carried the remaining work without what it is working on would come back counting down to
     /// nothing.
     pending_gather: Option<Coordinate>,
+    /// Earthwork command whose resolved volume the player clock is still paying for.
+    /// Saved and checksummed with `action_cooldown`; nothing changes until the counter reaches zero.
+    pending_ground: Option<GroundEdit>,
     /// The hexes still ahead of the player on the current walk, nearest first, ending on
     /// `player.walk_goal`. Derived state under the same rule as `deposit_links`: it is a pure
     /// function of the goal, the terrain, and the occupied cells, so it is rebuilt whenever the
@@ -275,6 +278,7 @@ impl Core {
                 walk_goal: None,
             },
             pending_gather: None,
+            pending_ground: None,
             walk_path: Vec::new(),
             walk_stall: 0,
             walk_last_position: (0, 0),

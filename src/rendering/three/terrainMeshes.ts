@@ -34,6 +34,7 @@ import {
 } from "./heightfieldTerrain";
 import type { WorldMaterials } from "./materials";
 import { TERRAIN_STYLE } from "./terrainStyle";
+import { waterBand } from "../../core/terrain";
 
 /**
  * How far the survey frontier skirt drops below the last published edge. Deep enough that no camera
@@ -532,6 +533,7 @@ function terrainCell(
 
 function heightfieldSample(cell: TerrainCell): HeightfieldSample {
   const look = TERRAIN_LOOK.get(cell.terrain) ?? 0;
+  const waterLook = TERRAIN_LOOK.get(waterBand(cell.waterDepth)) ?? 0;
   return {
     q: cell.q,
     r: cell.r,
@@ -541,7 +543,10 @@ function heightfieldSample(cell: TerrainCell): HeightfieldSample {
     waterHeight: cell.waterHeight,
     dischargeClass: cell.discharge,
     look,
-    waterLook: look,
+    // A canal keeps the generated bed's land band, but the surface above it is water. Reusing
+    // `look` here made flooded meadow draw as meadow and flooded shore draw as sand, hiding the
+    // hydrology even though native had filled the cut correctly.
+    waterLook,
   };
 }
 

@@ -160,6 +160,7 @@ const snapshot: FactorySnapshot = {
       discharge: 0,
     },
   ],
+  habitats: [],
   resources: [
     {
       q: 3,
@@ -1633,7 +1634,7 @@ describe("availability and expanded snapshot adapter", () => {
     expect(css).not.toMatch(/\.inspector\s*\{[^}]*white-space:\s*pre-line/);
   });
 
-  it("keeps the visual lattice compact and depleted fields spatial", () => {
+  it("keeps the visual lattice compact and leaves spent deposits as ground", () => {
     const contract = readFileSync(
       new URL("../src/rendering/FactoryRenderer.ts", import.meta.url),
       "utf8",
@@ -1644,7 +1645,9 @@ describe("availability and expanded snapshot adapter", () => {
     );
     // More hexes in the viewport is a presentation knob, not another PLAYER_RADIUS bump.
     expect(contract).toContain("export const BASE_HEX_SIZE = 22");
-    expect(instances).toContain('mesh.name = "depleted-field-scars"');
+    // A worked-out deposit draws nothing at all. Native stops publishing the row, so there is no
+    // marker to place — and a marker would say "something is still here" about ordinary ground.
+    expect(instances).not.toContain("depleted-field-scars");
     expect(instances).not.toContain("field-resource-marks");
     // Resource amounts stay in the inspector; the landscape does not become a spreadsheet.
     expect(instances).not.toContain("String(resource.quantity)");
@@ -1734,7 +1737,7 @@ function fakeTransport(): {
   let revision = 0;
   const response = (
     patch: Partial<
-      Omit<FactorySnapshot, "buildings" | "resources" | "terrain">
+      Omit<FactorySnapshot, "buildings" | "resources" | "terrain" | "habitats">
     >,
   ): FactorySnapshotDelta => ({
     base_revision: revision,

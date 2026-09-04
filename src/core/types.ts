@@ -619,6 +619,15 @@ export interface TerrainSnapshot extends WorldPoint {
   discharge: number;
 }
 
+/** Exact native fertile-riverbank truth. Capacity zero appears only as a patch tombstone. */
+export interface HabitatSnapshot extends WorldPoint {
+  q: number;
+  r: number;
+  radius: number;
+  capacity: number;
+  discharge: number;
+}
+
 /**
  * A generated world chunk. `x`/`y`/`span` are the native world-space square the chunk owns, so the
  * reported chunks are exactly the surveyed world and everything else is unexplored.
@@ -776,6 +785,7 @@ export interface FactorySnapshot {
   skills: SkillsSnapshot;
   chunks: ChunkSnapshot[];
   terrain: TerrainSnapshot[];
+  habitats: HabitatSnapshot[];
   resources: ResourceSnapshot[];
   buildings: EntitySnapshot[];
   ground_items: GroundItemSnapshot[];
@@ -813,11 +823,17 @@ export interface TerrainPatch {
   changed?: TerrainSnapshot[];
 }
 
+/** Sparse habitat patch; capacity zero removes the addressed cell. */
+export interface HabitatsPatch {
+  replace?: boolean;
+  changed?: HabitatSnapshot[];
+}
+
 export interface FactorySnapshotDelta
   extends Partial<
     Omit<
       FactorySnapshot,
-      "tick" | "checksum" | "buildings" | "resources" | "terrain"
+      "tick" | "checksum" | "buildings" | "resources" | "terrain" | "habitats"
     >
   > {
   base_revision: number;
@@ -827,6 +843,7 @@ export interface FactorySnapshotDelta
   buildings?: BuildingsPatch;
   resources?: ResourcesPatch;
   terrain?: TerrainPatch;
+  habitats?: HabitatsPatch;
 }
 
 export interface PlacementPreview {
@@ -1288,6 +1305,8 @@ export interface GroundPreview {
   refund: Ingredient[];
   cut: number;
   fill: number;
+  /** Player-clock steps spent before the resolved earth movement commits. */
+  work_steps: number;
   /** The spoil ledger after this edit. Fill is dug, never conjured. */
   spoil: number;
   covers: number;

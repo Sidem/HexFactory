@@ -119,6 +119,18 @@ Radius-1 site purity—the share of resource cells whose extractor neighborhood 
 guarantees, patch size/yield, nearest sites, terrain bands, water, and river distribution. The cache hit rate
 under a natural walk remains unmeasured.
 
+Phase 9's radius-96 fixed-seed habitat survey uses the shipped native predicate, not a host proxy. Fertile
+riverbank occupies 686 cells, 33‰ of land, carries 76,050 integer capacity, and begins 13 hexes from the
+landing point in each preset. This is scarce against the 10–60‰ acceptance band but near enough to support
+an opening ecology route. Raw report: [`habitat-v0.47-survey.json`](benchmarks/habitat-v0.47-survey.json).
+
+The generated figure rose from 589 cells and 28‰ when fertility stopped being a statement about intact
+grade and became one about water: ground is farmland if it is dry, unbuilt and has fresh standing water in
+its ring, rated by the channel's own class where the generator laid an alluvial bench and at the bottom of
+the ladder everywhere else. The 97 cells that gained are fresh shorelines that carry no bench. What the
+survey cannot show is the other half of the same change — a canal is standing water, so a trench cut inland
+carries farmland with it, and that is measured in play rather than in the generator.
+
 ## Ground, drainage, and water
 
 The current world-16 fixed samples report:

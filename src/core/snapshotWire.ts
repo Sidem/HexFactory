@@ -7,6 +7,8 @@ import type {
   ContractRequirement,
   EntitySnapshot,
   FactorySnapshotDelta,
+  HabitatSnapshot,
+  HabitatsPatch,
   GroundItemSnapshot,
   Ingredient,
   ProjectState,
@@ -40,7 +42,7 @@ import type {
  */
 
 const MAGIC = 0x48584644; // "HXFD"
-const VERSION = 23;
+const VERSION = 24;
 
 /** Wire code is the index. Pinned against Rust by `fixtures/snapshot-delta-wire.json`. */
 const KINDS: BuildingKind[] = [
@@ -117,6 +119,7 @@ const GROUP = {
   ground: 1 << 21,
   spoil: 1 << 22,
   water: 1 << 23,
+  habitats: 1 << 24,
   chunks: 1 << 12,
   terrain: 1 << 13,
   resources: 1 << 14,
@@ -320,6 +323,7 @@ export function decodeSnapshotDelta(buffer: ArrayBuffer): FactorySnapshotDelta {
   }
   if (has(GROUP.chunks)) delta.chunks = readChunks(reader);
   if (has(GROUP.terrain)) delta.terrain = readTerrain(reader);
+  if (has(GROUP.habitats)) delta.habitats = readHabitats(reader);
   if (has(GROUP.resources)) delta.resources = readResources(reader);
   if (has(GROUP.buildings)) delta.buildings = readBuildings(reader, delta.tick);
   if (has(GROUP.events)) {
@@ -606,6 +610,29 @@ function readResources(reader: Reader): ResourcesPatch {
   // Native skips a false flag and an empty list rather than sending them, so neither key was ever
   // present in the JSON the host received. Every reader takes them as `?? []` and `?? false`, but
   // reproducing the omission is what keeps the two encodings exactly interchangeable.
+  if (replace) patch.replace = true;
+  if (changed.length > 0) patch.changed = changed;
+  return patch;
+}
+
+function readHabitats(reader: Reader): HabitatsPatch {
+  const replace = (reader.u8() & PATCH_REPLACE) !== 0;
+  const count = reader.uvarint();
+  const changed: HabitatSnapshot[] = new Array<HabitatSnapshot>(count);
+  const cell: Cell = { q: 0, r: 0, x: 0, y: 0 };
+  for (let index = 0; index < count; index += 1) {
+    stepCell(reader, cell);
+    changed[index] = {
+      q: cell.q,
+      r: cell.r,
+      x: cell.x,
+      y: cell.y,
+      radius: reader.uvarint(),
+      capacity: reader.uvarint(),
+      discharge: reader.u8(),
+    };
+  }
+  const patch: HabitatsPatch = {};
   if (replace) patch.replace = true;
   if (changed.length > 0) patch.changed = changed;
   return patch;

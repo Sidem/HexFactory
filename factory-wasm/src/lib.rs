@@ -9,6 +9,7 @@ use wasm_bindgen::prelude::*;
 mod api;
 mod boundaries;
 mod core;
+mod ecology;
 mod factory_delta;
 mod factory_preview;
 mod geomorphology;
@@ -17,9 +18,8 @@ mod ground_grade;
 mod ground_spine;
 /// Phase 8 slice 4: departure from generated water equilibrium, and the bounded solve that settles
 /// it.
-///
-/// Movement, construction, earthwork, pumps, bounded flood/drain commands and the snapshot all read
-/// it. Frontier departure waits without claiming world and resumes when survey exposes its chunk.
+/// Movement, construction, earthwork, pumps, commands and snapshots read it; frontier departure
+/// waits without claiming world and resumes when survey exposes its chunk.
 #[allow(dead_code)]
 mod hydrology;
 mod recipes;

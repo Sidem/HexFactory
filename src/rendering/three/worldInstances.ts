@@ -114,7 +114,6 @@ export class WorldInstanceLayer {
     cargo: new IcosahedronGeometry(0.17, 0),
     status: new SphereGeometryCompat(0.09),
     plume: new IcosahedronGeometry(0.16, 1),
-    scar: new CylinderGeometry(0.34, 0.38, 0.025, 6),
     outputIndicator: outputIndicatorGeometry(),
     wireSegment: new CylinderGeometry(1, 1, 1, 6),
   };
@@ -1257,39 +1256,9 @@ export class WorldInstanceLayer {
     this.addResourceParts("forest-trunks", this.geometry.trunk, trunks);
     this.addResourceParts("forest-canopies", this.geometry.canopy, canopies);
 
-    const scars = resources.filter(
-      (resource) =>
-        !this.items.get(resource.item_id)?.regrowth_ticks &&
-        resource.initial_quantity > 0 &&
-        resource.quantity === 0,
-    );
-    if (scars.length) {
-      const mesh = new InstancedMesh(
-        this.geometry.scar,
-        this.materials.machineDark,
-        scars.length,
-      );
-      mesh.name = "depleted-field-scars";
-      const matrix = new Matrix4();
-      const color = new Color("#241f1a");
-      for (const [index, resource] of scars.entries()) {
-        const angle = stableVariation(resource.q, resource.r) * Math.PI;
-        matrix.compose(
-          new Vector3(
-            resource.x / WORLD_SCALE,
-            this.groundHeight(resource.q, resource.r) + 0.018,
-            resource.y / WORLD_SCALE,
-          ),
-          new Quaternion().setFromAxisAngle(new Vector3(0, 1, 0), angle),
-          new Vector3(1, 1, 0.72),
-        );
-        mesh.setMatrixAt(index, matrix);
-        mesh.setColorAt(index, color);
-      }
-      mesh.instanceMatrix.needsUpdate = true;
-      if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
-      this.resourceGroup.add(mesh);
-    }
+    // No marker is drawn for a worked-out deposit. Native stopped publishing one the moment the
+    // last unit came out — a spent ore hex is ordinary ground, and the dark disc that used to sit
+    // there read as an object still on the tile rather than as the absence of one.
     this.group.add(this.resourceGroup);
   }
 

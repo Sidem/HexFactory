@@ -639,6 +639,7 @@
 .inspect-empty[hidden],
 .inspect-sheet[hidden],
 .inspect-place[hidden],
+.inspect-habitat[hidden],
 .inspect-field[hidden],
 .inspect-machine[hidden],
 .inspect-cargo[hidden],
@@ -675,6 +676,7 @@
 }
 .inspect-identity,
 .inspect-place,
+.inspect-habitat,
 .inspect-field,
 .inspect-machine {
   padding: 9px;

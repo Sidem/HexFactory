@@ -96,6 +96,7 @@ fn wire_fixture_cases() -> Vec<(&'static str, SnapshotDelta)> {
         skills: None,
         chunks: None,
         terrain: None,
+        habitats: None,
         resources: None,
         buildings: None,
         ground_items: None,
@@ -352,6 +353,29 @@ fn wire_fixture_cases() -> Vec<(&'static str, SnapshotDelta)> {
                 },
             ],
         }),
+        habitats: Some(HabitatsDelta {
+            replace: false,
+            changed: vec![
+                HabitatSnapshot {
+                    q: -3,
+                    r: -3,
+                    x: -7_983,
+                    y: -4_608,
+                    radius: 1024,
+                    capacity: 175,
+                    discharge: 7,
+                },
+                HabitatSnapshot {
+                    q: -2,
+                    r: -3,
+                    x: -6_209,
+                    y: -4_608,
+                    radius: 1024,
+                    capacity: 0,
+                    discharge: 0,
+                },
+            ],
+        }),
         resources: Some(ResourcesDelta {
             replace: false,
             changed: vec![
@@ -566,6 +590,10 @@ fn wire_fixture_cases() -> Vec<(&'static str, SnapshotDelta)> {
         tick: 0,
         checksum: 1,
         resources: Some(ResourcesDelta {
+            replace: true,
+            changed: Vec::new(),
+        }),
+        habitats: Some(HabitatsDelta {
             replace: true,
             changed: Vec::new(),
         }),

@@ -1463,27 +1463,26 @@ impl Terra {
         self.province(pq, pr).channel(q, r)
     }
 
-    /// Whether this dry cell is the generated alluvial bench of a wet river. The same nearest-
-    /// channel sweep defines water and bank, so a two-cell bench cannot detach at a bend or widen
-    /// because a presentation query happened to find a different neighbouring reach.
-    pub fn river_bench_at(&mut self, q: i32, r: i32) -> bool {
+    /// The wet channel's drainage class when this cell lies on its generated alluvial bench.
+    pub fn river_bench_class_at(&mut self, q: i32, r: i32) -> Option<u8> {
         let (pq, pr) = province_of(q, r);
         let province = self.province(pq, pr);
         let Some(index) = province.domain_index(q, r) else {
-            return false;
+            return None;
         };
         let source = province.nearest_channel[index];
         if source == usize::MAX {
-            return false;
+            return None;
         }
         let (source_q, source_r) = province.domain_cell(source);
         let Some(channel) = province.channels.get(&(source_q, source_r)) else {
-            return false;
+            return None;
         };
         let distance = i32::from(province.channel_distance[index]);
-        channel.wet
+        (channel.wet
             && distance > river_half_width(channel.class)
-            && distance <= river_half_width(channel.class) + river_bench_width(channel.class)
+            && distance <= river_half_width(channel.class) + river_bench_width(channel.class))
+        .then_some(channel.class)
     }
 
     /// The cell this one's water runs to, or `None` at a lake, the sea or a frontier basin.

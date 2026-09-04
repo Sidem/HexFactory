@@ -234,9 +234,53 @@ impl Core {
         tiles
     }
 
+    pub(crate) fn habitat_snapshot(&self, q: i32, r: i32) -> HabitatSnapshot {
+        let habitat = self.fertile_riverbank_at(q, r);
+        let (x, y) = axial_world(q, r);
+        HabitatSnapshot {
+            q,
+            r,
+            x,
+            y,
+            radius: HEX_RADIUS as u32,
+            capacity: habitat.map_or(0, |value| value.capacity),
+            discharge: habitat.map_or(0, |value| value.discharge_class),
+        }
+    }
+
+    pub(crate) fn chunk_habitat_snapshots(
+        &self,
+        chunk_q: i32,
+        chunk_r: i32,
+    ) -> Vec<HabitatSnapshot> {
+        hexes_in_chunk(chunk_q, chunk_r, self.scenario.chunk_size)
+            .map(|(q, r)| self.habitat_snapshot(q, r))
+            .filter(|cell| cell.capacity > 0)
+            .collect()
+    }
+
+    pub(crate) fn habitat_snapshots(&self) -> Vec<HabitatSnapshot> {
+        let mut habitats: Vec<_> = self
+            .generated_chunks
+            .iter()
+            .flat_map(|&(chunk_q, chunk_r)| self.chunk_habitat_snapshots(chunk_q, chunk_r))
+            .collect();
+        habitats.sort_unstable_by_key(|cell| (cell.q, cell.r));
+        habitats
+    }
+
     /// One field cell's snapshot, looked up by tile key. Used by the incremental path, which knows
     /// which cells moved but not where they sit in the overlay.
+    ///
+    /// An empty cell publishes nothing. It is still an overlay entry natively, because that entry is
+    /// what remembers the deposit was taken, but the host has no field to draw there and no quantity
+    /// to report: the hex is ordinary ground now, and an empty bar over nothing was the one place the
+    /// snapshot said otherwise. Ore stays that way; a cleared stand publishes again by itself the
+    /// moment the first tree grows back.
     pub(crate) fn resource_snapshot(&self, key: (i32, i32)) -> Option<ResourceSnapshot> {
+        if self.deposit_empty(key.0, key.1) {
+            return None;
+        }
         let field = self.field_at(key.0, key.1)?;
         let quantity = self.deposit_quantity(key);
         Some(resource_snapshot_of(
@@ -247,18 +291,16 @@ impl Core {
         ))
     }
 
-    /// Every field cell in the surveyed world, in tile order. Derived cells with no overlay still
-    /// appear, because the host has to draw the field; only remaining quantity comes from the
-    /// stored overlay.
+    /// Every field cell in the surveyed world that still holds something, in tile order. Derived
+    /// cells with no overlay appear, because the host has to draw the field; only remaining quantity
+    /// comes from the stored overlay, and a cell worked down to nothing drops out of the list.
     pub(crate) fn resource_snapshots(&self) -> Vec<ResourceSnapshot> {
         let mut resources = Vec::new();
         let size = self.scenario.chunk_size;
         for &(chunk_q, chunk_r) in &self.generated_chunks {
             for (q, r) in hexes_in_chunk(chunk_q, chunk_r, size) {
                 if let Some(snapshot) = self.resource_snapshot((q, r)) {
-                    if snapshot.quantity > 0 || self.tiles.contains_key(&(q, r)) {
-                        resources.push(snapshot);
-                    }
+                    resources.push(snapshot);
                 }
             }
         }
@@ -357,6 +399,7 @@ impl Core {
         let checksum = self.checksum();
         let chunks = self.chunk_snapshots();
         let terrain = self.terrain_snapshots();
+        let habitats = self.habitat_snapshots();
         let resources = self.resource_snapshots();
         let buildings = self.entity_snapshots();
         Snapshot {
@@ -379,6 +422,7 @@ impl Core {
             skills: self.skills_snapshot(),
             chunks,
             terrain,
+            habitats,
             resources,
             buildings,
             boundaries: self.boundary_snapshot(),

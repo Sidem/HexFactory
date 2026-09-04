@@ -572,3 +572,110 @@
         core.undo_ground().unwrap();
         assert_eq!(core.checksum(), checksum);
     }
+
+    /// A surveyed live channel, and a dry hex on its bank that one cut will put under its surface.
+    ///
+    /// The bank also has to have somewhere for the water to go: a dry neighbour of its own that the
+    /// river does not already water. Rivers bend, and a bank in the inside of a bend is surrounded by
+    /// its own channel, so a trench cut there waters nothing that was not already wet. That is a fine
+    /// thing for a canal to do and a useless place to measure one.
+    fn channel_bank_in(core: &Core) -> Option<((i32, i32), (i32, i32), (i32, i32))> {
+        let size = core.scenario.chunk_size;
+        // Dry, unwatered, and standing above the river's own surface, so the canal cannot reach it
+        // by flooding it. The only way this hex becomes farmland is by being next to the trench.
+        let inland = |bank: (i32, i32), surface: i32| {
+            DIRECTIONS.iter().find_map(|&(dq, dr)| {
+                let (q, r) = (bank.0 + dq, bank.1 + dr);
+                (core.surveyed(q, r)
+                    && core.water_depth_at(q, r) == 0
+                    && core.ground_elevation_at(q, r) > surface
+                    && core.fertile_riverbank_at(q, r).is_none())
+                .then_some((q, r))
+            })
+        };
+        let cells: Vec<(i32, i32)> = core
+            .generated_chunks
+            .iter()
+            .flat_map(|&(cq, cr)| hexes_in_chunk(cq, cr, size))
+            .collect();
+        cells.into_iter().find_map(|(q, r)| {
+            if !WaterField::channel(core, q, r) {
+                return None;
+            }
+            let surface = core.water_surface_at(q, r);
+            // Above the water, but not by more than one cut. The deepest grade step is six quanta,
+            // so a bank inside that band is one the test can put under the river on purpose rather
+            // than by luck of whatever relief the generator laid down here.
+            DIRECTIONS
+                .iter()
+                .map(|&(dq, dr)| (q + dq, r + dr))
+                .filter(|&bank| {
+                    core.surveyed(bank.0, bank.1)
+                        && core.water_depth_at(bank.0, bank.1) == 0
+                        && (surface + 1..surface + 6)
+                            .contains(&core.ground_elevation_at(bank.0, bank.1))
+                        && diggable(core, bank, 3)
+                })
+                .find_map(|bank| inland(bank, surface).map(|field| ((q, r), bank, field)))
+        })
+    }
+
+    /// Open the world outward until a river with a cuttable bank is inside it.
+    fn channel_and_bank(core: &mut Core) -> ((i32, i32), (i32, i32), (i32, i32)) {
+        for ring in 0..=6 {
+            for cq in -ring..=ring {
+                for cr in (-ring).max(-cq - ring)..=ring.min(-cq + ring) {
+                    core.generate_chunk(cq, cr);
+                }
+            }
+            if let Some(found) = channel_bank_in(core) {
+                return found;
+            }
+        }
+        panic!("no river with a cuttable bank within six rings of the opening");
+    }
+
+    /// Mesopotamia, in the smallest form this model can hold it.
+    ///
+    /// Cut one hex of the bank down below the river's surface. Water comes in, and it comes from
+    /// upstream rather than out of the reach — the channel is at its generated depth when the solve
+    /// stops, so the river is not a hole in the map afterwards. And there is more farmland around the
+    /// cut than there was before it, which is the half that used to be impossible: fertility meant an
+    /// intact generated grade, so the one thing a farmer actually does to a riverbank was the one
+    /// thing that sterilised it.
+    #[test]
+    fn a_trench_cut_from_a_river_carries_water_and_fertility_inland() {
+        let mut core = physical_core();
+        core.set_creative(true);
+        core.player.build_range = u32::MAX / 2;
+        let (channel, bank, field) = channel_and_bank(&mut core);
+        assert!(
+            core.fertile_riverbank_at(bank.0, bank.1).is_some(),
+            "the bank of a river is farmland before anybody digs it"
+        );
+
+        core.edit_ground(&lower(bank.0, bank.1, 3)).unwrap();
+
+        assert!(
+            core.ground_elevation_at(bank.0, bank.1) < core.water_surface_at(channel.0, channel.1),
+            "the cut put the trench floor under the river"
+        );
+        assert!(
+            core.water_depth_at(bank.0, bank.1) > 0,
+            "and the river found it"
+        );
+        assert_eq!(
+            core.water.delta_at(channel.0, channel.1),
+            WaterDelta::new(0),
+            "the reach that filled it is still at its generated depth"
+        );
+        assert!(
+            core.fertile_riverbank_at(bank.0, bank.1).is_none(),
+            "the trench itself is water, and water is not farmland"
+        );
+        assert!(
+            core.fertile_riverbank_at(field.0, field.1).is_some(),
+            "the hex beyond the trench stands above the river and was not farmland until the \
+             trench was cut past it: {field:?}"
+        );
+    }

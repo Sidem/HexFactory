@@ -24,6 +24,26 @@ fn every_preset_opens_a_workable_world_on_any_seed() {
             survey::default_seed(),
             survey::DEFAULT_RADIUS,
         );
+        assert!(
+            (10..=60).contains(&report.fertile_riverbank.per_mille_land),
+            "preset {}: fertile riverbank is {} per mille of land",
+            preset.key,
+            report.fertile_riverbank.per_mille_land
+        );
+        assert!(
+            report
+                .fertile_riverbank
+                .nearest
+                .is_some_and(|distance| distance <= 40),
+            "preset {}: nearest fertile riverbank is {:?}",
+            preset.key,
+            report.fertile_riverbank.nearest
+        );
+        assert!(
+            report.fertile_riverbank.capacity > 0,
+            "preset {} has no fertile-riverbank capacity",
+            preset.key
+        );
         for material in &report.materials {
             let nearest = match material.nearest {
                 Some(value) => value,

@@ -44,6 +44,9 @@ struct SavedState {
     /// it was written.
     #[serde(default)]
     pending_gather: Option<Coordinate>,
+    /// Ground work in flight. Absent before save 45, which means the idle state.
+    #[serde(default)]
+    pending_ground: Option<GroundEdit>,
     researched: BTreeSet<TechnologyId>,
     #[serde(default)]
     skills: SkillsState,
@@ -102,6 +105,7 @@ struct SnapshotBaseline {
     research_availability: Vec<ResearchAvailability>,
     skills: SkillsSnapshot,
     chunks: Vec<ChunkSnapshot>,
+    habitats: BTreeMap<(i32, i32), HabitatSnapshot>,
     buildings: BTreeMap<u32, EntitySnapshot>,
     ground_items: Vec<GroundItem>,
     events: Vec<String>,
@@ -125,6 +129,11 @@ impl SnapshotBaseline {
             research_availability: snapshot.research_availability.clone(),
             skills: snapshot.skills.clone(),
             chunks: snapshot.chunks.clone(),
+            habitats: snapshot
+                .habitats
+                .iter()
+                .map(|cell| ((cell.q, cell.r), *cell))
+                .collect(),
             buildings: snapshot
                 .buildings
                 .iter()

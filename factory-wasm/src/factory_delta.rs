@@ -27,6 +27,12 @@ impl Factory {
         let marked_entities = drain_marks(&mut dirty.entities);
         let marked_resources = drain_marks(&mut dirty.resources);
         let marked_terrain = drain_marks(&mut dirty.terrain);
+        let mut marked_habitats = drain_marks(&mut dirty.habitats);
+        for &(chunk_q, chunk_r) in &marked_terrain {
+            marked_habitats.extend(hexes_in_chunk(chunk_q, chunk_r, core.scenario.chunk_size));
+        }
+        marked_habitats.sort_unstable();
+        marked_habitats.dedup();
 
         let mut removed: Vec<u32> = Vec::new();
         for id in &dirty.removed {
@@ -80,6 +86,29 @@ impl Factory {
                 .flat_map(|(chunk_q, chunk_r)| core.chunk_terrain_snapshots(chunk_q, chunk_r))
                 .collect();
             (!changed.is_empty()).then_some(TerrainDelta {
+                replace: false,
+                changed,
+            })
+        };
+
+        let habitats = {
+            let mut changed = Vec::new();
+            for (q, r) in marked_habitats {
+                let cell = core.habitat_snapshot(q, r);
+                if cell.capacity == 0 {
+                    if let Some(old) = baseline.habitats.remove(&(q, r)) {
+                        changed.push(HabitatSnapshot {
+                            capacity: 0,
+                            discharge: 0,
+                            ..old
+                        });
+                    }
+                } else if baseline.habitats.get(&(q, r)) != Some(&cell) {
+                    baseline.habitats.insert((q, r), cell);
+                    changed.push(cell);
+                }
+            }
+            (!changed.is_empty()).then_some(HabitatsDelta {
                 replace: false,
                 changed,
             })
@@ -149,6 +178,7 @@ impl Factory {
             // added. The surveyed-chunk set is ordered, and so are the marks, so the tiles travel in
             // the same order a full snapshot would have listed them in.
             terrain,
+            habitats,
             resources,
             buildings,
             ground_items,

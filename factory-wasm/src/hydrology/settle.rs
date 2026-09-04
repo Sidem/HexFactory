@@ -18,6 +18,11 @@ pub(super) trait WaterField {
     /// Whether the cell belongs to an unbounded derived body — the ocean. It absorbs any outflow,
     /// supplies no departure and is never simulated.
     fn ocean(&self, q: i32, r: i32) -> bool;
+
+    /// Whether the cell is a live channel: a generated river reach still standing on its generated
+    /// bed. Its water arrives from upstream rather than from the region, so what a cut takes out of
+    /// it comes back.
+    fn channel(&self, q: i32, r: i32) -> bool;
 }
 
 /// The cells one disturbance put in flight, in a deterministic order.
@@ -61,6 +66,9 @@ pub(super) struct SettleReport {
     pub(super) transfers: u64,
     /// Quanta that left the world at the ocean or the surveyed frontier.
     pub(super) outflow_quanta: i64,
+    /// Quanta that entered the world from a live channel: what it put back into itself, plus what
+    /// it supplied to lower ground beside it.
+    pub(super) inflow_quanta: i64,
     /// Water waiting just beyond the surveyed frontier, keyed by the first unsurveyed cell it
     /// enters. Core stores this as an unsurveyed departure and resumes it when that chunk opens.
     pub(super) frontier: BTreeMap<(i32, i32), i32>,
@@ -71,6 +79,8 @@ pub(super) struct SettleReport {
     /// Cells whose departure had to be clamped to [`DEPARTURE_LIMIT_QUANTA`]. Always zero; a
     /// non-zero count is a defect report, not a gameplay outcome.
     pub(super) clamped: usize,
+    /// Exact bounded region whose resulting depth may differ from its previous value.
+    pub(super) touched: Vec<(i32, i32)>,
 }
 
 /// Take one cell into the region, or report that the budget is spent.
@@ -146,6 +156,23 @@ fn neighbour_surface<F: WaterField>(
     None
 }
 
+/// Whether a cell is a live head: a generated reach still on its generated bed, holding no more than
+/// the depth the generator gave it.
+///
+/// This is the model's one asymmetry and the whole reason a canal works. A head is not a body of
+/// water for the region to share out — it is the downstream end of everything upstream — so it fills
+/// lower ground beside it without being drawn down, and it goes back to its generated depth whatever
+/// the last sweep took off it. A reach somebody dammed or dug is no longer on that bed and stops
+/// being one. A reach carrying a flood is above its depth, and water above a river's depth is
+/// ordinary water that runs downhill like any other.
+fn live_head<F: WaterField>(
+    field: &F,
+    depth: &BTreeMap<(i32, i32), i32>,
+    (q, r): (i32, i32),
+) -> bool {
+    field.channel(q, r) && depth[&(q, r)] <= field.equilibrium_depth(q, r)
+}
+
 /// One relaxation pass over the region, in key order. Returns whether anything moved.
 fn sweep<F: WaterField>(
     field: &F,
@@ -155,6 +182,18 @@ fn sweep<F: WaterField>(
 ) -> bool {
     let mut moved = false;
     for (q, r) in region.iter() {
+        // A head the solve has already started losing water through is switched off outright: it
+        // neither refills nor supplies. A region that is losing water is not a basin being filled,
+        // it is a channel running somewhere else, and funding one is a pump with the world on the
+        // far end.
+        let source = report.outflow_quanta == 0 && live_head(field, depth, (q, r));
+        if source {
+            let restored = field.equilibrium_depth(q, r) - depth[&(q, r)];
+            if restored > 0 {
+                report.inflow_quanta += i64::from(restored);
+                *depth.get_mut(&(q, r)).expect("the cell is in the region") += restored;
+            }
+        }
         let held = depth[&(q, r)];
         if held <= 0 {
             continue;
@@ -165,6 +204,14 @@ fn sweep<F: WaterField>(
         let mut target: Option<(i32, (i32, i32), bool)> = None;
         for &(dq, dr) in &DIRECTIONS {
             let to = (q + dq, r + dr);
+            // A head fills ground and does nothing else. Letting one pour into the sea, over the
+            // frontier or into the next reach down would close the loop it is refilled by, and a
+            // loop with an unbounded supply on one end runs until the sweep budget stops it: a
+            // six-quanta trench once left a quarter of a kilometre of river standing past the
+            // frontier that way, manufactured a quantum at a time by a river conveying itself.
+            if source && (!region.contains(to.0, to.1) || field.channel(to.0, to.1)) {
+                continue;
+            }
             let Some((offered, boundary)) = neighbour_surface(field, region, depth, (q, r), to)
             else {
                 continue;
@@ -177,16 +224,31 @@ fn sweep<F: WaterField>(
             continue;
         };
         let head = surface - lowest;
-        if head < 2 {
+        // Finite water needs a two-quantum difference: moving one quantum across a one-quantum
+        // difference would merely invert it and oscillate forever. A live head is different. It is
+        // the fixed upstream water level, so it can fill a canal exactly to that level without
+        // lowering itself or creating an inverse gradient.
+        if head < if source { 1 } else { 2 } {
             continue;
         }
-        let quanta = held.min(head / 2);
-        *depth.get_mut(&(q, r)).expect("the cell is in the region") -= quanta;
+        // What a source gives is not limited by what it holds; what anything else gives is.
+        let quanta = if source { head } else { held.min(head / 2) };
+        if source {
+            report.inflow_quanta += i64::from(quanta);
+        } else {
+            *depth.get_mut(&(q, r)).expect("the cell is in the region") -= quanta;
+        }
         if boundary {
             report.outflow_quanta += i64::from(quanta);
             if !field.surveyed(to.0, to.1) {
                 *report.frontier.entry(to).or_default() += quanta;
             }
+        } else if field.channel(to.0, to.1) {
+            // Water poured into a reach is carried off rather than stored: by the next tick that
+            // column is somewhere downstream. It leaves the world here, which is also the thing
+            // that switches off every source in the region — draining into a river is exactly the
+            // far end that must not be allowed to feed back into a supply.
+            report.outflow_quanta += i64::from(quanta);
         } else {
             *depth
                 .get_mut(&to)
@@ -216,8 +278,17 @@ fn reachable_walls<F: WaterField>(
             }
             let bed = field.bed_quanta(nq, nr);
             let held = field.equilibrium_depth(nq, nr) + i32::from(water.delta_at(nq, nr).get());
-            let pours_out = depth[&(q, r)] > 0 && surface - bed >= 2;
-            let pours_in = held > 0 && (bed + held) - surface >= 2;
+            // A reach at the region's edge is a head, not ground to spread onto, so it is worth
+            // claiming only when it pours *in* — which is a canal tapping it. Claiming every reach
+            // a region merely drains towards is how one trench used to end up owning a whole river
+            // network, and every cell of it came back dirty.
+            let pours_out =
+                depth[&(q, r)] > 0 && surface - bed >= 2 && !field.channel(nq, nr);
+            // A live head may fill ground even when its surface is only one quantum higher. That
+            // last quarter metre is the difference between a visible canal and a dry trench whose
+            // floor is physically below the river.
+            let pours_in = held > 0
+                && (bed + held) - surface >= if field.channel(nq, nr) { 1 } else { 2 };
             if pours_out || pours_in {
                 walls.insert((nq, nr));
             }
@@ -287,9 +358,20 @@ pub(super) fn settle<F: WaterField>(
     }
 
     report.cells = region.len();
+    report.touched = region.iter().collect();
     report.truncated = region.truncated();
     for (&(q, r), &held) in &depth {
         let departure = held - field.equilibrium_depth(q, r);
+        // A live reach is never stored below its generated depth, whatever the solve had to do to
+        // reach a fixed point. This is the same statement [`live_head`] makes, made once more where
+        // it is durable: a river the player has not dug is a head, and a head does not remember
+        // being tapped. Above its depth it remembers everything — that is a flood, and a flood is
+        // theirs.
+        let departure = if field.channel(q, r) {
+            departure.max(0)
+        } else {
+            departure
+        };
         let bounded = departure.clamp(-DEPARTURE_LIMIT_QUANTA, DEPARTURE_LIMIT_QUANTA);
         if bounded != departure {
             report.clamped += 1;

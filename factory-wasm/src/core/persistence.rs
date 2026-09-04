@@ -29,6 +29,10 @@ impl Core {
             hash_i32(&mut hash, target.q);
             hash_i32(&mut hash, target.r);
         }
+        if let Some(edit) = &self.pending_ground {
+            hash_u32(&mut hash, u32::MAX - 35);
+            edit.hash_into(&mut hash);
+        }
         // Where a walk is headed, on the same terms as the swing above: it is an order the
         // simulation is still executing, so a run carrying one is not the same run as one standing
         // still, and a player who is not walking hashes nothing here. The route itself is derived
@@ -226,6 +230,7 @@ impl Core {
             legacy_fluid_belts: self.legacy_fluid_belts.clone(),
             player: self.player.clone(),
             pending_gather: self.pending_gather,
+            pending_ground: self.pending_ground.clone(),
             researched: self.researched.clone(),
             skills: self.skills.clone(),
             next_entity_id: self.next_entity_id,
@@ -295,7 +300,10 @@ impl Core {
             );
         }
         let migrated = save_migrations::migrate(json, SAVE_VERSION)?;
-        let legacy_component_bill = matches!(migrated, std::borrow::Cow::Owned(_));
+        // Only saves from before the one-component founding bill need that state repair. Newer
+        // adjacent migrations (including 44 -> 45's pending-ground field) must not replay it just
+        // because the JSON envelope was rewritten.
+        let legacy_component_bill = original_save_version < 33;
         let envelope: SaveEnvelope = serde_json::from_str(&migrated)
             .map_err(|error| format!("malformed HXF1 save: {error}"))?;
         if envelope.world_generator_version != WORLD_GENERATOR_VERSION {
@@ -369,6 +377,7 @@ impl Core {
         core.entities.sort_by_key(|entity| entity.id);
         core.player = envelope.state.player;
         core.pending_gather = envelope.state.pending_gather;
+        core.pending_ground = envelope.state.pending_ground;
         core.researched = envelope.state.researched;
         core.skills = envelope.state.skills;
         // Restored directly rather than through set_creative: the saved researched set is the

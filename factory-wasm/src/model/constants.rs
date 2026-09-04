@@ -125,7 +125,12 @@ const SAVE_PREFIX: &str = "HXF1\n";
 /// Version 44 also carries no new saved field. The river hierarchy changed under the save — see
 /// [`WORLD_GENERATOR_VERSION`] — so the adjacent stamp exists to carry an older file to the
 /// explicit generator refusal and its export path rather than stopping at a generic format error.
-const SAVE_VERSION: u16 = 44;
+///
+/// Version 45 carries an earthwork that is still in flight. Ground work now spends player-clock
+/// time before it changes the world, so the command and its remaining `action_cooldown` are one
+/// saved fact just as `pending_gather` and a swing are. An older file has no pending earthwork;
+/// that is exactly the idle state and leaves its checksum unchanged.
+const SAVE_VERSION: u16 = 45;
 /// Bumped to 6 for World Parameters. `WorldParams` is now part of a run's identity — it is in the
 /// save envelope and in the checksum — so a version-5 envelope carries no answer to the question
 /// "which world is this" and is rejected rather than assumed to be the default.
@@ -412,6 +417,13 @@ const WALK_ARRIVE_RADIUS: i32 = HEX_Y / 2;
 /// hard rock it is materially slower. The per-item figure lives on `ItemDefinition::hand_gather_steps`;
 /// this constant is wood, the bootstrap fuel, and the rate the cooldown helper falls back to.
 const GATHER_COOLDOWN_STEPS: u32 = 15;
+/// Player-clock work per quarter-metre layer moved across one 25 m² hex.
+///
+/// Six steps are 0.2 seconds. The smallest one-hex cut therefore takes 0.4 seconds, the default
+/// seven-hex brush takes 2.8 seconds, and the widest/deepest shipped stamp takes 22.8 seconds. Work
+/// scales with the volume native actually resolves, so obstacles and cells already at the content
+/// limit are never charged as though they moved.
+const GROUNDWORK_STEPS_PER_QUANTUM: u32 = 6;
 /// How many hex steps from any occupied cell of the landing hub a hand delivery is allowed.
 ///
 /// Two, and from the whole footprint: a three-cell hub is not a one-cell target with two

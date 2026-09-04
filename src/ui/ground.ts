@@ -12,6 +12,8 @@ import type { FactoryRenderer } from "../rendering/FactoryRenderer";
 import {
   brushLine,
   groundBrushEdit,
+  movesEarth,
+  takesGroundwork,
   type BrushHex,
   type GroundBrushMode,
 } from "./groundBrush";
@@ -29,6 +31,18 @@ const MODES: readonly {
     hint: "Sample a good height, then blend nearby ground into a walkable slope.",
   },
   {
+    mode: "dig",
+    icon: "▼",
+    label: "Dig",
+    hint: "Cut by the chosen depth. Spoil goes on the heap, and a trench cut to a river fills with water.",
+  },
+  {
+    mode: "mound",
+    icon: "▲",
+    label: "Raise",
+    hint: "Fill by the chosen depth from the spoil heap. Nothing is raised out of nothing.",
+  },
+  {
     mode: "surface",
     icon: "▦",
     label: "Surface",
@@ -42,6 +56,15 @@ const MODES: readonly {
   },
 ];
 
+/** What a stamp is doing while it is under way, said in the present tense one hex at a time. */
+const VERBS: Readonly<Record<GroundBrushMode, string>> = {
+  grade: "Blending",
+  dig: "Cutting",
+  mound: "Filling",
+  surface: "Surfacing",
+  strip: "Stripping",
+};
+
 interface BrushStroke {
   readonly pointerId: number;
   readonly datum: BrushHex;
@@ -51,14 +74,21 @@ interface BrushStroke {
 
 /**
  * The ground brush exposes the result a player wants, not six native operations. Grade samples the
- * pressed height and blends toward it; Surface and Strip paint immediately. Every stamp is still one
- * bounded native transaction, so quantities, range, spoil, obstacles and undo remain simulation truth.
+ * pressed height and blends toward it; Dig, Raise, Surface and Strip paint immediately. Every stamp
+ * is still one bounded native transaction, so quantities, range, spoil, obstacles and undo remain
+ * simulation truth.
+ *
+ * Dig and Raise are the two verbs Grade cannot express. Grade asks for a walkable slope and will not
+ * cut below what the route needs, which is the right answer for a road and the wrong one for a canal:
+ * a trench is deliberately unwalkable, and its floor has to reach the water it is being cut from.
  */
 export class GroundTool {
   private opened = false;
   private mode: GroundBrushMode = "grade";
   /** 0, 1 and 2 mean 1, 7 and 19 affected hexes per stamp. */
   private radius = 1;
+  /** How far one dig or raise stamp moves the ground. Native clamps it; the tray offers 1–3. */
+  private depth = 1;
   private surface: number;
   private cover = false;
   private brush: BrushStroke | null = null;
@@ -72,11 +102,14 @@ export class GroundTool {
   private snapshot: FactorySnapshot | null = null;
   private inventorySignature = "";
   private lastMessage = "";
+  /** Closes the same-frame gap before native's working snapshot reaches the browser. */
+  private workQueued = false;
   private readonly panel: HTMLElement;
   private readonly opener: HTMLButtonElement;
   private readonly modes: HTMLElement;
   private readonly palette: HTMLElement;
   private readonly sizes: HTMLElement;
+  private readonly depths: HTMLElement;
   private readonly status: HTMLElement;
   private readonly spoilValue: HTMLElement;
   private readonly spoilFill: HTMLElement;
@@ -112,15 +145,24 @@ export class GroundTool {
             `<button type="button" data-radius="${radius}" aria-pressed="false">${label}</button>`,
         )
         .join("")}</div>
+      <div class="ground-size" role="group" aria-label="How far each hex moves" data-depth hidden><span>Depth</span>${[
+        1, 2, 3,
+      ]
+        .map(
+          (steps) =>
+            `<button type="button" data-depth-steps="${steps}" aria-pressed="false" title="Move each hex ${steps} step${steps === 1 ? "" : "s"}, as far as its own cut and fill limit allows">${steps}</button>`,
+        )
+        .join("")}</div>
       <div class="ground-spoil"><span>Spoil heap</span><span class="ground-gauge"><i data-spoil-fill style="width:0%"></i></span><b data-spoil>0</b></div>
       <p class="ground-status" data-status role="status" aria-live="polite"></p>
       <div class="ground-panel-actions"><button type="button" data-undo title="Undo the last brush stamp (Ctrl+Z while this tool is open)">Undo last patch</button></div>
-      <small class="ground-help"><b>Press and drag directly on the world.</b> Grade samples the height under the first press, then makes every painted patch reachable from it. [ and ] change brush size; R cycles Grade, Surface and Strip. Nothing waits for an Apply button.</small>`;
+      <small class="ground-help"><b>Press directly on the world.</b> Grade samples a height; Dig and Raise move earth by the chosen depth. Earth-moving patches take time in proportion to their real cut and fill volume. [ and ] change brush size, − and = change depth, and R cycles the five brushes.</small>`;
     const get = <T extends HTMLElement>(selector: string): T =>
       root.querySelector<T>(selector)!;
     this.modes = get(".ground-modes");
     this.palette = get("[data-palette]");
     this.sizes = get(".ground-size");
+    this.depths = get("[data-depth]");
     this.status = get("[data-status]");
     this.spoilValue = get("[data-spoil]");
     this.spoilFill = get("[data-spoil-fill]");
@@ -146,6 +188,12 @@ export class GroundTool {
       )?.dataset.radius;
       if (radius !== undefined) this.setRadius(Number(radius));
     });
+    this.depths.addEventListener("click", (event) => {
+      const steps = (event.target as HTMLElement).closest<HTMLElement>(
+        "[data-depth-steps]",
+      )?.dataset.depthSteps;
+      if (steps !== undefined) this.setDepth(Number(steps));
+    });
     this.coverInput.addEventListener("change", () => {
       this.cover = this.coverInput.checked;
       this.refreshPreview();
@@ -160,6 +208,9 @@ export class GroundTool {
 
   open(): void {
     this.activate();
+    // The local flag only bridges the frame before native publishes its cooldown. Reopening after
+    // changing tools or loading a world must start from the authoritative player clock.
+    this.workQueued = (this.snapshot?.player.action_cooldown ?? 0) > 0;
     this.opened = true;
     this.panel.hidden = false;
     this.opener.setAttribute("aria-expanded", "true");
@@ -205,6 +256,11 @@ export class GroundTool {
     this.setRadius(this.radius + (reverse ? -1 : 1));
   }
 
+  /** `−` and `=` set how far one dig or raise stamp moves the ground. */
+  nudgeDepth(by: number): void {
+    this.setDepth(this.depth + by);
+  }
+
   selectStrip(): void {
     this.selectMode("strip");
   }
@@ -230,6 +286,15 @@ export class GroundTool {
 
   beginBrush(pointerId: number, cell: BrushHex): boolean {
     if (!this.opened) return false;
+    if (
+      takesGroundwork(this.mode) &&
+      (this.workQueued || (this.snapshot?.player.action_cooldown ?? 0) > 0)
+    ) {
+      this.status.classList.add("blocked");
+      this.status.textContent =
+        "Finish the current field work before starting another ground patch.";
+      return true;
+    }
     // The stroke changes the ground under the drawn footprint, so the standing picture of untouched
     // ground goes with the press rather than lingering a frame behind the first stamp.
     this.strokeEnd = null;
@@ -253,6 +318,7 @@ export class GroundTool {
   paintBrush(pointerId: number, cell: BrushHex): boolean {
     const brush = this.brush;
     if (!brush || brush.pointerId !== pointerId) return false;
+    if (takesGroundwork(this.mode) && this.workQueued) return true;
     for (const centre of brushLine(brush.last, cell).slice(1)) {
       if (!this.paintCentre(centre)) break;
       brush.last = centre;
@@ -274,8 +340,19 @@ export class GroundTool {
   }
 
   update(snapshot: FactorySnapshot): void {
+    const wasWorking = (this.snapshot?.player.action_cooldown ?? 0) > 0;
+    const message = snapshot.events.at(-1);
+    const completedGroundwork =
+      message !== undefined &&
+      message !== this.lastMessage &&
+      /^(Graded|Prepared|Undid|Water found)/.test(message);
     const inventorySignature = `${snapshot.player.creative}:${snapshot.researched.join(",")}:${JSON.stringify(snapshot.player.inventory)}`;
     this.snapshot = snapshot;
+    if (snapshot.player.action_cooldown > 0) this.workQueued = true;
+    else if (wasWorking || completedGroundwork) {
+      this.workQueued = false;
+      this.refreshPreview();
+    }
     // Snapshots arrive every frame and a preview is answered once: the projected heap a player is
     // reading has to survive the frames between, or the number it shows would flicker back.
     this.drawSpoil(snapshot.spoil, this.preview?.spoil ?? snapshot.spoil);
@@ -283,7 +360,6 @@ export class GroundTool {
       this.inventorySignature = inventorySignature;
       this.buildPalette();
     }
-    const message = snapshot.events.at(-1);
     if (!this.opened || !message || message === this.lastMessage) return;
     this.lastMessage = message;
     this.status.textContent = message;
@@ -322,6 +398,7 @@ export class GroundTool {
         this.mode,
         this.surface,
         this.cover,
+        this.depth,
       );
       try {
         const preview = await this.host.groundPreview(edit);
@@ -361,6 +438,8 @@ export class GroundTool {
       preview.cut || preview.fill
         ? ` · cut ${preview.cut}, fill ${preview.fill}`
         : "";
+    const seconds = preview.work_steps / this.host.playerTicksPerSecond;
+    const work = seconds > 0 ? ` · ${seconds.toFixed(1)} s work` : "";
     const bill = preview.cost.length
       ? ` · ${this.names(preview.cost, true)}`
       : preview.refund.length
@@ -371,7 +450,7 @@ export class GroundTool {
       : preview.retaining
         ? ` · ${preview.retaining} edge${preview.retaining === 1 ? "" : "s"} still too steep — brush wider`
         : "";
-    this.status.textContent = `${label} ${preview.changes} hex${preview.changes === 1 ? "" : "es"}${earth}${bill}${passed}.`;
+    this.status.textContent = `${label} ${preview.changes} hex${preview.changes === 1 ? "" : "es"}${earth}${work}${bill}${passed}.`;
   }
 
   private paintCentre(centre: BrushHex): boolean {
@@ -386,15 +465,17 @@ export class GroundTool {
       this.mode,
       this.surface,
       this.cover,
+      this.depth,
     );
     if (!this.enqueue({ type: "ground_edit", ...edit })) {
       this.status.textContent =
         "The brush is catching up… keep moving slowly over this patch.";
       return false;
     }
+    if (takesGroundwork(this.mode)) this.workQueued = true;
     brush.painted.add(key);
     this.status.classList.remove("blocked");
-    this.status.textContent = `${this.mode === "grade" ? "Blending" : this.mode === "surface" ? "Surfacing" : "Stripping"} around ${centre.q}, ${centre.r}…`;
+    this.status.textContent = `${VERBS[this.mode]} around ${centre.q}, ${centre.r}…`;
     return true;
   }
 
@@ -407,6 +488,11 @@ export class GroundTool {
 
   private setRadius(radius: number): void {
     this.radius = Math.max(0, Math.min(2, radius));
+    this.syncControls();
+  }
+
+  private setDepth(steps: number): void {
+    this.depth = Math.max(1, Math.min(3, steps));
     this.syncControls();
   }
 
@@ -425,6 +511,14 @@ export class GroundTool {
         "aria-pressed",
         String(Number(button.dataset.radius) === this.radius),
       );
+    for (const button of this.depths.querySelectorAll<HTMLElement>(
+      "[data-depth-steps]",
+    ))
+      button.setAttribute(
+        "aria-pressed",
+        String(Number(button.dataset.depthSteps) === this.depth),
+      );
+    this.depths.hidden = !movesEarth(this.mode);
     this.palette.hidden = this.mode !== "surface";
     this.coverBox.hidden = this.mode !== "surface";
     this.status.classList.remove("blocked");
@@ -437,6 +531,10 @@ export class GroundTool {
   private instruction(): string {
     if (this.mode === "grade")
       return "Press on a good height, then drag across rough ground. The brush blends a walkable grade as you move.";
+    if (this.mode === "dig")
+      return `Press and drag to cut ${this.depth} step${this.depth === 1 ? "" : "s"} down. Cut a trench from a riverbank and the river runs into it.`;
+    if (this.mode === "mound")
+      return `Press and drag to fill ${this.depth} step${this.depth === 1 ? "" : "s"} up, spending the spoil heap. A bank of raised ground keeps water out.`;
     if (this.mode === "strip")
       return "Press and drag to lift prepared surfaces. Recovered material returns to your pack.";
     const name = this.host.definitions.surfaces.find(

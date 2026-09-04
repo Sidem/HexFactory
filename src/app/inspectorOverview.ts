@@ -1,6 +1,11 @@
 import { axialToPixel } from "@hexlife/embed/hex";
 import { recipeOutputs } from "../core/recipes";
-import { bandAt, terrainAccess } from "../core/terrain";
+import {
+  bandAt,
+  TERRAIN_INFO,
+  terrainAccess,
+  waterBand,
+} from "../core/terrain";
 import { HEIGHT_UNIT_METRES } from "../rendering/sceneScale";
 import { DIRECTION_NAMES, TRANSPORT_DIRECTIONS } from "../core/directions";
 import type { EntitySnapshot } from "../core/types";
@@ -424,6 +429,7 @@ Runtime.prototype.renderInspector = function renderInspector(
     kicker.textContent = "World inspector";
     title.textContent = "Select a hex";
     status.hidden = true;
+    required<HTMLElement>("inspect-habitat").hidden = true;
     this.renderInspectorActions(undefined);
     this.renderOutputRouting(undefined);
     this.renderInspectorLoad(undefined);
@@ -438,6 +444,9 @@ Runtime.prototype.renderInspector = function renderInspector(
   const selectedWorld = axialToPixel(this.selected, 1024, { x: 0, y: 0 });
   // Field cells are addressed by their tile key, exactly as the native patch addresses them.
   const resource = this.snapshot.resources.find(
+    ({ q, r }) => q === this.selected?.q && r === this.selected?.r,
+  );
+  const habitat = this.snapshot.habitats.find(
     ({ q, r }) => q === this.selected?.q && r === this.selected?.r,
   );
   const surveyed = isSurveyed(this.snapshot.chunks, selectedWorld);
@@ -474,6 +483,15 @@ Runtime.prototype.renderInspector = function renderInspector(
   } else {
     field.hidden = true;
   }
+  const habitatPanel = required<HTMLElement>("inspect-habitat");
+  habitatPanel.hidden = !habitat;
+  if (habitat) {
+    required<HTMLElement>("inspect-habitat-name").textContent =
+      `Fertile riverbank · capacity ${habitat.capacity}`;
+    required<HTMLElement>("inspect-habitat-note").textContent =
+      `Dry, unbuilt ground with fresh standing water in its ring, watered at class ` +
+      `${habitat.discharge}. A cut canal waters ground the same way a river does.`;
+  }
   const terrainSample = surveyed
     ? this.snapshot.terrain.find(
         ({ q, r }) => q === this.selected?.q && r === this.selected?.r,
@@ -494,7 +512,19 @@ Runtime.prototype.renderInspector = function renderInspector(
     altitude === undefined
       ? "—"
       : `${altitude >= 0 ? "+" : "−"}${Math.abs(altitude).toFixed(1)} m`;
-  const band = terrain ? bandAt(terrain, grade) : undefined;
+  const waterDeparture = this.snapshot.water.find(
+    ({ q, r }) => q === this.selected?.q && r === this.selected?.r,
+  )?.departure;
+  const waterDepth = terrainSample
+    ? Math.max(0, terrainSample.water_depth + (waterDeparture ?? 0))
+    : 0;
+  // A presentation band is generated equilibrium. Once the player floods a dry band or drains a
+  // wet one, the inspector must name the physical state in front of them rather than the old map.
+  const band = terrain
+    ? waterDepth > 0
+      ? TERRAIN_INFO[waterBand(waterDepth)]
+      : bandAt(terrain, grade)
+    : undefined;
   if (building) {
     kicker.textContent = "Building";
     title.textContent = definition?.name ?? this.titleCase(building.kind);
@@ -516,6 +546,12 @@ Runtime.prototype.renderInspector = function renderInspector(
     } else {
       status.hidden = true;
     }
+  } else if (habitat) {
+    kicker.textContent = "Habitat";
+    title.textContent = "Fertile riverbank";
+    status.hidden = false;
+    status.textContent = `capacity ${habitat.capacity}`;
+    status.className = "inspect-status live";
   } else if (!surveyed) {
     kicker.textContent = "Unsurveyed";
     title.textContent = "Fog";
@@ -541,6 +577,10 @@ Runtime.prototype.renderInspector = function renderInspector(
       !(band?.passable ?? true),
     );
     setItemGlyph(mark, fieldItem.icon, fieldItem.color);
+    facingTick.hidden = true;
+  } else if (habitat && band) {
+    paintHexFace(hex, band.fill, band.stroke, !band.passable);
+    mark.textContent = "⋀⋀";
     facingTick.hidden = true;
   } else if (band) {
     paintHexFace(hex, band.fill, band.stroke, !band.passable);

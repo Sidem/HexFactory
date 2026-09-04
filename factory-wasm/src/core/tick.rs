@@ -28,6 +28,7 @@ impl Core {
         changed_cells: &BTreeSet<(i32, i32)>,
         edited_ids: &BTreeSet<u32>,
     ) -> usize {
+        self.dirty.habitats.extend(changed_cells.iter().copied());
         // Erasing shifts vector indices, so preserve unaffected edges through stable entity IDs.
         let (occupied, envelope, clearance) = self.occupancy_maps();
         let indices_by_id: BTreeMap<u32, usize> = self
@@ -200,7 +201,11 @@ impl Core {
             let working = self.player.action_cooldown > 0;
             self.player.action_cooldown = self.player.action_cooldown.saturating_sub(1);
             if working && self.player.action_cooldown == 0 {
-                self.finish_gather();
+                if self.pending_ground.is_some() {
+                    self.finish_groundwork();
+                } else {
+                    self.finish_gather();
+                }
             }
             // Steering before the step, so the intent the step consumes is the one this step's
             // position asked for. A walk is deliberately not interrupted by gathering: the swing

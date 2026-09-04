@@ -45,6 +45,10 @@ bounded shared material set. Patterns are keyed only by world position. Quality 
 detail; reduced motion freezes motion rather than slowing simulation. Terrain and resource remain separate
 visual facts, so deposits never recolour or replace the ground under them.
 
+Fertile riverbank is a sparse instanced fringe of repeated upright three-sided sedge blades. Its narrow,
+rhythmic silhouette remains readable without colour and stays distinct from the rocks, mounds, crystals,
+and tree forms used for deposits. Blade density is presentation derived from exact native capacity.
+
 ## Shape grammar
 
 `src/rendering/shapeGrammar.ts` defines eight machine parts: **vessel, chamber, stack, rotor, aperture,

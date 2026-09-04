@@ -1182,6 +1182,62 @@ fn geomorphic_state_round_trips_and_keeps_the_next_epoch_deterministic() {
 }
 
 #[test]
+fn groundwork_lands_after_resolved_work_and_resumes_mid_job() {
+    let (definitions, technologies, scenarios) = catalogs();
+    let mut core = bare_game("new-game");
+    core.set_creative(true);
+    reach(&mut core);
+    set_player_hex(&mut core, 0, -5);
+    let edit = GroundEdit {
+        cover: true,
+        ..ground_edit(0, -4, GroundAction::Lower)
+    };
+    let before = core.ground_elevation_at(0, -4);
+    let preview = core.ground_preview(&edit);
+    assert_eq!((preview.cut, preview.fill), (2, 0));
+    assert_eq!(
+        preview.work_steps,
+        2 * GROUNDWORK_STEPS_PER_QUANTUM,
+        "the native preview publishes the same resolved-volume clock the action uses"
+    );
+
+    core.begin_groundwork(edit.clone()).unwrap();
+    let total = core.player.action_cooldown;
+    assert_eq!(total, preview.work_steps);
+    assert_eq!(core.pending_ground.as_ref(), Some(&edit));
+    assert_eq!(
+        core.ground_elevation_at(0, -4),
+        before,
+        "pressing the brush must not move the ground before the work is done"
+    );
+    assert!(
+        core.begin_groundwork(ground_edit(1, -4, GroundAction::Lower))
+            .is_err(),
+        "one player cannot queue an unlimited field of instant cuts"
+    );
+
+    core.advance_player_steps(total / 2);
+    core.player.build_range = core.earned_build_range();
+    let save = core.save_string().unwrap();
+    let mut resumed = Core::from_save(&definitions, &technologies, &scenarios, &save).unwrap();
+    let remaining = core.player.action_cooldown;
+    assert_eq!(resumed.pending_ground.as_ref(), Some(&edit));
+    resumed.advance_player_steps(remaining - 1);
+    core.advance_player_steps(remaining - 1);
+    assert_eq!(resumed.ground_elevation_at(0, -4), before);
+
+    resumed.advance_player_steps(1);
+    core.advance_player_steps(1);
+    assert_eq!(resumed.ground_elevation_at(0, -4), before - 2);
+    assert!(resumed.pending_ground.is_none());
+    assert_eq!(
+        resumed.checksum(),
+        core.checksum(),
+        "resumed groundwork and uninterrupted groundwork are the same run"
+    );
+}
+
+#[test]
 fn save_40_adopts_empty_geomorphology_without_changing_its_checksum() {
     let (definitions, technologies, scenarios) = catalogs();
     let scenario = scenarios
@@ -1192,7 +1248,7 @@ fn save_40_adopts_empty_geomorphology_without_changing_its_checksum() {
     let core = Core::new(&definitions, &technologies, scenario, None, None).unwrap();
     let current = core.save_string().unwrap();
     let save_40 = current
-        .replacen("\"save_version\":44", "\"save_version\":40", 1)
+        .replacen("\"save_version\":45", "\"save_version\":40", 1)
         .replacen("\"definition_version\":30", "\"definition_version\":29", 1)
         .replacen("\"technology_version\":18", "\"technology_version\":16", 1)
         .replacen(",\"bank_stress\":[]", "", 1);

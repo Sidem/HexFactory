@@ -30,6 +30,7 @@ struct Snapshot {
     skills: SkillsSnapshot,
     chunks: Vec<ChunkSnapshot>,
     terrain: Vec<TileSnapshot>,
+    habitats: Vec<HabitatSnapshot>,
     resources: Vec<ResourceSnapshot>,
     buildings: Vec<EntitySnapshot>,
     #[serde(default)]
@@ -194,6 +195,19 @@ struct TileSnapshot {
     /// Standing water above the bed in the same unit as `height`. Zero is dry ground.
     water_depth: i32,
     /// Integer drainage class at this cell. Zero is still water or none at all.
+    discharge: u8,
+}
+
+/// Exact native fertile-riverbank truth for one surveyed cell. A zero capacity is used only as an
+/// incremental tombstone; complete snapshots contain the sparse positive set.
+#[derive(Clone, Copy, Debug, Serialize, PartialEq, Eq)]
+struct HabitatSnapshot {
+    q: i32,
+    r: i32,
+    x: i32,
+    y: i32,
+    radius: u32,
+    capacity: u16,
     discharge: u8,
 }
 
@@ -404,6 +418,15 @@ struct ResourcesDelta {
     changed: Vec<ResourceSnapshot>,
 }
 
+/// A sparse per-cell habitat patch. Capacity zero removes a cell that ceased to qualify.
+#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
+struct HabitatsDelta {
+    #[serde(skip_serializing_if = "is_false")]
+    replace: bool,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    changed: Vec<HabitatSnapshot>,
+}
+
 fn is_false(value: &bool) -> bool {
     !*value
 }
@@ -444,6 +467,8 @@ struct SnapshotDirty {
     /// grows a whole chunk at a time, so the chunk key is the whole mark: the tiles it names have
     /// never been published and every other tile in the world is already correct at the host.
     terrain: Vec<(i32, i32)>,
+    /// Cells whose current ground, water, surface, or occupancy may have changed habitat capacity.
+    habitats: Vec<(i32, i32)>,
     /// Set when the generated chunk set or any chunk's entity count may differ.
     chunks: bool,
     /// Set when dropped ground items change.
@@ -509,6 +534,8 @@ struct SnapshotDelta {
     #[serde(skip_serializing_if = "Option::is_none")]
     terrain: Option<TerrainDelta>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    habitats: Option<HabitatsDelta>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     resources: Option<ResourcesDelta>,
     #[serde(skip_serializing_if = "Option::is_none")]
     buildings: Option<BuildingsDelta>,
@@ -544,6 +571,10 @@ impl SnapshotDelta {
             terrain: Some(TerrainDelta {
                 replace: true,
                 changed: current.terrain.clone(),
+            }),
+            habitats: Some(HabitatsDelta {
+                replace: true,
+                changed: current.habitats.clone(),
             }),
             resources: Some(ResourcesDelta {
                 replace: true,
@@ -593,6 +624,7 @@ impl SnapshotDelta {
             skills: changed(&previous.skills, &current.skills),
             chunks: changed(&previous.chunks, &current.chunks),
             terrain: terrain_delta(&previous.terrain, &current.terrain),
+            habitats: habitat_delta(&previous.habitats, &current.habitats),
             resources: resources_delta(&previous.resources, &current.resources),
             buildings: buildings_delta(&previous.buildings, &current.buildings),
             ground_items: changed(&previous.ground_items, &current.ground_items),
@@ -618,6 +650,40 @@ fn terrain_delta(previous: &[TileSnapshot], current: &[TileSnapshot]) -> Option<
         .copied()
         .collect();
     (!changed.is_empty()).then_some(TerrainDelta {
+        replace: false,
+        changed,
+    })
+}
+
+#[cfg(test)]
+fn habitat_delta(
+    previous: &[HabitatSnapshot],
+    current: &[HabitatSnapshot],
+) -> Option<HabitatsDelta> {
+    let key = |cell: &HabitatSnapshot| (cell.q, cell.r);
+    let old: BTreeMap<_, _> = previous.iter().map(|cell| (key(cell), cell)).collect();
+    let new: BTreeMap<_, _> = current.iter().map(|cell| (key(cell), cell)).collect();
+    let mut changed = Vec::new();
+    for (&cell, value) in &new {
+        if old.get(&cell).copied() != Some(*value) {
+            changed.push(**value);
+        }
+    }
+    for (&(q, r), old) in &old {
+        if !new.contains_key(&(q, r)) {
+            changed.push(HabitatSnapshot {
+                q,
+                r,
+                x: old.x,
+                y: old.y,
+                radius: old.radius,
+                capacity: 0,
+                discharge: 0,
+            });
+        }
+    }
+    changed.sort_unstable_by_key(|cell| (cell.q, cell.r));
+    (!changed.is_empty()).then_some(HabitatsDelta {
         replace: false,
         changed,
     })

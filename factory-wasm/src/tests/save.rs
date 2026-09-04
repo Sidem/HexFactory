@@ -110,6 +110,54 @@ fn a_save_resumes_and_replays_in_a_deterministic_order() {
 }
 
 #[test]
+fn fertile_riverbank_is_rebuilt_exactly_and_never_enters_the_save_or_checksum() {
+    let (definitions, technologies, scenarios) = catalogs();
+    let core = bare_game("new-game");
+    let checksum = core.checksum();
+    let before = core.habitat_snapshots();
+    assert!(!before.is_empty());
+    assert_eq!(
+        core.checksum(),
+        checksum,
+        "querying derived habitat changed truth"
+    );
+
+    let save = core.save_string().unwrap();
+    assert!(!save.contains("habitat"));
+    let restored = Core::from_save(&definitions, &technologies, &scenarios, &save).unwrap();
+    assert_eq!(restored.checksum(), checksum);
+    assert_eq!(restored.habitat_snapshots(), before);
+}
+
+#[test]
+fn surveying_publishes_only_the_new_chunks_bounded_habitat_patch() {
+    let mut factory = test_factory("new-game");
+    let _ = factory.build_delta();
+    let size = factory.core.scenario.chunk_size;
+    let (chunk_q, chunk_r) = hexes_in_radius((0, 0), 128)
+        .into_iter()
+        .find_map(|(q, r)| {
+            crate::ecology::generated_fertile_riverbank(&factory.core.ground_spine, q, r)?;
+            let chunk = (floor_div(q, size), floor_div(r, size));
+            (!factory.core.generated_chunks.contains(&chunk)).then_some(chunk)
+        })
+        .expect("the wider measured sample contains an unsurveyed habitat chunk");
+    factory.core.generate_chunk(chunk_q, chunk_r);
+    let delta = factory.build_delta();
+    let habitat = delta
+        .habitats
+        .expect("new habitat crossed the wire boundary");
+    assert!(!habitat.replace);
+    assert!(!habitat.changed.is_empty());
+    assert!(habitat.changed.len() <= (size * size) as usize);
+    assert!(habitat.changed.iter().all(|cell| {
+        floor_div(cell.q, size) == chunk_q
+            && floor_div(cell.r, size) == chunk_r
+            && cell.capacity > 0
+    }));
+}
+
+#[test]
 fn deltas_send_only_what_changed_and_match_a_full_snapshot_diff() {
     let mut core = game("new-game");
     let previous = core.snapshot();

@@ -133,6 +133,15 @@ impl Core {
         } else {
             self.flora_regrowth.remove(&(q, r));
         }
+        // A cell that just went out is a row the host has to stop drawing, and the resources group
+        // carries no removal, so the group is resent whole. For ore that happens once in a deposit's
+        // life. A stand of trees can empty again every time it is worked back to nothing, which is
+        // bounded below by the regrowth cadence: one resend per starving extractor per unit grown.
+        // That is the cost of a cleared hex looking like ordinary ground, and it is the thing to
+        // measure before trading it for a tombstone in the wire.
+        if quantity == 0 {
+            self.dirty.resources_replace = true;
+        }
     }
 
     /// How often one unit of this item grows back, for a resource that is flora. `None` for every
@@ -141,6 +150,41 @@ impl Core {
         self.item_definition(item_id)
             .and_then(|item| item.regrowth_ticks)
             .filter(|&ticks| ticks > 0)
+    }
+
+    /// A cell whose deposit is worked down to nothing, whether or not it will come back.
+    ///
+    /// Publishing asks this and no more. An emptied hex is ordinary ground while it is empty: no
+    /// field to draw, no quantity to report, no bar reading `0/3`. Ore stays that way forever and a
+    /// cleared stand does not — the row returns by itself when the first unit grows back — but
+    /// neither is a deposit the host should be drawing today.
+    pub(crate) fn deposit_empty(&self, q: i32, r: i32) -> bool {
+        self.tiles
+            .get(&(q, r))
+            .and_then(|tile| tile.resource.as_ref())
+            .is_some_and(|resource| resource.quantity == 0)
+    }
+
+    /// A deposit that is spent and will not come back.
+    ///
+    /// Ore has no regrowth cadence, so a hex worked to nothing is not a deposit any more: it is
+    /// ordinary ground that happens to remember what it used to hold. The overlay entry has to
+    /// stay, because it is the only record that the generated deposit was taken — deleting it
+    /// would hand the hex its full generated quantity back on the next read. So the *entry* is not
+    /// the question anyone should ask; this is. Grading reads it, because moving ground under a
+    /// stand that is still growing back would erase a deposit the world is in the middle of
+    /// returning, while a dead ore hex has nothing left to protect. [`Self::deposit_empty`] is the
+    /// weaker question, and the one publishing asks.
+    ///
+    /// A sealed deposit is deliberately not exhausted. Paving suppresses a deposit, and lifting the
+    /// paving hands back what went under it; only the pick empties one.
+    pub(crate) fn deposit_exhausted(&self, q: i32, r: i32) -> bool {
+        self.tiles
+            .get(&(q, r))
+            .and_then(|tile| tile.resource.as_ref())
+            .is_some_and(|resource| {
+                resource.quantity == 0 && self.regrowth_ticks(resource.item_id).is_none()
+            })
     }
 
     /// Rebuild the regrowth set from the overlay. It is a pure function of the stored tiles and the
@@ -162,9 +206,125 @@ impl Core {
             .collect();
     }
 
-    /// Grow every cut flora cell back by one unit on the cadence its item declares. Walking the
-    /// marked set rather than the world is the same sparsity rule the rest of the tick follows: an
-    /// untouched forest is not in the set, and a fully regrown cell leaves it.
+    /// What is standing in a cell's own neighbourhood, and what that ground could hold: the cell
+    /// itself and its six neighbours, counting only cells whose deposit is this same flora.
+    ///
+    /// This is the seed pressure a cut cell recovers under. Both halves come from `field_at`, so
+    /// paving suppresses a hex as a seed source exactly as it suppresses it as a deposit, and both
+    /// are generated rather than surveyed facts, so how far the player has walked never enters the
+    /// answer. A neighbourhood of ground that never carried this flora contributes nothing to
+    /// either total, which is why an edge stand beside a meadow is not penalised for the meadow.
+    fn seed_pressure(&self, q: i32, r: i32, item_id: ItemId) -> (u32, u32) {
+        let mut standing = 0;
+        let mut capacity = 0;
+        let ring = DIRECTIONS.iter().map(|&(dq, dr)| (q + dq, r + dr));
+        for cell in std::iter::once((q, r)).chain(ring) {
+            let Some(field) = self.field_at(cell.0, cell.1) else {
+                continue;
+            };
+            if field.item_id != item_id {
+                continue;
+            }
+            capacity += field.initial_quantity;
+            standing += self.deposit_quantity(cell);
+        }
+        (standing, capacity)
+    }
+
+    /// How many of an item's regrowth intervals one unit of growth costs at this cell.
+    ///
+    /// Flora comes from flora. A cell whose neighbourhood is intact pays one interval — exactly the
+    /// cadence the item declares — and a cell whose neighbourhood has been thinned pays
+    /// proportionally more, because proportionally less is standing to seed it. `None` is a
+    /// neighbourhood with nothing left standing at all: a clear-cut that took the last tree for a
+    /// ring around does not come back on a timer, and that is the point of the rule. Cutting into
+    /// the edge of a wood is cheap and self-repairing; flattening one costs the wood.
+    ///
+    /// It is a rate rather than a die roll, so the answer stays a pure function of the world and
+    /// enters the checksum without an RNG or a stored accumulator.
+    fn growth_intervals(&self, q: i32, r: i32, item_id: ItemId) -> Option<u64> {
+        let (standing, capacity) = self.seed_pressure(q, r, item_id);
+        if standing == 0 {
+            return None;
+        }
+        // Rounded rather than rounded up. A ceiling would read "one unit short of full" as half
+        // speed and silently double every recovery in the game the moment a single tree was cut.
+        Some(u64::from((capacity + standing / 2) / standing).max(1))
+    }
+
+    /// Whether ground carrying no deposit of its own could hold flora.
+    ///
+    /// Every clause is a physical refusal rather than a taste: an unsurveyed hex has no facts to
+    /// read and growth may not open the world to get them, a hex that already holds something is
+    /// not empty ground, paving and a footprint are things laid over it, and rock under standing
+    /// water or under a cliff face is not soil. A hex that passes all of them is meadow or soil
+    /// nobody is using, which is the only place a wood has ever had to go.
+    pub(crate) fn can_take_root(&self, q: i32, r: i32) -> bool {
+        crate::hydrology::WaterField::surveyed(self, q, r)
+            && self.buried_field_at(q, r).is_none()
+            && self.surface_at(q, r) == 0
+            && !self.runtime.occupied.contains_key(&(q, r))
+            && self.water_depth_at(q, r) == 0
+            && self.generated_ground_at(q, r).substrate != Substrate::Rock
+            && !self.terrain_at(q, r).blocks_construction()
+    }
+
+    /// Where a stand that has just filled itself back up puts its next tree, if anywhere.
+    ///
+    /// Among the neighbours that could hold it, the seed goes to the most sheltered — the candidate
+    /// with the most of this same flora already standing around it. That is where a wood actually
+    /// thickens first, and it makes an edge advance as a rounded front instead of a line marching
+    /// down the direction table. Ties go to the lower direction index, so the answer is a pure
+    /// function of the world and needs no die.
+    pub(crate) fn colonisation_target(
+        &self,
+        q: i32,
+        r: i32,
+        item_id: ItemId,
+    ) -> Option<(i32, i32)> {
+        let mut best: Option<((i32, i32), u32)> = None;
+        for &(dq, dr) in &DIRECTIONS {
+            let cell = (q + dq, r + dr);
+            if !self.can_take_root(cell.0, cell.1) {
+                continue;
+            }
+            let (standing, _) = self.seed_pressure(cell.0, cell.1, item_id);
+            if best.is_none_or(|(_, most)| standing > most) {
+                best = Some((cell, standing));
+            }
+        }
+        best.map(|(cell, _)| cell)
+    }
+
+    /// Put a new stand on empty ground beside one that has just healed.
+    ///
+    /// This is the only way the set of hexes carrying flora ever grows, and it is deliberately fed
+    /// by recovery rather than by standing wood: a forest at the extent the generator drew it is at
+    /// its equilibrium and stays there, while one that is *growing back* is expanding, and an
+    /// expansion does not stop neatly at the line a cut used to be. So woods spread where the player
+    /// has been working them and nowhere else, and the world does not silently fill in with trees
+    /// around somebody who never touched it.
+    ///
+    /// The new stand starts at one unit and is given its parent's capacity, so it is a seedling on
+    /// ground that will hold a wood the size of the wood that seeded it — and from the next tick it
+    /// is an ordinary regrowth cell, slowed by its own thin neighbourhood exactly like any other.
+    fn colonise_from(&mut self, from: (i32, i32), item_id: ItemId, capacity: u32) {
+        let Some(cell) = self.colonisation_target(from.0, from.1, item_id) else {
+            return;
+        };
+        self.write_overlay(cell.0, cell.1, item_id, 1, capacity);
+        self.dirty.resources.push(cell);
+        // Ground that carried nothing now carries a deposit, so every extractor's candidate list
+        // and status may read differently.
+        self.mark_all_entities_dirty();
+        self.events
+            .push(format!("Flora spread to {},{}", cell.0, cell.1));
+    }
+
+    /// Grow every cut flora cell back by one unit, on the cadence its item declares slowed by how
+    /// much of its neighbourhood is standing. Walking the marked set rather than the world is the
+    /// same sparsity rule the rest of the tick follows: an untouched forest is not in the set, and
+    /// a fully regrown cell leaves it.
     pub(crate) fn regrow_flora(&mut self) {
         if self.flora_regrowth.is_empty() {
             return;
@@ -174,11 +334,25 @@ impl Core {
             .iter()
             .copied()
             .filter(|key| {
-                self.tiles
+                let Some(ticks) = self
+                    .tiles
                     .get(key)
                     .and_then(|tile| tile.resource.as_ref())
-                    .and_then(|resource| self.regrowth_ticks(resource.item_id))
-                    .is_some_and(|ticks| self.tick % u64::from(ticks) == 0)
+                    .map(|resource| resource.item_id)
+                    .and_then(|item_id| self.regrowth_ticks(item_id).map(|ticks| (item_id, ticks)))
+                else {
+                    return false;
+                };
+                let (item_id, interval) = (ticks.0, u64::from(ticks.1));
+                // The item's own cadence is the cheap outer gate, so the seven-cell neighbourhood
+                // is only read on the ticks that could actually grow something. A cell whose
+                // neighbourhood cannot seed it stays in the set at that same cost, because a
+                // neighbour regrowing is what would let it start again.
+                if self.tick % interval != 0 {
+                    return false;
+                }
+                self.growth_intervals(key.0, key.1, item_id)
+                    .is_some_and(|intervals| (self.tick / interval) % intervals == 0)
             })
             .collect();
         for key in due {
@@ -197,6 +371,9 @@ impl Core {
             }
             self.write_overlay(key.0, key.1, item_id, quantity + 1, initial);
             self.dirty.resources.push(key);
+            if quantity + 1 >= initial {
+                self.colonise_from(key, item_id, initial);
+            }
             if quantity == 0 {
                 // A cell that had been cut to nothing can restart an extractor that reported it
                 // exhausted, and every extractor covering it may now report a different status.

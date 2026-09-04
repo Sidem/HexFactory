@@ -306,6 +306,16 @@ pub(super) fn migrate<'a>(json: &'a str, target_version: u16) -> Result<Cow<'a, 
         version = 44;
     }
 
+    // Version 45 makes earthwork a player-clock action. A version-44 player is idle unless the
+    // existing `pending_gather` says otherwise, so the defaulted pending-ground field is already
+    // its exact state and only the envelope stamp moves.
+    if version == 44 && target_version >= 45 {
+        if let Some(object) = value.as_object_mut() {
+            object.insert("save_version".into(), Value::from(45));
+        }
+        version = 45;
+    }
+
     if version == target_version {
         return Ok(Cow::Owned(serde_json::to_string(&value).map_err(
             |error| format!("migrated save could not be written: {error}"),
@@ -736,9 +746,9 @@ mod tests {
         // byte data; the next boundary rejects the old world stamp with the exportable-world
         // message rather than pretending the terrain can be migrated.
         let json = r#"{"save_version":43,"definition_version":30,"technology_version":18,"world_generator_version":15,"state":{"player":{"inventory":{"1":7}}}}"#;
-        let migrated = migrate(json, 44).expect("migrated save");
+        let migrated = migrate(json, 45).expect("migrated save");
         let value: Value = serde_json::from_str(&migrated).expect("migrated json");
-        assert_eq!(value["save_version"], 44);
+        assert_eq!(value["save_version"], 45);
         assert_eq!(value["definition_version"], 30);
         assert_eq!(value["technology_version"], 18);
         assert_eq!(value["world_generator_version"], 15);

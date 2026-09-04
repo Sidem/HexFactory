@@ -183,7 +183,7 @@ impl GeneratedGround {
         } else {
             Substrate::Meadow
         };
-        let shore_bench = terra.river_bench_at(source.0, source.1)
+        let shore_bench = terra.river_bench_class_at(source.0, source.1).is_some()
             || DIRECTIONS
                 .iter()
                 .any(|&(dq, dr)| terra.water(source.0 + dq, source.1 + dr).is_wet());
@@ -325,6 +325,19 @@ impl GroundSpine {
     pub(super) fn wet_at(&self, q: i32, r: i32) -> bool {
         let ground = self.generated_at(q, r);
         ground.hydrology.depth_quanta > 0 || ground.presentation.is_water()
+    }
+
+    /// Rated discharge of the wet channel whose generated dry bench contains this cell.
+    ///
+    /// This remains a drainage answer rather than a presentation-band inference: sea shore and
+    /// river alluvium can both look like `Shore`, while only the latter has a channel class.
+    pub(super) fn river_bench_class_at(&self, q: i32, r: i32) -> Option<u8> {
+        match &self.source {
+            GroundSource::Legacy => None,
+            GroundSource::Physical { terra, origin } => terra
+                .borrow_mut()
+                .river_bench_class_at(q + origin.0, r + origin.1),
+        }
     }
 
     pub(super) fn generated_at(&self, q: i32, r: i32) -> GeneratedGround {

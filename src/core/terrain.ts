@@ -96,6 +96,14 @@ export const TERRAIN_ORDER: Terrain[] = [
   "cliff",
 ];
 
+/** Native's physical wading boundary, pinned against `fixtures/terrain-passability.json`. */
+export const WADE_LIMIT_QUANTA = 4;
+
+/** The water band a current native depth should draw, independent of the generated land band. */
+export function waterBand(waterDepth: number): "shallow_water" | "deep_water" {
+  return waterDepth < WADE_LIMIT_QUANTA ? "shallow_water" : "deep_water";
+}
+
 /** What a band lets the player do, in one word. */
 export function terrainAccess(info: TerrainInfo): string {
   if (!info.passable) return "Impassable";

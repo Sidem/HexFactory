@@ -5,6 +5,7 @@
         beds: BTreeMap<(i32, i32), i32>,
         equilibrium: BTreeMap<(i32, i32), i32>,
         ocean: BTreeSet<(i32, i32)>,
+        channel: BTreeSet<(i32, i32)>,
         default_bed: i32,
         /// Cells outside this set are unsurveyed. `None` surveys everything the map names.
         surveyed: Option<BTreeSet<(i32, i32)>>,
@@ -21,9 +22,18 @@
                 beds,
                 equilibrium: BTreeMap::new(),
                 ocean: BTreeSet::new(),
+                channel: BTreeSet::new(),
                 default_bed: bed,
                 surveyed: None,
             }
+        }
+
+        /// Water the generator keeps supplied: a reach of a river rather than a pool.
+        fn river(mut self, q: i32, r: i32, depth: i32) -> Self {
+            self.channel.insert((q, r));
+            self.equilibrium.insert((q, r), depth);
+            self.beds.insert((q, r), self.default_bed - depth);
+            self
         }
 
         fn bed(mut self, q: i32, r: i32, height: i32) -> Self {
@@ -90,6 +100,10 @@
 
         fn ocean(&self, q: i32, r: i32) -> bool {
             self.ocean.contains(&(q, r))
+        }
+
+        fn channel(&self, q: i32, r: i32) -> bool {
+            self.channel.contains(&(q, r))
         }
     }
 
@@ -373,3 +387,144 @@
         }
     }
 
+
+    /// A canal is the whole reason a channel is a head rather than a reservoir.
+    ///
+    /// The same trench, cut beside the same four quanta of water, twice. Beside a pool the two split
+    /// what the pool had and both end up lower, because that water is all the water there is. Beside
+    /// a river the trench comes up to the river's own surface and the reach is still at its generated
+    /// depth when the solve stops: what the trench took came from upstream, which is what lets a
+    /// player water ground the river never reached without emptying the river to do it.
+    #[test]
+    fn a_trench_fills_from_a_channel_without_drawing_the_channel_down() {
+        let pool = TestField::flat(4, 100)
+            .water(0, 0, 4)
+            .bed(0, 0, 96)
+            .bed(1, 0, 96);
+        let mut water = DisturbedWater::new();
+        let report = settle(&pool, &mut water, &[(1, 0)]);
+        assert!(report.settled, "{report:?}");
+        assert_eq!(report.inflow_quanta, 0, "a pool is supplied by nothing");
+        assert_eq!(pool.surface(&water, 0, 0), pool.surface(&water, 1, 0));
+        assert!(
+            pool.surface(&water, 0, 0) < 100,
+            "the pool paid for the trench out of its own depth"
+        );
+
+        let river = TestField::flat(4, 100).river(0, 0, 4).bed(1, 0, 96);
+        let mut water = DisturbedWater::new();
+        let report = settle(&river, &mut water, &[(1, 0)]);
+        assert!(report.settled, "{report:?}");
+        assert!(report.inflow_quanta > 0, "the channel supplied the fill");
+        assert_eq!(
+            water.delta_at(0, 0),
+            WaterDelta::new(0),
+            "the reach is back at its generated depth and stores no departure"
+        );
+        assert_eq!(
+            river.surface(&water, 1, 0),
+            100,
+            "and the trench fills exactly to the supplied river level"
+        );
+
+        // This is the smallest useful canal cut: its floor is only one quantum below the river
+        // surface. A supplied head must cross that last quarter metre; the finite-pool residual
+        // rule must not leave the canal looking dry merely because the difference is odd.
+        let river = TestField::flat(4, 100).river(0, 0, 4).bed(1, 0, 99);
+        let mut water = DisturbedWater::new();
+        let report = settle(&river, &mut water, &[(1, 0)]);
+        assert!(report.settled, "{report:?}");
+        assert_eq!(water.delta_at(1, 0), WaterDelta::new(1));
+        assert_eq!(river.surface(&water, 1, 0), 100);
+    }
+
+    /// The recharge is a restoration, never a spring. A reach nobody has touched is already full, so
+    /// it adds nothing and the untouched world still settles without moving a quantum; and a reach
+    /// somebody dug out is no longer the channel the generator drew, so it stops being supplied and
+    /// holds what they left in it.
+    #[test]
+    fn a_channel_refills_only_to_its_own_depth_and_a_dug_reach_stops_refilling() {
+        let field = TestField::flat(3, 100).river(0, 0, 4);
+        let mut water = DisturbedWater::new();
+        let report = settle(&field, &mut water, &[(0, 0)]);
+        assert!(report.settled, "{report:?}");
+        assert_eq!(report.inflow_quanta, 0, "a full reach is supplied by nothing");
+        assert_eq!(report.transfers, 0);
+        assert!(water.is_empty(), "and stores no departure");
+
+        // Drain it by hand. The reach is still on its generated bed, so upstream puts it back.
+        water.set(0, 0, WaterDelta::new(-3));
+        let report = settle(&field, &mut water, &[(0, 0)]);
+        assert!(report.settled, "{report:?}");
+        assert_eq!(report.inflow_quanta, 3);
+        assert!(water.is_empty(), "the reach is at its generated depth again");
+
+        // The same drain on a reach whose bed was cut. Nothing supplies it, and it stays down.
+        let dug = TestField::flat(3, 100).river(0, 0, 4);
+        let dug = TestField {
+            channel: BTreeSet::new(),
+            ..dug
+        };
+        let mut water = DisturbedWater::new();
+        water.set(0, 0, WaterDelta::new(-3));
+        let report = settle(&dug, &mut water, &[(0, 0)]);
+        assert!(report.settled, "{report:?}");
+        assert_eq!(report.inflow_quanta, 0);
+        assert_eq!(water.delta_at(0, 0), WaterDelta::new(-3));
+    }
+
+    /// The defect the first canal found: a river conveying itself.
+    ///
+    /// A reach standing two quanta above anything is a head like any other, so a supplied reach used
+    /// to pour into the sea, over the frontier and into the next reach down — and then be put back,
+    /// and pour again, for as many sweeps as the budget allowed. In play, one six-quanta trench left
+    /// 992 quanta of water piled on three cells the player had never surveyed, and raised half the
+    /// rivers on the map by a quantum on its way there. A head fills ground beside it and nothing
+    /// else, so a river descending four steps into the sea moves nothing at all.
+    #[test]
+    fn a_reach_supplies_ground_and_never_the_sea_the_frontier_or_the_next_reach_down() {
+        // Four reaches stepping downhill: the sea below the first, the unsurveyed edge past the
+        // last, and each one two quanta or more above the next.
+        let stepped = || {
+            TestField::flat(3, 100)
+                .river(0, 0, 4)
+                .sea(0, -1)
+                .river(1, 0, 4)
+                .bed(1, 0, 92)
+                .river(2, 0, 4)
+                .bed(2, 0, 88)
+                .river(3, 0, 4)
+                .bed(3, 0, 84)
+        };
+        let field = stepped();
+        let mut water = DisturbedWater::new();
+        let report = settle(&field, &mut water, &[(0, 0), (1, 0), (2, 0), (3, 0)]);
+        assert!(report.settled, "{report:?}");
+        assert_eq!(report.transfers, 0, "a river at rest is at rest");
+        assert_eq!(report.inflow_quanta, 0);
+        assert_eq!(report.outflow_quanta, 0, "nothing was supplied to be lost");
+        assert!(report.frontier.is_empty(), "{:?}", report.frontier);
+        assert!(water.is_empty(), "and the world stores nothing");
+
+        // A trench beside the top reach, touching that reach and no other. It fills from upstream,
+        // and the water it is filled with is all the water the solve moves.
+        let dug = stepped().bed(-1, 1, 94);
+        let mut water = DisturbedWater::new();
+        let report = settle(&dug, &mut water, &[(-1, 1)]);
+        assert!(report.settled, "{report:?}");
+        assert!(report.inflow_quanta > 0, "the reach supplied the trench");
+        assert_eq!(report.outflow_quanta, 0, "and nothing ran past the edges");
+        assert!(report.frontier.is_empty(), "{:?}", report.frontier);
+        assert_eq!(
+            dug.surface(&water, -1, 1),
+            100,
+            "the trench stands at the river level it was cut from"
+        );
+        for reach in [(0, 0), (1, 0), (2, 0), (3, 0)] {
+            assert_eq!(
+                water.delta_at(reach.0, reach.1),
+                WaterDelta::new(0),
+                "reach {reach:?} is still at its generated depth"
+            );
+        }
+    }

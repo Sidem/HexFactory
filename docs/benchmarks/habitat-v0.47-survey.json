@@ -1,0 +1,1290 @@
+[
+  {
+    "preset": "continental",
+    "seed": 1213486160,
+    "radius": 96,
+    "hexes": 27937,
+    "land_hexes": 20530,
+    "bands": [
+      {
+        "band": "DeepWater",
+        "hexes": 6362,
+        "per_mille": 227
+      },
+      {
+        "band": "ShallowWater",
+        "hexes": 1045,
+        "per_mille": 37
+      },
+      {
+        "band": "Shore",
+        "hexes": 2204,
+        "per_mille": 78
+      },
+      {
+        "band": "Lowland",
+        "hexes": 17663,
+        "per_mille": 632
+      },
+      {
+        "band": "Hills",
+        "hexes": 440,
+        "per_mille": 15
+      },
+      {
+        "band": "Highland",
+        "hexes": 60,
+        "per_mille": 2
+      },
+      {
+        "band": "Cliff",
+        "hexes": 163,
+        "per_mille": 5
+      }
+    ],
+    "materials": [
+      {
+        "item_id": 1,
+        "name": "Iron ore",
+        "cells": 68,
+        "per_mille_land": 3,
+        "nearest": 8,
+        "mean_distance": 12
+      },
+      {
+        "item_id": 3,
+        "name": "Signal crystal",
+        "cells": 0,
+        "per_mille_land": 0,
+        "nearest": null,
+        "mean_distance": null
+      },
+      {
+        "item_id": 4,
+        "name": "Copper ore",
+        "cells": 65,
+        "per_mille_land": 3,
+        "nearest": 27,
+        "mean_distance": 31
+      },
+      {
+        "item_id": 5,
+        "name": "Coal",
+        "cells": 73,
+        "per_mille_land": 3,
+        "nearest": 14,
+        "mean_distance": 19
+      },
+      {
+        "item_id": 6,
+        "name": "Stone",
+        "cells": 99,
+        "per_mille_land": 4,
+        "nearest": 16,
+        "mean_distance": 29
+      },
+      {
+        "item_id": 7,
+        "name": "Sand",
+        "cells": 138,
+        "per_mille_land": 6,
+        "nearest": 35,
+        "mean_distance": 68
+      },
+      {
+        "item_id": 8,
+        "name": "Clay",
+        "cells": 23,
+        "per_mille_land": 1,
+        "nearest": 56,
+        "mean_distance": 59
+      },
+      {
+        "item_id": 9,
+        "name": "Wood",
+        "cells": 3058,
+        "per_mille_land": 148,
+        "nearest": 8,
+        "mean_distance": 70
+      },
+      {
+        "item_id": 26,
+        "name": "Limestone",
+        "cells": 75,
+        "per_mille_land": 3,
+        "nearest": 26,
+        "mean_distance": 30
+      },
+      {
+        "item_id": 28,
+        "name": "Crude oil",
+        "cells": 113,
+        "per_mille_land": 5,
+        "nearest": 71,
+        "mean_distance": 86
+      }
+    ],
+    "patches": [
+      {
+        "item_id": 1,
+        "name": "Iron ore",
+        "patches": 1,
+        "hexes": 68,
+        "mean_patch": 68,
+        "largest_patch": 68,
+        "mean_patch_yield": 774,
+        "nearest_workable_patch": 8,
+        "purity_per_mille": 970,
+        "truncated_patches": 0,
+        "mean_nearest_body": 7225
+      },
+      {
+        "item_id": 3,
+        "name": "Signal crystal",
+        "patches": 0,
+        "hexes": 0,
+        "mean_patch": 0,
+        "largest_patch": 0,
+        "mean_patch_yield": 0,
+        "nearest_workable_patch": null,
+        "purity_per_mille": 0,
+        "truncated_patches": 0,
+        "mean_nearest_body": null
+      },
+      {
+        "item_id": 4,
+        "name": "Copper ore",
+        "patches": 1,
+        "hexes": 65,
+        "mean_patch": 65,
+        "largest_patch": 65,
+        "mean_patch_yield": 720,
+        "nearest_workable_patch": 27,
+        "purity_per_mille": 1000,
+        "truncated_patches": 0,
+        "mean_nearest_body": 7225
+      },
+      {
+        "item_id": 5,
+        "name": "Coal",
+        "patches": 1,
+        "hexes": 73,
+        "mean_patch": 73,
+        "largest_patch": 73,
+        "mean_patch_yield": 768,
+        "nearest_workable_patch": 14,
+        "purity_per_mille": 1000,
+        "truncated_patches": 0,
+        "mean_nearest_body": 7225
+      },
+      {
+        "item_id": 6,
+        "name": "Stone",
+        "patches": 2,
+        "hexes": 99,
+        "mean_patch": 49,
+        "largest_patch": 87,
+        "mean_patch_yield": 619,
+        "nearest_workable_patch": 16,
+        "purity_per_mille": 1000,
+        "truncated_patches": 0,
+        "mean_nearest_body": 3644
+      },
+      {
+        "item_id": 7,
+        "name": "Sand",
+        "patches": 5,
+        "hexes": 138,
+        "mean_patch": 27,
+        "largest_patch": 55,
+        "mean_patch_yield": 472,
+        "nearest_workable_patch": 35,
+        "purity_per_mille": 1000,
+        "truncated_patches": 1,
+        "mean_nearest_body": 5792
+      },
+      {
+        "item_id": 8,
+        "name": "Clay",
+        "patches": 2,
+        "hexes": 23,
+        "mean_patch": 11,
+        "largest_patch": 14,
+        "mean_patch_yield": 174,
+        "nearest_workable_patch": 56,
+        "purity_per_mille": 1000,
+        "truncated_patches": 0,
+        "mean_nearest_body": 7225
+      },
+      {
+        "item_id": 9,
+        "name": "Wood",
+        "patches": 28,
+        "hexes": 3058,
+        "mean_patch": 109,
+        "largest_patch": 349,
+        "mean_patch_yield": 192,
+        "nearest_workable_patch": 8,
+        "purity_per_mille": 999,
+        "truncated_patches": 9,
+        "mean_nearest_body": 5941
+      },
+      {
+        "item_id": 26,
+        "name": "Limestone",
+        "patches": 1,
+        "hexes": 75,
+        "mean_patch": 75,
+        "largest_patch": 75,
+        "mean_patch_yield": 769,
+        "nearest_workable_patch": 26,
+        "purity_per_mille": 1000,
+        "truncated_patches": 0,
+        "mean_nearest_body": 7225
+      },
+      {
+        "item_id": 28,
+        "name": "Crude oil",
+        "patches": 3,
+        "hexes": 113,
+        "mean_patch": 37,
+        "largest_patch": 41,
+        "mean_patch_yield": 954,
+        "nearest_workable_patch": 71,
+        "purity_per_mille": 1000,
+        "truncated_patches": 0,
+        "mean_nearest_body": 7225
+      }
+    ],
+    "purity_per_mille": 998,
+    "water": {
+      "water_hexes": 7294,
+      "bodies": 4,
+      "largest_body": 7225,
+      "mean_body": 1823,
+      "truncated_bodies": 2
+    },
+    "rivers": {
+      "river_hexes": 113,
+      "runs": 15,
+      "mean_run": 7,
+      "longest_run": 19
+    },
+    "fertile_riverbank": {
+      "cells": 686,
+      "per_mille_land": 33,
+      "capacity": 76050,
+      "nearest": 13
+    },
+    "bootstrap": [
+      {
+        "item_id": 1,
+        "name": "Iron ore",
+        "edge": 9,
+        "hexes": 60
+      },
+      {
+        "item_id": 9,
+        "name": "Wood",
+        "edge": 11,
+        "hexes": 114
+      },
+      {
+        "item_id": 5,
+        "name": "Coal",
+        "edge": 15,
+        "hexes": 60
+      },
+      {
+        "item_id": 6,
+        "name": "Stone",
+        "edge": 16,
+        "hexes": 84
+      },
+      {
+        "item_id": 8,
+        "name": "Clay",
+        "edge": 56,
+        "hexes": 14
+      },
+      {
+        "item_id": 26,
+        "name": "Limestone",
+        "edge": 27,
+        "hexes": 61
+      },
+      {
+        "item_id": 4,
+        "name": "Copper ore",
+        "edge": 27,
+        "hexes": 58
+      }
+    ]
+  },
+  {
+    "preset": "archipelago",
+    "seed": 1213486160,
+    "radius": 96,
+    "hexes": 27937,
+    "land_hexes": 20530,
+    "bands": [
+      {
+        "band": "DeepWater",
+        "hexes": 6362,
+        "per_mille": 227
+      },
+      {
+        "band": "ShallowWater",
+        "hexes": 1045,
+        "per_mille": 37
+      },
+      {
+        "band": "Shore",
+        "hexes": 2204,
+        "per_mille": 78
+      },
+      {
+        "band": "Lowland",
+        "hexes": 17663,
+        "per_mille": 632
+      },
+      {
+        "band": "Hills",
+        "hexes": 440,
+        "per_mille": 15
+      },
+      {
+        "band": "Highland",
+        "hexes": 60,
+        "per_mille": 2
+      },
+      {
+        "band": "Cliff",
+        "hexes": 163,
+        "per_mille": 5
+      }
+    ],
+    "materials": [
+      {
+        "item_id": 1,
+        "name": "Iron ore",
+        "cells": 137,
+        "per_mille_land": 6,
+        "nearest": 20,
+        "mean_distance": 26
+      },
+      {
+        "item_id": 3,
+        "name": "Signal crystal",
+        "cells": 0,
+        "per_mille_land": 0,
+        "nearest": null,
+        "mean_distance": null
+      },
+      {
+        "item_id": 4,
+        "name": "Copper ore",
+        "cells": 137,
+        "per_mille_land": 6,
+        "nearest": 39,
+        "mean_distance": 46
+      },
+      {
+        "item_id": 5,
+        "name": "Coal",
+        "cells": 137,
+        "per_mille_land": 6,
+        "nearest": 20,
+        "mean_distance": 28
+      },
+      {
+        "item_id": 6,
+        "name": "Stone",
+        "cells": 160,
+        "per_mille_land": 7,
+        "nearest": 23,
+        "mean_distance": 31
+      },
+      {
+        "item_id": 7,
+        "name": "Sand",
+        "cells": 86,
+        "per_mille_land": 4,
+        "nearest": 49,
+        "mean_distance": 76
+      },
+      {
+        "item_id": 8,
+        "name": "Clay",
+        "cells": 19,
+        "per_mille_land": 0,
+        "nearest": 43,
+        "mean_distance": 47
+      },
+      {
+        "item_id": 9,
+        "name": "Wood",
+        "cells": 1484,
+        "per_mille_land": 72,
+        "nearest": 8,
+        "mean_distance": 66
+      },
+      {
+        "item_id": 26,
+        "name": "Limestone",
+        "cells": 130,
+        "per_mille_land": 6,
+        "nearest": 37,
+        "mean_distance": 43
+      },
+      {
+        "item_id": 28,
+        "name": "Crude oil",
+        "cells": 58,
+        "per_mille_land": 2,
+        "nearest": 50,
+        "mean_distance": 78
+      }
+    ],
+    "patches": [
+      {
+        "item_id": 1,
+        "name": "Iron ore",
+        "patches": 1,
+        "hexes": 137,
+        "mean_patch": 137,
+        "largest_patch": 137,
+        "mean_patch_yield": 1645,
+        "nearest_workable_patch": 20,
+        "purity_per_mille": 1000,
+        "truncated_patches": 0,
+        "mean_nearest_body": 7342
+      },
+      {
+        "item_id": 3,
+        "name": "Signal crystal",
+        "patches": 0,
+        "hexes": 0,
+        "mean_patch": 0,
+        "largest_patch": 0,
+        "mean_patch_yield": 0,
+        "nearest_workable_patch": null,
+        "purity_per_mille": 0,
+        "truncated_patches": 0,
+        "mean_nearest_body": null
+      },
+      {
+        "item_id": 4,
+        "name": "Copper ore",
+        "patches": 1,
+        "hexes": 137,
+        "mean_patch": 137,
+        "largest_patch": 137,
+        "mean_patch_yield": 1534,
+        "nearest_workable_patch": 39,
+        "purity_per_mille": 1000,
+        "truncated_patches": 0,
+        "mean_nearest_body": 7342
+      },
+      {
+        "item_id": 5,
+        "name": "Coal",
+        "patches": 1,
+        "hexes": 137,
+        "mean_patch": 137,
+        "largest_patch": 137,
+        "mean_patch_yield": 1528,
+        "nearest_workable_patch": 20,
+        "purity_per_mille": 1000,
+        "truncated_patches": 0,
+        "mean_nearest_body": 7342
+      },
+      {
+        "item_id": 6,
+        "name": "Stone",
+        "patches": 1,
+        "hexes": 160,
+        "mean_patch": 160,
+        "largest_patch": 160,
+        "mean_patch_yield": 1994,
+        "nearest_workable_patch": 23,
+        "purity_per_mille": 1000,
+        "truncated_patches": 0,
+        "mean_nearest_body": 7342
+      },
+      {
+        "item_id": 7,
+        "name": "Sand",
+        "patches": 2,
+        "hexes": 86,
+        "mean_patch": 43,
+        "largest_patch": 51,
+        "mean_patch_yield": 738,
+        "nearest_workable_patch": 49,
+        "purity_per_mille": 1000,
+        "truncated_patches": 1,
+        "mean_nearest_body": 7342
+      },
+      {
+        "item_id": 8,
+        "name": "Clay",
+        "patches": 1,
+        "hexes": 19,
+        "mean_patch": 19,
+        "largest_patch": 19,
+        "mean_patch_yield": 285,
+        "nearest_workable_patch": 43,
+        "purity_per_mille": 1000,
+        "truncated_patches": 0,
+        "mean_nearest_body": 7342
+      },
+      {
+        "item_id": 9,
+        "name": "Wood",
+        "patches": 15,
+        "hexes": 1484,
+        "mean_patch": 98,
+        "largest_patch": 235,
+        "mean_patch_yield": 173,
+        "nearest_workable_patch": 8,
+        "purity_per_mille": 1000,
+        "truncated_patches": 6,
+        "mean_nearest_body": 5882
+      },
+      {
+        "item_id": 26,
+        "name": "Limestone",
+        "patches": 1,
+        "hexes": 130,
+        "mean_patch": 130,
+        "largest_patch": 130,
+        "mean_patch_yield": 1405,
+        "nearest_workable_patch": 37,
+        "purity_per_mille": 1000,
+        "truncated_patches": 0,
+        "mean_nearest_body": 7342
+      },
+      {
+        "item_id": 28,
+        "name": "Crude oil",
+        "patches": 2,
+        "hexes": 58,
+        "mean_patch": 29,
+        "largest_patch": 38,
+        "mean_patch_yield": 705,
+        "nearest_workable_patch": 50,
+        "purity_per_mille": 1000,
+        "truncated_patches": 1,
+        "mean_nearest_body": 7342
+      }
+    ],
+    "purity_per_mille": 1000,
+    "water": {
+      "water_hexes": 7407,
+      "bodies": 3,
+      "largest_body": 7342,
+      "mean_body": 2469,
+      "truncated_bodies": 2
+    },
+    "rivers": {
+      "river_hexes": 0,
+      "runs": 0,
+      "mean_run": 0,
+      "longest_run": 0
+    },
+    "fertile_riverbank": {
+      "cells": 686,
+      "per_mille_land": 33,
+      "capacity": 76050,
+      "nearest": 13
+    },
+    "bootstrap": [
+      {
+        "item_id": 1,
+        "name": "Iron ore",
+        "edge": 20,
+        "hexes": 125
+      },
+      {
+        "item_id": 9,
+        "name": "Wood",
+        "edge": 19,
+        "hexes": 217
+      },
+      {
+        "item_id": 5,
+        "name": "Coal",
+        "edge": 21,
+        "hexes": 120
+      },
+      {
+        "item_id": 6,
+        "name": "Stone",
+        "edge": 23,
+        "hexes": 152
+      },
+      {
+        "item_id": 8,
+        "name": "Clay",
+        "edge": 44,
+        "hexes": 17
+      },
+      {
+        "item_id": 26,
+        "name": "Limestone",
+        "edge": 38,
+        "hexes": 120
+      },
+      {
+        "item_id": 4,
+        "name": "Copper ore",
+        "edge": 40,
+        "hexes": 122
+      }
+    ]
+  },
+  {
+    "preset": "highlands",
+    "seed": 1213486160,
+    "radius": 96,
+    "hexes": 27937,
+    "land_hexes": 20530,
+    "bands": [
+      {
+        "band": "DeepWater",
+        "hexes": 6362,
+        "per_mille": 227
+      },
+      {
+        "band": "ShallowWater",
+        "hexes": 1045,
+        "per_mille": 37
+      },
+      {
+        "band": "Shore",
+        "hexes": 2204,
+        "per_mille": 78
+      },
+      {
+        "band": "Lowland",
+        "hexes": 17663,
+        "per_mille": 632
+      },
+      {
+        "band": "Hills",
+        "hexes": 440,
+        "per_mille": 15
+      },
+      {
+        "band": "Highland",
+        "hexes": 60,
+        "per_mille": 2
+      },
+      {
+        "band": "Cliff",
+        "hexes": 163,
+        "per_mille": 5
+      }
+    ],
+    "materials": [
+      {
+        "item_id": 1,
+        "name": "Iron ore",
+        "cells": 65,
+        "per_mille_land": 3,
+        "nearest": 10,
+        "mean_distance": 14
+      },
+      {
+        "item_id": 3,
+        "name": "Signal crystal",
+        "cells": 0,
+        "per_mille_land": 0,
+        "nearest": null,
+        "mean_distance": null
+      },
+      {
+        "item_id": 4,
+        "name": "Copper ore",
+        "cells": 59,
+        "per_mille_land": 2,
+        "nearest": 31,
+        "mean_distance": 34
+      },
+      {
+        "item_id": 5,
+        "name": "Coal",
+        "cells": 76,
+        "per_mille_land": 3,
+        "nearest": 16,
+        "mean_distance": 20
+      },
+      {
+        "item_id": 6,
+        "name": "Stone",
+        "cells": 32,
+        "per_mille_land": 1,
+        "nearest": 19,
+        "mean_distance": 23
+      },
+      {
+        "item_id": 7,
+        "name": "Sand",
+        "cells": 0,
+        "per_mille_land": 0,
+        "nearest": null,
+        "mean_distance": null
+      },
+      {
+        "item_id": 8,
+        "name": "Clay",
+        "cells": 45,
+        "per_mille_land": 2,
+        "nearest": 61,
+        "mean_distance": 75
+      },
+      {
+        "item_id": 9,
+        "name": "Wood",
+        "cells": 2869,
+        "per_mille_land": 139,
+        "nearest": 8,
+        "mean_distance": 67
+      },
+      {
+        "item_id": 26,
+        "name": "Limestone",
+        "cells": 64,
+        "per_mille_land": 3,
+        "nearest": 31,
+        "mean_distance": 35
+      },
+      {
+        "item_id": 28,
+        "name": "Crude oil",
+        "cells": 37,
+        "per_mille_land": 1,
+        "nearest": 80,
+        "mean_distance": 83
+      }
+    ],
+    "patches": [
+      {
+        "item_id": 1,
+        "name": "Iron ore",
+        "patches": 1,
+        "hexes": 65,
+        "mean_patch": 65,
+        "largest_patch": 65,
+        "mean_patch_yield": 748,
+        "nearest_workable_patch": 10,
+        "purity_per_mille": 861,
+        "truncated_patches": 0,
+        "mean_nearest_body": 7188
+      },
+      {
+        "item_id": 3,
+        "name": "Signal crystal",
+        "patches": 0,
+        "hexes": 0,
+        "mean_patch": 0,
+        "largest_patch": 0,
+        "mean_patch_yield": 0,
+        "nearest_workable_patch": null,
+        "purity_per_mille": 0,
+        "truncated_patches": 0,
+        "mean_nearest_body": null
+      },
+      {
+        "item_id": 4,
+        "name": "Copper ore",
+        "patches": 1,
+        "hexes": 59,
+        "mean_patch": 59,
+        "largest_patch": 59,
+        "mean_patch_yield": 666,
+        "nearest_workable_patch": 31,
+        "purity_per_mille": 1000,
+        "truncated_patches": 0,
+        "mean_nearest_body": 7188
+      },
+      {
+        "item_id": 5,
+        "name": "Coal",
+        "patches": 1,
+        "hexes": 76,
+        "mean_patch": 76,
+        "largest_patch": 76,
+        "mean_patch_yield": 793,
+        "nearest_workable_patch": 16,
+        "purity_per_mille": 1000,
+        "truncated_patches": 0,
+        "mean_nearest_body": 7188
+      },
+      {
+        "item_id": 6,
+        "name": "Stone",
+        "patches": 1,
+        "hexes": 32,
+        "mean_patch": 32,
+        "largest_patch": 32,
+        "mean_patch_yield": 403,
+        "nearest_workable_patch": 19,
+        "purity_per_mille": 1000,
+        "truncated_patches": 0,
+        "mean_nearest_body": 7188
+      },
+      {
+        "item_id": 7,
+        "name": "Sand",
+        "patches": 0,
+        "hexes": 0,
+        "mean_patch": 0,
+        "largest_patch": 0,
+        "mean_patch_yield": 0,
+        "nearest_workable_patch": null,
+        "purity_per_mille": 0,
+        "truncated_patches": 0,
+        "mean_nearest_body": null
+      },
+      {
+        "item_id": 8,
+        "name": "Clay",
+        "patches": 2,
+        "hexes": 45,
+        "mean_patch": 22,
+        "largest_patch": 24,
+        "mean_patch_yield": 339,
+        "nearest_workable_patch": 61,
+        "purity_per_mille": 1000,
+        "truncated_patches": 0,
+        "mean_nearest_body": 7188
+      },
+      {
+        "item_id": 9,
+        "name": "Wood",
+        "patches": 23,
+        "hexes": 2869,
+        "mean_patch": 124,
+        "largest_patch": 365,
+        "mean_patch_yield": 220,
+        "nearest_workable_patch": 8,
+        "purity_per_mille": 996,
+        "truncated_patches": 8,
+        "mean_nearest_body": 6258
+      },
+      {
+        "item_id": 26,
+        "name": "Limestone",
+        "patches": 1,
+        "hexes": 64,
+        "mean_patch": 64,
+        "largest_patch": 64,
+        "mean_patch_yield": 683,
+        "nearest_workable_patch": 31,
+        "purity_per_mille": 1000,
+        "truncated_patches": 0,
+        "mean_nearest_body": 7188
+      },
+      {
+        "item_id": 28,
+        "name": "Crude oil",
+        "patches": 1,
+        "hexes": 37,
+        "mean_patch": 37,
+        "largest_patch": 37,
+        "mean_patch_yield": 937,
+        "nearest_workable_patch": 80,
+        "purity_per_mille": 972,
+        "truncated_patches": 0,
+        "mean_nearest_body": 7188
+      }
+    ],
+    "purity_per_mille": 993,
+    "water": {
+      "water_hexes": 7247,
+      "bodies": 3,
+      "largest_body": 7188,
+      "mean_body": 2415,
+      "truncated_bodies": 2
+    },
+    "rivers": {
+      "river_hexes": 160,
+      "runs": 19,
+      "mean_run": 8,
+      "longest_run": 52
+    },
+    "fertile_riverbank": {
+      "cells": 686,
+      "per_mille_land": 33,
+      "capacity": 76050,
+      "nearest": 13
+    },
+    "bootstrap": [
+      {
+        "item_id": 1,
+        "name": "Iron ore",
+        "edge": 11,
+        "hexes": 56
+      },
+      {
+        "item_id": 9,
+        "name": "Wood",
+        "edge": 11,
+        "hexes": 208
+      },
+      {
+        "item_id": 5,
+        "name": "Coal",
+        "edge": 17,
+        "hexes": 61
+      },
+      {
+        "item_id": 6,
+        "name": "Stone",
+        "edge": 18,
+        "hexes": 32
+      },
+      {
+        "item_id": 8,
+        "name": "Clay",
+        "edge": 60,
+        "hexes": 20
+      },
+      {
+        "item_id": 26,
+        "name": "Limestone",
+        "edge": 31,
+        "hexes": 58
+      },
+      {
+        "item_id": 4,
+        "name": "Copper ore",
+        "edge": 31,
+        "hexes": 54
+      }
+    ]
+  },
+  {
+    "preset": "basin",
+    "seed": 1213486160,
+    "radius": 96,
+    "hexes": 27937,
+    "land_hexes": 20530,
+    "bands": [
+      {
+        "band": "DeepWater",
+        "hexes": 6362,
+        "per_mille": 227
+      },
+      {
+        "band": "ShallowWater",
+        "hexes": 1045,
+        "per_mille": 37
+      },
+      {
+        "band": "Shore",
+        "hexes": 2204,
+        "per_mille": 78
+      },
+      {
+        "band": "Lowland",
+        "hexes": 17663,
+        "per_mille": 632
+      },
+      {
+        "band": "Hills",
+        "hexes": 440,
+        "per_mille": 15
+      },
+      {
+        "band": "Highland",
+        "hexes": 60,
+        "per_mille": 2
+      },
+      {
+        "band": "Cliff",
+        "hexes": 163,
+        "per_mille": 5
+      }
+    ],
+    "materials": [
+      {
+        "item_id": 1,
+        "name": "Iron ore",
+        "cells": 68,
+        "per_mille_land": 3,
+        "nearest": 8,
+        "mean_distance": 12
+      },
+      {
+        "item_id": 3,
+        "name": "Signal crystal",
+        "cells": 0,
+        "per_mille_land": 0,
+        "nearest": null,
+        "mean_distance": null
+      },
+      {
+        "item_id": 4,
+        "name": "Copper ore",
+        "cells": 65,
+        "per_mille_land": 3,
+        "nearest": 27,
+        "mean_distance": 31
+      },
+      {
+        "item_id": 5,
+        "name": "Coal",
+        "cells": 73,
+        "per_mille_land": 3,
+        "nearest": 14,
+        "mean_distance": 19
+      },
+      {
+        "item_id": 6,
+        "name": "Stone",
+        "cells": 87,
+        "per_mille_land": 4,
+        "nearest": 16,
+        "mean_distance": 21
+      },
+      {
+        "item_id": 7,
+        "name": "Sand",
+        "cells": 138,
+        "per_mille_land": 6,
+        "nearest": 35,
+        "mean_distance": 68
+      },
+      {
+        "item_id": 8,
+        "name": "Clay",
+        "cells": 23,
+        "per_mille_land": 1,
+        "nearest": 56,
+        "mean_distance": 59
+      },
+      {
+        "item_id": 9,
+        "name": "Wood",
+        "cells": 3058,
+        "per_mille_land": 148,
+        "nearest": 8,
+        "mean_distance": 70
+      },
+      {
+        "item_id": 26,
+        "name": "Limestone",
+        "cells": 75,
+        "per_mille_land": 3,
+        "nearest": 26,
+        "mean_distance": 30
+      },
+      {
+        "item_id": 28,
+        "name": "Crude oil",
+        "cells": 121,
+        "per_mille_land": 5,
+        "nearest": 71,
+        "mean_distance": 86
+      }
+    ],
+    "patches": [
+      {
+        "item_id": 1,
+        "name": "Iron ore",
+        "patches": 1,
+        "hexes": 68,
+        "mean_patch": 68,
+        "largest_patch": 68,
+        "mean_patch_yield": 774,
+        "nearest_workable_patch": 8,
+        "purity_per_mille": 970,
+        "truncated_patches": 0,
+        "mean_nearest_body": 7250
+      },
+      {
+        "item_id": 3,
+        "name": "Signal crystal",
+        "patches": 0,
+        "hexes": 0,
+        "mean_patch": 0,
+        "largest_patch": 0,
+        "mean_patch_yield": 0,
+        "nearest_workable_patch": null,
+        "purity_per_mille": 0,
+        "truncated_patches": 0,
+        "mean_nearest_body": null
+      },
+      {
+        "item_id": 4,
+        "name": "Copper ore",
+        "patches": 1,
+        "hexes": 65,
+        "mean_patch": 65,
+        "largest_patch": 65,
+        "mean_patch_yield": 720,
+        "nearest_workable_patch": 27,
+        "purity_per_mille": 1000,
+        "truncated_patches": 0,
+        "mean_nearest_body": 7250
+      },
+      {
+        "item_id": 5,
+        "name": "Coal",
+        "patches": 1,
+        "hexes": 73,
+        "mean_patch": 73,
+        "largest_patch": 73,
+        "mean_patch_yield": 768,
+        "nearest_workable_patch": 14,
+        "purity_per_mille": 1000,
+        "truncated_patches": 0,
+        "mean_nearest_body": 7250
+      },
+      {
+        "item_id": 6,
+        "name": "Stone",
+        "patches": 1,
+        "hexes": 87,
+        "mean_patch": 87,
+        "largest_patch": 87,
+        "mean_patch_yield": 1088,
+        "nearest_workable_patch": 16,
+        "purity_per_mille": 1000,
+        "truncated_patches": 0,
+        "mean_nearest_body": 7250
+      },
+      {
+        "item_id": 7,
+        "name": "Sand",
+        "patches": 5,
+        "hexes": 138,
+        "mean_patch": 27,
+        "largest_patch": 55,
+        "mean_patch_yield": 472,
+        "nearest_workable_patch": 35,
+        "purity_per_mille": 1000,
+        "truncated_patches": 1,
+        "mean_nearest_body": 5812
+      },
+      {
+        "item_id": 8,
+        "name": "Clay",
+        "patches": 2,
+        "hexes": 23,
+        "mean_patch": 11,
+        "largest_patch": 14,
+        "mean_patch_yield": 174,
+        "nearest_workable_patch": 56,
+        "purity_per_mille": 1000,
+        "truncated_patches": 0,
+        "mean_nearest_body": 7250
+      },
+      {
+        "item_id": 9,
+        "name": "Wood",
+        "patches": 28,
+        "hexes": 3058,
+        "mean_patch": 109,
+        "largest_patch": 349,
+        "mean_patch_yield": 192,
+        "nearest_workable_patch": 8,
+        "purity_per_mille": 999,
+        "truncated_patches": 9,
+        "mean_nearest_body": 5962
+      },
+      {
+        "item_id": 26,
+        "name": "Limestone",
+        "patches": 1,
+        "hexes": 75,
+        "mean_patch": 75,
+        "largest_patch": 75,
+        "mean_patch_yield": 769,
+        "nearest_workable_patch": 26,
+        "purity_per_mille": 1000,
+        "truncated_patches": 0,
+        "mean_nearest_body": 7250
+      },
+      {
+        "item_id": 28,
+        "name": "Crude oil",
+        "patches": 4,
+        "hexes": 121,
+        "mean_patch": 30,
+        "largest_patch": 41,
+        "mean_patch_yield": 771,
+        "nearest_workable_patch": 71,
+        "purity_per_mille": 1000,
+        "truncated_patches": 0,
+        "mean_nearest_body": 5453
+      }
+    ],
+    "purity_per_mille": 998,
+    "water": {
+      "water_hexes": 7319,
+      "bodies": 4,
+      "largest_body": 7250,
+      "mean_body": 1829,
+      "truncated_bodies": 2
+    },
+    "rivers": {
+      "river_hexes": 88,
+      "runs": 17,
+      "mean_run": 5,
+      "longest_run": 18
+    },
+    "fertile_riverbank": {
+      "cells": 686,
+      "per_mille_land": 33,
+      "capacity": 76050,
+      "nearest": 13
+    },
+    "bootstrap": [
+      {
+        "item_id": 1,
+        "name": "Iron ore",
+        "edge": 9,
+        "hexes": 60
+      },
+      {
+        "item_id": 9,
+        "name": "Wood",
+        "edge": 11,
+        "hexes": 114
+      },
+      {
+        "item_id": 5,
+        "name": "Coal",
+        "edge": 15,
+        "hexes": 60
+      },
+      {
+        "item_id": 6,
+        "name": "Stone",
+        "edge": 16,
+        "hexes": 84
+      },
+      {
+        "item_id": 8,
+        "name": "Clay",
+        "edge": 56,
+        "hexes": 14
+      },
+      {
+        "item_id": 26,
+        "name": "Limestone",
+        "edge": 27,
+        "hexes": 61
+      },
+      {
+        "item_id": 4,
+        "name": "Copper ore",
+        "edge": 27,
+        "hexes": 58
+      }
+    ]
+  }
+]

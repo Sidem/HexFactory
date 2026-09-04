@@ -1565,6 +1565,12 @@ describe("picking the drawn landform", () => {
       (flooded?.height ?? 0) + 6 * HEIGHT_UNIT_HEIGHT,
       6,
     );
+    const waterMesh = built.group.getObjectByName("terrain-water") as Mesh;
+    const waterMaterials = Array.isArray(waterMesh.material)
+      ? waterMesh.material
+      : [waterMesh.material];
+    expect(waterMaterials).toContain(materials.terrain.deep_water);
+    expect(waterMaterials).not.toContain(materials.terrain.lowland);
 
     snapshot.water = [{ q: 0, r: 0, departure: -6 }];
     const drained = buildTerrainMeshes(snapshot, materials);
@@ -1890,6 +1896,7 @@ function minimalSnapshot(): FactorySnapshot {
       },
     ],
     terrain: surveyedTiles(),
+    habitats: [],
     resources: [],
     buildings: [],
     ground_items: [],

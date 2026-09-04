@@ -81,6 +81,8 @@ export async function inputWiring(app: Runtime): Promise<void> {
         "Backspace",
         "BracketLeft",
         "BracketRight",
+        "Minus",
+        "Equal",
       ].includes(event.code)
     ) {
       event.preventDefault();
@@ -89,6 +91,8 @@ export async function inputWiring(app: Runtime): Promise<void> {
         app.groundTool.cycleAction(event.shiftKey);
       else if (event.code === "BracketLeft") app.groundTool.cycleSize(true);
       else if (event.code === "BracketRight") app.groundTool.cycleSize(false);
+      else if (event.code === "Minus") app.groundTool.nudgeDepth(-1);
+      else if (event.code === "Equal") app.groundTool.nudgeDepth(1);
       else app.groundTool.selectStrip();
       return;
     }

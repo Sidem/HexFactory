@@ -96,9 +96,13 @@
   text-transform: uppercase;
 }
 .inspect-field,
+.inspect-habitat,
 .inspect-machine {
   display: grid;
   gap: 8px;
+}
+.inspect-habitat strong {
+  font-size: 0.8rem;
 }
 .inspect-facing-row {
   display: grid;

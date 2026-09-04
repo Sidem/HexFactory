@@ -76,8 +76,26 @@ fn machines_draw_on_the_stock_and_terrain_beside_them_and_flora_grows_back() {
         .expect("wood regrows");
     core.tick_many(ticks);
     assert_eq!(core.deposit_quantity(cell), initial);
-    // Back to what generation gave it, so it costs nothing again until somebody cuts it.
-    assert!(core.flora_regrowth.is_empty());
+    // Back to what generation gave it, so the cut cell leaves the set. What is left on the set is
+    // the hex the healed stand seeded: a wood growing back past the line a cut used to be is the
+    // only way the ground carrying flora ever gains a hex.
+    assert!(!core.flora_regrowth.contains(&cell));
+    let seedling = core
+        .flora_regrowth
+        .iter()
+        .copied()
+        .find(|&key| {
+            DIRECTIONS
+                .iter()
+                .any(|&(dq, dr)| (cell.0 + dq, cell.1 + dr) == key)
+        })
+        .expect("the healed stand seeded a neighbour");
+    assert_eq!(
+        core.deposit_quantity(seedling),
+        1,
+        "and it starts as one tree"
+    );
+    assert_eq!(core.flora_regrowth.len(), 1, "one seed, not a ring of them");
 
     // Ore is finite: cutting into a deposit never puts it in the set at all.
     cooldown(&mut core);
@@ -85,7 +103,7 @@ fn machines_draw_on_the_stock_and_terrain_beside_them_and_flora_grows_back() {
     core.gather().unwrap();
     cooldown(&mut core);
     assert_eq!(core.deposit_quantity((3, 0)), 47);
-    assert!(core.flora_regrowth.is_empty());
+    assert_eq!(core.flora_regrowth.len(), 1, "and ore never joins the set");
 
     // A pump is a source without a deposit: it draws from the basin beside it, writes nothing into
     // the overlay, and the basin never runs down. Away from water it is refused outright, which is
@@ -901,5 +919,221 @@ fn legacy_factories_keep_their_state_and_the_repriced_bills_conserve() {
     assert_eq!(
         powered.entities[composer].output_inventory.get(&25),
         Some(&2)
+    );
+}
+
+/// Flora does not come back on a timer. It comes back from flora.
+///
+/// The cadence an item declares is what an *intact* neighbourhood grows at; a thinned one grows
+/// proportionally slower, and one with nothing standing in it does not grow at all. That is the
+/// difference between a wood being a renewable resource and a wood hex being a vending machine:
+/// cutting into an edge repairs itself, and flattening a stand costs the stand.
+#[test]
+fn flora_spreads_from_standing_flora_and_a_clear_cut_stays_cut() {
+    let mut core = game("new-game");
+    let cadence = core
+        .item_definition(WOOD)
+        .unwrap()
+        .regrowth_ticks
+        .expect("wood regrows");
+    // `game` plants exactly one wood cell, so `(-3, 1)` is its own whole neighbourhood.
+    assert_eq!(core.deposit_quantity((-3, 1)), 14);
+
+    // Thinned by one, with all but one unit of its neighbourhood still standing: the item's own
+    // cadence, unchanged. A rule that slowed this case would have doubled every recovery in the
+    // game the first time anybody took a single tree.
+    core.write_overlay(-3, 1, WOOD, 13, 14);
+    core.tick_many(cadence);
+    assert_eq!(core.deposit_quantity((-3, 1)), 14);
+
+    // Taken to nothing, and there is no longer anything within a ring to seed it. Waiting eight
+    // full cadences changes nothing, because waiting is not what regrows a wood.
+    core.write_overlay(-3, 1, WOOD, 0, 14);
+    core.tick_many(cadence * 8);
+    assert_eq!(core.deposit_quantity((-3, 1)), 0);
+    assert!(
+        core.flora_regrowth.contains(&(-3, 1)),
+        "a cut cell stays on the roster; it is simply not growing"
+    );
+
+    // A standing neighbour is a seed source, and the same dead hex starts to come back from it.
+    core.write_overlay(-2, 1, WOOD, 14, 14);
+    core.tick_many(cadence * 4);
+    assert!(
+        core.deposit_quantity((-3, 1)) > 0,
+        "a cell beside standing wood recovers"
+    );
+    // And the neighbour is not consumed by seeding. Spread is a rate that standing wood sets, not
+    // a stock it spends: a wood does not thin itself out by growing back the hex beside it.
+    assert_eq!(core.deposit_quantity((-2, 1)), 14);
+
+    // Between "never" and "at the item's cadence" the rule is a gradient, and the gradient is the
+    // whole design: two hexes cut to exactly the same depth recover at different speeds because of
+    // what is standing around them. `thin` has only itself; `sheltered` has a full stand beside it.
+    let (thin, sheltered, shelter) = ((20, 20), (30, 30), (31, 30));
+    core.write_overlay(thin.0, thin.1, WOOD, 7, 14);
+    core.write_overlay(sheltered.0, sheltered.1, WOOD, 7, 14);
+    core.write_overlay(shelter.0, shelter.1, WOOD, 14, 14);
+    core.tick_many(cadence * 6);
+    assert!(
+        core.deposit_quantity(sheltered) > core.deposit_quantity(thin),
+        "the sheltered hex should outgrow the exposed one: {} vs {}",
+        core.deposit_quantity(sheltered),
+        core.deposit_quantity(thin)
+    );
+    assert!(
+        core.deposit_quantity(thin) > 7,
+        "the exposed hex still recovers from its own standing wood, only slower"
+    );
+}
+
+/// A deposit worked to nothing is not a deposit to look at. Nothing is standing, so nothing is
+/// published and the hex reads as ordinary ground — for ore and for a cleared stand alike. What
+/// separates them is what happens next: ore never grows back, so its ground grades like any other,
+/// while a stand is still coming back and its ground is still spoken for.
+#[test]
+fn a_spent_deposit_reads_and_grades_as_ordinary_ground() {
+    let mut core = ground_world();
+    core.write_overlay(2, 0, IRON_ORE, 3, 48);
+    assert!(
+        core.resource_snapshots()
+            .iter()
+            .any(|row| (row.q, row.r) == (2, 0)),
+        "a deposit with stock left is published"
+    );
+    assert!(core
+        .ground_preview(&ground_edit(2, 0, GroundAction::Lower))
+        .error
+        .unwrap()
+        .contains("deposit"));
+
+    // Worked out. Ore declares no regrowth cadence, so there is nothing left here to publish, to
+    // draw, or to protect the ground with.
+    core.write_overlay(2, 0, IRON_ORE, 0, 48);
+    assert!(core.deposit_exhausted(2, 0));
+    assert_eq!(
+        core.resource_snapshot((2, 0)),
+        None,
+        "a spent deposit publishes no field, so nothing draws an empty bar over it"
+    );
+    assert!(
+        !core
+            .resource_snapshots()
+            .iter()
+            .any(|row| (row.q, row.r) == (2, 0)),
+        "and it is gone from the whole-world list too"
+    );
+    assert!(
+        core.dirty.resources_replace,
+        "the host has to be told to drop the row it is already holding"
+    );
+    assert_eq!(
+        core.ground_preview(&ground_edit(2, 0, GroundAction::Lower))
+            .error,
+        None,
+        "a spent deposit no longer protects ground it is not measured in"
+    );
+
+    // A stand cut to nothing publishes nothing either — an empty hex looks like ordinary ground
+    // whatever emptied it — but it is not *exhausted*, so it stays on the regrowth roster and the
+    // ground under it is still a deposit's ground. The row comes back on its own with the first tree.
+    core.write_overlay(-2, 0, WOOD, 0, 14);
+    assert!(!core.deposit_exhausted(-2, 0));
+    assert_eq!(core.resource_snapshot((-2, 0)), None);
+    assert!(core.flora_regrowth.contains(&(-2, 0)));
+    assert!(core
+        .ground_preview(&ground_edit(-2, 0, GroundAction::Lower))
+        .error
+        .unwrap()
+        .contains("deposit"));
+    core.write_overlay(-2, 0, WOOD, 1, 14);
+    assert_eq!(
+        core.resource_snapshot((-2, 0)).map(|row| row.quantity),
+        Some(1),
+        "one tree back is a field again"
+    );
+
+    // So is a paved one. `deposit_quantity` reads zero under paving because paving hides what is
+    // there; exhaustion reads the stored quantity instead, so a sealed deposit is never mistaken
+    // for a worked-out one and stripping the surface still hands it back.
+    core.write_overlay(3, 0, COPPER_ORE, 12, 40);
+    core.player.inventory = BTreeMap::from([(item_id(&core, "gravel"), 4)]);
+    core.edit_ground(&GroundEdit {
+        cover: true,
+        ..ground_edit(3, 0, GroundAction::Pave)
+    })
+    .unwrap();
+    assert_eq!(core.deposit_quantity((3, 0)), 0);
+    assert!(!core.deposit_exhausted(3, 0));
+}
+
+/// A wood gains ground, and only where ground will hold it.
+///
+/// The spread is fed by recovery rather than by standing wood: a stand that has just filled itself
+/// back in is expanding, and an expansion does not stop at the line a cut used to be. So the seed
+/// goes to the most sheltered empty hex beside it — and never onto a hex that already holds a
+/// deposit, is paved, is built on, or is under water, because those are not empty ground.
+#[test]
+fn a_healed_stand_seeds_empty_ground_and_refuses_ground_that_is_not_empty() {
+    let mut core = game("new-game");
+    let cadence = core
+        .item_definition(WOOD)
+        .unwrap()
+        .regrowth_ticks
+        .expect("wood regrows");
+    let cell = (-3, 1);
+    let capacity = core.deposit_quantity(cell);
+    let ring: Vec<(i32, i32)> = DIRECTIONS
+        .iter()
+        .map(|&(dq, dr)| (cell.0 + dq, cell.1 + dr))
+        .collect();
+    let empty: Vec<(i32, i32)> = ring
+        .iter()
+        .copied()
+        .filter(|&(q, r)| core.buried_field_at(q, r).is_none())
+        .collect();
+    assert!(
+        !empty.is_empty(),
+        "the opening stand has bare ground beside it to grow into"
+    );
+
+    // Cut one tree and let it come back. Filling the gap is what seeds the next hex.
+    core.write_overlay(cell.0, cell.1, WOOD, capacity - 1, capacity);
+    core.tick_many(cadence);
+    assert_eq!(core.deposit_quantity(cell), capacity);
+    let seeded: Vec<(i32, i32)> = empty
+        .iter()
+        .copied()
+        .filter(|&(q, r)| core.deposit_quantity((q, r)) > 0)
+        .collect();
+    assert_eq!(seeded.len(), 1, "one seed goes out, not a ring of them");
+    let seedling = seeded[0];
+    assert_eq!(core.deposit_quantity(seedling), 1);
+    assert_eq!(
+        core.field_at(seedling.0, seedling.1).map(|f| f.item_id),
+        Some(WOOD),
+        "and the new stand is the flora that seeded it"
+    );
+    assert!(core.flora_regrowth.contains(&seedling));
+
+    // Ground that is not empty refuses it. Every remaining bare hex is taken — one by paving, one by
+    // a building — and the healed stand beside them has nowhere left to put a tree.
+    let mut core = game("new-game");
+    core.set_creative(true);
+    for &(q, r) in &empty {
+        assert!(
+            core.can_take_root(q, r),
+            "bare ground takes root at {q},{r}"
+        );
+        core.write_overlay(q, r, WOOD, 0, 1);
+        assert!(
+            !core.can_take_root(q, r),
+            "a hex already carrying a deposit is not empty ground at {q},{r}"
+        );
+    }
+    assert_eq!(
+        core.colonisation_target(cell.0, cell.1, WOOD),
+        None,
+        "a stand with no empty ground beside it seeds nothing"
     );
 }

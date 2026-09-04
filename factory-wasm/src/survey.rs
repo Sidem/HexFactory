@@ -123,6 +123,15 @@ pub struct RiverShape {
     pub longest_run: u32,
 }
 
+/// Native fertile-riverbank habitat in the sampled disc.
+#[derive(Clone, Debug, Serialize)]
+pub struct HabitatCount {
+    pub cells: u32,
+    pub per_mille_land: u32,
+    pub capacity: u64,
+    pub nearest: Option<u32>,
+}
+
 /// One guaranteed material of the opening, as the generator actually placed it. The bootstrap
 /// pass is a promise rather than geography, so it is reported here instead of being folded
 /// into the counts — the same split the clearing already lives under.
@@ -154,6 +163,7 @@ pub struct WorldSurvey {
     pub purity_per_mille: u32,
     pub water: WaterShape,
     pub rivers: RiverShape,
+    pub fertile_riverbank: HabitatCount,
     pub bootstrap: Vec<BootstrapRow>,
 }
 
@@ -233,6 +243,9 @@ pub(crate) fn run(label: &str, params: &WorldParams, seed: u32, radius: i32) -> 
     let mut land_hexes = 0u32;
     let mut found: BTreeMap<ItemId, (u32, u32, u32)> = BTreeMap::new();
     let mut field_of: BTreeMap<(i32, i32), (ItemId, u32)> = BTreeMap::new();
+    let mut habitat_cells = 0u32;
+    let mut habitat_capacity = 0u64;
+    let mut nearest_habitat = None;
     for &(q, r) in &cells {
         let terrain = spine.presentation_at(q, r);
         terrain_of.insert((q, r), terrain);
@@ -249,6 +262,12 @@ pub(crate) fn run(label: &str, params: &WorldParams, seed: u32, radius: i32) -> 
             entry.0 += 1;
             entry.1 = entry.1.min(distance);
             entry.2 += distance;
+        }
+        if let Some(habitat) = crate::ecology::generated_fertile_riverbank(&spine, q, r) {
+            habitat_cells += 1;
+            habitat_capacity += u64::from(habitat.capacity);
+            let distance = axial_distance((0, 0), (q, r)) as u32;
+            nearest_habitat = Some(nearest_habitat.map_or(distance, |old: u32| old.min(distance)));
         }
     }
     let hexes = cells.len() as u32;
@@ -324,6 +343,12 @@ pub(crate) fn run(label: &str, params: &WorldParams, seed: u32, radius: i32) -> 
         purity_per_mille: per_mille(pure_hexes, field_of.len() as u32),
         water,
         rivers: river_shape(&river_cells),
+        fertile_riverbank: HabitatCount {
+            cells: habitat_cells,
+            per_mille_land: per_mille(habitat_cells, land_hexes),
+            capacity: habitat_capacity,
+            nearest: nearest_habitat,
+        },
         bootstrap: bootstrap_rows(&fields, &spine, &name_of),
     }
 }
@@ -689,6 +714,16 @@ pub fn format_report(survey: &WorldSurvey) -> String {
         survey.rivers.runs,
         survey.rivers.mean_run,
         survey.rivers.longest_run
+    ));
+    out.push_str(&format!(
+        "  fertile riverbank: {} hexes | {} per mille land | capacity {} | nearest {}\n",
+        survey.fertile_riverbank.cells,
+        survey.fertile_riverbank.per_mille_land,
+        survey.fertile_riverbank.capacity,
+        survey
+            .fertile_riverbank
+            .nearest
+            .map_or_else(|| "none".to_string(), |distance| distance.to_string())
     ));
     out
 }

@@ -45,7 +45,7 @@ impl Core {
             let result = match command {
                 InputCommand::BoundaryEdit { edit } => self.edit_boundaries(&edit),
                 InputCommand::UndoBoundary => self.undo_boundary(),
-                InputCommand::GroundEdit { edit } => self.edit_ground(&edit),
+                InputCommand::GroundEdit { edit } => self.begin_groundwork(edit),
                 InputCommand::UndoGround => self.undo_ground(),
                 InputCommand::WaterEdit {
                     q,

@@ -75,6 +75,13 @@ removes them when they return to equilibrium. Earthworks schedule a bounded sett
 cross the surveyed frontier or generate chunks. Springs and outlets are boundary conditions; local
 transfers conserve depth and terminate within explicit structural bounds.
 
+`ecology.rs` derives fertile-riverbank capacity on demand from exact current water, surface, and occupied
+footprint: ground is fertile when it is dry and unbuilt and fresh standing water lies in its ring. The
+generated alluvial bench only rates that water; a canal the player cuts waters ground exactly as the river
+it came from does, so fertility is a ring question and a depth change dirties its neighbours too. The
+positive cells travel as a separate sparse habitat patch with zero-capacity tombstones. No habitat cache,
+presentation state, or stable equilibrium work enters saves, checksums, or the tick.
+
 Erosion is a sparse geomorphic epoch over surveyed, flowing edges. It stores only non-zero stress and
 ground departures. It is not a terrain tick, and it cannot expose or bury resources without an explicit
 rule. Loose water in pipes remains factory cargo, not hydraulic terrain state.
@@ -99,7 +106,9 @@ Placement uses rotated definition footprints and one native occupancy index. A d
 endpoints command; native resolves its route, legality, price, and preview. The host never expands it into
 per-cell commands. The ground brush is the same contract under a held pointer: one bounded disc per stamp,
 carrying the hex the stroke sampled its height from, and each stamp is its own priced transaction that keeps
-its full footprint visible when one cell refuses the edit.
+its full footprint visible when one cell refuses the edit. A stamp that resolves to cut or fill occupies the
+native player clock in proportion to that resolved earth volume and commits only when the work finishes;
+surface-only stamps remain immediate.
 
 ## Factory graph and machines
 

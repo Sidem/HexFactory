@@ -162,6 +162,7 @@ function snapshotAt(state: {
     })),
     chunks: [],
     terrain: [],
+    habitats: [],
     resources: [],
     buildings: state.buildings.map((building, index) => ({
       id: index + 1,

@@ -493,6 +493,10 @@ fn validate_saved_state(
             .researched
             .iter()
             .any(|id| !technology_ids.contains(id) && !(legacy_skills && technologies.skills.iter().any(|skill| skill.legacy_technology_id == Some(*id))))
+        || match state.player.action_cooldown {
+            0 => state.pending_gather.is_some() || state.pending_ground.is_some(),
+            _ => state.pending_gather.is_some() == state.pending_ground.is_some(),
+        }
     {
         return Err("save contains invalid player or research state".into());
     }

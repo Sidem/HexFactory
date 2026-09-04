@@ -38,6 +38,9 @@
 
 use super::*;
 
+mod habitat;
+mod surveyed_chunks;
+
 /// Head of every buffer, so a stale or foreign payload is rejected rather than misread.
 pub(crate) const WIRE_MAGIC: [u8; 4] = *b"HXFD";
 /// Bumped whenever the layout below changes in a way an old decoder would misread. Version 3 is
@@ -124,7 +127,8 @@ pub(crate) const WIRE_MAGIC: [u8; 4] = *b"HXFD";
 /// Version 23 keeps natural erosion separate from the paid earthwork delta. Because almost every
 /// prepared cell has zero erosion, the ground group writes only non-zero erosion as indexed sparse
 /// entries after the ordinary cells; an untouched factory does not pay one zero byte per cell.
-pub(crate) const WIRE_VERSION: u8 = 23;
+/// Version 24 appends sparse exact fertile-riverbank capacity with zero as a patch tombstone.
+pub(crate) const WIRE_VERSION: u8 = 24;
 
 /// Which optional groups the buffer carries, in the order they are written.
 mod group {
@@ -152,6 +156,7 @@ mod group {
     pub(super) const GROUND: u32 = 1 << 21;
     pub(super) const SPOIL: u32 = 1 << 22;
     pub(super) const WATER: u32 = 1 << 23;
+    pub(super) const HABITATS: u32 = 1 << 24;
 }
 
 /// Per-entity presence bits, so an absent option costs a bit rather than a field name and a `null`.
@@ -376,6 +381,7 @@ pub(crate) fn encode_delta(delta: &SnapshotDelta) -> Vec<u8> {
     set(group::GROUND, delta.ground.is_some());
     set(group::SPOIL, delta.spoil.is_some());
     set(group::WATER, delta.water.is_some());
+    set(group::HABITATS, delta.habitats.is_some());
     set(group::CHUNKS, delta.chunks.is_some());
     set(group::TERRAIN, delta.terrain.is_some());
     set(group::RESOURCES, delta.resources.is_some());
@@ -451,11 +457,15 @@ pub(crate) fn encode_delta(delta: &SnapshotDelta) -> Vec<u8> {
         }
     }
     if let Some(chunks) = &delta.chunks {
-        write_chunks(&mut writer, chunks);
+        surveyed_chunks::write(&mut writer, chunks);
     }
     if let Some(terrain) = &delta.terrain {
         writer.u8(if terrain.replace { PATCH_REPLACE } else { 0 });
         write_terrain(&mut writer, &terrain.changed);
+    }
+    if let Some(habitats) = &delta.habitats {
+        writer.u8(if habitats.replace { PATCH_REPLACE } else { 0 });
+        habitat::write(&mut writer, &habitats.changed);
     }
     if let Some(resources) = &delta.resources {
         writer.u8(if resources.replace { PATCH_REPLACE } else { 0 });
@@ -614,20 +624,6 @@ fn write_player(writer: &mut Writer, player: &PlayerSnapshot) {
         writer.svarint(i64::from(cell.q - previous.q));
         writer.svarint(i64::from(cell.r - previous.r));
         previous = *cell;
-    }
-}
-
-fn write_chunks(writer: &mut Writer, chunks: &[ChunkSnapshot]) {
-    writer.uvarint(chunks.len() as u64);
-    // Chunk coordinates arrive in generation order rather than sorted, so they are absolute. The
-    // list is one entry per generated chunk and never approaches the size of the tile lists.
-    for chunk in chunks {
-        writer.svarint(i64::from(chunk.chunk_q));
-        writer.svarint(i64::from(chunk.chunk_r));
-        writer.uvarint(chunk.entity_count as u64);
-        writer.svarint(i64::from(chunk.x));
-        writer.svarint(i64::from(chunk.y));
-        writer.svarint(i64::from(chunk.span));
     }
 }
 
@@ -857,7 +853,7 @@ pub(crate) mod decode {
     }
 
     impl<'a> Reader<'a> {
-        fn u8(&mut self) -> u8 {
+        pub(super) fn u8(&mut self) -> u8 {
             let value = self.bytes[self.offset];
             self.offset += 1;
             value
@@ -874,7 +870,7 @@ pub(crate) mod decode {
             u32::from_le_bytes(raw)
         }
 
-        fn uvarint(&mut self) -> u64 {
+        pub(super) fn uvarint(&mut self) -> u64 {
             let mut value = 0u64;
             let mut shift = 0u32;
             loop {
@@ -887,7 +883,7 @@ pub(crate) mod decode {
             }
         }
 
-        fn svarint(&mut self) -> i64 {
+        pub(super) fn svarint(&mut self) -> i64 {
             let raw = self.uvarint();
             ((raw >> 1) as i64) ^ -((raw & 1) as i64)
         }
@@ -899,7 +895,7 @@ pub(crate) mod decode {
             text.to_owned()
         }
 
-        fn count(&mut self) -> usize {
+        pub(super) fn count(&mut self) -> usize {
             self.uvarint() as usize
         }
 
@@ -1076,6 +1072,7 @@ pub(crate) mod decode {
                 .collect();
             TerrainDelta { replace, changed }
         });
+        let habitats = has(group::HABITATS).then(|| habitat::read(&mut reader));
         let resources = has(group::RESOURCES).then(|| {
             let replace = reader.u8() & PATCH_REPLACE != 0;
             let count = reader.count();
@@ -1265,6 +1262,7 @@ pub(crate) mod decode {
             skills,
             chunks,
             terrain,
+            habitats,
             resources,
             buildings,
             ground_items,

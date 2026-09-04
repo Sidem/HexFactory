@@ -21,6 +21,19 @@
 //!    another non-negative integer. The pair decreases lexicographically on every single transfer,
 //!    which is termination without appeal to the sweep budget. [`SETTLE_SWEEP_BUDGET`] is the second
 //!    fence, and the report says which one stopped the solve.
+//!
+//!    A live head (see [`settle::live_head`]) is the one term that adds water, and it breaks that
+//!    potential rather than decreasing it, so termination is argued in two levels. A head supplies
+//!    only *inside* the region, only to ground that is not itself a reach, and only while it stands
+//!    at least two quanta above it — so every cell a head can fill is capped at that head's own
+//!    surface, and the number of quanta a region can absorb from its heads is finite. The moment a
+//!    single quantum leaves the world — at the ocean, over the frontier, or into a reach that
+//!    carries it away — every head in the region is switched off for the rest of the solve. So the
+//!    solve is a finite number of supply transfers separating phases in which nothing is supplied,
+//!    and inside a phase the lexicographic pair above strictly decreases per transfer. Both levels
+//!    are finite, so the solve still terminates without appeal to the sweep budget — including the
+//!    canal cut from a river to the sea, which used to be the stated exception: it now drains what
+//!    the region holds, unfunded, and stops.
 //! 2. **The solve cannot generate world.** [`WaterField::surveyed`] is the only question asked about
 //!    a cell beyond the frontier. An unsurveyed neighbour is never read for a bed, a depth or a
 //!    band: it drains the source cell's own *equilibrium* surface, so the boundary flux is computed
@@ -28,7 +41,9 @@
 //!    is what the test suite hands the solver.
 //! 3. **The region cannot be unbounded.** It starts as the disturbed cells and their rings, and
 //!    then grows only where the settling water actually asks for more ground — a wall neighbour a
-//!    region cell could pour onto, or a wet one that could pour in. It stops at
+//!    region cell could pour onto, or a wet one that could pour in. A live reach is claimed only on
+//!    the second of those, because a region that merely drains towards a river has no use for it and
+//!    following one would hand a single trench the whole connected network. It stops at
 //!    [`ACTIVE_CELL_BUDGET`]. A truncated rim is a *wall*, never a sink: water piles against it and
 //!    the report says the solve is unfinished, because a budget that quietly ate the water would be
 //!    a conservation bug wearing a bound's clothes.
@@ -278,6 +293,18 @@ impl WaterField for Core {
         let hydrology = self.generated_ground_at(q, r).hydrology;
         hydrology.depth_quanta > 0 && hydrology.surface.get() <= crate::scale::SEA_LEVEL_QUANTA
     }
+
+    /// A rated channel still standing on the bed the generator gave it.
+    ///
+    /// The bed clause is what keeps damming a river a real thing to do. A reach is fed from upstream
+    /// only while it is the reach the generator drew; the moment somebody cuts or fills it, it is a
+    /// pond of theirs and holds whatever they left in it.
+    fn channel(&self, q: i32, r: i32) -> bool {
+        let generated = self.generated_ground_at(q, r);
+        generated.hydrology.discharge_class > 0
+            && generated.hydrology.depth_quanta > 0
+            && self.ground_elevation_at(q, r) == generated.bed.get()
+    }
 }
 
 impl Core {
@@ -323,6 +350,14 @@ impl Core {
         }
         self.water = water;
         self.dirty.water = true;
+        // Fertility is a ring question — ground is watered by the water standing beside it — so a
+        // cell whose depth moved makes its neighbours' habitat answer stale as well as its own.
+        self.dirty
+            .habitats
+            .extend(report.touched.iter().flat_map(|&(q, r)| {
+                std::iter::once((q, r))
+                    .chain(DIRECTIONS.iter().map(move |&(dq, dr)| (q + dq, r + dr)))
+            }));
         report
     }
 
