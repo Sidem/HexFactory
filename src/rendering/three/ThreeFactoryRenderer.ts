@@ -328,6 +328,11 @@ export class ThreeFactoryRenderer implements FactoryRenderer {
     return this.camera.screenMovement(x, y);
   }
 
+  lookBy(x: number, y: number): void {
+    this.camera.lookBy(x, y);
+    this.markDirty();
+  }
+
   panBy(x: number, y: number): void {
     this.syncLayout();
     this.camera.panBy(x, y);

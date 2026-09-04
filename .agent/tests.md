@@ -40,7 +40,7 @@ Read the named file and a bounded range around the anchor; do not read oversized
 - `tests/guidance.test.ts` — 531 lines / 17.9 KiB — shippedScenario:29, boardFor:50, snapshotAt:79
 - `tests/heightfieldTerrain.test.ts` — 329 lines / 11.1 KiB — dispose:323
 - `tests/hexHostContract.test.ts` — 58 lines / 2.1 KiB
-- `tests/host.test.ts` — 1981 lines / 75.1 KiB — fakeTransport:1723
+- `tests/host.test.ts` — 1987 lines / 75.5 KiB — fakeTransport:1729
 - `tests/look.test.ts` — 429 lines / 17.4 KiB — keyOf:52
 - `tests/playerRig.test.ts` — 111 lines / 4.1 KiB — legs:28
 - `tests/production.test.ts` — 89 lines / 3.2 KiB
@@ -49,7 +49,7 @@ Read the named file and a bounded range around the anchor; do not read oversized
 - `tests/snapshotWire.test.ts` — 163 lines / 6.1 KiB — bytesOf:24
 - `tests/sourceGraph.ts` — 39 lines / 1.0 KiB — readAppSource:4, readStyles:29
 - `tests/ui.test.ts` — 394 lines / 12.7 KiB — FakeClassList:55, element:103, harness:139
-- `tests/visualCamera.test.ts` — 216 lines / 7.9 KiB — heading:7, elevation:11, turnedBy:16, settle:21
+- `tests/visualCamera.test.ts` — 251 lines / 9.2 KiB — heading:9, elevation:13, turnedBy:18, settle:23
 - `tests/visualDepth.test.ts` — 2013 lines / 67.8 KiB — surfaceBody:1722, uniformValue:1728, compileTerrain:1738, cliffTile:1753, …
 - `tests/worldParameters.test.ts` — 132 lines / 4.7 KiB — cuts:41, ascending:45
 - `tests/worldPreview.test.ts` — 264 lines / 9.1 KiB

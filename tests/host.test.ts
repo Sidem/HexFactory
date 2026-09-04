@@ -1505,6 +1505,12 @@ describe("availability and expanded snapshot adapter", () => {
     expect(main).toContain('event.code === "ArrowRight") app.orbitView(1)');
     expect(main).toContain('event.code === "ArrowUp") app.tiltView(1)');
     expect(main).toContain('event.code === "ArrowDown") app.tiltView(-1)');
+    expect(main).toContain('mode: event.ctrlKey ? "pan" : "look"');
+    expect(main).toContain('app.panPointer.mode === "pan"');
+    expect(main).toContain("app.renderer.lookBy(dx, dy)");
+    expect(main).not.toContain("event.button === 1 || event.shiftKey");
+    expect(html).toContain("middle button turns and tilts the camera");
+    expect(html).toContain("during a middle-button drag to");
     expect(main).not.toContain('event.code === "Comma"');
     expect(main).not.toContain('event.code === "Period"');
     expect(main).toContain('event.code === "Backspace"');

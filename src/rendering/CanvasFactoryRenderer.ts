@@ -387,6 +387,9 @@ export class CanvasFactoryRenderer implements FactoryRenderer {
     return { x, y };
   }
 
+  /** Development fallback only: the legacy flat renderer has no free camera. */
+  lookBy(): void {}
+
   panBy(x: number, y: number): void {
     this.camera.panBy(x, y);
     this.markDirty();

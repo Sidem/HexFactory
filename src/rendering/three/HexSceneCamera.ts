@@ -30,6 +30,8 @@ const MAX_TILT = (Math.PI * 70) / 180;
 const TILT_STEP = (Math.PI * 5) / 180;
 const TILT_STEP_MS = 115;
 const TILT_MAX_MS = 700;
+/** A drag of this distance covers one equivalent keyboard step, without snapping along the way. */
+const DRAG_STEP_PX = 32;
 /**
  * Orbit zero looks from the south-east toward north-west.
  *
@@ -201,8 +203,10 @@ export class HexSceneCamera {
    * game reads — while the drawn heading eases across to it over the next few frames.
    */
   orbitBy(step: -1 | 1, animate = true): void {
-    this.orbit = (this.orbit + step + ORBIT_STEPS) % ORBIT_STEPS;
-    const target = this.orbitTarget + step * ORBIT_STEP;
+    const source = this.orbitDuration > 0 ? this.orbitTarget : this.orbitAngle;
+    const stop = nextStop(source, BASE_ANGLE, ORBIT_STEP, step);
+    this.orbit = modulo(stop, ORBIT_STEPS);
+    const target = BASE_ANGLE + stop * ORBIT_STEP;
     if (!animate) {
       this.settleOrbit(target);
       return;
@@ -238,8 +242,10 @@ export class HexSceneCamera {
 
   /** Move one five-degree step up or down the sphere around the current target. */
   tiltBy(step: -1 | 1, animate = true): void {
+    const source = this.tiltDuration > 0 ? this.tiltTarget : this.tiltAngle;
     const target = clamp(
-      this.tiltTarget + step * TILT_STEP,
+      DEFAULT_TILT +
+        nextStop(source, DEFAULT_TILT, TILT_STEP, step) * TILT_STEP,
       MIN_TILT,
       MAX_TILT,
     );
@@ -275,6 +281,31 @@ export class HexSceneCamera {
     const orbited = this.advanceOrbit(now);
     const tilted = this.advanceTilt(now);
     return orbited || tilted;
+  }
+
+  /** Follow pointer movement directly; keyboard stops are applied only when an arrow key is used. */
+  lookBy(screenX: number, screenY: number): void {
+    const orbit = wrapAngle(
+      this.orbitAngle + (screenX * ORBIT_STEP) / DRAG_STEP_PX,
+    );
+    const tilt = clamp(
+      this.tiltAngle - (screenY * TILT_STEP) / DRAG_STEP_PX,
+      MIN_TILT,
+      MAX_TILT,
+    );
+    this.orbit = modulo(
+      Math.round((orbit - BASE_ANGLE) / ORBIT_STEP),
+      ORBIT_STEPS,
+    );
+    this.orbitDuration = 0;
+    this.orbitFrom = orbit;
+    this.orbitTarget = orbit;
+    this.orbitAngle = orbit;
+    this.tiltDuration = 0;
+    this.tiltFrom = tilt;
+    this.tiltTarget = tilt;
+    this.tiltAngle = tilt;
+    this.updatePose();
   }
 
   panBy(screenX: number, screenY: number): void {
@@ -414,7 +445,7 @@ export class HexSceneCamera {
 
   /** End the sweep on `target`, wrapped so a long session cannot drift the angle out of precision. */
   private settleOrbit(target: number): void {
-    const wrapped = target - Math.floor(target / (Math.PI * 2)) * Math.PI * 2;
+    const wrapped = wrapAngle(target);
     this.orbitDuration = 0;
     this.orbitFrom = wrapped;
     this.orbitTarget = wrapped;
@@ -454,4 +485,26 @@ export class HexSceneCamera {
 
 function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
+}
+
+function modulo(value: number, divisor: number): number {
+  return ((value % divisor) + divisor) % divisor;
+}
+
+function wrapAngle(angle: number): number {
+  return modulo(angle, Math.PI * 2);
+}
+
+/** The first discrete stop strictly beyond `value` in the requested direction. */
+function nextStop(
+  value: number,
+  origin: number,
+  interval: number,
+  direction: -1 | 1,
+): number {
+  const position = (value - origin) / interval;
+  const epsilon = Number.EPSILON * 16;
+  return direction > 0
+    ? Math.floor(position + epsilon) + 1
+    : Math.ceil(position - epsilon) - 1;
 }

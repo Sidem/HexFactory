@@ -4,6 +4,8 @@ import { describe, expect, it } from "vitest";
 import { WORLD_SCALE } from "../src/rendering/landmarks";
 import { HexSceneCamera } from "../src/rendering/three/HexSceneCamera";
 
+const DEFAULT_CAMERA_TILT = Math.atan2(31, 38);
+
 function heading(camera: HexSceneCamera): number {
   return Math.atan2(camera.camera.position.z, camera.camera.position.x);
 }
@@ -84,6 +86,39 @@ describe("Visual Depth camera", () => {
     camera.tiltBy(-1, false);
     expect(camera.isTilting).toBe(false);
     expect(elevation(camera)).toBeCloseTo(start, 6);
+  });
+
+  it("follows mouse-look continuously without entering a stepped sweep", () => {
+    const camera = new HexSceneCamera();
+    const startHeading = heading(camera);
+    const startElevation = elevation(camera);
+
+    camera.lookBy(8, -8);
+
+    expect(turnedBy(camera, startHeading)).toBeCloseTo(Math.PI / 24, 6);
+    expect(elevation(camera) - startElevation).toBeCloseTo(Math.PI / 144, 6);
+    expect(camera.isOrbiting).toBe(false);
+    expect(camera.isTilting).toBe(false);
+  });
+
+  it("sends arrow keys to the next stop after a free mouse angle", () => {
+    const right = new HexSceneCamera();
+    right.lookBy(8, -8);
+    const rightStart = heading(right);
+    right.orbitBy(1, false);
+    expect(turnedBy(right, rightStart)).toBeCloseTo(Math.PI / 8, 6);
+    expect(right.orbitIndex).toBe(1);
+    right.tiltBy(1, false);
+    expect(elevation(right)).toBeCloseTo(DEFAULT_CAMERA_TILT + Math.PI / 36, 6);
+
+    const left = new HexSceneCamera();
+    left.lookBy(8, 8);
+    const leftStart = heading(left);
+    left.orbitBy(-1, false);
+    expect(turnedBy(left, leftStart)).toBeCloseTo(-Math.PI / 24, 6);
+    expect(left.orbitIndex).toBe(0);
+    left.tiltBy(-1, false);
+    expect(elevation(left)).toBeCloseTo(DEFAULT_CAMERA_TILT - Math.PI / 36, 6);
   });
 
   it("closes the full circle in twelve thirty-degree stops, and the index wraps both ways", () => {

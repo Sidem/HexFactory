@@ -100,6 +100,8 @@ export interface FactoryRenderer {
   pickWorld(clientX: number, clientY: number): WorldPoint;
   /** Convert an on-screen direction into a unit direction on the native world plane. */
   screenMovement(x: number, y: number): WorldPoint;
+  /** Turn and tilt continuously by a screen-space pointer delta. */
+  lookBy(x: number, y: number): void;
   panBy(x: number, y: number): void;
   zoomAt(clientX: number, clientY: number, factor: number): void;
   orbitBy(step: -1 | 1): void;

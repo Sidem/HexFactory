@@ -214,9 +214,16 @@ export async function inputWiring(app: Runtime): Promise<void> {
       const dx = event.clientX - app.panPointer.x;
       const dy = event.clientY - app.panPointer.y;
       if (Math.abs(dx) + Math.abs(dy) > 1) app.panPointer.moved = true;
-      app.renderer.panBy(dx, dy);
       app.panPointer.x = event.clientX;
       app.panPointer.y = event.clientY;
+      if (app.panPointer.mode === "pan") {
+        app.renderer.panBy(dx, dy);
+      } else {
+        app.renderer.lookBy(dx, dy);
+        app.syncHoverWithCamera();
+        if (app.pressedMovement.size)
+          app.enqueue(app.currentMovementIntent(app.runningHeld));
+      }
       return;
     }
     const coordinate = app.renderer.pick(event.clientX, event.clientY);
@@ -268,8 +275,8 @@ export async function inputWiring(app: Runtime): Promise<void> {
       return;
     }
     // The map is the outside surface for every workspace. Any deliberate world gesture clears the
-    // overlay first; right-click harvesting and middle-button panning follow the same expectation as
-    // an ordinary click rather than leaving a panel covering the action.
+    // overlay first; right-click harvesting and middle-button camera movement follow the same
+    // expectation as an ordinary click rather than leaving a panel covering the action.
     app.closePanels();
     if (event.button === 2) {
       if (app.snapshot?.player.hand) {
@@ -300,12 +307,13 @@ export async function inputWiring(app: Runtime): Promise<void> {
       event.preventDefault();
       return;
     }
-    if (event.button === 1 || event.shiftKey) {
+    if (event.button === 1) {
       app.panPointer = {
         id: event.pointerId,
         x: event.clientX,
         y: event.clientY,
         moved: false,
+        mode: event.ctrlKey ? "pan" : "look",
       };
       app.canvas.setPointerCapture(event.pointerId);
       event.preventDefault();

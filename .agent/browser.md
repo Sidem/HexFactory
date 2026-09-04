@@ -22,13 +22,13 @@ Read the named file and a bounded range around the anchor; do not read oversized
 - `src/app/constructionInput.ts` — 414 lines / 13.2 KiB — eraseLine:96, deleteBuildingUnderCursorOrSelected:164, refreshDragPreview:206, rotateUnderCursorOrPending:259
 - `src/app/coreView.ts` — 608 lines / 21.1 KiB
 - `src/app/createApp.ts` — 24 lines / 0.7 KiB
-- `src/app/inputWiring.ts` — 454 lines / 17.3 KiB
+- `src/app/inputWiring.ts` — 462 lines / 17.5 KiB
 - `src/app/inspectorControls.ts` — 598 lines / 22.8 KiB
 - `src/app/inspectorOverview.ts` — 669 lines / 25.5 KiB
 - `src/app/lifecycle.ts` — 334 lines / 10.8 KiB
 - `src/app/lifecycleWiring.ts` — 179 lines / 7.1 KiB
 - `src/app/preferences.ts` — 117 lines / 3.8 KiB — PreferencesController:15
-- `src/app/runtime.ts` — 390 lines / 14.4 KiB — Tool:32, BuildGroupKey:42, StockCompartment:49, StackDrag:74, …
+- `src/app/runtime.ts` — 391 lines / 14.5 KiB — Tool:32, BuildGroupKey:42, StockCompartment:49, StackDrag:74, …
 - `src/app/saveUi.ts` — 151 lines / 5.0 KiB — SaveUi:21
 - `src/app/workspaceController.ts` — 319 lines / 9.7 KiB
 - `src/app/workspaceWiring.ts` — 529 lines / 19.2 KiB

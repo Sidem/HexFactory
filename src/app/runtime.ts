@@ -181,6 +181,7 @@ export class Runtime {
     x: number;
     y: number;
     moved: boolean;
+    mode: "look" | "pan";
   } | null;
   harvestPointer!: {
     id: number;
