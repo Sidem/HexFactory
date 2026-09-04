@@ -13,6 +13,7 @@ mod factory_delta;
 mod factory_preview;
 mod geomorphology;
 mod ground;
+mod ground_grade;
 mod ground_spine;
 /// Phase 8 slice 4: departure from generated water equilibrium, and the bounded solve that settles
 /// it.

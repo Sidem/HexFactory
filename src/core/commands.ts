@@ -96,7 +96,9 @@ export function encodeCommand(command: NativeInputCommand): EncodedCommand {
             command.shape
           ],
           command.definition_id,
-          { pave: 0, clear: 1, raise: 2, lower: 3, level: 4 }[command.action],
+          { pave: 0, clear: 1, raise: 2, lower: 3, level: 4, smooth: 5 }[
+            command.action
+          ],
           command.cover ? 1 : 0,
           command.steps,
           { first: 0, lowest: 1, highest: 2 }[command.reference],

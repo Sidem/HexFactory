@@ -56,12 +56,12 @@
 }
 
 /*
- * Five verbs, always all five, always in the same place. A player learns where "Lower" is once and
+ * Six verbs, always all six, always in the same place. A player learns where "Lower" is once and
  * then stops reading the tray, which is the point of a segmented bar over a dropdown.
  */
 .ground-actions {
   display: grid;
-  grid-template-columns: repeat(5, 1fr);
+  grid-template-columns: repeat(6, 1fr);
   gap: 4px;
   padding: 4px;
   border: 1px solid var(--line);

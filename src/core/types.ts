@@ -1207,7 +1207,13 @@ export interface WaterCell {
   departure: number;
 }
 
-export type GroundAction = "pave" | "clear" | "raise" | "lower" | "level";
+export type GroundAction =
+  | "pave"
+  | "clear"
+  | "raise"
+  | "lower"
+  | "smooth"
+  | "level";
 /**
  * Six modes over two anchors. `rect` and `frame` are drawn on the world rather than on the axial
  * grid: two lattice vertices, and every hex the rectangle between them touches. They share their

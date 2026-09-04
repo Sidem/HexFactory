@@ -29,11 +29,24 @@ interface ActionSpec {
 }
 
 /**
- * The five verbs, in the order a yard is actually built: level the site, cut and fill it square,
- * then surface it. `clear` sits beside `pave` because taking a surface up is the same decision as
- * laying one down, made the other way.
+ * The six verbs put the intent-first grade tool ahead of precise cut, fill and levelling. Surface
+ * removal sits beside paving because taking one up is the same decision made the other way.
  */
 const ACTIONS: readonly ActionSpec[] = [
+  {
+    action: "smooth",
+    icon: "≈",
+    label: "Smooth",
+    hint: "Make the selection walkable from the first picked hex. High steps are cut first; low ground is filled only where the route needs it.",
+    verb: "Smooth {n}",
+  },
+  {
+    action: "level",
+    icon: "═",
+    label: "Level",
+    hint: "Even every selected hex onto one exact grade. Choose which grade below.",
+    verb: "Level {n}",
+  },
   {
     action: "pave",
     icon: "▦",
@@ -61,13 +74,6 @@ const ACTIONS: readonly ActionSpec[] = [
     label: "Lower",
     hint: "Cut by the chosen depth. What comes out goes on the spoil heap, ready to fill somewhere else. One cut takes a cliff face down and the hex walks like any other.",
     verb: "Lower {n}",
-  },
-  {
-    action: "level",
-    icon: "═",
-    label: "Level",
-    hint: "Even every selected hex onto one grade, cutting and filling to match. Choose which grade below.",
-    verb: "Level {n}",
   },
 ];
 
@@ -176,10 +182,10 @@ const cornerOptions = CORNER_NAMES.map(
  */
 export class GroundTool {
   private opened = false;
-  private action: GroundAction = "pave";
+  private action: GroundAction = "smooth";
   private surface: number;
   private cover = false;
-  private base: ShapeBase = "cell";
+  private base: ShapeBase = "path";
   /** Take the perimeter of the shape rather than the whole of it. Ignored where there is no inside. */
   private outline = false;
   /** How many steps one raise or lower moves the ground. Native clamps it; the tray offers 1–3. */
@@ -399,7 +405,7 @@ export class GroundTool {
         this.status.textContent = "Working the ground…";
       }
     });
-    this.selectAction("pave");
+    this.selectAction("smooth");
   }
 
   get active(): boolean {
@@ -815,6 +821,8 @@ export class GroundTool {
       case "cell":
         return "Click the hex to work.";
       case "path":
+        if (this.action === "smooth")
+          return "Click accessible ground to set the starting height, then click across the steep slope.";
         return this.action === "level"
           ? "Click the hex whose grade everything else should match, then the far end."
           : `Click the first hex, then the far end. ${bound}`;
@@ -874,7 +882,7 @@ export class GroundTool {
       );
     }
     this.retaining.hidden = preview.retaining === 0;
-    this.retaining.textContent = `${preview.retaining} hex${preview.retaining === 1 ? "" : "es"} would be left too steep to walk onto from one side. Cut the ground beside it to keep the way open.`;
+    this.retaining.textContent = `${preview.retaining} hex${preview.retaining === 1 ? "" : "es"} would still have an impassable edge at the selection boundary or a skipped obstacle. Widen the selection to blend that edge too.`;
     // One obstacle in a selection is a note beside the work, not a refusal of it: native passes the
     // hex over and grades the rest. Naming the first one gives the player somewhere to look.
     const stuck = preview.cells.find((cell) => cell.blocked);
@@ -887,7 +895,9 @@ export class GroundTool {
         ? `${this.spec.finish}. ${preview.changes} hex${preview.changes === 1 ? "" : "es"} would change.`
         : preview.changes === 0
           ? "This ground already matches. Nothing to spend, dig or recover."
-          : `${preview.changes} hex${preview.changes === 1 ? "" : "es"} will change. ${this.where(edit)}`);
+          : this.action === "smooth"
+            ? `${preview.changes} hex${preview.changes === 1 ? "" : "es"} will change into a walkable grade from the first picked hex. ${this.where(edit)}`
+            : `${preview.changes} hex${preview.changes === 1 ? "" : "es"} will change. ${this.where(edit)}`);
     this.status.classList.toggle("blocked", !!preview.error);
     // A refused edit was never priced — native stops before the bill — so quoting one here would be
     // inventing a number. The refusal is the whole answer until it is dealt with.

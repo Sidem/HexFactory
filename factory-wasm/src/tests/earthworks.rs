@@ -707,6 +707,38 @@ fn ground_works_conserve_spoil_gate_routes_and_survive_a_save() {
     }
     assert_eq!(core.spoil, 12);
 
+    // Smooth is the intent-level tool: keep the first picked height and change only the harsh step
+    // required to make the run walkable. The low end stays low instead of being needlessly levelled.
+    let mut core = ground_world();
+    core.set_creative(true);
+    reach(&mut core);
+    let drop = GroundEdit {
+        to_q: 2,
+        shape: GroundShape::Path,
+        steps: 2,
+        ..ground_edit(1, 0, GroundAction::Lower)
+    };
+    core.edit_ground(&drop).unwrap();
+    core.edit_ground(&drop).unwrap();
+    let smooth = GroundEdit {
+        to_q: 2,
+        shape: GroundShape::Path,
+        action: GroundAction::Smooth,
+        ..ground_edit(0, 0, GroundAction::Smooth)
+    };
+    let preview = core.ground_preview(&smooth);
+    assert_eq!(preview.error, None);
+    assert_eq!((preview.cut, preview.fill), (0, 4));
+    assert_eq!(preview.changes, 1);
+    core.edit_ground(&smooth).unwrap();
+    assert_eq!(
+        (0..=2)
+            .map(|q| core.ground_elevation_at(q, 0))
+            .collect::<Vec<_>>(),
+        [0, -4, -8]
+    );
+    assert!(!(0..2).any(|q| core.grade_blocks((q, 0), (q + 1, 0))));
+
     // The route search prices travel time, so a longer prepared way beats a shorter raw one, and a
     // step nobody can climb stops the route and the body alike.
     let mut core = ground_world();

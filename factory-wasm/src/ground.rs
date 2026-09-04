@@ -69,6 +69,8 @@ pub(super) enum GroundAction {
     Raise,
     /// Cut every selected cell by [`GroundEdit::steps`].
     Lower,
+    /// Make the selected ground walkable from the picked starting altitude.
+    Smooth,
     /// Even every selected cell onto one grade, chosen by [`GroundEdit::reference`].
     Level,
 }
@@ -651,8 +653,6 @@ impl Core {
             },
             inventory: self.player.inventory.clone(),
         };
-        // The one refusal that has no footprint to draw: the selection did not resolve to cells at
-        // all, so there is nothing to say it about.
         let cells = match Self::ground_cells(edit) {
             Ok(cells) => cells,
             Err(error) => {
@@ -690,7 +690,7 @@ impl Core {
     ) -> Result<(), String> {
         let grading = matches!(
             edit.action,
-            GroundAction::Raise | GroundAction::Lower | GroundAction::Level
+            GroundAction::Raise | GroundAction::Lower | GroundAction::Smooth | GroundAction::Level
         );
         let definition = if matches!(edit.action, GroundAction::Pave) {
             Some(
@@ -711,25 +711,9 @@ impl Core {
                 ));
             }
         }
-        // Zero is what a host that predates the depth control sends, and one step is what it meant.
         let steps = self.grade_step_delta(edit.steps);
         let limit = self.grade_limit();
-        // The grade every other cell is evened onto. Naming the datum explicitly is what makes
-        // levelling a decision the player can see before they make it: the lowest cell fills the
-        // spoil heap, the highest spends it, and the first one picked is their own eye.
-        let target = match edit.reference {
-            GroundReference::First => self.ground_elevation_at(cells[0].0, cells[0].1),
-            GroundReference::Lowest => cells
-                .iter()
-                .map(|&(q, r)| self.ground_elevation_at(q, r))
-                .min()
-                .unwrap_or(0),
-            GroundReference::Highest => cells
-                .iter()
-                .map(|&(q, r)| self.ground_elevation_at(q, r))
-                .max()
-                .unwrap_or(0),
-        };
+        let grades = self.ground_grade_targets(edit, &cells, limit);
 
         let mut cut = 0i64;
         let mut fill = 0i64;
@@ -801,8 +785,12 @@ impl Core {
                     next.elevation = wanted as i16;
                 }
                 GroundAction::Level => {
-                    let wanted = i64::from(target) - i64::from(natural);
+                    let wanted = i64::from(grades.level) - i64::from(natural);
                     next.elevation = wanted.clamp(i64::from(-limit), i64::from(limit)) as i16;
+                }
+                GroundAction::Smooth => {
+                    let wanted = grades.smooth.get(&cell).copied();
+                    next.elevation = (wanted.unwrap_or(natural) - natural) as i16;
                 }
             }
             let after = (!next.is_untouched()).then_some(next);
