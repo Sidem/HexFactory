@@ -1235,6 +1235,8 @@ export interface GroundEdit {
   r: number;
   to_q: number;
   to_r: number;
+  /** Height-sampling hex for a live grade brush; precise edits use the selection start. */
+  datum?: [number, number];
   /**
    * Which corner of `q, r` a `rect` or `frame` is anchored on. The other shapes name whole hexes,
    * and `disc`/`ring` read `to_q, to_r` as a rim hex rather than a second anchor.

@@ -70,11 +70,17 @@ export function encodeCommand(command: NativeInputCommand): EncodedCommand {
     // or between a disc and its rim, changes one field and never the gesture that produced them.
     // `cover` is carried rather than defaulted because sealing a deposit is the one change here the
     // player cannot walk back by looking at it, so it only ever travels as a deliberate yes.
+    // A live brush adds one more coordinate: the hex whose height the stroke sampled. It rides at
+    // the end, present only when a stroke supplied one, so a precise edit encodes as it always did.
     case "ground_edit":
       if (
-        ![command.q, command.r, command.to_q, command.to_r].every(
-          (n) => Number.isInteger(n) && Math.abs(n) <= 100000,
-        ) ||
+        ![
+          command.q,
+          command.r,
+          command.to_q,
+          command.to_r,
+          ...(command.datum ?? []),
+        ].every((n) => Number.isInteger(n) && Math.abs(n) <= 100000) ||
         ![command.corner, command.to_corner].every(
           (n) => Number.isInteger(n) && n >= 0 && n <= 5,
         ) ||
@@ -102,6 +108,7 @@ export function encodeCommand(command: NativeInputCommand): EncodedCommand {
           command.cover ? 1 : 0,
           command.steps,
           { first: 0, lowest: 1, highest: 2 }[command.reference],
+          ...(command.datum ?? []),
         ],
       };
     case "undo_ground":

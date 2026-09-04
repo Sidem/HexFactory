@@ -1,18 +1,14 @@
-/*
- * The earthworks tray. It sits opposite the fence tray rather than on top of it, because paving a
- * yard and fencing it are the two halves of the same afternoon and a player doing one wants to see
- * the other's answer without dismissing a panel.
- */
+/* Compact, direct-manipulation ground brush. The world is the editor; this tray only says what the
+ * held pointer paints and how wide it is. */
 .ground-panel {
   position: fixed;
   z-index: 9;
   right: 18px;
   bottom: 156px;
-  width: min(384px, calc(100vw - 36px));
+  width: min(370px, calc(100vw - 36px));
   max-height: calc(100dvh - 280px);
   overflow: auto;
-  scroll-padding-top: 90px;
-  padding: 18px;
+  padding: 16px;
   border: 1px solid #617268;
   border-top: 3px solid #8fb6a3;
   border-radius: 14px;
@@ -26,15 +22,15 @@
 }
 .ground-panel header {
   position: sticky;
-  top: -18px;
+  top: -16px;
   z-index: 1;
-  background: var(--panel-solid);
-  padding: 10px 0;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  margin-bottom: 14px;
+  margin-bottom: 12px;
+  padding: 9px 0;
+  background: var(--panel-solid);
 }
 .ground-panel header small {
   color: #9dc3ae;
@@ -42,182 +38,88 @@
   letter-spacing: 0.12em;
 }
 .ground-panel h2 {
-  margin: 4px 0 0;
+  margin: 3px 0 0;
   font-size: 21px;
 }
-.ground-panel header button {
+.ground-panel header button,
+.ground-panel-actions button {
   min-width: 40px;
   min-height: 40px;
 }
-.ground-panel p {
-  font-size: 12px;
-  line-height: 1.5;
-  color: #bfd0c8;
-}
 
-/*
- * Six verbs, always all six, always in the same place. A player learns where "Lower" is once and
- * then stops reading the tray, which is the point of a segmented bar over a dropdown.
- */
-.ground-actions {
+.ground-modes {
   display: grid;
-  grid-template-columns: repeat(6, 1fr);
-  gap: 4px;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 5px;
   padding: 4px;
   border: 1px solid var(--line);
   border-radius: 11px;
   background: #0b1714;
 }
-.ground-actions button {
-  display: grid;
-  justify-items: center;
-  gap: 2px;
-  min-height: 52px;
-  padding: 6px 2px;
-  border: 1px solid transparent;
-  border-radius: 8px;
-  background: transparent;
-  color: var(--muted);
-  font-size: 10px;
-  letter-spacing: 0.04em;
-}
-.ground-actions button span {
-  font-size: 17px;
-  line-height: 1;
-}
-.ground-actions button:hover {
-  background: var(--panel-hover);
-  color: var(--ink);
-}
-.ground-actions button[aria-pressed="true"] {
-  border-color: #6d9f81;
-  background: #23483c;
-  color: var(--ink);
-}
-
-/* The shape row is the verb row's twin — same segmented bar, same press — because "what to do" and
- * "where to do it" are two answers of the same weight, and a player who has learned one row has
- * already learned the other. */
-.ground-shapes {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 4px;
-  margin-top: 10px;
-  padding: 4px;
-  border: 1px solid var(--line);
-  border-radius: 11px;
-  background: #0b1714;
-}
-.ground-shapes button {
-  display: grid;
-  justify-items: center;
-  gap: 2px;
-  min-height: 48px;
-  padding: 6px 2px;
-  border: 1px solid transparent;
-  border-radius: 8px;
-  background: transparent;
-  color: var(--muted);
-  font-size: 10px;
-  letter-spacing: 0.04em;
-}
-.ground-shapes button span {
-  font-size: 16px;
-  line-height: 1;
-}
-.ground-shapes button:hover {
-  background: var(--panel-hover);
-  color: var(--ink);
-}
-.ground-shapes button[aria-pressed="true"] {
-  border-color: #6d9f81;
-  background: #23483c;
-  color: var(--ink);
-}
-
-/* An outline rides the same two anchors as its fill, so it is a modifier on the shape rather than a
- * shape of its own. It sits directly under the row it modifies and vanishes where there is no
- * inside to leave out. */
-.ground-outline {
+.ground-modes button {
   display: grid;
   grid-template-columns: auto 1fr;
-  align-items: start;
-  gap: 9px;
-  margin-top: 8px;
-  padding: 9px 11px;
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  background: var(--panel-card);
-  font-size: 11px;
-  line-height: 1.5;
+  align-content: center;
+  align-items: center;
+  gap: 2px 6px;
+  min-height: 58px;
+  padding: 7px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
   color: var(--muted);
-  cursor: pointer;
+  text-align: left;
 }
-.ground-outline[hidden] {
+.ground-modes button > span {
+  grid-row: 1 / 3;
+  color: #a8cbbb;
+  font-size: 18px;
+}
+.ground-modes button b {
+  color: var(--ink);
+  font-size: 11px;
+}
+.ground-modes button small {
   display: none;
 }
-.ground-outline input {
-  width: 18px;
-  height: 18px;
-  margin: 1px 0 0;
-  accent-color: #6d9f81;
+.ground-modes button:hover {
+  background: var(--panel-hover);
 }
-.ground-outline b {
-  display: block;
-  color: var(--ink);
+.ground-modes button[aria-pressed="true"] {
+  border-color: #6d9f81;
+  background: #23483c;
 }
 
-/* Depth and datum answer "how much" for exactly the verbs that have an answer, and share one slot
- * so choosing a verb never makes the tray jump under the pointer. */
-.ground-grade {
-  margin-top: 10px;
-}
-.ground-grade[hidden] {
-  display: none;
-}
-.ground-choice {
+.ground-size {
   display: flex;
-  flex-wrap: wrap;
   align-items: center;
   gap: 5px;
+  margin-top: 10px;
   font-size: 11px;
   color: var(--muted);
 }
-.ground-choice[hidden] {
-  display: none;
+.ground-size > span {
+  margin-right: auto;
 }
-.ground-choice > span {
-  min-width: 46px;
-}
-.ground-choice > small {
-  color: #7f978b;
-  font-size: 10px;
-}
-.ground-choice button {
+.ground-size button {
   min-height: 34px;
-  padding: 4px 12px;
+  padding: 4px 9px;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: var(--panel-card);
   color: var(--muted);
-  font-size: 11px;
-  font-variant-numeric: tabular-nums;
+  font-size: 10px;
 }
-.ground-choice button:hover {
-  background: var(--panel-hover);
-  color: var(--ink);
-}
-.ground-choice button[aria-pressed="true"] {
+.ground-size button[aria-pressed="true"] {
   border-color: #6d9f81;
   background: #23483c;
   color: var(--ink);
 }
 
-/* The palette is a shop shelf: name, what it buys, what it costs, in that order, on one card. */
 .ground-palette {
   display: grid;
   gap: 6px;
-  margin: 12px 0 4px;
+  margin-top: 10px;
 }
 .ground-palette[hidden] {
   display: none;
@@ -225,16 +127,14 @@
 .ground-palette button {
   display: grid;
   grid-template-columns: 1fr auto;
-  align-items: center;
   gap: 4px 10px;
   width: 100%;
-  min-height: 46px;
-  padding: 8px 11px;
+  min-height: 44px;
+  padding: 8px 10px;
   border: 1px solid var(--line);
-  border-radius: 10px;
+  border-radius: 9px;
   background: var(--panel-card);
   color: var(--ink);
-  font-size: 12px;
   text-align: left;
 }
 .ground-palette button:hover {
@@ -247,20 +147,17 @@
 .ground-palette .ground-pace {
   color: var(--mint);
   font-size: 11px;
-  font-variant-numeric: tabular-nums;
 }
-.ground-palette .ground-price {
+.ground-palette .ground-price,
+.ground-material-hint {
   grid-column: 1 / -1;
+  font-size: 10px;
   color: var(--gold);
-  font-size: 11px;
 }
 .ground-palette .ground-price.short {
   color: var(--danger);
 }
 .ground-material-hint {
-  grid-column: 1 / -1;
-  font-size: 11px;
-  line-height: 1.5;
   color: #b4c8be;
 }
 .ground-material-hint:empty {
@@ -269,70 +166,47 @@
 .ground-palette button.locked {
   border-style: dashed;
 }
-.production-note {
-  margin: 12px 0;
-  line-height: 1.6;
-}
 
-.ground-fields {
+.ground-cover {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 10px;
-  margin-top: 12px;
+  grid-template-columns: auto 1fr;
+  gap: 9px;
+  margin-top: 8px;
+  padding: 9px 10px;
+  border: 1px solid var(--warning);
+  border-radius: 9px;
+  background: var(--warning-bg);
+  color: #f4dcb2;
+  font-size: 10px;
+  line-height: 1.45;
+  cursor: pointer;
 }
-.ground-fields label {
-  display: grid;
-  gap: 6px;
-  font-size: 11px;
-  color: #a8beb4;
-  min-width: 0;
-}
-.ground-fields select,
-.ground-fields input {
-  width: 100%;
-  min-width: 0;
-  min-height: 40px;
-  padding: 6px;
-  font-size: 12px;
-}
-.ground-target {
-  grid-template-columns: repeat(4, 1fr);
-  padding-top: 8px;
-  border-top: 1px solid #304c41;
-}
-/* A rectangle is named by two corners rather than two hexes, so the row carries a third field and
- * breaks into From and To rather than into four numbers in a line. */
-.ground-target.vertices {
-  grid-template-columns: repeat(3, 1fr);
-}
-/* `display: grid` outranks the hidden attribute's own rule, so a field the shape does not use has
- * to be told to go away explicitly. */
-.ground-fields label[hidden] {
+.ground-cover[hidden] {
   display: none;
 }
-.ground-precise summary {
-  cursor: pointer;
-  font-size: 12px;
-  color: #abc2b5;
-  padding: 8px 0;
+.ground-cover input {
+  width: 18px;
+  height: 18px;
+  margin: 1px 0 0;
+  accent-color: var(--warning);
+}
+.ground-cover b {
+  display: block;
+  color: var(--warning);
 }
 
-/*
- * The spoil heap, drawn rather than stated. Fill has to be dug from somewhere, and a player who
- * cannot see the heap draining will read the refusal that follows as the game being arbitrary.
- */
 .ground-spoil {
   display: grid;
   grid-template-columns: auto 1fr auto;
   align-items: center;
-  gap: 10px;
-  margin: 12px 0 8px;
-  padding: 9px 11px;
+  gap: 9px;
+  margin-top: 11px;
+  padding: 8px 10px;
   border: 1px solid var(--line);
-  border-radius: 10px;
+  border-radius: 9px;
   background: var(--panel-card);
-  font-size: 11px;
   color: var(--muted);
+  font-size: 10px;
 }
 .ground-spoil b {
   color: var(--ink);
@@ -341,9 +215,9 @@
 .ground-gauge {
   position: relative;
   height: 7px;
+  overflow: hidden;
   border-radius: 4px;
   background: #0b1714;
-  overflow: hidden;
 }
 .ground-gauge i {
   position: absolute;
@@ -356,103 +230,36 @@
 .ground-gauge.empty i {
   background: #4a4136;
 }
-.ground-move {
-  color: var(--mint);
-  font-variant-numeric: tabular-nums;
-}
-.ground-move.down {
-  color: var(--warning);
-}
 
 .ground-panel .ground-status {
+  min-height: 36px;
+  margin: 9px 0 4px;
   color: var(--mint);
-  margin: 8px 0 7px;
+  font-size: 11px;
+  line-height: 1.5;
 }
 .ground-panel .ground-status.blocked {
   color: var(--danger);
 }
-.ground-panel .ground-bill {
-  color: var(--gold);
-  min-height: 18px;
-}
-
-/*
- * Sealing a deposit is the only thing in here a player cannot walk back for free, so it is the only
- * thing that stops and asks. The tick is deliberate work, never a default.
- */
-.ground-cover {
-  display: grid;
-  grid-template-columns: auto 1fr;
-  align-items: start;
-  gap: 9px;
-  margin: 10px 0;
-  padding: 10px 11px;
-  border: 1px solid var(--warning);
-  border-radius: 10px;
-  background: var(--warning-bg);
-  font-size: 11px;
-  line-height: 1.5;
-  color: #f4dcb2;
-  cursor: pointer;
-}
-.ground-cover[hidden] {
-  display: none;
-}
-.ground-cover input {
-  width: 20px;
-  height: 20px;
-  margin: 1px 0 0;
-  accent-color: var(--warning);
-}
-.ground-cover b {
-  display: block;
-  color: var(--warning);
-}
-
-.ground-retaining {
-  margin: 0 0 8px;
-  color: var(--warning);
-  font-size: 11px;
-}
-.ground-retaining[hidden] {
-  display: none;
-}
-
-/* A hex the edit will pass over is a note beside the work, not a refusal of it, so it is quieter
- * than the retaining warning and never takes the status line. */
-.ground-obstructed {
-  margin: 0 0 8px;
-  color: #d9a09a;
-  font-size: 11px;
-}
-.ground-obstructed[hidden] {
-  display: none;
-}
-
 .ground-panel-actions {
   display: flex;
-  flex-wrap: wrap;
-  gap: 7px;
-  margin: 12px 0;
+  margin: 8px 0;
 }
 .ground-panel-actions button {
-  min-height: 40px;
-  font-size: 12px;
-}
-.ground-panel-actions [data-apply] {
-  background: #285c46;
-  border-color: #6d9f81;
-  flex: 1;
-}
-.ground-panel-actions [data-apply]:disabled {
-  background: #1b2c27;
+  border-color: #5f8875;
+  background: #1e3b31;
+  font-size: 11px;
 }
 .ground-help {
   display: block;
+  color: #9ab1a5;
   font-size: 10px;
   line-height: 1.5;
-  color: #9ab1a5;
 }
+.ground-help b {
+  color: var(--ink);
+}
+
 @media (max-width: 700px) {
   .ground-panel {
     right: 10px;
@@ -462,11 +269,7 @@
     padding: 13px;
   }
   .ground-panel header {
-    margin-bottom: 10px;
-  }
-  .ground-actions button,
-  .ground-shapes button {
-    min-height: 48px;
+    top: -13px;
   }
 }
 @media (max-height: 580px) {

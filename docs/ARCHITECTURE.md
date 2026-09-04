@@ -97,8 +97,9 @@ becomes timed ground cargo.
 
 Placement uses rotated definition footprints and one native occupancy index. A drag is one bounded
 endpoints command; native resolves its route, legality, price, and preview. The host never expands it into
-per-cell commands. Earthwork shapes are also native bounded selections and keep their full footprint visible
-when one cell refuses the edit.
+per-cell commands. The ground brush is the same contract under a held pointer: one bounded disc per stamp,
+carrying the hex the stroke sampled its height from, and each stamp is its own priced transaction that keeps
+its full footprint visible when one cell refuses the edit.
 
 ## Factory graph and machines
 

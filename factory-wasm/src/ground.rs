@@ -113,6 +113,9 @@ pub(super) struct GroundEdit {
     pub r: i32,
     pub to_q: i32,
     pub to_r: i32,
+    /// The height sampled when a live brush stroke began. Absent for precise legacy edits.
+    #[serde(default)]
+    pub datum: Option<(i32, i32)>,
     /// Which corner of hex `q, r` a rectangle is anchored on. Ignored by the other shapes, which
     /// name whole hexes, so it defaults rather than being spelled on every edit.
     #[serde(default)]
@@ -520,7 +523,10 @@ impl Core {
     /// The cells one selection covers. Bounded before anything is priced, so an accidental drag
     /// across the map is refused rather than costed.
     fn ground_cells(edit: &GroundEdit) -> Result<Vec<(i32, i32)>, String> {
-        for (q, r) in [(edit.q, edit.r), (edit.to_q, edit.to_r)] {
+        for (q, r) in [(edit.q, edit.r), (edit.to_q, edit.to_r)]
+            .into_iter()
+            .chain(edit.datum)
+        {
             if q.abs_diff(0) > 100_000 || r.abs_diff(0) > 100_000 {
                 return Err("Ground target is outside the supported coordinate range".into());
             }

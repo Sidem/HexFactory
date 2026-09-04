@@ -41,7 +41,7 @@ interface VerbSpec {
 
 /**
  * Four verbs, always in the same place. Place is how a yard goes up; Open and Close are how you
- * walk through it; Strip takes it back. R cycles them the way Ground works already does.
+ * walk through it; Strip takes it back. R cycles them the way the ground brush already does.
  */
 const VERBS: readonly VerbSpec[] = [
   {

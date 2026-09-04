@@ -38,7 +38,7 @@ Runtime.prototype.syncHoverWithCamera = function syncHoverWithCamera(
   // Vertex tools follow the pointer within a hex, so they are told even when the hex has not moved.
   const point = this.renderer.pickWorld(this.aimPointer.x, this.aimPointer.y);
   this.boundaryTool.hover(coordinate, point);
-  this.groundTool.hover(coordinate, point);
+  this.groundTool.hover(coordinate);
   if (this.hover?.q === coordinate.q && this.hover.r === coordinate.r) return;
   this.hover = coordinate;
   this.refreshHoverPreview();

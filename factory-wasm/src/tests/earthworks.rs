@@ -721,8 +721,9 @@ fn ground_works_conserve_spoil_gate_routes_and_survive_a_save() {
     core.edit_ground(&drop).unwrap();
     core.edit_ground(&drop).unwrap();
     let smooth = GroundEdit {
-        to_q: 2,
-        shape: GroundShape::Path,
+        q: 1,
+        to_q: 1,
+        datum: Some((0, 0)),
         action: GroundAction::Smooth,
         ..ground_edit(0, 0, GroundAction::Smooth)
     };

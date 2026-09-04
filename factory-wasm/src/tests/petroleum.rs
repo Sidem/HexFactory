@@ -303,6 +303,7 @@ fn petroleum_roads_require_research_and_base_and_refund_both_layers() {
         r: 2,
         to_q: 0,
         to_r: 2,
+        datum: None,
         corner: 0,
         to_corner: 0,
         definition_id: 6,

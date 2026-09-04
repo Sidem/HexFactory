@@ -11,12 +11,12 @@ Read the named file and a bounded range around the anchor; do not read oversized
 
 - `factory-wasm/src/tests/construction.rs` — 907 lines / 37.2 KiB — placement_and_drag_build_exactly_what_the_rules_allow_and_undo_takes_it_back:4, creative_unlocks_grants_resizes_and_survives_a_save:332, erasing_refunds_spills_and_never_leaves_an_uncompilable_graph:490, footprints_occupy_turn_reserve_and_upgrade_as_one_building:668, …
 - `factory-wasm/src/tests/contract.rs` — 494 lines / 20.5 KiB — the_founding_contract_advances_stage_by_stage_and_carries_its_surplus:4, the_board_posts_pays_passes_and_saves_what_the_player_could_make:113, the_hub_takes_delivery_from_every_footprint_cell_and_saves_its_board:417
-- `factory-wasm/src/tests/earthworks.rs` — 1202 lines / 45.7 KiB — disc_offsets:4, set_test_footprint:22, set_test_envelope:31, set_test_clearance:40, …
+- `factory-wasm/src/tests/earthworks.rs` — 1203 lines / 45.7 KiB — disc_offsets:4, set_test_footprint:22, set_test_envelope:31, set_test_clearance:40, …
 - `factory-wasm/src/tests/economy.rs` — 530 lines / 21.5 KiB — the_economy_holds_at_every_step_of_the_curve:10
 - `factory-wasm/src/tests/graph.rs` — 386 lines / 14.6 KiB — extractor_stops_exactly_when_its_deposit_empties:4, research_is_atomic_published_delta_tracked_and_paid_for_in_insight:72, compiling_is_incremental_and_matches_the_full_graph:201, assert_index:329
 - `factory-wasm/src/tests/machines.rs` — 906 lines / 38.7 KiB — machines_draw_on_the_stock_and_terrain_beside_them_and_flora_grows_back:8, a_machine_runs_only_its_own_category_and_is_reassigned_only_between_crafts:192, a_cancelled_craft_returns_its_reserved_inputs_and_leaves_fuel_and_output_alone:253, skills_are_finite_atomic_and_isolated_from_research:318, …
-- `factory-wasm/src/tests/mod.rs` — 629 lines / 23.0 KiB — construction:1, contract:2, earthworks:3, economy:4, …
-- `factory-wasm/src/tests/petroleum.rs` — 464 lines / 17.2 KiB — test_core:3, at:26, petroleum_joint_batch_waits_for_all_outputs_and_resumes_without_losing_inputs:34, petroleum_well_refuses_other_fields_and_ordinary_extractors_refuse_oil:75, …
+- `factory-wasm/src/tests/mod.rs` — 630 lines / 23.0 KiB — construction:1, contract:2, earthworks:3, economy:4, …
+- `factory-wasm/src/tests/petroleum.rs` — 465 lines / 17.2 KiB — test_core:3, at:26, petroleum_joint_batch_waits_for_all_outputs_and_resumes_without_losing_inputs:34, petroleum_well_refuses_other_fields_and_ordinary_extractors_refuse_oil:75, …
 - `factory-wasm/src/tests/player.rs` — 658 lines / 27.7 KiB — movement_intent_aim_and_cadence_are_native:4, swimming_is_a_learned_deep_water_route_and_not_a_building_rule:211, a_click_routes_walks_and_replans_around_what_blocks_it:244, gathering_is_bounded_by_reach_cooldown_and_what_the_hex_holds:476
 - `factory-wasm/src/tests/power.rs` — 410 lines / 16.3 KiB — power_reaches_only_what_it_lights_and_is_produced_only_for_the_work_it_does:4, apportioning_hands_out_every_unit_and_no_more:387
 - `factory-wasm/src/tests/save.rs` — 486 lines / 21.3 KiB — a_pre_physical_save_is_refused_with_an_export_offered:10, a_save_resumes_and_replays_in_a_deterministic_order:15, deltas_send_only_what_changed_and_match_a_full_snapshot_diff:113
@@ -37,10 +37,11 @@ Read the named file and a bounded range around the anchor; do not read oversized
 - `tests/directions.test.ts` — 74 lines / 2.8 KiB — angle:25
 - `tests/emblems.test.ts` — 220 lines / 9.2 KiB
 - `tests/frameClock.test.ts` — 42 lines / 1.3 KiB
+- `tests/groundBrush.test.ts` — 46 lines / 1.2 KiB
 - `tests/guidance.test.ts` — 531 lines / 17.9 KiB — shippedScenario:29, boardFor:50, snapshotAt:79
 - `tests/heightfieldTerrain.test.ts` — 329 lines / 11.1 KiB — dispose:323
 - `tests/hexHostContract.test.ts` — 58 lines / 2.1 KiB
-- `tests/host.test.ts` — 1987 lines / 75.5 KiB — fakeTransport:1729
+- `tests/host.test.ts` — 2010 lines / 76.1 KiB — fakeTransport:1729
 - `tests/look.test.ts` — 429 lines / 17.4 KiB — keyOf:52
 - `tests/playerRig.test.ts` — 111 lines / 4.1 KiB — legs:28
 - `tests/production.test.ts` — 89 lines / 3.2 KiB

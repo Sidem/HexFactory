@@ -307,7 +307,7 @@
       "name": "Asphalt",
       "color": "#84939c",
       "icon": "grains",
-      "description": "Bitumen-bound aggregate. Two units pave one hex over a gravel base in Ground works, for 50% faster walking. Stored ready to lay; not an upper floor.",
+      "description": "Bitumen-bound aggregate. Two units pave one hex over a gravel base with the ground brush, for 50% faster walking. Stored ready to lay; not an upper floor.",
       "stack_size": 40
     },
     {
@@ -726,7 +726,7 @@
       "id": 19,
       "key": "asphalt",
       "name": "Mix asphalt",
-      "description": "Bind three gravel with one bitumen into four asphalt. Lay it over a gravel base in Ground works; no curing timer.",
+      "description": "Bind three gravel with one bitumen into four asphalt. Brush it over a gravel base; no curing timer.",
       "category": "asphalt-mixing",
       "inputs": [
         {
@@ -2121,7 +2121,7 @@
       "name": "Asphalt mixer",
       "kind": "composer",
       "icon": "MIX",
-      "description": "Mixes gravel and bitumen into ready-to-lay asphalt. Two asphalt pave a hex over a gravel base in Ground works. A fast-road specialty; brick and concrete construction remain oil-free.",
+      "description": "Mixes gravel and bitumen into ready-to-lay asphalt. Two asphalt pave a hex over a gravel base with the ground brush. A fast-road specialty; brick and concrete construction remain oil-free.",
       "capacity": 24,
       "recipe_category": "asphalt-mixing",
       "power_draw": 6,

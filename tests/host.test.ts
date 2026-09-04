@@ -1901,6 +1901,29 @@ it("carries ground selections as two anchors, a verb, a depth and a deliberate c
     opcode: 32,
     args: [-2, 1, 3, 2, 3, 0, 2, 4, 4, 1, 1, 2],
   });
+  // A brush stroke samples one height and blends every later stamp toward it. That hex rides last
+  // and only when it exists, so the edits that never had a datum encode exactly as they did before.
+  expect(
+    encodeCommand({
+      type: "ground_edit",
+      q: 4,
+      r: -1,
+      datum: [1, 1],
+      corner: 0,
+      to_q: 5,
+      to_r: -1,
+      to_corner: 0,
+      shape: "disc",
+      definition_id: 1,
+      action: "smooth",
+      cover: false,
+      steps: 1,
+      reference: "first",
+    }),
+  ).toEqual({
+    opcode: 32,
+    args: [4, -1, 0, 5, -1, 0, 4, 1, 5, 0, 1, 0, 1, 1],
+  });
   // Every shape rides those same two anchors, so a fill and its outline differ by one field. The
   // codes are pinned because an outline silently decoding as its fill would pave what it meant to
   // edge, at the player's expense.

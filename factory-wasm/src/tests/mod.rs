@@ -607,6 +607,7 @@ fn ground_edit(q: i32, r: i32, action: GroundAction) -> GroundEdit {
         r,
         to_q: q,
         to_r: r,
+        datum: None,
         corner: 0,
         to_corner: 0,
         shape: GroundShape::Cell,

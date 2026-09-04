@@ -22,7 +22,7 @@ Read the named file and a bounded range around the anchor; do not read oversized
 - `src/app/constructionInput.ts` — 414 lines / 13.2 KiB — eraseLine:96, deleteBuildingUnderCursorOrSelected:164, refreshDragPreview:206, rotateUnderCursorOrPending:259
 - `src/app/coreView.ts` — 608 lines / 21.1 KiB
 - `src/app/createApp.ts` — 24 lines / 0.7 KiB
-- `src/app/inputWiring.ts` — 462 lines / 17.5 KiB
+- `src/app/inputWiring.ts` — 470 lines / 17.7 KiB
 - `src/app/inspectorControls.ts` — 598 lines / 22.8 KiB
 - `src/app/inspectorOverview.ts` — 669 lines / 25.5 KiB
 - `src/app/lifecycle.ts` — 334 lines / 10.8 KiB
@@ -38,7 +38,7 @@ Read the named file and a bounded range around the anchor; do not read oversized
 - `src/core/FactoryHost.ts` — 386 lines / 11.3 KiB — FactoryWorkerMethod:26, WorldChoice:45, FactoryTransport:47, WorkerTransport:67, …
 - `src/core/availability.ts` — 135 lines / 4.8 KiB — CostLine:17, BuildAvailability:25, heldQuantity:34, costLines:42, …
 - `src/core/checkpoints.ts` — 347 lines / 12.7 KiB — CheckpointContext:19, CheckpointBuilding:29, CheckpointDefinition:42, CheckpointRecord:52, …
-- `src/core/commands.ts` — 329 lines / 10.7 KiB — EncodedCommand:3, MAX_AIM_COORDINATE:13, halfTransfer:23, encodeCommand:35
+- `src/core/commands.ts` — 336 lines / 11.0 KiB — EncodedCommand:3, MAX_AIM_COORDINATE:13, halfTransfer:23, encodeCommand:35
 - `src/core/definitions.ts` — 876 lines / 30.8 KiB — supportsRecipe:14, reservationCells:47, footprintIsContiguous:65, MAX_UNDERPASS_SPAN:109, …
 - `src/core/directions.ts` — 32 lines / 1.4 KiB — TRANSPORT_DIRECTIONS:4, CORNER_START:7, DIRECTION_NAMES:10, rotateAnyOrientation:22
 - `src/core/factory.worker.ts` — 221 lines / 7.9 KiB — handle:54, requireFactory:184, delta:197, optionalNumber:208, …
@@ -53,7 +53,7 @@ Read the named file and a bounded range around the anchor; do not read oversized
 - `src/core/snapshotDelta.ts` — 114 lines / 4.0 KiB — applySnapshotDelta:12, applyBuildingsPatch:46, applyResourcesPatch:83, applyTerrainPatch:101, …
 - `src/core/snapshotWire.ts` — 791 lines / 24.9 KiB — Reader:150, decodeSnapshotDelta:227, readPlayer:452, readChunks:515, …
 - `src/core/terrain.ts` — 161 lines / 4.9 KiB — TerrainInfo:13, TERRAIN_INFO:23, TERRAIN_ORDER:89, terrainAccess:100, …
-- `src/core/types.ts` — 1298 lines / 44.9 KiB — BuildingKind:3, Terrain:15, Substrate:28, PlacementRule:29, …
+- `src/core/types.ts` — 1300 lines / 45.0 KiB — BuildingKind:3, Terrain:15, Substrate:28, PlacementRule:29, …
 - `src/data/definitions.json` — 2906 lines / 67.4 KiB
 - `src/data/scenarios.json` — 168 lines / 4.8 KiB
 - `src/data/technologies.json` — 561 lines / 16.9 KiB
@@ -62,7 +62,8 @@ Read the named file and a bounded range around the anchor; do not read oversized
 - `src/ui/boundaries.ts` — 673 lines / 24.3 KiB — nearestBoundaryDirection:103, edgeAnchors:113, BoundaryTool:131
 - `src/ui/confirm.ts` — 131 lines / 4.8 KiB — ConfirmRow:12, ConfirmRequest:19, ConfirmDialog:31
 - `src/ui/dom.ts` — 50 lines / 1.5 KiB — required:3, part:9, syncChildren:21
-- `src/ui/ground.ts` — 948 lines / 36.9 KiB — GroundTool:183
+- `src/ui/ground.ts` — 524 lines / 19.6 KiB — GroundTool:57
+- `src/ui/groundBrush.ts` — 74 lines / 2.1 KiB — GroundBrushMode:3, BrushHex:4, brushDistance:18, MAX_BRUSH_RUN:29, …
 - `src/ui/paint.ts` — 37 lines / 0.9 KiB — paintHexFace:3, setMeter:14, setItemGlyph:29
 - `src/ui/panels.ts` — 188 lines / 6.0 KiB — PanelController:9
 - `src/ui/production.ts` — 32 lines / 1.7 KiB — productionNote:5

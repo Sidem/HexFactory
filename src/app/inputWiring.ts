@@ -71,9 +71,7 @@ export async function inputWiring(app: Runtime): Promise<void> {
       else app.boundaryTool.selectRemoval();
       return;
     }
-    // The earthworks tray answers three questions — what work, what shape, how much — so each gets a
-    // key rather than a trip to the panel. The brackets and backslash sit together under one hand and
-    // are the only unclaimed keys near it; the digits belong to the hotbar.
+    // Ground is one live brush. R changes what it paints and the brackets change only its footprint.
     if (
       app.groundTool.active &&
       [
@@ -83,20 +81,14 @@ export async function inputWiring(app: Runtime): Promise<void> {
         "Backspace",
         "BracketLeft",
         "BracketRight",
-        "Backslash",
-        "Minus",
-        "Equal",
       ].includes(event.code)
     ) {
       event.preventDefault();
       if (event.code === "Escape") app.groundTool.escape();
       else if (event.code === "KeyR")
         app.groundTool.cycleAction(event.shiftKey);
-      else if (event.code === "BracketLeft") app.groundTool.cycleShape(true);
-      else if (event.code === "BracketRight") app.groundTool.cycleShape(false);
-      else if (event.code === "Backslash") app.groundTool.toggleOutline();
-      else if (event.code === "Minus") app.groundTool.nudgeDepth(-1);
-      else if (event.code === "Equal") app.groundTool.nudgeDepth(1);
+      else if (event.code === "BracketLeft") app.groundTool.cycleSize(true);
+      else if (event.code === "BracketRight") app.groundTool.cycleSize(false);
       else app.groundTool.selectStrip();
       return;
     }
@@ -227,6 +219,11 @@ export async function inputWiring(app: Runtime): Promise<void> {
       return;
     }
     const coordinate = app.renderer.pick(event.clientX, event.clientY);
+    if (app.groundTool.paintBrush(event.pointerId, coordinate)) {
+      app.hover = coordinate;
+      app.refreshHoverPreview();
+      return;
+    }
     if (app.harvestPointer?.id === event.pointerId) {
       // The hold walks to the hex under the cursor and keeps working from there. Selecting it is what
       // makes the target visible, which matters more here than for a click: the gesture repeats.
@@ -260,7 +257,7 @@ export async function inputWiring(app: Runtime): Promise<void> {
     app.hover = coordinate;
     const vertexPoint = app.renderer.pickWorld(event.clientX, event.clientY);
     app.boundaryTool.hover(coordinate, vertexPoint);
-    app.groundTool.hover(coordinate, vertexPoint);
+    app.groundTool.hover(coordinate);
     app.refreshHoverPreview();
   });
   app.canvas.addEventListener("pointerdown", (event) => {
@@ -319,9 +316,17 @@ export async function inputWiring(app: Runtime): Promise<void> {
       event.preventDefault();
       return;
     }
+    const from = app.renderer.pick(event.clientX, event.clientY);
+    if (
+      event.button === 0 &&
+      app.groundTool.beginBrush(event.pointerId, from)
+    ) {
+      app.canvas.setPointerCapture(event.pointerId);
+      event.preventDefault();
+      return;
+    }
     if (event.button !== 0 || !app.draggableTool() || app.snapshot?.player.hand)
       return;
-    const from = app.renderer.pick(event.clientX, event.clientY);
     app.dragBuild = {
       id: event.pointerId,
       from,
@@ -343,6 +348,12 @@ export async function inputWiring(app: Runtime): Promise<void> {
       app.canvas.releasePointerCapture(event.pointerId);
       // Releasing ends the hold. The harvest began on the press and repeated every frame since.
       app.harvestPointer = null;
+      return;
+    }
+    if (app.groundTool.endBrush(event.pointerId)) {
+      if (app.canvas.hasPointerCapture(event.pointerId))
+        app.canvas.releasePointerCapture(event.pointerId);
+      app.suppressMapClick = true;
       return;
     }
     if (app.dragBuild?.id !== event.pointerId) return;
@@ -373,6 +384,7 @@ export async function inputWiring(app: Runtime): Promise<void> {
     // would keep working a hex with nothing holding the button down.
     if (app.panPointer?.id === event.pointerId) app.panPointer = null;
     if (app.harvestPointer?.id === event.pointerId) app.harvestPointer = null;
+    app.groundTool.endBrush(event.pointerId);
     app.endDrag(event.pointerId);
   });
   app.canvas.addEventListener("pointerleave", () => {
@@ -409,13 +421,9 @@ export async function inputWiring(app: Runtime): Promise<void> {
       );
       return;
     }
-    if (app.groundTool.active) {
-      app.groundTool.pick(
-        coordinate,
-        app.renderer.pickWorld(event.clientX, event.clientY),
-      );
-      return;
-    }
+    // The brush already ran on the press and release. A click is only what is left over from that
+    // gesture, and it must not also walk the player or drop what is in hand.
+    if (app.groundTool.active) return;
     if (app.snapshot?.player.hand) {
       const placed =
         event.ctrlKey || event.metaKey ? 1 : app.snapshot.player.hand.quantity;

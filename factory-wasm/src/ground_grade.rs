@@ -29,7 +29,8 @@ impl Core {
                 natural: self.generated_ground_at(cell.0, cell.1).bed.get(),
             })
             .collect();
-        let first = self.ground_elevation_at(edit.q, edit.r);
+        let anchor = edit.datum.unwrap_or((edit.q, edit.r));
+        let first = self.ground_elevation_at(anchor.0, anchor.1);
         let level = match edit.reference {
             GroundReference::First => first,
             GroundReference::Lowest => points.iter().map(|point| point.current).min().unwrap_or(0),
@@ -39,7 +40,7 @@ impl Core {
             .then(|| {
                 smooth_grade(
                     &points,
-                    ((edit.q, edit.r), first),
+                    (anchor, first),
                     self.walk_step_limit(),
                     grade_limit,
                 )
