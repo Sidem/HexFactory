@@ -15,9 +15,23 @@ Read the named file and a bounded range around the anchor; do not read oversized
 
 ## Files
 
+- `src/app/bootstrap.ts` — 399 lines / 14.1 KiB
+- `src/app/buildController.ts` — 692 lines / 24.3 KiB
 - `src/app/buildInfo.ts` — 25 lines / 0.7 KiB — currentBuild:6
+- `src/app/buildWiring.ts` — 266 lines / 10.1 KiB
+- `src/app/constructionInput.ts` — 414 lines / 13.2 KiB — eraseLine:96, deleteBuildingUnderCursorOrSelected:164, refreshDragPreview:206, rotateUnderCursorOrPending:259
+- `src/app/coreView.ts` — 608 lines / 21.1 KiB
+- `src/app/createApp.ts` — 24 lines / 0.7 KiB
+- `src/app/inputWiring.ts` — 454 lines / 17.3 KiB
+- `src/app/inspectorControls.ts` — 598 lines / 22.8 KiB
+- `src/app/inspectorOverview.ts` — 669 lines / 25.5 KiB
+- `src/app/lifecycle.ts` — 334 lines / 10.8 KiB
+- `src/app/lifecycleWiring.ts` — 179 lines / 7.1 KiB
 - `src/app/preferences.ts` — 117 lines / 3.8 KiB — PreferencesController:15
+- `src/app/runtime.ts` — 390 lines / 14.4 KiB — Tool:32, BuildGroupKey:42, StockCompartment:49, StackDrag:74, …
 - `src/app/saveUi.ts` — 151 lines / 5.0 KiB — SaveUi:21
+- `src/app/workspaceController.ts` — 319 lines / 9.7 KiB
+- `src/app/workspaceWiring.ts` — 529 lines / 19.2 KiB
 - `src/app/worldSetup.ts` — 449 lines / 16.9 KiB — WorldSetup:29, exactSeed:443
 - `src/audio/feedback.ts` — 220 lines / 6.9 KiB — FeedbackCue:17, FeedbackAudio:96, cueForEvent:194
 - `src/contact/main.ts` — 226 lines / 7.3 KiB — paint:57, repaint:70, element:74, sharedWith:90, …
@@ -44,7 +58,7 @@ Read the named file and a bounded range around the anchor; do not read oversized
 - `src/data/scenarios.json` — 168 lines / 4.8 KiB
 - `src/data/technologies.json` — 561 lines / 16.9 KiB
 - `src/input/focus.ts` — 35 lines / 1.1 KiB — isTypingTarget:2, isKeyboardFocusedControl:13, isPointerActivatedControl:23
-- `src/main.ts` — 5477 lines / 201.5 KiB — currentBuild:135, dragOwnsPointer:419, loadHotbar:565, sanitiseSlot:593, …
+- `src/main.ts` — 6 lines / 0.1 KiB
 - `src/ui/boundaries.ts` — 673 lines / 24.3 KiB — nearestBoundaryDirection:103, edgeAnchors:113, BoundaryTool:131
 - `src/ui/confirm.ts` — 131 lines / 4.8 KiB — ConfirmRow:12, ConfirmRequest:19, ConfirmDialog:31
 - `src/ui/dom.ts` — 50 lines / 1.5 KiB — required:3, part:9, syncChildren:21

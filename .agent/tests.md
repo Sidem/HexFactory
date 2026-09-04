@@ -40,14 +40,14 @@ Read the named file and a bounded range around the anchor; do not read oversized
 - `tests/guidance.test.ts` — 531 lines / 17.9 KiB — shippedScenario:29, boardFor:50, snapshotAt:79
 - `tests/heightfieldTerrain.test.ts` — 329 lines / 11.1 KiB — dispose:323
 - `tests/hexHostContract.test.ts` — 58 lines / 2.1 KiB
-- `tests/host.test.ts` — 2040 lines / 76.4 KiB — fakeTransport:1782
+- `tests/host.test.ts` — 1981 lines / 75.1 KiB — fakeTransport:1723
 - `tests/look.test.ts` — 429 lines / 17.4 KiB — keyOf:52
 - `tests/playerRig.test.ts` — 111 lines / 4.1 KiB — legs:28
 - `tests/production.test.ts` — 89 lines / 3.2 KiB
 - `tests/recipes.test.ts` — 84 lines / 3.4 KiB — joint:13
 - `tests/saveSlots.test.ts` — 649 lines / 20.3 KiB — envelope:60, memoryStorage:77
 - `tests/snapshotWire.test.ts` — 163 lines / 6.1 KiB — bytesOf:24
-- `tests/sourceGraph.ts` — 14 lines / 0.4 KiB — readStyles:4
+- `tests/sourceGraph.ts` — 39 lines / 1.0 KiB — readAppSource:4, readStyles:29
 - `tests/ui.test.ts` — 394 lines / 12.7 KiB — FakeClassList:55, element:103, harness:139
 - `tests/visualCamera.test.ts` — 216 lines / 7.9 KiB — heading:7, elevation:11, turnedBy:16, settle:21
 - `tests/visualDepth.test.ts` — 2013 lines / 67.8 KiB — surfaceBody:1722, uniformValue:1728, compileTerrain:1738, cliffTile:1753, …

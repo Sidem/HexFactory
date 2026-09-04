@@ -1,12 +1,6 @@
 {
   "version": 1,
   "allow": {
-    "src/main.ts": {
-      "baselineBytes": 206307,
-      "targetBytes": 12288,
-      "owner": "browser feature controllers",
-      "expires": "2026-10-01"
-    },
     "factory-wasm/src/balance.rs": {
       "baselineBytes": 101954,
       "targetBytes": 51200,

@@ -52,7 +52,7 @@ import type {
 } from "../src/core/types";
 import definitions from "../src/data/definitions.json";
 import technologiesJson from "../src/data/technologies.json";
-import { readStyles } from "./sourceGraph";
+import { readAppSource, readStyles } from "./sourceGraph";
 
 const technologies = technologiesJson as unknown as Technologies;
 import { isSurveyed } from "../src/rendering/CanvasFactoryRenderer";
@@ -462,10 +462,7 @@ describe("bounded host input", () => {
       args: [1],
     });
 
-    const main = readFileSync(
-      new URL("../src/main.ts", import.meta.url),
-      "utf8",
-    );
+    const main = readAppSource();
     const renderer = readFileSync(
       new URL("../src/rendering/CanvasFactoryRenderer.ts", import.meta.url),
       "utf8",
@@ -480,10 +477,7 @@ describe("bounded host input", () => {
   });
 
   it("walks to a second click without ever finding the way itself", () => {
-    const main = readFileSync(
-      new URL("../src/main.ts", import.meta.url),
-      "utf8",
-    );
+    const main = readAppSource();
     const overlays = readFileSync(
       new URL("../src/rendering/three/overlays.ts", import.meta.url),
       "utf8",
@@ -526,10 +520,7 @@ describe("bounded host input", () => {
   });
 
   it("keeps the reach and capacity rules native for both new hand actions", () => {
-    const main = readFileSync(
-      new URL("../src/main.ts", import.meta.url),
-      "utf8",
-    );
+    const main = readAppSource();
     // A right-click sends the hex it named. The host must not decide whether it is close enough,
     // or which cell "close to the player" resolves to — that is the shared gather predicate.
     expect(main).toContain('type: "gather_at"');
@@ -547,8 +538,8 @@ describe("bounded host input", () => {
     // It repeats from the same `!input.size` guard the held F uses, so both are paced by the
     // cooldown rather than by a host-side timer of their own.
     const repeat = main.slice(
-      main.indexOf("if (!input.size) {"),
-      main.indexOf("sendAim();"),
+      main.indexOf("if (!this.input.size) {"),
+      main.indexOf("this.sendAim();"),
     );
     expect(repeat).toContain('type: "gather_at"');
     expect(repeat).toContain('type: "gather"');
@@ -569,10 +560,7 @@ describe("bounded host input", () => {
   });
 
   it("keeps the hotbar a preference and never a simulation input", () => {
-    const main = readFileSync(
-      new URL("../src/main.ts", import.meta.url),
-      "utf8",
-    );
+    const main = readAppSource();
     // The bar is an arrangement of keys, not a fact about a factory. It lives in localStorage
     // beside no game state, and nothing about it may ever reach a command or the checksum.
     expect(main).toContain("hexfactory:hotbar:v1");
@@ -590,7 +578,7 @@ describe("bounded host input", () => {
     // And so must a default, which is the same defect wearing better clothes: v0.25.1 retired the
     // riser, `DEFAULT_HOTBAR` went on naming its id, and the ninth slot of a first-ever run drew as
     // `?18`. The sieve now covers both lists; this asserts the list they start from.
-    const listed = /const DEFAULT_HOTBAR[^=]*=\s*\[([^\]]*)\]/.exec(main)?.[1];
+    const listed = /DEFAULT_HOTBAR\s*=\s*\[([^\]]*)\]/.exec(main)?.[1];
     const ids = (listed ?? "")
       .split(",")
       .map((slot) => slot.trim())
@@ -623,10 +611,7 @@ describe("bounded host input", () => {
   });
 
   it("keeps the active workspace a preference and makes panel interactions exclusive", () => {
-    const main = readFileSync(
-      new URL("../src/main.ts", import.meta.url),
-      "utf8",
-    );
+    const main = readAppSource();
     const css = readStyles();
     const html = readFileSync(
       new URL("../index.html", import.meta.url),
@@ -687,10 +672,7 @@ describe("bounded host input", () => {
   });
 
   it("keeps a refused slot clearable and answers a recipe from either side", () => {
-    const main = readFileSync(
-      new URL("../src/main.ts", import.meta.url),
-      "utf8",
-    );
+    const main = readAppSource();
     const css = readStyles();
     const html = readFileSync(
       new URL("../index.html", import.meta.url),
@@ -740,10 +722,7 @@ describe("bounded host input", () => {
   });
 
   it("draws every item through the one chip component", () => {
-    const main = readFileSync(
-      new URL("../src/main.ts", import.meta.url),
-      "utf8",
-    );
+    const main = readAppSource();
     const chip = readFileSync(
       new URL("../src/rendering/itemChip.ts", import.meta.url),
       "utf8",
@@ -764,10 +743,7 @@ describe("bounded host input", () => {
   });
 
   it("contains no host-side player or progression mutation loop", () => {
-    const main = readFileSync(
-      new URL("../src/main.ts", import.meta.url),
-      "utf8",
-    );
+    const main = readAppSource();
     expect(main).not.toMatch(
       /player\.(x|y|inventory|action_cooldown)\s*[+\-=]/,
     );
@@ -780,17 +756,16 @@ describe("bounded host input", () => {
   });
 
   it("paces the player from the native cadence and never from the frame delta", () => {
-    const main = readFileSync(
-      new URL("../src/main.ts", import.meta.url),
-      "utf8",
-    );
+    const main = readAppSource();
     const clock = readFileSync(
       new URL("../src/core/frameClock.ts", import.meta.url),
       "utf8",
     );
     // The rate is native truth. The host converts elapsed real time into a step count with it and
     // never turns a frame delta into a position.
-    expect(main).toContain("playerTicksPerSecond: host.playerTicksPerSecond");
+    expect(main).toContain(
+      "playerTicksPerSecond: this.host.playerTicksPerSecond",
+    );
     expect(clock).toContain("elapsed * state.playerTicksPerSecond");
     expect(main).not.toMatch(/player\.(x|y)\s*\+/);
     // Player steps use native's player cadence, independently of the factory's fixed-rate clock.
@@ -800,10 +775,7 @@ describe("bounded host input", () => {
   });
 
   it("patches keyed lists in place so a rebuild cannot swallow a click", () => {
-    const main = readFileSync(
-      new URL("../src/main.ts", import.meta.url),
-      "utf8",
-    );
+    const main = readAppSource();
     const dom = readFileSync(
       new URL("../src/ui/dom.ts", import.meta.url),
       "utf8",
@@ -813,15 +785,17 @@ describe("bounded host input", () => {
     // carries a control goes through the reconciler instead.
     expect(dom).toContain("export function syncChildren(");
     expect(dom).not.toContain("replaceChildren()");
-    expect(main).toContain('from "./ui/dom"');
+    expect(main).toContain('from "../ui/dom"');
     const research = readFileSync(
       new URL("../src/ui/researchTree.ts", import.meta.url),
       "utf8",
     );
     expect(research).toContain("syncChildren(");
     expect(research).toContain("technologyAvailability(tech, this.snapshot)");
-    expect(main).toContain("researchTree.update(snapshot)");
-    expect(main).toContain("if (researchDialog.open || skillsDialog.open)");
+    expect(main).toContain("this.researchTree.update(this.snapshot)");
+    expect(main).toMatch(
+      /if \(app\.researchDialog\.open \|\| app\.skillsDialog\.open\)/,
+    );
     const saveList = readFileSync(
       new URL("../src/ui/saveList.ts", import.meta.url),
       "utf8",
@@ -847,10 +821,7 @@ describe("bounded host input", () => {
   });
 
   it("provides a Title Screen overlay with dedicated saves catalog and new factory launch", () => {
-    const main = readFileSync(
-      new URL("../src/main.ts", import.meta.url),
-      "utf8",
-    );
+    const main = readAppSource();
     const html = readFileSync(
       new URL("../index.html", import.meta.url),
       "utf8",
@@ -886,10 +857,7 @@ describe("bounded host input", () => {
   });
 
   it("mirrors native's reach and switch rules rather than inventing its own", () => {
-    const main = readFileSync(
-      new URL("../src/main.ts", import.meta.url),
-      "utf8",
-    );
+    const main = readAppSource();
     const html = readFileSync(
       new URL("../index.html", import.meta.url),
       "utf8",
@@ -915,8 +883,8 @@ describe("bounded host input", () => {
     };
     const setOf = (name: string): string[] => {
       const body = main.slice(
-        main.indexOf(`const ${name} = new Set<string>([`),
-        main.indexOf("]);", main.indexOf(`const ${name} = new Set<string>([`)),
+        main.indexOf(`app.${name} = new Set<string>([`),
+        main.indexOf("]);", main.indexOf(`app.${name} = new Set<string>([`)),
       );
       return [...body.matchAll(/"([a-z]+)"/g)].map((match) => match[1]!).sort();
     };
@@ -960,10 +928,7 @@ describe("bounded host input", () => {
     expect(declared).not.toBeNull();
     expect(SAVE_VERSION).toBe(Number(declared![1]));
 
-    const main = readFileSync(
-      new URL("../src/main.ts", import.meta.url),
-      "utf8",
-    );
+    const main = readAppSource();
     const html = readFileSync(
       new URL("../index.html", import.meta.url),
       "utf8",
@@ -1291,10 +1256,7 @@ describe("availability and expanded snapshot adapter", () => {
       new URL("../src/rendering/gl/WorldGl.ts", import.meta.url),
       "utf8",
     );
-    const main = readFileSync(
-      new URL("../src/main.ts", import.meta.url),
-      "utf8",
-    );
+    const main = readAppSource();
     // Fog is presentation over native chunk truth: the renderer must not invent chunk geometry.
     expect(renderer).toContain("this.drawFog(");
     expect(renderer).toContain("chunk.span");
@@ -1302,7 +1264,7 @@ describe("availability and expanded snapshot adapter", () => {
     expect(renderer).not.toMatch(/span\s*=\s*\d/);
     expect(worldGl).not.toMatch(/span\s*=\s*\d/);
     expect(renderer).toContain("player.radius");
-    expect(main).toContain("isSurveyed(snapshot.chunks");
+    expect(main).toContain("isSurveyed(this.snapshot.chunks");
   });
 
   it("ships responsive controls and accessible labels", () => {
@@ -1311,10 +1273,7 @@ describe("availability and expanded snapshot adapter", () => {
       "utf8",
     );
     const styles = readStyles();
-    const main = readFileSync(
-      new URL("../src/main.ts", import.meta.url),
-      "utf8",
-    );
+    const main = readAppSource();
     expect(html).toContain('aria-label="Interactive HexFactory world map');
     expect(html).toContain('id="technology-list"');
     expect(html).toContain('id="inventory-peek"');
@@ -1526,10 +1485,7 @@ describe("availability and expanded snapshot adapter", () => {
       new URL("../index.html", import.meta.url),
       "utf8",
     );
-    const main = readFileSync(
-      new URL("../src/main.ts", import.meta.url),
-      "utf8",
-    );
+    const main = readAppSource();
     const css = readStyles();
     const focus = readFileSync(
       new URL("../src/input/focus.ts", import.meta.url),
@@ -1543,12 +1499,12 @@ describe("availability and expanded snapshot adapter", () => {
     expect(main).not.toContain('"inspector-panel"');
     // Space centres the camera. A clicked button must not keep Space:
     // activation is on keyup, so keydown alone would both skip recenter and press the control.
-    expect(main).toContain('event.code === "Space") renderer.recenter()');
+    expect(main).toContain('event.code === "Space") app.renderer.recenter()');
     expect(main).toContain('event.code === "Space"');
-    expect(main).toContain('event.code === "ArrowLeft") orbitView(-1)');
-    expect(main).toContain('event.code === "ArrowRight") orbitView(1)');
-    expect(main).toContain('event.code === "ArrowUp") tiltView(1)');
-    expect(main).toContain('event.code === "ArrowDown") tiltView(-1)');
+    expect(main).toContain('event.code === "ArrowLeft") app.orbitView(-1)');
+    expect(main).toContain('event.code === "ArrowRight") app.orbitView(1)');
+    expect(main).toContain('event.code === "ArrowUp") app.tiltView(1)');
+    expect(main).toContain('event.code === "ArrowDown") app.tiltView(-1)');
     expect(main).not.toContain('event.code === "Comma"');
     expect(main).not.toContain('event.code === "Period"');
     expect(main).toContain('event.code === "Backspace"');
@@ -1583,10 +1539,7 @@ describe("availability and expanded snapshot adapter", () => {
   it("offers each machine only the recipes of its own category", () => {
     // The host must not hand a machine "the first recipe in the catalog": native would refuse it,
     // and a build tool that cannot place anything is a defect the player has to diagnose.
-    const main = readFileSync(
-      new URL("../src/main.ts", import.meta.url),
-      "utf8",
-    );
+    const main = readAppSource();
     const hostSource = readFileSync(
       new URL("../src/core/FactoryHost.ts", import.meta.url),
       "utf8",
@@ -1614,10 +1567,7 @@ describe("availability and expanded snapshot adapter", () => {
       new URL("../src/rendering/CanvasFactoryRenderer.ts", import.meta.url),
       "utf8",
     );
-    const main = readFileSync(
-      new URL("../src/main.ts", import.meta.url),
-      "utf8",
-    );
+    const main = readAppSource();
     // Both the wait outstanding and what a fresh one is worth are published, so the ring is a
     // proportion the host was given rather than a maximum it inferred by watching a value fall.
     expect(renderer).toContain("action_cooldown_total");
@@ -1629,10 +1579,7 @@ describe("availability and expanded snapshot adapter", () => {
   });
 
   it("names every surveyed hex from the physical terrain payload", () => {
-    const main = readFileSync(
-      new URL("../src/main.ts", import.meta.url),
-      "utf8",
-    );
+    const main = readAppSource();
     // Physical ground publishes every surveyed cell because height has no implicit lowland value.
     expect(main).toContain("const terrainSample = surveyed");
     expect(main).toContain("const terrain = terrainSample?.terrain");
@@ -1648,10 +1595,7 @@ describe("availability and expanded snapshot adapter", () => {
   });
 
   it("reads a clicked hex as cards, not as a text dump", () => {
-    const main = readFileSync(
-      new URL("../src/main.ts", import.meta.url),
-      "utf8",
-    );
+    const main = readAppSource();
     const html = readFileSync(
       new URL("../index.html", import.meta.url),
       "utf8",
@@ -1709,10 +1653,7 @@ describe("availability and expanded snapshot adapter", () => {
       new URL("../src/rendering/MinimapRenderer.ts", import.meta.url),
       "utf8",
     );
-    const main = readFileSync(
-      new URL("../src/main.ts", import.meta.url),
-      "utf8",
-    );
+    const main = readAppSource();
     const vite = readFileSync(
       new URL("../vite.config.ts", import.meta.url),
       "utf8",

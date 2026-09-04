@@ -57,9 +57,8 @@ on Low / Medium / High at 1440×900 on the reference desktop. That is the suppor
 claim about other hardware. See [`BENCHMARKS.md`](BENCHMARKS.md).
 
 The game is still a polished short-form slice. Its main product gap is a sustained programme for an
-established factory. Its main engineering gap is context concentration: the Rust entrypoint is now
-split and the production payload has a measured budget, but `src/main.ts` still owns too many browser
-features.
+established factory. The Rust entrypoint and browser application are split by ownership, and the
+production payload has a measured budget; new work must preserve that modular headroom.
 
 ## Development order
 
@@ -70,12 +69,10 @@ later phase to avoid an unmet gate. A phase may ship in several small releases.
 
 1. ~~Make `npm run context:check` green and prevent growth in every ratcheted file.~~ Done. Every
    ratchet holds and two of them were retightened onto the sizes the split actually reached.
-2. Split `src/main.ts` by feature ownership, beginning with session lifecycle, workspace/panel wiring,
-   and input/build controllers. Preserve behavior and keep one bounded application composition root.
-   Choosing a world is out — `src/app/worldSetup.ts` owns both parameter forms, both preview panels,
-   the shared seed and scenario controls, and the title screen, and the root keeps only what starts,
-   loads, and names a run. `src/main.ts` is 201 KB against a 12 KB target; panel wiring and the input
-   and build controllers are the remaining feature families.
+2. ~~Split `src/main.ts` by feature ownership, beginning with session lifecycle, workspace/panel
+   wiring, and input/build controllers. Preserve behavior and keep one bounded application
+   composition root.~~ Done. `src/main.ts` now starts the application; bounded modules under
+   `src/app/` own runtime state, views, construction input, workspace wiring, and lifecycle behavior.
 3. Split another large module only when the active feature must change it; do not perform a broad
    rewrite. Move its nearest tests with the behavior.
 4. ~~State and measure a production startup budget for JavaScript and Wasm before adding another major
@@ -83,8 +80,8 @@ later phase to avoid an unmet gate. A phase may ship in several small releases.
    of Wasm, and 896 KB together, all gzipped, and `hexfactory:ready` marks what that payload costs.
    The measured numbers and the 750 ms time budget are in [`BENCHMARKS.md`](BENCHMARKS.md).
 
-This gate is complete when the active phase can be implemented without expanding a known context-debt
-file and the existing quality gate remains green.
+Gate complete: the next phase can be implemented without expanding a known context-debt file and the
+existing quality gate remains green.
 
 ### Phase 9 — Living Lattice
 
