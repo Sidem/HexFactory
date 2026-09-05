@@ -20,8 +20,10 @@ import type { BuildingDefinition, EntitySnapshot } from "../../core/types";
 import { partsFor, silhouetteOf, stallMark } from "../buildingLook";
 import { BUILDING_COLORS } from "../FactoryRenderer";
 import {
+  MACHINE_PLATFORM_HEIGHT,
   MACHINE_SILHOUETTE_SCALE,
   machinePartMatrix,
+  machineRestingLift,
   PartGeometryLibrary,
   type MachinePartInstance,
 } from "./machineMeshes";
@@ -53,7 +55,14 @@ export class ContactSheetRenderer {
   private readonly model = new Group();
   private readonly geometries = new PartGeometryLibrary();
   private readonly transportGeometry = createTransportGeometry();
-  private readonly footGeometry = new CylinderGeometry(0.72, 0.78, 0.16, 6);
+  // The same plinth the world places a machine on, so a portrait shows the standing height the
+  // player will actually see rather than a pose of its own.
+  private readonly footGeometry = new CylinderGeometry(
+    0.72,
+    0.78,
+    MACHINE_PLATFORM_HEIGHT,
+    6,
+  );
   private readonly statusGeometry = new SphereGeometry(0.1, 5, 3);
   private readonly progressGeometry = new BoxGeometry(0.5, 0.07, 0.08);
   private readonly materials = new Map<string, MeshStandardMaterial>();
@@ -158,18 +167,16 @@ export class ContactSheetRenderer {
     const baseColour = colour ? BUILDING_COLORS[definition.kind] : "#747b79";
     const building = fakeEntity(definition, status, cycle);
     const foot = new Mesh(this.footGeometry, this.material("foot", "#26312e"));
-    foot.position.y = 0.08;
+    foot.position.y = MACHINE_PLATFORM_HEIGHT / 2;
     this.model.add(foot);
     const key = silhouetteOf(
       definition.kind,
       definition.recipe_category ?? definition.source_category,
       definition.power_source,
     );
-    for (const part of partsFor(
-      key,
-      tier,
-      definition.kind === "hub" ? tier : 0,
-    )) {
+    const parts = partsFor(key, tier, definition.kind === "hub" ? tier : 0);
+    const baseLift = machineRestingLift(parts, MACHINE_SILHOUETTE_SCALE[key]);
+    for (const part of parts) {
       const instance: MachinePartInstance = {
         building,
         part,
@@ -181,6 +188,7 @@ export class ContactSheetRenderer {
         groundHeight: 0,
         footprintScale: 1,
         visualScale: MACHINE_SILHOUETTE_SCALE[key],
+        baseLift,
         x: 0,
         z: 0,
       };

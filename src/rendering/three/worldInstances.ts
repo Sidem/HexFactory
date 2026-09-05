@@ -32,6 +32,7 @@ import {
 import { BUILDING_COLORS } from "../FactoryRenderer";
 import { WORLD_SCALE } from "../landmarks";
 import {
+  MACHINE_PLATFORM_HEIGHT,
   PartGeometryLibrary,
   collectMachineParts,
   machinePartMatrix,
@@ -92,7 +93,7 @@ export class WorldInstanceLayer {
   private readonly definitions: ReadonlyMap<number, BuildingDefinition>;
   private readonly items: ReadonlyMap<number, ItemDefinition>;
   private readonly geometry = {
-    buildingFoot: new CylinderGeometry(0.72, 0.78, 0.18, 6),
+    buildingFoot: new CylinderGeometry(0.72, 0.78, MACHINE_PLATFORM_HEIGHT, 6),
     footprintDeck: new CylinderGeometry(0.94, 0.98, 1, 6),
     footprintLink: new BoxGeometry(1, 1, 1),
     belt: this.transportGeometry.belt,
@@ -321,7 +322,7 @@ export class WorldInstanceLayer {
       for (const [index, building] of singleCellBuildings.entries()) {
         const center = this.pointById.get(building.id)!;
         const height = this.groundById.get(building.id)!;
-        position.set(center.x, height + 0.09, center.z);
+        position.set(center.x, height + MACHINE_PLATFORM_HEIGHT / 2, center.z);
         scale.set(MACHINE_BASE_SCALE, 1, MACHINE_BASE_SCALE);
         matrix.compose(position, quaternion.identity(), scale);
         baseMesh.setMatrixAt(index, matrix);
@@ -385,11 +386,12 @@ export class WorldInstanceLayer {
     decks.receiveShadow = true;
     let deckIndex = 0;
     for (const building of buildings) {
-      const platformTop = (this.groundById.get(building.id) ?? 0.07) + 0.18;
+      const platformTop =
+        (this.groundById.get(building.id) ?? 0.07) + MACHINE_PLATFORM_HEIGHT;
       for (const cell of building.footprint) {
         const center = axialToPixel(cell, 1, { x: 0, y: 0 });
         const ground = this.groundHeight(cell.q, cell.r);
-        const depth = Math.max(0.18, platformTop - ground);
+        const depth = Math.max(MACHINE_PLATFORM_HEIGHT, platformTop - ground);
         position.set(center.x, ground + depth / 2, center.y);
         scale.set(1, depth, 1);
         matrix.compose(position, quaternion.identity(), scale);

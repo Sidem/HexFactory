@@ -1,4 +1,5 @@
 import {
+  Box3,
   BoxGeometry,
   ConeGeometry,
   CylinderGeometry,
@@ -89,6 +90,13 @@ export const MACHINE_SILHOUETTE_SCALE: Readonly<Record<SilhouetteKey, number>> =
     bridge: 1,
   });
 
+/**
+ * How far the plinth a machine stands on rises above its cell's ground height. `buildingFoot` and
+ * the multi-cell decks are built to reach exactly this far, so the number lives beside the
+ * placement that has to land on it rather than being spelled again at each mesh.
+ */
+export const MACHINE_PLATFORM_HEIGHT = 0.18;
+
 export interface MachinePartInstance {
   readonly building: EntitySnapshot;
   readonly part: ShapePart;
@@ -100,6 +108,8 @@ export interface MachinePartInstance {
   readonly groundHeight: number;
   readonly footprintScale: number;
   readonly visualScale: number;
+  /** Lift that seats this silhouette on its platform — see `machineRestingLift`. */
+  readonly baseLift: number;
   readonly x: number;
   readonly z: number;
 }
@@ -164,6 +174,9 @@ export function collectMachineParts(
   buildingColors: Readonly<Record<EntitySnapshot["kind"], string>>,
 ): MachinePartInstance[] {
   const instances: MachinePartInstance[] = [];
+  // Every building of one silhouette, tier and plot size rests at the same height, and a factory
+  // holds many of each, so the bound is measured once per shape instead of once per machine.
+  const lifts = new Map<string, number>();
   for (const building of snapshot.buildings) {
     const definition = definitions.get(building.definition_id);
     const key = silhouetteOf(
@@ -197,7 +210,18 @@ export function collectMachineParts(
     const buildingGround = Math.max(
       ...cells.map((cell) => groundHeight(cell.q, cell.r)),
     );
-    for (const part of partsFor(key, tier, growth)) {
+    const parts = partsFor(key, tier, growth);
+    const liftKey = `${key}|${tier}|${growth}|${footprintScale.toFixed(3)}`;
+    let baseLift = lifts.get(liftKey);
+    if (baseLift === undefined) {
+      baseLift = machineRestingLift(
+        parts,
+        MACHINE_SILHOUETTE_SCALE[key],
+        footprintScale,
+      );
+      lifts.set(liftKey, baseLift);
+    }
+    for (const part of parts) {
       instances.push({
         building,
         part,
@@ -209,6 +233,7 @@ export function collectMachineParts(
         groundHeight: buildingGround,
         footprintScale,
         visualScale: MACHINE_SILHOUETTE_SCALE[key],
+        baseLift,
         x: center.x,
         z: center.y,
       });
@@ -223,14 +248,46 @@ export function machinePartMatrix(
   reducedMotion: boolean,
   target = new Matrix4(),
 ): Matrix4 {
-  const { building, part } = instance;
-  const cycle = workCycle(building, now, reducedMotion);
-  const buildingAngle = directionAngle(building.orientation);
+  const { building } = instance;
+  return composeMachinePart(
+    instance.part,
+    {
+      visualScale: MACHINE_VISUAL_SCALE * instance.visualScale,
+      footprintScale: instance.footprintScale,
+      angle: directionAngle(building.orientation),
+      cycle: workCycle(building, now, reducedMotion),
+      x: instance.x,
+      baseY:
+        instance.groundHeight + MACHINE_PLATFORM_HEIGHT + instance.baseLift,
+      z: instance.z,
+    },
+    target,
+  );
+}
+
+/** Where a silhouette's parts are placed from, once the building around them is resolved. */
+interface PartPlacement {
+  /** `MACHINE_VISUAL_SCALE` times the silhouette's own scale. */
+  visualScale: number;
+  footprintScale: number;
+  angle: number;
+  cycle: number;
+  x: number;
+  /** World height the grammar's `y = 0` sits at: the platform top, plus the resting lift. */
+  baseY: number;
+  z: number;
+}
+
+function composeMachinePart(
+  part: ShapePart,
+  place: Readonly<PartPlacement>,
+  target: Matrix4,
+): Matrix4 {
+  const { cycle, visualScale } = place;
   const phase = part.phase ?? "still";
   const localRotation = part.rotation ?? 0;
   const animatedRotation = phase === "spin" ? cycle * TAU : 0;
   const uprightRotor = part.part === "rotor" && part.upright === true;
-  const visualScale = MACHINE_VISUAL_SCALE * instance.visualScale;
   const pulse = phase === "pulse" ? 1 + cycle * 0.13 : 1;
   const grind = phase === "grind" ? 0.78 + Math.sin(cycle * Math.PI) * 0.22 : 1;
   // `rise` travels along the part's own axis, the same rule the 2D walker follows: an upright vent
@@ -241,8 +298,8 @@ export function machinePartMatrix(
   // Anchors ride the body they are bolted to, so a survey lamp set against a vessel's flank stays
   // against it once the body is narrowed rather than floating off into the next hex.
   const lateral = part.x * 1.45 * visualScale * MACHINE_BODY_GIRTH;
-  const lateralX = Math.cos(buildingAngle) * lateral;
-  const lateralZ = -Math.sin(buildingAngle) * lateral;
+  const lateralX = Math.cos(place.angle) * lateral;
+  const lateralZ = -Math.sin(place.angle) * lateral;
   const axisLift =
     part.part === "stack"
       ? Math.cos(localRotation) * part.scale * 0.75
@@ -250,17 +307,16 @@ export function machinePartMatrix(
         ? part.scale * 1.1
         : 0;
   PART_POSITION.set(
-    instance.x + lateralX,
-    instance.groundHeight +
-      0.2 +
-      (-part.y * 1.25 + axisLift + rise) * visualScale,
-    instance.z + lateralZ,
+    place.x + lateralX,
+    place.baseY + (-part.y * 1.25 + axisLift + rise) * visualScale,
+    place.z + lateralZ,
   );
   partScale(part, pulse, grind, PART_SCALE);
   PART_SCALE.multiplyScalar(visualScale);
-  PART_SCALE.x *= instance.footprintScale;
-  PART_SCALE.z *= instance.footprintScale;
-  PART_SCALE.y *= 1 + (instance.footprintScale - 1) * 0.3;
+  PART_SCALE.x *= place.footprintScale;
+  PART_SCALE.z *= place.footprintScale;
+  PART_SCALE.y *= 1 + (place.footprintScale - 1) * 0.3;
+  const buildingAngle = place.angle;
   if (uprightRotor) {
     // Rotor geometry is authored in the XZ plane around local Y. Tilt that disc upright, yaw its
     // normal with the building, then spin around the rotor's own local Y axis. Euler Z rotation
@@ -285,6 +341,82 @@ const ROTOR_UPRIGHT = new Quaternion().setFromAxisAngle(
   Math.PI / 2,
 );
 const PART_SPIN = new Quaternion();
+
+const REST_MATRIX = new Matrix4();
+const REST_BOX = new Box3();
+const REST_PLACEMENT: PartPlacement = {
+  visualScale: 1,
+  footprintScale: 1,
+  angle: 0,
+  cycle: 0,
+  x: 0,
+  baseY: 0,
+  z: 0,
+};
+/** An upright rotor sweeps its own lowest point around, so its bound is sampled through a turn. */
+const SPIN_SAMPLES = [0, 0.125, 0.25, 0.375, 0.5, 0.625, 0.75, 0.875] as const;
+const STILL_SAMPLE = [0] as const;
+const PULSE_SAMPLES = [0, 1] as const;
+const localBounds = new Map<string, Box3>();
+
+/** The authored vertical reach of a part's geometry, measured once per geometry key. */
+function partLocalBounds(part: ShapePart): Box3 {
+  const key = geometryKey(part);
+  let bounds = localBounds.get(key);
+  if (!bounds) {
+    const geometry = buildPartGeometry(part.part, part.count ?? 0);
+    geometry.computeBoundingBox();
+    bounds = geometry.boundingBox!.clone();
+    geometry.dispose();
+    localBounds.set(key, bounds);
+  }
+  return bounds;
+}
+
+/**
+ * How far to raise a silhouette so it stands on its plinth instead of wading through it.
+ *
+ * The grammar's `y` is a 2D anchor measured from the hex centre, and a shape straddles it: a
+ * smelter's vessel is authored half above the centre and half below, which is exactly right for
+ * the flat stamp the canvas walker draws. Read as a height above the ground it buried the lower
+ * third to three quarters of every machine in the deck it is bolted to. The anchor still sets the
+ * parts' heights relative to each other — that authored hierarchy is what makes a tier legible —
+ * so the whole assembly moves as one, by its own measured overhang.
+ *
+ * A part rotated past horizontal is reaching *into* the ground on purpose: an extractor's drill
+ * and a pump's intake shaft are the machine biting the cell it works. Those are left out of the
+ * bound, or the drill would be jacked up out of the hole it is boring.
+ */
+export function machineRestingLift(
+  parts: readonly ShapePart[],
+  silhouetteScale: number,
+  footprintScale = 1,
+): number {
+  let lowest = Number.POSITIVE_INFINITY;
+  REST_PLACEMENT.visualScale = MACHINE_VISUAL_SCALE * silhouetteScale;
+  REST_PLACEMENT.footprintScale = footprintScale;
+  for (const part of parts) {
+    if (Math.cos(part.rotation ?? 0) < 0) continue;
+    for (const cycle of restSamples(part)) {
+      REST_PLACEMENT.cycle = cycle;
+      composeMachinePart(part, REST_PLACEMENT, REST_MATRIX);
+      REST_BOX.copy(partLocalBounds(part)).applyMatrix4(REST_MATRIX);
+      lowest = Math.min(lowest, REST_BOX.min.y);
+    }
+  }
+  // A silhouette with no standing parts — `belt`, whose deck is shared transport geometry — has
+  // nothing to seat, so it keeps the platform height it already had.
+  return Number.isFinite(lowest) ? -lowest : 0;
+}
+
+/** The work-cycle phases at which a part can reach its lowest. */
+function restSamples(part: ShapePart): readonly number[] {
+  if (part.phase === "spin" && part.upright === true) return SPIN_SAMPLES;
+  // A pulse only ever swells, and a grind is a horizontal squeeze; a rise off a part that has not
+  // been rotated under the deck travels upward, so rest is its floor.
+  if (part.phase === "pulse") return PULSE_SAMPLES;
+  return STILL_SAMPLE;
+}
 
 function partScale(
   part: ShapePart,

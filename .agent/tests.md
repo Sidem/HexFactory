@@ -44,6 +44,7 @@ Read the named file and a bounded range around the anchor; do not read oversized
 - `tests/hexHostContract.test.ts` — 58 lines / 2.1 KiB
 - `tests/host.test.ts` — 2013 lines / 76.3 KiB — fakeTransport:1732
 - `tests/look.test.ts` — 429 lines / 17.4 KiB — keyOf:52
+- `tests/machinePlacement.test.ts` — 134 lines / 4.5 KiB — isStanding:65, lowestPoint:74, cycling:117
 - `tests/playerRig.test.ts` — 111 lines / 4.1 KiB — legs:28
 - `tests/production.test.ts` — 89 lines / 3.2 KiB
 - `tests/recipes.test.ts` — 84 lines / 3.4 KiB — joint:13
@@ -53,6 +54,6 @@ Read the named file and a bounded range around the anchor; do not read oversized
 - `tests/sourceGraph.ts` — 39 lines / 1.0 KiB — readAppSource:4, readStyles:29
 - `tests/ui.test.ts` — 394 lines / 12.7 KiB — FakeClassList:55, element:103, harness:139
 - `tests/visualCamera.test.ts` — 251 lines / 9.2 KiB — heading:9, elevation:13, turnedBy:18, settle:23
-- `tests/visualDepth.test.ts` — 2076 lines / 70.1 KiB — surfaceBody:1782, uniformValue:1788, compileTerrain:1798, cliffTile:1813, …
+- `tests/visualDepth.test.ts` — 2079 lines / 70.2 KiB — surfaceBody:1785, uniformValue:1791, compileTerrain:1801, cliffTile:1816, …
 - `tests/worldParameters.test.ts` — 132 lines / 4.7 KiB — cuts:41, ascending:45
 - `tests/worldPreview.test.ts` — 264 lines / 9.1 KiB

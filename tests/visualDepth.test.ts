@@ -204,6 +204,7 @@ describe("Visual Depth generated geometry", () => {
               groundHeight: 0.1,
               footprintScale: 1,
               visualScale: MACHINE_SILHOUETTE_SCALE[key],
+              baseLift: 0,
               x: 0,
               z: 0,
             };
@@ -252,6 +253,7 @@ describe("Visual Depth generated geometry", () => {
       groundHeight: 0,
       footprintScale: 1,
       visualScale: MACHINE_SILHOUETTE_SCALE.wind,
+      baseLift: 0,
       x: 0,
       z: 0,
     };
@@ -305,6 +307,7 @@ describe("Visual Depth generated geometry", () => {
       groundHeight: 0,
       footprintScale: 1,
       visualScale: MACHINE_SILHOUETTE_SCALE.wind,
+      baseLift: 0,
       x: 0,
       z: 0,
     };
