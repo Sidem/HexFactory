@@ -5,12 +5,13 @@ use std::{fs, process::ExitCode};
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
     if args.len() != 3 {
-        eprintln!("usage: steady <active|idle> <768|3072|6144|24576> <report.json>");
+        eprintln!("usage: steady <active|idle|blocked> <768|3072|6144|24576> <report.json>");
         return ExitCode::FAILURE;
     }
     let workload = match args[0].as_str() {
         "active" => steady::Workload::Active,
         "idle" => steady::Workload::Idle,
+        "blocked" => steady::Workload::Blocked,
         _ => return ExitCode::FAILURE,
     };
     let entities = match args[1].parse::<u32>() {

@@ -1,12 +1,45 @@
 //! E0 distributions, separate from the historical aggregate ladder. No simulation optimization.
 use super::*;
 
-#[derive(Clone, Copy, Debug, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum Workload {
     Active,
     Idle,
+    /// Every line's sink is shut before the starting state is reached, so the measured window
+    /// opens on a factory that is completely backed up, and reopens the sinks partway through.
+    Blocked,
 }
+
+impl Workload {
+    /// Fixed ticks this workload needs on top of the tier's own warmup before its starting state
+    /// is the state it claims to measure. A jam has to finish walking back up the line first, and
+    /// how long that takes is a property of the line's length and its slowest machine rather than
+    /// of anything the sampler does. `a_blocked_line_reaches_a_fixed_point` pins the figure.
+    fn extra_warmup_ticks(self) -> u32 {
+        match self {
+            Workload::Active | Workload::Idle => 0,
+            Workload::Blocked => SATURATION_TICKS,
+        }
+    }
+}
+
+/// Ticks a shut line needs to stop changing entirely: the delivery belt fills, the container
+/// behind it fills, the composer's output compartment fills and its craft stalls, the belts back
+/// up to the extractor, and the extractor stops on a full output.
+///
+/// It is the *extractor* that sets this, not the length of the line: the jam is complete when
+/// every buffer along it is full, and one ore every thirty ticks is how fast they fill. Lines are
+/// independent and identical, so the figure is the same at every tier. Measured, not estimated —
+/// `a_blocked_line_reaches_a_fixed_point` requires that a line is still working three quarters of
+/// the way through this and completely still by the end of it.
+const SATURATION_TICKS: u32 = 4096;
+
+/// Sample at which a blocked run reopens its sinks: sixty seconds of factory time at the shipped
+/// 60 Hz cadence, which every recorded tier reaches inside a thirty-second window. Fixed as a
+/// sample index rather than a wall-clock fraction so every run's blocked phase is the same
+/// number of identical ticks, whatever the host's throughput.
+const REOPEN_AFTER_TICKS: usize = 3600;
 
 #[derive(Debug, Serialize)]
 pub struct Distribution {
@@ -33,6 +66,19 @@ pub fn distribution(samples: &[f64]) -> Distribution {
     }
 }
 
+/// One regime inside a run. A workload whose factory changes shape partway through does not have
+/// one steady state, and blending its two into a single percentile would describe neither, so
+/// each regime carries its own distributions and its own production total.
+#[derive(Debug, Serialize)]
+pub struct Phase {
+    pub key: &'static str,
+    pub first_sample: usize,
+    pub ticks: usize,
+    pub delivered: u64,
+    pub tick: Distribution,
+    pub advance_encode: Distribution,
+}
+
 #[derive(Serialize)]
 pub struct SteadyRun {
     pub schema: u32,
@@ -49,6 +95,15 @@ pub struct SteadyRun {
     pub start_delivered: u64,
     pub end_delivered: u64,
     pub ticks: usize,
+    /// Sample index of the first tick after the sinks reopened, for a blocked run that reached
+    /// it. `None` on every other workload, and on a blocked window that ended too early to reopen
+    /// — which is a rejected record rather than a shorter one.
+    pub reopen_tick: Option<usize>,
+    /// Cost of reopening every line's sink on the isolated factory, through the same public
+    /// rotate the player uses. Excluded from every sample span, like setup.
+    pub reopen_us: Option<f64>,
+    pub delivered_at_reopen: Option<u64>,
+    pub phases: Vec<Phase>,
     pub tick: Distribution,
     pub advance_encode: Distribution,
     pub tick_samples_us: Vec<f64>,
@@ -63,20 +118,75 @@ pub fn spec(entities: u32) -> TierSpec {
     tier("steady", entities / 12, 120, 120, 1, 1)
 }
 
+/// The line's last belt: the one that hands the finished component to its consumer.
+fn sink_gate_q(spec: &TierSpec) -> i32 {
+    EXTRACTOR_CELLS + spec.belt_span as i32 + COMPOSER_CELLS + 2
+}
+
+/// Turn every line's sink gate through the public rotate path, one edit per line.
+///
+/// Reversing from east lands on the one edge heading whose eight-hex output ray leaves the
+/// blueprint entirely, so the belt compiles no outlet at all instead of quietly binding to a
+/// neighbouring line — which the other five headings, at this row pitch, would do. Nothing here
+/// trusts that geometry: every caller checks `linked_gates` outside its timed spans, so a change
+/// to the blueprint fails the workload rather than silently measuring a differently shaped
+/// factory. The check is not folded in here because one of the two calls is the measurement.
+fn turn_gates(core: &mut Core, spec: &TierSpec, shut: bool) {
+    for line in 0..spec.lines {
+        core.rotate(sink_gate_q(spec), line as i32 * ROW_PITCH, shut)
+            .expect("capacity sink gate rotates");
+    }
+}
+
+/// How many sink gates currently compile an outlet.
+fn linked_gates(core: &Core, spec: &TierSpec) -> u32 {
+    (0..spec.lines)
+        .filter(|line| {
+            let index = core
+                .entity_at(sink_gate_q(spec), *line as i32 * ROW_PITCH)
+                .expect("capacity sink gate exists");
+            !core.graph[index].is_empty()
+        })
+        .count() as u32
+}
+
 fn factory(spec: &TierSpec, workload: Workload) -> Factory {
+    warmed(
+        spec,
+        workload,
+        spec.warmup_ticks + workload.extra_warmup_ticks(),
+    )
+}
+
+/// The workload's synthetic initial state, advanced to an explicit tick count. Only the tests
+/// name a count of their own; every measured run takes the workload's.
+fn warmed(spec: &TierSpec, workload: Workload, ticks: u32) -> Factory {
     let mut cold = *spec;
     cold.warmup_ticks = 0;
     let mut factory = warm_factory(&cold);
-    if matches!(workload, Workload::Idle) {
-        // Explicit synthetic initial state: every switchable machine is suspended before the
-        // first tick. Belts and storage start empty. No player command or production change.
-        for entity in &mut factory.core.entities {
-            if Core::can_be_switched(entity.kind) {
-                entity.disabled = true;
+    match workload {
+        Workload::Active => {}
+        Workload::Idle => {
+            // Explicit synthetic initial state: every switchable machine is suspended before the
+            // first tick. Belts and storage start empty. No player command or production change.
+            for entity in &mut factory.core.entities {
+                if Core::can_be_switched(entity.kind) {
+                    entity.disabled = true;
+                }
             }
         }
+        // Shut before the first tick, so nothing this workload ever measures was delivered and
+        // the jam is complete by the time the starting state is reached.
+        Workload::Blocked => {
+            turn_gates(&mut factory.core, spec, true);
+            assert_eq!(
+                linked_gates(&factory.core, spec),
+                0,
+                "a shut line has no sink"
+            );
+        }
     }
-    factory.core.advance_ticks(spec.warmup_ticks);
+    factory.core.advance_ticks(ticks);
     let _ = factory.snapshot_delta_bytes();
     factory
 }
@@ -104,13 +214,31 @@ fn sample(
 }
 
 /// Wall-duration collection; setup and a five-second thermal warmup are explicitly separated.
-/// Timed runs restart from the same fixed 400-tick state, independent of warmup throughput.
+/// Timed runs restart from the same fixed starting state, independent of warmup throughput.
 pub fn measure(
     entities: u32,
     workload: Workload,
     clock: &dyn Clock,
     warmup_us: f64,
     measurement_us: f64,
+) -> SteadyRun {
+    measure_reopening_after(
+        entities,
+        workload,
+        clock,
+        warmup_us,
+        measurement_us,
+        REOPEN_AFTER_TICKS,
+    )
+}
+
+fn measure_reopening_after(
+    entities: u32,
+    workload: Workload,
+    clock: &dyn Clock,
+    warmup_us: f64,
+    measurement_us: f64,
+    reopen_after: usize,
 ) -> SteadyRun {
     assert!(warmup_us.is_finite() && warmup_us >= 0.0);
     assert!(measurement_us.is_finite() && measurement_us > 0.0);
@@ -136,8 +264,24 @@ pub fn measure(
     let mut delta_bytes = Vec::new();
     let mut entity_dirty_marks = Vec::new();
     let mut resource_dirty_marks = Vec::new();
+    let mut reopen_tick = None;
+    let mut reopen_us = None;
+    let mut delivered_at_reopen = None;
     let started = clock.now_us();
     loop {
+        if workload == Workload::Blocked && tick_samples_us.len() == reopen_after {
+            delivered_at_reopen = Some(tick.core.delivered);
+            let edit_start = clock.now_us();
+            turn_gates(&mut tick.core, &spec, false);
+            reopen_us = Some(clock.now_us() - edit_start);
+            // The published factory pays the same edit, outside the reported figure: one of the
+            // two is the measurement, and both have to stay canonically identical.
+            turn_gates(&mut frame.core, &spec, false);
+            for core in [&tick.core, &frame.core] {
+                assert_eq!(linked_gates(core, &spec), spec.lines, "one sink per line");
+            }
+            reopen_tick = Some(tick_samples_us.len());
+        }
         let (tick_us, frame_us, bytes, entities, resources) = sample(&mut tick, &mut frame, clock);
         tick_samples_us.push(tick_us);
         advance_encode_samples_us.push(frame_us);
@@ -151,12 +295,13 @@ pub fn measure(
     let elapsed_us = clock.now_us() - started;
     let end_checksum = tick.core.checksum();
     assert_eq!(end_checksum, frame.core.checksum());
+    let end_delivered = tick.core.delivered;
     SteadyRun {
-        schema: 1,
+        schema: 2,
         workload,
         entities,
         seed: 2_071_003_907,
-        warmup_ticks: spec.warmup_ticks,
+        warmup_ticks: spec.warmup_ticks + workload.extra_warmup_ticks(),
         thermal_warmup_us,
         requested_measurement_us: measurement_us,
         elapsed_us,
@@ -164,8 +309,19 @@ pub fn measure(
         start_checksum,
         end_checksum,
         start_delivered,
-        end_delivered: tick.core.delivered,
+        end_delivered,
         ticks: tick_samples_us.len(),
+        reopen_tick,
+        reopen_us,
+        delivered_at_reopen,
+        phases: phases(
+            workload,
+            reopen_tick,
+            &tick_samples_us,
+            &advance_encode_samples_us,
+            [start_delivered, delivered_at_reopen.unwrap_or_default()],
+            end_delivered,
+        ),
         tick: distribution(&tick_samples_us),
         advance_encode: distribution(&advance_encode_samples_us),
         tick_samples_us,
@@ -176,9 +332,70 @@ pub fn measure(
     }
 }
 
+/// Split a run's samples into the regimes it actually contained. One `steady` phase covers a
+/// workload whose factory never changed shape; a blocked run that reopened carries `blocked` and
+/// `reopened` instead. A blocked window that ended before its reopen keeps the one phase it
+/// measured and no `reopen_tick`, so the packer can reject it as short rather than average it.
+fn phases(
+    workload: Workload,
+    reopen_tick: Option<usize>,
+    tick_samples_us: &[f64],
+    advance_encode_samples_us: &[f64],
+    [start_delivered, delivered_at_reopen]: [u64; 2],
+    end_delivered: u64,
+) -> Vec<Phase> {
+    let phase = |key, first_sample: usize, last: usize, delivered| Phase {
+        key,
+        first_sample,
+        ticks: last - first_sample,
+        delivered,
+        tick: distribution(&tick_samples_us[first_sample..last]),
+        advance_encode: distribution(&advance_encode_samples_us[first_sample..last]),
+    };
+    let ticks = tick_samples_us.len();
+    match (workload, reopen_tick) {
+        (Workload::Blocked, Some(reopen)) => vec![
+            phase("blocked", 0, reopen, delivered_at_reopen - start_delivered),
+            phase(
+                "reopened",
+                reopen,
+                ticks,
+                end_delivered - delivered_at_reopen,
+            ),
+        ],
+        (Workload::Blocked, None) => {
+            vec![phase("blocked", 0, ticks, end_delivered - start_delivered)]
+        }
+        _ => vec![phase("steady", 0, ticks, end_delivered - start_delivered)],
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Everything the lines are holding: belt lanes, hand-off slots, and every compartment.
+    fn cargo_on_the_line(core: &Core) -> u64 {
+        core.entities
+            .iter()
+            .map(|entity| {
+                let moving: u64 = Core::belt_contents(entity)
+                    .map(|cargo| u64::from(cargo.quantity))
+                    .sum();
+                let stored: u64 = [
+                    &entity.inventory,
+                    &entity.input_inventory,
+                    &entity.fuel_inventory,
+                    &entity.output_inventory,
+                ]
+                .into_iter()
+                .flat_map(|compartment| compartment.values())
+                .map(|&quantity| u64::from(quantity))
+                .sum();
+                moving + stored
+            })
+            .sum()
+    }
 
     #[test]
     fn nearest_rank_keeps_tail_outliers_and_sample_count() {
@@ -195,7 +412,7 @@ mod tests {
     #[test]
     fn workloads_produce_or_rest_and_tick_matches_advance_encode() {
         let spec = quick_tiers()[0];
-        for workload in [Workload::Active, Workload::Idle] {
+        for workload in [Workload::Active, Workload::Idle, Workload::Blocked] {
             let mut tick = factory(&spec, workload);
             let mut frame = factory(&spec, workload);
             let before = tick.core.delivered;
@@ -223,8 +440,75 @@ mod tests {
                             && entity.lane.is_empty()
                             && entity.progress == 0));
                 }
+                Workload::Blocked => {
+                    assert_eq!((before, tick.core.delivered), (0, 0));
+                    assert_eq!(tick.core.checksum(), 2_518_484_691);
+                    assert_eq!(cargo_on_the_line(&tick.core), 96);
+                }
             }
         }
+    }
+
+    /// The saturation half of the workload's claim: a shut line is still working most of the way
+    /// through the saturation warmup, and by the time the blocked starting state is reached it has
+    /// stopped entirely — no delivery, not one publishable change, and not one entity that differs
+    /// after six hundred more ticks, for as long as it is left shut.
+    #[test]
+    fn a_blocked_line_reaches_a_fixed_point() {
+        let spec = quick_tiers()[0];
+        let mut early = warmed(
+            &spec,
+            Workload::Blocked,
+            spec.warmup_ticks + SATURATION_TICKS * 3 / 4,
+        );
+        assert_eq!(linked_gates(&early.core, &spec), 0);
+        early.core.dirty = SnapshotDirty::default();
+        // A whole extractor cycle, so this reads the line's pace rather than one arbitrary tick.
+        early.core.advance_ticks(60);
+        assert!(
+            !early.core.dirty.entities.is_empty(),
+            "a line already still three quarters of the way through SATURATION_TICKS means the \
+             constant is far larger than the jam it waits for"
+        );
+
+        let mut blocked = factory(&spec, Workload::Blocked);
+        assert_eq!(linked_gates(&blocked.core, &spec), 0);
+        assert_eq!(blocked.core.delivered, 0);
+        let held = cargo_on_the_line(&blocked.core);
+        assert!(held > 0);
+        let settled = blocked.core.entities.clone();
+        blocked.core.dirty = SnapshotDirty::default();
+        blocked.core.advance_ticks(600);
+        assert!(blocked.core.dirty.entities.is_empty());
+        assert!(blocked.core.dirty.resources.is_empty());
+        assert_eq!(blocked.core.delivered, 0);
+        assert_eq!(cargo_on_the_line(&blocked.core), held);
+        // Nothing moved at all: a jammed factory is a fixed point, not a slowly drifting one.
+        assert_eq!(blocked.core.entities, settled);
+    }
+
+    /// The resumption half: reopening the sinks restores exactly one outlet per line, the
+    /// backlog drains, and the line delivers again.
+    #[test]
+    fn reopened_sinks_drain_the_backlog_and_deliver_again() {
+        let spec = quick_tiers()[0];
+        let mut blocked = factory(&spec, Workload::Blocked);
+        let held = cargo_on_the_line(&blocked.core);
+        turn_gates(&mut blocked.core, &spec, false);
+        assert_eq!(linked_gates(&blocked.core, &spec), spec.lines);
+        blocked.core.dirty = SnapshotDirty::default();
+        blocked.core.advance_ticks(600);
+        assert!(!blocked.core.dirty.entities.is_empty());
+        assert!(blocked.core.delivered > 0);
+        assert!(cargo_on_the_line(&blocked.core) < held);
+        // A reopened line is the same line the active workload measures, so it converges on the
+        // active workload's own production rate rather than on some drained-out one.
+        let mut active = factory(&spec, Workload::Active);
+        let before = active.core.delivered;
+        active.core.advance_ticks(600);
+        let steady = active.core.delivered - before;
+        let resumed = blocked.core.delivered;
+        assert!(resumed >= steady, "{resumed} < {steady}");
     }
 
     #[test]
@@ -242,6 +526,34 @@ mod tests {
         assert!(report.setup_us > 0.0);
         assert!(report.thermal_warmup_us >= 50.0);
         assert_eq!(report.start_delivered, report.end_delivered);
+        assert_eq!(report.reopen_tick, None);
+        let phases = &report.phases;
+        assert_eq!(phases.len(), 1);
+        assert_eq!((phases[0].key, phases[0].first_sample), ("steady", 0));
+        assert_eq!((phases[0].ticks, phases[0].delivered), (2, 0));
+    }
+
+    /// A blocked run reports its two regimes apart, and each phase's percentiles come from that
+    /// phase's own samples.
+    #[test]
+    fn a_blocked_run_splits_its_window_at_the_reopen() {
+        let clock = TestClock(std::cell::Cell::new(0));
+        let report = measure_reopening_after(768, Workload::Blocked, &clock, 0.0, 300.0, 2);
+        assert_eq!(report.reopen_tick, Some(2));
+        assert_eq!(report.reopen_us, Some(10.0));
+        assert_eq!(report.delivered_at_reopen, Some(0));
+        assert_eq!(report.start_delivered, 0);
+        assert!(report.ticks > 2);
+        let phases = &report.phases;
+        assert_eq!(phases.len(), 2);
+        assert_eq!((phases[0].key, phases[0].first_sample), ("blocked", 0));
+        assert_eq!((phases[0].ticks, phases[0].delivered), (2, 0));
+        assert_eq!((phases[1].key, phases[1].first_sample), ("reopened", 2));
+        assert_eq!(phases[1].ticks, report.ticks - 2);
+        assert_eq!(
+            phases[0].tick.samples + phases[1].tick.samples,
+            report.tick.samples
+        );
     }
 
     struct TestClock(std::cell::Cell<u32>);
