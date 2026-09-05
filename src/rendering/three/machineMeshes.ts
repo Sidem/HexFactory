@@ -25,6 +25,11 @@ import {
   type SilhouetteKey,
 } from "../buildingLook";
 import type { MachineMaterialRole, PartKind, ShapePart } from "../shapeGrammar";
+import {
+  chamberAssembly,
+  vesselAssembly,
+  stackAssembly,
+} from "./machineAnatomy";
 import { directionAngle } from "./directionAngle";
 
 const TAU = Math.PI * 2;
@@ -134,13 +139,11 @@ export function buildPartGeometry(
 ): BufferGeometry {
   switch (kind) {
     case "vessel":
-      // Six sides, not eight: a machine standing on a hex reads as part of the grid it occupies,
-      // and an octagonal drum on a hexagonal pad never quite lined up with anything around it.
-      return new CylinderGeometry(0.88, 1, 1.35, 6, 1, false);
+      return vesselAssembly();
     case "chamber":
       return chamberGeometry();
     case "stack":
-      return new CylinderGeometry(0.48, 0.72, 2, 6, 1, false);
+      return stackAssembly();
     case "rotor":
       return rotorGeometry(Math.max(1, count || 3));
     case "aperture":
@@ -313,25 +316,26 @@ function partScale(
   }
 }
 
-/**
- * The chamber is the vessel's opposite number and shares its hexagonal footprint: straight sides
- * rather than a taper, and turned half a face so the two still read as different machines standing
- * on the same grid.
- */
+/** Box-framed process housing contrasts with round pressure vessels. */
 function chamberGeometry(): BufferGeometry {
-  const body = new CylinderGeometry(0.94, 1, 1.45, 6, 1, false);
-  body.rotateY(Math.PI / 6);
-  return body;
+  return chamberAssembly();
 }
 
 function rotorGeometry(blades: number): BufferGeometry {
-  const pieces: BufferGeometry[] = [new CylinderGeometry(0.22, 0.22, 0.34, 8)];
+  const pieces: BufferGeometry[] = [
+    new CylinderGeometry(0.18, 0.28, 0.46, 10),
+    new CylinderGeometry(0.34, 0.34, 0.08, 10).translate(0, -0.15, 0),
+  ];
   for (let blade = 0; blade < blades; blade += 1) {
     const angle = (blade * TAU) / blades;
     const geometry = new BoxGeometry(0.22, 0.18, 0.94);
     geometry.translate(0, 0, 0.5);
     geometry.rotateY(angle);
     pieces.push(geometry);
+    const tip = new BoxGeometry(0.32, 0.12, 0.28);
+    tip.translate(0, 0.04, 0.82);
+    tip.rotateY(angle);
+    pieces.push(tip);
   }
   const merged = mergeGeometries(pieces, false);
   for (const piece of pieces) piece.dispose();
@@ -343,9 +347,20 @@ function mastGeometry(): BufferGeometry {
   const stem = new CylinderGeometry(0.16, 0.22, 2.2, 6);
   const arm = new BoxGeometry(1.2, 0.16, 0.16);
   arm.translate(0, 0.55, 0);
-  const merged = mergeGeometries([stem, arm], false);
-  stem.dispose();
-  arm.dispose();
+  const pieces: BufferGeometry[] = [stem, arm];
+  for (const x of [-0.46, 0.46]) {
+    pieces.push(new CylinderGeometry(0.1, 0.1, 0.32, 8).translate(x, 0.72, 0));
+    for (const y of [0.65, 0.76, 0.86])
+      pieces.push(new CylinderGeometry(0.15, 0.15, 0.04, 8).translate(x, y, 0));
+    pieces.push(
+      new BoxGeometry(0.09, 0.8, 0.09)
+        .rotateZ(x < 0 ? -0.6 : 0.6)
+        .translate(x / 2, 0.25, 0),
+    );
+  }
+  pieces.push(new CylinderGeometry(0.32, 0.36, 0.16, 8).translate(0, -1.02, 0));
+  const merged = mergeGeometries(pieces, false);
+  for (const piece of pieces) piece.dispose();
   if (!merged) throw new Error("Could not merge mast geometry");
   return merged;
 }

@@ -83,21 +83,21 @@ export const OPENING_CHECKPOINTS: readonly CheckpointDefinition[] = [
   {
     id: "first-iron",
     label: "First iron ore",
-    note: "The hand alone. Iron is 45 steps, so this is 1.5 s of held action plus the walk out.",
+    note: "Iron ore gathered by hand and carried back from the field.",
     reached: (context) => (context.carried.ore ?? 0) > 0,
   },
   {
     id: "first-research",
     optional: true,
     label: "First technology researched",
-    note: "Field Logistics costs 3 insight and gates both extraction and power.",
+    note: "A technology is unlocked, whether granted by a hub milestone or researched with insight.",
     reached: (context) => context.researchedCount > 0,
   },
   {
     id: "first-extraction",
     optional: true,
     label: "First extractor producing",
-    note: "Needs 12 insight across three technologies, a burner, and coal in it. An extractor with no network banks nothing and browns out.",
+    note: "An unlocked extractor is working on a resource field with power supplied by its network.",
     // `extracting` is only published while progress is above zero, so an extractor emits one idle
     // frame per cadence and a snapshot could land on it. `output blocked` is the same proof read
     // from the other side: the machine is holding something it made. Either answers the question,
@@ -121,7 +121,7 @@ export const OPENING_CHECKPOINTS: readonly CheckpointDefinition[] = [
     id: "composer-live",
     optional: true,
     label: "Composer built and powered",
-    note: "Costs 2 iron plate, a gear and a frame, and 8 more insight to unlock. Crystal is no longer on the way here.",
+    note: "A composer is built and receiving power. Its construction materials and unlock are shown in the catalogue.",
     reached: (context) =>
       context.buildings.some(
         (building) => building.key === "composer" && building.powered,
@@ -151,8 +151,8 @@ export const OPENING_CHECKPOINTS: readonly CheckpointDefinition[] = [
   },
   {
     id: "stage-one",
-    label: "Stage 1 complete — three components delivered",
-    note: "Three manual batches need six iron ore and 96 factory ticks of player work. Research and a crystal expedition are no longer required for this stage.",
+    label: "First contract stage complete",
+    note: "The landing hub has received its first stage's delivery. The mission panel shows the current bill and rewards.",
     reached: (context) => context.contractStage >= 1,
   },
 ];

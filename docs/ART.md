@@ -66,6 +66,13 @@ The four material roles are powder-coated **structure**, fired **ceramic**, **br
 Tier differences must change silhouette, not merely colour. A larger visual form never invents a larger
 logical footprint.
 
+The shared 3D assemblies distinguish round pressure vessels from box-framed process chambers.
+Vessels have shoulder transitions, flanges and service hatches; chambers have corner posts,
+panel frames and louvres. Stacks expose recessed throats, and utility masts carry braced crossarms
+and insulators. These details merge into cached part geometry, rather than per-building meshes.
+The Wayfinder wears a helmet, harness, pack canisters, gauntlets and boots attached to the moving
+limbs. Boundary posts have caps and shoes; walls have coping and panel ribs; bridges have parapets.
+
 Transport uses its own shared geometry vocabulary: narrow decks, rails, treads, portals, and link marks.
 Junctions and headings remain identifiable when empty. Smoke and steam are pooled presentation of published
 working state; no emitter owns a timer or particle system.

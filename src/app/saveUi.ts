@@ -27,15 +27,9 @@ export class SaveUi {
   readonly #titleContinueSub = required<HTMLElement>("title-continue-sub");
   readonly #titleSavesBadge = required<HTMLElement>("title-saves-badge");
   #selectedId: string | null = null;
-  #actions: SaveUiActions | null = null;
-
-  constructor() {
+  constructor(private readonly actions: SaveUiActions) {
     this.#sessionList.addEventListener("click", (event) => this.#click(event));
     this.#titleList.addEventListener("click", (event) => this.#click(event));
-  }
-
-  bind(actions: SaveUiActions): void {
-    this.#actions = actions;
   }
 
   get selectedId(): string | null {
@@ -125,13 +119,13 @@ export class SaveUi {
     if (!id) return;
     const { slots, error } = readCatalog(localStorage);
     if (error) {
-      this.#actions?.refresh(error);
+      this.actions.refresh(error);
       return;
     }
     const slot = slots.find((entry) => entry.id === id);
     if (!slot) return;
-    if (load) return this.#actions?.load(slot);
-    if (exported) return this.#actions?.export(slot);
+    if (load) return this.actions.load(slot);
+    if (exported) return this.actions.export(slot);
     if (remove) {
       if (!window.confirm(`Delete “${slot.name}”? This cannot be undone.`))
         return;
@@ -141,10 +135,10 @@ export class SaveUi {
         this.#selectedId = null;
         if (this.#nameInput.value === slot.name) this.#nameInput.value = "";
       }
-      this.#actions?.refresh(`Deleted “${slot.name}”.`);
+      this.actions.refresh(`Deleted “${slot.name}”.`);
       return;
     }
     this.select(slot);
-    this.#actions?.refresh();
+    this.actions.refresh();
   }
 }

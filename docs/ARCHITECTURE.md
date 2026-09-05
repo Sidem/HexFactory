@@ -205,6 +205,10 @@ UI controls are reconciled by stable keys and patched in place. Replacing a cont
 click loses the interaction. Panel choice, camera state, and hotbar arrangement are local presentation
 preferences, not game state.
 
+The save UI owns selection and receives its load/export/refresh callbacks at construction. Factory,
+resource, and dynamic instance groups release retired instance buffers on replacement. Shared geometry
+remains owned by the world instance layer, and shared materials by the renderer, until their disposal.
+
 ## Performance and maintainability
 
 The same Rust capacity workload runs natively and in the browser worker. Browser records add RPC, snapshot

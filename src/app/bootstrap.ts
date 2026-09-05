@@ -214,7 +214,11 @@ export async function bootstrap(app: Runtime): Promise<void> {
     (id) => app.enqueue({ type: "research", technology_id: id }),
   );
   app.snapshot = app.host.snapshot();
-  app.saveUi = new SaveUi();
+  app.saveUi = new SaveUi({
+    load: (slot) => void app.loadSlot(slot),
+    export: (slot) => void app.exportSlotFile(slot),
+    refresh: (message) => app.updateContinueState(message),
+  });
   app.runName = AUTOSAVE_SLOT_NAME;
   app.tool = "inspect";
   app.orientation = 0;

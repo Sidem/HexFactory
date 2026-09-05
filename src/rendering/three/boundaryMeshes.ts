@@ -75,7 +75,7 @@ export class BoundaryMeshes {
     this.built = new InstancedMesh(
       this.geometry,
       this.wood,
-      Math.max(1, boundaries.length * 8),
+      Math.max(1, boundaries.length * 24),
     );
     let index = 0;
     for (const boundary of boundaries) {
@@ -100,6 +100,16 @@ export class BoundaryMeshes {
           ),
         );
         this.built.setColorAt(index++, tint);
+        for (const height of [0.09, postHeight]) {
+          this.built.setMatrixAt(
+            index,
+            this.box(
+              p.clone().add(new Vector3(0, height, 0)),
+              new Vector3(wall ? 0.22 : 0.16, 0.08, wall ? 0.22 : 0.16),
+            ),
+          );
+          this.built.setColorAt(index++, tint.clone().multiplyScalar(0.65));
+        }
       }
       const railDirection = boundary.open
         ? direction.clone().applyAxisAngle(new Vector3(0, 1, 0), Math.PI / 2.4)
@@ -119,6 +129,31 @@ export class BoundaryMeshes {
           ),
         );
         this.built.setColorAt(index++, tint);
+        for (const height of [0.12, 1.02]) {
+          this.built.setMatrixAt(
+            index,
+            this.box(
+              center.clone().add(new Vector3(0, height, 0)),
+              new Vector3(span, 0.1, 0.22),
+              rotation,
+            ),
+          );
+          this.built.setColorAt(index++, tint.clone().multiplyScalar(0.78));
+        }
+        for (const offset of [-0.3, 0, 0.3]) {
+          this.built.setMatrixAt(
+            index,
+            this.box(
+              center
+                .clone()
+                .addScaledVector(direction, span * offset)
+                .add(new Vector3(0, 0.54, 0)),
+              new Vector3(0.065, 0.82, 0.2),
+              rotation,
+            ),
+          );
+          this.built.setColorAt(index++, tint.clone().multiplyScalar(0.85));
+        }
       } else {
         const rails = wire
           ? [0.22, 0.44, 0.66]

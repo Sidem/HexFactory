@@ -6,45 +6,45 @@ Read the named file and a bounded range around the anchor; do not read oversized
 
 - **Binary snapshots:** `factory-wasm/src/wire.rs; src/core/snapshotWire.ts` — `encode_snapshot_delta, decodeSnapshotDelta`
 - **Worker and host boundary:** `src/core/factory.worker.ts; src/core/FactoryHost.ts` — `handle, applyDelta`
-- **Frame loop and application wiring:** `src/main.ts` — `frame, update`
+- **Frame loop and application wiring:** `src/app/createApp.ts; src/app/lifecycle.ts; src/app/coreView.ts; tests/frameClock.test.ts` — `frame, update`
 - **Research tree, skills and icons:** `src/ui/researchTree.ts; src/ui/researchGraph.ts; src/ui/skills.ts; src/rendering/researchIcons.ts` — `ResearchTree, SkillsView, layoutResearch`
 - **Panels and keyed DOM:** `src/ui/panels.ts; src/ui/dom.ts` — `PanelController, syncChildren`
-- **Input commands:** `src/core/input.ts; src/core/commands.ts; src/main.ts` — `BoundedInputQueue, enqueue`
-- **Contracts, requests and guidance:** `src/data/scenarios.json; src/core/guidance.ts; factory-wasm/src/lib.rs` — `ContractDefinition, advance_contract, nextAction`
-- **Title screen and save catalogue:** `src/core/saveSlots.ts; src/main.ts` — `SaveSlot, openTitleScreen, compatibility`
+- **Input commands:** `src/core/input.ts; src/core/commands.ts; src/app/inspectorControls.ts; tests/host.test.ts` — `BoundedInputQueue, enqueue`
+- **Contracts, requests and guidance:** `src/data/scenarios.json; src/core/guidance.ts; factory-wasm/src/core/progression.rs; tests/guidance.test.ts` — `advance_contract, nextAction`
+- **Title screen and save catalogue:** `src/core/saveSlots.ts; src/app/worldSetup.ts; src/app/saveUi.ts; tests/saveSlots.test.ts` — `SaveSlot, WorldSetup, SaveUi, compatibility`
 
 ## Files
 
-- `src/app/bootstrap.ts` — 399 lines / 14.1 KiB
-- `src/app/buildController.ts` — 692 lines / 24.3 KiB
+- `src/app/bootstrap.ts` — 403 lines / 14.3 KiB — bootstrap:28
+- `src/app/buildController.ts` — 692 lines / 24.3 KiB — renderHotbarSlots:77, assignHotbarSlot:162, pinToHotbar:178, renderHotbar:198, …
 - `src/app/buildInfo.ts` — 25 lines / 0.7 KiB — currentBuild:6
-- `src/app/buildWiring.ts` — 266 lines / 10.1 KiB
-- `src/app/constructionInput.ts` — 414 lines / 13.2 KiB — eraseLine:96, deleteBuildingUnderCursorOrSelected:164, refreshDragPreview:206, rotateUnderCursorOrPending:259
-- `src/app/coreView.ts` — 608 lines / 21.1 KiB
-- `src/app/createApp.ts` — 24 lines / 0.7 KiB
-- `src/app/inputWiring.ts` — 474 lines / 17.9 KiB
-- `src/app/inspectorControls.ts` — 598 lines / 22.8 KiB
-- `src/app/inspectorOverview.ts` — 709 lines / 27.1 KiB
-- `src/app/lifecycle.ts` — 334 lines / 10.8 KiB
-- `src/app/lifecycleWiring.ts` — 179 lines / 7.1 KiB
+- `src/app/buildWiring.ts` — 266 lines / 10.1 KiB — buildWiring:5
+- `src/app/constructionInput.ts` — 414 lines / 13.2 KiB — heldStock:48, cancelCraft:61, eraseLine:88, eraseLine:96, …
+- `src/app/coreView.ts` — 608 lines / 21.1 KiB — currentBuild:64, dragOwnsPointer:70, loadHotbar:81, sanitiseSlot:106, …
+- `src/app/createApp.ts` — 24 lines / 0.7 KiB — createApp:15
+- `src/app/inputWiring.ts` — 474 lines / 17.9 KiB — inputWiring:6
+- `src/app/inspectorControls.ts` — 598 lines / 22.8 KiB — renderInspectorHub:42, renderInspectorSwitch:171, renderInspectorTier:207, costSummary:258, …
+- `src/app/inspectorOverview.ts` — 709 lines / 27.1 KiB — technologyReach:34, renderTechnologies:65, stockCompartments:71, renderInspectorActions:147, …
+- `src/app/lifecycle.ts` — 334 lines / 10.8 KiB — togglePanel:36, frame:51, triggerAutoSave:109, markSaved:138, …
+- `src/app/lifecycleWiring.ts` — 174 lines / 6.9 KiB — lifecycleWiring:11
 - `src/app/preferences.ts` — 117 lines / 3.8 KiB — PreferencesController:15
 - `src/app/runtime.ts` — 391 lines / 14.5 KiB — Tool:32, BuildGroupKey:42, StockCompartment:49, StackDrag:74, …
-- `src/app/saveUi.ts` — 151 lines / 5.0 KiB — SaveUi:21
-- `src/app/workspaceController.ts` — 319 lines / 9.7 KiB
-- `src/app/workspaceWiring.ts` — 529 lines / 19.2 KiB
+- `src/app/saveUi.ts` — 145 lines / 4.9 KiB — SaveUi:21
+- `src/app/workspaceController.ts` — 319 lines / 9.7 KiB — syncHoverWithCamera:27, flushHoverPreview:47, setRunName:83, offerSaveFile:91, …
+- `src/app/workspaceWiring.ts` — 529 lines / 19.2 KiB — workspaceWiring:17
 - `src/app/worldSetup.ts` — 449 lines / 16.9 KiB — WorldSetup:29, exactSeed:443
 - `src/audio/feedback.ts` — 220 lines / 6.9 KiB — FeedbackCue:17, FeedbackAudio:96, cueForEvent:194
 - `src/contact/main.ts` — 226 lines / 7.3 KiB — paint:57, repaint:70, element:74, sharedWith:90, …
 - `src/core/FactoryHost.ts` — 386 lines / 11.3 KiB — FactoryWorkerMethod:26, WorldChoice:45, FactoryTransport:47, WorkerTransport:67, …
 - `src/core/availability.ts` — 135 lines / 4.8 KiB — CostLine:17, BuildAvailability:25, heldQuantity:34, costLines:42, …
-- `src/core/checkpoints.ts` — 347 lines / 12.7 KiB — CheckpointContext:19, CheckpointBuilding:29, CheckpointDefinition:42, CheckpointRecord:52, …
+- `src/core/checkpoints.ts` — 347 lines / 12.6 KiB — CheckpointContext:19, CheckpointBuilding:29, CheckpointDefinition:42, CheckpointRecord:52, …
 - `src/core/commands.ts` — 336 lines / 11.0 KiB — EncodedCommand:3, MAX_AIM_COORDINATE:13, halfTransfer:23, encodeCommand:35
 - `src/core/definitions.ts` — 876 lines / 30.8 KiB — supportsRecipe:14, reservationCells:47, footprintIsContiguous:65, MAX_UNDERPASS_SPAN:109, …
 - `src/core/directions.ts` — 32 lines / 1.4 KiB — TRANSPORT_DIRECTIONS:4, CORNER_START:7, DIRECTION_NAMES:10, rotateAnyOrientation:22
 - `src/core/factory.worker.ts` — 221 lines / 7.9 KiB — handle:54, requireFactory:184, delta:197, optionalNumber:208, …
-- `src/core/fileExport.ts` — 64 lines / 1.8 KiB — downloadTextFile:16
+- `src/core/fileExport.ts` — 64 lines / 1.8 KiB — downloadTextFile:16, exportTextFile:30
 - `src/core/frameClock.ts` — 47 lines / 1.4 KiB — FrameClockState:1, SIMULATION_TICKS_PER_SECOND:7, FrameAdvance:9, FrameClock:19
-- `src/core/guidance.ts` — 593 lines / 23.8 KiB — Guidance:34, nextAction:53, stillToFind:283, expand:298, …
+- `src/core/guidance.ts` — 593 lines / 23.9 KiB — Guidance:34, nextAction:53, stillToFind:283, expand:298, …
 - `src/core/input.ts` — 90 lines / 2.8 KiB — MAX_INPUT_COMMANDS:3, MOVEMENT_KEYS:4, WALK_SCALE:23, movementIntent:25, …
 - `src/core/lattice.ts` — 204 lines / 6.9 KiB — HEX_RADIUS:19, CORNERS:27, CORNER_NAMES:37, DIRECTIONS:47, …
 - `src/core/recipes.ts` — 48 lines / 1.5 KiB — recipeOutputs:4, recipeYield:8, recipeShare:15, productionRoutes:23, …

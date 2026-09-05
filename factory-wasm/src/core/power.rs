@@ -154,10 +154,8 @@ impl Core {
     /// about their grid. Supply against standing draw is the number that answers "can this plant
     /// carry this factory".
     pub(crate) fn refresh_power_meters(&mut self) {
-        let previous_supply = self.power_supply.clone();
-        let previous_demand = self.power_demand.clone();
-        self.power_supply.clear();
-        self.power_demand.clear();
+        let previous_supply = std::mem::take(&mut self.power_supply);
+        let previous_demand = std::mem::take(&mut self.power_demand);
         for offset in 0..self.runtime.power_order.len() {
             let index = self.runtime.power_order[offset];
             let Some(net) = self.power_of.get(index).copied().flatten() else {
@@ -311,8 +309,7 @@ impl Core {
             // The same split over the plants, so what was produced equals what was banked and no
             // generator burns for a unit that never reached a machine.
             let offered: Vec<u64> = offers.iter().map(|&(_, offer)| offer).collect();
-            let sources: Vec<usize> = offers.iter().map(|&(index, _)| index).collect();
-            for (index, produced) in sources.into_iter().zip(apportion(used, &offered)) {
+            for (&(index, _), produced) in offers.iter().zip(apportion(used, &offered)) {
                 self.burn_for_output(index, produced as u32);
             }
         }

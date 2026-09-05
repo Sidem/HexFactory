@@ -95,6 +95,60 @@ import {
 } from "../src/rendering/three/worldInstances";
 
 describe("Visual Depth generated geometry", () => {
+  it("releases retired instance buffers without disposing shared geometry or materials", () => {
+    const materials = createWorldMaterials();
+    const layer = new WorldInstanceLayer(
+      {
+        boundaries: [],
+        surfaces: [],
+        version: 1,
+        items: [],
+        recipes: [],
+        requests: [],
+        buildings: [beltDefinition()],
+      },
+      materials,
+    );
+    const snapshot = minimalSnapshot();
+    snapshot.buildings.push(entity(1, beltDefinition().id, "belt", 0, 0, 0));
+    layer.setSnapshot(snapshot, new Map(), 0);
+    const retired: InstancedMesh[] = [];
+    layer.group.traverse((object) => {
+      if (object instanceof InstancedMesh) retired.push(object);
+    });
+    const disposed = new Set<InstancedMesh>();
+    let sharedDisposals = 0;
+    for (const mesh of retired) {
+      mesh.addEventListener("dispose", () => disposed.add(mesh));
+      mesh.geometry.addEventListener("dispose", () => sharedDisposals++);
+    }
+    for (const material of materials.materials)
+      material.addEventListener("dispose", () => sharedDisposals++);
+    // A structural edit also grows dynamic capacity beyond the previous allocation.
+    const changed = {
+      ...snapshot,
+      buildings: [
+        ...snapshot.buildings,
+        entity(2, beltDefinition().id, "belt", 1, 0, 0),
+      ],
+      resources: [...snapshot.resources],
+    };
+    layer.setSnapshot(changed, new Map(), 10);
+    expect(retired.length).toBeGreaterThan(0);
+    expect(disposed.size).toBe(retired.length);
+    expect(sharedDisposals).toBe(0);
+    const live: InstancedMesh[] = [];
+    layer.group.traverse((object) => {
+      if (object instanceof InstancedMesh) {
+        live.push(object);
+        object.addEventListener("dispose", () => disposed.add(object));
+      }
+    });
+    layer.dispose();
+    expect(live.every((mesh) => disposed.has(mesh))).toBe(true);
+    for (const material of materials.materials) material.dispose();
+  });
+
   const kinds: PartKind[] = [
     "vessel",
     "chamber",
@@ -1962,7 +2016,7 @@ it("draws sandbox gates by definition, reuses quiet meshes, and releases replace
   const state = [boundary];
   expect(layer.update(state, terrain)).toBe(true);
   const closed = layer.group.children[0] as InstancedMesh;
-  expect(closed.count).toBe(5);
+  expect(closed.count).toBe(9);
   expect(layer.update(state, terrain)).toBe(false);
   expect(layer.group.children[0]).toBe(closed);
   let disposed = false;
@@ -1974,8 +2028,8 @@ it("draws sandbox gates by definition, reuses quiet meshes, and releases replace
   const open = layer.group.children[0] as InstancedMesh;
   const closedMatrix = new Matrix4();
   const openMatrix = new Matrix4();
-  closed.getMatrixAt(2, closedMatrix);
-  open.getMatrixAt(2, openMatrix);
+  closed.getMatrixAt(6, closedMatrix);
+  open.getMatrixAt(6, openMatrix);
   expect(openMatrix.equals(closedMatrix)).toBe(false);
   layer.setPreview({
     segments: [boundary],
@@ -2011,8 +2065,10 @@ it("measures every rail off the chord it spans, not off a hex edge", () => {
     );
     meshes.update([{ ...base, chord }], new Map());
     const matrix = new Matrix4();
-    (meshes.group.children[0] as InstancedMesh).getMatrixAt(2, matrix);
-    return new Vector3().setFromMatrixScale(matrix).x;
+    (meshes.group.children[0] as InstancedMesh).getMatrixAt(6, matrix);
+    const width = new Vector3().setFromMatrixScale(matrix).x;
+    meshes.dispose();
+    return width;
   };
   expect(widthOf(12)).toBeGreaterThan(widthOf(0) * 1.9);
   layer.dispose();

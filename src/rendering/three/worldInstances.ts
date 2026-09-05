@@ -261,6 +261,7 @@ export class WorldInstanceLayer {
   }
 
   dispose(): void {
+    this.disposeInstances(this.group);
     this.geometryLibrary.dispose();
     for (const geometry of this.ownedGeometries) geometry.dispose();
     for (const geometry of this.curvedTransportGeometry.values()) {
@@ -272,6 +273,7 @@ export class WorldInstanceLayer {
   }
 
   private rebuildStatic(snapshot: FactorySnapshot): void {
+    this.disposeInstances(this.staticGroup);
     this.group.remove(this.staticGroup);
     this.staticGroup = new Group();
     this.staticGroup.name = "static-factory";
@@ -1046,6 +1048,7 @@ export class WorldInstanceLayer {
   }
 
   private rebuildResources(resources: readonly ResourceSnapshot[]): void {
+    this.disposeInstances(this.resourceGroup);
     this.group.remove(this.resourceGroup);
     this.resourceGroup = new Group();
     this.resourceGroup.name = "field-resources";
@@ -1301,6 +1304,7 @@ export class WorldInstanceLayer {
   private ensureDynamicCapacity(capacity: number): void {
     if (this.statusMesh && this.statusMesh.instanceMatrix.count >= capacity)
       return;
+    this.disposeInstances(this.dynamicGroup);
     this.dynamicGroup.clear();
     const max = Math.max(1, capacity);
     this.statusMesh = new InstancedMesh(
@@ -1341,6 +1345,13 @@ export class WorldInstanceLayer {
       this.groundItemMesh,
       this.plumeMesh,
     );
+  }
+
+  /** Release instance buffers; geometry and materials remain owned by the layer. */
+  private disposeInstances(group: Group): void {
+    group.traverse((object) => {
+      if (object instanceof InstancedMesh) object.dispose();
+    });
   }
 
   private updateDynamicBuildings(

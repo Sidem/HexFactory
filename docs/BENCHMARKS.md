@@ -3,9 +3,10 @@
 This file records only the measurements that support current claims. Raw reports in `docs/benchmarks/`
 are authoritative; experiment history belongs in git.
 
-## Engineering E0 baseline (in progress)
+## Engineering E0 evidence (collection closed)
 
-The programme is open. Environment and the initial complete quality result are recorded in
+E0 collection closed by user scope reduction on 2026-09-05. The former exhaustive gates are withdrawn;
+these records retain their limitations. See [the current cleanup plan](HEXFACTORY-PLAN.md). Environment and the initial complete quality result are recorded in
 [`e0/environment.json`](benchmarks/e0/environment.json); the initial production payload is in
 [`e0/startup-initial.json`](benchmarks/e0/startup-initial.json). The reference CPU is a Ryzen 7
 5800X, Windows 11 10.0.26200, RTX 3060 driver 32.0.15.9186. No score is awarded from these records.
@@ -156,13 +157,13 @@ separately are what the workload actually measured. Every run reopened on sample
 | Reopened 4 |   6,913 |       384.9 |    736.6 |               1,680.8 |            3,430.8 |
 | Reopened 5 |   6,978 |       382.9 |    705.0 |               1,697.7 |            3,363.6 |
 
-**Two 6,144-entity budgets are missed, and the stages that own them stay open.** The advance/encode
+**Two former 6,144-entity targets were missed; these observations are not current gates.** The advance/encode
 p95 ceiling of 3,000 µs is exceeded by every blocked run, across the whole window (3,001–3,045) and
 in the reopened phase alone (3,335–3,431), and by every junction run by 31–80% (3,920–5,396); the
 active workload clears the same ceiling with only 0.8–2.4% spare. The tick p95 ceiling of 1,000 µs
 is met across every blocked window but exceeded in the blocked phase of run 2 (1,000.7) and in
-junction runs 3–5 (1,129–1,201). Nothing is optimized or relaxed here: E0 records the baseline, and
-E4 chooses its target order from it.
+junction runs 3–5 (1,129–1,201). These records precede optimization;
+E4 may use them to identify candidates for inspection.
 
 **The junction record is not usable as a percentile baseline, and is kept for its structure rather
 than its numbers.** Its five runs deliver an identical 59.74 items per tick to two decimal places,
@@ -193,12 +194,12 @@ path cost 2.82–2.99 s, about 5.7 ms per edit, consistent with the historical l
 affected-component recompile at this size rather than a new result. The blocked starting state costs
 21.7–21.9 s of setup per run, all of it the saturation wait, reported outside every sample span.
 What they do **not** show is why a still factory is the expensive one; that needs the visit and
-rebuild counters E0 still owes, not an inference from these two columns.
+rebuild counters or targeted profiling, not an inference from these two columns.
 
 Idle records contain zero entity and resource dirty marks throughout all five windows, and blocked
 records contain zero throughout all five blocked phases — a saturated factory publishes nothing,
 which the packer requires rather than merely observes. This does not prove zero visits, allocations,
-or O(1) resting cost; the larger tier and visit counters remain required. Idle's maximum tick is
+or O(1) resting cost; larger tiers or visit counters would be needed to support that claim. Idle's maximum tick is
 1.7–2.6 ms against a 39 µs median, so even a resting window carries outliers that the percentiles
 hide and that nothing here attributes. No optimization is justified or declared complete by this
 table alone.
@@ -213,14 +214,10 @@ are not the new sampler's steady-state percentiles. The browser quick ladder was
 Chromium 152, Low, DPR 1: both 12/192-entity merged snapshots were intact and both setter spans were
 present. Its concurrent-build timings are rejected as baseline evidence.
 
-Outstanding E0 gates: the remaining workload shapes — powered production under full and insufficient
-supply, separate outposts with one edited component, and mixed extraction, regrowth, river pumping
-and disturbed water — and a junction collection whose runs agree well enough to be a baseline; the
-live browser scripts; complete native/Wasm ladder and
-five-run browser distributions; real application/UI, GPU, rAF and interaction spans; operation and
-rebuild counters beyond dirty marks; contamination/thermal evidence; desktop profile/DPR matrix;
-integrated-GPU hardware; and warm/cold/throttled startup timing. Historical v0.43 results below are
-unchanged and do not close these gates.
+Uncollected coverage includes additional workloads and sizes, stable junction percentiles, live
+application/GPU/interaction timing, operation counters, hardware/profile coverage, and startup
+conditions. These remain evidence limitations, not required cleanup work. Historical v0.43 results
+below are unchanged.
 
 ## Reproduce
 

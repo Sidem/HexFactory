@@ -51,22 +51,22 @@ export class PlayerRig {
     // frame, so the one caster that moves continuously would leave its shadow standing a
     // stride behind it until the next bake caught up.
     this.body = new Mesh(
-      new CylinderGeometry(0.13, 0.16, 0.25, 7),
+      new CylinderGeometry(0.12, 0.1, 0.25, 8),
       materials.wayfinderHull,
     );
     this.body.position.y = 0.31;
     this.shell = new Mesh(
-      new CylinderGeometry(0.17, 0.14, 0.13, 7),
+      new CylinderGeometry(0.145, 0.12, 0.13, 8),
       materials.wayfinderShell,
     );
     this.shell.position.y = 0.43;
     const head = new Mesh(
-      new IcosahedronGeometry(0.095, 1),
+      new IcosahedronGeometry(0.1, 2),
       materials.wayfinderShell,
     );
     head.position.y = 0.535;
     const facing = new Mesh(
-      new BoxGeometry(0.115, 0.045, 0.035),
+      new BoxGeometry(0.14, 0.052, 0.045),
       materials.wayfinderSignal,
     );
     facing.position.set(0, 0.545, 0.083);
@@ -128,6 +128,137 @@ export class PlayerRig {
       this.tool,
     ];
     this.group.add(...this.meshes, this.work);
+    const detail = (
+      parent: Mesh,
+      geometry: BoxGeometry | CylinderGeometry,
+      material: Mesh["material"],
+      x: number,
+      y: number,
+      z: number,
+    ): void => {
+      const mesh = new Mesh(geometry, material);
+      mesh.position.set(x, y, z);
+      parent.add(mesh);
+    };
+    // Helmet brow, ear housings and neck seal give the head a clear forward direction.
+    detail(
+      head,
+      new BoxGeometry(0.18, 0.025, 0.13),
+      materials.wayfinderBrass,
+      0,
+      0.05,
+      0.045,
+    );
+    for (const side of [-1, 1]) {
+      detail(
+        head,
+        new BoxGeometry(0.035, 0.075, 0.07),
+        materials.wayfinderHull,
+        side * 0.092,
+        0,
+        0,
+      );
+      detail(
+        this.body,
+        new BoxGeometry(0.024, 0.2, 0.025),
+        materials.wayfinderBrass,
+        side * 0.075,
+        0.015,
+        0.11,
+      );
+      detail(
+        pack,
+        new CylinderGeometry(0.028, 0.028, 0.19, 8),
+        materials.wayfinderHull,
+        side * 0.1,
+        0,
+        -0.01,
+      );
+    }
+    detail(
+      this.body,
+      new BoxGeometry(0.1, 0.065, 0.035),
+      materials.wayfinderShell,
+      0,
+      0.02,
+      0.13,
+    );
+    detail(
+      this.body,
+      new BoxGeometry(0.23, 0.035, 0.2),
+      materials.wayfinderBrass,
+      0,
+      -0.09,
+      0,
+    );
+    detail(
+      pack,
+      new BoxGeometry(0.13, 0.045, 0.035),
+      materials.wayfinderSignal,
+      0,
+      0.05,
+      -0.065,
+    );
+    for (const leg of [this.leftLeg, this.rightLeg]) {
+      detail(
+        leg,
+        new BoxGeometry(0.09, 0.065, 0.14),
+        materials.wayfinderHull,
+        0,
+        -0.075,
+        0.025,
+      );
+      detail(
+        leg,
+        new BoxGeometry(0.065, 0.06, 0.035),
+        materials.wayfinderShell,
+        0,
+        0,
+        0.045,
+      );
+    }
+    for (const arm of [this.leftArm, this.rightArm]) {
+      detail(
+        arm,
+        new BoxGeometry(0.075, 0.075, 0.09),
+        materials.wayfinderShell,
+        0,
+        0.075,
+        0,
+      );
+      detail(
+        arm,
+        new CylinderGeometry(0.045, 0.042, 0.075, 8),
+        materials.wayfinderBrass,
+        0,
+        -0.055,
+        0,
+      );
+      detail(
+        arm,
+        new BoxGeometry(0.055, 0.05, 0.06),
+        materials.wayfinderHull,
+        0,
+        -0.11,
+        0,
+      );
+    }
+    detail(
+      this.tool,
+      new BoxGeometry(0.14, 0.055, 0.065),
+      materials.wayfinderHull,
+      0,
+      0.105,
+      0,
+    );
+    detail(
+      this.tool,
+      new BoxGeometry(0.05, 0.03, 0.075),
+      materials.wayfinderSignal,
+      0.06,
+      0.105,
+      0,
+    );
   }
 
   /**
@@ -202,8 +333,9 @@ export class PlayerRig {
   }
 
   dispose(): void {
-    for (const mesh of this.meshes) mesh.geometry.dispose();
-    this.work.geometry.dispose();
+    this.group.traverse((object) => {
+      if (object instanceof Mesh) object.geometry.dispose();
+    });
   }
 }
 

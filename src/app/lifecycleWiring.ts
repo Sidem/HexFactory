@@ -46,11 +46,6 @@ export async function lifecycleWiring(app: Runtime): Promise<void> {
       app.showFeedback("Not saved yet — open the game menu and press Save.");
     }, 0);
   });
-  app.saveUi.bind({
-    load: (slot) => void app.loadSlot(slot),
-    export: (slot) => void app.exportSlotFile(slot),
-    refresh: (message) => app.updateContinueState(message),
-  });
   window.addEventListener("pointerup", (event) => {
     // A clicked button keeps focus, and Space then activates it instead of recentring. Give the
     // keys back to the world once the pointer is done; a tabbed control still has :focus-visible.

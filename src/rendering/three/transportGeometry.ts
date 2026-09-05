@@ -28,8 +28,24 @@ export function createTransportGeometry(): TransportGeometrySet {
     pipeDetail: pipeCouplingGeometry(),
     portal: portalFrameGeometry(),
     portalDetail: portalStripeGeometry(),
-    bridge: new BoxGeometry(0.92, 0.13, 1.25),
+    bridge: bridgeAssembly(),
   };
+}
+
+/** Deck seams, edge girders and parapets make the crossing legible when empty. */
+function bridgeAssembly(): BufferGeometry {
+  const pieces: BufferGeometry[] = [new BoxGeometry(0.92, 0.13, 1.25)];
+  for (const x of [-0.43, 0.43]) {
+    pieces.push(new BoxGeometry(0.08, 0.16, 1.25).translate(x, -0.06, 0));
+    pieces.push(new BoxGeometry(0.055, 0.055, 1.25).translate(x, 0.31, 0));
+    for (const z of [-0.55, 0, 0.55])
+      pieces.push(new BoxGeometry(0.055, 0.3, 0.055).translate(x, 0.17, z));
+  }
+  for (let i = 0; i < 7; i++)
+    pieces.push(
+      new BoxGeometry(0.78, 0.025, 0.13).translate(0, 0.075, (i - 3) * 0.17),
+    );
+  return mergeAndDispose(pieces);
 }
 
 /** A closed round conduit, clearly narrower and taller than the open belt deck beside it. */

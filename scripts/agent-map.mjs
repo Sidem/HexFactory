@@ -32,8 +32,8 @@ const routes = [
   [
     "Native tick and determinism",
     "simulation",
-    "factory-wasm/src/core/tick.rs; factory-wasm/src/core/snapshots.rs",
-    "advance, checksum",
+    "factory-wasm/src/core/commands.rs; factory-wasm/src/core/tick.rs; factory-wasm/src/core/persistence.rs",
+    "advance, tick_many, checksum_for_world",
   ],
   [
     "Transport, junctions and arbitration",
@@ -74,7 +74,7 @@ const routes = [
   [
     "Frame loop and application wiring",
     "browser",
-    "src/main.ts",
+    "src/app/createApp.ts; src/app/lifecycle.ts; src/app/coreView.ts; tests/frameClock.test.ts",
     "frame, update",
   ],
   [
@@ -92,7 +92,7 @@ const routes = [
   [
     "Input commands",
     "browser",
-    "src/core/input.ts; src/core/commands.ts; src/main.ts",
+    "src/core/input.ts; src/core/commands.ts; src/app/inspectorControls.ts; tests/host.test.ts",
     "BoundedInputQueue, enqueue",
   ],
   [
@@ -104,20 +104,20 @@ const routes = [
   [
     "Contracts, requests and guidance",
     "browser",
-    "src/data/scenarios.json; src/core/guidance.ts; factory-wasm/src/lib.rs",
-    "ContractDefinition, advance_contract, nextAction",
+    "src/data/scenarios.json; src/core/guidance.ts; factory-wasm/src/core/progression.rs; tests/guidance.test.ts",
+    "advance_contract, nextAction",
   ],
   [
     "Title screen and save catalogue",
     "browser",
-    "src/core/saveSlots.ts; src/main.ts",
-    "SaveSlot, openTitleScreen, compatibility",
+    "src/core/saveSlots.ts; src/app/worldSetup.ts; src/app/saveUi.ts; tests/saveSlots.test.ts",
+    "SaveSlot, WorldSetup, SaveUi, compatibility",
   ],
   [
     "Three.js world and camera",
     "rendering",
     "src/rendering/three/ThreeFactoryRenderer.ts; src/rendering/three/worldInstances.ts; src/rendering/three/HexSceneCamera.ts",
-    "ThreeFactoryRenderer, WorldInstances, HexSceneCamera",
+    "ThreeFactoryRenderer, WorldInstanceLayer, HexSceneCamera",
   ],
   [
     "Machine appearance",
@@ -166,9 +166,10 @@ function declarations(path, source) {
         /^\s*impl(?:<[^>]+>)?\s+([A-Za-z0-9_]+)/,
       ]
     : [
-        /^\s*export\s+(?:default\s+)?(?:abstract\s+)?(?:class|interface|type|enum|function|const)\s+([A-Za-z0-9_]+)/,
+        /^\s*export\s+(?:default\s+)?(?:abstract\s+|async\s+)?(?:class|interface|type|enum|function|const)\s+([A-Za-z0-9_]+)/,
         /^\s*(?:async\s+)?function\s+([A-Za-z0-9_]+)/,
         /^\s*class\s+([A-Za-z0-9_]+)/,
+        /^\s*[A-Za-z0-9_]+\.prototype\.([A-Za-z0-9_]+)\s*=/,
       ];
   const rows = [];
   source.split(/\r?\n/).forEach((line, index) => {

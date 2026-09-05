@@ -63,7 +63,7 @@ export function nextAction(
       key: "demo",
       title: "Trace the material flow",
       detail:
-        "Follow cargo from extractor to receiver. Pause or single-step to inspect arbitration.",
+        "Follow cargo from extractor to receiver. Select a machine to inspect its live progress and storage.",
     };
 
   if (contract.complete)
