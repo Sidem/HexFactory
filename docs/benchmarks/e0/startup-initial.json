@@ -1,0 +1,76 @@
+{
+  "rows": [
+    {
+      "name": "factory_wasm_bg-DL_vQ22f.wasm",
+      "path": "dist\\assets\\factory_wasm_bg-DL_vQ22f.wasm",
+      "group": "wasm",
+      "raw": 1484315,
+      "gzip": 512224
+    },
+    {
+      "name": "main-C6co96MP.js",
+      "path": "dist\\assets\\main-C6co96MP.js",
+      "group": "javascript",
+      "raw": 879965,
+      "gzip": 241908
+    },
+    {
+      "name": "frameClock-C-ia8hB3.js",
+      "path": "dist\\assets\\frameClock-C-ia8hB3.js",
+      "group": "javascript",
+      "raw": 88716,
+      "gzip": 25025
+    },
+    {
+      "name": "main-BaOKCVp0.css",
+      "path": "dist\\assets\\main-BaOKCVp0.css",
+      "group": "interface",
+      "raw": 98796,
+      "gzip": 20755
+    },
+    {
+      "name": "factory.worker-kJ6kzKaA.js",
+      "path": "dist\\assets\\factory.worker-kJ6kzKaA.js",
+      "group": "javascript",
+      "raw": 67084,
+      "gzip": 17910
+    },
+    {
+      "name": "index.html",
+      "path": "dist\\index.html",
+      "group": "interface",
+      "raw": 76984,
+      "gzip": 14741
+    }
+  ],
+  "groups": [
+    {
+      "group": "javascript",
+      "gzip": 284843,
+      "raw": 1035765,
+      "ceiling": 327680,
+      "over": false
+    },
+    {
+      "group": "wasm",
+      "gzip": 512224,
+      "raw": 1484315,
+      "ceiling": 573440,
+      "over": false
+    },
+    {
+      "group": "interface",
+      "gzip": 35496,
+      "raw": 175780,
+      "ceiling": 49152,
+      "over": false
+    }
+  ],
+  "total": {
+    "gzip": 832563,
+    "raw": 2695860,
+    "ceiling": 917504,
+    "over": false
+  },
+  "errors": []
+}

@@ -1,0 +1,390 @@
+
+> hexfactory@0.47.0 quality
+> npm run audit && npm run context:check && npm run agent:map:check && npm run format && npm run lint && npm run typecheck && npm run test:run && npm run test:rust && npm run build && npm run startup:check
+
+
+> hexfactory@0.47.0 audit
+> npm audit --audit-level=high
+
+found 0 vulnerabilities
+
+> hexfactory@0.47.0 context:check
+> npm run context:test && node scripts/context-budget.mjs --check
+
+
+> hexfactory@0.47.0 context:test
+> node --test scripts/context-budget.test.mjs scripts/extract-range.test.mjs scripts/rust-split.test.mjs scripts/startup-budget.test.mjs
+
+TAP version 13
+# Subtest: legacy debt is a no-growth ratchet
+ok 1 - legacy debt is a no-growth ratchet
+  ---
+  duration_ms: 1.615
+  ...
+# Subtest: paid and stale debt cannot linger
+ok 2 - paid and stale debt cannot linger
+  ---
+  duration_ms: 0.2552
+  ...
+# Subtest: context accounting separates root, route, and scoped instructions
+ok 3 - context accounting separates root, route, and scoped instructions
+  ---
+  duration_ms: 0.2125
+  ...
+# Subtest: a CRLF checkout measures the same as the committed content
+ok 4 - a CRLF checkout measures the same as the committed content
+  ---
+  duration_ms: 218.9398
+  ...
+# Subtest: the CLI includes untracked source files
+ok 5 - the CLI includes untracked source files
+  ---
+  duration_ms: 179.4971
+  ...
+# Subtest: an exact range is included in place
+ok 6 - an exact range is included in place
+  ---
+  duration_ms: 69.2024
+  ...
+# Subtest: a collision leaves the source untouched
+ok 7 - a collision leaves the source untouched
+  ---
+  duration_ms: 56.7132
+  ...
+# Subtest: CSS ranges become ordered imports
+ok 8 - CSS ranges become ordered imports
+  ---
+  duration_ms: 63.6977
+  ...
+# Subtest: inventory ignores braces in strings and nested comments
+ok 9 - inventory ignores braces in strings and nested comments
+  ---
+  duration_ms: 64.9384
+  ...
+# Subtest: apply validates all collisions before writing
+ok 10 - apply validates all collisions before writing
+  ---
+  duration_ms: 62.3763
+  ...
+# Subtest: apply can select a bounded method range without a map file
+ok 11 - apply can select a bounded method range without a map file
+  ---
+  duration_ms: 66.5741
+  ...
+# Subtest: the admin page is not part of a player's first load
+ok 12 - the admin page is not part of a player's first load
+  ---
+  duration_ms: 1.5921
+  ...
+# Subtest: the worker counts as startup JavaScript and the wasm as its own group
+ok 13 - the worker counts as startup JavaScript and the wasm as its own group
+  ---
+  duration_ms: 20.8637
+  ...
+# Subtest: a group over its ceiling is named, and so is the total
+ok 14 - a group over its ceiling is named, and so is the total
+  ---
+  duration_ms: 12.6995
+  ...
+1..14
+# tests 14
+# suites 0
+# pass 14
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 478.7421
+root instructions: 3 KB (~1k tok)
+optional route index: 2 KB (~0.5k tok)
+all scoped instructions: 1 KB
+largest file in budget scope: factory-wasm/src/balance.rs 100 KB
+
+ratcheted debt (8) — growth is forbidden
+  factory-wasm/src/balance.rs  100 KB -> 50 KB  — balance module backlog, expires 2026-11-01
+  tests/host.test.ts  76 KB -> 50 KB  — host test split backlog, expires 2026-11-01
+  factory-wasm/src/terra.rs  75 KB -> 50 KB  — terrain module backlog, expires 2026-11-01
+  index.html  75 KB -> 50 KB  — feature DOM ownership, expires 2026-10-15
+  tests/visualDepth.test.ts  68 KB -> 50 KB  — render test split backlog, expires 2026-11-01
+  src/rendering/three/worldInstances.ts  63 KB -> 50 KB  — world rendering backlog, expires 2026-11-01
+  factory-wasm/src/wire.rs  60 KB -> 50 KB  — wire module backlog, expires 2026-11-01
+  factory-wasm/src/ground.rs  53 KB -> 50 KB  — ground module backlog, expires 2026-11-01
+
+context budget ok
+
+> hexfactory@0.47.0 agent:map:check
+> node scripts/agent-map.mjs --check
+
+
+> hexfactory@0.47.0 format
+> prettier --check . && cargo fmt --manifest-path factory-wasm/Cargo.toml -- --check
+
+Checking formatting...
+All matched files use Prettier code style!
+
+> hexfactory@0.47.0 lint
+> eslint .
+
+
+> hexfactory@0.47.0 typecheck
+> tsc --noEmit
+
+
+> hexfactory@0.47.0 test:run
+> vitest run
+
+
+ RUN  v4.1.8 X:/Programming/Projects/HexFactory
+
+
+ Test Files  28 passed (28)
+      Tests  255 passed (255)
+   Start at  13:38:23
+   Duration  1.58s (transform 5.51s, setup 0ms, import 8.11s, tests 1.99s, environment 4ms)
+
+
+> hexfactory@0.47.0 test:rust
+> cargo test --manifest-path factory-wasm/Cargo.toml
+
+   Compiling factory-wasm v0.47.0 (X:\Programming\Projects\HexFactory\factory-wasm)
+ 
+    Finished `test` profile [optimized + debuginfo] target(s) in 22.78s
+     Running unittests src\lib.rs (factory-wasm\target\debug\deps\factory_wasm-b624f79b9cbab5c7.exe)
+
+running 127 tests
+test capacity::steady::tests::nearest_rank_keeps_tail_outliers_and_sample_count ... ok
+test ecology::tests::fertile_riverbank_keeps_each_physical_cause_independent ... ok
+test ecology::tests::irrigation_prefers_the_bench_and_falls_back_to_standing_water ... ok
+test ecology::tests::watered_by_takes_fresh_water_and_refuses_the_sea ... ok
+test ground_grade::tests::smooth_grade_keeps_good_ground_and_repairs_a_ridge_and_pit_from_the_anchor ... ok
+test geomorphology::tests::accelerated_bend_erodes_outside_and_deposits_inside ... ok
+test geomorphology::tests::straight_dry_and_protected_reaches_do_no_work ... ok
+test geomorphology::tests::simultaneous_banks_are_resolved_in_coordinate_order_and_bounded ... ok
+test geomorphology::tests::shipped_resistance_data_protects_paving_and_retaining_walls ... ok
+test ground_spine::tests::legacy_adapter_separates_facts_without_changing_height ... ok
+test geomorphology::tests::surveyed_chunk_window_wraps_in_order_and_is_bounded ... ok
+test hydrology::tests::a_channel_refills_only_to_its_own_depth_and_a_dug_reach_stops_refilling ... ok
+test hydrology::tests::a_reach_supplies_ground_and_never_the_sea_the_frontier_or_the_next_reach_down ... ok
+test hydrology::tests::a_reversal_puts_back_what_a_solve_forgot_and_drops_what_it_invented ... ok
+test hydrology::tests::a_trench_fills_from_a_channel_without_drawing_the_channel_down ... ok
+test hydrology::tests::the_departure_set_is_order_independent_and_forgets_what_returned ... ok
+test hydrology::tests::water_leaves_at_a_boundary_without_the_boundary_being_simulated ... ok
+test hydrology::tests::water_levels_with_what_is_dug_beside_it_and_stores_only_the_difference ... ok
+test capacity::steady::tests::a_blocked_line_reaches_a_fixed_point ... ok
+test capacity::steady::tests::reopened_sinks_drain_the_backlog_and_deliver_again ... ok
+test save_migrations::tests::a_catalogue_advance_moves_versions_and_never_state ... ok
+test hydrology::tests::a_disturbance_claims_only_what_the_water_covers_and_stops_at_its_budget ... ok
+test ground_spine::tests::physical_source_translates_the_world_to_a_dry_buildable_shelf ... ok
+test save_migrations::tests::a_state_change_moves_only_what_its_rule_owns ... ok
+test scale::tests::belt_cadence_follows_from_speed_and_spacing ... ok
+test save_migrations::tests::a_step_that_adds_a_field_writes_only_that_field ... ok
+test scale::tests::heights_and_volumes_read_back_in_metres ... ok
+test ground_spine::tests::the_surveyed_cache_is_only_an_echo_of_the_full_oracle ... ok
+test scale::tests::movement_reads_the_lattice_through_round_tripping_conversions ... ok
+test scale::tests::the_cell_geometry_is_what_twenty_five_square_metres_forces ... ok
+test save_migrations::tests::a_version_fifteen_file_reaches_twenty_through_every_definition_step ... ok
+test save_migrations::tests::the_ladder_passes_through_what_it_is_and_refuses_what_it_is_not ... ok
+test terra::tests::province_outlets_strictly_descend_and_their_chains_terminate ... ok
+test terra::tests::discharge_classes_are_monotone_and_no_valley_outgrows_the_halo ... ok
+test terra::tests::seeds_separate_worlds_that_survey_clean_with_real_relief ... ok
+test terra::tests::springs_are_wet_high_ground ... ok
+test terra_rock::tests::bank_grades_stay_inside_the_measured_span ... ok
+test terra::tests::seam_pour_points_agree_from_both_sides ... ok
+test terra_rock::tests::rock_is_bounded_layered_and_locally_varied ... ok
+test terra_rock::tests::the_mantle_is_soft_and_discharge_decides_what_the_rock_costs ... ok
+test hydrology::tests::a_trench_cut_from_a_river_carries_water_and_fertility_inland ... ok
+test hydrology::tests::a_finite_pump_draw_moves_depth_and_a_river_draw_obeys_its_rate ... ok
+test terra::tests::drainage_never_runs_uphill_and_never_cycles ... ok
+test capacity::steady::tests::duration_collection_excludes_setup_and_retains_every_raw_sample ... ok
+test capacity::steady::tests::workloads_produce_or_rest_and_tick_matches_advance_encode ... ok
+test hydrology::tests::every_water_answer_comes_from_depth_rather_than_the_band ... ok
+test recipes::tests::the_recipe_contract_holds_costs_cycles_route_order_and_capacity ... ok
+test terra::tests::the_cache_changes_the_cost_and_nothing_else ... ok
+test terra_survey::tests::the_survey_runs_reports_and_finds_the_invariants_clean ... ok
+test ecology::tests::habitat_is_query_order_invariant_and_crosses_gameplay_chunk_seams ... ok
+test tests::construction::occupied_footprints_suppress_only_the_fertile_riverbank_cells_they_cover ... ok
+test hydrology::tests::a_cut_beside_a_pond_floods_and_the_undo_puts_the_water_back ... ok
+test hydrology::tests::no_solve_may_survey_a_chunk ... ok
+test hydrology::tests::a_departure_is_saved_checksummed_restored_and_guarded ... ok
+test tests::earthworks::a_disturbed_depth_is_what_the_delta_publishes ... ok
+test terra::tests::landing_shelves_are_deterministic_dry_and_buildable ... ok
+test tests::earthworks::geomorphic_state_round_trips_and_keeps_the_next_epoch_deterministic ... ok
+test tests::construction::footprints_occupy_turn_reserve_and_upgrade_as_one_building ... ok
+test tests::earthworks::groundwork_lands_after_resolved_work_and_resumes_mid_job ... ok
+test tests::contract::the_founding_contract_advances_stage_by_stage_and_carries_its_surplus ... ok
+test tests::earthworks::save_40_adopts_empty_geomorphology_without_changing_its_checksum ... ok
+test tests::earthworks::no_terrain_walls_itself_off_and_a_quarried_cliff_stops_being_a_wall ... ok
+test tests::graph::compiling_is_incremental_and_matches_the_full_graph ... ok
+test tests::machines::a_cancelled_craft_returns_its_reserved_inputs_and_leaves_fuel_and_output_alone ... ok
+test capacity::steady::tests::a_blocked_run_splits_its_window_at_the_reopen ... ok
+test tests::machines::a_spent_deposit_reads_and_grades_as_ordinary_ground ... ok
+test tests::graph::extractor_stops_exactly_when_its_deposit_empties ... ok
+test tests::machines::flora_spreads_from_standing_flora_and_a_clear_cut_stays_cut ... ok
+test tests::contract::the_hub_takes_delivery_from_every_footprint_cell_and_saves_its_board ... ok
+test tests::machines::a_healed_stand_seeds_empty_ground_and_refuses_ground_that_is_not_empty ... ok
+test tests::machines::a_machine_runs_only_its_own_category_and_is_reassigned_only_between_crafts ... ok
+test tests::construction::rotation_and_the_two_row_reach_are_priced_gated_and_angular ... ok
+test tests::petroleum::petroleum_joint_batch_waits_for_all_outputs_and_resumes_without_losing_inputs ... ok
+test tests::petroleum::petroleum_joint_outputs_and_reserved_jobs_are_refunded_and_dirty_tracked ... ok
+test tests::petroleum::petroleum_migration_verifies_original_checksum_and_does_not_reroll_legacy_sites ... ok
+test tests::petroleum::petroleum_powered_chain_routes_both_products_and_makes_asphalt ... ok
+test tests::machines::legacy_factories_keep_their_state_and_the_repriced_bills_conserve ... ok
+test tests::construction::creative_unlocks_grants_resizes_and_survives_a_save ... ok
+test tests::machines::skills_observe_real_power_and_commission_work_and_preserve_widened_packs ... ok
+test tests::construction::erasing_refunds_spills_and_never_leaves_an_uncompilable_graph ... ok
+test tests::machines::primitive_capabilities_are_validated_and_the_first_machines_pay_for_themselves ... ok
+test tests::petroleum::refinery_products_leave_independent_exterior_footprint_ports_and_round_trip ... ok
+test tests::power::apportioning_hands_out_every_unit_and_no_more ... ok
+test tests::machines::machines_draw_on_the_stock_and_terrain_beside_them_and_flora_grows_back ... ok
+test tests::save::a_pre_physical_save_is_refused_with_an_export_offered ... ok
+test tests::player::swimming_is_a_learned_deep_water_route_and_not_a_building_rule ... ok
+test tests::machines::skills_are_finite_atomic_and_isolated_from_research ... ok
+test tests::machines::manual_workshop_requires_attendance_and_runs_exactly_one_batch ... ok
+test tests::save::fertile_riverbank_is_rebuilt_exactly_and_never_enters_the_save_or_checksum ... ok
+test tests::save::surveying_publishes_only_the_new_chunks_bounded_habitat_patch ... ok
+test tests::petroleum::petroleum_roads_require_research_and_base_and_refund_both_layers ... ok
+test tests::economy::the_economy_holds_at_every_step_of_the_curve ... ok
+test tests::stock::an_item_that_is_both_ingredient_and_fuel_reaches_either_compartment_by_hand_and_by_belt ... ok
+test tests::save::a_save_resumes_and_replays_in_a_deterministic_order ... ok
+test tests::contract::the_board_posts_pays_passes_and_saves_what_the_player_could_make ... ok
+test tests::petroleum::petroleum_well_refuses_other_fields_and_ordinary_extractors_refuse_oil ... ok
+test tests::throughput::capacity_workload_is_deterministic_and_actually_produces ... ok
+test tests::construction::placement_and_drag_build_exactly_what_the_rules_allow_and_undo_takes_it_back ... ok
+test tests::machines::the_field_survey_opens_the_same_distance_in_every_direction ... ok
+test tests::stock::dropped_items_land_are_picked_up_despawn_and_survive_a_save ... ok
+test tests::transport::a_composer_consumes_exact_inputs_and_backpressure_is_exact ... ok
+test tests::wire_format::entity_status_spellings_are_what_the_host_renders ... ok
+test tests::walls::masonry_walls_need_fired_masonry_and_pay_cement ... ok
+test tests::stock::an_upgrade_preserves_contents_and_reach_storing_and_gathering_stay_bounded ... ok
+test tests::player::movement_intent_aim_and_cadence_are_native ... ok
+test tests::world::distant_landscape_is_coarse_native_truth_without_surveying ... ok
+test tests::power::power_reaches_only_what_it_lights_and_is_produced_only_for_the_work_it_does ... ok
+test tests::stock::stock_moves_between_hand_machine_and_container_without_leaving_native_state ... ok
+test tests::transport::belts_carry_one_extractors_worth_hold_what_fits_and_report_when_blocked ... ok
+test tests::world::native_and_host_agree_on_directions_passability_heights_and_hexes ... ok
+test tests::save::deltas_send_only_what_changed_and_match_a_full_snapshot_diff ... ok
+test tests::world::two_parameter_sets_on_one_seed_are_different_landforms ... ok
+test tests::stock::the_pack_is_a_slot_rule_that_transport_erasure_and_withdrawal_all_obey ... ok
+test tests::wire_format::the_cross_language_fixtures_pin_the_format_and_the_economy ... ok
+test tests::world::materials_are_generated_where_geography_says_and_harvested_within_a_radius ... ok
+test tests::transport::splitters_mergers_and_underpasses_serve_their_lanes_in_order ... ok
+test tests::throughput::capacity_is_measured_per_phase_and_per_tier_against_a_supplied_clock ... ok
+test tests::player::a_click_routes_walks_and_replans_around_what_blocks_it ... ok
+test tests::worldgen::world_parameters_are_checksummed_validated_and_restored_with_their_sites ... ok
+test tests::world::world_preview_rasters_the_world_the_run_would_generate ... ok
+test tests::walls::boundaries_are_canonical_atomic_conserving_and_block_what_crosses_them ... ok
+test tests::earthworks::ground_works_conserve_spoil_gate_routes_and_survive_a_save ... ok
+test tests::world::a_world_that_opens_is_diagnosed_repaired_and_free_of_legacy_band_cuts ... ok
+test tests::worldgen::every_preset_opens_a_workable_world_on_any_seed ... ok
+test tests::world::chunk_generation_is_seeded_cached_and_invertible ... ok
+test tests::graph::research_is_atomic_published_delta_tracked_and_paid_for_in_insight has been running for over 60 seconds
+test tests::player::gathering_is_bounded_by_reach_cooldown_and_what_the_hex_holds has been running for over 60 seconds
+test tests::player::gathering_is_bounded_by_reach_cooldown_and_what_the_hex_holds ... ok
+test tests::graph::research_is_atomic_published_delta_tracked_and_paid_for_in_insight ... ok
+
+test result: ok. 127 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 94.73s
+
+     Running unittests src\bin\balance.rs (factory-wasm\target\debug\deps\balance-9483c80c76d3ede3.exe)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src\bin\capacity.rs (factory-wasm\target\debug\deps\capacity-089718e803acb38e.exe)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src\bin\erosion.rs (factory-wasm\target\debug\deps\erosion-9bb8d7754dd138e7.exe)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src\bin\steady.rs (factory-wasm\target\debug\deps\steady-410fdf8e01c8c303.exe)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src\bin\survey.rs (factory-wasm\target\debug\deps\survey-e0b0c7a418ff2e8f.exe)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src\bin\terra.rs (factory-wasm\target\debug\deps\terra-8cad073cec92e759.exe)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src\bin\water.rs (factory-wasm\target\debug\deps\water-e000827f7efacbd6.exe)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests factory_wasm
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+> hexfactory@0.47.0 build
+> npm run build:wasm && npm run typecheck && vite build
+
+
+> hexfactory@0.47.0 build:wasm
+> wasm-pack build ./factory-wasm --target web --out-dir pkg --out-name factory_wasm
+
+[INFO]: Checking for the Wasm target...
+[INFO]: Compiling to Wasm...
+    Finished `release` profile [optimized] target(s) in 0.07s
+[INFO]: Installing wasm-bindgen...
+[INFO]: Optimizing wasm binaries with `wasm-opt`...
+[INFO]: :-) Done in 8.10s
+[INFO]: :-) Your wasm pkg is ready to publish at factory-wasm\pkg.
+
+> hexfactory@0.47.0 typecheck
+> tsc --noEmit
+
+vite v6.4.3 building for production...
+transforming...
+✓ 124 modules transformed.
+rendering chunks...
+computing gzip size...
+dist/admin.html                                0.67 kB │ gzip:   0.38 kB
+dist/assets/factory.worker-kJ6kzKaA.js        67.08 kB
+dist/index.html                               76.98 kB │ gzip:  14.95 kB
+dist/assets/factory_wasm_bg-DL_vQ22f.wasm  1,484.32 kB │ gzip: 513.02 kB
+dist/assets/admin-CMvzIUfS.css                23.72 kB │ gzip:   5.34 kB
+dist/assets/main-BaOKCVp0.css                 98.80 kB │ gzip:  20.91 kB
+dist/assets/frameClock-C-ia8hB3.js            88.72 kB │ gzip:  25.08 kB
+dist/assets/admin-DApQUUSw.js                109.75 kB │ gzip:  24.95 kB
+dist/assets/main-C6co96MP.js                 879.97 kB │ gzip: 242.64 kB
+
+(!) Some chunks are larger than 500 kB after minification. Consider:
+- Using dynamic import() to code-split the application
+- Use build.rollupOptions.output.manualChunks to improve chunking: https://rollupjs.org/configuration-options/#output-manualchunks
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
+✓ built in 2.13s
+
+> hexfactory@0.47.0 startup:check
+> node scripts/startup-budget.mjs --check
+
+  wasm        500.2 KB gzip  1449.5 KB raw  factory_wasm_bg-DL_vQ22f.wasm
+  javascript  236.2 KB gzip   859.3 KB raw  main-C6co96MP.js
+  javascript   24.4 KB gzip    86.6 KB raw  frameClock-C-ia8hB3.js
+  interface    20.3 KB gzip    96.5 KB raw  main-BaOKCVp0.css
+  javascript   17.5 KB gzip    65.5 KB raw  factory.worker-kJ6kzKaA.js
+  interface    14.4 KB gzip    75.2 KB raw  index.html
+
+javascript    278.2 KB / 320.0 KB
+wasm          500.2 KB / 560.0 KB
+interface      34.7 KB / 48.0 KB
+total         813.0 KB / 896.0 KB
+
+startup budget ok

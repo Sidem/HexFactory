@@ -1,0 +1,19 @@
+{
+  "source_commit": "df3eb4329ba9c46592c4287585432103011e651f",
+  "recorded": "2026-09-05T15:52:00+02:00",
+  "binary_sha256": "BCAF6AD04F9714786B058293B96C869E12F5904FBD8CB3B207AF869866CA1EFF",
+  "binary_matches_commit": "cargo reported the release binary fresh against the committed tree, with factory-wasm/ and scripts/ clean",
+  "commands": [
+    "factory-wasm/target/release/steady.exe blocked 6144 docs/benchmarks/e0/blocked-6144.json",
+    "factory-wasm/target/release/steady.exe active 6144 docs/benchmarks/e0/active-6144.json",
+    "factory-wasm/target/release/steady.exe idle 6144 docs/benchmarks/e0/idle-6144.json"
+  ],
+  "supersedes": "the schema-1 active/idle records collected at 8db0bf2, which the schema-2 packer cannot re-verify",
+  "conditions": {
+    "unrelated_system_load": "not independently monitored",
+    "acceptance": "provisional, contamination certification pending",
+    "builds_and_tests_during_sampling": false,
+    "benchmark_browser_closed": true,
+    "thermal_sensor": "unavailable"
+  }
+}

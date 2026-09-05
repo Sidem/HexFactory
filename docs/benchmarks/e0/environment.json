@@ -1,0 +1,56 @@
+{
+  "recorded": "2026-09-05T12:18:08.8558294+02:00",
+  "head": "00818b94f7597821d6233751e8b33415f321ebac",
+  "initial_dirty": [
+    " M docs/HEXFACTORY-PLAN.md",
+    " D docs/art/world-shape-still.png"
+  ],
+  "cpu": {
+    "Name": "AMD Ryzen 7 5800X 8-Core Processor             ",
+    "NumberOfCores": 8,
+    "NumberOfLogicalProcessors": 16
+  },
+  "gpu": {
+    "Name": "NVIDIA GeForce RTX 3060",
+    "DriverVersion": "32.0.15.9186"
+  },
+  "os": {
+    "Caption": "Microsoft Windows 11 Pro",
+    "Version": "10.0.26200"
+  },
+  "node": "v20.20.2",
+  "npm": "10.8.2",
+  "rustc": [
+    "rustc 1.87.0 (17067e9ac 2025-05-09)",
+    "binary: rustc",
+    "commit-hash: 17067e9ac6d7ecb70e50f92c1944e545188d2359",
+    "commit-date: 2025-05-09",
+    "host: x86_64-pc-windows-msvc",
+    "release: 1.87.0",
+    "LLVM version: 20.1.1"
+  ],
+  "cargo": "cargo 1.87.0 (99624be96 2025-05-06)",
+  "wasm_pack": "wasm-pack 0.13.1",
+  "release_profile": {
+    "opt_level": "s",
+    "codegen_units": 1,
+    "lto": true,
+    "wasm_opt": "-Oz"
+  },
+  "initial_quality": {
+    "rust_tests": 121,
+    "typescript_tests": 254,
+    "preexisting_failures": [],
+    "artifact": "startup-initial.json",
+    "exit_code": 0,
+    "context_tests": 14,
+    "command": "npm run quality"
+  },
+  "unmeasured": [
+    "integrated GPU",
+    "GPU timer/profiler",
+    "thermal sensors",
+    "presented frames",
+    "cold/throttled startup"
+  ]
+}

@@ -1,0 +1,292 @@
+{
+  "schema": 2,
+  "raw_file": "idle-6144.json.gz",
+  "raw_sha256": "9f16726453fde21d1f9691360928151a868b462fec0fd48ab7f2b66e18b08407",
+  "runs": [
+    {
+      "schema": 2,
+      "workload": "idle",
+      "entities": 6144,
+      "seed": 2071003907,
+      "warmup_ticks": 400,
+      "thermal_warmup_us": 5000448,
+      "requested_measurement_us": 30000000,
+      "elapsed_us": 30000416.5,
+      "setup_us": 899946.9999999991,
+      "start_checksum": 394444829,
+      "end_checksum": 2871145390,
+      "start_delivered": 0,
+      "end_delivered": 0,
+      "ticks": 51275,
+      "reopen_tick": null,
+      "reopen_us": null,
+      "delivered_at_reopen": null,
+      "phases": [
+        {
+          "key": "steady",
+          "first_sample": 0,
+          "ticks": 51275,
+          "delivered": 0,
+          "tick": {
+            "samples": 51275,
+            "median_us": 43.5,
+            "p95_us": 77.5,
+            "p99_us": 98.60000000149012,
+            "max_us": 2139.10000000149
+          },
+          "advance_encode": {
+            "samples": 51275,
+            "median_us": 504.5000000009313,
+            "p95_us": 643.5,
+            "p99_us": 753.8999999985099,
+            "max_us": 9115.39999999851
+          }
+        }
+      ],
+      "tick": {
+        "samples": 51275,
+        "median_us": 43.5,
+        "p95_us": 77.5,
+        "p99_us": 98.60000000149012,
+        "max_us": 2139.10000000149
+      },
+      "advance_encode": {
+        "samples": 51275,
+        "median_us": 504.5000000009313,
+        "p95_us": 643.5,
+        "p99_us": 753.8999999985099,
+        "max_us": 9115.39999999851
+      },
+      "entity_dirty_marks_total": 0,
+      "resource_dirty_marks_total": 0
+    },
+    {
+      "schema": 2,
+      "workload": "idle",
+      "entities": 6144,
+      "seed": 2071003907,
+      "warmup_ticks": 400,
+      "thermal_warmup_us": 5000071.6000000015,
+      "requested_measurement_us": 30000000,
+      "elapsed_us": 30000094.79999999,
+      "setup_us": 844112.8999999985,
+      "start_checksum": 394444829,
+      "end_checksum": 1514106056,
+      "start_delivered": 0,
+      "end_delivered": 0,
+      "ticks": 54277,
+      "reopen_tick": null,
+      "reopen_us": null,
+      "delivered_at_reopen": null,
+      "phases": [
+        {
+          "key": "steady",
+          "first_sample": 0,
+          "ticks": 54277,
+          "delivered": 0,
+          "tick": {
+            "samples": 54277,
+            "median_us": 41.100000001490116,
+            "p95_us": 70.00000000745058,
+            "p99_us": 79.80000000447035,
+            "max_us": 2141.5999999940395
+          },
+          "advance_encode": {
+            "samples": 54277,
+            "median_us": 477.29999999701977,
+            "p95_us": 615.6999999955297,
+            "p99_us": 643.2999999970198,
+            "max_us": 5327.89999999851
+          }
+        }
+      ],
+      "tick": {
+        "samples": 54277,
+        "median_us": 41.100000001490116,
+        "p95_us": 70.00000000745058,
+        "p99_us": 79.80000000447035,
+        "max_us": 2141.5999999940395
+      },
+      "advance_encode": {
+        "samples": 54277,
+        "median_us": 477.29999999701977,
+        "p95_us": 615.6999999955297,
+        "p99_us": 643.2999999970198,
+        "max_us": 5327.89999999851
+      },
+      "entity_dirty_marks_total": 0,
+      "resource_dirty_marks_total": 0
+    },
+    {
+      "schema": 2,
+      "workload": "idle",
+      "entities": 6144,
+      "seed": 2071003907,
+      "warmup_ticks": 400,
+      "thermal_warmup_us": 5000055.099999994,
+      "requested_measurement_us": 30000000,
+      "elapsed_us": 30000437.299999997,
+      "setup_us": 768808.5,
+      "start_checksum": 394444829,
+      "end_checksum": 1756825650,
+      "start_delivered": 0,
+      "end_delivered": 0,
+      "ticks": 57713,
+      "reopen_tick": null,
+      "reopen_us": null,
+      "delivered_at_reopen": null,
+      "phases": [
+        {
+          "key": "steady",
+          "first_sample": 0,
+          "ticks": 57713,
+          "delivered": 0,
+          "tick": {
+            "samples": 57713,
+            "median_us": 38.29999999701977,
+            "p95_us": 61.29999999701977,
+            "p99_us": 68.6000000089407,
+            "max_us": 1756.199999988079
+          },
+          "advance_encode": {
+            "samples": 57713,
+            "median_us": 467.09999999403954,
+            "p95_us": 560.3999999910593,
+            "p99_us": 618.4000000059605,
+            "max_us": 2195.7000000029802
+          }
+        }
+      ],
+      "tick": {
+        "samples": 57713,
+        "median_us": 38.29999999701977,
+        "p95_us": 61.29999999701977,
+        "p99_us": 68.6000000089407,
+        "max_us": 1756.199999988079
+      },
+      "advance_encode": {
+        "samples": 57713,
+        "median_us": 467.09999999403954,
+        "p95_us": 560.3999999910593,
+        "p99_us": 618.4000000059605,
+        "max_us": 2195.7000000029802
+      },
+      "entity_dirty_marks_total": 0,
+      "resource_dirty_marks_total": 0
+    },
+    {
+      "schema": 2,
+      "workload": "idle",
+      "entities": 6144,
+      "seed": 2071003907,
+      "warmup_ticks": 400,
+      "thermal_warmup_us": 5000309.799999997,
+      "requested_measurement_us": 30000000,
+      "elapsed_us": 30000325.799999997,
+      "setup_us": 775969.3999999911,
+      "start_checksum": 394444829,
+      "end_checksum": 3929255356,
+      "start_delivered": 0,
+      "end_delivered": 0,
+      "ticks": 57488,
+      "reopen_tick": null,
+      "reopen_us": null,
+      "delivered_at_reopen": null,
+      "phases": [
+        {
+          "key": "steady",
+          "first_sample": 0,
+          "ticks": 57488,
+          "delivered": 0,
+          "tick": {
+            "samples": 57488,
+            "median_us": 38.50000001490116,
+            "p95_us": 62.70000000298023,
+            "p99_us": 68.20000000298023,
+            "max_us": 1729.6000000089407
+          },
+          "advance_encode": {
+            "samples": 57488,
+            "median_us": 465.79999999701977,
+            "p95_us": 577.9999999850988,
+            "p99_us": 622.5999999940395,
+            "max_us": 2595.699999988079
+          }
+        }
+      ],
+      "tick": {
+        "samples": 57488,
+        "median_us": 38.50000001490116,
+        "p95_us": 62.70000000298023,
+        "p99_us": 68.20000000298023,
+        "max_us": 1729.6000000089407
+      },
+      "advance_encode": {
+        "samples": 57488,
+        "median_us": 465.79999999701977,
+        "p95_us": 577.9999999850988,
+        "p99_us": 622.5999999940395,
+        "max_us": 2595.699999988079
+      },
+      "entity_dirty_marks_total": 0,
+      "resource_dirty_marks_total": 0
+    },
+    {
+      "schema": 2,
+      "workload": "idle",
+      "entities": 6144,
+      "seed": 2071003907,
+      "warmup_ticks": 400,
+      "thermal_warmup_us": 5000048.600000024,
+      "requested_measurement_us": 30000000,
+      "elapsed_us": 30000153.900000006,
+      "setup_us": 762879.1999999583,
+      "start_checksum": 394444829,
+      "end_checksum": 4022343799,
+      "start_delivered": 0,
+      "end_delivered": 0,
+      "ticks": 57575,
+      "reopen_tick": null,
+      "reopen_us": null,
+      "delivered_at_reopen": null,
+      "phases": [
+        {
+          "key": "steady",
+          "first_sample": 0,
+          "ticks": 57575,
+          "delivered": 0,
+          "tick": {
+            "samples": 57575,
+            "median_us": 39.19999998807907,
+            "p95_us": 62.29999998211861,
+            "p99_us": 68.90000000596046,
+            "max_us": 2611.100000023842
+          },
+          "advance_encode": {
+            "samples": 57575,
+            "median_us": 466.69999998807907,
+            "p95_us": 565.0000000298023,
+            "p99_us": 617.4000000059605,
+            "max_us": 3153.9999999701977
+          }
+        }
+      ],
+      "tick": {
+        "samples": 57575,
+        "median_us": 39.19999998807907,
+        "p95_us": 62.29999998211861,
+        "p99_us": 68.90000000596046,
+        "max_us": 2611.100000023842
+      },
+      "advance_encode": {
+        "samples": 57575,
+        "median_us": 466.69999998807907,
+        "p95_us": 565.0000000298023,
+        "p99_us": 617.4000000059605,
+        "max_us": 3153.9999999701977
+      },
+      "entity_dirty_marks_total": 0,
+      "resource_dirty_marks_total": 0
+    }
+  ]
+}
