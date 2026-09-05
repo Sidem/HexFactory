@@ -113,12 +113,25 @@ const summaries = runs.map((run) => {
     assert.equal(run.end_delivered, blockedPhase("reopened").delivered);
     assert(marks(blockedPhase("reopened"), run.entity_dirty_marks) > 0);
   } else {
+    assert(
+      ["active", "idle", "junction"].includes(run.workload),
+      `unknown workload: ${run.workload}`,
+    );
     assert.deepEqual(
       run.phases.map((phase) => phase.key),
       ["steady"],
     );
     for (const field of ["reopen_tick", "reopen_us", "delivered_at_reopen"])
       assert.equal(run[field], null, `${field} belongs to a blocked run only`);
+    // A record of a producing workload that produced nothing describes a broken factory rather
+    // than a fast one, and an idle one that produced anything is not idle.
+    if (run.workload === "idle") {
+      assert.equal(run.start_delivered, run.end_delivered);
+      assert.equal(total(run.entity_dirty_marks), 0);
+    } else {
+      assert(run.end_delivered > run.start_delivered, "nothing was delivered");
+      assert(total(run.entity_dirty_marks) > 0);
+    }
   }
 
   const summary = { ...run };

@@ -9,17 +9,33 @@ pub enum Workload {
     /// Every line's sink is shut before the starting state is reached, so the measured window
     /// opens on a factory that is completely backed up, and reopens the sinks partway through.
     Blocked,
+    /// The dense splitter/merger/underpass blueprint in [`junction`], running free. A different
+    /// factory, not a different mode: transport here is arbitration and crossings rather than the
+    /// directed chain the other three measure.
+    Junction,
 }
 
 impl Workload {
+    /// The blueprint this workload runs on. Three of the four are regimes of the same straight
+    /// line; the junction workload is a different factory and says so here rather than anywhere
+    /// that would have to infer it.
+    fn layout(self) -> Layout {
+        match self {
+            Workload::Active | Workload::Idle | Workload::Blocked => Layout::Line,
+            Workload::Junction => Layout::Junction,
+        }
+    }
+
     /// Fixed ticks this workload needs on top of the tier's own warmup before its starting state
     /// is the state it claims to measure. A jam has to finish walking back up the line first, and
     /// how long that takes is a property of the line's length and its slowest machine rather than
-    /// of anything the sampler does. `a_blocked_line_reaches_a_fixed_point` pins the figure.
+    /// of anything the sampler does. `a_blocked_line_reaches_a_fixed_point` pins the figure, and
+    /// `junction::cargo_crosses_every_junction_and_no_lane_starves` pins the junction's.
     fn extra_warmup_ticks(self) -> u32 {
         match self {
             Workload::Active | Workload::Idle => 0,
             Workload::Blocked => SATURATION_TICKS,
+            Workload::Junction => junction::SETTLE_TICKS,
         }
     }
 }
@@ -113,9 +129,24 @@ pub struct SteadyRun {
     pub resource_dirty_marks: Vec<usize>,
 }
 
-pub fn spec(entities: u32) -> TierSpec {
+/// The tier a workload measures at an entity count.
+///
+/// The count is the fixed point of comparison across the whole of E0, so it is the same four
+/// figures on either blueprint and the layout supplies the repeat size rather than a divisor
+/// written here. The line key is `steady` and unchanged: it is what every recorded record is in
+/// terms of, and the key names the scenario.
+pub fn spec(entities: u32, workload: Workload) -> TierSpec {
     assert!(matches!(entities, 768 | 3072 | 6144 | 24576));
-    tier("steady", entities / 12, 120, 120, 1, 1)
+    let (layout, key, per_repeat) = match workload.layout() {
+        Layout::Line => (Layout::Line, "steady", 12),
+        Layout::Junction => (
+            Layout::Junction,
+            "steady-junction",
+            junction::ENTITIES_PER_UNIT,
+        ),
+    };
+    assert_eq!(entities % per_repeat, 0);
+    tier_on(layout, key, entities / per_repeat, 120, 120, 1, 1)
 }
 
 /// The line's last belt: the one that hands the finished component to its consumer.
@@ -165,7 +196,7 @@ fn warmed(spec: &TierSpec, workload: Workload, ticks: u32) -> Factory {
     cold.warmup_ticks = 0;
     let mut factory = warm_factory(&cold);
     match workload {
-        Workload::Active => {}
+        Workload::Active | Workload::Junction => {}
         Workload::Idle => {
             // Explicit synthetic initial state: every switchable machine is suspended before the
             // first tick. Belts and storage start empty. No player command or production change.
@@ -242,7 +273,7 @@ fn measure_reopening_after(
 ) -> SteadyRun {
     assert!(warmup_us.is_finite() && warmup_us >= 0.0);
     assert!(measurement_us.is_finite() && measurement_us > 0.0);
-    let spec = spec(entities);
+    let spec = spec(entities, workload);
     let setup_start = clock.now_us();
     let mut tick = factory(&spec, workload);
     let mut frame = factory(&spec, workload);
@@ -411,8 +442,21 @@ mod tests {
 
     #[test]
     fn workloads_produce_or_rest_and_tick_matches_advance_encode() {
-        let spec = quick_tiers()[0];
-        for workload in [Workload::Active, Workload::Idle, Workload::Blocked] {
+        let line = quick_tiers()[0];
+        // One junction unit, so the workload's own blueprint is driven through the same sampler
+        // rather than asserted about only in `junction`'s tests.
+        let unit = tier_on(Layout::Junction, "steady-junction", 1, 20, 5, 5, 6);
+        for workload in [
+            Workload::Active,
+            Workload::Idle,
+            Workload::Blocked,
+            Workload::Junction,
+        ] {
+            let spec = if workload.layout() == Layout::Junction {
+                unit
+            } else {
+                line
+            };
             let mut tick = factory(&spec, workload);
             let mut frame = factory(&spec, workload);
             let before = tick.core.delivered;
@@ -444,6 +488,14 @@ mod tests {
                     assert_eq!((before, tick.core.delivered), (0, 0));
                     assert_eq!(tick.core.checksum(), 2_518_484_691);
                     assert_eq!(cargo_on_the_line(&tick.core), 96);
+                }
+                // A saturated trunk at one item every five ticks, plus the unmerged crossing lane
+                // at one every thirty: twenty-eight items over a hundred and twenty ticks, every
+                // one of them past a merger or an underpass pair and a splitter.
+                Workload::Junction => {
+                    assert!(tick.core.delivered > before);
+                    assert_eq!(tick.core.delivered - before, 24 + 4);
+                    assert_eq!(tick.core.checksum(), 3_505_976_921);
                 }
             }
         }

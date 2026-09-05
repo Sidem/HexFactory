@@ -1,5 +1,6 @@
 use super::*;
 
+pub mod junction;
 pub mod steady;
 
 /// Monotonic microseconds. Only differences between readings are meaningful, and a platform's
@@ -141,14 +142,28 @@ const IDLE_COMMANDS: &str = "[{\"type\":\"move_intent\",\"x\":0,\"y\":0}]";
 /// Rotation restores a belt's original orientation every six edits.
 const ROTATION_CYCLE: u32 = 6;
 
-/// One measured tier: `lines` independent
-/// `extractor → belts → composer → belt → container → belt → consumer` production lines.
+/// Which blueprint a tier repeats.
+///
+/// The two shapes measure different things and neither stands in for the other. `Line` is the
+/// straight `extractor → belts → composer → belt → container → belt → consumer` chain every
+/// recorded ladder is expressed in, where transport is a directed chain with no arbitration in it
+/// at all. `Junction` is the dense splitter/merger/underpass unit in [`junction`], where the
+/// junction primitives carry the whole of the workload's throughput. A tier names one; nothing
+/// infers it from an entity count.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Layout {
+    Line,
+    Junction,
+}
+
+/// One measured tier: `lines` independent repeats of the layout's blueprint.
 ///
 /// Sample budgets shrink as tiers grow so a complete run stays interactive; per-unit results
 /// stay comparable because every metric is reported per tick, per frame, or per edit.
 #[derive(Clone, Copy, Debug)]
 pub struct TierSpec {
     pub key: &'static str,
+    pub layout: Layout,
     pub lines: u32,
     pub belt_span: u32,
     pub warmup_ticks: u32,
@@ -159,10 +174,14 @@ pub struct TierSpec {
 }
 
 impl TierSpec {
-    /// Entities per line: extractor, transport belts, composer, output belt, container,
-    /// delivery belt, and consumer.
+    /// Entities per repeat of the blueprint: for a line, its extractor, transport belts, composer,
+    /// output belt, container, delivery belt and consumer; for a junction, the fixed
+    /// [`junction::ENTITIES_PER_UNIT`].
     pub fn entities_per_line(&self) -> u32 {
-        self.belt_span + 6
+        match self.layout {
+            Layout::Line => self.belt_span + 6,
+            Layout::Junction => junction::ENTITIES_PER_UNIT,
+        }
     }
 
     pub fn entities(&self) -> u32 {
@@ -261,8 +280,31 @@ fn tier(
     snapshots: u32,
     edits: u32,
 ) -> TierSpec {
+    tier_on(
+        Layout::Line,
+        key,
+        lines,
+        measured_ticks,
+        frames,
+        snapshots,
+        edits,
+    )
+}
+
+/// The same tier on a named layout. Every field but `layout` means what it always did, and
+/// `warmup_ticks` is the layout-independent floor — a workload that needs more says so itself.
+fn tier_on(
+    layout: Layout,
+    key: &'static str,
+    lines: u32,
+    measured_ticks: u32,
+    frames: u32,
+    snapshots: u32,
+    edits: u32,
+) -> TierSpec {
     TierSpec {
         key,
+        layout,
         lines,
         belt_span: 6,
         // Long enough for the first components to reach the consumer, so every tier is timed
@@ -328,32 +370,10 @@ fn placed(
 /// Build the synthetic scenario for a tier. It is an ordinary scenario definition, validated by
 /// the same rules as the shipped catalog.
 pub(crate) fn tier_scenario(spec: &TierSpec) -> ScenarioDefinition {
-    let mut resources = Vec::new();
-    let mut buildings = Vec::new();
-    for line in 0..spec.lines {
-        let r = line as i32 * ROW_PITCH;
-        resources.push(ScenarioResource {
-            q: 0,
-            r,
-            item_id: ORE,
-            quantity: DEPOSIT_QUANTITY,
-        });
-        buildings.push(placed(0, r, EXTRACTOR, None));
-        // Machines stand on more than their anchor now, so the line is laid out from each
-        // one's eastern edge rather than from its anchor. The belt span, the building count
-        // and the order of the chain are unchanged; only the empty ground between them moved.
-        let belt_start = EXTRACTOR_CELLS;
-        for q in belt_start..belt_start + spec.belt_span as i32 {
-            buildings.push(placed(q, r, BELT, None));
-        }
-        let composer_q = belt_start + spec.belt_span as i32;
-        buildings.push(placed(composer_q, r, COMPOSER, Some(COMPONENT_RECIPE)));
-        let tail_q = composer_q + COMPOSER_CELLS;
-        buildings.push(placed(tail_q, r, BELT, None));
-        buildings.push(placed(tail_q + 1, r, CONTAINER, None));
-        buildings.push(placed(tail_q + 2, r, BELT, None));
-        buildings.push(placed(tail_q + 3, r, CONSUMER, None));
-    }
+    let (resources, buildings) = match spec.layout {
+        Layout::Line => line_blueprint(spec),
+        Layout::Junction => junction::blueprint(spec.lines),
+    };
     ScenarioDefinition {
         id: 1,
         key: format!("capacity-{}", spec.key),
@@ -391,10 +411,46 @@ pub(crate) fn tier_scenario(spec: &TierSpec) -> ScenarioDefinition {
             }],
         },
         initial_inventory: Vec::new(),
-        initial_researched: vec![1, 2, 3, 4],
+        // Only what the layout actually places. The line blueprint's set is unchanged, because a
+        // researched technology is core state and widening it would move every recorded checksum.
+        initial_researched: match spec.layout {
+            Layout::Line => vec![1, 2, 3, 4],
+            Layout::Junction => junction::RESEARCHED.to_vec(),
+        },
         resources,
         buildings,
     }
+}
+
+/// The straight-line blueprint: `spec.lines` independent chains, [`ROW_PITCH`] rows apart.
+fn line_blueprint(spec: &TierSpec) -> (Vec<ScenarioResource>, Vec<PlacedBuilding>) {
+    let mut resources = Vec::new();
+    let mut buildings = Vec::new();
+    for line in 0..spec.lines {
+        let r = line as i32 * ROW_PITCH;
+        resources.push(ScenarioResource {
+            q: 0,
+            r,
+            item_id: ORE,
+            quantity: DEPOSIT_QUANTITY,
+        });
+        buildings.push(placed(0, r, EXTRACTOR, None));
+        // Machines stand on more than their anchor now, so the line is laid out from each
+        // one's eastern edge rather than from its anchor. The belt span, the building count
+        // and the order of the chain are unchanged; only the empty ground between them moved.
+        let belt_start = EXTRACTOR_CELLS;
+        for q in belt_start..belt_start + spec.belt_span as i32 {
+            buildings.push(placed(q, r, BELT, None));
+        }
+        let composer_q = belt_start + spec.belt_span as i32;
+        buildings.push(placed(composer_q, r, COMPOSER, Some(COMPONENT_RECIPE)));
+        let tail_q = composer_q + COMPOSER_CELLS;
+        buildings.push(placed(tail_q, r, BELT, None));
+        buildings.push(placed(tail_q + 1, r, CONTAINER, None));
+        buildings.push(placed(tail_q + 2, r, BELT, None));
+        buildings.push(placed(tail_q + 3, r, CONSUMER, None));
+    }
+    (resources, buildings)
 }
 
 /// A warmed core for a tier, advanced far enough that cargo is already flowing.
