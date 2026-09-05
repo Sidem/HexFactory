@@ -362,43 +362,67 @@ Current handoff: **E0 in progress; E1–E7 not started; no scores awarded**. Exe
 `00818b9`, preserving the supplied programme and unrelated `docs/art/world-shape-still.png` deletion.
 The first bounded E0 package was instrumentation and the active/idle reference-size baseline
 (`8db0bf2`). The second is the blocked-then-reopened workload (`df3eb43`) and its recorded
-reference-size distributions. No simulation, save, balance, gameplay or visual optimization landed.
+reference-size distributions. The third is the dense junction workload (`bb41b8b`), its
+collection-time shape guard (`3fea3c2`) and its recorded distributions. No simulation, save, balance,
+gameplay or visual optimization landed.
 
-- Completed: individual native tick and advance/encode distributions for the active, idle and
-  blocked workloads; five independent runs each, with five-second thermal warmups and thirty-second
-  sample windows; setup and the reopening edit separated; raw samples, production/checksums and
-  dirty-mark counts retained. A blocked run reports its blocked and reopened regimes as named phases
-  with independent distributions. Fixture tests pin useful work, resting state, saturation to a
-  byte-identical fixed point, resumption to at least the active production rate, replay identity and
-  timing arithmetic; the packer recomputes every phase percentile and requires a saturated phase to
-  have published nothing. The browser harness measures both snapshot setters separately and labels
+- Completed: individual native tick and advance/encode distributions for the active, idle, blocked
+  and junction workloads; five independent runs each, with five-second thermal warmups and
+  thirty-second sample windows; setup and the reopening edit separated; raw samples,
+  production/checksums and dirty-mark counts retained. A blocked run reports its blocked and reopened
+  regimes as named phases with independent distributions. Fixture tests pin useful work, resting
+  state, saturation to a byte-identical fixed point, resumption to at least the active production
+  rate, replay identity and timing arithmetic; the packer recomputes every phase percentile and
+  requires a saturated phase to have published nothing. The junction workload is a genuinely routed
+  factory rather than a chain relabelled: a twenty-four entity unit, six of them junction primitives,
+  in which four materials merge into one trunk through three chained mergers, cross beneath an
+  independent fifth lane through an underpass pair, and fan out at a splitter. It oversubscribes the
+  trunk on purpose (0.254 offered against 0.2 carried) so arbitration is a standing contest rather
+  than a conflict-free schedule, and one material per lane makes `delivered_by_item` an exact
+  per-lane meter. Tests pin the compiled graph, each lane's production, the trunk's sum against a
+  belt's rate, an empty crossing under the underpass, and an even split where entity-id order would
+  starve a lane to zero; a collection re-counts the tier's mergers, crossings and splitters outside
+  every sample span. The browser harness measures both snapshot setters separately and labels
   historical sums honestly. Its quick-ladder smoke test passed, but concurrent-build timings were
   rejected.
 - Validation: initial `npm run quality` passed (254 TS / 121 Rust); the current recheck passed
-  (255 TS / 127 Rust, plus 14 context tests, audit, map, format, lint, typecheck, build and
+  (255 TS / 133 Rust, plus 14 context tests, audit, map, format, lint, typecheck, build and
   startup). Full output: `docs/benchmarks/e0/quality-final.txt`. Initial environment and payload:
   `docs/benchmarks/e0/environment.json` and `startup-initial.json`. Production asset hashes stayed
-  unchanged. Measurement source/binary identity: `docs/benchmarks/e0/measurement.json`.
-- Reports and method: `docs/BENCHMARKS.md` and `docs/benchmarks/e0/{active,idle,blocked}-6144`
+  unchanged. Measurement source/binary identity, now one entry per collection:
+  `docs/benchmarks/e0/measurement.json`.
+- Reports and method: `docs/BENCHMARKS.md` and `docs/benchmarks/e0/{active,idle,blocked,junction}-6144`
   raw/summary pairs. The schema-1 active/idle records taken at `8db0bf2` were re-collected under the
   phase-aware packer rather than kept unverifiable. Thermal sensors and unrelated-load monitoring are
   still not recorded; these raw measurements remain provisional, not a certified E0 exit.
 - **Missed budgets, recorded not relaxed**: at 6,144 entities the 3,000 µs advance/encode p95 ceiling
-  is exceeded by every blocked run (3,001–3,045 whole-window, 3,335–3,431 in the reopened phase), and
-  the 1,000 µs tick p95 ceiling is exceeded in one blocked phase (1,000.7). Active clears the encode
-  ceiling by 0.8–2.4%. E4 owns these; E0 does not optimize. A jammed factory also costs more per tick
-  than a producing one, which the counters E0 still owes must explain before anything is changed.
-- Open gates: other sizes; the junction, power, outpost and ecology workload shapes; Wasm
-  distributions; native visit/rebuild counters; live edit/extraction/survey/water/camera scripts;
-  real application/UI and GPU/frame/interaction spans; profile/DPR coverage; startup timing matrix;
-  and actual integrated-GPU validation. All existing budgets remain unchanged. The RTX 3060 is not
-  integrated-GPU evidence.
-- Next bounded action: add the dense splitter/merger/underpass junction workload to
-  `factory-wasm/src/capacity/steady.rs`, with executable assertions that cargo actually crosses the
-  junctions and that round-robin arbitration is exercised rather than a straight chain relabelled.
-  Reuse the collector, the phase report and the fixed-clock tests. Then powered production under full
-  and insufficient supply. Finish E0 coverage before E1 or any optimization. The complete programme
-  remains unfinished.
+  is exceeded by every blocked run (3,001–3,045 whole-window, 3,335–3,431 in the reopened phase) and
+  by every junction run by 31–80% (3,920–5,396), and the 1,000 µs tick p95 ceiling is exceeded in one
+  blocked phase (1,000.7) and in junction runs 3–5 (1,129–1,201). Active clears the encode ceiling by
+  0.8–2.4%. E4 owns these; E0 does not optimize. A jammed factory also costs more per tick than a
+  producing one, and a routed one publishes 2,480 entity marks per tick against a line's 1,041 —
+  which the counters E0 still owes must explain before anything is changed.
+- **Open failure, not deferred silently**: the junction collection is rejected as a percentile
+  baseline and kept for its structure. Its five runs deliver an identical 59.74 items per tick, yet
+  runs 3–5 are 8–25% slower than runs 1–2, an ordering a second cold collection reproduced; the rate
+  wanders in both directions inside a run, so it is the host's sustained clock, not the factory
+  settling. The lighter active and blocked collections spread only 3–6%. The encode miss is far
+  larger than the spread and survives; the junction tick p95 result does not and is stated as a
+  range. This host exposes no thermal sensor, so the cause is unestablished.
+- Open gates: other sizes; the power, outpost and ecology workload shapes; a junction collection
+  whose runs agree closely enough to be a baseline; Wasm distributions; native visit/rebuild
+  counters; live edit/extraction/survey/water/camera scripts; real application/UI and
+  GPU/frame/interaction spans; profile/DPR coverage; startup timing matrix; and actual
+  integrated-GPU validation. All existing budgets remain unchanged. The RTX 3060 is not
+  integrated-GPU evidence. Separately, the quality gate compiles Rust only with `cfg(test)` and via a
+  cached `wasm-pack` build, so a warning in the shipped profile can pass it, and clippy across all
+  targets currently reports 61 pre-existing warnings; that is its own bounded package.
+- Next bounded action: add the powered-production workload — full supply and insufficient supply as
+  two measured regimes — to `factory-wasm/src/capacity/`, with executable assertions that machines
+  actually run on metered power and that the deficit regime throttles rather than stops. Reuse the
+  collector, the named-phase report, the fixed-clock tests and the collection-time shape guard. Then
+  the outpost and ecology shapes. Finish E0 coverage before E1 or any optimization. The complete
+  programme remains unfinished.
 
 ### Phase 9 — Living Lattice
 

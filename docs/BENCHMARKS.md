@@ -17,9 +17,11 @@ cargo build --release --manifest-path factory-wasm/Cargo.toml --bin steady
 factory-wasm/target/release/steady.exe active 6144 docs/benchmarks/e0/active-6144.json
 factory-wasm/target/release/steady.exe idle 6144 docs/benchmarks/e0/idle-6144.json
 factory-wasm/target/release/steady.exe blocked 6144 docs/benchmarks/e0/blocked-6144.json
+factory-wasm/target/release/steady.exe junction 6144 docs/benchmarks/e0/junction-6144.json
 node scripts/pack-steady-report.mjs docs/benchmarks/e0/active-6144.json
 node scripts/pack-steady-report.mjs docs/benchmarks/e0/idle-6144.json
 node scripts/pack-steady-report.mjs docs/benchmarks/e0/blocked-6144.json
+node scripts/pack-steady-report.mjs docs/benchmarks/e0/junction-6144.json
 ```
 
 Supported entity counts are 768, 3,072, 6,144 and 24,576. Each invocation creates five independent
@@ -49,9 +51,35 @@ totals rather than one blended percentile; other workloads report a single `stea
 reopening edit's own publication marks land in the first reopened sample, so that sample's encoded
 payload is an edit rather than a tick.
 
+Junction is a different factory rather than the same lines relabelled, because a straight chain
+measures no routing at all. It repeats a twenty-four entity unit in which four lanes carrying four
+materials merge into one trunk through three chained mergers, the trunk dives beneath an independent
+fifth lane through an underpass pair, and a splitter fans it into three branches; six of the
+twenty-four entities are junction primitives and every delivered item has crossed at least one
+merger, one underpass pair and one splitter. The unit divides the ladder exactly — 768, 3,072, 6,144
+and 24,576 entities are 32, 128, 256 and 1,024 units — and repeats without sharing a hex, a reserved
+service envelope or a compiled edge, so a tier's cost is one unit's multiplied.
+
+The four merged lanes deliberately offer 0.254 items a tick into a trunk that carries 0.2, so every
+merger has cargo waiting on both feeders on every tick and the round robin arbitrates a standing
+contest. Under a load the trunk could absorb, deterministic sources phase-lock into a conflict-free
+schedule and the arbitration never runs, which would measure belts wearing merger icons. It is still
+a live steady state and not a jam: the trunk delivers a full belt's throughput indefinitely, with
+backlogs bounded by the belts' lane slots and the extractors' output. Starting state is fixed at 400
+ticks plus a further 1,024 for the mergers' and splitters' cursors to settle into the phase they
+keep; that figure is measured rather than estimated, by requiring an identical throughput window
+after twice the warmup. One material per lane makes the core's own `delivered_by_item` an exact
+per-lane throughput meter, and CI pins the graph the unit compiles, the five lanes' individual
+production over three thousand ticks, the trunk's sum against a belt's rate, that the hex the trunk
+passes beneath never holds a trunk material, and that the two deepest lanes split their merger
+evenly where entity-id order would starve one of them to zero. Before it starts timing, a junction
+collection counts the mergers, crossings and splitters in the factory it built, from the compiled
+graph and outside every sample span, so a routing change that quietly turned the tier into belts
+fails the workload instead of being reported as junction throughput.
+
 Each run records its actual sample/tick count, starting and ending checksum and delivered totals;
 the isolated and encoded paths must have identical canonical checksums. CI pins a twelve-entity
-520-tick replay for all three workloads and checks the supplied-clock arithmetic. It also proves the
+520-tick replay for all four workloads and checks the supplied-clock arithmetic. It also proves the
 blocked workload's two claims directly: a shut line is still working three quarters of the way
 through the saturation wait, is afterwards a fixed point whose entities are byte-identical after 600
 further ticks, and on reopening compiles exactly one outlet per line, drains its backlog and
@@ -67,8 +95,10 @@ phase to have delivered nothing and published no entity or resource mark at all,
 phase to have done both. Finally it verifies gzip round-trip equality. Committed raw records are
 lossless `.json.gz`;
 readable `.summary.json` files carry their uncompressed SHA-256 and per-run statistics. Uncompressed
-duplicates can be removed after successful packing. Source commit, executable hash, exact commands
-and collection limitations are in [`e0/measurement.json`](benchmarks/e0/measurement.json).
+duplicates can be removed after successful packing. Each collection's source commit, executable
+hash, exact commands and limitations are in
+[`e0/measurement.json`](benchmarks/e0/measurement.json), one entry per collection, so a record is
+traceable to the source that produced it rather than to whatever HEAD happens to be.
 
 At `df3eb43`, the reference-size records are
 [active raw](benchmarks/e0/active-6144.json.gz),
@@ -78,7 +108,10 @@ At `df3eb43`, the reference-size records are
 [blocked raw](benchmarks/e0/blocked-6144.json.gz) and
 [blocked summary](benchmarks/e0/blocked-6144.summary.json). They replace the schema-1 active and
 idle records collected at `8db0bf2`, which the phase-aware packer cannot re-verify; the two sets
-agree to within a few per cent, and neither is a regression measurement of the other. Values below
+agree to within a few per cent, and neither is a regression measurement of the other. The junction
+record is separate, collected at `3fea3c2`:
+[junction raw](benchmarks/e0/junction-6144.json.gz) and
+[junction summary](benchmarks/e0/junction-6144.summary.json). Values below
 are microseconds; each sample has one independent tick span and one advance/encode span. Sample
 counts differ because collection uses wall time. These are provisional observations: no builds or
 tests ran during collection, but thermal sensors and unrelated system load were not independently
@@ -101,6 +134,11 @@ monitored.
 | Blocked 3    |  10,702 |       498.4 |    937.6 |               1,522.8 |            3,021.8 |
 | Blocked 4    |  10,513 |       492.2 |    938.5 |               1,549.4 |            3,033.3 |
 | Blocked 5    |  10,578 |       486.0 |    929.8 |               1,536.5 |            3,045.1 |
+| Junction 1   |   8,044 |       601.1 |    799.7 |               3,001.7 |            3,979.1 |
+| Junction 2   |   8,137 |       592.7 |    782.1 |               2,965.4 |            3,919.8 |
+| Junction 3   |   7,281 |       643.2 |  1,128.5 |               3,163.6 |            5,074.1 |
+| Junction 4   |   6,586 |       738.6 |  1,201.1 |               3,589.9 |            5,395.8 |
+| Junction 5   |   6,968 |       700.9 |  1,132.7 |               3,365.9 |            5,090.6 |
 
 A blocked run's window is two regimes and the row above blends them; the phases the record reports
 separately are what the workload actually measured. Every run reopened on sample 3,600.
@@ -120,10 +158,33 @@ separately are what the workload actually measured. Every run reopened on sample
 
 **Two 6,144-entity budgets are missed, and the stages that own them stay open.** The advance/encode
 p95 ceiling of 3,000 µs is exceeded by every blocked run, across the whole window (3,001–3,045) and
-in the reopened phase alone (3,335–3,431); the active workload clears the same ceiling with only
-0.8–2.4% spare. The tick p95 ceiling of 1,000 µs is met across every blocked window but exceeded in
-the blocked phase of run 2 (1,000.7). Nothing is optimized or relaxed here: E0 records the baseline,
-and E4 chooses its target order from it.
+in the reopened phase alone (3,335–3,431), and by every junction run by 31–80% (3,920–5,396); the
+active workload clears the same ceiling with only 0.8–2.4% spare. The tick p95 ceiling of 1,000 µs
+is met across every blocked window but exceeded in the blocked phase of run 2 (1,000.7) and in
+junction runs 3–5 (1,129–1,201). Nothing is optimized or relaxed here: E0 records the baseline, and
+E4 chooses its target order from it.
+
+**The junction record is not usable as a percentile baseline, and is kept for its structure rather
+than its numbers.** Its five runs deliver an identical 59.74 items per tick to two decimal places,
+so the factory does the same work in each; yet runs 3–5 are 8–25% slower per tick than runs 1–2. An
+earlier collection of the same workload, from a cold start on the same host, reproduced the same
+fast-fast-slow-slow-slow ordering. Within a slow run the rate wanders in both directions — run 3
+starts at run 1's speed and degrades, runs 4 and 5 start slow and recover — so this is the host's
+sustained clock rather than the factory's state settling. The active and blocked collections, seven
+times lighter per tick, show a 3–6% spread with no such ordering. This host has no readable thermal
+sensor, so the cause is not established here; what is established is that a workload this heavy is
+outside the range these five-run collections can currently resolve. The budget comparison above
+survives it only because the advance/encode miss is far larger than the spread; the tick p95 result
+does not, and is reported as a range rather than a verdict.
+
+What the junction workload does show is where a routing-dense factory spends. At the same entity
+count it publishes 2,480 entity dirty marks per tick against the active line's 1,041, and its
+advance/encode median is 2,965–3,590 µs against 1,617–1,665 — so the cost lands on the publication
+and encode path rather than on the tick, which rises by only 1.6–1.9×. It also delivers seven times
+as many items per tick, but that is a different factory rather than a speedup: junction units
+extract and consume, while the active line runs the synthetic two-ore composer recipe. Setup is
+4.2–4.9 s per run against the active line's 1.4 s, all of it the 1,424-tick fixed starting state,
+reported outside every sample span.
 
 Three things these records show, and one they do not. A completely jammed factory costs **more** per
 tick than a producing one — 486–515 µs against 370–381 µs across the whole window, and 540–584 µs in
@@ -152,9 +213,10 @@ are not the new sampler's steady-state percentiles. The browser quick ladder was
 Chromium 152, Low, DPR 1: both 12/192-entity merged snapshots were intact and both setter spans were
 present. Its concurrent-build timings are rejected as baseline evidence.
 
-Outstanding E0 gates: the remaining workload shapes — dense junctions, powered production under full
-and insufficient supply, separate outposts with one edited component, and mixed extraction, regrowth,
-river pumping and disturbed water — and the live browser scripts; complete native/Wasm ladder and
+Outstanding E0 gates: the remaining workload shapes — powered production under full and insufficient
+supply, separate outposts with one edited component, and mixed extraction, regrowth, river pumping
+and disturbed water — and a junction collection whose runs agree well enough to be a baseline; the
+live browser scripts; complete native/Wasm ladder and
 five-run browser distributions; real application/UI, GPU, rAF and interaction spans; operation and
 rebuild counters beyond dirty marks; contamination/thermal evidence; desktop profile/DPR matrix;
 integrated-GPU hardware; and warm/cold/throttled startup timing. Historical v0.43 results below are

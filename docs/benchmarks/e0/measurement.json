@@ -1,19 +1,47 @@
 {
-  "source_commit": "df3eb4329ba9c46592c4287585432103011e651f",
-  "recorded": "2026-09-05T15:52:00+02:00",
-  "binary_sha256": "BCAF6AD04F9714786B058293B96C869E12F5904FBD8CB3B207AF869866CA1EFF",
-  "binary_matches_commit": "cargo reported the release binary fresh against the committed tree, with factory-wasm/ and scripts/ clean",
-  "commands": [
-    "factory-wasm/target/release/steady.exe blocked 6144 docs/benchmarks/e0/blocked-6144.json",
-    "factory-wasm/target/release/steady.exe active 6144 docs/benchmarks/e0/active-6144.json",
-    "factory-wasm/target/release/steady.exe idle 6144 docs/benchmarks/e0/idle-6144.json"
-  ],
-  "supersedes": "the schema-1 active/idle records collected at 8db0bf2, which the schema-2 packer cannot re-verify",
-  "conditions": {
-    "unrelated_system_load": "not independently monitored",
-    "acceptance": "provisional, contamination certification pending",
-    "builds_and_tests_during_sampling": false,
-    "benchmark_browser_closed": true,
-    "thermal_sensor": "unavailable"
-  }
+  "schema": 2,
+  "note": "One entry per collection. Each names the commit its release binary was built from, so a record is traceable to the source that produced it rather than to whatever HEAD happens to be.",
+  "collections": [
+    {
+      "records": ["active-6144", "idle-6144", "blocked-6144"],
+      "source_commit": "df3eb4329ba9c46592c4287585432103011e651f",
+      "recorded": "2026-09-05T15:52:00+02:00",
+      "binary_sha256": "BCAF6AD04F9714786B058293B96C869E12F5904FBD8CB3B207AF869866CA1EFF",
+      "binary_matches_commit": "cargo reported the release binary fresh against the committed tree, with factory-wasm/ and scripts/ clean",
+      "commands": [
+        "factory-wasm/target/release/steady.exe blocked 6144 docs/benchmarks/e0/blocked-6144.json",
+        "factory-wasm/target/release/steady.exe active 6144 docs/benchmarks/e0/active-6144.json",
+        "factory-wasm/target/release/steady.exe idle 6144 docs/benchmarks/e0/idle-6144.json"
+      ],
+      "supersedes": "the schema-1 active/idle records collected at 8db0bf2, which the schema-2 packer cannot re-verify",
+      "conditions": {
+        "unrelated_system_load": "not independently monitored",
+        "acceptance": "provisional, contamination certification pending",
+        "builds_and_tests_during_sampling": false,
+        "benchmark_browser_closed": true,
+        "thermal_sensor": "unavailable"
+      }
+    },
+    {
+      "records": ["junction-6144"],
+      "source_commit": "3fea3c2230c66576a8a8f0b06a628325978e9a6c",
+      "recorded": "2026-09-05T14:59:00+02:00",
+      "binary_sha256": "A5065FB50623B8B6352A39C606DA9EF2CF59FE9A1199F5E3339793DA5E5DF476",
+      "binary_matches_commit": "built from the committed tree; the only uncommitted change was the unrelated docs/art/world-shape-still.png deletion, and factory-wasm/ and scripts/ were clean",
+      "commands": [
+        "cargo build --release --manifest-path factory-wasm/Cargo.toml --bin steady",
+        "factory-wasm/target/release/steady.exe junction 6144 docs/benchmarks/e0/junction-6144.json",
+        "node scripts/pack-steady-report.mjs docs/benchmarks/e0/junction-6144.json"
+      ],
+      "supersedes": null,
+      "conditions": {
+        "unrelated_system_load": "not independently monitored",
+        "acceptance": "provisional; rejected as a percentile baseline, see host_clock_wander",
+        "builds_and_tests_during_sampling": false,
+        "benchmark_browser_closed": true,
+        "thermal_sensor": "unavailable",
+        "host_clock_wander": "runs 3 to 5 are 8 to 25 per cent slower per tick than runs 1 and 2 while delivering an identical 59.74 items per tick. An earlier collection of the same workload from the same cold start reproduced the same fast-fast-slow-slow-slow ordering. Within a slow run the rate wanders in both directions - run 3 starts at run 1's speed and degrades, runs 4 and 5 start slow and recover - so it is the host's sustained clock rather than the factory's state. The active and blocked collections, which are seven times lighter per tick, show no such spread."
+      }
+    }
+  ]
 }
