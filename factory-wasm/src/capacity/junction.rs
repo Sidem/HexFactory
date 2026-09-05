@@ -208,6 +208,50 @@ fn at(q: i32, r: i32, definition_id: DefinitionId, orientation: u8) -> PlacedBui
     }
 }
 
+/// The junctions the compiled graph actually contains, counted from the graph rather than from the
+/// blueprint that asked for it: contested mergers, underpass crossings, and splitters.
+///
+/// A merger is an entity two or more entities compiled an edge into; a crossing is an underpass
+/// whose primary target is further than one hex away, which only a bound partner can be; a splitter
+/// is an entity that compiled more than one outgoing edge. Two passes over the edges, so a
+/// collection can afford to check its own factory's shape before it starts timing it.
+pub(crate) fn compiled_junctions(core: &Core) -> (usize, usize, usize) {
+    let mut in_degree = vec![0u32; core.entities.len()];
+    let mut crossings = 0;
+    let mut splitters = 0;
+    for index in 0..core.entities.len() {
+        let mut outgoing = 0;
+        for target in core.graph[index].iter() {
+            in_degree[target] += 1;
+            outgoing += 1;
+        }
+        if outgoing > 1 {
+            splitters += 1;
+        }
+        let from = core.entities[index].placed;
+        if from.definition_id == UNDERPASS {
+            if let Some(target) = core.graph[index].primary() {
+                let to = core.entities[target].placed;
+                let (dq, dr) = (from.q - to.q, from.r - to.r);
+                if (dq.abs() + dr.abs() + (dq + dr).abs()) / 2 > 1 {
+                    crossings += 1;
+                }
+            }
+        }
+    }
+    let mergers = in_degree.iter().filter(|&&degree| degree > 1).count();
+    (mergers, crossings, splitters)
+}
+
+/// What [`compiled_junctions`] must report for a tier of `units`: three chained mergers, one
+/// underpass crossing and one splitter per unit. A collection asserts this on the factory it is
+/// about to time, outside every sample span, so a blueprint or routing change that quietly turned
+/// the tier into a chain of belts fails the workload instead of being measured as one.
+pub(crate) fn expected_junctions(units: u32) -> (usize, usize, usize) {
+    let units = units as usize;
+    (3 * units, units, units)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -319,6 +363,23 @@ mod tests {
                 .count(),
             4
         );
+    }
+
+    /// The guard a collection runs on its own factory counts what the fixture above asserts hex by
+    /// hex, and counts it once per unit rather than once per tier. It is also not something every
+    /// factory satisfies: the line blueprint the rest of the E0 ladder measures compiles no merger,
+    /// no crossing and no splitter at all, which is the whole reason this workload exists.
+    #[test]
+    fn the_collection_shape_guard_separates_a_junction_tier_from_a_chain() {
+        for units in [1, 3] {
+            assert_eq!(
+                compiled_junctions(&core(units, 0)),
+                expected_junctions(units),
+                "a tier of {units} units"
+            );
+        }
+        let line = warm_core(&tier_on(Layout::Line, "steady", 3, 120, 1, 1, 1));
+        assert_eq!(compiled_junctions(&line), (0, 0, 0));
     }
 
     /// Units repeat without touching: no shared hex, no reserved service envelope under another

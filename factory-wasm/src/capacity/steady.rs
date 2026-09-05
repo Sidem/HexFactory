@@ -289,6 +289,18 @@ fn measure_reopening_after(
     let setup_us = first_setup_us + clock.now_us() - setup_start;
     let start_checksum = tick.core.checksum();
     assert_eq!(start_checksum, frame.core.checksum());
+    // The shape this workload claims to measure, checked on the factory about to be timed and
+    // outside every sample span. The blocked workload makes the same statement about its outlets
+    // when it reopens them.
+    if workload == Workload::Junction {
+        for core in [&tick.core, &frame.core] {
+            assert_eq!(
+                junction::compiled_junctions(core),
+                junction::expected_junctions(spec.lines),
+                "the junction tier compiled a different shape"
+            );
+        }
+    }
     let start_delivered = tick.core.delivered;
     let mut tick_samples_us = Vec::new();
     let mut advance_encode_samples_us = Vec::new();
