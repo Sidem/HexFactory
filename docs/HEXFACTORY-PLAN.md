@@ -366,6 +366,34 @@ reference-size distributions. The third is the dense junction workload (`bb41b8b
 collection-time shape guard (`3fea3c2`) and its recorded distributions. No simulation, save, balance,
 gameplay or visual optimization landed.
 
+**E0 is not complete, and E1 has not begun.** E0 exits only when all six of its numbered steps are
+met; two are open entirely and three are partial. Do not start E1, and do not optimize, until this
+list is closed. Status against the stage's own steps:
+
+1. Record environment, HEAD, dirty tree, toolchain and one full quality run, distinguishing
+   pre-existing failures — **done**: `environment.json`, `startup-initial.json`, `quality-final.txt`.
+2. Extend the ladder with named workloads at 768 / 3,072 / 6,144 and a diagnostic 24,576 tier —
+   **partial**: active, idle, blocked-then-reopened and dense junctions exist, are pinned in CI and
+   are recorded, but powered production under full and insufficient supply, separate outposts with
+   one edited component, and mixed extraction, regrowth, river pumping and disturbed water do not
+   exist. Only the 6,144 tier has been collected; the other three sizes have not.
+3. Live browser scripts — **not started**: none of the 100 place/rotate/erase cycles, the
+   sixty-second extraction run, the 100-chunk survey, the 100 ground stamps near water, or the camera
+   pass through outposts exists, in native-command or UI form.
+4. Measure every span end to end — **partial**: the native tick and advance/encode paths are
+   measured, and the renderer's `setSnapshot` omission is corrected without relabelling history, but
+   worker round trip, decode/merge, application update, frame preparation and submission, GPU
+   execution and input-to-visible latency are not, and the real application path is not timed.
+5. Five warmed thirty-second runs per workload, with contamination rejected for a stated reason —
+   **partial**: done for every native workload, and the junction record is rejected on its own
+   evidence rather than kept quietly, but allocations, heap, draw calls, triangles and worst
+   interaction are unmeasured, and thermal contamination stays uncertified on a host with no readable
+   sensor.
+6. Deterministic counters for visited entities and edges, rebuilt graph members, dirty records,
+   meshes rebuilt, instance slots written and panel updates — **not started**: only publication dirty
+   marks exist, which is why this record can say a jammed factory costs more per tick and a routed
+   one publishes more, but not why.
+
 - Completed: individual native tick and advance/encode distributions for the active, idle, blocked
   and junction workloads; five independent runs each, with five-second thermal warmups and
   thirty-second sample windows; setup and the reopening edit separated; raw samples,
@@ -409,20 +437,19 @@ gameplay or visual optimization landed.
   settling. The lighter active and blocked collections spread only 3–6%. The encode miss is far
   larger than the spread and survives; the junction tick p95 result does not and is stated as a
   range. This host exposes no thermal sensor, so the cause is unestablished.
-- Open gates: other sizes; the power, outpost and ecology workload shapes; a junction collection
-  whose runs agree closely enough to be a baseline; Wasm distributions; native visit/rebuild
-  counters; live edit/extraction/survey/water/camera scripts; real application/UI and
-  GPU/frame/interaction spans; profile/DPR coverage; startup timing matrix; and actual
-  integrated-GPU validation. All existing budgets remain unchanged. The RTX 3060 is not
-  integrated-GPU evidence. Separately, the quality gate compiles Rust only with `cfg(test)` and via a
-  cached `wasm-pack` build, so a warning in the shipped profile can pass it, and clippy across all
-  targets currently reports 61 pre-existing warnings; that is its own bounded package.
-- Next bounded action: add the powered-production workload — full supply and insufficient supply as
-  two measured regimes — to `factory-wasm/src/capacity/`, with executable assertions that machines
-  actually run on metered power and that the deficit regime throttles rather than stops. Reuse the
-  collector, the named-phase report, the fixed-clock tests and the collection-time shape guard. Then
-  the outpost and ecology shapes. Finish E0 coverage before E1 or any optimization. The complete
-  programme remains unfinished.
+- Open gates beyond the six steps above: Wasm distributions as well as native; a junction collection
+  whose runs agree closely enough to be a baseline; profile and DPR coverage; the startup timing
+  matrix; and actual integrated-GPU validation — the RTX 3060 is not integrated-GPU evidence. All
+  existing budgets remain unchanged. Separately, the quality gate compiles Rust only with `cfg(test)`
+  and through a cached `wasm-pack` build, so a warning in the shipped profile can pass it, and clippy
+  across all targets currently reports 61 pre-existing warnings; that is its own bounded package.
+- Next bounded action, continuing step 2: add the powered-production workload — full supply and
+  insufficient supply as two measured regimes — to `factory-wasm/src/capacity/`, with executable
+  assertions that machines actually run on metered power and that the deficit regime throttles rather
+  than stops. Reuse the collector, the named-phase report, the fixed-clock tests and the
+  collection-time shape guard. Then the outpost and ecology shapes, then the three uncollected tier
+  sizes, then steps 3, 4 and 6. E1 begins only after E0 exits; nothing here is optimized meanwhile.
+  The complete programme remains unfinished.
 
 ### Phase 9 — Living Lattice
 
