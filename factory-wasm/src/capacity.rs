@@ -1,5 +1,7 @@
 use super::*;
 
+pub mod steady;
+
 /// Monotonic microseconds. Only differences between readings are meaningful, and a platform's
 /// reading may be quantized — the browser clamps `performance.now` unless the page is
 /// cross-origin isolated — so every phase below times many samples at once.

@@ -30,8 +30,8 @@ import {
   mergeBrowserReport,
   probeClockResolutionUs,
   tierRow,
-  timeMeanUs,
 } from "./report";
+import { measureRenderPhases } from "./renderTiming";
 import type {
   BrowserReport,
   HostTierResult,
@@ -251,6 +251,7 @@ async function measureRoundTrip(
     applied_entities: snapshot.buildings.length,
     ...rendered,
     browser_frame_us: hostFrameUs + rendered.render_us,
+    isolated_pipeline_us: hostFrameUs + rendered.preparation_submission_us,
   };
 }
 
@@ -264,11 +265,7 @@ async function measureRoundTrip(
 function measureRender(
   snapshot: FactorySnapshot,
   profile: GraphicsProfile,
-): {
-  render_world_us: number;
-  render_minimap_us: number;
-  render_us: number;
-  render_samples: number;
+): ReturnType<typeof measureRenderPhases> & {
   renderer_name: string;
   graphics_profile: GraphicsProfile;
   draw_calls: number;
@@ -282,22 +279,15 @@ function measureRender(
   const { world, minimap } = renderSurfaces(profile);
   const home = findLandingHub(snapshot);
   world.setHome(home);
-  world.setSnapshot(snapshot);
-  world.draw();
-  const worldTimed = timeMeanUs(() => {
-    world.draw();
-  });
-  minimap.setSnapshot(snapshot, home);
-  minimap.draw();
-  const minimapTimed = timeMeanUs(() => {
-    minimap.draw();
+  const phases = measureRenderPhases({
+    setWorldSnapshot: () => world.setSnapshot(snapshot),
+    drawWorld: () => world.draw(),
+    setMinimapSnapshot: () => minimap.setSnapshot(snapshot, home),
+    drawMinimap: () => minimap.draw(),
   });
   const diagnostics = world.getDiagnostics();
   return {
-    render_world_us: worldTimed.meanUs,
-    render_minimap_us: minimapTimed.meanUs,
-    render_us: worldTimed.meanUs + minimapTimed.meanUs,
-    render_samples: worldTimed.samples,
+    ...phases,
     renderer_name: diagnostics.name,
     graphics_profile: diagnostics.profile,
     draw_calls: diagnostics.drawCalls,

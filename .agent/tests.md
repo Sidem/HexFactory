@@ -47,6 +47,7 @@ Read the named file and a bounded range around the anchor; do not read oversized
 - `tests/playerRig.test.ts` — 111 lines / 4.1 KiB — legs:28
 - `tests/production.test.ts` — 89 lines / 3.2 KiB
 - `tests/recipes.test.ts` — 84 lines / 3.4 KiB — joint:13
+- `tests/renderTiming.test.ts` — 48 lines / 1.2 KiB
 - `tests/saveSlots.test.ts` — 649 lines / 20.3 KiB — envelope:60, memoryStorage:77
 - `tests/snapshotWire.test.ts` — 183 lines / 6.5 KiB — bytesOf:24
 - `tests/sourceGraph.ts` — 39 lines / 1.0 KiB — readAppSource:4, readStyles:29

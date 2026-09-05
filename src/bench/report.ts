@@ -85,8 +85,17 @@ export interface HostTierResult {
   cpu_preparation_us?: number;
   render_p95_us?: number;
   js_heap_bytes?: number;
-  /** `host_frame_us + render_us`: one browser frame, end to end. */
+  /** Historical sum of isolated means, excluding setters; NOT an observed browser frame. */
   browser_frame_us?: number;
+  render_measurement?: "snapshot-and-draw-v1";
+  /** Initial setter cost, including any terrain/shader setup. */
+  snapshot_setup_us?: number;
+  /** Repeated application of the identical snapshot, not changing-state application latency. */
+  snapshot_world_us?: number;
+  snapshot_minimap_us?: number;
+  preparation_submission_us?: number;
+  /** Sum of isolated RPC/merge/setter/draw means; NOT rAF, GPU or presented-frame timing. */
+  isolated_pipeline_us?: number;
 }
 
 export interface BenchEnvironment {
@@ -246,9 +255,9 @@ export const TIER_COLUMNS = [
   "geometries",
   "textures",
   "JS heap MiB",
-  "browser frame µs",
+  "legacy isolated sum µs",
   "sim share",
-  "frame share",
+  "isolated sum / 60 Hz",
 ] as const;
 
 export function tierRow(tier: MergedTierResult): string[] {
