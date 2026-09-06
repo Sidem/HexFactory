@@ -169,6 +169,21 @@ fn validate_definitions(definitions: &DefinitionsInput) -> Result<(), String> {
         }
     }
     for recipe in &definitions.recipes {
+        if let Some(action) = recipe.pasture_action {
+            let valid = recipe.output.quantity == 1 && recipe.co_products.is_empty()
+                && definitions.species.iter().any(|species| match action {
+                    fauna::PastureAction::Harvest => recipe.output.item_id == species.carcass_item
+                        && recipe.inputs.iter().any(|i| i.item_id == species.feed_item && i.quantity > 0),
+                    fauna::PastureAction::Cut | fauna::PastureAction::Restore => recipe.output.item_id == species.feed_item,
+                });
+            if !valid { return Err(format!("recipe {} has invalid pasture work", recipe.id)); }
+            for station in definitions.buildings.iter().filter(|b| b.supports_recipe(recipe)) {
+                if station.manual_work || station.footprint != vec![Coordinate { q: 0, r: 0 }]
+                    || !station.service_envelope.contains(&Coordinate { q: -1, r: 0 }) {
+                    return Err(format!("pasture station {} needs a reserved rear working cell", station.id));
+                }
+            }
+        }
         if recipe.key.trim().is_empty()
             || recipe.name.trim().is_empty()
             || recipe.description.trim().is_empty()

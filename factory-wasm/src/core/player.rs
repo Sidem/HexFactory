@@ -66,6 +66,13 @@ impl Core {
         self.player.move_y = 0;
     }
 
+    /// Drop a click-to-walk route and any held movement, including WASD with no goal.
+    pub(crate) fn halt_motion(&mut self) {
+        self.clear_walk();
+        self.player.move_x = 0;
+        self.player.move_y = 0;
+    }
+
     /// Rebuild the route to the standing goal against the world as it now is.
     ///
     /// Called from [`Core::rebuild_runtime_index`], which every edit and every load funnels through,

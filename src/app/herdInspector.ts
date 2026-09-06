@@ -1,5 +1,9 @@
 import type { Runtime } from "./runtime";
 import { required } from "../ui/dom";
+import { NativePreview } from "./nativePreview";
+import type { HuntPreview } from "../core/types";
+
+const previews = new WeakMap<Runtime, NativePreview<HuntPreview>>();
 
 /** A herd selection follows its stable id, even when its centre leaves the selected hex. */
 export function renderHerdInspector(app: Runtime): boolean {
@@ -7,6 +11,8 @@ export function renderHerdInspector(app: Runtime): boolean {
   const herd = app.snapshot?.herds.find((h) => h.id === app.selectedHerd);
   if (!herd) {
     if (panel) panel.hidden = true;
+    previews.get(app)?.clear();
+    app.renderer.setHuntPreview?.(null);
     return false;
   }
   if (!panel) {
@@ -19,12 +25,25 @@ export function renderHerdInspector(app: Runtime): boolean {
     const cancel = document.createElement("button");
     cancel.id = "inspect-herd-cancel";
     cancel.textContent = "Cancel hunt";
+    const aim = document.createElement("p");
+    aim.id = "inspect-herd-aim";
+    const progress = document.createElement("progress");
+    progress.id = "inspect-herd-progress";
+    progress.setAttribute("aria-label", "Hunting aim");
+    const drive = document.createElement("button");
+    drive.textContent = "Drive herd away";
+    drive.title =
+      "Stand opposite the open gate, drive the herd, then step aside. Feed cannot override fear.";
+    drive.onclick = () => {
+      if (app.selectedHerd !== null)
+        app.enqueue({ type: "drive_herd", herd_id: app.selectedHerd });
+    };
     hunt.onclick = () => {
       if (app.selectedHerd !== null)
         app.enqueue({ type: "hunt_herd", herd_id: app.selectedHerd });
     };
     cancel.onclick = () => app.enqueue({ type: "cancel_hunt" });
-    panel.append(note, hunt, cancel);
+    panel.append(note, aim, progress, hunt, cancel, drive);
     required<HTMLElement>("inspect-sheet").after(panel);
   }
   panel.hidden = false;
@@ -52,13 +71,56 @@ export function renderHerdInspector(app: Runtime): boolean {
       ? " Prolonged shortage: restore access before animals are lost."
       : "") +
     (herd.count < 2
-      ? " No breeding pair; recovery needs migrants from a nearby refuge."
+      ? " No breeding pair; bring another herd before harvesting again."
       : "");
   const hunt = required<HTMLButtonElement>("inspect-herd-hunt");
-  hunt.disabled = herd.hunt_tick > 0;
+  if (panel.dataset.herd !== String(herd.id)) {
+    previews.get(app)?.clear();
+    app.renderer.setHuntPreview?.(null);
+    panel.dataset.herd = String(herd.id);
+    hunt.disabled = true;
+    required<HTMLElement>("inspect-herd-aim").textContent =
+      "Checking hunting reach…";
+  }
   hunt.textContent =
-    herd.hunt_tick > 0 ? "Hunting — hold still" : "Hunt herd (2 s)";
+    herd.hunt_tick > 0 ? "Aiming — hold still" : "Aim and hunt one animal";
   required<HTMLButtonElement>("inspect-herd-cancel").hidden =
     herd.hunt_tick === 0;
+  const remaining = Math.max(0, herd.hunt_tick - (app.snapshot?.tick ?? 0));
+  const progress = required<HTMLProgressElement>("inspect-herd-progress");
+  progress.hidden = remaining === 0;
+  if (remaining > 0) {
+    progress.max = 10;
+    progress.value = 10 - remaining;
+  }
+  let preview = previews.get(app);
+  if (!preview) {
+    preview = new NativePreview();
+    previews.set(app, preview);
+  }
+  // Snapshot identity includes player-only steps and boundary edits, not merely simulation ticks.
+  preview.update(
+    herd.id,
+    () => app.host.huntPreview(herd.id),
+    (value) => {
+      if (app.selectedHerd !== value.herd_id) return;
+      hunt.disabled = !value.ready;
+      required<HTMLElement>("inspect-herd-aim").textContent =
+        value.reason +
+        (value.remaining_ticks
+          ? ` · ${(value.remaining_ticks / 10).toFixed(1)} s left`
+          : " · 1 s at normal simulation speed");
+      const progress = required<HTMLProgressElement>("inspect-herd-progress");
+      progress.hidden = value.remaining_ticks === 0;
+      progress.max = value.duration_ticks;
+      progress.value = value.duration_ticks - value.remaining_ticks;
+      app.renderer.setHuntPreview?.(value);
+    },
+    (error) => {
+      hunt.disabled = true;
+      required<HTMLElement>("inspect-herd-aim").textContent = String(error);
+    },
+    app.snapshot,
+  );
   return true;
 }

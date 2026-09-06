@@ -240,6 +240,37 @@ export function validateDefinitions(
       throw new TypeError(`request ${request.id} is incomplete`);
   }
   for (const recipe of data.recipes) {
+    if (recipe.pasture_action !== undefined) {
+      const action = recipe.pasture_action;
+      if (
+        !["harvest", "cut", "restore"].includes(action) ||
+        recipe.output.quantity !== 1 ||
+        recipe.co_products?.length ||
+        !data.species?.some((species) =>
+          action === "harvest"
+            ? recipe.output.item_id === species.carcass_item &&
+              recipe.inputs.some(
+                (i) => i.item_id === species.feed_item && i.quantity > 0,
+              )
+            : recipe.output.item_id === species.feed_item,
+        )
+      )
+        throw new TypeError(`recipe ${recipe.id} has invalid pasture work`);
+      for (const station of data.buildings.filter((b) =>
+        supportsRecipe(b, recipe),
+      )) {
+        if (
+          station.manual_work ||
+          station.footprint.length !== 1 ||
+          station.footprint[0]?.q !== 0 ||
+          station.footprint[0]?.r !== 0 ||
+          !station.service_envelope?.some((c) => c.q === -1 && c.r === 0)
+        )
+          throw new TypeError(
+            `pasture station ${station.id} needs a reserved rear working cell`,
+          );
+      }
+    }
     if (
       !recipe.key ||
       !recipe.name ||

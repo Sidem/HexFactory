@@ -4,6 +4,8 @@ mod earthworks;
 mod economy;
 mod fauna;
 mod graph;
+mod hunting;
+mod husbandry;
 mod machines;
 mod petroleum;
 mod player;

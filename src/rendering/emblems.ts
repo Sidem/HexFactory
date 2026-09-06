@@ -52,6 +52,10 @@ const GENERIC =
  * should recognise it instantly; the rank rides on top as a badge.
  */
 const BUILDINGS: Record<string, string> = {
+  "herd-station":
+    '<path d="M4 26h24M7 26V12h18v14M7 12l9-7 9 7M11 17h10v5H11zM13 22v4m6-4v4"/>',
+  "pasture-tender":
+    '<path d="M5 27h22M8 27V15h16v12M16 15V5m0 8c-7 0-9-5-9-7 6 0 9 3 9 7Zm0-3c6 0 8-4 8-7-6 0-8 3-8 7Z"/>',
   extractor:
     '<path d="M7 28V14h18v14M7 14l9-6 9 6M16 18v4m-3 0h6l-3 6-3-6ZM4 28h24"/>',
   belt: '<path d="M8 11h16a6 6 0 0 1 0 12H8a6 6 0 0 1 0-12ZM11 17h9m-3-3 3 3-3 3"/>',
@@ -118,6 +122,9 @@ const BUILDINGS: Record<string, string> = {
  * recipe row and a station card can sit next to each other without saying the same thing twice.
  */
 const RECIPE_CATEGORIES: Record<string, string> = {
+  husbandry: '<path d="M6 26V9m20 17V9M6 13h20M6 21h20M12 13v8m8-8v8"/>',
+  pasture:
+    '<path d="M6 27h20M16 27V7m0 12C8 19 5 13 5 8c7 0 11 4 11 11Zm0-3c7 0 11-5 11-10-7 0-11 4-11 10Z"/>',
   assembly: '<path d="M12 7 6 16l6 9M20 7l6 9-6 9M11 16h10m-3-3 3 3-3 3"/>',
   smelting:
     '<path d="M7 9h14l-2 9a5 5 0 0 1-10 0zM19 14c4 0 4 4 4 6m0 0-1.5-2M23 20l1.5-2M10 6V3m5 4V3m5 3V3M6 28h20"/>',

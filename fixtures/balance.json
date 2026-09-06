@@ -1522,13 +1522,13 @@
       "cost_allocation_percent": [75, 25],
       "raw": [
         {
-          "item": "carcass",
+          "item": "water",
           "quantity_milli": 2000
         }
       ],
       "whole_batch_raw": [
         {
-          "item": "carcass",
+          "item": "water",
           "quantity": 2
         }
       ],
@@ -1572,13 +1572,13 @@
       "cost_allocation_percent": [100],
       "raw": [
         {
-          "item": "carcass",
+          "item": "water",
           "quantity_milli": 2000
         }
       ],
       "whole_batch_raw": [
         {
-          "item": "carcass",
+          "item": "water",
           "quantity": 8
         }
       ],
@@ -1595,6 +1595,160 @@
             {
               "item": "charcoal",
               "quantity_milli": 20000
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "recipe": "mow-pasture",
+      "default_for": ["cut-grass"],
+      "inputs": [
+        {
+          "item": "water",
+          "quantity": 1
+        }
+      ],
+      "outputs": [
+        {
+          "item": "cut-grass",
+          "quantity": 1
+        }
+      ],
+      "cost_allocation_percent": [100],
+      "raw": [
+        {
+          "item": "water",
+          "quantity_milli": 1000
+        }
+      ],
+      "whole_batch_raw": [
+        {
+          "item": "water",
+          "quantity": 1
+        }
+      ],
+      "whole_batch_fuel_energy": 0,
+      "source_machines": [],
+      "machines": [
+        {
+          "building": "pasture-tender",
+          "research": [
+            "automated-extraction",
+            "material-processing",
+            "hydrology"
+          ],
+          "duration": 50,
+          "grid_energy": 100,
+          "fuel_energy": 0,
+          "outputs_per_minute": [
+            {
+              "item": "cut-grass",
+              "quantity_milli": 12000
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "recipe": "managed-harvest",
+      "default_for": ["carcass"],
+      "inputs": [
+        {
+          "item": "cut-grass",
+          "quantity": 1
+        }
+      ],
+      "outputs": [
+        {
+          "item": "carcass",
+          "quantity": 1
+        }
+      ],
+      "cost_allocation_percent": [100],
+      "raw": [
+        {
+          "item": "water",
+          "quantity_milli": 1000
+        }
+      ],
+      "whole_batch_raw": [
+        {
+          "item": "water",
+          "quantity": 1
+        }
+      ],
+      "whole_batch_fuel_energy": 0,
+      "source_machines": [],
+      "machines": [
+        {
+          "building": "herd-station",
+          "research": [
+            "automated-extraction",
+            "material-processing",
+            "hydrology"
+          ],
+          "duration": 20,
+          "grid_energy": 40,
+          "fuel_energy": 0,
+          "outputs_per_minute": [
+            {
+              "item": "carcass",
+              "quantity_milli": 30000
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "recipe": "restore-pasture",
+      "default_for": [],
+      "inputs": [
+        {
+          "item": "organic-waste",
+          "quantity": 1
+        },
+        {
+          "item": "water",
+          "quantity": 1
+        }
+      ],
+      "outputs": [
+        {
+          "item": "cut-grass",
+          "quantity": 1
+        }
+      ],
+      "cost_allocation_percent": [100],
+      "raw": [
+        {
+          "item": "water",
+          "quantity_milli": 1500
+        }
+      ],
+      "whole_batch_raw": [
+        {
+          "item": "water",
+          "quantity": 3
+        }
+      ],
+      "whole_batch_fuel_energy": 20,
+      "source_machines": [],
+      "machines": [
+        {
+          "building": "pasture-tender",
+          "research": [
+            "automated-extraction",
+            "material-processing",
+            "hydrology"
+          ],
+          "duration": 80,
+          "grid_energy": 160,
+          "fuel_energy": 0,
+          "outputs_per_minute": [
+            {
+              "item": "cut-grass",
+              "quantity_milli": 7500
             }
           ]
         }
@@ -2188,7 +2342,7 @@
     }
   ],
   "reference": {
-    "definition_version": 31,
+    "definition_version": 32,
     "technology_version": 18,
     "ticks_per_second": 10,
     "player_ticks_per_second": 30,
@@ -3328,6 +3482,67 @@
       "grid_energy_per_minute_milli": 2400000,
       "fuel_energy_per_cycle": 0,
       "fuel_energy_per_minute_milli": 0
+    },
+    {
+      "building": "pasture-tender",
+      "recipe": "mow-pasture",
+      "ticks_per_cycle": 50,
+      "output_item": "cut-grass",
+      "output_per_cycle": 1,
+      "per_minute_milli": 12000,
+      "inputs_per_minute": [
+        {
+          "item": "water",
+          "quantity_milli": 12000
+        }
+      ],
+      "power_draw": 2,
+      "grid_energy_per_cycle": 100,
+      "grid_energy_per_minute_milli": 1200000,
+      "fuel_energy_per_cycle": 0,
+      "fuel_energy_per_minute_milli": 0
+    },
+    {
+      "building": "pasture-tender",
+      "recipe": "restore-pasture",
+      "ticks_per_cycle": 80,
+      "output_item": "cut-grass",
+      "output_per_cycle": 1,
+      "per_minute_milli": 7500,
+      "inputs_per_minute": [
+        {
+          "item": "organic-waste",
+          "quantity_milli": 7500
+        },
+        {
+          "item": "water",
+          "quantity_milli": 7500
+        }
+      ],
+      "power_draw": 2,
+      "grid_energy_per_cycle": 160,
+      "grid_energy_per_minute_milli": 1200000,
+      "fuel_energy_per_cycle": 0,
+      "fuel_energy_per_minute_milli": 0
+    },
+    {
+      "building": "herd-station",
+      "recipe": "managed-harvest",
+      "ticks_per_cycle": 20,
+      "output_item": "carcass",
+      "output_per_cycle": 1,
+      "per_minute_milli": 30000,
+      "inputs_per_minute": [
+        {
+          "item": "cut-grass",
+          "quantity_milli": 30000
+        }
+      ],
+      "power_draw": 2,
+      "grid_energy_per_cycle": 40,
+      "grid_energy_per_minute_milli": 1200000,
+      "fuel_energy_per_cycle": 0,
+      "fuel_energy_per_minute_milli": 0
     }
   ],
   "power": [
@@ -3403,6 +3618,16 @@
           "building": "barrel-station",
           "power_draw": 4,
           "machines": 5
+        },
+        {
+          "building": "pasture-tender",
+          "power_draw": 2,
+          "machines": 10
+        },
+        {
+          "building": "herd-station",
+          "power_draw": 2,
+          "machines": 10
         }
       ]
     },
@@ -3478,6 +3703,16 @@
           "building": "barrel-station",
           "power_draw": 4,
           "machines": 3
+        },
+        {
+          "building": "pasture-tender",
+          "power_draw": 2,
+          "machines": 6
+        },
+        {
+          "building": "herd-station",
+          "power_draw": 2,
+          "machines": 6
         }
       ]
     },
@@ -3553,6 +3788,16 @@
           "building": "barrel-station",
           "power_draw": 4,
           "machines": 6
+        },
+        {
+          "building": "pasture-tender",
+          "power_draw": 2,
+          "machines": 12
+        },
+        {
+          "building": "herd-station",
+          "power_draw": 2,
+          "machines": 12
         }
       ]
     },
@@ -3628,6 +3873,16 @@
           "building": "barrel-station",
           "power_draw": 4,
           "machines": 10
+        },
+        {
+          "building": "pasture-tender",
+          "power_draw": 2,
+          "machines": 20
+        },
+        {
+          "building": "herd-station",
+          "power_draw": 2,
+          "machines": 20
         }
       ]
     }
@@ -4215,44 +4470,44 @@
     },
     {
       "item": "carcass",
-      "depth": 0,
+      "depth": 2,
       "raw": [
         {
-          "item": "carcass",
+          "item": "water",
           "quantity_milli": 1000
         }
       ],
       "raw_units_milli": 1000,
       "fuel_energy_milli": 0,
-      "machine_ticks_milli": 0,
+      "machine_ticks_milli": 70000,
       "effort_milli": 1000
     },
     {
       "item": "organic-waste",
-      "depth": 1,
+      "depth": 3,
       "raw": [
         {
-          "item": "carcass",
+          "item": "water",
           "quantity_milli": 500
         }
       ],
       "raw_units_milli": 500,
       "fuel_energy_milli": 5000,
-      "machine_ticks_milli": 5000,
+      "machine_ticks_milli": 40000,
       "effort_milli": 531
     },
     {
       "item": "cut-grass",
-      "depth": 0,
+      "depth": 1,
       "raw": [
         {
-          "item": "cut-grass",
+          "item": "water",
           "quantity_milli": 1000
         }
       ],
       "raw_units_milli": 1000,
       "fuel_energy_milli": 0,
-      "machine_ticks_milli": 0,
+      "machine_ticks_milli": 50000,
       "effort_milli": 1000
     }
   ],
@@ -5795,6 +6050,116 @@
       "batch_units": 30,
       "batch_fuel_energy": 1120,
       "machine_ticks": 188
+    },
+    {
+      "building": "pasture-tender",
+      "kind": "composer",
+      "tier": 0,
+      "unlock_technology": "hydrology",
+      "direct": [
+        {
+          "item": "stone",
+          "quantity": 6
+        },
+        {
+          "item": "timber",
+          "quantity": 4
+        },
+        {
+          "item": "iron-plate",
+          "quantity": 2
+        }
+      ],
+      "depth": 1,
+      "raw": [
+        {
+          "item": "ore",
+          "quantity_milli": 4000
+        },
+        {
+          "item": "stone",
+          "quantity_milli": 6000
+        },
+        {
+          "item": "wood",
+          "quantity_milli": 2000
+        }
+      ],
+      "raw_units_milli": 12000,
+      "fuel_energy_milli": 160000,
+      "effort_milli": 13000,
+      "batch": [
+        {
+          "item": "ore",
+          "quantity": 4
+        },
+        {
+          "item": "stone",
+          "quantity": 6
+        },
+        {
+          "item": "wood",
+          "quantity": 2
+        }
+      ],
+      "batch_units": 12,
+      "batch_fuel_energy": 160,
+      "machine_ticks": 32
+    },
+    {
+      "building": "herd-station",
+      "kind": "composer",
+      "tier": 0,
+      "unlock_technology": "hydrology",
+      "direct": [
+        {
+          "item": "stone",
+          "quantity": 6
+        },
+        {
+          "item": "timber",
+          "quantity": 4
+        },
+        {
+          "item": "iron-plate",
+          "quantity": 2
+        }
+      ],
+      "depth": 1,
+      "raw": [
+        {
+          "item": "ore",
+          "quantity_milli": 4000
+        },
+        {
+          "item": "stone",
+          "quantity_milli": 6000
+        },
+        {
+          "item": "wood",
+          "quantity_milli": 2000
+        }
+      ],
+      "raw_units_milli": 12000,
+      "fuel_energy_milli": 160000,
+      "effort_milli": 13000,
+      "batch": [
+        {
+          "item": "ore",
+          "quantity": 4
+        },
+        {
+          "item": "stone",
+          "quantity": 6
+        },
+        {
+          "item": "wood",
+          "quantity": 2
+        }
+      ],
+      "batch_units": 12,
+      "batch_fuel_energy": 160,
+      "machine_ticks": 32
     }
   ],
   "curve": [
@@ -5911,6 +6276,22 @@
       "holds": true
     },
     {
+      "building": "herd-station",
+      "follows": "kiln",
+      "relation": "kind",
+      "effort_milli": 13000,
+      "follows_effort_milli": 10500,
+      "holds": true
+    },
+    {
+      "building": "herd-station",
+      "follows": "smelter",
+      "relation": "kind",
+      "effort_milli": 13000,
+      "follows_effort_milli": 11000,
+      "holds": true
+    },
+    {
       "building": "hydro-generator",
       "follows": "burner-generator",
       "relation": "kind",
@@ -5931,6 +6312,22 @@
       "follows": "extractor",
       "relation": "kind",
       "effort_milli": 32000,
+      "follows_effort_milli": 11000,
+      "holds": true
+    },
+    {
+      "building": "pasture-tender",
+      "follows": "kiln",
+      "relation": "kind",
+      "effort_milli": 13000,
+      "follows_effort_milli": 10500,
+      "holds": true
+    },
+    {
+      "building": "pasture-tender",
+      "follows": "smelter",
+      "relation": "kind",
+      "effort_milli": 13000,
       "follows_effort_milli": 11000,
       "holds": true
     },
@@ -6086,7 +6483,7 @@
       "guaranteed_hexes": 60,
       "nearest_generated": 8,
       "reachable": true,
-      "required_by": 42
+      "required_by": 44
     },
     {
       "material": "crystal",
@@ -6118,7 +6515,7 @@
       "guaranteed_hexes": 84,
       "nearest_generated": 16,
       "reachable": true,
-      "required_by": 14
+      "required_by": 16
     },
     {
       "material": "sand",
@@ -6142,7 +6539,7 @@
       "guaranteed_hexes": 114,
       "nearest_generated": 8,
       "reachable": true,
-      "required_by": 22
+      "required_by": 24
     },
     {
       "material": "water",
@@ -6150,7 +6547,7 @@
       "guaranteed_hexes": 0,
       "nearest_generated": 15,
       "reachable": true,
-      "required_by": 3
+      "required_by": 8
     },
     {
       "material": "limestone",
@@ -7693,16 +8090,16 @@
       "insight": 40,
       "gathers": [
         {
-          "item": "carcass",
+          "item": "water",
           "quantity": 8
         }
       ],
       "fuel_items": 1,
       "gather_total": 9,
       "insight_per_gather_milli": 4444,
-      "insight_per_minute_milli": 177778,
-      "machine_ticks": 80,
-      "machine_seconds_milli": 8000
+      "insight_per_minute_milli": 34532,
+      "machine_ticks": 640,
+      "machine_seconds_milli": 64000
     }
   ],
   "budget": {

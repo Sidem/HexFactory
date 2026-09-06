@@ -136,7 +136,11 @@ const SAVE_PREFIX: &str = "HXF1\n";
 /// contributions are guarded on non-empty state, so the original file verifies unchanged. Waste
 /// pressure is not saved — it is a function of the ground items and the item table, so it is
 /// rebuilt on load like the rest of the derived overlay work.
-const SAVE_VERSION: u16 = 46;
+///
+/// Version 47 adds the pasture stations and their recipes. No saved quantity or checksummed field
+/// appears, moves, or is reinterpreted: only the definition stamp advances, so a version-46 factory
+/// hashes exactly as it did and can be assigned the new jobs after load.
+const SAVE_VERSION: u16 = 47;
 /// Bumped to 6 for World Parameters. `WorldParams` is now part of a run's identity — it is in the
 /// save envelope and in the checksum — so a version-5 envelope carries no answer to the question
 /// "which world is this" and is rejected rather than assumed to be the default.

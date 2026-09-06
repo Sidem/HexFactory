@@ -49,6 +49,8 @@ impl Core {
                     Ok(())
                 }
                 InputCommand::CutFeed { q, r } => self.cut_feed(q, r),
+                InputCommand::PlaceFeed { q, r } => self.place_feed(q, r),
+                InputCommand::DriveHerd { herd_id } => self.drive_herd(herd_id),
                 InputCommand::BoundaryEdit { edit } => self.edit_boundaries(&edit),
                 InputCommand::UndoBoundary => self.undo_boundary(),
                 InputCommand::GroundEdit { edit } => self.begin_groundwork(edit),
@@ -225,6 +227,16 @@ impl Core {
                     .is_some_and(|recipe| !self.room_for_recipe(index, recipe)) =>
             {
                 EntityStatus::OutputBlocked
+            }
+            BuildingKind::Composer
+                if entity
+                    .placed
+                    .recipe_id
+                    .and_then(|id| self.recipe(id))
+                    .and_then(|r| r.pasture_action)
+                    .is_some_and(|action| !self.pasture_work_ready(index, action)) =>
+            {
+                EntityStatus::WaitingForInputs
             }
             BuildingKind::Composer if entity.progress > 0 && brownout => EntityStatus::Brownout,
             BuildingKind::Composer if entity.progress > 0 => EntityStatus::Composing,

@@ -428,6 +428,8 @@ describe("data-defined content", () => {
       pump: [1, 2],
       "primitive-furnace": [1, 2],
       "manual-workshop": [1, 2],
+      "pasture-tender": [1, 2],
+      "herd-station": [1, 2],
       // Process machines.
       extractor: [2, 3],
       "extractor-ii": [2, 3],
@@ -562,7 +564,9 @@ describe("data-defined content", () => {
       "crushing",
       "cutting",
       "firing",
+      "husbandry",
       "manual-workshop",
+      "pasture",
       "primitive-smelting",
       "refining",
       "smelting",

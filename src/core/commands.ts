@@ -40,6 +40,10 @@ export function encodeCommand(command: NativeInputCommand): EncodedCommand {
       return { opcode: 38, args: [] };
     case "cut_feed":
       return { opcode: 39, args: [command.q, command.r] };
+    case "place_feed":
+      return { opcode: 40, args: [command.q, command.r] };
+    case "drive_herd":
+      return { opcode: 41, args: [command.herd_id] };
     // Two lattice vertices, a shape and one verb. A vertex is a hex and one of its six corners, so
     // the same point can be named three ways and native folds them together — the host never has to
     // decide which hex "owns" the wall it just drew.

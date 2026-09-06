@@ -12,9 +12,10 @@ import {
   Vector3,
 } from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
-import type { HerdSnapshot } from "../../core/types";
+import type { HerdSnapshot, HuntPreview } from "../../core/types";
 import { WORLD_SCALE } from "../landmarks";
 import { heightAtWorld, type TerrainCell } from "./terrainMeshes";
+import { HuntOverlay } from "./huntOverlay";
 
 /** Render a native leg at frame time; no host animal decisions or quantities. */
 export function herdPosition(
@@ -34,6 +35,8 @@ export function herdPosition(
 
 export class PopulationMeshes {
   readonly group = new Group();
+  private readonly huntOverlay = new HuntOverlay();
+  private readonly pastureOverlay = new HuntOverlay();
   private readonly material = new MeshStandardMaterial({
     color: "#c1ad7e",
     roughness: 1,
@@ -53,6 +56,20 @@ export class PopulationMeshes {
   private readonly rotation = new Quaternion();
   private readonly scale = new Vector3(1, 1, 1);
   private readonly up = new Vector3(0, 1, 0);
+
+  constructor() {
+    this.group.add(this.huntOverlay.group, this.pastureOverlay.group);
+  }
+
+  setPastureWork(point: [number, number] | null): void {
+    this.pastureOverlay.setWork(point);
+    this.pastureOverlay.update(this.terrain);
+  }
+
+  setHuntPreview(preview: HuntPreview | null): void {
+    this.huntOverlay.set(preview);
+    this.huntOverlay.update(this.terrain);
+  }
 
   update(
     herds: readonly HerdSnapshot[],
@@ -94,6 +111,8 @@ export class PopulationMeshes {
     this.bodyHerdIds.length = 0;
     for (const herd of this.identity) {
       const [x, y] = herdPosition(herd, tick);
+      if (herd.id === this.huntOverlay.herdId)
+        this.huntOverlay.update(this.terrain, [x, y]);
       const moving = herd.from[0] !== herd.to[0] || herd.from[1] !== herd.to[1];
       const heading = moving
         ? -Math.atan2(herd.to[1] - herd.from[1], herd.to[0] - herd.from[0])
@@ -130,6 +149,8 @@ export class PopulationMeshes {
   }
 
   dispose(): void {
+    this.huntOverlay.dispose();
+    this.pastureOverlay.dispose();
     this.mesh?.dispose();
     this.geometry.dispose();
     this.material.dispose();

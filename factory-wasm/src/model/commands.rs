@@ -36,6 +36,8 @@ enum InputCommand {
     HuntHerd { herd_id: u32 },
     CancelHunt,
     CutFeed { q: i32, r: i32 },
+    PlaceFeed { q: i32, r: i32 },
+    DriveHerd { herd_id: u32 },
     BoundaryEdit {
         #[serde(flatten)]
         edit: BoundaryEdit,

@@ -92,14 +92,16 @@
       "id": 7,
       "key": "hydrology",
       "name": "Hydrology",
-      "description": "Unlock the pump, fluid pipes, water tanks and barrel handling. Loose water leaves the basin through pipes; sealed barrels may ride belts.",
+      "description": "Unlock the pump, fluid pipes, water tanks and barrel handling. Loose water leaves the basin through pipes; sealed barrels may ride belts. Piped water also runs the pasture tender and herd station.",
       "prerequisites": [5],
       "cost": 12,
       "effects": [
         { "kind": "unlock_building", "building_id": 11 },
         { "kind": "unlock_building", "building_id": 32 },
         { "kind": "unlock_building", "building_id": 34 },
-        { "kind": "unlock_building", "building_id": 36 }
+        { "kind": "unlock_building", "building_id": 36 },
+        { "kind": "unlock_building", "building_id": 37 },
+        { "kind": "unlock_building", "building_id": 38 }
       ],
       "branch": "plumbing",
       "stage": "workshops"

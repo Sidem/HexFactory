@@ -20,6 +20,7 @@ import type {
   Definitions,
   FactorySnapshot,
   GroundPreview,
+  HuntPreview,
   LinePreviewCell,
   PlacementPreview,
   WorldPoint,
@@ -236,6 +237,16 @@ export class ThreeFactoryRenderer implements FactoryRenderer {
 
   setBoundaryPreview(preview: BoundaryPreview | null): void {
     this.boundaries.setPreview(preview);
+    this.markDirty();
+  }
+
+  setHuntPreview(preview: HuntPreview | null): void {
+    this.populations.setHuntPreview(preview);
+    this.markDirty();
+  }
+
+  setPastureWork(point: [number, number] | null): void {
+    this.populations.setPastureWork(point);
     this.markDirty();
   }
 

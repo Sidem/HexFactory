@@ -56,6 +56,8 @@ export function silhouetteOf(
   if (kind === "extractor" && recipeCategory === "oil-extraction")
     return "oil-extraction";
   if (kind === "composer") {
+    if (recipeCategory === "husbandry") return "manual-workshop";
+    if (recipeCategory === "pasture") return "cutting";
     if (recipeCategory === "refining") return "refining";
     if (recipeCategory === "barreling") return "barreling";
     if (recipeCategory === "asphalt-mixing") return "asphalt-mixing";

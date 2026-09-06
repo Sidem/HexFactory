@@ -331,6 +331,17 @@ pub(super) fn migrate<'a>(json: &'a str, target_version: u16) -> Result<Cow<'a, 
         version = 46;
     }
 
+    // Station recipes change catalogue capabilities, not saved quantities or checksums.
+    if version == 46 && target_version >= 47 {
+        if let Some(object) = value.as_object_mut() {
+            object.insert("save_version".into(), Value::from(47));
+            if object.get("definition_version") == Some(&Value::from(31)) {
+                object.insert("definition_version".into(), Value::from(32));
+            }
+        }
+        version = 47;
+    }
+
     if version == target_version {
         return Ok(Cow::Owned(serde_json::to_string(&value).map_err(
             |error| format!("migrated save could not be written: {error}"),

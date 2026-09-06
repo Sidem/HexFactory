@@ -121,7 +121,12 @@ regrowth until the waste is collected or decays.
 
 Wildlife is invisible to `field_at`, `deposit_candidates` and `extractable_deposit`: an extractor cannot
 mine an animal and the player's nearest-gather target cannot be hijacked by a herd walking past. Hunting is
-its own verb producing a carcass on the ground. Construction never refuses a footprint because a herd is
+its own verb: a native preview names reach and readiness, a one-second aim drops one carcass beside the
+herd, and moving or a closed fence cancels or blocks the shot. Placed feed is a `Graze` attractor that
+skips ordinary auto-pickup for its lure window; driving is a stronger, deliberate flee. A pasture station
+owns one reserved rear working cell — occupancy for the building, envelope for the apron — and its recipes
+only finish when that cell is physically ready: a calm surplus animal for harvest, standing grass for a
+cut, or eaten unfouled ground for restoration. Construction never refuses a footprint because a herd is
 standing there — animals yield and walk off on their next decision, which keeps herd state out of the
 construction checksum and undo exact.
 

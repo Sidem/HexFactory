@@ -1,5 +1,5 @@
 {
-  "version": 31,
+  "version": 32,
   "items": [
     {
       "id": 1,
@@ -354,7 +354,7 @@
       "name": "Grazer carcass",
       "color": "#beac78",
       "icon": "lump",
-      "description": "A hunted grazer. Collect and render in a kiln for charcoal and organic waste. Preserve breeding pairs for recovery.",
+      "description": "A hunted or managed grazer. Render in a kiln for charcoal and organic waste. Herd stations preserve a breeding pair; manual hunting does not.",
       "stack_size": 20
     },
     {
@@ -363,7 +363,7 @@
       "name": "Organic waste",
       "color": "#85734a",
       "icon": "grains",
-      "description": "Reclaim in a kiln for charcoal. Loose waste feeds one animal fewer per unit on its hex and every neighbouring hex, until it is collected or decays.",
+      "description": "Reclaim in a kiln for charcoal or supply a pasture tender for restoration. Loose waste suppresses grass recovery on its hex and neighbouring cells until collected or decayed.",
       "stack_size": 20,
       "habitat_damage": 1
     },
@@ -374,7 +374,8 @@
       "color": "#b6b26b",
       "icon": "grains",
       "description": "Cut from recovering pasture. Drop within a reachable pen to feed and lure grazers. One bundle replaces one hundred units of grazing.",
-      "stack_size": 20
+      "stack_size": 20,
+      "production_routes": [28]
     }
   ],
   "recipes": [
@@ -907,7 +908,7 @@
       "id": 26,
       "key": "render-biomatter",
       "name": "Render biomatter",
-      "description": "Render two grazer biomatter into fuel and organic waste. Route both products; reclaim waste before it reaches the riverbank.",
+      "description": "Render two grazer carcasses into fuel and organic waste. Route both products; reclaim waste or supply a pasture tender.",
       "category": "firing",
       "inputs": [
         {
@@ -947,6 +948,67 @@
       },
       "duration": 30,
       "fuel": 20
+    },
+    {
+      "id": 28,
+      "key": "mow-pasture",
+      "name": "Irrigate and cut feed",
+      "description": "Use water to cut 100 grass from the marked rear working cell. Pauses for regrowth instead of exhausting pasture.",
+      "category": "pasture",
+      "inputs": [
+        {
+          "item_id": 10,
+          "quantity": 1
+        }
+      ],
+      "output": {
+        "item_id": 38,
+        "quantity": 1
+      },
+      "duration": 50,
+      "pasture_action": "cut"
+    },
+    {
+      "id": 29,
+      "key": "managed-harvest",
+      "name": "Harvest pasture surplus",
+      "description": "Lure grazers to the rear feed apron. Process one calm, healthy surplus animal physically present there; always leave two breeding animals in its herd.",
+      "category": "husbandry",
+      "inputs": [
+        {
+          "item_id": 38,
+          "quantity": 1
+        }
+      ],
+      "output": {
+        "item_id": 36,
+        "quantity": 1
+      },
+      "duration": 20,
+      "pasture_action": "harvest"
+    },
+    {
+      "id": 30,
+      "key": "restore-pasture",
+      "name": "Restore eaten pasture",
+      "description": "Recover 100 missing grass on the rear working cell with water and reclaimed nutrients; pack one bundle of feed. Stops on healthy or still-fouled ground.",
+      "category": "pasture",
+      "inputs": [
+        {
+          "item_id": 37,
+          "quantity": 1
+        },
+        {
+          "item_id": 10,
+          "quantity": 1
+        }
+      ],
+      "output": {
+        "item_id": 38,
+        "quantity": 1
+      },
+      "duration": 80,
+      "pasture_action": "restore"
     }
   ],
   "buildings": [
@@ -2497,6 +2559,88 @@
           "r": 1
         }
       ]
+    },
+    {
+      "id": 37,
+      "key": "pasture-tender",
+      "name": "Pasture tender",
+      "kind": "composer",
+      "description": "Irrigates and cuts feed, or reuses waste to restore eaten ground. The reserved cell behind the station is its working pasture. Pipe in water, supply nutrients for restoration, and route feed from the front.",
+      "icon": "PST",
+      "recipe_category": "pasture",
+      "capacity": 20,
+      "power_draw": 2,
+      "construction_cost": [
+        {
+          "item_id": 6,
+          "quantity": 6
+        },
+        {
+          "item_id": 16,
+          "quantity": 4
+        },
+        {
+          "item_id": 11,
+          "quantity": 2
+        }
+      ],
+      "unlock_technology_id": 7,
+      "placement_rule": "ground",
+      "buildable": true,
+      "blocks_movement": true,
+      "footprint": [
+        {
+          "q": 0,
+          "r": 0
+        }
+      ],
+      "service_envelope": [
+        {
+          "q": -1,
+          "r": 0
+        }
+      ]
+    },
+    {
+      "id": 38,
+      "key": "herd-station",
+      "name": "Herd station",
+      "kind": "composer",
+      "description": "An unattended feeding and harvest station. Lead animals into a pasture with drinking access. Belt cut feed into the station; its rear apron attracts and feeds grazers. Harvest pauses at a reserve of two animals per herd or when animals are distressed. Carcasses leave the front.",
+      "icon": "HRD",
+      "recipe_category": "husbandry",
+      "capacity": 20,
+      "power_draw": 2,
+      "construction_cost": [
+        {
+          "item_id": 6,
+          "quantity": 6
+        },
+        {
+          "item_id": 16,
+          "quantity": 4
+        },
+        {
+          "item_id": 11,
+          "quantity": 2
+        }
+      ],
+      "unlock_technology_id": 7,
+      "placement_rule": "ground",
+      "buildable": true,
+      "blocks_movement": true,
+      "footprint": [
+        {
+          "q": 0,
+          "r": 0
+        }
+      ],
+      "service_envelope": [
+        {
+          "q": -1,
+          "r": 0
+        }
+      ]
     }
   ],
   "requests": [
@@ -2747,7 +2891,7 @@
       "id": 28,
       "key": "living-riverbank",
       "name": "Living riverbank programme",
-      "brief": "Deliver four organic waste from biomatter rendering to study a closed recovery loop. A herd is a handful of animals, so take from several and leave breeding pairs in each; reclaim later waste in a kiln.",
+      "brief": "Deliver four organic waste from carcass rendering. For an unattended line, place a herd station beside healthy pasture with drinking access, supply cut feed, and route carcasses to a kiln. Leave breeding pairs; reclaim or reuse later waste.",
       "item_id": 37,
       "quantity": 4,
       "insight": 40

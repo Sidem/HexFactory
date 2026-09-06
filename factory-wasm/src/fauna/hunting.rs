@@ -1,37 +1,76 @@
 //! Explicit herd targeting and tick-owned windup. Ordinary gathering never targets wildlife.
 use super::*;
 
+pub(crate) const HUNT_REACH: i32 = 5000;
+pub(crate) const HUNT_TICKS: u64 = 10;
+
+#[derive(Serialize)]
+pub(crate) struct HuntPreview {
+    pub herd_id: u32,
+    pub point: (i32, i32),
+    pub player: (i32, i32),
+    pub reach: i32,
+    pub ready: bool,
+    pub reason: String,
+    pub remaining_ticks: u64,
+    pub duration_ticks: u64,
+}
+
 impl Core {
-    pub(crate) fn hunt_herd(&mut self, id: u32) -> Result<(), String> {
-        if self.herds.values().any(|h| h.hunt_tick > 0) {
-            return Err("A hunt is already in progress".into());
-        }
+    pub(crate) fn hunt_preview(&self, id: u32) -> Result<HuntPreview, String> {
         let herd = self.herds.get(&id).ok_or("That herd has moved away")?;
         let point = herd.position(self.tick);
-        if squared_distance(self.player.x, self.player.y, point.0, point.1) > 3500i64.pow(2)
-            || self.boundary_blocks_segment((self.player.x, self.player.y), point)
-        {
-            return Err("Walk within hunting reach with a clear line to the herd".into());
+        let reason = if self.player.move_x != 0 || self.player.move_y != 0 {
+            "Ready to stop and aim"
+        } else {
+            "Ready — aim for one second, then the herd scatters"
+        };
+        let blocked = self.boundary_blocks_segment((self.player.x, self.player.y), point);
+        let far = squared_distance(self.player.x, self.player.y, point.0, point.1)
+            > i64::from(HUNT_REACH).pow(2);
+        let alarmed = herd.alarm > 30;
+        let aiming = self
+            .herds
+            .values()
+            .find(|h| h.hunt_tick > 0)
+            .map(|h| h.hunt_tick.saturating_sub(self.tick))
+            .unwrap_or(0);
+        let reason = if far {
+            "Move closer — keep the herd inside the hunting ring"
+        } else if blocked {
+            "Blocked — open the gate or find a clear line"
+        } else if aiming > 0 {
+            "Aiming — hold still; moving cancels"
+        } else if alarmed {
+            "Herd alarmed — step back and let it settle"
+        } else {
+            reason
+        };
+        Ok(HuntPreview {
+            herd_id: id,
+            point,
+            player: (self.player.x, self.player.y),
+            reach: HUNT_REACH,
+            ready: !far && !blocked && !alarmed && aiming == 0,
+            reason: reason.into(),
+            remaining_ticks: aiming,
+            duration_ticks: HUNT_TICKS,
+        })
+    }
+
+    pub(crate) fn hunt_herd(&mut self, id: u32) -> Result<(), String> {
+        let preview = self.hunt_preview(id)?;
+        if !preview.ready {
+            return Err(preview.reason);
         }
-        self.cancel_hunt();
+        self.halt_motion();
+        self.set_aim(preview.point.0, preview.point.1)?;
         let herd = self.herds.get_mut(&id).expect("herd");
-        if let Some(ids) = self.herd_arrivals.get_mut(&herd.arrive_tick) {
-            ids.remove(&id);
-        }
-        herd.from = point;
-        herd.to = point;
-        herd.left_tick = self.tick;
-        herd.arrive_tick = self.tick + 1;
-        herd.hunt_tick = self.tick + 20;
-        herd.alarm = 200;
-        herd.drive = Drive::Flee;
-        self.herd_arrivals
-            .entry(herd.arrive_tick)
-            .or_default()
-            .insert(id);
+        // Aiming does not freeze the animal or make it flee before the player can release.
+        herd.hunt_tick = self.tick + HUNT_TICKS;
         self.dirty.herds.push(id);
         self.events
-            .push("Hunting herd — hold still for two seconds; moving cancels".into());
+            .push("Aiming at herd — hold still for one second; moving cancels".into());
         Ok(())
     }
 
@@ -39,6 +78,7 @@ impl Core {
         for herd in self.herds.values_mut().filter(|h| h.hunt_tick > 0) {
             herd.hunt_tick = 0;
             self.dirty.herds.push(herd.id);
+            self.events.push("Hunt cancelled".into());
         }
     }
 
@@ -46,18 +86,15 @@ impl Core {
         let ids: Vec<_> = self
             .herds
             .values()
-            .filter(|h| {
-                h.hunt_tick > 0
-                    && h.hunt_tick <= self.tick
-                    && (h.from == h.to || h.arrive_tick <= self.tick)
-            })
+            .filter(|h| h.hunt_tick > 0 && h.hunt_tick <= self.tick)
             .map(|h| h.id)
             .collect();
         for id in ids {
             let mut herd = self.herds.remove(&id).expect("herd");
             let point = herd.position(self.tick);
             herd.hunt_tick = 0;
-            if squared_distance(self.player.x, self.player.y, point.0, point.1) <= 3500i64.pow(2)
+            if squared_distance(self.player.x, self.player.y, point.0, point.1)
+                <= i64::from(HUNT_REACH).pow(2)
                 && !self.boundary_blocks_segment((self.player.x, self.player.y), point)
             {
                 let item = self
@@ -80,7 +117,21 @@ impl Core {
             } else {
                 self.events.push("The herd escaped hunting reach".into());
             }
+            // Resolve at the advertised tick, even halfway along a leg, then scatter survivors.
+            if let Some(ids) = self.herd_arrivals.get_mut(&herd.arrive_tick) {
+                ids.remove(&id);
+            }
+            herd.from = point;
+            herd.to = point;
+            herd.left_tick = self.tick;
+            herd.arrive_tick = self.tick + 1;
+            herd.alarm = 200;
+            herd.drive = Drive::Flee;
             if herd.count > 0 {
+                self.herd_arrivals
+                    .entry(herd.arrive_tick)
+                    .or_default()
+                    .insert(id);
                 self.herds.insert(id, herd);
             }
             self.dirty.herds.push(id);
@@ -88,11 +139,9 @@ impl Core {
     }
 
     pub(crate) fn cut_feed(&mut self, q: i32, r: i32) -> Result<(), String> {
-        if !self.within_world_range(q, r, 2500) || self.player.action_cooldown > 0 {
-            return Err("Walk closer and finish the current action before cutting grass".into());
-        }
-        if self.grass_stock(q, r) < 100 {
-            return Err("Let this pasture recover before cutting more feed".into());
+        let preview = self.pasture_preview(q, r);
+        if !preview.can_cut {
+            return Err(preview.reason);
         }
         let item = self
             .definitions
@@ -101,8 +150,10 @@ impl Core {
             .ok_or("No grazing species defined")?
             .feed_item;
         self.graze_grass(q, r, 100);
-        self.add_ground_item(q, r, item, 1);
+        *self.player.inventory.entry(item).or_default() += 1;
         self.player.action_cooldown = 30;
+        self.events
+            .push("Cut feed packed — select ground and place feed to lure a herd".into());
         Ok(())
     }
 }

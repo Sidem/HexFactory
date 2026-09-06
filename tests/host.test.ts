@@ -463,6 +463,26 @@ describe("bounded host input", () => {
       opcode: 16,
       args: [1],
     });
+    expect(encodeCommand({ type: "hunt_herd", herd_id: 9 })).toEqual({
+      opcode: 37,
+      args: [9],
+    });
+    expect(encodeCommand({ type: "cancel_hunt" })).toEqual({
+      opcode: 38,
+      args: [],
+    });
+    expect(encodeCommand({ type: "cut_feed", q: 4, r: -1 })).toEqual({
+      opcode: 39,
+      args: [4, -1],
+    });
+    expect(encodeCommand({ type: "place_feed", q: 4, r: -1 })).toEqual({
+      opcode: 40,
+      args: [4, -1],
+    });
+    expect(encodeCommand({ type: "drive_herd", herd_id: 9 })).toEqual({
+      opcode: 41,
+      args: [9],
+    });
 
     const main = readAppSource();
     const renderer = readFileSync(

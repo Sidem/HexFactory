@@ -50,6 +50,17 @@ impl Factory {
         self.core.tick_many(count.min(240));
     }
 
+    pub fn hunt_preview_json(&self, herd_id: u32) -> Result<String, JsValue> {
+        Ok(
+            serde_json::to_string(&self.core.hunt_preview(herd_id).map_err(js_error)?)
+                .expect("hunt preview serializes"),
+        )
+    }
+
+    pub fn pasture_preview_json(&self, q: i32, r: i32) -> String {
+        serde_json::to_string(&self.core.pasture_preview(q, r)).expect("pasture preview serializes")
+    }
+
     pub fn reset(&mut self) -> Result<(), JsValue> {
         // Reset restarts the run, not the mode: a creative sandbox that came back priced would be
         // the one button a creative player cannot press.

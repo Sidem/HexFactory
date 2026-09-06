@@ -130,6 +130,9 @@ struct RecipeDefinition {
     /// every recipe that needs no heat, which is what keeps charcoal reachable without coal.
     #[serde(default)]
     fuel: u32,
+    /// Physical work on the marked pasture cell, in addition to the inventory recipe.
+    #[serde(default)]
+    pasture_action: Option<fauna::PastureAction>,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]

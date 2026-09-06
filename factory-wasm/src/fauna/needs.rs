@@ -47,7 +47,7 @@ impl Core {
         let here = herd.position(self.tick);
         let cell = world_to_axial(here.0, here.1);
         let elapsed = self.tick.saturating_sub(herd.left_tick).min(300) as u16;
-        herd.hunger = herd.hunger.saturating_add(elapsed / 2).min(2000);
+        herd.hunger = herd.hunger.saturating_add(elapsed / 8).min(2000);
         herd.thirst = herd.thirst.saturating_add(elapsed / 3).min(2000);
         herd.alarm = herd.alarm.saturating_sub(elapsed);
         let species = self
@@ -63,16 +63,30 @@ impl Core {
             }
             if herd.hunger > 0 {
                 let feed = self.ground_items.iter().position(|i| {
-                    (i.q, i.r) == cell && i.item_id == species.feed_item && i.quantity > 0
+                    (i.q, i.r) == cell
+                        && i.item_id == species.feed_item
+                        && i.quantity > 0
+                        && u32::from(herd.hunger) * u32::from(herd.count) >= 100
                 });
                 if let Some(index) = feed {
                     self.ground_items[index].quantity -= 1;
                     self.ground_items.retain(|i| i.quantity > 0);
                     self.dirty.ground_items = true;
-                    herd.hunger = herd.hunger.saturating_sub(100);
+                    herd.hunger = herd.hunger.saturating_sub(100 / herd.count.max(1));
+                } else if let Some(station) = self
+                    .pasture_feeder(cell, species.feed_item)
+                    .filter(|_| u32::from(herd.hunger) * u32::from(herd.count) >= 100)
+                {
+                    self.subtract_stock(station, StockKind::Input, species.feed_item, 1);
+                    self.dirty.entities.push(self.entities[station].id);
+                    herd.hunger = herd.hunger.saturating_sub(100 / herd.count.max(1));
                 } else {
-                    let eaten = self.graze_grass(cell.0, cell.1, herd.count.saturating_mul(20));
-                    herd.hunger = herd.hunger.saturating_sub(eaten);
+                    let eaten = self.graze_grass(
+                        cell.0,
+                        cell.1,
+                        herd.count.saturating_mul(herd.hunger.min(100)),
+                    );
+                    herd.hunger = herd.hunger.saturating_sub(eaten / herd.count.max(1));
                 }
             }
         }
@@ -112,7 +126,17 @@ impl Core {
             Drive::Flee
         } else if herd.thirst >= 400 || herd.drive == Drive::Thirst && herd.thirst > 80 {
             Drive::Thirst
-        } else if herd.hunger >= 60 || herd.drive == Drive::Graze && herd.hunger > 10 {
+        } else if herd.hunger >= 60
+            || herd.drive == Drive::Graze && herd.hunger > 10
+            || self.ground_items.iter().any(|i| {
+                i.item_id == species.feed_item
+                    && i.quantity > 0
+                    && axial_distance(cell, (i.q, i.r)) <= 4
+            })
+            || hexes_in_radius(cell, 4)
+                .into_iter()
+                .any(|at| self.pasture_feeder(at, species.feed_item).is_some())
+        {
             Drive::Graze
         } else {
             Drive::Rest
@@ -161,9 +185,10 @@ impl Core {
                     .then_some(10_000 - i64::from(distance) * 100),
                 Drive::Graze => {
                     let grass = self.grass_stock(at.0, at.1);
-                    let feed = self.ground_items.iter().any(|i| {
-                        (i.q, i.r) == at && i.item_id == species.feed_item && i.quantity > 0
-                    });
+                    let feed = self.pasture_feeder(at, species.feed_item).is_some()
+                        || self.ground_items.iter().any(|i| {
+                            (i.q, i.r) == at && i.item_id == species.feed_item && i.quantity > 0
+                        });
                     (grass > 0 || feed).then_some(
                         i64::from(grass) + if feed { 2000 } else { 0 } - i64::from(distance) * 80,
                     )
@@ -242,7 +267,8 @@ impl Core {
                 let point = h.position(self.tick);
                 h.alarm == 0
                     && squared_distance(point.0, point.1, self.player.x, self.player.y)
-                        < i64::from(species.flight_distance).pow(2)
+                        < i64::from(species.flight_distance / 2).pow(2)
+                    && !self.boundary_blocks_segment((self.player.x, self.player.y), point)
             })
             .map(|h| h.id)
             .collect();
@@ -255,7 +281,7 @@ impl Core {
             h.to = h.from;
             h.left_tick = self.tick;
             h.arrive_tick = self.tick + 1;
-            h.alarm = 80;
+            h.alarm = 20;
             h.drive = Drive::Flee;
             self.herd_arrivals
                 .entry(h.arrive_tick)

@@ -213,6 +213,12 @@ impl Core {
                 if !self.room_for_recipe(index, recipe) {
                     return false;
                 }
+                if recipe
+                    .pasture_action
+                    .is_some_and(|action| !self.pasture_work_ready(index, action))
+                {
+                    return false;
+                }
                 // Mid-craft always wants power: the inputs are already spent and the only thing
                 // between the machine and its output is time it has to be paid for.
                 if entity.progress > 0 {

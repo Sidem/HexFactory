@@ -33,7 +33,8 @@ contracts, researches technology and personal skills, and builds a powered facto
 factory includes manual and fuelled work, electricity, multi-output recipes, belts, junctions,
 underpasses, pipes, storage, walls, gates, paving, roads, bridges, earthworks, and deterministic
 save/restore. Forests deplete and regrow; disturbed rivers settle and erode through bounded native
-work rather than a global water tick.
+work rather than a global water tick. Wildlife lives as free-moving herds on a grass stock: the
+player can hunt, drive, lure with placed feed, and later run a pasture tender and herd station.
 
 One construction hex is 25 m² and one height quantum is 0.25 m. Rust/Wasm owns world and simulation
 truth; TypeScript sends bounded commands and renders native snapshots. The detailed contract is in
@@ -41,14 +42,14 @@ truth; TypeScript sends bounded commands and renders native snapshots. The detai
 
 | Envelope        | Current |
 | --------------- | ------: |
-| Save (`HXF1`)   |      46 |
-| Definitions     |      31 |
+| Save (`HXF1`)   |      47 |
+| Definitions     |      32 |
 | Technologies    |      18 |
 | Scenarios       |       8 |
 | World generator |      16 |
 | Snapshot wire   |      26 |
 
-The latest shipped milestone is **v0.47.0 Flowing Water**. Older 1 m² worlds and worlds from another
+The latest shipped milestone is **v0.48.0 Living Lattice**. Older 1 m² worlds and worlds from another
 generator version remain exportable but are not remapped. Same-generator 25 m² save formats migrate
 through explicit adjacent steps.
 
@@ -91,8 +92,8 @@ Remaining broad prototype wiring, rendering rebuilds, and context-debt exception
 blockers. Do not reopen an audit or benchmark programme without a concrete problem. Existing raw E0
 evidence remains in [BENCHMARKS.md](BENCHMARKS.md), with its limitations intact.
 
-**Active: Phase 9 — Living Lattice.** The first playable ecology loop is implemented in the working
-tree. Phases 10–13 remain future work.
+**Active: Phase 9 — Living Lattice.** The first playable ecology loop is in the shipped build.
+Phases 10–13 remain future work.
 
 ### Phase 9 — Living Lattice
 
@@ -117,13 +118,20 @@ buildings shape, so a walking herd never resends the resource table.
 The existing kiln renders biomatter into charcoal and organic waste, then reclaims waste into charcoal.
 Loose waste raises fouling on its hex and ring, suppressing regrowth until collected or decayed. The
 finite Living riverbank programme asks for twelve waste and pays forty insight; post-contract guidance
-expands its production route. Save 45 migrates to 46 without changing stock. The balance fixture records
+expands its production route. Save 45 migrates to 46 without changing stock; save 46 migrates to 47 by
+advancing the definition stamp for the pasture stations. The balance fixture records
 the new routes and programme, and the fauna items are excluded from the field survey because neither a
 carcass nor cut feed is in one place. Broader ecology pacing remains a playtest question; this change
 makes no new scale or performance claim.
 
-Still open in Phase 9: luring with placed feed, and the pen and driving affordances built on it. No
-player-facing hunt control is bound yet — the core verb exists and the inspector calls it.
+Hunting is a native one-second aim from the herd inspector: starting it stops a click-to-walk
+route, moving cancels, and a fence that closes during the windup blocks the kill. Cut feed can be
+packed by hand or mown by a pasture tender, then placed as a lure; a herd station feeds a physical
+apron and harvests only a calm surplus while keeping two breeding animals. A lone survivor can
+reunite with a nearby compatible herd; an emptied region still needs a living source brought in.
+
+Still open in Phase 9: the finite ecology programme's recovery-or-yield qualification, guidance for
+the unattended loop, and a committed measurement that a correct ecological line runs unattended.
 
 - Derive a scarce fertile-riverbank ground tag from native drainage, elevation, and water state.
 - Add deterministic animal populations that move, feed, breed toward local carrying capacity,

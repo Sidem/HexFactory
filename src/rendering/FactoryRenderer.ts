@@ -8,6 +8,7 @@ import type {
   EntitySnapshot,
   FactorySnapshot,
   GroundPreview,
+  HuntPreview,
   LinePreviewCell,
   PlacementPreview,
   WorldPoint,
@@ -99,6 +100,8 @@ export interface FactoryRenderer {
   pick(clientX: number, clientY: number): AxialCoordinate;
   pickWorld(clientX: number, clientY: number): WorldPoint;
   pickHerd?(clientX: number, clientY: number): number | null;
+  setHuntPreview?(preview: HuntPreview | null): void;
+  setPastureWork?(point: [number, number] | null): void;
   /** Convert an on-screen direction into a unit direction on the native world plane. */
   screenMovement(x: number, y: number): WorldPoint;
   /** Turn and tilt continuously by a screen-space pointer delta. */

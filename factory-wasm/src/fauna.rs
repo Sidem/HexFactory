@@ -1,6 +1,9 @@
 //! Native mobile herds. Wildlife never participates in the resource field or extractor graph.
 use super::*;
-mod hunting;
+pub(crate) mod hunting;
+mod husbandry;
+mod interaction;
+pub(crate) use husbandry::PastureAction;
 mod needs;
 mod pasture;
 
@@ -234,6 +237,7 @@ impl Core {
                     continue;
                 };
                 let here = herd.position(self.tick);
+                self.reunite_lone_grazer(&mut herd);
                 let hash = coordinate_hash(
                     self.seed ^ self.tick as u32,
                     id as i32,
@@ -258,7 +262,11 @@ impl Core {
                         distance
                             .div_ceil(
                                 u64::from(species.speed)
-                                    * if herd.drive == Drive::Flee { 2 } else { 1 },
+                                    * if herd.drive == Drive::Flee && herd.alarm > 30 {
+                                        2
+                                    } else {
+                                        1
+                                    },
                             )
                             .max(1)
                     };

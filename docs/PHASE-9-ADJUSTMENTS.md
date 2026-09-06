@@ -6,10 +6,11 @@
 > rules into [`ARCHITECTURE.md`](ARCHITECTURE.md) and [`ART.md`](ART.md) and delete both temporary files
 > in the change that completes the final Phase 9 gate. Not part of the permanent document set.
 
-**Status:** slices A1–A4 implemented, A5 not started. Population-as-resource-field is gone: herds are
+**Status:** slices A1–A5 implemented. Population-as-resource-field is gone: herds are
 free-moving agents, grass is a sparse stock, and `population_capacity` no longer exists. Wire version
-26, save version 46, definitions version 31. Wire 26 carries the riverbank, split out of the shore band
-so the player can see the fresh water the animals steer to.
+26, save version 47, definitions version 32. Wire 26 carries the riverbank, split out of the shore band
+so the player can see the fresh water the animals steer to. Save 47 is the pasture-station catalogue
+step: no saved quantity moves.
 
 Two rulings were settled against this document while implementing it, both recorded in code comments
 at the point they bind:
@@ -363,11 +364,12 @@ player loop is accepted only after automation, processing and recovery are integ
 - [x] **Slice A3 — alive.** `Thirst` and `Flee`. Player proximity now matters.
 - [x] **Slice A4 — economy.** Hunt, carcass, butcher. Retire biomatter-as-ore and reconnect the kiln and hub
       request to real yields.
-- [ ] **Slice A5 — husbandry substrate.** Boundaries block creatures; feed lures. Pens and driving fall out
-      of existing systems; Phase 10 inherits a working substrate. Half of it is already true as a side
-      effect of A1: legs are checked by the same boundary authority the player walks under, so a closed
-      ring already contains a herd. What A5 still owes is the luring half — feed placed as a draw rather
-      than only eaten where it happens to lie — and the pen and driving affordances built on top.
+- [x] **Slice A5 — husbandry substrate.** Boundaries block creatures; feed lures. Pens and driving fall out
+      of existing systems; Phase 10 inherits a working substrate. Legs are checked by the same boundary
+      authority the player walks under, so a closed ring already contains a herd. Cut feed can be packed
+      by hand or mown, then placed as a lure that ordinary pickup will not immediately undo. Driving is a
+      deliberate flee from the inspector. A herd station and pasture tender use one reserved rear working
+      cell, keep a breeding pair, and pause rather than inventing animals or remote-subtracting them.
 
 ## Tests
 
@@ -397,8 +399,8 @@ All but one are written, in `factory-wasm/src/tests/fauna.rs` and the unit test 
 3. **Can herds starve?** Use the same needs in wild and enclosed habitat. Shortage first stops breeding, then causes visible distress and migration, then gradual local decline. Define recovery from migration and a fallback when no source herd remains; no permanent world extinction. _Partly settled: migration is implemented — an unmet drive commits a leg down the drainage rather than standing still — and seeding guarantees the shipped world is viable, so wildlife no longer dies out on its own. Restocking after the player empties a region is still open._
 4. **Predators in scope?** Recommended: not in Phase 9. They are the cheapest source of "your pen needs a
    wall, not a fence", but they also make the first hour hostile in a game that currently is not.
-5. **Hunt input.** Which control performs the kill, and whether it is gated behind a technology or available
-   from the start.
+5. **Hunt input.** Settled: the herd inspector aims for one second from the start of a run. No
+   technology gate. Moving cancels; a closed fence blocks the shot at release.
 
 ## Handoff log
 
@@ -429,3 +431,9 @@ All but one are written, in `factory-wasm/src/tests/fauna.rs` and the unit test 
   restocking path for herds the player does wipe out is still unwritten.
 - Next action is Slice A5, and then folding the accepted rules into `ARCHITECTURE.md` and `ART.md` so
   both temporary Phase 9 files can be deleted.
+- Slice A5 written: hunt preview and a one-second aim, placed feed as a lure, driving, a herd station
+  with a physical feed apron and a two-animal reserve, and a pasture tender that mows or restores the
+  reserved cell. Lone animals can reunite; an emptied region still needs a living source. Save 46
+  migrates to 47 by advancing the definition stamp only. The remaining Phase 9 gate is the programme,
+  guidance, and a committed unattended-run measurement — not more verbs. Fold the accepted rules into
+  `ARCHITECTURE.md` and `ART.md` and delete both temporary files when that gate closes.

@@ -548,11 +548,20 @@ impl Core {
         if !self.room_for_recipe(index, &recipe) {
             return;
         }
+        if recipe
+            .pasture_action
+            .is_some_and(|action| !self.pasture_work_ready(index, action))
+        {
+            return;
+        }
         if self.entities[index].progress > 0 {
             let id = self.entities[index].id;
             self.dirty.entities.push(id);
             self.entities[index].progress += self.power_progress(index, 1);
             if self.entities[index].progress >= self.progress_total(index) {
+                if let Some(action) = recipe.pasture_action {
+                    self.finish_pasture_work(index, action);
+                }
                 for output in recipe.outputs() {
                     *self.entities[index]
                         .output_inventory

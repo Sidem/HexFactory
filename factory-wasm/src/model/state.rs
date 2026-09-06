@@ -21,6 +21,8 @@ pub(crate) struct GroundItem {
 
 /// Ticks a dropped item stays on the ground before disappearing (1 minute = 600 ticks at 10 TPS).
 pub(crate) const GROUND_ITEM_LIFETIME_TICKS: u64 = 600;
+/// Deliberately placed feed stays as bait for ten simulation minutes at 10 TPS.
+pub(crate) const FEED_LURE_TICKS: u64 = 6000;
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq, PartialOrd, Ord)]
 #[serde(rename_all = "snake_case")]

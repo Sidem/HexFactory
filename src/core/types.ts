@@ -104,6 +104,7 @@ export interface RecipeDefinition {
   duration: number;
   /** Energy one craft consumes, paid from whatever fuel the machine has been fed. */
   fuel?: number;
+  pasture_action?: "harvest" | "cut" | "restore";
 }
 
 export interface BuildingDefinition {
@@ -189,6 +190,30 @@ export interface SpeciesDefinition {
   flight_distance: number;
   feed_item: number;
   carcass_item: number;
+}
+
+export interface HuntPreview {
+  herd_id: number;
+  point: [number, number];
+  player: [number, number];
+  reach: number;
+  ready: boolean;
+  reason: string;
+  remaining_ticks: number;
+  duration_ticks: number;
+}
+
+export interface PasturePreview {
+  q: number;
+  r: number;
+  grass: number;
+  limit: number;
+  can_cut: boolean;
+  can_feed: boolean;
+  feed_held: number;
+  reason: string;
+  station_note: string | null;
+  work_point: [number, number] | null;
 }
 
 export interface HerdSnapshot {
@@ -916,6 +941,8 @@ export type NativeInputCommand =
   | { type: "hunt_herd"; herd_id: number }
   | { type: "cancel_hunt" }
   | { type: "cut_feed"; q: number; r: number }
+  | { type: "place_feed"; q: number; r: number }
+  | { type: "drive_herd"; herd_id: number }
   | ({ type: "boundary_edit" } & BoundaryEdit)
   | { type: "undo_boundary" }
   | ({ type: "ground_edit" } & GroundEdit)
@@ -1098,6 +1125,8 @@ export type NativeInputCommand =
   | { type: "set_carry_slots"; slots: number };
 
 export interface NativeFactory {
+  hunt_preview_json(herdId: number): string;
+  pasture_preview_json(q: number, r: number): string;
   boundary_preview_json(edit: string): string;
   ground_preview_json(edit: string): string;
   tick(count: number): void;

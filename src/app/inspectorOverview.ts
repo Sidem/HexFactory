@@ -1,4 +1,5 @@
 import { renderHerdInspector } from "./herdInspector";
+import { renderPastureInspector } from "./pastureInspector";
 import { axialToPixel } from "@hexlife/embed/hex";
 import { recipeOutputs } from "../core/recipes";
 import {
@@ -419,6 +420,7 @@ Runtime.prototype.offerPackBeside = function offerPackBeside(
 Runtime.prototype.renderInspector = function renderInspector(
   this: Runtime,
 ): void {
+  renderPastureInspector(this);
   if (renderHerdInspector(this)) return;
   const empty = required<HTMLElement>("inspect-empty");
   const sheet = required<HTMLElement>("inspect-sheet");

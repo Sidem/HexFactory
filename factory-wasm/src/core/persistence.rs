@@ -387,7 +387,7 @@ impl Core {
         core.undo_stack.clear();
         core.entities = envelope.state.entities;
         core.output_routes = envelope.state.output_routes;
-        if original_save_version >= SAVE_VERSION {
+        if original_save_version >= 36 {
             core.legacy_fluid_belts = restored_legacy_fluid_belts.clone();
         }
         // A save records entities in stable id order; sorting makes that an invariant of the loaded
@@ -462,7 +462,7 @@ impl Core {
         }
         // A v35 checksum knew nothing about this compatibility set. Apply it only after that
         // original state has passed tamper detection; the next v36 save hashes the new fact.
-        if original_save_version < SAVE_VERSION {
+        if original_save_version < 36 {
             core.legacy_fluid_belts = restored_legacy_fluid_belts;
         }
         // Verify saved facts before rebuilding derived topology and route caches.

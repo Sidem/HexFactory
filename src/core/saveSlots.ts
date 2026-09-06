@@ -48,7 +48,9 @@
 // v46 saves wildlife: the herds, their next id, and the grass a pasture has been eaten down by.
 // The catalogue stamp moves with it for the carcass, waste and feed items, the species table and
 // the two rendering recipes.
-export const SAVE_VERSION = 46;
+// v47 adds the pasture stations and their recipes. Saved quantities and checksums pass through;
+// only the definition stamp advances.
+export const SAVE_VERSION = 47;
 export const SAVE_CATALOG_KEY = "hexfactory:saves:v1";
 export const LEGACY_SAVE_PREFIX = "hexfactory:hxf1:";
 export const HXF1_PREFIX = "HXF1\n";
@@ -236,6 +238,7 @@ export function compatibility(
     [44, 30, 18],
     [45, 30, 18],
     [46, 31, 18],
+    [47, 32, 18],
   ];
   if (envelope.saveVersion <= 36 && build.versions.save >= 37) {
     mismatches.push({

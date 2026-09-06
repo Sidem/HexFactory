@@ -21,10 +21,14 @@ import type {
   GroundEdit,
   GroundPreview,
   LandscapeLod,
+  HuntPreview,
+  PasturePreview,
 } from "./types";
 
 export type FactoryWorkerMethod =
   | "create"
+  | "huntPreview"
+  | "pasturePreview"
   | "advance"
   | "reset"
   | "newGame"
@@ -298,6 +302,14 @@ export class FactoryHost {
 
   save(): Promise<string> {
     return this.transport.request<string>("save");
+  }
+
+  huntPreview(herdId: number): Promise<HuntPreview> {
+    return this.transport.request<HuntPreview>("huntPreview", { herdId });
+  }
+
+  pasturePreview(q: number, r: number): Promise<PasturePreview> {
+    return this.transport.request<PasturePreview>("pasturePreview", { q, r });
   }
 
   async load(save: string): Promise<FactorySnapshot> {

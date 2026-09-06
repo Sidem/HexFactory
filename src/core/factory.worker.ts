@@ -148,6 +148,12 @@ async function handle(request: WorkerRequest): Promise<unknown> {
           optionalNumber(payload.recipeId),
         ),
       ) as PlacementPreview;
+    case "huntPreview":
+      return JSON.parse(factory.hunt_preview_json(Number(payload.herdId)));
+    case "pasturePreview":
+      return JSON.parse(
+        factory.pasture_preview_json(Number(payload.q), Number(payload.r)),
+      );
     case "linePreview":
       return JSON.parse(
         payload.definitionId === undefined
