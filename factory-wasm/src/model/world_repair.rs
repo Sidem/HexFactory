@@ -280,7 +280,7 @@ impl WorldFields {
         if spine.wet_at(q, r) {
             return None;
         }
-        let band = spine.presentation_at(q, r);
+        let band = spine.site_band_at(q, r);
         let cell = (
             floor_div(q, self.params.site_cell),
             floor_div(r, self.params.site_cell),

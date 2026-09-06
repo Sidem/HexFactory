@@ -1248,8 +1248,8 @@ fn save_40_adopts_empty_geomorphology_without_changing_its_checksum() {
     let core = Core::new(&definitions, &technologies, scenario, None, None).unwrap();
     let current = core.save_string().unwrap();
     let save_40 = current
-        .replacen("\"save_version\":45", "\"save_version\":40", 1)
-        .replacen("\"definition_version\":30", "\"definition_version\":29", 1)
+        .replacen("\"save_version\":46", "\"save_version\":40", 1)
+        .replacen("\"definition_version\":31", "\"definition_version\":29", 1)
         .replacen("\"technology_version\":18", "\"technology_version\":16", 1)
         .replacen(",\"bank_stress\":[]", "", 1);
     let restored = Core::from_save(&definitions, &technologies, &scenarios, &save_40).unwrap();

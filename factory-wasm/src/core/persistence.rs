@@ -211,12 +211,31 @@ impl Core {
             hash_u32(&mut hash, u32::MAX - 34);
             self.bank_stress.hash_into(&mut hash);
         }
+        if self.next_herd_id > 1 || !self.herds.is_empty() {
+            hash_u32(&mut hash, u32::MAX - 36);
+            hash_u32(&mut hash, self.next_herd_id);
+            for herd in self.herds.values() {
+                hash_bytes(
+                    &mut hash,
+                    &serde_json::to_vec(herd).expect("herd serializes"),
+                );
+            }
+        }
+        for (&(q, r), &deficit) in &self.grazed {
+            hash_u32(&mut hash, u32::MAX - 37);
+            hash_i32(&mut hash, q);
+            hash_i32(&mut hash, r);
+            hash_u32(&mut hash, u32::from(deficit));
+        }
         self.skills.hash(&mut hash);
         hash
     }
 
     pub(crate) fn save_string(&self) -> Result<String, String> {
         let state = SavedState {
+            grazed: self.grazed.iter().map(|(&(q, r), &v)| (q, r, v)).collect(),
+            herds: self.herds.values().cloned().collect(),
+            next_herd_id: self.next_herd_id,
             seed: self.seed,
             world_params: self.world_params.clone(),
             generated_chunks: self
@@ -424,6 +443,19 @@ impl Core {
                 .max()
                 .unwrap_or(1),
         );
+        core.grazed = envelope
+            .state
+            .grazed
+            .into_iter()
+            .map(|(q, r, v)| ((q, r), v))
+            .collect();
+        core.herds = envelope
+            .state
+            .herds
+            .into_iter()
+            .map(|h| (h.id, h))
+            .collect();
+        core.next_herd_id = envelope.state.next_herd_id.max(1);
         core.events = vec!["HXF1 save restored".into()];
         if core.checksum_for_world(original_world) != envelope.checksum {
             return Err("save checksum does not match its native state".into());
@@ -435,6 +467,8 @@ impl Core {
         }
         // Verify saved facts before rebuilding derived topology and route caches.
         core.compile_graph();
+        core.rebuild_herd_schedule();
+        core.rebuild_fouling();
         // v0.33 asks for one component instead of three. Honor existing contributions only after
         // verifying their saved checksum, through the ordinary consumption/grant path. Completed
         // commissions are never replayed and any surplus stays credited at the hub.

@@ -41,12 +41,12 @@ truth; TypeScript sends bounded commands and renders native snapshots. The detai
 
 | Envelope        | Current |
 | --------------- | ------: |
-| Save (`HXF1`)   |      44 |
-| Definitions     |      30 |
+| Save (`HXF1`)   |      46 |
+| Definitions     |      31 |
 | Technologies    |      18 |
 | Scenarios       |       8 |
 | World generator |      16 |
-| Snapshot wire   |      23 |
+| Snapshot wire   |      26 |
 
 The latest shipped milestone is **v0.47.0 Flowing Water**. Older 1 m² worlds and worlds from another
 generator version remain exportable but are not remapped. Same-generator 25 m² save formats migrate
@@ -91,12 +91,39 @@ Remaining broad prototype wiring, rendering rebuilds, and context-debt exception
 blockers. Do not reopen an audit or benchmark programme without a concrete problem. Existing raw E0
 evidence remains in [BENCHMARKS.md](BENCHMARKS.md), with its limitations intact.
 
-**Next: Phase 9 — Living Lattice.** Phases 9–13 retain their order and content. The unrelated
-artwork deletion remains untouched; implementation changes are in the working tree for review.
+**Active: Phase 9 — Living Lattice.** The first playable ecology loop is implemented in the working
+tree. Phases 10–13 remain future work.
 
 ### Phase 9 — Living Lattice
 
 Create one sparse ecological loop rather than a catalogue of decorative resources.
+
+Implemented: wildlife as free-moving herds rather than as a resource field. A herd is an agent with a
+headcount, a drive and a published leg, scheduled on its arrival tick; grass is a sparse stock that
+grazing draws down and regrowth pays back, so overgrazing is emergent and there is no carrying-capacity
+rule. Herds drink, flee the player, breed when fed and watered, and decline under prolonged shortage. A herd
+that cannot find water inside its search migrates down the drainage rather than standing still, and the
+generator seeds none further from a drink than it can walk, so the world's wildlife declines only when
+something causes it to. Migration follows the drainage only while it names fresh water: every drainage
+ends in the sea, and a guide that stopped at the first water it met walked thirsty herds onto beaches to
+die beside water they will not drink. The riverbank is now its own terrain band as well, split from the
+shore on the two facts only the generator holds — which channel a bench belongs to, and salt from fresh —
+so the player can see the difference the animals were already acting on. The split is presentation:
+access, substrate and site generation all still read the two bands as one, so no shipped world moved.
+Fences contain them because a leg is checked by the same boundary authority the player walks under, and
+nothing in the extractor graph can see an animal. Herds cross the snapshot wire as their own group on the
+buildings shape, so a walking herd never resends the resource table.
+
+The existing kiln renders biomatter into charcoal and organic waste, then reclaims waste into charcoal.
+Loose waste raises fouling on its hex and ring, suppressing regrowth until collected or decayed. The
+finite Living riverbank programme asks for twelve waste and pays forty insight; post-contract guidance
+expands its production route. Save 45 migrates to 46 without changing stock. The balance fixture records
+the new routes and programme, and the fauna items are excluded from the field survey because neither a
+carcass nor cut feed is in one place. Broader ecology pacing remains a playtest question; this change
+makes no new scale or performance claim.
+
+Still open in Phase 9: luring with placed feed, and the pen and driving affordances built on it. No
+player-facing hunt control is bound yet — the core verb exists and the inspector calls it.
 
 - Derive a scarce fertile-riverbank ground tag from native drainage, elevation, and water state.
 - Add deterministic animal populations that move, feed, breed toward local carrying capacity,

@@ -154,6 +154,7 @@ export class Runtime {
   runName!: string;
   tool!: Tool;
   orientation!: number;
+  selectedHerd: number | null = null;
   selected!: {
     q: number;
     r: number;

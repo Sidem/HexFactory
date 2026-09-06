@@ -61,6 +61,16 @@ fn validate_research_budget(
     Ok(())
 }
 fn validate_definitions(definitions: &DefinitionsInput) -> Result<(), String> {
+    let mut species_ids = BTreeSet::new();
+    for species in &definitions.species {
+        if species.id == 0 || !species_ids.insert(species.id) || species.speed == 0
+            || species.body_radius == 0 || species.body_radius > 350
+            || species.herd_size < 2 || species.herd_size > 8 || species.flight_distance > 6000
+            || !definitions.items.iter().any(|i| i.id == species.feed_item)
+            || !definitions.items.iter().any(|i| i.id == species.carcass_item) {
+            return Err("invalid species definition".into());
+        }
+    }
     validate_boundaries(definitions)?;
     validate_surfaces(definitions)?;
     if definitions.version == 0 {
@@ -109,6 +119,9 @@ fn validate_definitions(definitions: &DefinitionsInput) -> Result<(), String> {
     }
     // A fuel item has to be worth burning, or a machine could consume one for nothing.
     for item in &definitions.items {
+        if item.habitat_damage > 1000 {
+            return Err("invalid population or habitat damage definition".into());
+        }
         if item.fuel_value == Some(0)
             || item.regrowth_ticks == Some(0)
             || item.hand_gather_steps == Some(0)

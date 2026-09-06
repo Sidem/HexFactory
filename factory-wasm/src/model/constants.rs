@@ -130,7 +130,13 @@ const SAVE_PREFIX: &str = "HXF1\n";
 /// time before it changes the world, so the command and its remaining `action_cooldown` are one
 /// saved fact just as `pending_gather` and a swing are. An older file has no pending earthwork;
 /// that is exactly the idle state and leaves its checksum unchanged.
-const SAVE_VERSION: u16 = 45;
+///
+/// Version 46 carries wildlife: the herd list, its next id, and the sparse grass a pasture has
+/// been eaten down by. A version-45 file has no herds and no eaten grass, and both checksum
+/// contributions are guarded on non-empty state, so the original file verifies unchanged. Waste
+/// pressure is not saved — it is a function of the ground items and the item table, so it is
+/// rebuilt on load like the rest of the derived overlay work.
+const SAVE_VERSION: u16 = 46;
 /// Bumped to 6 for World Parameters. `WorldParams` is now part of a run's identity — it is in the
 /// save envelope and in the checksum — so a version-5 envelope carries no answer to the question
 /// "which world is this" and is rejected rather than assumed to be the default.

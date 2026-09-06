@@ -43,6 +43,12 @@ impl Core {
         }
         for command in commands {
             let result = match command {
+                InputCommand::HuntHerd { herd_id } => self.hunt_herd(herd_id),
+                InputCommand::CancelHunt => {
+                    self.cancel_hunt();
+                    Ok(())
+                }
+                InputCommand::CutFeed { q, r } => self.cut_feed(q, r),
                 InputCommand::BoundaryEdit { edit } => self.edit_boundaries(&edit),
                 InputCommand::UndoBoundary => self.undo_boundary(),
                 InputCommand::GroundEdit { edit } => self.begin_groundwork(edit),

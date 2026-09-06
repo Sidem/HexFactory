@@ -82,6 +82,11 @@ impl Core {
             ) {
                 return Err("the player blocks this footprint".into());
             }
+            // Wildlife does not veto a footprint. Animals yield: a herd standing where a machine
+            // lands loses the grass under it, and `decide_herd` walks it off the occupied hex on
+            // its next arrival. Refusing here instead would let a wandering herd block the
+            // founding contract's own site, and would put a fact in the checksum that undo has no
+            // way to put back.
             let shallow_support = definition.placement_rule == PlacementRule::Shallows
                 && self.shallow_water_at(cell.q, cell.r);
             let bridged_transport = definition.kind == BuildingKind::Belt

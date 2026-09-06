@@ -620,5 +620,11 @@ impl Core {
             });
         }
         self.dirty.ground_items = true;
+        if self
+            .item_definition(item_id)
+            .is_some_and(|item| item.habitat_damage > 0)
+        {
+            self.disturb_habitat_ring(q, r);
+        }
     }
 }

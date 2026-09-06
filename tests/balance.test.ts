@@ -385,7 +385,7 @@ describe("the economy's stated curve", () => {
     expect(budget.skill_cost).toBeLessThanOrEqual(budget.skill_points);
     expect(budget.skill_milestones).toBe(4);
     expect(budget.research_cost).toBe(162);
-    expect(budget.project_insight).toBe(706);
+    expect(budget.project_insight).toBe(746);
   });
 
   it("expands every building cost to the same raw materials TypeScript reaches", () => {

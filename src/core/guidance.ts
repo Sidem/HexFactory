@@ -57,6 +57,12 @@ export function nextAction(
 ): Guidance {
   const researched = new Set(snapshot.researched);
   const contract = snapshot.contract;
+  const programme = contract.complete
+    ? snapshot.requests.find(
+        (request) =>
+          request.key === "living-riverbank" && request.state === "posted",
+      )
+    : undefined;
 
   if (snapshot.scenario === "factory-demo")
     return {
@@ -66,7 +72,7 @@ export function nextAction(
         "Follow cargo from extractor to receiver. Select a machine to inspect its live progress and storage.",
     };
 
-  if (contract.complete)
+  if (contract.complete && !programme)
     return {
       key: "complete",
       title: "Factory online",
@@ -82,7 +88,7 @@ export function nextAction(
         "Deliver at the landing hub, or build a container and take stacks back out of it from the inspector.",
     };
 
-  const outstanding = contract.requirements.filter(
+  const outstanding = (programme ? [programme] : contract.requirements).filter(
     (need) => need.delivered < need.required,
   );
   const carried = outstanding.find(

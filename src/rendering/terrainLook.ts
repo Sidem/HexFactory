@@ -24,6 +24,9 @@ export const BAND_RANK: Record<Terrain, number> = {
   hills: 4,
   highland: 5,
   cliff: 6,
+  // The shore's rank, because a bank and a beach are the same step out of the water. Sharing it
+  // means neither fringes the other, which is what should happen where a river meets the sea.
+  riverbank: 2,
 };
 
 export interface HexLook {

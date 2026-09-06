@@ -8,7 +8,7 @@ import type { Terrain } from "../../core/types";
 import { NOISE_GLSL } from "./noiseGlsl";
 
 /**
- * Four procedural surface families cover the seven bands. A terrain differs from its family only
+ * Four procedural surface families cover the eight bands. A terrain differs from its family only
  * by palette and a few constants, so the shader count stays bounded: sand never gets its own
  * program, and adding a band never adds a material system.
  */
@@ -116,6 +116,21 @@ export const TERRAIN_SURFACE: Record<Terrain, TerrainSurface> = {
     patch: 0.45,
     wave: 0,
     sparkle: 0.6,
+  },
+  // Meadow rather than sand, which is the whole point of splitting the band: a beach is bare
+  // grains, and a riverbank is silt with something growing out of it. The palette is the silt and
+  // the patch is the reeds, so the two sandy bands read apart at a glance without either of them
+  // needing a shader of its own.
+  riverbank: {
+    family: "meadow",
+    low: "#524a2e",
+    high: "#a29662",
+    accent: "#8fa25b",
+    flank: "#5c4a33",
+    grain: 1.05,
+    patch: 0.5,
+    wave: 0,
+    sparkle: 0,
   },
 };
 

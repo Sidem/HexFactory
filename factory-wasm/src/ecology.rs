@@ -51,7 +51,6 @@ fn watered_by(mut depth_and_surface: impl FnMut(i32, i32) -> (i32, i32), q: i32,
     })
 }
 
-#[cfg(not(target_arch = "wasm32"))]
 pub(super) fn generated_fertile_riverbank(
     spine: &GroundSpine,
     q: i32,
@@ -84,6 +83,21 @@ pub(super) fn generated_fertile_riverbank(
 /// path is what a canal is: the trench itself is the water, and the ground either side of it drinks.
 fn irrigation_class(bench_class: Option<u8>, watered: impl FnOnce() -> bool) -> Option<u8> {
     bench_class.or_else(|| watered().then_some(CANAL_DISCHARGE_CLASS))
+}
+
+/// Whether fresh standing water is one step away, by the same datum rule as fertility.
+///
+/// Only the tests ask this: it is how they check that thirsty herds actually arrive at the water.
+/// The herds themselves steer by [`Core::drinking_bank`], which asks the narrower question a
+/// drinking animal actually needs answered — that the water beside this hex is fresh, standing,
+/// and not behind a closed fence.
+#[cfg(test)]
+pub(super) fn beside_fresh_water(core: &Core, q: i32, r: i32) -> bool {
+    watered_by(
+        |nq, nr| (core.water_depth_at(nq, nr), core.water_surface_at(nq, nr)),
+        q,
+        r,
+    )
 }
 
 impl Core {

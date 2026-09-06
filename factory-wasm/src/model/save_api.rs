@@ -13,6 +13,12 @@ struct SaveEnvelope {
 #[derive(Serialize, Deserialize)]
 struct SavedState {
     #[serde(default)]
+    grazed: Vec<(i32, i32, u16)>,
+    #[serde(default)]
+    herds: Vec<Herd>,
+    #[serde(default)]
+    next_herd_id: u32,
+    #[serde(default)]
     boundaries: Vec<Boundary>,
     #[serde(default)]
     ground: Vec<GroundCell>,
@@ -86,6 +92,7 @@ struct SavedState {
 /// either, and it marks them, so the marks alone are exact.
 #[derive(Clone, Debug)]
 struct SnapshotBaseline {
+    herds: BTreeMap<u32, Herd>,
     boundaries: Vec<Boundary>,
     ground: Vec<GroundCell>,
     water: Vec<hydrology::WaterCell>,
@@ -143,6 +150,7 @@ impl SnapshotBaseline {
             ground: snapshot.ground.clone(),
             water: snapshot.water.clone(),
             spoil: snapshot.spoil,
+            herds: snapshot.herds.iter().map(|h| (h.id, h.clone())).collect(),
             ground_items: snapshot.ground_items.clone(),
             events: snapshot.events.clone(),
         }

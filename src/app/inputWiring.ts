@@ -447,6 +447,20 @@ export async function inputWiring(app: Runtime): Promise<void> {
       app.selected !== null &&
       app.selected.q === coordinate.q &&
       app.selected.r === coordinate.r;
+    // A herd is picked off the bodies on screen rather than off the hex under them: an animal is
+    // between hexes as often as on one. Clicking one means "tell me about this herd" and never
+    // "walk here", so it answers before the repeat gesture is spent.
+    const herd =
+      app.tool === "inspect"
+        ? app.renderer.pickHerd?.(event.clientX, event.clientY)
+        : null;
+    app.selectedHerd = herd ?? null;
+    if (herd != null) {
+      app.selected = coordinate;
+      app.renderer.setSelection(coordinate);
+      app.renderInspector();
+      return;
+    }
     app.selected = coordinate;
     app.renderer.setSelection(coordinate);
     if (repeat) app.enqueue({ type: "walk_to", ...coordinate });

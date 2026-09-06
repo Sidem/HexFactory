@@ -1,5 +1,6 @@
 #[derive(Clone, Debug, Serialize, PartialEq, Eq)]
 struct Snapshot {
+    herds: Vec<Herd>,
     boundaries: Vec<Boundary>,
     ground: Vec<GroundCell>,
     /// Cells whose standing water has left the generated equilibrium. Sparse, like `ground`: the
@@ -202,6 +203,9 @@ struct TileSnapshot {
 /// incremental tombstone; complete snapshots contain the sparse positive set.
 #[derive(Clone, Copy, Debug, Serialize, PartialEq, Eq)]
 struct HabitatSnapshot {
+    grass: u16,
+    grass_limit: u16,
+    fouling: u16,
     q: i32,
     r: i32,
     x: i32,
@@ -449,6 +453,7 @@ fn is_zero(value: &u32) -> bool {
 /// `drain_marks`.
 #[derive(Clone, Debug, Default)]
 struct SnapshotDirty {
+    herds: Vec<u32>,
     boundaries: bool,
     /// Set when a surface or grade changed. Sparse and small, so the group is resent whole.
     ground: bool,
@@ -485,6 +490,8 @@ fn drain_marks<T: Ord>(marks: &mut Vec<T>) -> Vec<T> {
 
 #[derive(Debug, Serialize, PartialEq, Eq)]
 struct SnapshotDelta {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    herds: Option<HerdsDelta>,
     #[serde(skip_serializing_if = "Option::is_none")]
     boundaries: Option<Vec<Boundary>>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -585,6 +592,7 @@ impl SnapshotDelta {
                 changed: current.buildings.clone(),
                 removed: Vec::new(),
             }),
+            herds: Some(HerdsDelta { replace: true, changed: current.herds.clone(), removed: Vec::new() }),
             ground_items: Some(current.ground_items.clone()),
             boundaries: Some(current.boundaries.clone()),
             ground: Some(current.ground.clone()),
@@ -627,6 +635,7 @@ impl SnapshotDelta {
             habitats: habitat_delta(&previous.habitats, &current.habitats),
             resources: resources_delta(&previous.resources, &current.resources),
             buildings: buildings_delta(&previous.buildings, &current.buildings),
+            herds: herd_delta(&previous.herds, &current.herds),
             ground_items: changed(&previous.ground_items, &current.ground_items),
             boundaries: changed(&previous.boundaries, &current.boundaries),
             ground: changed(&previous.ground, &current.ground),
@@ -655,6 +664,16 @@ fn terrain_delta(previous: &[TileSnapshot], current: &[TileSnapshot]) -> Option<
     })
 }
 
+/// Habitat rows are sparse for the same reason prepared ground is: pristine pasture is the default
+/// everywhere, and the host already knows the terrain that decides how much grass a hex can hold.
+/// A row therefore exists only where the ground departs from that default — fertile riverbank
+/// capacity, grass eaten below the limit, or standing waste — and a hex that returns to pristine
+/// leaves through the same zero tombstone a depleted riverbank does. Sending a row per grassy hex
+/// instead would put most of the world on the wire the first time anything grazed.
+fn habitat_row_is_worth_sending(cell: &HabitatSnapshot) -> bool {
+    cell.capacity > 0 || cell.grass < cell.grass_limit || cell.fouling > 0
+}
+
 #[cfg(test)]
 fn habitat_delta(
     previous: &[HabitatSnapshot],
@@ -679,6 +698,7 @@ fn habitat_delta(
                 radius: old.radius,
                 capacity: 0,
                 discharge: 0,
+                grass: 0, grass_limit: 0, fouling: 0,
             });
         }
     }
@@ -777,4 +797,23 @@ fn changed<T: Clone + PartialEq>(previous: &T, current: &T) -> Option<T> {
 #[cfg(test)]
 fn changed_copy<T: Copy + PartialEq>(previous: T, current: T) -> Option<T> {
     (previous != current).then_some(current)
+}
+
+#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
+struct HerdsDelta {
+    #[serde(skip_serializing_if = "is_false")]
+    replace: bool,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    changed: Vec<Herd>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    removed: Vec<u32>,
+}
+
+#[cfg(test)]
+fn herd_delta(previous: &[Herd], current: &[Herd]) -> Option<HerdsDelta> {
+    let before: BTreeMap<_, _> = previous.iter().map(|h| (h.id, h)).collect();
+    let after: BTreeSet<_> = current.iter().map(|h| h.id).collect();
+    let changed: Vec<_> = current.iter().filter(|h| before.get(&h.id).copied() != Some(h)).cloned().collect();
+    let removed: Vec<_> = previous.iter().filter(|h| !after.contains(&h.id)).map(|h| h.id).collect();
+    (!changed.is_empty() || !removed.is_empty()).then_some(HerdsDelta { replace: false, changed, removed })
 }

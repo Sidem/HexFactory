@@ -1107,28 +1107,31 @@ export class WorldInstanceLayer {
             stableVariation(resource.q * 7 + unit, resource.r * 11 - unit) *
             Math.PI *
             2;
-          const radius = unit === 0 ? 0 : 0.19 + (unit % 2) * 0.08;
+          const radius = unit === 0 ? 0 : 0.3 + (unit % 2) * 0.1;
           const offsetX = Math.cos(treeAngle) * radius;
           const offsetZ = Math.sin(treeAngle) * radius;
-          const trunkHeight = 0.34 + (unit % 3) * 0.035;
+          // A scene unit is a hex circumradius, a little over three metres, and the player is 0.6
+          // of one. A tree that topped out at 0.76 stood barely taller than the person walking
+          // past it; these are five to six metres, which is what a stand of three looks like.
+          const trunkHeight = 0.8 + (unit % 3) * 0.08;
           add(
             trunks,
             offsetX,
             offsetZ,
-            0.055,
+            0.1,
             trunkHeight,
-            0.055,
+            0.1,
             trunkHeight / 2,
             fieldColor,
           );
-          const canopyHeight = 0.42 + (unit % 2) * 0.05;
+          const canopyHeight = 1 + (unit % 2) * 0.12;
           add(
             canopies,
             offsetX,
             offsetZ,
-            0.24,
+            0.42,
             canopyHeight,
-            0.24,
+            0.42,
             trunkHeight + canopyHeight / 2,
             "#89bd62",
           );

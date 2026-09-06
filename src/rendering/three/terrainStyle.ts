@@ -26,4 +26,7 @@ export const TERRAIN_STYLE: Record<Terrain, TerrainStyle> = {
   hills: { color: "#58784f", roughness: 1 },
   highland: { color: "#757e62", roughness: 1 },
   cliff: { color: "#715d4e", roughness: 1 },
+  // Wet silt: darker than the shore's dry sand and slightly less rough, so a bank catches the
+  // light the beach diffuses.
+  riverbank: { color: "#7a7048", roughness: 0.88 },
 };

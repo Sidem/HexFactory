@@ -238,6 +238,9 @@ impl Core {
         let habitat = self.fertile_riverbank_at(q, r);
         let (x, y) = axial_world(q, r);
         HabitatSnapshot {
+            grass: self.grass_stock(q, r),
+            grass_limit: self.grass_limit(q, r),
+            fouling: self.fouled.get(&(q, r)).copied().unwrap_or(0),
             q,
             r,
             x,
@@ -255,7 +258,7 @@ impl Core {
     ) -> Vec<HabitatSnapshot> {
         hexes_in_chunk(chunk_q, chunk_r, self.scenario.chunk_size)
             .map(|(q, r)| self.habitat_snapshot(q, r))
-            .filter(|cell| cell.capacity > 0)
+            .filter(habitat_row_is_worth_sending)
             .collect()
     }
 
@@ -283,6 +286,9 @@ impl Core {
         }
         let field = self.field_at(key.0, key.1)?;
         let quantity = self.deposit_quantity(key);
+        if quantity == 0 {
+            return None;
+        }
         Some(resource_snapshot_of(
             key,
             field.item_id,
@@ -429,6 +435,7 @@ impl Core {
             ground: self.ground_snapshot(),
             water: self.water.cells(),
             spoil: self.spoil,
+            herds: self.herds.values().cloned().collect(),
             ground_items: self.ground_items.clone(),
             events: self.events.clone(),
         }

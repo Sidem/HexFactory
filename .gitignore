@@ -6,4 +6,4 @@ factory-wasm/target/
 *.log
 .claude/
 .playwright-mcp/
-/v0121-*.png
+/*.png

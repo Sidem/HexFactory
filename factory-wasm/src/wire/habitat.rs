@@ -8,6 +8,9 @@ pub(super) fn write(writer: &mut Writer, habitats: &[HabitatSnapshot]) {
         writer.uvarint(u64::from(habitat.radius));
         writer.uvarint(u64::from(habitat.capacity));
         writer.u8(habitat.discharge);
+        writer.uvarint(u64::from(habitat.grass));
+        writer.uvarint(u64::from(habitat.grass_limit));
+        writer.uvarint(u64::from(habitat.fouling));
     }
 }
 
@@ -32,6 +35,9 @@ pub(super) fn read(reader: &mut super::decode::Reader<'_>) -> super::HabitatsDel
                 radius: reader.uvarint() as u32,
                 capacity: reader.uvarint() as u16,
                 discharge: reader.u8(),
+                grass: reader.uvarint() as u16,
+                grass_limit: reader.uvarint() as u16,
+                fouling: reader.uvarint() as u16,
             }
         })
         .collect();

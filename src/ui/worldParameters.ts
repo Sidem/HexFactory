@@ -384,7 +384,8 @@ export interface BandSegment {
 
 /**
  * The band cuts as the coverage strip draws them: how much of the height range each band owns.
- * Cliffs and rivers are steepness and lattice rather than height, so neither appears here.
+ * Cliffs and rivers are steepness and lattice rather than height, so neither appears here — and
+ * nor does the riverbank, which is where a channel ran rather than how high the ground stands.
  */
 export function bandSegments(params: WorldParams): BandSegment[] {
   const cuts: [Terrain, number, number][] = [

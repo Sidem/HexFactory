@@ -14,7 +14,11 @@ const shardRoot = resolve(root, ".agent");
 const roots = ["factory-wasm/src", "src", "tests"];
 const MAX_ROUTER_BYTES = 4 * 1024;
 const MAX_SHARD_BYTES = 8 * 1024;
-const MAX_DECLARATIONS_PER_FILE = 4;
+// Three rather than four. A shard is a *route*, not an index: the sample exists to confirm the file
+// is the one meant, and `rg -n` finds the anchor from there. Splitting oversized modules adds files
+// faster than it removes them, so the per-file sample is what gives way when a domain approaches its
+// byte ceiling — the alternative is dropping whole files from the listing, which loses more.
+const MAX_DECLARATIONS_PER_FILE = 3;
 
 const routes = [
   [
@@ -46,6 +50,12 @@ const routes = [
     "simulation",
     "factory-wasm/src/core/power.rs",
     "compile_power, distribute_power",
+  ],
+  [
+    "Wildlife, herds and pasture",
+    "simulation",
+    "factory-wasm/src/fauna.rs; factory-wasm/src/fauna/needs.rs; factory-wasm/src/fauna/pasture.rs",
+    "Herd, advance_herds, decide_herd, graze_grass",
   ],
   [
     "World generation and fields",
@@ -188,6 +198,10 @@ function domain(path) {
   if (path.startsWith("factory-wasm/src/tests/") || path.startsWith("tests/"))
     return "tests";
   if (path.startsWith("factory-wasm/src/core/")) return "simulation";
+  // Wildlife is a tick system, not world infrastructure: it schedules arrivals, mutates state the
+  // checksum covers, and has to stay reproducible. It belongs beside transport and power rather
+  // than beside terrain, and routing it there also keeps the native shard inside its byte budget.
+  if (path.startsWith("factory-wasm/src/fauna")) return "simulation";
   if (path.startsWith("factory-wasm/")) return "native";
   if (path.startsWith("src/rendering/")) return "rendering";
   if (path.startsWith("src/bench/") || path.startsWith("src/admin/"))

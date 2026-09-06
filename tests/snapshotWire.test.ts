@@ -124,6 +124,9 @@ describe("binary snapshot delta", () => {
         y: -4608,
         radius: 1024,
         capacity: 175,
+        grass: 0,
+        grass_limit: 0,
+        fouling: 0,
         discharge: 7,
       },
       {
@@ -133,6 +136,9 @@ describe("binary snapshot delta", () => {
         y: -4608,
         radius: 1024,
         capacity: 0,
+        grass: 0,
+        grass_limit: 0,
+        fouling: 0,
         discharge: 0,
       },
     ]);
@@ -150,7 +156,7 @@ describe("binary snapshot delta", () => {
 
   it("refuses a buffer it cannot prove it understands", () => {
     expect(fixture.magic).toBe("HXFD");
-    expect(fixture.version).toBe(24);
+    expect(fixture.version).toBe(26);
 
     const good = new Uint8Array(
       bytesOf(fixture.cases[0]!.bytes as unknown as string),

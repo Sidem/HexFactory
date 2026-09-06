@@ -2,6 +2,7 @@ mod construction;
 mod contract;
 mod earthworks;
 mod economy;
+mod fauna;
 mod graph;
 mod machines;
 mod petroleum;
@@ -236,6 +237,8 @@ fn level_opening(core: &mut Core) {
     core.fields = WorldFields::new(&core.world_params, core.seed, &core.ground_spine);
     core.ground_spine
         .rebuild_cache(&core.generated_chunks, core.scenario.chunk_size);
+    // Swapping the world swaps where the herds are, so the set derived from it is rebuilt too.
+    core.rebuild_herd_schedule();
 }
 
 /// [`TEST_FIELD`]'s deposits over the world's own relief. For tests whose subject *is* the

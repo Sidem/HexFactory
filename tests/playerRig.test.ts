@@ -24,10 +24,12 @@ const at = (x: number, y: number): FactorySnapshot =>
 
 const flat = (): number => 0;
 
-/** The legs, by the order the rig adds them: six body parts, then left and right. */
+/** Named limbs keep gait checks independent of cosmetic accessories. */
 function legs(rig: PlayerRig): { left: Mesh; right: Mesh } {
-  const children = rig.group.children as Mesh[];
-  return { left: children[6]!, right: children[7]! };
+  return {
+    left: rig.group.getObjectByName("left-leg") as Mesh,
+    right: rig.group.getObjectByName("right-leg") as Mesh,
+  };
 }
 
 describe("the Wayfinder rig", () => {
@@ -35,7 +37,8 @@ describe("the Wayfinder rig", () => {
     const materials = createWorldMaterials();
     const rig = new PlayerRig(materials);
 
-    expect(WAYFINDER_VISUAL_SCALE).toBeGreaterThanOrEqual(3);
+    expect(WAYFINDER_VISUAL_SCALE).toBeGreaterThanOrEqual(1);
+    expect(WAYFINDER_VISUAL_SCALE).toBeLessThan(3);
     expect(rig.group.name).toBe("player");
     expect(rig.group.scale.x).toBe(WAYFINDER_VISUAL_SCALE);
 

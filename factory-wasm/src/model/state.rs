@@ -27,6 +27,7 @@ pub(crate) const GROUND_ITEM_LIFETIME_TICKS: u64 = 600;
 enum Terrain {
     DeepWater,
     ShallowWater,
+    /// Beach: the sand the sea washes, and the sand a dry coastal bed leaves behind.
     Shore,
     Lowland,
     /// The band between lowland and highland. v0.11 read one raised band; the material base needs
@@ -35,9 +36,33 @@ enum Terrain {
     Hills,
     Highland,
     Cliff,
+    /// The bank of fresh water — a channel's own alluvial bench, or the edge of a river or lake.
+    ///
+    /// Split out of `Shore` because the two look alike and are not the same place: one is where the
+    /// animals drink and the fertile riverbank grows, the other is salt. Walking, building and
+    /// material all still read it as the sand it is; what changes is what the player sees.
+    ///
+    /// Last rather than beside `Shore` on purpose. The discriminant is a generation input — the
+    /// world's identity checksum hashes the band a site rule names — so slotting a variant into the
+    /// middle would renumber four bands and call every existing world a different one.
+    Riverbank,
 }
 
 impl Terrain {
+    /// The band the shipped site rules were written against.
+    ///
+    /// `Riverbank` exists to be looked at, not to be generated against. The rule table and every
+    /// number in `fixtures/balance.json` were chosen when a bench and a beach were one band, so a
+    /// generator that read the split would quietly move clay and sand off the rivers — the material
+    /// the plan already names as the first thing a change to the channels deletes. Generation asks
+    /// this; the renderer, the legend and the ecology ask the band itself.
+    fn site_band(self) -> Terrain {
+        match self {
+            Terrain::Riverbank => Terrain::Shore,
+            band => band,
+        }
+    }
+
     fn blocks_movement(self) -> bool {
         // Shallows are a ford, not a wall: the player can wade them at 5 m/s. Construction still
         // refuses them, which is why `blocks_construction` is a separate predicate and not this

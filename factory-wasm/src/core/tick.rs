@@ -29,6 +29,7 @@ impl Core {
         edited_ids: &BTreeSet<u32>,
     ) -> usize {
         self.dirty.habitats.extend(changed_cells.iter().copied());
+        self.invalidate_blocked_legs();
         // Erasing shifts vector indices, so preserve unaffected edges through stable entity IDs.
         let (occupied, envelope, clearance) = self.occupancy_maps();
         let indices_by_id: BTreeMap<u32, usize> = self
@@ -170,6 +171,8 @@ impl Core {
             self.tick += 1;
             self.advance_geomorphology();
             self.regrow_flora();
+            self.finish_hunts();
+            self.advance_herds();
             self.advance_ground_items();
         }
     }
@@ -177,6 +180,22 @@ impl Core {
     pub(crate) fn advance_ground_items(&mut self) {
         if self.ground_items.is_empty() {
             return;
+        }
+        // Waste that rots away gives its ring its food back, which is a habitat change like any
+        // other; anything else expiring leaves the banks exactly as it found them.
+        let expired: Vec<_> = self
+            .ground_items
+            .iter()
+            .filter(|item| {
+                item.despawn_tick <= self.tick
+                    && self
+                        .item_definition(item.item_id)
+                        .is_some_and(|definition| definition.habitat_damage > 0)
+            })
+            .map(|item| (item.q, item.r))
+            .collect();
+        for (q, r) in expired {
+            self.disturb_habitat_ring(q, r);
         }
         let before_len = self.ground_items.len();
         self.ground_items
@@ -246,6 +265,12 @@ impl Core {
                 let room = self.player_room_for(item.item_id);
                 if room > 0 {
                     let collected = item.quantity.min(room);
+                    if self
+                        .item_definition(item.item_id)
+                        .is_some_and(|definition| definition.habitat_damage > 0)
+                    {
+                        self.disturb_habitat_ring(item.q, item.r);
+                    }
                     *self.player.inventory.entry(item.item_id).or_default() += collected;
                     let name = self
                         .item_definition(item.item_id)

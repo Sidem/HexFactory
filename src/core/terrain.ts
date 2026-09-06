@@ -80,11 +80,26 @@ export const TERRAIN_INFO: Record<Terrain, TerrainInfo> = {
     fill: "#57493eee",
     stroke: "#c19a72",
   },
+  riverbank: {
+    // Damp silt under a reed fringe, against the shore's dry bright sand. The two bands are the
+    // same material and the same rules, so value and hue are all the player has to tell a bank
+    // from a beach: this one is much darker, and its edge is green rather than pale sand.
+    name: "Riverbank",
+    note: "sand and clay, and the water here is fresh",
+    passable: true,
+    buildable: true,
+    fill: "#7a7048dd",
+    stroke: "#a3ad6b",
+  },
 };
 
 /**
  * The band names in the order the fixture and the native enum declare them, so the legend reads as
  * a landform rising out of water rather than as an alphabetised list.
+ *
+ * Riverbank trails the list rather than sitting beside the shore it was split from. Its native
+ * discriminant is a generation input, so the band had to be added at the end of the enum rather
+ * than in the middle of it, and this order is pinned against that one.
  */
 export const TERRAIN_ORDER: Terrain[] = [
   "deep_water",
@@ -94,6 +109,7 @@ export const TERRAIN_ORDER: Terrain[] = [
   "hills",
   "highland",
   "cliff",
+  "riverbank",
 ];
 
 /** Native's physical wading boundary, pinned against `fixtures/terrain-passability.json`. */

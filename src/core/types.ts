@@ -16,6 +16,7 @@ export type Terrain =
   | "deep_water"
   | "shallow_water"
   | "shore"
+  | "riverbank"
   | "lowland"
   | "hills"
   | "highland"
@@ -54,6 +55,7 @@ export interface Ingredient {
 }
 
 export interface ItemDefinition {
+  habitat_damage?: number;
   erosion_resistance?: number;
   id: number;
   key: string;
@@ -179,7 +181,41 @@ export interface BuildingDefinition {
   overhead_clearance?: AxialCoordinate[];
 }
 
+export interface SpeciesDefinition {
+  id: number;
+  speed: number;
+  body_radius: number;
+  herd_size: number;
+  flight_distance: number;
+  feed_item: number;
+  carcass_item: number;
+}
+
+export interface HerdSnapshot {
+  id: number;
+  species: number;
+  from: [number, number];
+  to: [number, number];
+  left_tick: number;
+  arrive_tick: number;
+  count: number;
+  drive: "Rest" | "Graze" | "Thirst" | "Flee";
+  hunger: number;
+  thirst: number;
+  alarm: number;
+  healthy_ticks: number;
+  shortage_ticks: number;
+  hunt_tick: number;
+}
+
+export interface HerdsPatch {
+  replace?: boolean;
+  changed?: HerdSnapshot[];
+  removed?: number[];
+}
+
 export interface Definitions {
+  species?: SpeciesDefinition[];
   boundaries: BoundaryDefinition[];
   surfaces: SurfaceDefinition[];
   version: number;
@@ -621,6 +657,9 @@ export interface TerrainSnapshot extends WorldPoint {
 
 /** Exact native fertile-riverbank truth. Capacity zero appears only as a patch tombstone. */
 export interface HabitatSnapshot extends WorldPoint {
+  grass: number;
+  grass_limit: number;
+  fouling: number;
   q: number;
   r: number;
   radius: number;
@@ -788,6 +827,7 @@ export interface FactorySnapshot {
   habitats: HabitatSnapshot[];
   resources: ResourceSnapshot[];
   buildings: EntitySnapshot[];
+  herds: HerdSnapshot[];
   ground_items: GroundItemSnapshot[];
   events: string[];
 }
@@ -833,7 +873,13 @@ export interface FactorySnapshotDelta
   extends Partial<
     Omit<
       FactorySnapshot,
-      "tick" | "checksum" | "buildings" | "resources" | "terrain" | "habitats"
+      | "tick"
+      | "checksum"
+      | "buildings"
+      | "resources"
+      | "terrain"
+      | "habitats"
+      | "herds"
     >
   > {
   base_revision: number;
@@ -844,6 +890,7 @@ export interface FactorySnapshotDelta
   resources?: ResourcesPatch;
   terrain?: TerrainPatch;
   habitats?: HabitatsPatch;
+  herds?: HerdsPatch;
 }
 
 export interface PlacementPreview {
@@ -866,6 +913,9 @@ export interface LinePreviewCell {
 }
 
 export type NativeInputCommand =
+  | { type: "hunt_herd"; herd_id: number }
+  | { type: "cancel_hunt" }
+  | { type: "cut_feed"; q: number; r: number }
   | ({ type: "boundary_edit" } & BoundaryEdit)
   | { type: "undo_boundary" }
   | ({ type: "ground_edit" } & GroundEdit)

@@ -500,6 +500,10 @@ impl Core {
     }
 
     pub(super) fn boundary_blocks_player(&self, x: i32, y: i32) -> bool {
+        self.boundary_blocks_circle(x, y, PLAYER_RADIUS)
+    }
+
+    pub(super) fn boundary_blocks_circle(&self, x: i32, y: i32, radius: i32) -> bool {
         if self.boundaries.is_empty() {
             return false;
         }
@@ -507,7 +511,7 @@ impl Core {
         for (dq, dr) in [(0, 0)].into_iter().chain(DIRECTIONS) {
             for (segment, boundary) in self.segments_in(q.saturating_add(dq), r.saturating_add(dr))
             {
-                if !boundary.open && near_segment(*segment, (x, y), PLAYER_RADIUS) {
+                if !boundary.open && near_segment(*segment, (x, y), radius) {
                     return true;
                 }
             }
@@ -771,6 +775,7 @@ impl Core {
         self.player.inventory = transaction.inventory.clone();
         *self.boundary_hash_cache.borrow_mut() = None;
         self.dirty.boundaries = true;
+        self.invalidate_blocked_legs();
         let nearby = self
             .entities
             .iter()

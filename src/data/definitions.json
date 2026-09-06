@@ -1,5 +1,5 @@
 {
-  "version": 30,
+  "version": 31,
   "items": [
     {
       "id": 1,
@@ -156,7 +156,8 @@
       "icon": "lump",
       "description": "Wood pyrolysed into fuel, so smelting never waits on a coal field.",
       "stack_size": 20,
-      "fuel_value": 160
+      "fuel_value": 160,
+      "production_routes": [7, 26, 27]
     },
     {
       "id": 16,
@@ -345,6 +346,34 @@
       "color": "#68b7b0",
       "icon": "pipe",
       "description": "Iron tube and couplings for one fluid-pipe segment. A corner heading covers twice the ground and takes two sections.",
+      "stack_size": 20
+    },
+    {
+      "id": 36,
+      "key": "carcass",
+      "name": "Grazer carcass",
+      "color": "#beac78",
+      "icon": "lump",
+      "description": "A hunted grazer. Collect and render in a kiln for charcoal and organic waste. Preserve breeding pairs for recovery.",
+      "stack_size": 20
+    },
+    {
+      "id": 37,
+      "key": "organic-waste",
+      "name": "Organic waste",
+      "color": "#85734a",
+      "icon": "grains",
+      "description": "Reclaim in a kiln for charcoal. Loose waste feeds one animal fewer per unit on its hex and every neighbouring hex, until it is collected or decays.",
+      "stack_size": 20,
+      "habitat_damage": 1
+    },
+    {
+      "id": 38,
+      "key": "cut-grass",
+      "name": "Cut grass",
+      "color": "#b6b26b",
+      "icon": "grains",
+      "description": "Cut from recovering pasture. Drop within a reachable pen to feed and lure grazers. One bundle replaces one hundred units of grazing.",
       "stack_size": 20
     }
   ],
@@ -873,6 +902,51 @@
       ],
       "cost_allocation": [10, 90],
       "duration": 8
+    },
+    {
+      "id": 26,
+      "key": "render-biomatter",
+      "name": "Render biomatter",
+      "description": "Render two grazer biomatter into fuel and organic waste. Route both products; reclaim waste before it reaches the riverbank.",
+      "category": "firing",
+      "inputs": [
+        {
+          "item_id": 36,
+          "quantity": 2
+        }
+      ],
+      "output": {
+        "item_id": 15,
+        "quantity": 1
+      },
+      "co_products": [
+        {
+          "item_id": 37,
+          "quantity": 1
+        }
+      ],
+      "cost_allocation": [75, 25],
+      "duration": 20,
+      "fuel": 20
+    },
+    {
+      "id": 27,
+      "key": "reclaim-organic-waste",
+      "name": "Reclaim organic waste",
+      "description": "Dry and char four organic waste into one useful charcoal.",
+      "category": "firing",
+      "inputs": [
+        {
+          "item_id": 37,
+          "quantity": 4
+        }
+      ],
+      "output": {
+        "item_id": 15,
+        "quantity": 1
+      },
+      "duration": 30,
+      "fuel": 20
     }
   ],
   "buildings": [
@@ -2668,6 +2742,15 @@
       "item_id": 31,
       "quantity": 16,
       "insight": 32
+    },
+    {
+      "id": 28,
+      "key": "living-riverbank",
+      "name": "Living riverbank programme",
+      "brief": "Deliver four organic waste from biomatter rendering to study a closed recovery loop. A herd is a handful of animals, so take from several and leave breeding pairs in each; reclaim later waste in a kiln.",
+      "item_id": 37,
+      "quantity": 4,
+      "insight": 40
     }
   ],
   "boundaries": [
@@ -2900,6 +2983,17 @@
           "quantity": 2
         }
       ]
+    }
+  ],
+  "species": [
+    {
+      "id": 1,
+      "speed": 60,
+      "body_radius": 350,
+      "herd_size": 3,
+      "flight_distance": 2500,
+      "feed_item": 38,
+      "carcass_item": 36
     }
   ]
 }

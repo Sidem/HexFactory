@@ -1499,6 +1499,106 @@
           ]
         }
       ]
+    },
+    {
+      "recipe": "render-biomatter",
+      "default_for": ["organic-waste"],
+      "inputs": [
+        {
+          "item": "carcass",
+          "quantity": 2
+        }
+      ],
+      "outputs": [
+        {
+          "item": "charcoal",
+          "quantity": 1
+        },
+        {
+          "item": "organic-waste",
+          "quantity": 1
+        }
+      ],
+      "cost_allocation_percent": [75, 25],
+      "raw": [
+        {
+          "item": "carcass",
+          "quantity_milli": 2000
+        }
+      ],
+      "whole_batch_raw": [
+        {
+          "item": "carcass",
+          "quantity": 2
+        }
+      ],
+      "whole_batch_fuel_energy": 20,
+      "source_machines": [],
+      "machines": [
+        {
+          "building": "kiln",
+          "research": ["automated-extraction", "material-processing"],
+          "duration": 20,
+          "grid_energy": 200,
+          "fuel_energy": 20,
+          "outputs_per_minute": [
+            {
+              "item": "charcoal",
+              "quantity_milli": 30000
+            },
+            {
+              "item": "organic-waste",
+              "quantity_milli": 30000
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "recipe": "reclaim-organic-waste",
+      "default_for": [],
+      "inputs": [
+        {
+          "item": "organic-waste",
+          "quantity": 4
+        }
+      ],
+      "outputs": [
+        {
+          "item": "charcoal",
+          "quantity": 1
+        }
+      ],
+      "cost_allocation_percent": [100],
+      "raw": [
+        {
+          "item": "carcass",
+          "quantity_milli": 2000
+        }
+      ],
+      "whole_batch_raw": [
+        {
+          "item": "carcass",
+          "quantity": 8
+        }
+      ],
+      "whole_batch_fuel_energy": 100,
+      "source_machines": [],
+      "machines": [
+        {
+          "building": "kiln",
+          "research": ["automated-extraction", "material-processing"],
+          "duration": 30,
+          "grid_energy": 300,
+          "fuel_energy": 20,
+          "outputs_per_minute": [
+            {
+              "item": "charcoal",
+              "quantity_milli": 20000
+            }
+          ]
+        }
+      ]
     }
   ],
   "boundaries": [
@@ -2088,7 +2188,7 @@
     }
   ],
   "reference": {
-    "definition_version": 30,
+    "definition_version": 31,
     "technology_version": 18,
     "ticks_per_second": 10,
     "player_ticks_per_second": 30,
@@ -2662,6 +2762,44 @@
       "grid_energy_per_minute_milli": 6000000,
       "fuel_energy_per_cycle": 120,
       "fuel_energy_per_minute_milli": 4500000
+    },
+    {
+      "building": "kiln",
+      "recipe": "render-biomatter",
+      "ticks_per_cycle": 20,
+      "output_item": "charcoal",
+      "output_per_cycle": 1,
+      "per_minute_milli": 30000,
+      "inputs_per_minute": [
+        {
+          "item": "carcass",
+          "quantity_milli": 60000
+        }
+      ],
+      "power_draw": 10,
+      "grid_energy_per_cycle": 200,
+      "grid_energy_per_minute_milli": 6000000,
+      "fuel_energy_per_cycle": 20,
+      "fuel_energy_per_minute_milli": 600000
+    },
+    {
+      "building": "kiln",
+      "recipe": "reclaim-organic-waste",
+      "ticks_per_cycle": 30,
+      "output_item": "charcoal",
+      "output_per_cycle": 1,
+      "per_minute_milli": 20000,
+      "inputs_per_minute": [
+        {
+          "item": "organic-waste",
+          "quantity_milli": 80000
+        }
+      ],
+      "power_draw": 10,
+      "grid_energy_per_cycle": 300,
+      "grid_energy_per_minute_milli": 6000000,
+      "fuel_energy_per_cycle": 20,
+      "fuel_energy_per_minute_milli": 400000
     },
     {
       "building": "cutter",
@@ -4074,6 +4212,48 @@
       "fuel_energy_milli": 40000,
       "machine_ticks_milli": 8000,
       "effort_milli": 1250
+    },
+    {
+      "item": "carcass",
+      "depth": 0,
+      "raw": [
+        {
+          "item": "carcass",
+          "quantity_milli": 1000
+        }
+      ],
+      "raw_units_milli": 1000,
+      "fuel_energy_milli": 0,
+      "machine_ticks_milli": 0,
+      "effort_milli": 1000
+    },
+    {
+      "item": "organic-waste",
+      "depth": 1,
+      "raw": [
+        {
+          "item": "carcass",
+          "quantity_milli": 500
+        }
+      ],
+      "raw_units_milli": 500,
+      "fuel_energy_milli": 5000,
+      "machine_ticks_milli": 5000,
+      "effort_milli": 531
+    },
+    {
+      "item": "cut-grass",
+      "depth": 0,
+      "raw": [
+        {
+          "item": "cut-grass",
+          "quantity_milli": 1000
+        }
+      ],
+      "raw_units_milli": 1000,
+      "fuel_energy_milli": 0,
+      "machine_ticks_milli": 0,
+      "effort_milli": 1000
     }
   ],
   "buildings": [
@@ -7505,14 +7685,32 @@
       "insight_per_minute_milli": 69565,
       "machine_ticks": 176,
       "machine_seconds_milli": 17600
+    },
+    {
+      "request": "living-riverbank",
+      "item": "organic-waste",
+      "quantity": 4,
+      "insight": 40,
+      "gathers": [
+        {
+          "item": "carcass",
+          "quantity": 8
+        }
+      ],
+      "fuel_items": 1,
+      "gather_total": 9,
+      "insight_per_gather_milli": 4444,
+      "insight_per_minute_milli": 177778,
+      "machine_ticks": 80,
+      "machine_seconds_milli": 8000
     }
   ],
   "budget": {
-    "projects": 27,
+    "projects": 28,
     "skill_milestones": 4,
     "skill_points": 20,
     "skill_cost": 20,
-    "project_insight": 706,
+    "project_insight": 746,
     "raw_project_insight": 85,
     "research_cost": 162,
     "granted_technologies": [
@@ -7521,7 +7719,7 @@
       "storage-planning",
       "on-site-power"
     ],
-    "surplus": 544,
-    "surplus_ratio_milli": 4358
+    "surplus": 584,
+    "surplus_ratio_milli": 4605
   }
 }

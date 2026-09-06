@@ -328,6 +328,7 @@ impl Core {
         if dx == 0 && dy == 0 {
             return;
         }
+        self.cancel_hunt();
         self.ensure_neighborhood(self.player.x + dx, self.player.y + dy);
         let next_x = self.player.x + dx;
         if !self.player_blocked(next_x, self.player.y) {
@@ -337,6 +338,9 @@ impl Core {
         if !self.player_blocked(self.player.x, next_y) {
             self.player.y = next_y;
         }
+        // Once, against where the step actually ended: an axis that slid along a wall is not a
+        // second disturbance, and a herd should read the position the player is standing at.
+        self.alarm_near_player();
     }
 
     /// One player-clock step, in world units. Land uses the host's intent against `PLAYER_SPEED`,

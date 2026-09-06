@@ -183,6 +183,7 @@ function snapshotAt(state: {
       scenario_owned: false,
       footprint: [{ q: index, r: 0 }],
     })),
+    herds: [],
     ground_items: [],
     events: [],
   };
@@ -412,6 +413,36 @@ describe("guidance derived from the rules rather than scripted against them", ()
         technologies,
       ).key,
     ).toBe("complete");
+  });
+
+  it("derives an executable route to the ecology programme after the founding contract", () => {
+    const snapshot = snapshotAt({
+      stage: newGame.contract.stages.length,
+      researched: technologies.technologies.map((technology) => technology.id),
+      insight: 100,
+      inventory: {},
+      buildings: [],
+    });
+    const request = definitions.requests.find(
+      (request) => request.key === "living-riverbank",
+    )!;
+    snapshot.requests = [
+      {
+        ...request,
+        required: request.quantity,
+        delivered: 0,
+        state: "posted",
+      } as RequestSnapshot,
+    ];
+    const action = nextAction(snapshot, definitions, technologies);
+    expect(action.key).not.toBe("complete");
+    expect(action.key).not.toBe("supply");
+    snapshot.player.inventory[String(request.item_id)] = request.quantity;
+    expect(nextAction(snapshot, definitions, technologies).key).toBe("deliver");
+    snapshot.requests[0]!.state = "complete";
+    expect(nextAction(snapshot, definitions, technologies).key).toBe(
+      "complete",
+    );
   });
 
   it("names primitive construction suppliers before the first generator or a replacement kiln", () => {

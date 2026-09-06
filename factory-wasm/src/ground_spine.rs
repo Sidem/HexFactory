@@ -82,7 +82,7 @@ impl GeneratedGround {
         let substrate = match terrain {
             Terrain::DeepWater | Terrain::ShallowWater => Substrate::Soil,
             Terrain::Lowland => Substrate::Meadow,
-            Terrain::Shore => Substrate::Sand,
+            Terrain::Shore | Terrain::Riverbank => Substrate::Sand,
             Terrain::Hills => Substrate::Soil,
             Terrain::Highland | Terrain::Cliff => Substrate::Rock,
         };
@@ -183,15 +183,28 @@ impl GeneratedGround {
         } else {
             Substrate::Meadow
         };
-        let shore_bench = terra.river_bench_class_at(source.0, source.1).is_some()
-            || DIRECTIONS
-                .iter()
-                .any(|&(dq, dr)| terra.water(source.0 + dq, source.1 + dr).is_wet());
+        // Two kinds of ground wear the same sand and are not the same place. A river lays its
+        // alluvium along a bench it cut itself; the sea washes a beach. The generator is the only
+        // thing that can tell them apart — it knows which channel a bench belongs to, and it knows
+        // salt water from fresh — so the distinction is derived here rather than guessed at from a
+        // sand band by anything downstream.
+        let mut waterside = false;
+        let mut bank = terra.river_bench_class_at(source.0, source.1).is_some();
+        for &(dq, dr) in DIRECTIONS.iter() {
+            let neighbour = terra.water(source.0 + dq, source.1 + dr);
+            waterside |= neighbour.is_wet();
+            bank |= matches!(
+                neighbour,
+                crate::terra::Water::Lake { .. } | crate::terra::Water::River { .. }
+            );
+        }
         let presentation = if depth_quanta >= crate::scale::WADE_LIMIT_QUANTA {
             Terrain::DeepWater
         } else if depth_quanta > 0 {
             Terrain::ShallowWater
-        } else if shore_bench {
+        } else if bank {
+            Terrain::Riverbank
+        } else if waterside {
             Terrain::Shore
         } else {
             match substrate {
@@ -247,7 +260,7 @@ impl FinishedGround {
 pub(super) const fn legacy_band_elevation(terrain: Terrain) -> i32 {
     match terrain {
         Terrain::DeepWater => -1,
-        Terrain::ShallowWater | Terrain::Shore | Terrain::Lowland => 0,
+        Terrain::ShallowWater | Terrain::Shore | Terrain::Riverbank | Terrain::Lowland => 0,
         Terrain::Hills => 1,
         Terrain::Highland => 2,
         Terrain::Cliff => 3,
@@ -320,6 +333,12 @@ impl GroundSpine {
 
     pub(super) fn presentation_at(&self, q: i32, r: i32) -> Terrain {
         self.generated_at(q, r).presentation
+    }
+
+    /// The band site generation reads, which collapses the riverbank back into the shore it was
+    /// split from. See [`Terrain::site_band`].
+    pub(super) fn site_band_at(&self, q: i32, r: i32) -> Terrain {
+        self.presentation_at(q, r).site_band()
     }
 
     pub(super) fn wet_at(&self, q: i32, r: i32) -> bool {

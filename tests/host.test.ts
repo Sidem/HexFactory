@@ -195,6 +195,7 @@ const snapshot: FactorySnapshot = {
       ],
     },
   ],
+  herds: [],
   ground_items: [],
   events: [],
 };
@@ -1544,8 +1545,7 @@ describe("availability and expanded snapshot adapter", () => {
   });
 
   it("offers each machine only the recipes of its own category", () => {
-    // The host must not hand a machine "the first recipe in the catalog": native would refuse it,
-    // and a build tool that cannot place anything is a defect the player has to diagnose.
+    // A machine must receive only recipes native accepts.
     const main = readAppSource();
     const hostSource = readFileSync(
       new URL("../src/core/FactoryHost.ts", import.meta.url),
@@ -1563,7 +1563,13 @@ describe("availability and expanded snapshot adapter", () => {
         .filter(({ category }) => category === definition.recipe_category)
         .map(({ key: recipe }) => recipe);
     };
-    expect(byCategory("kiln")).toEqual(["brick", "charcoal", "cement"]);
+    expect(byCategory("kiln")).toEqual([
+      "brick",
+      "charcoal",
+      "cement",
+      "render-biomatter",
+      "reclaim-organic-waste",
+    ]);
     expect(byCategory("crusher")).toEqual(["gravel"]);
     expect(byCategory("smelter")).toContain("steel");
     expect(byCategory("smelter")).not.toContain("circuit");
@@ -1737,7 +1743,10 @@ function fakeTransport(): {
   let revision = 0;
   const response = (
     patch: Partial<
-      Omit<FactorySnapshot, "buildings" | "resources" | "terrain" | "habitats">
+      Omit<
+        FactorySnapshot,
+        "buildings" | "resources" | "terrain" | "habitats" | "herds"
+      >
     >,
   ): FactorySnapshotDelta => ({
     base_revision: revision,

@@ -6,7 +6,8 @@
     { "terrain": "lowland", "passable": true, "buildable": true },
     { "terrain": "hills", "passable": true, "buildable": true },
     { "terrain": "highland", "passable": true, "buildable": true },
-    { "terrain": "cliff", "passable": false, "buildable": false }
+    { "terrain": "cliff", "passable": false, "buildable": false },
+    { "terrain": "riverbank", "passable": true, "buildable": true }
   ],
   "physical": [
     {

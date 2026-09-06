@@ -1169,6 +1169,9 @@ describe("Visual Depth terrain and quality contracts", () => {
       "hills",
       "highland",
       "cliff",
+      // Last, as it is in the native enum and the passability fixture: the band was split out of
+      // the shore after the six below it were already numbered.
+      "riverbank",
     ]);
     // And Low, Medium and High are deliberate bounded profiles, not a free-form dial.
     expect(Object.keys(QUALITY_SETTINGS)).toEqual(["low", "medium", "high"]);
@@ -1956,6 +1959,7 @@ function minimalSnapshot(): FactorySnapshot {
     habitats: [],
     resources: [],
     buildings: [],
+    herds: [],
     ground_items: [],
     events: [],
   };

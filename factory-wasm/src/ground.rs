@@ -603,7 +603,7 @@ impl Core {
         // deposit, it would only put the wall back beyond reach. The stone itself is untouched:
         // the quantity is a per-hex number that no grade has ever entered, and a quarried face is
         // still gathered from, now from on top rather than from beside.
-        // A spent deposit is not one of them: nothing is left to be measured in the ground.
+        // Spent deposits and mobile animals do not prevent grading.
         if !cliff
             && self.field_at(cell.0, cell.1).is_some()
             && !self.deposit_exhausted(cell.0, cell.1)
@@ -1054,6 +1054,7 @@ impl Core {
                 }
             }
         }
+        self.invalidate_blocked_legs();
         self.spoil = transaction.undo.spoil_after;
         self.player.inventory = transaction.inventory.clone();
         *self.ground_hash_cache.borrow_mut() = None;

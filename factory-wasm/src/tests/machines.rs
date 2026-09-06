@@ -618,6 +618,9 @@ fn primitive_capabilities_are_validated_and_the_first_machines_pay_for_themselve
             &core.save_string().unwrap(),
         )
         .unwrap();
+        // The fixture's flat opening is not a catalog scenario, so a save cannot carry it: the
+        // resumed run has to be put back on the same ground before the two are asked to agree.
+        level_opening(&mut resumed);
         core.tick_many(25);
         resumed.tick_many(25);
         assert_eq!(core.checksum(), resumed.checksum());

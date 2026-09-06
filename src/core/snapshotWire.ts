@@ -8,6 +8,8 @@ import type {
   EntitySnapshot,
   FactorySnapshotDelta,
   HabitatSnapshot,
+  HerdSnapshot,
+  HerdsPatch,
   HabitatsPatch,
   GroundItemSnapshot,
   Ingredient,
@@ -42,7 +44,7 @@ import type {
  */
 
 const MAGIC = 0x48584644; // "HXFD"
-const VERSION = 24;
+const VERSION = 26;
 
 /** Wire code is the index. Pinned against Rust by `fixtures/snapshot-delta-wire.json`. */
 const KINDS: BuildingKind[] = [
@@ -67,6 +69,7 @@ const TERRAIN: Terrain[] = [
   "hills",
   "highland",
   "cliff",
+  "riverbank",
 ];
 
 const SUBSTRATES: Substrate[] = ["sand", "meadow", "soil", "rock"];
@@ -120,6 +123,7 @@ const GROUP = {
   spoil: 1 << 22,
   water: 1 << 23,
   habitats: 1 << 24,
+  herds: 1 << 25,
   chunks: 1 << 12,
   terrain: 1 << 13,
   resources: 1 << 14,
@@ -446,6 +450,53 @@ export function decodeSnapshotDelta(buffer: ArrayBuffer): FactorySnapshotDelta {
       departure: reader.svarint(),
     }));
   }
+  if (has(GROUP.herds)) {
+    const replace = reader.bool();
+    const count = reader.uvarint();
+    if (count > 512) throw new Error("Herd budget exceeded");
+    const changed: HerdSnapshot[] = [];
+    for (let i = 0; i < count; i++) {
+      const id = reader.uvarint(),
+        species = reader.uvarint();
+      const from: [number, number] = [reader.svarint(), reader.svarint()];
+      const to: [number, number] = [reader.svarint(), reader.svarint()];
+      const left_tick = reader.uvarint(),
+        arrive_tick = reader.uvarint();
+      const count = reader.uvarint();
+      const drive = (["Rest", "Graze", "Thirst", "Flee"] as const)[
+        reader.uvarint()
+      ];
+      if (!drive) throw new Error("Unknown herd drive");
+      changed.push({
+        id,
+        species,
+        from,
+        to,
+        left_tick,
+        arrive_tick,
+        count,
+        drive,
+        hunger: reader.uvarint(),
+        thirst: reader.uvarint(),
+        alarm: reader.uvarint(),
+        healthy_ticks: reader.uvarint(),
+        shortage_ticks: reader.uvarint(),
+        hunt_tick: reader.uvarint(),
+      });
+    }
+    const removedCount = reader.uvarint();
+    if (removedCount > 512) throw new Error("Herd removal budget exceeded");
+    const removed = Array.from({ length: removedCount }, () =>
+      reader.uvarint(),
+    );
+    // Absent rather than empty, exactly as native serializes it: a quiet frame's herds group is
+    // `{}`, and a decoder that filled in `replace: false` would not match the delta it decodes.
+    const patch: HerdsPatch = {};
+    if (replace) patch.replace = true;
+    if (changed.length > 0) patch.changed = changed;
+    if (removed.length > 0) patch.removed = removed;
+    delta.herds = patch;
+  }
   // A buffer with bytes left over means the two sides disagree about the layout, which would
   // otherwise surface as a subtly wrong frame somewhere downstream.
   if (!reader.atEnd())
@@ -630,6 +681,9 @@ function readHabitats(reader: Reader): HabitatsPatch {
       radius: reader.uvarint(),
       capacity: reader.uvarint(),
       discharge: reader.u8(),
+      grass: reader.uvarint(),
+      grass_limit: reader.uvarint(),
+      fouling: reader.uvarint(),
     };
   }
   const patch: HabitatsPatch = {};

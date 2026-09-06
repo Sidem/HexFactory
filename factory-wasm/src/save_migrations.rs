@@ -316,6 +316,21 @@ pub(super) fn migrate<'a>(json: &'a str, target_version: u16) -> Result<Cow<'a, 
         version = 45;
     }
 
+    // Version 46 adds wildlife. A version-45 world has no herds and no eaten grass: both fields
+    // default to empty, and both checksum contributions are guarded on non-empty state, so the
+    // original file verifies unchanged. Definitions move because the carcass, waste and feed items
+    // and the species table are new, and because rendering biomatter is a recipe the old catalogue
+    // does not have.
+    if version == 45 && target_version >= 46 {
+        if let Some(object) = value.as_object_mut() {
+            object.insert("save_version".into(), Value::from(46));
+            if object.get("definition_version") == Some(&Value::from(30)) {
+                object.insert("definition_version".into(), Value::from(31));
+            }
+        }
+        version = 46;
+    }
+
     if version == target_version {
         return Ok(Cow::Owned(serde_json::to_string(&value).map_err(
             |error| format!("migrated save could not be written: {error}"),

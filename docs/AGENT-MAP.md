@@ -9,6 +9,7 @@ Choose one route. Open only that domain index, then localize its named anchors w
 | Native tick and determinism | [simulation](../.agent/simulation.md) |
 | Transport, junctions and arbitration | [simulation](../.agent/simulation.md) |
 | Power | [simulation](../.agent/simulation.md) |
+| Wildlife, herds and pasture | [simulation](../.agent/simulation.md) |
 | World generation and fields | [native](../.agent/native.md) |
 | Save compatibility | [simulation](../.agent/simulation.md) |
 | Binary snapshots | [browser](../.agent/browser.md) |

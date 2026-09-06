@@ -31,6 +31,7 @@ export function applySnapshotDelta(
   delete groups.resources;
   delete groups.terrain;
   delete groups.habitats;
+  delete groups.herds;
   const next: FactorySnapshot = { ...snapshot, ...groups };
   if (delta.buildings)
     next.buildings = applyBuildingsPatch(snapshot.buildings, delta.buildings);
@@ -40,6 +41,7 @@ export function applySnapshotDelta(
     next.terrain = applyTerrainPatch(snapshot.terrain, delta.terrain);
   if (delta.habitats)
     next.habitats = applyHabitatsPatch(snapshot.habitats, delta.habitats);
+  if (delta.herds) next.herds = applyIdPatch(snapshot.herds, delta.herds);
   return { snapshot: next, revision: delta.revision };
 }
 
@@ -52,10 +54,17 @@ export function applyBuildingsPatch(
   current: EntitySnapshot[],
   patch: BuildingsPatch,
 ): EntitySnapshot[] {
+  return applyIdPatch(current, patch);
+}
+
+export function applyIdPatch<T extends { id: number }>(
+  current: T[],
+  patch: { replace?: boolean; changed?: T[]; removed?: number[] },
+): T[] {
   if (patch.replace) return patch.changed ?? [];
   const removed = new Set(patch.removed ?? []);
   const changed = patch.changed ?? [];
-  const next: EntitySnapshot[] = [];
+  const next: T[] = [];
   let index = 0;
   const carryBefore = (id: number): void => {
     while (index < current.length) {
@@ -118,16 +127,30 @@ export function applyHabitatsPatch(
   patch: HabitatsPatch,
 ): HabitatSnapshot[] {
   if (patch.replace)
-    return (patch.changed ?? []).filter((cell) => cell.capacity > 0);
+    return (patch.changed ?? []).filter(
+      (cell) => cell.capacity > 0 || cell.grass_limit > 0 || cell.fouling > 0,
+    );
   const changed = patch.changed ?? [];
   if (changed.length === 0) return current;
   const byKey = new Map(changed.map((cell) => [tileKey(cell), cell]));
   const next = current
-    .filter((cell) => byKey.get(tileKey(cell))?.capacity !== 0)
+    .filter((cell) => {
+      const patch = byKey.get(tileKey(cell));
+      return (
+        !patch ||
+        patch.capacity > 0 ||
+        patch.grass_limit > 0 ||
+        patch.fouling > 0
+      );
+    })
     .map((cell) => byKey.get(tileKey(cell)) ?? cell);
   const held = new Set(current.map(tileKey));
   for (const cell of changed) {
-    if (cell.capacity > 0 && !held.has(tileKey(cell))) next.push(cell);
+    if (
+      (cell.capacity > 0 || cell.grass_limit > 0 || cell.fouling > 0) &&
+      !held.has(tileKey(cell))
+    )
+      next.push(cell);
   }
   next.sort((a, b) => a.q - b.q || a.r - b.r);
   return next;

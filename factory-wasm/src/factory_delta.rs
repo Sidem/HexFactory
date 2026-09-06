@@ -24,6 +24,23 @@ impl Factory {
         let core = &mut self.core;
         let baseline = self.baseline.as_mut().expect("baseline exists");
         let mut dirty = std::mem::take(&mut core.dirty);
+        let mut herd_changed = Vec::new();
+        let mut herd_removed = Vec::new();
+        for id in drain_marks(&mut dirty.herds) {
+            if let Some(herd) = core.herds.get(&id) {
+                if baseline.herds.get(&id) != Some(herd) {
+                    baseline.herds.insert(id, herd.clone());
+                    herd_changed.push(herd.clone());
+                }
+            } else if baseline.herds.remove(&id).is_some() {
+                herd_removed.push(id);
+            }
+        }
+        let herds = (!herd_changed.is_empty() || !herd_removed.is_empty()).then_some(HerdsDelta {
+            replace: false,
+            changed: herd_changed,
+            removed: herd_removed,
+        });
         let marked_entities = drain_marks(&mut dirty.entities);
         let marked_resources = drain_marks(&mut dirty.resources);
         let marked_terrain = drain_marks(&mut dirty.terrain);
@@ -95,9 +112,12 @@ impl Factory {
             let mut changed = Vec::new();
             for (q, r) in marked_habitats {
                 let cell = core.habitat_snapshot(q, r);
-                if cell.capacity == 0 {
+                if !habitat_row_is_worth_sending(&cell) {
                     if let Some(old) = baseline.habitats.remove(&(q, r)) {
                         changed.push(HabitatSnapshot {
+                            grass: 0,
+                            grass_limit: 0,
+                            fouling: 0,
                             capacity: 0,
                             discharge: 0,
                             ..old
@@ -181,6 +201,7 @@ impl Factory {
             habitats,
             resources,
             buildings,
+            herds,
             ground_items,
             boundaries: dirty
                 .boundaries

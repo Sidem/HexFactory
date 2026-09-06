@@ -37,7 +37,7 @@ const WIRE_KINDS: [(BuildingKind, &str); 11] = [
     (BuildingKind::Bridge, "bridge"),
 ];
 
-const WIRE_TERRAIN: [(Terrain, &str); 7] = [
+const WIRE_TERRAIN: [(Terrain, &str); 8] = [
     (Terrain::DeepWater, "deep_water"),
     (Terrain::ShallowWater, "shallow_water"),
     (Terrain::Shore, "shore"),
@@ -45,6 +45,7 @@ const WIRE_TERRAIN: [(Terrain, &str); 7] = [
     (Terrain::Hills, "hills"),
     (Terrain::Highland, "highland"),
     (Terrain::Cliff, "cliff"),
+    (Terrain::Riverbank, "riverbank"),
 ];
 
 #[test]
@@ -71,6 +72,7 @@ fn wire_fixture_cases() -> Vec<(&'static str, SnapshotDelta)> {
     // A closure rather than a value: every case below fills a different handful of groups in
     // and leaves the rest absent, and `..` moves what it spreads from.
     let empty = || SnapshotDelta {
+        herds: None,
         boundaries: None,
         ground: None,
         spoil: None,
@@ -357,6 +359,9 @@ fn wire_fixture_cases() -> Vec<(&'static str, SnapshotDelta)> {
             replace: false,
             changed: vec![
                 HabitatSnapshot {
+                    grass: 0,
+                    grass_limit: 0,
+                    fouling: 0,
                     q: -3,
                     r: -3,
                     x: -7_983,
@@ -366,6 +371,9 @@ fn wire_fixture_cases() -> Vec<(&'static str, SnapshotDelta)> {
                     discharge: 7,
                 },
                 HabitatSnapshot {
+                    grass: 0,
+                    grass_limit: 0,
+                    fouling: 0,
                     q: -2,
                     r: -3,
                     x: -6_209,
@@ -669,10 +677,57 @@ fn wire_fixture_cases() -> Vec<(&'static str, SnapshotDelta)> {
         ..empty()
     };
 
+    // A herd on a leg, a herd standing still, and one that is gone. The legs carry negative world
+    // coordinates so a decoder that forgets to zigzag `from` and `to` cannot pass, the drive is a
+    // code rather than a name, and the removal list is what tells the host to drop a hunted-out
+    // herd rather than leaving its bodies drawn on an empty field forever.
+    let herds = SnapshotDelta {
+        herds: Some(HerdsDelta {
+            replace: false,
+            changed: vec![
+                Herd {
+                    id: 4,
+                    species: 1,
+                    from: (-7_983, -4_608),
+                    to: (1_774, 1_536),
+                    left_tick: 300,
+                    arrive_tick: 462,
+                    count: 3,
+                    drive: Drive::Thirst,
+                    hunger: 120,
+                    thirst: 900,
+                    alarm: 0,
+                    healthy_ticks: 0,
+                    shortage_ticks: 40,
+                    hunt_tick: 0,
+                },
+                Herd {
+                    id: 9,
+                    species: 1,
+                    from: (0, 0),
+                    to: (0, 0),
+                    left_tick: 400,
+                    arrive_tick: 500,
+                    count: 2,
+                    drive: Drive::Rest,
+                    hunger: 0,
+                    thirst: 0,
+                    alarm: 0,
+                    healthy_ticks: 1_100,
+                    shortage_ticks: 0,
+                    hunt_tick: 505,
+                },
+            ],
+            removed: vec![7],
+        }),
+        ..empty()
+    };
+
     vec![
         ("boundaries with paid recovery", boundaries),
         ("prepared ground and spoil", ground),
         ("disturbed water", water),
+        ("herds on a leg and one removed", herds),
         ("a quiet frame", quiet),
         ("every scalar group", scalars),
         ("both patches with entries", patches),

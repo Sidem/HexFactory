@@ -53,6 +53,8 @@ impl Core {
                 self.dirty.resources_replace |= self.field_at(q, r).is_some();
             }
         }
+        // The herds the generator left in this chunk are alive from the moment it opens.
+        self.seed_herds(chunk_q, chunk_r);
     }
 
     /// Every entity snapshot is now suspect. Used by the rare paths that can change what a snapshot

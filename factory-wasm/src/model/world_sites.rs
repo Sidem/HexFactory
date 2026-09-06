@@ -425,7 +425,7 @@ fn center_on_shore(
         .into_iter()
         .any(|(q, r)| {
             if spine.is_physical() {
-                spine.presentation_at(q, r) == Terrain::Shore
+                spine.site_band_at(q, r) == Terrain::Shore
             } else {
                 let elevation = elevation_at(params, seed, q, r);
                 elevation >= params.water_level && elevation < params.shore_level
@@ -443,7 +443,7 @@ fn eligible_rule(
     center: (i32, i32),
     spine: &GroundSpine,
 ) -> Option<usize> {
-    let band = spine.presentation_at(center.0, center.1);
+    let band = spine.site_band_at(center.0, center.1);
     let richness = value_noise(
         seed,
         center.0,
@@ -654,7 +654,7 @@ fn bootstrap_rule(
     item_id: ItemId,
     spine: &GroundSpine,
 ) -> Option<(usize, bool)> {
-    let band = spine.presentation_at(center.0, center.1);
+    let band = spine.site_band_at(center.0, center.1);
     let exact = params.site_rules.iter().position(|rule| {
         rule.weight > 0
             && rule.item_id == item_id
@@ -688,7 +688,7 @@ fn member_hexes(params: &WorldParams, seed: u32, site: &Site, spine: &GroundSpin
         .filter(|&(q, r)| {
             !spine.wet_at(q, r)
                 && axial_distance((0, 0), (q, r)) > LANDING_CLEAR_RADIUS
-                && site_covers(params, seed, site, q, r, spine.presentation_at(q, r), spine)
+                && site_covers(params, seed, site, q, r, spine.site_band_at(q, r), spine)
                     .is_some()
         })
         .count() as u32
@@ -724,7 +724,7 @@ fn bootstrap_band_census(
 ) -> BTreeSet<Terrain> {
     bootstrap_cells(params, seed)
         .iter()
-        .map(|&(_, _, center)| spine.presentation_at(center.0, center.1))
+        .map(|&(_, _, center)| spine.site_band_at(center.0, center.1))
         .collect()
 }
 

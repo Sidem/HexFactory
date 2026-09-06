@@ -56,6 +56,12 @@ struct Core {
     /// function of the overlay and the item definitions, so it is rebuilt on load rather than
     /// saved, and it is never hashed or checksummed.
     flora_regrowth: BTreeSet<(i32, i32)>,
+    /// Derived disturbed-colony work, rebuilt from native state after restore.
+    grazed: BTreeMap<(i32, i32), u16>,
+    fouled: BTreeMap<(i32, i32), u16>,
+    herds: BTreeMap<u32, Herd>,
+    next_herd_id: u32,
+    herd_arrivals: BTreeMap<u64, BTreeSet<u32>>,
     entities: Vec<Entity>,
     /// Per-entity, per-product outlet choices keyed by stable entity id. Empty means the legacy
     /// facing outlet for every product. Real saved state; compiled graph edges remain derived.
@@ -252,6 +258,11 @@ impl Core {
                 })
                 .collect(),
             flora_regrowth: BTreeSet::new(),
+            grazed: BTreeMap::new(),
+            fouled: BTreeMap::new(),
+            herds: BTreeMap::new(),
+            next_herd_id: 1,
+            herd_arrivals: BTreeMap::new(),
             entities: Vec::new(),
             output_routes: BTreeMap::new(),
             legacy_fluid_belts: BTreeSet::new(),
@@ -348,6 +359,7 @@ impl Core {
             core.next_entity_id += 1;
         }
         core.compile_graph();
+        core.rebuild_herd_schedule();
         core.refill_requests();
         Ok(core)
     }

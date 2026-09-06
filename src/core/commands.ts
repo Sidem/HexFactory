@@ -34,6 +34,12 @@ const STOCK_CODE = {
 
 export function encodeCommand(command: NativeInputCommand): EncodedCommand {
   switch (command.type) {
+    case "hunt_herd":
+      return { opcode: 37, args: [command.herd_id] };
+    case "cancel_hunt":
+      return { opcode: 38, args: [] };
+    case "cut_feed":
+      return { opcode: 39, args: [command.q, command.r] };
     // Two lattice vertices, a shape and one verb. A vertex is a hex and one of its six corners, so
     // the same point can be named three ways and native folds them together — the host never has to
     // decide which hex "owns" the wall it just drew.

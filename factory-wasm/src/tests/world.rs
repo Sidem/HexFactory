@@ -3,6 +3,41 @@ use crate::factory_preview::{
     LANDSCAPE_LOD_INNER_RADIUS, LANDSCAPE_LOD_RADIUS, LANDSCAPE_LOD_STEP,
 };
 
+/// A beach and a riverbank wear the same sand and are not the same place.
+///
+/// The generator is the only thing that can tell them apart: it knows which channel a bench belongs
+/// to and it knows salt water from fresh. So the two bands are checked against those two facts and
+/// nothing else — every riverbank has fresh water at hand or a channel's bench under it, and no
+/// shore has either. Both have to occur near the landing site, or the split is only an assertion
+/// about a band nobody will ever stand on.
+#[test]
+fn the_riverbank_band_is_fresh_ground_and_the_shore_band_is_the_beach() {
+    let core = bare_game("new-game");
+    let bench = |q: i32, r: i32| core.ground_spine.river_bench_class_at(q, r).is_some();
+    let (mut banks, mut beaches) = (0u32, 0u32);
+    for (q, r) in hexes_in_radius((0, 0), 34) {
+        match core.terrain_at(q, r) {
+            Terrain::Riverbank => {
+                banks += 1;
+                assert!(
+                    bench(q, r) || ecology::beside_fresh_water(&core, q, r),
+                    "riverbank at {q},{r} is neither a channel's bench nor beside fresh water"
+                );
+            }
+            Terrain::Shore => {
+                beaches += 1;
+                assert!(
+                    !bench(q, r) && !ecology::beside_fresh_water(&core, q, r),
+                    "shore at {q},{r} is a riverbank drawn as a beach"
+                );
+            }
+            _ => {}
+        }
+    }
+    assert!(banks > 0, "the opening world has no riverbank in it");
+    assert!(beaches > 0, "the opening world has no beach in it");
+}
+
 #[test]
 fn native_and_host_agree_on_directions_passability_heights_and_hexes() {
     let fixture: Vec<serde_json::Value> =
@@ -43,7 +78,7 @@ fn native_and_host_agree_on_directions_passability_heights_and_hexes() {
         physical: Vec<PhysicalEntry>,
     }
 
-    const BANDS: [Terrain; 7] = [
+    const BANDS: [Terrain; 8] = [
         Terrain::DeepWater,
         Terrain::ShallowWater,
         Terrain::Shore,
@@ -51,6 +86,7 @@ fn native_and_host_agree_on_directions_passability_heights_and_hexes() {
         Terrain::Hills,
         Terrain::Highland,
         Terrain::Cliff,
+        Terrain::Riverbank,
     ];
     // A band added to the enum makes this match non-exhaustive, which is what sends whoever
     // added it to `BANDS` above and to the fixture beside it.
@@ -62,7 +98,8 @@ fn native_and_host_agree_on_directions_passability_heights_and_hexes() {
             | Terrain::Lowland
             | Terrain::Hills
             | Terrain::Highland
-            | Terrain::Cliff => {}
+            | Terrain::Cliff
+            | Terrain::Riverbank => {}
         }
     }
 
@@ -447,10 +484,16 @@ fn materials_are_generated_where_geography_says_and_harvested_within_a_radius() 
         .depth_quanta
         .is_positive());
     assert!(!core.terrain_blocks_movement(0, 0));
-    // The clearing holds no field at all now: the eight hardcoded cells it used to carry were
-    // a sample platter, and the opening is placed by the generator outside it.
+    // The clearing holds no deposit now: the eight hardcoded cells it used to carry were a sample
+    // platter, and the opening is placed by the generator outside it. Herds are the one exception,
+    // and they have to be — they walk, so no rule about where the clearing starts could keep animals
+    // out of it a minute later, and pretending otherwise would only make the first minute a lie.
     for cell in hexes_in_radius((0, 0), LANDING_CLEAR_RADIUS) {
-        assert_eq!(core.field_at(cell.0, cell.1), None);
+        let field = core.field_at(cell.0, cell.1);
+        assert!(
+            field.as_ref().is_none(),
+            "the landing clearing carries a deposit at {cell:?}: {field:?}"
+        );
     }
     // A guaranteed site is a disc that carries field, not a centre that does. A rule with a
     // water-proximity clause seats its disc on ground whose middle hex can fail that clause, so the

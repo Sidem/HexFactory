@@ -349,6 +349,7 @@ impl Core {
             );
         }
         self.water = water;
+        self.invalidate_blocked_legs();
         self.dirty.water = true;
         // Fertility is a ring question — ground is watered by the water standing beside it — so a
         // cell whose depth moved makes its neighbours' habitat answer stale as well as its own.

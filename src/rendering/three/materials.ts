@@ -76,15 +76,13 @@ export function createWorldMaterials(): WorldMaterials {
   const machineCeramic = machineMaterial("#ffffff", "ceramic", 0.86, 0.04);
   const machineBrass = machineMaterial("#ffffff", "brass", 0.42, 0.62);
   const machineDark = machineMaterial("#ffffff", "dark", 0.9, 0.15);
-  const wayfinderHull = machineMaterial("#14262a", "dark", 0.82, 0.18);
-  const wayfinderShell = machineMaterial("#d9d1b8", "ceramic", 0.8, 0.05);
-  const wayfinderBrass = machineMaterial("#bf8948", "brass", 0.4, 0.64);
+  const wayfinderHull = machineMaterial("#27353d", "dark", 0.96, 0);
+  const wayfinderShell = machineMaterial("#d2aa67", "ceramic", 0.96, 0);
+  const wayfinderBrass = machineMaterial("#765139", "dark", 0.95, 0);
   const wayfinderSignal = new MeshStandardMaterial({
-    color: "#f4ead0",
-    roughness: 0.32,
-    metalness: 0.02,
-    emissive: "#7fe0c0",
-    emissiveIntensity: 0.72,
+    color: "#c98e6d",
+    roughness: 0.95,
+    metalness: 0,
     flatShading: true,
   });
   const smoke = new MeshBasicMaterial({

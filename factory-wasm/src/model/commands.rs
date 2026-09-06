@@ -33,6 +33,9 @@ enum StockKind {
 #[derive(Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 enum InputCommand {
+    HuntHerd { herd_id: u32 },
+    CancelHunt,
+    CutFeed { q: i32, r: i32 },
     BoundaryEdit {
         #[serde(flatten)]
         edit: BoundaryEdit,

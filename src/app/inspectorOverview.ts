@@ -1,3 +1,4 @@
+import { renderHerdInspector } from "./herdInspector";
 import { axialToPixel } from "@hexlife/embed/hex";
 import { recipeOutputs } from "../core/recipes";
 import {
@@ -418,6 +419,7 @@ Runtime.prototype.offerPackBeside = function offerPackBeside(
 Runtime.prototype.renderInspector = function renderInspector(
   this: Runtime,
 ): void {
+  if (renderHerdInspector(this)) return;
   const empty = required<HTMLElement>("inspect-empty");
   const sheet = required<HTMLElement>("inspect-sheet");
   const kicker = required<HTMLElement>("inspect-kicker");
@@ -487,7 +489,7 @@ Runtime.prototype.renderInspector = function renderInspector(
   habitatPanel.hidden = !habitat;
   if (habitat) {
     required<HTMLElement>("inspect-habitat-name").textContent =
-      `Fertile riverbank · capacity ${habitat.capacity}`;
+      `Fertile riverbank · soil ${habitat.capacity}`;
     required<HTMLElement>("inspect-habitat-note").textContent =
       `Dry, unbuilt ground with fresh standing water in its ring, watered at class ` +
       `${habitat.discharge}. A cut canal waters ground the same way a river does.`;
@@ -550,7 +552,7 @@ Runtime.prototype.renderInspector = function renderInspector(
     kicker.textContent = "Habitat";
     title.textContent = "Fertile riverbank";
     status.hidden = false;
-    status.textContent = `capacity ${habitat.capacity}`;
+    status.textContent = `soil ${habitat.capacity}`;
     status.className = "inspect-status live";
   } else if (!surveyed) {
     kicker.textContent = "Unsurveyed";

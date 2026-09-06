@@ -206,6 +206,13 @@ export function validateDefinitions(
   }
   for (const item of data.items) {
     if (
+      item.habitat_damage !== undefined &&
+      (!Number.isInteger(item.habitat_damage) ||
+        item.habitat_damage < 0 ||
+        item.habitat_damage > 1000)
+    )
+      throw new TypeError("Invalid population or habitat damage definition");
+    if (
       !item.key ||
       !item.name ||
       !item.color ||

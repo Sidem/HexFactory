@@ -29,7 +29,8 @@ complement of native surveyed chunks.
 | ------------- | --------- | --------- | -------------------------- |
 | Deep water    | `#0f3550` | `#3f9ad0` | Impassable, pumpable basin |
 | Shallow water | `#1a5474` | `#5cb6d8` | Slow ford, bridgeable      |
-| Shore         | `#c4a56a` | `#e0c88a` | Sand and clay              |
+| Shore         | `#c4a56a` | `#e0c88a` | Beach: sand and clay       |
+| Riverbank     | `#7a7048` | `#a3ad6b` | Fresh-water bank, silt     |
 | Lowland       | `#1a3a32` | —         | Default surveyed ground    |
 | Hills         | `#48604d` | `#6f8a6c` | Copper and coal country    |
 | Highland      | `#5c6b58` | `#8a9a84` | Iron and coal country      |
@@ -41,13 +42,31 @@ Impassable ground adds one shared hatch/rim treatment based on native access rul
 when native says it is walkable.
 
 `terrainSurface.ts` maps the ground to four procedural families—water, sand, meadow, and rock—inside a
-bounded shared material set. Patterns are keyed only by world position. Quality profiles change bounded
+bounded shared material set. Patterns are keyed only by world position. The two sandy bands are the reason
+a band and a family are separate choices: the shore takes the sand family and the riverbank takes meadow,
+because a beach is bare grains and a bank is silt with reeds in it, and that is what tells them apart at a
+glance without either band earning a shader of its own. In the baked 2D tiles the same difference is
+pebble dots against blades. Quality profiles change bounded
 detail; reduced motion freezes motion rather than slowing simulation. Terrain and resource remain separate
 visual facts, so deposits never recolour or replace the ground under them.
 
 Fertile riverbank is a sparse instanced fringe of repeated upright three-sided sedge blades. Its narrow,
 rhythmic silhouette remains readable without colour and stays distinct from the rocks, mounds, crystals,
 and tree forms used for deposits. Blade density is presentation derived from exact native capacity.
+
+Riverbank grazers use a shared low-poly body, head, four legs, and paired ears. A herd is one native point
+and a headcount; the renderer scatters that many bodies around it, so abundance is read off the ground
+rather than off a number. The herd's position is interpolated along its published leg by the same trick
+belt cargo uses — native says where it left, where it is going and when it arrives, and the frame fills in
+the remainder — so animals creep between snapshots instead of stepping at 10 Hz. Rendering never advances
+an animal. Clicking a body selects the herd rather than the hex under it, because an animal is between
+hexes as often as on one, and the inspector names the drive in plain language: alarmed, thirsty, hungry, or
+resting, with what the player can do about it. Grass thins where a herd has been feeding. Biomatter uses
+the lump item glyph and organic waste uses grains.
+
+The player is a compact human worker in ochre work clothes, dark trousers and a cloth cap, with a
+small satchel and a plain work tool. Skin is matte, without a glowing visor. Slender limbs and simple
+forms replace armour and mechanical accessories; native movement and collision remain authoritative.
 
 ## Shape grammar
 
@@ -112,5 +131,3 @@ player can distinguish identity, tier, direction, and actionable state from silh
 Phase 12 extends this vocabulary to organic seams and biome props. Props remain sparse instanced
 presentation: they never occupy construction cells or enter saves and checksums. Underground geometry may
 depict only native level and stratum state.
-
-`docs/art/world-shape-still.png` is the current visual reference.

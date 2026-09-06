@@ -5,6 +5,8 @@ fn default_footprint() -> Vec<Coordinate> {
 #[derive(Clone, Deserialize)]
 struct DefinitionsInput {
     #[serde(default)]
+    species: Vec<fauna::Species>,
+    #[serde(default)]
     boundaries: Vec<BoundaryDefinition>,
     #[serde(default)]
     surfaces: Vec<SurfaceDefinition>,
@@ -49,6 +51,8 @@ struct RequestDefinition {
 
 #[derive(Clone, Deserialize)]
 struct ItemDefinition {
+    #[serde(default)]
+    habitat_damage: u16,
     id: ItemId,
     key: String,
     name: String,

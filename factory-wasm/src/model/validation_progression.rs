@@ -330,6 +330,22 @@ fn validate_saved_state(
     state: &SavedState,
     legacy_skills: bool,
 ) -> Result<(), String> {
+    if state.herds.len() > 512 { return Err("herd budget exceeded".into()); }
+    let mut herd_ids = BTreeSet::new();
+    for h in &state.herds {
+        if h.id == 0 || !herd_ids.insert(h.id) || h.id >= state.next_herd_id
+            || !definitions.species.iter().any(|s| s.id == h.species)
+            || h.count == 0 || h.count > 8 || h.arrive_tick <= h.left_tick
+            || h.arrive_tick < state.tick || h.left_tick > state.tick
+            || h.hunger > 2000 || h.thirst > 2000 || h.alarm > 2000
+            || [h.from.0, h.from.1, h.to.0, h.to.1].iter().any(|v| v.unsigned_abs() > 100_000_000) {
+            return Err("invalid saved herd".into());
+        }
+    }
+    let mut grass_cells = BTreeSet::new();
+    for &(q, r, deficit) in &state.grazed {
+        if deficit > 600 || !grass_cells.insert((q, r)) { return Err("invalid eaten grass".into()); }
+    }
     validate_saved_boundaries(definitions, &state.boundaries)?;
     validate_saved_ground(definitions, &state.ground)?;
     hydrology::validate_saved_water(&state.water)?;

@@ -12,6 +12,7 @@ mod core;
 mod ecology;
 mod factory_delta;
 mod factory_preview;
+mod fauna;
 mod geomorphology;
 mod ground;
 mod ground_grade;
@@ -22,6 +23,10 @@ mod ground_spine;
 /// waits without claiming world and resumes when survey exposes its chunk.
 #[allow(dead_code)]
 mod hydrology;
+/// Only the encoder's own round trip names a drive, and that decoder is test-only.
+#[cfg(test)]
+use fauna::Drive;
+use fauna::Herd;
 mod recipes;
 mod runtime;
 mod save_migrations;

@@ -1,10 +1,10 @@
 import {
   BoxGeometry,
+  CapsuleGeometry,
   CylinderGeometry,
   Group,
   IcosahedronGeometry,
   Mesh,
-  OctahedronGeometry,
   RingGeometry,
 } from "three";
 import { pixelToAxial } from "@hexlife/embed/hex";
@@ -14,7 +14,7 @@ import { WORLD_SCALE } from "../landmarks";
 import type { WorldMaterials } from "./materials";
 
 /** A person must read at world scale, not as another inventory token dropped on one hex. */
-export const WAYFINDER_VISUAL_SCALE = 3.2;
+export const WAYFINDER_VISUAL_SCALE = 2.4;
 
 /**
  * The Wayfinder: the figure standing in the world, and the pose it holds.
@@ -51,62 +51,70 @@ export class PlayerRig {
     // frame, so the one caster that moves continuously would leave its shadow standing a
     // stride behind it until the next bake caught up.
     this.body = new Mesh(
-      new CylinderGeometry(0.12, 0.1, 0.25, 8),
-      materials.wayfinderHull,
+      new CapsuleGeometry(0.105, 0.12, 3, 8),
+      materials.wayfinderShell,
     );
-    this.body.position.y = 0.31;
+    this.body.position.y = 0.32;
+    this.body.scale.set(1.08, 1, 0.78);
     this.shell = new Mesh(
-      new CylinderGeometry(0.145, 0.12, 0.13, 8),
+      new CapsuleGeometry(0.085, 0.02, 3, 8),
       materials.wayfinderShell,
     );
-    this.shell.position.y = 0.43;
+    this.shell.position.y = 0.405;
+    this.shell.scale.set(1.24, 0.65, 0.8);
     const head = new Mesh(
-      new IcosahedronGeometry(0.1, 2),
-      materials.wayfinderShell,
-    );
-    head.position.y = 0.535;
-    const facing = new Mesh(
-      new BoxGeometry(0.14, 0.052, 0.045),
+      new IcosahedronGeometry(0.083, 2),
       materials.wayfinderSignal,
     );
-    facing.position.set(0, 0.545, 0.083);
+    head.position.set(0.008, 0.515, 0.015);
+    head.scale.set(0.94, 1.08, 0.95);
+    head.rotation.z = -0.07;
+    // A cloth cap and small satchel keep the silhouette human at normal zoom.
+    const cap = new Mesh(
+      new CylinderGeometry(0.075, 0.08, 0.035, 8),
+      materials.wayfinderHull,
+    );
+    cap.position.set(0.005, 0.588, 0.01);
+    cap.rotation.z = -0.1;
+    const brim = new Mesh(
+      new BoxGeometry(0.12, 0.015, 0.065),
+      materials.wayfinderHull,
+    );
+    brim.position.set(0.005, 0.574, 0.065);
+    brim.rotation.z = -0.1;
     const pack = new Mesh(
-      new BoxGeometry(0.17, 0.22, 0.1),
+      new BoxGeometry(0.12, 0.14, 0.055),
       materials.wayfinderBrass,
     );
-    pack.position.set(0, 0.34, -0.13);
-    const beacon = new Mesh(
-      new OctahedronGeometry(0.035, 0),
-      materials.wayfinderBrass,
-    );
-    beacon.position.set(0, 0.65, -0.025);
+    pack.position.set(-0.065, 0.3, -0.085);
+    pack.rotation.z = -0.16;
     this.leftLeg = new Mesh(
-      new CylinderGeometry(0.04, 0.05, 0.2, 6),
+      new CapsuleGeometry(0.046, 0.12, 3, 8).translate(0, -0.09, 0),
       materials.wayfinderHull,
     );
-    this.leftLeg.position.set(-0.07, 0.105, 0);
+    this.leftLeg.position.set(-0.058, 0.205, 0);
     this.rightLeg = new Mesh(
-      new CylinderGeometry(0.04, 0.05, 0.2, 6),
+      new CapsuleGeometry(0.046, 0.12, 3, 8).translate(0, -0.09, 0),
       materials.wayfinderHull,
     );
-    this.rightLeg.position.set(0.07, 0.105, 0);
+    this.rightLeg.position.set(0.058, 0.205, 0);
     this.leftArm = new Mesh(
-      new CylinderGeometry(0.03, 0.04, 0.21, 6),
+      new CapsuleGeometry(0.038, 0.115, 3, 8).translate(0, -0.07, 0.008),
       materials.wayfinderShell,
     );
-    this.leftArm.position.set(-0.17, 0.34, 0.015);
+    this.leftArm.position.set(-0.12, 0.405, 0.015);
     this.leftArm.rotation.z = -0.18;
     this.rightArm = new Mesh(
-      new CylinderGeometry(0.03, 0.04, 0.21, 6),
+      new CapsuleGeometry(0.038, 0.115, 3, 8).translate(0, -0.07, 0.008),
       materials.wayfinderShell,
     );
-    this.rightArm.position.set(0.17, 0.34, 0.015);
+    this.rightArm.position.set(0.12, 0.405, 0.015);
     this.rightArm.rotation.z = 0.18;
     this.tool = new Mesh(
       new CylinderGeometry(0.025, 0.04, 0.24, 6),
       materials.wayfinderBrass,
     );
-    this.tool.position.set(0.22, 0.25, 0.075);
+    this.tool.position.set(0.16, 0.25, 0.075);
     this.tool.rotation.z = -0.5;
     this.work = new Mesh(
       new RingGeometry(0.31, 0.36, 32),
@@ -118,9 +126,9 @@ export class PlayerRig {
       this.body,
       this.shell,
       head,
-      facing,
+      cap,
+      brim,
       pack,
-      beacon,
       this.leftLeg,
       this.rightLeg,
       this.leftArm,
@@ -140,122 +148,33 @@ export class PlayerRig {
       mesh.position.set(x, y, z);
       parent.add(mesh);
     };
-    // Helmet brow, ear housings and neck seal give the head a clear forward direction.
-    detail(
-      head,
-      new BoxGeometry(0.18, 0.025, 0.13),
-      materials.wayfinderBrass,
-      0,
-      0.05,
-      0.045,
-    );
-    for (const side of [-1, 1]) {
-      detail(
-        head,
-        new BoxGeometry(0.035, 0.075, 0.07),
-        materials.wayfinderHull,
-        side * 0.092,
-        0,
-        0,
-      );
-      detail(
-        this.body,
-        new BoxGeometry(0.024, 0.2, 0.025),
-        materials.wayfinderBrass,
-        side * 0.075,
-        0.015,
-        0.11,
-      );
-      detail(
-        pack,
-        new CylinderGeometry(0.028, 0.028, 0.19, 8),
-        materials.wayfinderHull,
-        side * 0.1,
-        0,
-        -0.01,
-      );
-    }
-    detail(
-      this.body,
-      new BoxGeometry(0.1, 0.065, 0.035),
-      materials.wayfinderShell,
-      0,
-      0.02,
-      0.13,
-    );
-    detail(
-      this.body,
-      new BoxGeometry(0.23, 0.035, 0.2),
-      materials.wayfinderBrass,
-      0,
-      -0.09,
-      0,
-    );
-    detail(
-      pack,
-      new BoxGeometry(0.13, 0.045, 0.035),
-      materials.wayfinderSignal,
-      0,
-      0.05,
-      -0.065,
-    );
+    this.leftLeg.name = "left-leg";
+    this.rightLeg.name = "right-leg";
     for (const leg of [this.leftLeg, this.rightLeg]) {
       detail(
         leg,
-        new BoxGeometry(0.09, 0.065, 0.14),
+        new BoxGeometry(0.085, 0.05, 0.12),
         materials.wayfinderHull,
         0,
-        -0.075,
-        0.025,
-      );
-      detail(
-        leg,
-        new BoxGeometry(0.065, 0.06, 0.035),
-        materials.wayfinderShell,
-        0,
-        0,
-        0.045,
+        -0.18,
+        0.018,
       );
     }
     for (const arm of [this.leftArm, this.rightArm]) {
       detail(
         arm,
-        new BoxGeometry(0.075, 0.075, 0.09),
-        materials.wayfinderShell,
+        new BoxGeometry(0.05, 0.055, 0.05),
+        materials.wayfinderSignal,
         0,
-        0.075,
-        0,
-      );
-      detail(
-        arm,
-        new CylinderGeometry(0.045, 0.042, 0.075, 8),
-        materials.wayfinderBrass,
-        0,
-        -0.055,
-        0,
-      );
-      detail(
-        arm,
-        new BoxGeometry(0.055, 0.05, 0.06),
-        materials.wayfinderHull,
-        0,
-        -0.11,
+        -0.16,
         0,
       );
     }
     detail(
       this.tool,
-      new BoxGeometry(0.14, 0.055, 0.065),
+      new BoxGeometry(0.12, 0.045, 0.055),
       materials.wayfinderHull,
       0,
-      0.105,
-      0,
-    );
-    detail(
-      this.tool,
-      new BoxGeometry(0.05, 0.03, 0.075),
-      materials.wayfinderSignal,
-      0.06,
       0.105,
       0,
     );
@@ -318,12 +237,21 @@ export class PlayerRig {
     }
     const gait = this.gait;
     const stride = Math.sin(this.stridePhase) * 0.48 * gait;
-    this.body.rotation.x = -0.06 * gait;
+    // Weight transfers through the torso; all motion fades with the existing gait.
+    const sway = Math.sin(this.stridePhase) * gait;
+    this.group.position.y +=
+      (1 - Math.cos(this.stridePhase * 2)) *
+      0.006 *
+      gait *
+      WAYFINDER_VISUAL_SCALE;
+    this.body.rotation.z = -0.035 * sway;
+    this.body.rotation.y = 0.045 * sway;
+    this.body.rotation.x = 0.025 + 0.04 * gait;
     this.shell.rotation.x = -0.04 * gait;
     this.leftLeg.rotation.x = stride;
     this.rightLeg.rotation.x = -stride;
-    this.leftArm.rotation.x = -stride * 0.72;
-    this.rightArm.rotation.x = stride * 0.72;
+    this.leftArm.rotation.x = -0.12 - stride * 0.65;
+    this.rightArm.rotation.x = -0.08 + stride * 0.65;
     const total = player.action_cooldown_total;
     const done = total > 0 ? 1 - player.action_cooldown / total : 0;
     this.tool.visible = player.action_cooldown > 0;

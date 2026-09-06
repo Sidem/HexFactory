@@ -45,7 +45,10 @@
 // channels and the surviving rivers have wider water and dry alluvial benches.
 // v45 saves the ground edit currently occupying the player's field-work clock, so a cut or fill
 // cannot land early merely because the run was saved and resumed mid-job.
-export const SAVE_VERSION = 45;
+// v46 saves wildlife: the herds, their next id, and the grass a pasture has been eaten down by.
+// The catalogue stamp moves with it for the carcass, waste and feed items, the species table and
+// the two rendering recipes.
+export const SAVE_VERSION = 46;
 export const SAVE_CATALOG_KEY = "hexfactory:saves:v1";
 export const LEGACY_SAVE_PREFIX = "hexfactory:hxf1:";
 export const HXF1_PREFIX = "HXF1\n";
@@ -232,6 +235,7 @@ export function compatibility(
     [43, 30, 18],
     [44, 30, 18],
     [45, 30, 18],
+    [46, 31, 18],
   ];
   if (envelope.saveVersion <= 36 && build.versions.save >= 37) {
     mismatches.push({

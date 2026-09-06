@@ -44,6 +44,7 @@ import {
 import { BoundaryMeshes } from "./boundaryMeshes";
 import { GroundMeshes } from "./groundMeshes";
 import { HabitatMeshes } from "./habitatMeshes";
+import { PopulationMeshes } from "./populationMeshes";
 import { WorldInstanceLayer } from "./worldInstances";
 
 /** Clear colour, background and distance haze — one colour, so distance dissolves into nothing. */
@@ -61,6 +62,7 @@ export class ThreeFactoryRenderer implements FactoryRenderer {
   private readonly boundaries: BoundaryMeshes;
   private readonly ground = new GroundMeshes();
   private readonly habitats = new HabitatMeshes();
+  private readonly populations = new PopulationMeshes();
   private readonly surfaces: Definitions["surfaces"];
   private readonly keyLight = new DirectionalLight("#ffe4b0", 2.6);
   private readonly fillLight = new HemisphereLight("#c9eef0", "#273b32", 1.6);
@@ -136,6 +138,7 @@ export class ThreeFactoryRenderer implements FactoryRenderer {
     this.scene.add(this.boundaries.group);
     this.scene.add(this.ground.group);
     this.scene.add(this.habitats.group);
+    this.scene.add(this.populations.group);
     this.scene.add(
       this.fillLight,
       this.ambient,
@@ -208,12 +211,19 @@ export class ThreeFactoryRenderer implements FactoryRenderer {
       snapshot.habitats,
       this.terrain?.cellByKey ?? this.emptyTerrain,
     );
+    // Herds move between hexes, so they follow the resource rows rather than the habitat rows.
+    const herdsChanged = this.populations.update(
+      snapshot.herds,
+      snapshot.tick,
+      this.terrain?.cellByKey ?? this.emptyTerrain,
+    );
     this.overlaysDirty = true;
     if (
       terrainChanged ||
       structureChanged ||
       boundariesChanged ||
-      habitatsChanged
+      habitatsChanged ||
+      herdsChanged
     )
       this.renderer.shadowMap.needsUpdate = true;
     if (!this.compiled) {
@@ -319,6 +329,12 @@ export class ThreeFactoryRenderer implements FactoryRenderer {
     return this.camera.axialAt(
       clientX - this.layout.left,
       clientY - this.layout.top,
+    );
+  }
+
+  pickHerd(clientX: number, clientY: number): number | null {
+    return this.populations.pick(
+      this.camera.rayAt(clientX - this.layout.left, clientY - this.layout.top),
     );
   }
 
@@ -428,6 +444,7 @@ export class ThreeFactoryRenderer implements FactoryRenderer {
         this.terrain.grid.visible = this.buildMode || this.gridToggled;
       const started = performance.now();
       this.worldInstances.update(this.now, this.motionReduced);
+      this.populations.animate(this.now);
       if (this.overlaysDirty) {
         this.overlays.update(
           snapshot,
@@ -515,6 +532,7 @@ export class ThreeFactoryRenderer implements FactoryRenderer {
     this.boundaries.dispose();
     this.ground.dispose();
     this.habitats.dispose();
+    this.populations.dispose();
     for (const material of this.materials.materials) material.dispose();
     this.renderer.dispose();
   }

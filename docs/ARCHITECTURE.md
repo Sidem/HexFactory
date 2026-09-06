@@ -70,6 +70,15 @@ bank: the bed climbs to the waterline at a quarter-metre cross grade, and the ro
 outside it. The landing search chooses a dry, walkable, buildable coastal shelf close to sea level and
 a set distance back from the surf, without translating world rules differently.
 
+Sand comes in two bands. `Riverbank` is a channel's own bench or ground beside fresh water; `Shore` is the
+beach. Only the generator can draw that line — it knows which channel a bench belongs to and it knows salt
+from fresh — so it draws it once, in the presentation the wire carries. Access, substrate and material
+treat the two identically, and site generation reads them as one band through `Terrain::site_band`: the
+shipped rule table and every figure in `fixtures/balance.json` were chosen when a bench and a beach were the
+same ground, and reading the split there would move clay and sand off the rivers without anybody deciding
+to. The band's discriminant is a generation input — the world identity checksum hashes it — which is why it
+was added at the end of the enum rather than beside the shore it came from.
+
 Untouched water is derived equilibrium. `hydrology.rs` saves only `DisturbedWater` departures and
 removes them when they return to equilibrium. Earthworks schedule a bounded settle region that cannot
 cross the surveyed frontier or generate chunks. Springs and outlets are boundary conditions; local
@@ -81,6 +90,40 @@ generated alluvial bench only rates that water; a canal the player cuts waters g
 it came from does, so fertility is a ring question and a depth change dirties its neighbours too. The
 positive cells travel as a separate sparse habitat patch with zero-capacity tombstones. No habitat cache,
 presentation state, or stable equilibrium work enters saves, checksums, or the tick.
+
+`fauna.rs` owns wildlife as free-moving agents, never as a resource field. A herd is a saved row with a
+headcount, a drive, and a _leg_ — `from`, `to`, `left_tick`, `arrive_tick` — so its position is derived by
+integer interpolation rather than stored, and a walking herd costs one row when it picks a leg rather than
+one every tick. Arrivals are a `BTreeMap` keyed on `arrive_tick`, so a tick touches only the herds whose leg
+just ended; every other herd is untouched work. Legs are checked by `herd_leg_clear` against exactly the
+authority the player walks under — terrain, grade, footprints and boundary segments — which is what makes a
+closed ring of fence a pen without the fauna model knowing what a pen is.
+
+A drive decides how far the animal looks, because food and water are not distributed alike. Grass is
+wherever it grows, so grazing searches four hexes and finding some is routine. Water is sparse and, worse,
+terraced: a river cut into its bench is walkable only where the bank steps down, so water three hexes off is
+routinely six or seven legs off, and thirst searches ten. When a search comes back empty the herd migrates
+rather than waiting — it commits a leg down the drainage the generator publishes, which is the one heading
+that cannot dead-end, because a watershed has no local minimum to strand it in. Every drainage ends in the
+ocean and no animal drinks the ocean, so the walk answers only for fresh water, a bank, or a channel's own
+bench, and gives up where the drainage turns salt; a herd with no fresh answer heads inland instead of
+downhill, and the two headings hand over at the divide where the far side drains somewhere else.
+`seed_herds` places nothing
+further from a drink than the animal can walk, measured by one flood out of the water rather than by hex
+distance, so the shipped world's wildlife is viable before the player touches it and collapses only when
+somebody causes it.
+
+Grass is a stock, not a capacity formula. `grass_limit` is derived from terrain and surface; `grazed` is a
+sparse deficit map and `fouled` a sparse waste-pressure map, and both are the only ecology state that is
+saved. Herds move because the grass ran out, so overgrazing is emergent and there is no carrying-capacity
+rule to enforce. Loose items with `habitat_damage` raise fouling on their hex and ring, which suppresses
+regrowth until the waste is collected or decays.
+
+Wildlife is invisible to `field_at`, `deposit_candidates` and `extractable_deposit`: an extractor cannot
+mine an animal and the player's nearest-gather target cannot be hijacked by a herd walking past. Hunting is
+its own verb producing a carcass on the ground. Construction never refuses a footprint because a herd is
+standing there — animals yield and walk off on their next decision, which keeps herd state out of the
+construction checksum and undo exact.
 
 Erosion is a sparse geomorphic epoch over surveyed, flowing edges. It stores only non-zero stress and
 ground departures. It is not a terrain tick, and it cannot expose or bury resources without an explicit
