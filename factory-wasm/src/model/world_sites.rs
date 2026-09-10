@@ -83,8 +83,11 @@ fn default_site_rules() -> Vec<SiteRule> {
         // item already carries, with a soft edge. Three per cell is a rate change as well as a
         // shape change — a base extractor drains its seven hexes and then runs at whatever regrowth
         // supplies — which is why forestry is a question of area rather than of throughput.
-        rule(Terrain::Lowland, WOOD, 30, 5, 6, ANY, 3, 1, 2),
-        rule(Terrain::Hills, WOOD, 18, 4, 6, ANY, 3, 1, 2),
+        rule(Terrain::Lowland, WOOD, 3, 5, 6, ANY, 3, 1, 2),
+        rule(Terrain::Hills, WOOD, 2, 4, 6, ANY, 3, 1, 2),
+        // Scattered surface iron outcrops on lowland, so the starter area is not restricted to only
+        // the single large guaranteed deposit.
+        rule(Terrain::Lowland, IRON_ORE, 16, 2, 3, ANY, 14, 6, 2),
         rule(Terrain::Lowland, CRUDE_OIL, 8, 2, 3, ANY, 40, 20, 4),
         rule(Terrain::Hills, CRUDE_OIL, 10, 2, 3, ANY, 40, 20, 4),
         // Riverbanks and lake shores. Rivers are what make this common rather than decorative,

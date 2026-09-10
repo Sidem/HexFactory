@@ -185,7 +185,7 @@ float hfCap() {
 void hfRelief() {
 	// Vertex normals are unit inputs; interpolation can only shorten them, which slightly
 	// strengthens the cue at a triangle edge and avoids a normalize + pow on every fragment.
-	float slope = smoothstep( 0.015, 0.62, clamp( 1.0 - hfNormal.y, 0.0, 1.0 ) );
+	float slope = smoothstep( 0.001, 0.035, clamp( 1.0 - hfNormal.y, 0.0, 1.0 ) );
 	hfAlbedo = mix( hfAlbedo, hfFlank, slope * 0.46 );
 	hfAlbedo *= 1.0 - slope * 0.24;
 }

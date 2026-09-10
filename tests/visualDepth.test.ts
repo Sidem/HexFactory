@@ -449,11 +449,11 @@ describe("Visual Depth terrain and quality contracts", () => {
     };
     const coal = hslOf(fieldVisualColor("#000000"));
     const stone = hslOf(fieldVisualColor("#8b9098"));
-    const sand = hslOf(fieldVisualColor("#e6d197"));
+    const sand = hslOf(fieldVisualColor("#d4c4a0"));
     expect(coal.l).toBeLessThan(0.28);
     expect(stone.l).toBeGreaterThan(coal.l);
     expect(stone.s).toBeLessThan(0.15);
-    expect(sand.l).toBeGreaterThan(0.55);
+    expect(sand.l).toBeGreaterThan(0.48);
     expect(sand.s).toBeGreaterThan(stone.s);
     expect(fieldShade("#8b9098", 0.12)).not.toBe(fieldShade("#8b9098", -0.14));
     for (const material of materials.materials) material.dispose();

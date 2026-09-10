@@ -13,7 +13,7 @@ const PRESET_COLORS = [
   "#c9743f", // Copper ore
   "#000000", // Coal
   "#8b9098", // Stone
-  "#e6d197", // Sand
+  "#d4c4a0", // Sand
   "#b0714c", // Clay
   "#7c5a34", // Wood
   "#4aa8d8", // Water

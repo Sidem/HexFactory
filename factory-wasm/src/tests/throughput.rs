@@ -57,7 +57,8 @@ fn capacity_workload_is_deterministic_and_actually_produces() {
     // reason again: the rock field decides beds and banks, and this scenario has neither.
     // 2_597_062_050 → 2_635_501_205 when the river hierarchy and coastal landing moved the stamp
     // to 16. Generation remains disabled here, so this is still only the version input.
-    assert_eq!(first.checksum(), 2_635_501_205);
+    // 2_635_501_205 → 2_405_857_473 when site rules updated (starter iron and forest patch reduction).
+    assert_eq!(first.checksum(), 2_405_857_473);
     assert_eq!(first.entities.len(), spec.entities() as usize);
     // Every line must be running end to end, or the tiers would measure an idle blueprint.
     // Four per line rather than fourteen: the line is now extraction-bound, because a

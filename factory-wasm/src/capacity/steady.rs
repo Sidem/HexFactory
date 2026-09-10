@@ -483,11 +483,11 @@ mod tests {
                 Workload::Active => {
                     assert!(tick.core.delivered > before);
                     assert_eq!(tick.core.delivered, 4);
-                    assert_eq!(tick.core.checksum(), 1_483_737_616);
+                    assert_eq!(tick.core.checksum(), 873_717_036);
                 }
                 Workload::Idle => {
                     assert_eq!(tick.core.delivered, 0);
-                    assert_eq!(tick.core.checksum(), 3_427_945_081);
+                    assert_eq!(tick.core.checksum(), 450_924_165);
                     assert!(tick
                         .core
                         .entities
@@ -498,7 +498,7 @@ mod tests {
                 }
                 Workload::Blocked => {
                     assert_eq!((before, tick.core.delivered), (0, 0));
-                    assert_eq!(tick.core.checksum(), 2_518_484_691);
+                    assert_eq!(tick.core.checksum(), 3_852_168_583);
                     assert_eq!(cargo_on_the_line(&tick.core), 96);
                 }
                 // A saturated trunk at one item every five ticks, plus the unmerged crossing lane
@@ -507,7 +507,7 @@ mod tests {
                 Workload::Junction => {
                     assert!(tick.core.delivered > before);
                     assert_eq!(tick.core.delivered - before, 24 + 4);
-                    assert_eq!(tick.core.checksum(), 3_505_976_921);
+                    assert_eq!(tick.core.checksum(), 3_272_409_709);
                 }
             }
         }

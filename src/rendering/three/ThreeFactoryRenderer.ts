@@ -152,11 +152,12 @@ export class ThreeFactoryRenderer implements FactoryRenderer {
     this.keyLight.target.position.set(0, 0, 0);
     this.keyLight.castShadow = true;
     this.keyLight.shadow.camera.near = 1;
-    this.keyLight.shadow.camera.far = 90;
-    this.keyLight.shadow.camera.left = -22;
-    this.keyLight.shadow.camera.right = 22;
-    this.keyLight.shadow.camera.top = 22;
-    this.keyLight.shadow.camera.bottom = -22;
+    this.keyLight.shadow.camera.far = 120;
+    this.keyLight.shadow.camera.left = -48;
+    this.keyLight.shadow.camera.right = 48;
+    this.keyLight.shadow.camera.top = 48;
+    this.keyLight.shadow.camera.bottom = -48;
+    this.keyLight.shadow.camera.updateProjectionMatrix();
     this.applyProfile();
     canvas.dataset.rendererContext = "ready";
     canvas.addEventListener("webglcontextlost", this.onContextLost, false);

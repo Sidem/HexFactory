@@ -30,7 +30,7 @@ Read the named file and a bounded range around the anchor; do not read oversized
 - `src/rendering/terrainLook.ts` — 440 lines / 13.3 KiB — TERRAIN_TILE_VERSION:10, BAND_RANK:19, HexLook:32, …
 - `src/rendering/three/ContactSheetRenderer.ts` — 323 lines / 9.9 KiB — ContactSheetRenderer:43, contactPartColour:292, fakeEntity:303
 - `src/rendering/three/HexSceneCamera.ts` — 511 lines / 18.4 KiB — HexSceneCamera:102, clamp:486, modulo:490, …
-- `src/rendering/three/ThreeFactoryRenderer.ts` — 664 lines / 21.2 KiB — ThreeFactoryRenderer:55, smooth:655, percentile95:659
+- `src/rendering/three/ThreeFactoryRenderer.ts` — 665 lines / 21.3 KiB — ThreeFactoryRenderer:55, smooth:656, percentile95:660
 - `src/rendering/three/boundaryMeshes.ts` — 331 lines / 10.7 KiB — BoundaryMeshes:37
 - `src/rendering/three/directionAngle.ts` — 12 lines / 0.4 KiB — directionAngle:6
 - `src/rendering/three/groundMeshes.ts` — 214 lines / 6.9 KiB — GroundMeshes:56, perimeter:193, colorFor:205

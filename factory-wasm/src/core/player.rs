@@ -588,18 +588,18 @@ impl Core {
         if self.deposit_quantity(key) == 0 {
             return Err("this deposit is worked out".into());
         }
-        if self.player_room_for(field.item_id) == 0 {
-            return Err("carrying capacity is full".into());
-        }
         let steps = self
             .item_definition(field.item_id)
             .and_then(|item| item.hand_gather_steps)
             .ok_or_else(|| {
                 format!(
-                    "{} cannot be gathered by hand — place an extractor on the field",
+                    "{} cannot be extracted manually (cannot be gathered by hand) — place an extractor on the field",
                     self.item_name(field.item_id)
                 )
             })?;
+        if self.player_room_for(field.item_id) == 0 {
+            return Err("carrying capacity is full".into());
+        }
         Ok((field.item_id, steps))
     }
 

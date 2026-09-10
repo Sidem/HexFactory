@@ -655,3 +655,15 @@ fn gathering_is_bounded_by_reach_cooldown_and_what_the_hex_holds() {
         "a harvest the player walked away from still paid"
     );
 }
+
+#[test]
+fn oil_cannot_be_gathered_manually_and_reports_clear_error() {
+    let mut core = game("new-game");
+    core.write_overlay(1, 0, CRUDE_OIL, 100, 100);
+    set_player_hex(&mut core, 1, 0);
+    let error = core.gather_at(1, 0).unwrap_err();
+    assert!(
+        error.contains("cannot be extracted manually"),
+        "error was: {error}"
+    );
+}
