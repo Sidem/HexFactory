@@ -85,12 +85,21 @@ The four material roles are powder-coated **structure**, fired **ceramic**, **br
 Tier differences must change silhouette, not merely colour. A larger visual form never invents a larger
 logical footprint.
 
-The shared 3D assemblies distinguish round pressure vessels from box-framed process chambers.
-Vessels have shoulder transitions, flanges and service hatches; chambers have corner posts,
-panel frames and louvres. Stacks expose recessed throats, and utility masts carry braced crossarms
-and insulators. These details merge into cached part geometry, rather than per-building meshes.
-The Wayfinder wears a helmet, harness, pack canisters, gauntlets and boots attached to the moving
-limbs. Boundary posts have caps and shoes; walls have coping and panel ribs; bridges have parapets.
+The first elementary 3D set is the landing hub, container, burner generator, pole, extractor,
+smelter, manual workshop, composer, primitive furnace, and kiln. `elementaryModels.ts` selects
+plain shared solids by kind and processing category; `modelParts.ts` gives them explicit 3D
+anchors, dimensions, colour and motion. One dominant feature explains each purpose: receiving
+bay and beacon, open crate, engine and flywheel, T-post, grabbing arm, open crucible, bench and
+vise, paired assembly tools, stone cone, or clay dome. Silhouette carries recognition before colour.
+Other buildings and upgraded tiers retain the previous grammar until their design pass.
+
+Fire and wheels follow native working status. Crate fill and waiting output reflect native stock;
+workshop tool strokes follow the attended batch. Extraction snapshots name the exact current depot
+and exterior outlet even on a multi-cell plot. The arm interpolates published work progress through
+reach, grasp and return; its workpiece illustrates that cycle, while only native completion puts an
+item into output inventory. Paused work holds its pose. Shared instance buckets refresh their entity
+references when snapshots arrive, so stopped machines cannot keep using an earlier working state.
+The six-orbit review page is `contact.html?models=elementary`; it uses the same geometry and transforms.
 
 Transport uses its own shared geometry vocabulary: narrow decks, rails, treads, portals, and link marks.
 Junctions and headings remain identifiable when empty. Smoke and steam are pooled presentation of published

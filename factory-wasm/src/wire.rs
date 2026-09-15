@@ -38,6 +38,8 @@
 
 use super::*;
 
+#[cfg(test)]
+mod decode_entities;
 mod entities;
 mod habitat;
 mod herds;
@@ -138,7 +140,7 @@ pub(crate) const WIRE_MAGIC: [u8; 4] = *b"HXFD";
 /// Version 26 adds terrain code 7, the riverbank, split out of the shore band. No group changes
 /// shape, but a version-25 host has seven terrains and would index past the end of its own table on
 /// the first bench it was sent, so the version moves rather than the code being appended in silence.
-pub(crate) const WIRE_VERSION: u8 = 26;
+pub(crate) const WIRE_VERSION: u8 = 27;
 
 /// Which optional groups the buffer carries, in the order they are written.
 mod group {
@@ -204,6 +206,8 @@ mod entity_flag {
     pub(super) const LANE: u32 = 1 << 15;
     /// A pump's resolved source cell and its limiting native rate.
     pub(super) const WATER_SOURCE: u32 = 1 << 16;
+    pub(super) const EXTRACTION_SOURCE: u32 = 1 << 17;
+    pub(super) const EXTRACTION_OUTPUT: u32 = 1 << 18;
 }
 
 /// Set on a group whose list replaces the host's rather than patching it.
@@ -764,7 +768,7 @@ pub(crate) mod decode {
             self.uvarint() as usize
         }
 
-        fn ingredients(&mut self) -> Vec<Ingredient> {
+        pub(super) fn ingredients(&mut self) -> Vec<Ingredient> {
             (0..self.count())
                 .map(|_| Ingredient {
                     item_id: self.uvarint() as ItemId,
@@ -774,7 +778,7 @@ pub(crate) mod decode {
         }
     }
 
-    fn kind_of(code: u8) -> BuildingKind {
+    pub(super) fn kind_of(code: u8) -> BuildingKind {
         [
             BuildingKind::Extractor,
             BuildingKind::Belt,
@@ -811,7 +815,7 @@ pub(crate) mod decode {
         ][usize::from(code)]
     }
 
-    fn status_of(code: u8) -> EntityStatus {
+    pub(super) fn status_of(code: u8) -> EntityStatus {
         [
             EntityStatus::OutputBlocked,
             EntityStatus::DepositDepleted,
@@ -962,7 +966,7 @@ pub(crate) mod decode {
         });
         let buildings = has(group::BUILDINGS).then(|| {
             let replace = reader.u8() & PATCH_REPLACE != 0;
-            let changed = read_entities(&mut reader, tick);
+            let changed = super::decode_entities::read_entities(&mut reader, tick);
             let removed_count = reader.count();
             let mut previous = 0u32;
             let removed = (0..removed_count)
@@ -1207,168 +1211,5 @@ pub(crate) mod decode {
             creative,
             walk_path,
         }
-    }
-
-    fn read_entities(reader: &mut Reader, tick: u64) -> Vec<EntitySnapshot> {
-        let count = reader.count();
-        let mut id = 0u32;
-        let mut entities = Vec::with_capacity(count);
-        for _ in 0..count {
-            id += reader.uvarint() as u32;
-            let q = reader.svarint() as i32;
-            let r = reader.svarint() as i32;
-            let definition_id = reader.uvarint() as DefinitionId;
-            let kind = kind_of(reader.u8());
-            let orientation = reader.u8();
-            let flags = reader.uvarint() as u32;
-            let recipe_id =
-                (flags & entity_flag::RECIPE_ID != 0).then(|| reader.uvarint() as RecipeId);
-            let cargo = (flags & entity_flag::CARGO != 0).then(|| Cargo {
-                item_id: reader.uvarint() as ItemId,
-                quantity: reader.uvarint() as u32,
-            });
-            let lane = if flags & entity_flag::LANE != 0 {
-                let count = reader.count();
-                (0..count)
-                    .map(|_| {
-                        let item_id = reader.uvarint() as ItemId;
-                        let quantity = reader.uvarint() as u32;
-                        let elapsed = reader.uvarint();
-                        LaneItem {
-                            cargo: Cargo { item_id, quantity },
-                            entered: tick.saturating_sub(elapsed),
-                        }
-                    })
-                    .collect()
-            } else {
-                Vec::new()
-            };
-            let inventory = reader.ingredients();
-            let input_inventory = if flags & entity_flag::INPUT_INVENTORY != 0 {
-                reader.ingredients()
-            } else {
-                Vec::new()
-            };
-            let fuel_inventory = if flags & entity_flag::FUEL_INVENTORY != 0 {
-                reader.ingredients()
-            } else {
-                Vec::new()
-            };
-            let output_inventory = if flags & entity_flag::OUTPUT_INVENTORY != 0 {
-                reader.ingredients()
-            } else {
-                Vec::new()
-            };
-            let output_routes = if flags & entity_flag::OUTPUT_ROUTES != 0 {
-                let count = reader.count();
-                (0..count)
-                    .map(|_| {
-                        let item_id = reader.uvarint() as ItemId;
-                        let route_q = q + reader.svarint() as i32;
-                        let route_r = r + reader.svarint() as i32;
-                        let direction = reader.u8();
-                        let target_id = match reader.uvarint() as u32 {
-                            0 => None,
-                            id => Some(id),
-                        };
-                        OutputRouteSnapshot {
-                            item_id,
-                            q: route_q,
-                            r: route_r,
-                            direction,
-                            target_id,
-                        }
-                    })
-                    .collect()
-            } else {
-                Vec::new()
-            };
-            let progress = reader.uvarint() as u32;
-            let progress_total = reader.uvarint() as u32;
-            let fuel_charge = if flags & entity_flag::FUEL_CHARGE != 0 {
-                reader.uvarint() as u32
-            } else {
-                0
-            };
-            let fuel_required = if flags & entity_flag::FUEL_REQUIRED != 0 {
-                reader.uvarint() as u32
-            } else {
-                0
-            };
-            let status = status_of(reader.u8());
-            let next_id = (flags & entity_flag::NEXT_ID != 0).then(|| reader.uvarint() as u32);
-            let branch_ids = if flags & entity_flag::BRANCH_IDS != 0 {
-                let count = reader.uvarint() as usize;
-                (0..count).map(|_| reader.uvarint() as u32).collect()
-            } else {
-                Vec::new()
-            };
-            let power_satisfied = if flags & entity_flag::POWER_SATISFIED != 0 {
-                reader.uvarint() as u32
-            } else {
-                0
-            };
-            let power_demand = if flags & entity_flag::POWER_DEMAND != 0 {
-                reader.uvarint() as u32
-            } else {
-                0
-            };
-            let power_charge = if flags & entity_flag::POWER_CHARGE != 0 {
-                reader.uvarint() as u32
-            } else {
-                0
-            };
-            let power_capacity = if flags & entity_flag::POWER_CAPACITY != 0 {
-                reader.uvarint() as u32
-            } else {
-                0
-            };
-            let water_source =
-                (flags & entity_flag::WATER_SOURCE != 0).then(|| crate::WaterSourceSnapshot {
-                    q: q + reader.svarint() as i32,
-                    r: r + reader.svarint() as i32,
-                    available: reader.uvarint() as u32,
-                    discharge: reader.u8(),
-                    rate: reader.uvarint() as u32,
-                });
-            let cells = reader.count();
-            let footprint = (0..cells)
-                .map(|_| Coordinate {
-                    q: q + reader.svarint() as i32,
-                    r: r + reader.svarint() as i32,
-                })
-                .collect();
-            entities.push(EntitySnapshot {
-                id,
-                q,
-                r,
-                definition_id,
-                kind,
-                orientation,
-                recipe_id,
-                scenario_owned: flags & entity_flag::SCENARIO_OWNED != 0,
-                cargo,
-                lane,
-                inventory,
-                input_inventory,
-                fuel_inventory,
-                output_inventory,
-                output_routes,
-                water_source,
-                progress,
-                progress_total,
-                fuel_charge,
-                fuel_required,
-                power_satisfied,
-                power_demand,
-                power_charge,
-                power_capacity,
-                status,
-                next_id,
-                branch_ids,
-                footprint,
-            });
-        }
-        entities
     }
 }

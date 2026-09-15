@@ -49,6 +49,21 @@ fn extractor_stops_exactly_when_its_deposit_empties() {
     let expected = scan(&core);
     assert_eq!(core.extractor_deposit(index), expected);
     assert_eq!(expected, Some((3, 0)));
+    let checksum = core.checksum();
+    let snapshot = core.entity_snapshot(index);
+    assert_eq!(
+        snapshot.extraction_source,
+        Some(ExtractionSourceSnapshot {
+            q: 3,
+            r: 0,
+            item_id: 1
+        })
+    );
+    assert_eq!(
+        core.checksum(),
+        checksum,
+        "publishing a target is presentation only"
+    );
     // The second lookup is served from the cache and must not drift from the scan.
     assert_eq!(core.extractor_deposit(index), scan(&core));
     assert_eq!(core.deposit_links.len(), 1);
@@ -62,6 +77,7 @@ fn extractor_stops_exactly_when_its_deposit_empties() {
     core.write_overlay(3, 0, 1, 0, 48);
     assert_eq!(core.extractor_deposit(index), scan(&core));
     assert_eq!(core.extractor_deposit(index), None);
+    assert_eq!(core.entity_snapshot(index).extraction_source, None);
 
     // Erasing the extractor releases its entry rather than leaking one per placement.
     core.erase(3, 0).unwrap();

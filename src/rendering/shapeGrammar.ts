@@ -1,4 +1,5 @@
 import type { PixelPoint } from "@hexlife/embed/hex";
+import type { ModelPart } from "./modelParts";
 
 /**
  * The part vocabulary — Stage D rule 6, the half of "a look is derived from the definition" that
@@ -35,6 +36,8 @@ export type PartPhase = "still" | "spin" | "pulse" | "rise" | "grind";
 export type MachineMaterialRole = "structure" | "ceramic" | "brass" | "dark";
 
 export interface ShapePart {
+  /** Elementary 3D form, authored in world units with local +X facing the output. */
+  readonly model?: ModelPart;
   readonly part: PartKind;
   /** Anchor, in hex sizes from the hex centre. */
   readonly x: number;

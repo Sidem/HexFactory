@@ -69,6 +69,12 @@ pub(super) fn write(writer: &mut Writer, entities: &[EntitySnapshot], tick: u64)
         if entity.water_source.is_some() {
             flags |= entity_flag::WATER_SOURCE;
         }
+        if entity.extraction_source.is_some() {
+            flags |= entity_flag::EXTRACTION_SOURCE;
+        }
+        if entity.extraction_output.is_some() {
+            flags |= entity_flag::EXTRACTION_OUTPUT;
+        }
         writer.uvarint(u64::from(flags));
 
         if let Some(recipe_id) = entity.recipe_id {
@@ -142,6 +148,16 @@ pub(super) fn write(writer: &mut Writer, entities: &[EntitySnapshot], tick: u64)
             writer.uvarint(u64::from(source.available));
             writer.u8(source.discharge);
             writer.uvarint(u64::from(source.rate));
+        }
+        if let Some(source) = &entity.extraction_source {
+            writer.svarint(i64::from(source.q) - i64::from(entity.q));
+            writer.svarint(i64::from(source.r) - i64::from(entity.r));
+            writer.uvarint(u64::from(source.item_id));
+        }
+        if let Some(port) = entity.extraction_output {
+            writer.svarint(i64::from(port.q) - i64::from(entity.q));
+            writer.svarint(i64::from(port.r) - i64::from(entity.r));
+            writer.u8(port.direction);
         }
         // Against the entity's own hex, so the single-cell footprint every belt and machine has
         // costs two bytes rather than two full coordinates.

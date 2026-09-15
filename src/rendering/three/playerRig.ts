@@ -7,9 +7,9 @@ import {
   Mesh,
   RingGeometry,
 } from "three";
-import { pixelToAxial } from "@hexlife/embed/hex";
+import { axialToPixel, pixelToAxial } from "@hexlife/embed/hex";
 
-import type { FactorySnapshot } from "../../core/types";
+import type { EntitySnapshot, FactorySnapshot } from "../../core/types";
 import { WORLD_SCALE } from "../landmarks";
 import type { WorldMaterials } from "./materials";
 
@@ -136,6 +136,10 @@ export class PlayerRig {
       this.tool,
     ];
     this.group.add(...this.meshes, this.work);
+    this.tool.name = "work-tool";
+    this.rightArm.name = "right-arm";
+    this.rightArm.add(this.tool);
+    this.tool.position.set(0, -0.17, 0.045);
     const detail = (
       parent: Mesh,
       geometry: BoxGeometry | CylinderGeometry,
@@ -205,6 +209,8 @@ export class PlayerRig {
     measured: boolean,
     idleAfter: number,
     groundHeight: (q: number, r: number) => number,
+    workshop?: EntitySnapshot,
+    reducedMotion = false,
   ): void {
     const player = snapshot.player;
     const axial = pixelToAxial(player, WORLD_SCALE);
@@ -254,8 +260,28 @@ export class PlayerRig {
     this.rightArm.rotation.x = -0.08 + stride * 0.65;
     const total = player.action_cooldown_total;
     const done = total > 0 ? 1 - player.action_cooldown / total : 0;
-    this.tool.visible = player.action_cooldown > 0;
-    this.tool.rotation.z = -0.5 - done * 0.75;
+    const crafting = workshop?.status === "composing" && workshop.progress > 0;
+    this.tool.visible = player.action_cooldown > 0 || !!crafting;
+    this.tool.rotation.z = -0.5;
+    if (crafting) {
+      const workPoint = axialToPixel(workshop, WORLD_SCALE, { x: 0, y: 0 });
+      this.group.rotation.y = Math.atan2(
+        workPoint.x - player.x,
+        workPoint.y - player.y,
+      );
+      const stroke = reducedMotion
+        ? 0.5
+        : (1 -
+            Math.cos(
+              (workshop.progress / Math.max(1, workshop.progress_total)) *
+                Math.PI *
+                8,
+            )) /
+          2;
+      this.rightArm.rotation.x = -0.5 - stroke * 0.9;
+      this.leftArm.rotation.x = -0.65;
+    } else if (player.action_cooldown > 0)
+      this.rightArm.rotation.x = -0.4 - done * 0.75;
     this.work.visible = player.action_cooldown > 0;
     this.work.scale.setScalar(Math.max(0.05, done));
   }

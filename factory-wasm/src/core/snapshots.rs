@@ -42,8 +42,28 @@ impl Core {
     pub(crate) fn entity_snapshot(&mut self, index: usize) -> EntitySnapshot {
         // Resolving through the cached candidate list rather than scanning the tile map is what
         // keeps this O(1) in world size. The cache is derived state, so filling it changes nothing.
+        let extraction_source = if self.entities[index].kind == BuildingKind::Extractor {
+            self.extractor_deposit(index).and_then(|(q, r)| {
+                self.field_at(q, r).map(|field| ExtractionSourceSnapshot {
+                    q,
+                    r,
+                    item_id: field.item_id,
+                })
+            })
+        } else {
+            None
+        };
+        let extraction_output = (self.entities[index].kind == BuildingKind::Extractor).then(|| {
+            let route = self.default_output_route(index);
+            let placed = self.entities[index].placed;
+            OutputRoute {
+                q: placed.q + route.q,
+                r: placed.r + route.r,
+                direction: route.direction,
+            }
+        });
         let (deposit_available, water_source) = match self.entities[index].kind {
-            BuildingKind::Extractor => (self.extractor_deposit(index).is_some(), None),
+            BuildingKind::Extractor => (extraction_source.is_some(), None),
             // A physical pump names its current source. A finite pond can disappear from this
             // answer; a river keeps its depth and publishes its discharge rate.
             BuildingKind::Pump => {
@@ -143,6 +163,8 @@ impl Core {
             output_inventory,
             output_routes,
             water_source,
+            extraction_source,
+            extraction_output,
             progress: entity.progress,
             progress_total,
             fuel_charge: entity.fuel_charge,

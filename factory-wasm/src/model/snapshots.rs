@@ -297,6 +297,13 @@ enum EntityStatus {
 }
 
 #[derive(Clone, Debug, Serialize, PartialEq, Eq)]
+struct ExtractionSourceSnapshot {
+    q: i32,
+    r: i32,
+    item_id: ItemId,
+}
+
+#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
 struct EntitySnapshot {
     id: u32,
     q: i32,
@@ -333,6 +340,12 @@ struct EntitySnapshot {
     /// resolver chose and the limiting rate the tick enforces.
     #[serde(skip_serializing_if = "Option::is_none")]
     water_source: Option<WaterSourceSnapshot>,
+    /// The native resolver's current work target, never selected by presentation.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    extraction_source: Option<ExtractionSourceSnapshot>,
+    /// The actual exterior port, including when the deposit is exhausted.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    extraction_output: Option<OutputRoute>,
     progress: u32,
     progress_total: u32,
     /// Energy the machine is holding, and what one craft of its recipe costs. Both are published

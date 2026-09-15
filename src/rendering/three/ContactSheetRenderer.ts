@@ -19,6 +19,7 @@ import {
 import type { BuildingDefinition, EntitySnapshot } from "../../core/types";
 import { partsFor, silhouetteOf, stallMark } from "../buildingLook";
 import { BUILDING_COLORS } from "../FactoryRenderer";
+import { elementaryParts } from "./elementaryModels";
 import {
   MACHINE_PLATFORM_HEIGHT,
   MACHINE_SILHOUETTE_SCALE,
@@ -67,6 +68,7 @@ export class ContactSheetRenderer {
   private readonly progressGeometry = new BoxGeometry(0.5, 0.07, 0.08);
   private readonly materials = new Map<string, MeshStandardMaterial>();
   private readonly ratio: number;
+  private portraitZoom = 1;
 
   constructor(
     private readonly source: HTMLCanvasElement,
@@ -164,6 +166,8 @@ export class ContactSheetRenderer {
     now: number,
   ): void {
     this.model.clear();
+    this.portraitZoom =
+      elementaryParts(definition) && definition.kind === "extractor" ? 0.64 : 1;
     const baseColour = colour ? BUILDING_COLORS[definition.kind] : "#747b79";
     const building = fakeEntity(definition, status, cycle);
     const foot = new Mesh(this.footGeometry, this.material("foot", "#26312e"));
@@ -174,7 +178,11 @@ export class ContactSheetRenderer {
       definition.recipe_category ?? definition.source_category,
       definition.power_source,
     );
-    const parts = partsFor(key, tier, definition.kind === "hub" ? tier : 0);
+    const parts =
+      elementaryParts(
+        { ...definition, tier: definition.kind === "hub" ? 0 : tier },
+        definition.kind === "hub" ? tier : 0,
+      ) ?? partsFor(key, tier, definition.kind === "hub" ? tier : 0);
     const baseLift = machineRestingLift(parts, MACHINE_SILHOUETTE_SCALE[key]);
     for (const part of parts) {
       const instance: MachinePartInstance = {
@@ -192,11 +200,18 @@ export class ContactSheetRenderer {
         x: 0,
         z: 0,
       };
-      const partColour = colour
-        ? contactPartColour(baseColour, part.material ?? "structure")
-        : baseColour;
+      const partColour =
+        colour && part.model
+          ? part.model.color
+          : colour
+            ? contactPartColour(baseColour, part.material ?? "structure")
+            : baseColour;
       const material = part.glow
-        ? this.material(`glow:${part.glow}`, part.glow, true)
+        ? this.material(
+            `glow:${colour ? part.glow : baseColour}`,
+            colour ? part.glow : baseColour,
+            true,
+          )
         : this.material(`body:${partColour}`, partColour);
       const mesh = new Mesh(this.geometries.get(part), material);
       mesh.matrixAutoUpdate = false;
@@ -250,7 +265,7 @@ export class ContactSheetRenderer {
       bead.position.set(0.52, 0.75, 0);
       this.model.add(bead);
     }
-    if (cycle > 0) {
+    if (cycle > 0 && !parts[0]?.model) {
       const progress = new Mesh(
         this.progressGeometry,
         this.material("progress", "#7fe0c0", true),
@@ -262,6 +277,8 @@ export class ContactSheetRenderer {
   }
 
   private placeCamera(orbit: number): void {
+    this.camera.zoom = this.portraitZoom;
+    this.camera.updateProjectionMatrix();
     const angle = (orbit * Math.PI) / 3;
     this.camera.position.set(Math.sin(angle) * 4.4, 3.7, Math.cos(angle) * 4.4);
     this.camera.lookAt(0, 0.72, 0);
@@ -318,5 +335,13 @@ function fakeEntity(
     progress_total: 1000,
     status,
     footprint: [{ q: 0, r: 0 }],
+    ...(definition.kind === "extractor"
+      ? {
+          extraction_source: { q: -1, r: 0, item_id: 1 },
+          output_routes: [
+            { q: 0, r: 0, item_id: 1, direction: 0, target_id: null },
+          ],
+        }
+      : {}),
   };
 }

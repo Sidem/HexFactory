@@ -13,12 +13,6 @@
       "owner": "terrain module backlog",
       "expires": "2026-11-01"
     },
-    "factory-wasm/src/wire.rs": {
-      "baselineBytes": 61285,
-      "targetBytes": 51200,
-      "owner": "wire module backlog",
-      "expires": "2026-11-01"
-    },
     "factory-wasm/src/ground.rs": {
       "baselineBytes": 54688,
       "targetBytes": 51200,

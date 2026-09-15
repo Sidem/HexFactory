@@ -429,6 +429,8 @@ fn wire_fixture_cases() -> Vec<(&'static str, SnapshotDelta)> {
                     output_inventory: Vec::new(),
                     output_routes: Vec::new(),
                     water_source: None,
+                    extraction_source: None,
+                    extraction_output: None,
                     progress: 0,
                     progress_total: 0,
                     fuel_charge: 0,
@@ -494,6 +496,8 @@ fn wire_fixture_cases() -> Vec<(&'static str, SnapshotDelta)> {
                     output_inventory: Vec::new(),
                     output_routes: Vec::new(),
                     water_source: None,
+                    extraction_source: None,
+                    extraction_output: None,
                     progress: 0,
                     progress_total: 0,
                     fuel_charge: 0,
@@ -552,6 +556,16 @@ fn wire_fixture_cases() -> Vec<(&'static str, SnapshotDelta)> {
                     }],
                     // Synthetic every-field case: pins signed source offsets and the finite /
                     // replenishing rate payload without adding another entity to the fixture.
+                    extraction_output: Some(OutputRoute {
+                        q: 9,
+                        r: -8,
+                        direction: 2,
+                    }),
+                    extraction_source: Some(ExtractionSourceSnapshot {
+                        q: -7,
+                        r: 12,
+                        item_id: 1,
+                    }),
                     water_source: Some(WaterSourceSnapshot {
                         q: -3,
                         r: 8,

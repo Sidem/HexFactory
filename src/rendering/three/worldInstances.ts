@@ -23,12 +23,7 @@ import type {
 } from "../../core/types";
 import { TRANSPORT_DIRECTIONS } from "../../core/directions";
 import { MAX_UNDERPASS_SPAN } from "../../core/definitions";
-import {
-  beltLaneTravel,
-  cargoTravel,
-  stallMark,
-  trimOf,
-} from "../buildingLook";
+import { beltLaneTravel, cargoTravel, stallMark } from "../buildingLook";
 import { BUILDING_COLORS } from "../FactoryRenderer";
 import { WORLD_SCALE } from "../landmarks";
 import {
@@ -49,7 +44,15 @@ import {
   transportScale,
   type CurvedTransportGeometry,
 } from "./transportGeometry";
+import {
+  machineMaterialFor,
+  machinePartColor,
+  plumeFor,
+  plumeOriginHeight,
+} from "./machineAppearance";
+export { plumeFor } from "./machineAppearance";
 import { directionAngle } from "./directionAngle";
+import { elementaryCycle, extractorPose } from "./elementaryAnimation";
 
 interface PartBucket {
   readonly mesh: InstancedMesh;
@@ -145,6 +148,7 @@ export class WorldInstanceLayer {
   private playerDirty = true;
   private cargoTickAt = 0;
   private cargoTickMs = 250;
+  private workshop: EntitySnapshot | undefined;
 
   constructor(
     definitions: Definitions,
@@ -186,6 +190,11 @@ export class WorldInstanceLayer {
       this.cargoTickAt = receivedAt;
     }
     this.snapshot = snapshot;
+    this.workshop = snapshot.buildings.find(
+      (building) =>
+        building.status === "composing" &&
+        this.definitions.get(building.definition_id)?.manual_work,
+    );
     this.playerDirty = true;
     this.terrainByKey = terrainByKey;
     const nextStructure =
@@ -213,6 +222,19 @@ export class WorldInstanceLayer {
       this.structureKey = nextStructure;
       this.rebuildStatic(snapshot);
     }
+    this.buildingById.clear();
+    for (const building of snapshot.buildings)
+      this.buildingById.set(building.id, building);
+    for (const bucket of this.partBuckets) {
+      for (const instance of bucket.instances) {
+        const current = this.buildingById.get(instance.building.id);
+        if (!current || current === instance.building) continue;
+        instance.previousBuilding = instance.building;
+        instance.building = current;
+        instance.receivedAt = receivedAt;
+        instance.tickDuration = this.cargoTickMs;
+      }
+    }
     if (snapshot.resources !== this.resourcesIdentity) {
       this.resourcesIdentity = snapshot.resources;
       this.rebuildResources(snapshot.resources);
@@ -233,7 +255,8 @@ export class WorldInstanceLayer {
     if (!snapshot) return;
     for (const bucket of this.partBuckets) {
       if (!bucket.animated) continue;
-      for (let index = 0; index < bucket.instances.length; index += 1)
+      for (let index = 0; index < bucket.instances.length; index += 1) {
+        const instance = bucket.instances[index]!;
         bucket.mesh.setMatrixAt(
           index,
           machinePartMatrix(
@@ -243,6 +266,29 @@ export class WorldInstanceLayer {
             this.scratchMatrix,
           ),
         );
+        if (
+          instance.part.model?.motion === "load" ||
+          instance.part.model?.motion === "stored-output"
+        ) {
+          const item =
+            instance.part.model.motion === "load"
+              ? extractorPose(
+                  instance,
+                  elementaryCycle(instance, now, reducedMotion),
+                ).itemId
+              : instance.building.output_inventory?.find(
+                  (item) => item.quantity > 0,
+                )?.item_id;
+          bucket.mesh.setColorAt(
+            index,
+            this.scratchColor.set(
+              this.items.get(item ?? 0)?.color ?? "#dfb778",
+            ),
+          );
+          if (bucket.mesh.instanceColor)
+            bucket.mesh.instanceColor.needsUpdate = true;
+        }
+      }
       bucket.mesh.instanceMatrix.needsUpdate = true;
     }
     this.updateDynamicBuildings(snapshot, now, reducedMotion);
@@ -257,6 +303,8 @@ export class WorldInstanceLayer {
       // case mid-step rather than evidence of a stop.
       Math.min(500, Math.max(180, this.cargoTickMs * 2)),
       (q, r) => this.groundHeight(q, r),
+      this.workshop,
+      reducedMotion,
     );
     this.playerDirty = false;
   }
@@ -1026,7 +1074,9 @@ export class WorldInstanceLayer {
         instances.length,
       );
       mesh.name = `machine-part-${key}`;
-      mesh.castShadow = true;
+      // The world shadow map is baked on structural changes; a moving arm must not leave a
+      // stationary shadow of its previous pose behind it.
+      mesh.castShadow = !first.animated;
       for (const [index, instance] of instances.entries()) {
         mesh.setMatrixAt(index, machinePartMatrix(instance, 0, true, matrix));
         const tier =
@@ -1762,6 +1812,7 @@ function poleWireHeight(
   pole: EntitySnapshot,
   definitions: ReadonlyMap<number, BuildingDefinition>,
 ): number {
+  if ((definitions.get(pole.definition_id)?.tier ?? 0) === 0) return 1.86;
   return 1.7 + (definitions.get(pole.definition_id)?.tier ?? 0) * 0.08;
 }
 
@@ -1804,78 +1855,6 @@ class SphereGeometryCompat extends IcosahedronGeometry {
   constructor(radius: number) {
     super(radius, 1);
   }
-}
-
-function machineMaterialFor(
-  materials: WorldMaterials,
-  role: MachinePartInstance["material"],
-) {
-  switch (role) {
-    case "ceramic":
-      return materials.machineCeramic;
-    case "brass":
-      return materials.machineBrass;
-    case "dark":
-      return materials.machineDark;
-    case "structure":
-      return materials.machine;
-  }
-}
-
-function machinePartColor(
-  target: Color,
-  scratch: Color,
-  instance: MachinePartInstance,
-  tier: number,
-): Color {
-  target.set(instance.color);
-  switch (instance.material) {
-    case "ceramic":
-      return target.lerp(scratch.set("#d9d1b8"), 0.68);
-    case "brass":
-      return target.lerp(scratch.set("#bf8948"), 0.78);
-    case "dark":
-      return target.lerp(scratch.set("#142126"), 0.74);
-    case "structure":
-      return target.lerp(
-        scratch.set(tier > 0 ? trimOf(tier).stroke : "#dcefe6"),
-        tier > 0 ? 0.2 : 0.04,
-      );
-  }
-}
-
-type PlumeKind = "smoke" | "steam";
-
-/** Published status decides whether a chimney is live; the effect never guesses simulation work. */
-export function plumeFor(
-  building: EntitySnapshot,
-  definition?: BuildingDefinition,
-): PlumeKind | null {
-  if (building.status === "generating") {
-    if (building.kind === "boiler" || definition?.power_source === "turbine")
-      return "steam";
-    if (definition?.power_source === "burner") return "smoke";
-  }
-  if (
-    building.status === "composing" &&
-    (definition?.recipe_category === "smelting" ||
-      definition?.recipe_category === "firing")
-  )
-    return "smoke";
-  return null;
-}
-
-/** Effect sockets follow the authored silhouette scale so smoke leaves a chimney, not its deck. */
-function plumeOriginHeight(
-  building: EntitySnapshot,
-  definition?: BuildingDefinition,
-): number {
-  if (building.kind === "boiler") return 1.9;
-  if (definition?.power_source === "turbine") return 1.85;
-  if (definition?.power_source === "burner") return 1.65;
-  if (definition?.recipe_category === "smelting") return 1.75;
-  if (definition?.recipe_category === "firing") return 1.55;
-  return 1.35;
 }
 
 function positiveFraction(value: number): number {

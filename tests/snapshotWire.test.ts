@@ -156,7 +156,7 @@ describe("binary snapshot delta", () => {
 
   it("refuses a buffer it cannot prove it understands", () => {
     expect(fixture.magic).toBe("HXFD");
-    expect(fixture.version).toBe(26);
+    expect(fixture.version).toBe(27);
 
     const good = new Uint8Array(
       bytesOf(fixture.cases[0]!.bytes as unknown as string),

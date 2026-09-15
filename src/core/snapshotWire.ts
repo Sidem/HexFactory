@@ -44,7 +44,7 @@ import type {
  */
 
 const MAGIC = 0x48584644; // "HXFD"
-const VERSION = 26;
+const VERSION = 27;
 
 /** Wire code is the index. Pinned against Rust by `fixtures/snapshot-delta-wire.json`. */
 const KINDS: BuildingKind[] = [
@@ -150,6 +150,8 @@ const ENTITY_FLAG = {
   outputRoutes: 1 << 14,
   lane: 1 << 15,
   waterSource: 1 << 16,
+  extractionSource: 1 << 17,
+  extractionOutput: 1 << 18,
 } as const;
 
 const PATCH_REPLACE = 1 << 0;
@@ -785,6 +787,22 @@ function readBuildings(reader: Reader, tick: number): BuildingsPatch {
             rate: reader.uvarint(),
           }
         : null;
+    const extraction_source =
+      (flags & ENTITY_FLAG.extractionSource) !== 0
+        ? {
+            q: q + reader.svarint(),
+            r: r + reader.svarint(),
+            item_id: reader.uvarint(),
+          }
+        : null;
+    const extraction_output =
+      (flags & ENTITY_FLAG.extractionOutput) !== 0
+        ? {
+            q: q + reader.svarint(),
+            r: r + reader.svarint(),
+            direction: reader.u8(),
+          }
+        : null;
     const cells = reader.uvarint();
     const footprint = new Array<{ q: number; r: number }>(cells);
     for (let cell = 0; cell < cells; cell += 1) {
@@ -821,6 +839,8 @@ function readBuildings(reader: Reader, tick: number): BuildingsPatch {
     if (power_charge !== 0) entity.power_charge = power_charge;
     if (power_capacity !== 0) entity.power_capacity = power_capacity;
     if (water_source) entity.water_source = water_source;
+    if (extraction_source) entity.extraction_source = extraction_source;
+    if (extraction_output) entity.extraction_output = extraction_output;
     // Same rule: absent rather than an empty array, because an empty list is what every entity
     // that is not a splitter has, and native skips it for exactly that reason.
     if (branch_ids.length > 0) entity.branch_ids = branch_ids;

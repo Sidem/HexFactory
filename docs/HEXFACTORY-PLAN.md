@@ -47,7 +47,7 @@ truth; TypeScript sends bounded commands and renders native snapshots. The detai
 | Technologies    |      18 |
 | Scenarios       |       8 |
 | World generator |      16 |
-| Snapshot wire   |      26 |
+| Snapshot wire   |      27 |
 
 The latest shipped milestone is **v0.48.0 Living Lattice**. Older 1 m² worlds and worlds from another
 generator version remain exportable but are not remapped. Same-generator 25 m² save formats migrate

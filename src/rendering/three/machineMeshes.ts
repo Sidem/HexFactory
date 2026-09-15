@@ -32,6 +32,9 @@ import {
   stackAssembly,
 } from "./machineAnatomy";
 import { directionAngle } from "./directionAngle";
+import { elementaryParts } from "./elementaryModels";
+import { elementaryGeometry } from "./elementaryGeometry";
+import { elementaryPartMatrix } from "./elementaryAnimation";
 
 const TAU = Math.PI * 2;
 const PART_POSITION = new Vector3();
@@ -98,7 +101,12 @@ export const MACHINE_SILHOUETTE_SCALE: Readonly<Record<SilhouetteKey, number>> =
 export const MACHINE_PLATFORM_HEIGHT = 0.18;
 
 export interface MachinePartInstance {
-  readonly building: EntitySnapshot;
+  building: EntitySnapshot;
+  previousBuilding?: EntitySnapshot;
+  receivedAt?: number;
+  tickDuration?: number;
+  readonly groundAt?: (q: number, r: number) => number;
+  readonly capacity?: number;
   readonly part: ShapePart;
   readonly key: string;
   readonly animated: boolean;
@@ -121,7 +129,9 @@ export class PartGeometryLibrary {
     const key = geometryKey(part);
     let geometry = this.cache.get(key);
     if (!geometry) {
-      geometry = buildPartGeometry(part.part, part.count ?? 0);
+      geometry = part.model
+        ? elementaryGeometry(part.model.geometry)
+        : buildPartGeometry(part.part, part.count ?? 0);
       geometry.computeVertexNormals();
       this.cache.set(key, geometry);
     }
@@ -139,6 +149,7 @@ export class PartGeometryLibrary {
 }
 
 export function geometryKey(part: ShapePart): string {
+  if (part.model) return `elementary-${part.model.geometry}`;
   return `${part.part}:${part.part === "rotor" || part.part === "band" ? (part.count ?? 0) : 0}`;
 }
 
@@ -210,7 +221,8 @@ export function collectMachineParts(
     const buildingGround = Math.max(
       ...cells.map((cell) => groundHeight(cell.q, cell.r)),
     );
-    const parts = partsFor(key, tier, growth);
+    const parts =
+      elementaryParts(definition, growth) ?? partsFor(key, tier, growth);
     const liftKey = `${key}|${tier}|${growth}|${footprintScale.toFixed(3)}`;
     let baseLift = lifts.get(liftKey);
     if (baseLift === undefined) {
@@ -231,6 +243,8 @@ export function collectMachineParts(
         glow: part.glow ?? null,
         material: part.material ?? "structure",
         groundHeight: buildingGround,
+        groundAt: groundHeight,
+        capacity: definition?.capacity,
         footprintScale,
         visualScale: MACHINE_SILHOUETTE_SCALE[key],
         baseLift,
@@ -248,6 +262,8 @@ export function machinePartMatrix(
   reducedMotion: boolean,
   target = new Matrix4(),
 ): Matrix4 {
+  if (instance.part.model)
+    return elementaryPartMatrix(instance, now, reducedMotion, target);
   const { building } = instance;
   return composeMachinePart(
     instance.part,
@@ -392,6 +408,7 @@ export function machineRestingLift(
   silhouetteScale: number,
   footprintScale = 1,
 ): number {
+  if (parts[0]?.model) return 0;
   let lowest = Number.POSITIVE_INFINITY;
   REST_PLACEMENT.visualScale = MACHINE_VISUAL_SCALE * silhouetteScale;
   REST_PLACEMENT.footprintScale = footprintScale;

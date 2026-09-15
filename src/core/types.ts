@@ -606,6 +606,10 @@ export interface EntitySnapshot extends AxialCoordinate {
   output_routes?: OutputRouteSnapshot[];
   /** Present on a pump while a native-resolved water cell remains in reach. */
   water_source?: WaterSourceSnapshot | null;
+  /** Exact depot selected by the native extractor resolver for the current work cycle. */
+  extraction_source?: { q: number; r: number; item_id: number };
+  /** Native exterior port, also present on an exhausted extractor. */
+  extraction_output?: { q: number; r: number; direction: number };
   progress: number;
   progress_total: number;
   /**

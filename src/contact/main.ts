@@ -14,6 +14,7 @@ import {
   TIER_LADDER,
 } from "../rendering/shapeGrammar";
 import { ContactSheetRenderer } from "../rendering/three/ContactSheetRenderer";
+import { elementaryModelKey } from "../rendering/three/elementaryModels";
 
 /**
  * The contact sheet — every definition x every tier x every status on one grid.
@@ -26,7 +27,11 @@ import { ContactSheetRenderer } from "../rendering/three/ContactSheetRenderer";
  */
 
 const definitions = definitionData as unknown as Definitions;
-const buildings = definitions.buildings;
+const focused =
+  new URLSearchParams(location.search).get("models") === "elementary";
+const buildings = definitions.buildings.filter(
+  (definition) => !focused || elementaryModelKey(definition),
+);
 
 /** The statuses that actually reach the drawing, which is what makes them worth a column. */
 const STATUSES = [
@@ -36,7 +41,7 @@ const STATUSES = [
   { label: "no power", status: "no power", cycle: 0 },
 ] as const;
 
-const CELL = 56;
+const CELL = focused ? 150 : 56;
 const source = document.createElement("canvas");
 source.id = "contact-render-source";
 source.setAttribute("aria-hidden", "true");
@@ -55,7 +60,10 @@ interface Cell {
 const cells: Cell[] = [];
 
 function paint(cell: Cell, now: number): void {
-  const cycle = state.animate ? (now / 900) % 1 : cell.status.cycle;
+  const cycle =
+    state.animate && cell.status.cycle > 0
+      ? (now / 3000) % 1
+      : cell.status.cycle;
   contactRenderer.paintStrip(
     cell.canvas,
     cell.definition,
@@ -88,11 +96,13 @@ function element<K extends keyof HTMLElementTagNameMap>(
  * when it is not intended, so it is named on the card rather than left to the eye.
  */
 function sharedWith(definition: BuildingDefinition): string[] {
+  if (elementaryModelKey(definition)) return [];
   const key = keyOf(definition);
   return buildings
     .filter(
       (other) =>
         other.id !== definition.id &&
+        !elementaryModelKey(other) &&
         keyOf(other) === key &&
         (other.tier ?? 0) === (definition.tier ?? 0),
     )
@@ -102,7 +112,7 @@ function sharedWith(definition: BuildingDefinition): string[] {
 function keyOf(definition: BuildingDefinition): SilhouetteKey {
   return silhouetteOf(
     definition.kind,
-    definition.recipe_category,
+    definition.recipe_category ?? definition.source_category,
     definition.power_source,
   );
 }
@@ -132,6 +142,13 @@ function buildCard(definition: BuildingDefinition): HTMLElement {
       element("p", "warn", `Draws identically to: ${shared.join(", ")}`),
     );
   card.append(head);
+  if (focused) {
+    const canvas = element("canvas");
+    canvas.title = "Six camera directions";
+    card.append(canvas);
+    cells.push({ canvas, definition, tier: 0, status: STATUSES[2] });
+    return card;
+  }
 
   const grid = element("div", "grid");
   grid.append(element("div", "corner"));
@@ -184,6 +201,12 @@ function buildCard(definition: BuildingDefinition): HTMLElement {
 }
 
 function main(): void {
+  if (focused) {
+    document.querySelector("h1")!.textContent =
+      "Elementary buildings — first set";
+    document.querySelector(".lede")!.textContent =
+      "Ten simplified models, each shown from six directions. Turn on animation to watch their work cycles, or turn colour off to compare silhouettes.";
+  }
   const sheet = document.querySelector<HTMLElement>("#sheet");
   if (!sheet) return;
   for (const definition of buildings) sheet.append(buildCard(definition));
@@ -200,7 +223,9 @@ function main(): void {
   });
 
   const summary = document.querySelector<HTMLElement>("#summary");
-  if (summary)
+  if (summary && focused)
+    summary.textContent = "10 models · 6 camera directions";
+  else if (summary)
     summary.textContent =
       `${buildings.length} definitions · ${Object.keys(BUILDING_SHAPES).length} silhouettes · ` +
       `${TIER_LADDER.length} tier steps · ${cells.length} status cells · ` +
@@ -208,7 +233,7 @@ function main(): void {
 
   let lastAnimatedPaint = 0;
   const frame = (now: number): void => {
-    if (state.animate && now - lastAnimatedPaint >= 500) {
+    if (state.animate && now - lastAnimatedPaint >= (focused ? 50 : 500)) {
       lastAnimatedPaint = now;
       repaint(now);
     }
