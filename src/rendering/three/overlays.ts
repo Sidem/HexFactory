@@ -1,6 +1,7 @@
 import {
   BufferGeometry,
   ConeGeometry,
+  CylinderGeometry,
   Float32BufferAttribute,
   Group,
   InstancedMesh,
@@ -79,6 +80,14 @@ export class SpatialOverlays {
   private readonly arrows: InstancedMesh;
   private readonly rangeRing: Mesh;
   private readonly reachRings: Mesh[];
+  private readonly dragReachRings: Mesh[] = [];
+  private readonly poleGhostGeometry = new CylinderGeometry(
+    0.045,
+    0.075,
+    1.2,
+    6,
+  );
+  private readonly poleGhosts: InstancedMesh;
   private readonly routeGeometry = new BufferGeometry();
   // Two vertices per segment, one segment per route hex plus the one joining the player to the
   // first of them. Written in place every frame because the leading segment moves with the player.
@@ -111,6 +120,13 @@ export class SpatialOverlays {
       OVERLAY_CAPACITY,
     );
     this.rangeRing = ringMesh(materials.buildRange, "build-range-ring");
+    this.poleGhosts = new InstancedMesh(
+      this.poleGhostGeometry,
+      materials.overlayLegal,
+      OVERLAY_CAPACITY,
+    );
+    this.poleGhosts.name = "drag-pole-ghosts";
+    this.poleGhosts.count = 0;
     this.reachRings = [
       ringMesh(materials.overlayLegal, "extract-range-ring"),
       ringMesh(materials.poleSupplyRange, "pole-supply-range-ring"),
@@ -132,6 +148,7 @@ export class SpatialOverlays {
       this.illegal,
       this.selected,
       this.arrows,
+      this.poleGhosts,
       this.rangeRing,
       ...this.reachRings,
       this.routeLine,
@@ -188,8 +205,8 @@ export class SpatialOverlays {
     this.writeCells(this.illegal, illegal, terrain);
     this.writeCells(this.selected, selected, terrain);
     this.writeArrows(
-      state.dragPath,
-      state.hover,
+      state.buildReach?.link ? [] : state.dragPath,
+      state.buildReach?.link ? null : state.hover,
       state.buildOrientation,
       terrain,
     );
@@ -238,13 +255,61 @@ export class SpatialOverlays {
         reachWidths[index],
       );
     }
+    const poles = state.buildReach?.link
+      ? state.dragPath.slice(0, OVERLAY_CAPACITY)
+      : [];
+    const poleMatrix = new Matrix4();
+    poles.forEach((cell, index) => {
+      const point = axialToPixel(cell, 1, { x: 0, y: 0 });
+      poleMatrix.makeTranslation(
+        point.x,
+        this.heightAt(terrain, cell.q, cell.r) + 0.6,
+        point.y,
+      );
+      this.poleGhosts.setMatrixAt(index, poleMatrix);
+    });
+    this.poleGhosts.count = poles.length;
+    if (poles.length) {
+      this.poleGhosts.instanceMatrix.needsUpdate = true;
+      this.poleGhosts.computeBoundingSphere();
+    }
+    for (
+      let index = 0;
+      index < Math.max(poles.length, this.dragReachRings.length);
+      index++
+    ) {
+      const cell = poles[index];
+      let ring = this.dragReachRings[index];
+      if (!ring && cell) {
+        ring = ringMesh(this.materials.poleSupplyRange, "drag-pole-supply");
+        ring.renderOrder = 40;
+        this.dragReachRings.push(ring);
+        this.group.add(ring);
+      }
+      if (!ring) continue;
+      ring.visible = Boolean(cell);
+      if (!cell) continue;
+      const point = axialToPixel(cell, 1, { x: 0, y: 0 });
+      this.placeWorldRing(
+        ring,
+        point.x,
+        point.y,
+        this.heightAt(terrain, cell.q, cell.r) + 0.035,
+        Math.max(0.82, (state.buildReach?.supply ?? 0) * Math.sqrt(3) + 0.92),
+        true,
+        RANGE_RING_WIDTH.supply,
+      );
+    }
   }
 
   dispose(): void {
+    this.poleGhosts.dispose();
+    this.poleGhostGeometry.dispose();
     this.ringGeometry.dispose();
     this.directionGeometry.dispose();
     this.rangeRing.geometry.dispose();
     for (const ring of this.reachRings) ring.geometry.dispose();
+    for (const ring of this.dragReachRings) ring.geometry.dispose();
     this.routeGeometry.dispose();
     this.routeGoal.geometry.dispose();
     this.gridGeometry?.dispose();

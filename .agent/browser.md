@@ -15,11 +15,11 @@ Read the named file and a bounded range around the anchor; do not read oversized
 
 ## Files
 
-- `src/app/bootstrap.ts` — 403 lines / 14.3 KiB — bootstrap:28
+- `src/app/bootstrap.ts` — 390 lines / 13.7 KiB — bootstrap:29
 - `src/app/buildController.ts` — 692 lines / 24.3 KiB — renderHotbarSlots:77, assignHotbarSlot:162, pinToHotbar:178, …
 - `src/app/buildInfo.ts` — 25 lines / 0.7 KiB — currentBuild:6
 - `src/app/buildWiring.ts` — 266 lines / 10.1 KiB — buildWiring:5
-- `src/app/constructionInput.ts` — 414 lines / 13.2 KiB — heldStock:48, cancelCraft:61, eraseLine:88, …
+- `src/app/constructionInput.ts` — 418 lines / 13.5 KiB — heldStock:48, cancelCraft:61, eraseLine:88, …
 - `src/app/coreView.ts` — 608 lines / 21.1 KiB — currentBuild:64, dragOwnsPointer:70, loadHotbar:81, …
 - `src/app/createApp.ts` — 24 lines / 0.7 KiB — createApp:15
 - `src/app/herdInspector.ts` — 127 lines / 5.1 KiB — renderHerdInspector:9
@@ -31,6 +31,7 @@ Read the named file and a bounded range around the anchor; do not read oversized
 - `src/app/nativePreview.ts` — 60 lines / 1.5 KiB — NativePreview:2
 - `src/app/pastureInspector.ts` — 80 lines / 2.7 KiB — renderPastureInspector:8
 - `src/app/preferences.ts` — 117 lines / 3.8 KiB — PreferencesController:15
+- `src/app/rendererDiagnostics.ts` — 57 lines / 2.1 KiB — installRendererDiagnostics:4
 - `src/app/runtime.ts` — 392 lines / 14.5 KiB — Tool:32, BuildGroupKey:42, StockCompartment:49, …
 - `src/app/saveUi.ts` — 145 lines / 4.9 KiB — SaveUi:21
 - `src/app/workspaceController.ts` — 319 lines / 9.7 KiB — syncHoverWithCamera:27, flushHoverPreview:47, setRunName:83, …
@@ -65,11 +66,11 @@ Read the named file and a bounded range around the anchor; do not read oversized
 - `src/ui/boundaries.ts` — 673 lines / 24.3 KiB — nearestBoundaryDirection:103, edgeAnchors:113, BoundaryTool:131
 - `src/ui/confirm.ts` — 131 lines / 4.8 KiB — ConfirmRow:12, ConfirmRequest:19, ConfirmDialog:31
 - `src/ui/dom.ts` — 50 lines / 1.5 KiB — required:3, part:9, syncChildren:21
-- `src/ui/ground.ts` — 622 lines / 23.6 KiB — GroundTool:85
+- `src/ui/ground.ts` — 644 lines / 24.7 KiB — GroundTool:86
 - `src/ui/groundBrush.ts` — 100 lines / 3.1 KiB — GroundBrushMode:3, movesEarth:15, takesGroundwork:20, …
 - `src/ui/paint.ts` — 37 lines / 0.9 KiB — paintHexFace:3, setMeter:14, setItemGlyph:29
 - `src/ui/panels.ts` — 188 lines / 6.0 KiB — PanelController:9
-- `src/ui/production.ts` — 32 lines / 1.7 KiB — productionNote:5
+- `src/ui/production.ts` — 50 lines / 2.3 KiB — productionNote:5
 - `src/ui/research.ts` — 36 lines / 1.2 KiB — orderTechnologies:4, technologyContext:26
 - `src/ui/researchGraph.ts` — 230 lines / 6.9 KiB — RESEARCH_NODE_WIDTH:14, RESEARCH_NODE_HEIGHT:15, ResearchNode:42, …
 - `src/ui/researchTree.ts` — 660 lines / 24.0 KiB — ResearchTree:28

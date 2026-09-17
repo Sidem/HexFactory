@@ -1,0 +1,130 @@
+{
+  "schema": 1,
+  "collectedDate": "2026-09-17",
+  "sourceBase": "189a04ffb6b11beec9623ab54903ba765d413684",
+  "sourceState": "uncommitted playtest patch",
+  "saveSha256": "448de381d753b5f1cfcf655274b0103edb7ca5be55515c9c5513de370d7318d3",
+  "wasmSha256": "8909bff800c4cd86029b4df91ff7117f78a96657dc57533f663ffaa946a61345",
+  "browser": "Codex In-app Browser",
+  "mode": "Vite development server, production Wasm artifact",
+  "viewport": {
+    "screenshotWidth": 1353,
+    "screenshotHeight": 1272,
+    "canvasWidth": 1353,
+    "canvasHeight": 1204,
+    "pixelRatio": 1,
+    "visibility": "visible"
+  },
+  "method": "Imported supplied save through the title UI, loaded it without construction edits, retained initial player camera, and captured the development diagnostic UI. Each capture uses a rolling 240-sample window; intervals measure requestAnimationFrame callback pacing, not confirmed displayed frames or GPU time. Simulation continues between captures. No production before/after baseline was collected.",
+  "samples": [
+    {
+      "label": "high-initial-1",
+      "name": "Three.js Visual Depth",
+      "profile": "high",
+      "drawCalls": 1738,
+      "triangles": 756944,
+      "geometries": 1589,
+      "textures": 3,
+      "cpuPreparationUs": 1202.80483998694,
+      "contextLost": false,
+      "pixelRatio": 1,
+      "frameP95Us": 14100.000001490116,
+      "frameSamples": 240,
+      "browserFramePacing": {
+        "samples": 240,
+        "windowMs": 7950.799999999996,
+        "meanIntervalMs": 33.128333333333316,
+        "p95IntervalMs": 34.400000000001455,
+        "maxIntervalMs": 36.599999999998545,
+        "callbackRateHz": 30.18564169643308,
+        "intervalsOver25Ms": 238
+      }
+    },
+    {
+      "label": "high-initial-2",
+      "name": "Three.js Visual Depth",
+      "profile": "high",
+      "drawCalls": 1738,
+      "triangles": 756986,
+      "geometries": 1589,
+      "textures": 3,
+      "cpuPreparationUs": 1464.9103103654033,
+      "contextLost": false,
+      "pixelRatio": 1,
+      "frameP95Us": 13800.000000745058,
+      "frameSamples": 240,
+      "browserFramePacing": {
+        "samples": 240,
+        "windowMs": 7849.700000000004,
+        "meanIntervalMs": 32.70708333333335,
+        "p95IntervalMs": 34.400000000001455,
+        "maxIntervalMs": 37,
+        "callbackRateHz": 30.574416856695144,
+        "intervalsOver25Ms": 232
+      }
+    },
+    {
+      "label": "low-same-view",
+      "name": "Three.js Visual Depth",
+      "profile": "low",
+      "drawCalls": 1738,
+      "triangles": 756986,
+      "geometries": 1589,
+      "textures": 3,
+      "cpuPreparationUs": 1321.374645867614,
+      "contextLost": false,
+      "pixelRatio": 1,
+      "frameP95Us": 14000,
+      "frameSamples": 240,
+      "browserFramePacing": {
+        "samples": 240,
+        "windowMs": 7983,
+        "meanIntervalMs": 33.2625,
+        "p95IntervalMs": 34.39999999999418,
+        "maxIntervalMs": 35.80000000000291,
+        "callbackRateHz": 30.06388575723412,
+        "intervalsOver25Ms": 240
+      }
+    },
+    {
+      "label": "low-two-zoom-out-gestures",
+      "name": "Three.js Visual Depth",
+      "profile": "low",
+      "drawCalls": 1817,
+      "triangles": 773908,
+      "geometries": 1626,
+      "textures": 3,
+      "cpuPreparationUs": 1285.7961057311577,
+      "contextLost": false,
+      "pixelRatio": 1,
+      "frameP95Us": 14299.999997019768,
+      "frameSamples": 240,
+      "browserFramePacing": {
+        "samples": 240,
+        "windowMs": 7966.200000000012,
+        "meanIntervalMs": 33.192500000000045,
+        "p95IntervalMs": 34.60000000000582,
+        "maxIntervalMs": 36.89999999999418,
+        "callbackRateHz": 30.12728779091658,
+        "intervalsOver25Ms": 238
+      }
+    }
+  ],
+  "browserWarningsOrErrors": [],
+  "originalSaveHashUnchanged": true,
+  "visualChecks": [
+    "Production build loaded the supplied file and rendered the factory, terrain, water, animals, and belts.",
+    "One pole drag placed four separated poles with visible connecting wires.",
+    "Ground panel displayed Grade / level, 0.5 / 1 / 1.5 m depths, white current-height outlines, coloured result plates, and completed a test stroke.",
+    "Steel smelter displayed separate Recipe ingredients and Fuel / heat compartments and the carbon explanation.",
+    "Switching from steel to copper preserved 16 Iron plate and displayed the leftover-input explanation.",
+    "A bridge drag into deep water displayed the specific depth refusal. Successful shore-skipping and every pole tier remain covered by native tests; they were not exhaustively replayed in the browser."
+  ],
+  "limits": [
+    "Development JavaScript, embedded browser, short rolling windows, and no before/after browser baseline. Do not treat these captures as a production FPS guarantee or evidence of the speedup caused by the patch.",
+    "frameP95Us covers CPU preparation and WebGL submission, not asynchronous GPU execution.",
+    "Browser frame pacing includes scheduling and all main-thread work; it does not isolate DOM, Wasm, compositor, GPU, or host-browser overhead.",
+    "High and Low both ran near 30 callbacks per second; the cause of that cadence remains unisolated.",
+    "Forest radial growth and offscreen animation restoration are covered by automated regressions; long-duration forest evolution was not judged from this short UI session."
+  ]
+}

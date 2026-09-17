@@ -9,6 +9,7 @@ mod husbandry;
 mod machines;
 mod petroleum;
 mod player;
+mod playtest;
 mod power;
 mod save;
 mod stock;

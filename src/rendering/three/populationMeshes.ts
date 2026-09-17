@@ -16,6 +16,7 @@ import type { HerdSnapshot, HuntPreview } from "../../core/types";
 import { WORLD_SCALE } from "../landmarks";
 import { heightAtWorld, type TerrainCell } from "./terrainMeshes";
 import { HuntOverlay } from "./huntOverlay";
+import type { FrameVisibility } from "./frameVisibility";
 
 /** Render a native leg at frame time; no host animal decisions or quantities. */
 export function herdPosition(
@@ -56,6 +57,7 @@ export class PopulationMeshes {
   private readonly rotation = new Quaternion();
   private readonly scale = new Vector3(1, 1, 1);
   private readonly up = new Vector3(0, 1, 0);
+  private view: FrameVisibility | undefined;
 
   constructor() {
     this.group.add(this.huntOverlay.group, this.pastureOverlay.group);
@@ -88,7 +90,7 @@ export class PopulationMeshes {
     this.identity = herds;
     this.terrain = terrain;
     const count = herds.reduce((sum, h) => sum + grazerCount(h.count), 0);
-    if (!this.mesh || this.mesh.count !== count) {
+    if (!this.mesh || this.mesh.instanceMatrix.count < count) {
       if (this.mesh) {
         this.group.remove(this.mesh);
         this.mesh.dispose();
@@ -99,11 +101,12 @@ export class PopulationMeshes {
       this.mesh.frustumCulled = false;
       this.group.add(this.mesh);
     }
-    this.animate(now);
+    this.animate(now, this.view);
     return changed;
   }
 
-  animate(now: number): void {
+  animate(now: number, view?: FrameVisibility): void {
+    this.view = view;
     if (!this.mesh) return;
     const tick =
       this.tick + Math.max(0, Math.min(1, (now - this.tickAt) / this.tickMs));
@@ -113,6 +116,16 @@ export class PopulationMeshes {
       const [x, y] = herdPosition(herd, tick);
       if (herd.id === this.huntOverlay.herdId)
         this.huntOverlay.update(this.terrain, [x, y]);
+      if (
+        view &&
+        !view.includes(
+          x / WORLD_SCALE,
+          heightAtWorld(this.terrain, { x, y }),
+          y / WORLD_SCALE,
+          2,
+        )
+      )
+        continue;
       const moving = herd.from[0] !== herd.to[0] || herd.from[1] !== herd.to[1];
       const heading = moving
         ? -Math.atan2(herd.to[1] - herd.from[1], herd.to[0] - herd.from[0])
@@ -134,7 +147,12 @@ export class PopulationMeshes {
         this.mesh.setMatrixAt(index++, this.matrix);
       }
     }
-    this.mesh.instanceMatrix.needsUpdate = true;
+    this.mesh.count = index;
+    if (index > 0) {
+      this.mesh.instanceMatrix.clearUpdateRanges();
+      this.mesh.instanceMatrix.addUpdateRange(0, index * 16);
+      this.mesh.instanceMatrix.needsUpdate = true;
+    }
   }
 
   pick(ray: Ray): number | null {

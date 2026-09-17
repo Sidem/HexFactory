@@ -47,6 +47,7 @@ import { GroundMeshes } from "./groundMeshes";
 import { HabitatMeshes } from "./habitatMeshes";
 import { PopulationMeshes } from "./populationMeshes";
 import { WorldInstanceLayer } from "./worldInstances";
+import { FrameVisibility } from "./frameVisibility";
 
 /** Clear colour, background and distance haze — one colour, so distance dissolves into nothing. */
 const SKY = "#142129";
@@ -64,6 +65,7 @@ export class ThreeFactoryRenderer implements FactoryRenderer {
   private readonly ground = new GroundMeshes();
   private readonly habitats = new HabitatMeshes();
   private readonly populations = new PopulationMeshes();
+  private readonly visibility = new FrameVisibility();
   private readonly surfaces: Definitions["surfaces"];
   private readonly keyLight = new DirectionalLight("#ffe4b0", 2.6);
   private readonly fillLight = new HemisphereLight("#c9eef0", "#273b32", 1.6);
@@ -455,8 +457,9 @@ export class ThreeFactoryRenderer implements FactoryRenderer {
       if (this.terrain)
         this.terrain.grid.visible = this.buildMode || this.gridToggled;
       const started = performance.now();
-      this.worldInstances.update(this.now, this.motionReduced);
-      this.populations.animate(this.now);
+      this.visibility.update(this.camera.camera);
+      this.worldInstances.update(this.now, this.motionReduced, this.visibility);
+      this.populations.animate(this.now, this.visibility);
       if (this.overlaysDirty) {
         this.overlays.update(
           snapshot,

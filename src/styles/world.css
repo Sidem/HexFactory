@@ -434,6 +434,13 @@
   border-radius: 10px;
   background: #08130fa8;
 }
+.machine-compartment.fuel {
+  border-color: #a66d38;
+  background: #34200f80;
+}
+.machine-compartment.input {
+  border-color: #467f88;
+}
 .inspect-storage-grid:has(.machine-compartment:nth-child(2))
   .machine-compartment.output {
   grid-column: 2;

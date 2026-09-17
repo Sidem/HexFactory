@@ -13,11 +13,26 @@ export function productionNote(
   const outputs = recipeOutputs(recipe);
   const name = (id: number): string =>
     definitions.items.find((item) => item.id === id)?.name ?? `Item ${id}`;
-  // There used to be a note here for a machine wedged by its own ingredient buffer: one full
-  // ingredient left no room for the others, and the only way out was to take stock back into the
-  // pack. Ingredient capacity is per ingredient now, so a stocked slot cannot crowd out an empty
-  // one and the note has nothing left to describe.
-  if (outputs.length < 2) return "";
+  const notes: string[] = [];
+  const reactants = recipe.inputs.filter(({ item_id }) =>
+    definitions.items.some(
+      (item) => item.id === item_id && (item.fuel_value ?? 0) > 0,
+    ),
+  );
+  if (recipe.fuel && reactants.length)
+    notes.push(
+      `${recipe.description} Recipe ingredients (${reactants.map((item) => `${item.quantity} ${name(item.item_id)}`).join(" + ")}) are consumed in the product. Fuel / heat is a separate supply.`,
+    );
+  const leftovers = (building.input_inventory ?? []).filter(
+    (entry) =>
+      entry.quantity > 0 &&
+      !recipe.inputs.some((input) => input.item_id === entry.item_id),
+  );
+  if (leftovers.length)
+    notes.push(
+      `Left from the previous recipe: ${leftovers.map((entry) => `${entry.quantity} ${name(entry.item_id)}`).join(", ")}. Take these items from the Recipe ingredients compartment to reuse them.`,
+    );
+  if (outputs.length < 2) return notes.join(" ");
   const batch = outputs
     .map((output) => `${output.quantity} ${name(output.item_id)}`)
     .join(" + ");
@@ -25,7 +40,10 @@ export function productionNote(
     .filter((entry) => entry.quantity > 0)
     .map((entry) => `${entry.quantity} ${name(entry.item_id)}`)
     .join(", ");
-  return building.status === "output blocked"
-    ? `Output buffer blocked${stored ? ` — holding ${stored}` : ""}. Free space for the whole batch (${batch}). Take output below or connect every product port; no inputs are consumed while blocked.`
-    : `Each batch makes ${batch} into one shared buffer. In Product outputs, choose each product and click the exact outside footprint port it should use. Refined fuel runs burners and boilers; bitumen feeds asphalt.`;
+  notes.push(
+    building.status === "output blocked"
+      ? `Output buffer blocked${stored ? ` — holding ${stored}` : ""}. Free space for the whole batch (${batch}). Take output below or connect every product port; no inputs are consumed while blocked.`
+      : `Each batch makes ${batch} into one shared buffer. In Product outputs, choose each product and click the exact outside footprint port it should use. Refined fuel runs burners and boilers; bitumen feeds asphalt.`,
+  );
+  return notes.join(" ");
 }

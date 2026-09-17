@@ -22,6 +22,7 @@ import { ConfirmDialog } from "../ui/confirm";
 import { PreferencesController } from "./preferences";
 import { SaveUi } from "./saveUi";
 import { WorldSetup } from "./worldSetup";
+import { installRendererDiagnostics } from "./rendererDiagnostics";
 import type { BuildGroupKey } from "./runtime";
 import type { Runtime } from "./runtime";
 
@@ -128,21 +129,7 @@ export async function bootstrap(app: Runtime): Promise<void> {
     import.meta.env.DEV &&
     new URLSearchParams(location.search).has("diagnostics")
   ) {
-    const captureDiagnostics = document.createElement("button");
-    const diagnosticsOutput = document.createElement("output");
-    captureDiagnostics.type = "button";
-    captureDiagnostics.textContent = "Capture renderer diagnostics";
-    captureDiagnostics.style.cssText =
-      "position:fixed;z-index:10000;right:12px;top:72px;padding:8px";
-    diagnosticsOutput.id = "renderer-diagnostics";
-    diagnosticsOutput.style.cssText =
-      "position:fixed;z-index:10000;right:12px;top:116px;max-width:480px;padding:8px;background:#071110;color:#dcefe9";
-    captureDiagnostics.addEventListener("click", () => {
-      diagnosticsOutput.textContent = JSON.stringify(
-        app.renderer.getDiagnostics(),
-      );
-    });
-    document.body.append(captureDiagnostics, diagnosticsOutput);
+    installRendererDiagnostics(() => app.renderer.getDiagnostics());
   }
   app.minimap = new MinimapRenderer(
     required<HTMLCanvasElement>("minimap"),

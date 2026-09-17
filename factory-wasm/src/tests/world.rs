@@ -179,6 +179,7 @@ fn native_and_host_agree_on_directions_passability_heights_and_hexes() {
     struct SceneScale {
         height_unit: String,
         height_quantum_mm: i32,
+        earthwork_steps_quanta: [i32; 3],
         cell_circumradius_mm: i32,
         max_walk_step: i32,
         relief_min: i32,
@@ -188,6 +189,10 @@ fn native_and_host_agree_on_directions_passability_heights_and_hexes() {
     let fixture: SceneScale =
         serde_json::from_str(include_str!("../../../fixtures/scene-scale.json")).unwrap();
     assert_eq!(fixture.height_quantum_mm, scale::HEIGHT_QUANTUM_MM);
+    assert_eq!(
+        fixture.earthwork_steps_quanta,
+        scale::EARTHWORK_STEPS_QUANTA
+    );
     assert_eq!(fixture.cell_circumradius_mm, scale::CELL_CIRCUMRADIUS_MM);
     // Read out of a real Core rather than declared here, so the fixture answers to the source
     // production constructs and not to a second opinion about which one that is.

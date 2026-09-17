@@ -48,6 +48,13 @@ impl Core {
         if footprint.is_empty() {
             return Err("building footprint is empty".into());
         }
+        if definition.placement_rule == PlacementRule::Shallows && !self.shallow_water_at(q, r) {
+            return Err(if self.water_depth_at(q, r) == 0 {
+                "Bridges need water; drag from bank to bank to span the shallows".into()
+            } else {
+                "Water is too deep for this bridge; find a shallower crossing".into()
+            });
+        }
         if !footprint
             .iter()
             .any(|cell| self.within_world_range(cell.q, cell.r, self.player.build_range))
@@ -96,7 +103,15 @@ impl Core {
                 && !shallow_support
                 && !bridged_transport
             {
-                return Err("environment blocks construction".into());
+                return Err(
+                    if definition.kind == BuildingKind::Belt
+                        && self.shallow_water_at(cell.q, cell.r)
+                    {
+                        "The environment blocks construction: build a bridge across the shallows first, then place the belt on it".into()
+                    } else {
+                        "environment blocks construction".into()
+                    },
+                );
             }
         }
         for cell in &envelope {
@@ -166,9 +181,6 @@ impl Core {
             if !matches!(terrain, Terrain::Hills | Terrain::Highland) {
                 return Err("wind turbines must stand on hills or highland".into());
             }
-        }
-        if definition.placement_rule == PlacementRule::Shallows && !self.shallow_water_at(q, r) {
-            return Err("bridges require shallow water".into());
         }
         if definition.kind == BuildingKind::Composer {
             let id = recipe_id.ok_or("this machine requires a recipe")?;
@@ -352,6 +364,7 @@ impl Core {
             .building_definition(definition_id)
             .ok_or_else(|| format!("unknown building definition {definition_id}"))?;
         let routed = definition.kind == BuildingKind::Belt;
+        let poles = definition.kind == BuildingKind::Pole;
         let paired_underpass = definition.underpass_span.is_some() && from != to;
         let name = definition.name.clone();
         let cells = self.drag_route(from, to, definition_id, orientation, recipe_id);
@@ -370,6 +383,9 @@ impl Core {
         let mut placed = 0usize;
         let mut last_error = None;
         for (index, &(q, r)) in cells.iter().enumerate() {
+            if poles && self.pole_at((q, r)).is_some() {
+                continue;
+            }
             // A belt run points every cell at the next one, so the drag routes the line and the
             // player never orients a segment by hand. The final cell keeps the run's heading.
             let cell_orientation = if routed {
@@ -379,7 +395,12 @@ impl Core {
             };
             match self.place(q, r, definition_id, cell_orientation, recipe_id) {
                 Ok(()) => placed += 1,
-                Err(error) => last_error = Some(error),
+                Err(error) => {
+                    last_error = Some(error);
+                    if poles {
+                        break;
+                    }
+                }
             }
         }
         self.events.truncate(before);
@@ -453,9 +474,24 @@ impl Core {
                 // A run that turns can change price partway along it, so the budget is charged the
                 // heading each cell actually takes rather than the heading the drag started at.
                 let cost = definition.cost_at(cell_orientation);
-                let reason = self
+                if definition.kind == BuildingKind::Pole && self.pole_at((q, r)).is_some() {
+                    return LinePreviewCell {
+                        q,
+                        r,
+                        orientation: cell_orientation,
+                        legal: true,
+                        reason: None,
+                    };
+                }
+                let mut reason = self
                     .placement_legality(q, r, definition_id, cell_orientation, recipe_id, false)
                     .err();
+                if reason.is_none() && !self.creative && !has_ingredients(&budget, cost) {
+                    reason = Some(format!(
+                        "Not enough materials for another {}",
+                        definition.name
+                    ));
+                }
                 let legal = !taken.contains(&(q, r))
                     && reason.is_none()
                     && (self.creative || has_ingredients(&budget, cost));
@@ -516,13 +552,26 @@ impl Core {
         from: (i32, i32),
         to: (i32, i32),
         definition_id: DefinitionId,
-        _orientation: u8,
+        orientation: u8,
         recipe_id: Option<RecipeId>,
     ) -> Vec<(i32, i32)> {
         let Some(definition) = self.building_definition(definition_id) else {
             return Vec::new();
         };
         let axis = definition.orientation_axis;
+        if definition.kind == BuildingKind::Pole && from != to {
+            return self.pole_drag_route(from, to, definition_id, orientation);
+        }
+        if definition.kind == BuildingKind::Bridge && from != to {
+            let line = line_between(from, to, axis);
+            let water: Vec<_> = line
+                .iter()
+                .copied()
+                .filter(|&(q, r)| self.water_depth_at(q, r) > 0)
+                .collect();
+            // Keep a land-only gesture visible as a refusal instead of an empty preview.
+            return if water.is_empty() { vec![from] } else { water };
+        }
         if let Some(span) = definition.underpass_span.filter(|_| from != to) {
             // One drag places the two portals, never a carpet of underpass entities. The endpoint
             // snaps to the closest reachable heading/length, so a pointer does not need pixel-

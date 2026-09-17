@@ -15,6 +15,24 @@ import {
 } from "../src/core/saveSlots";
 
 const definitions = json as Definitions;
+describe("recipe compartments", () => {
+  it("explains steel carbon separately from heat and identifies retained inputs on a switch", () => {
+    const entity = {
+      recipe_id: 5,
+      input_inventory: [],
+    } as unknown as EntitySnapshot;
+    expect(productionNote(entity, definitions)).toContain("2 Coal");
+    expect(productionNote(entity, definitions)).toContain("carbon");
+    expect(productionNote(entity, definitions)).toContain(
+      "Fuel / heat is a separate supply",
+    );
+    entity.recipe_id = 1;
+    entity.input_inventory = [{ item_id: 5, quantity: 3 }];
+    expect(productionNote(entity, definitions)).toContain(
+      "Left from the previous recipe: 3 Coal",
+    );
+  });
+});
 describe("petroleum player explanations", () => {
   it("names both outputs and explains the full-buffer remedy", () => {
     const entity = {

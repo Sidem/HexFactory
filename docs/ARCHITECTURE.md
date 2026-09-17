@@ -158,6 +158,11 @@ its full footprint visible when one cell refuses the edit. A stamp that resolves
 native player clock in proportion to that resolved earth volume and commits only when the work finishes;
 surface-only stamps remain immediate.
 
+Pole drags choose the farthest legal site within wire reach along a bounded native line, reuse existing
+poles as anchors, and finish at the last connected legal site towards the pointer. Preview and placement
+share this resolver and material budget. Bridge drags omit dry banks; deep water remains a refusal with
+crossing guidance. Belts still require an existing bridge over shallows.
+
 ## Factory graph and machines
 
 Blueprint edits compile directed transport edges. Runtime uses the compiled graph and derived indexes;

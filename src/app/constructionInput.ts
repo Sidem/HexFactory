@@ -232,7 +232,11 @@ Runtime.prototype.refreshDragPreview =
           : definition?.underpass_span !== undefined && legal === 2
             ? `Build paired portals · ${definition.underpass_span}-hex reach`
             : (cells.find((cell) => !cell.legal && cell.reason)?.reason ??
-              `Build ${legal} of ${cells.length}`);
+              (definition?.kind === "pole"
+                ? `${legal} pole sites · up to ${definition.pole_reach} hexes apart${cells.at(-1)?.q !== to.q || cells.at(-1)?.r !== to.r ? " · ends at nearest connected legal site" : ""}`
+                : definition?.kind === "bridge"
+                  ? `Build ${legal} bridge spans · dry banks skipped · belts go on top`
+                  : `Build ${legal} of ${cells.length}`));
         if (this.dragBuild.to.q === to.q && this.dragBuild.to.r === to.r) break;
       }
     } catch (error) {

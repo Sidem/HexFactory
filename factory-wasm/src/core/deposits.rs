@@ -274,23 +274,25 @@ impl Core {
     /// Among the neighbours that could hold it, the seed goes to the most sheltered — the candidate
     /// with the most of this same flora already standing around it. That is where a wood actually
     /// thickens first, and it makes an edge advance as a rounded front instead of a line marching
-    /// down the direction table. Ties go to the lower direction index, so the answer is a pure
-    /// function of the world and needs no die.
+    /// down the direction table. Equal shelter uses a spatial hash of the parent and candidate,
+    /// so each stand has its own preference without RNG state or a shared compass bias.
     pub(crate) fn colonisation_target(
         &self,
         q: i32,
         r: i32,
         item_id: ItemId,
     ) -> Option<(i32, i32)> {
-        let mut best: Option<((i32, i32), u32)> = None;
+        let mut best = None;
+        let salt = coordinate_hash(self.seed ^ u32::from(item_id), q, r);
         for &(dq, dr) in &DIRECTIONS {
             let cell = (q + dq, r + dr);
             if !self.can_take_root(cell.0, cell.1) {
                 continue;
             }
             let (standing, _) = self.seed_pressure(cell.0, cell.1, item_id);
-            if best.is_none_or(|(_, most)| standing > most) {
-                best = Some((cell, standing));
+            let rank = (standing, coordinate_hash(salt, cell.0, cell.1));
+            if best.is_none_or(|(_, most)| rank > most) {
+                best = Some((cell, rank));
             }
         }
         best.map(|(cell, _)| cell)

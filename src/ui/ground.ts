@@ -1,4 +1,5 @@
 import "./ground.css";
+import sceneScale from "../../fixtures/scene-scale.json";
 import type { FactoryHost } from "../core/FactoryHost";
 import type {
   FactorySnapshot,
@@ -27,8 +28,8 @@ const MODES: readonly {
   {
     mode: "grade",
     icon: "≈",
-    label: "Grade",
-    hint: "Sample a good height, then blend nearby ground into a walkable slope.",
+    label: "Grade / level",
+    hint: "Hold on a good height, then drag onto rough ground to blend a walkable slope. Depth applies only to Dig and Raise.",
   },
   {
     mode: "dig",
@@ -150,13 +151,13 @@ export class GroundTool {
       ]
         .map(
           (steps) =>
-            `<button type="button" data-depth-steps="${steps}" aria-pressed="false" title="Move each hex ${steps} step${steps === 1 ? "" : "s"}, as far as its own cut and fill limit allows">${steps}</button>`,
+            `<button type="button" data-depth-steps="${steps}" aria-pressed="false" title="Move each hex as far as its cut and fill limit allows">${(sceneScale.earthwork_steps_quanta[steps - 1]! * sceneScale.height_quantum_mm) / 1000} m</button>`,
         )
         .join("")}</div>
       <div class="ground-spoil"><span>Spoil heap</span><span class="ground-gauge"><i data-spoil-fill style="width:0%"></i></span><b data-spoil>0</b></div>
       <p class="ground-status" data-status role="status" aria-live="polite"></p>
       <div class="ground-panel-actions"><button type="button" data-undo title="Undo the last brush stamp (Ctrl+Z while this tool is open)">Undo last patch</button></div>
-      <small class="ground-help"><b>Press directly on the world.</b> Grade samples a height; Dig and Raise move earth by the chosen depth. Earth-moving patches take time in proportion to their real cut and fill volume. [ and ] change brush size, − and = change depth, and R cycles the five brushes.</small>`;
+      <small class="ground-help"><b>Try a small patch first.</b> Grade: hold on a good height and drag across a slope. Dig: lower ground and collect spoil. Raise: spend that spoil to lift ground. Depth applies to Dig and Raise. Blue ghosts show cuts, gold shows fill, and red marks an obstacle. The white outline is the current height; the coloured plate is the result. Hold still while earthwork finishes. [ and ] change size, − and = change depth, and R changes mode.</small>`;
     const get = <T extends HTMLElement>(selector: string): T =>
       root.querySelector<T>(selector)!;
     this.modes = get(".ground-modes");
@@ -268,10 +269,10 @@ export class GroundTool {
   /**
    * The footprint under the cursor, priced by the same native transaction a press would commit. A
    * brush whose reach is invisible until it fires is guesswork, so this follows the pointer rather
-   * than waiting for a click, and stands down mid-stroke where each stamp is already showing itself.
+   * than waiting for a click. A held Grade stroke keeps its original sampled height.
    */
   hover(cell: BrushHex): void {
-    if (!this.opened || this.brush) return;
+    if (!this.opened) return;
     if (this.hovered?.q === cell.q && this.hovered.r === cell.r) return;
     // Aiming somewhere new is what ends the last stroke's report. The hex the stroke finished on is
     // not somewhere new, and that is exactly where the footprint is redrawn the moment it ends.
@@ -318,6 +319,7 @@ export class GroundTool {
   paintBrush(pointerId: number, cell: BrushHex): boolean {
     const brush = this.brush;
     if (!brush || brush.pointerId !== pointerId) return false;
+    this.hover(cell);
     if (takesGroundwork(this.mode) && this.workQueued) return true;
     for (const centre of brushLine(brush.last, cell).slice(1)) {
       if (!this.paintCentre(centre)) break;
@@ -346,6 +348,10 @@ export class GroundTool {
       message !== undefined &&
       message !== this.lastMessage &&
       /^(Graded|Prepared|Undid|Water found)/.test(message);
+    // A rejected command never starts the player clock. Release the local pending latch when
+    // its answering snapshot arrives too, otherwise a refused stamp disables the brush forever.
+    if (this.workQueued && snapshot.player.action_cooldown === 0)
+      this.workQueued = false;
     const inventorySignature = `${snapshot.player.creative}:${snapshot.researched.join(",")}:${JSON.stringify(snapshot.player.inventory)}`;
     this.snapshot = snapshot;
     if (snapshot.player.action_cooldown > 0) this.workQueued = true;
@@ -389,11 +395,10 @@ export class GroundTool {
       const revision = this.revision;
       const cell = this.hovered;
       if (!cell || !this.opened) continue;
-      // A hovering grade brush samples the hex it is over, because pressing there is exactly what
-      // would make that hex the datum. The picture is the one the press would produce.
+      // A held Grade stroke keeps the datum it sampled on press; idle hover samples itself.
       const edit = groundBrushEdit(
         cell,
-        cell,
+        this.brush?.datum ?? cell,
         this.radius,
         this.mode,
         this.surface,
@@ -429,7 +434,9 @@ export class GroundTool {
     if (this.strokeEnd) return;
     this.status.classList.remove("blocked");
     if (preview.changes === 0) {
-      this.status.textContent = this.instruction();
+      this.status.textContent = movesEarth(this.mode)
+        ? "No earth can move here: the ground is at its cut/fill limit. Try a different patch."
+        : this.instruction();
       return;
     }
     const label =
@@ -445,12 +452,27 @@ export class GroundTool {
       : preview.refund.length
         ? ` · recovers ${this.names(preview.refund)}`
         : "";
+    const reasons = [
+      ...new Set(
+        preview.cells.flatMap((cell) => (cell.blocked ? [cell.blocked] : [])),
+      ),
+    ];
     const passed = preview.blocked
-      ? ` · ${preview.blocked} passed over`
+      ? ` · ${preview.blocked} skipped: ${reasons.join("; ")}`
       : preview.retaining
         ? ` · ${preview.retaining} edge${preview.retaining === 1 ? "" : "s"} still too steep — brush wider`
         : "";
-    this.status.textContent = `${label} ${preview.changes} hex${preview.changes === 1 ? "" : "es"}${earth}${work}${bill}${passed}.`;
+    const clamped =
+      movesEarth(this.mode) &&
+      preview.cells.some(
+        (cell) =>
+          !cell.blocked &&
+          Math.abs(cell.change) <
+            sceneScale.earthwork_steps_quanta[this.depth - 1]!,
+      )
+        ? " · Depth limited by the ground's cut/fill limit"
+        : "";
+    this.status.textContent = `${label} ${preview.changes} hex${preview.changes === 1 ? "" : "es"}${earth}${work}${bill}${passed}${clamped}.`;
   }
 
   private paintCentre(centre: BrushHex): boolean {

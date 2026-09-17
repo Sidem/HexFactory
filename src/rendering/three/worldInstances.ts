@@ -52,13 +52,8 @@ import {
 } from "./machineAppearance";
 export { plumeFor } from "./machineAppearance";
 import { directionAngle } from "./directionAngle";
-import { elementaryCycle, extractorPose } from "./elementaryAnimation";
-
-interface PartBucket {
-  readonly mesh: InstancedMesh;
-  readonly instances: MachinePartInstance[];
-  readonly animated: boolean;
-}
+import { updateAnimatedParts, type PartBucket } from "./animatedParts";
+import type { FrameVisibility } from "./frameVisibility";
 
 interface ResourcePartInstance {
   readonly x: number;
@@ -149,6 +144,7 @@ export class WorldInstanceLayer {
   private cargoTickAt = 0;
   private cargoTickMs = 250;
   private workshop: EntitySnapshot | undefined;
+  private readonly visibleBuildings = new Set<number>();
 
   constructor(
     definitions: Definitions,
@@ -250,48 +246,45 @@ export class WorldInstanceLayer {
     return structureChanged;
   }
 
-  update(now: number, reducedMotion: boolean): void {
+  update(now: number, reducedMotion: boolean, view?: FrameVisibility): void {
     const snapshot = this.snapshot;
     if (!snapshot) return;
-    for (const bucket of this.partBuckets) {
-      if (!bucket.animated) continue;
-      for (let index = 0; index < bucket.instances.length; index += 1) {
-        const instance = bucket.instances[index]!;
-        bucket.mesh.setMatrixAt(
-          index,
-          machinePartMatrix(
-            bucket.instances[index]!,
-            now,
-            reducedMotion,
-            this.scratchMatrix,
-          ),
-        );
-        if (
-          instance.part.model?.motion === "load" ||
-          instance.part.model?.motion === "stored-output"
-        ) {
-          const item =
-            instance.part.model.motion === "load"
-              ? extractorPose(
-                  instance,
-                  elementaryCycle(instance, now, reducedMotion),
-                ).itemId
-              : instance.building.output_inventory?.find(
-                  (item) => item.quantity > 0,
-                )?.item_id;
-          bucket.mesh.setColorAt(
-            index,
-            this.scratchColor.set(
-              this.items.get(item ?? 0)?.color ?? "#dfb778",
+    this.visibleBuildings.clear();
+    if (view)
+      for (const building of snapshot.buildings) {
+        const point = this.pointById.get(building.id);
+        if (!point) continue;
+        const radius =
+          8 +
+          Math.max(
+            0,
+            ...building.footprint.map(
+              (cell) =>
+                Math.abs(cell.q - building.q) + Math.abs(cell.r - building.r),
             ),
-          );
-          if (bucket.mesh.instanceColor)
-            bucket.mesh.instanceColor.needsUpdate = true;
-        }
+          ) *
+            Math.sqrt(3);
+        if (
+          view.includes(
+            point.x,
+            this.groundById.get(building.id) ?? 0,
+            point.z,
+            radius,
+          )
+        )
+          this.visibleBuildings.add(building.id);
       }
-      bucket.mesh.instanceMatrix.needsUpdate = true;
-    }
-    this.updateDynamicBuildings(snapshot, now, reducedMotion);
+    const visible = view ? this.visibleBuildings : undefined;
+    updateAnimatedParts(
+      this.partBuckets,
+      visible,
+      now,
+      reducedMotion,
+      this.items,
+      this.scratchMatrix,
+      this.scratchColor,
+    );
+    this.updateDynamicBuildings(snapshot, now, reducedMotion, visible);
     // Every frame, not only on a new snapshot. The pose is cheap, and the gait has to ease out
     // between snapshots: measuring displacement on snapshot frames alone made the legs step at the
     // simulation's cadence rather than the display's.
@@ -1413,6 +1406,7 @@ export class WorldInstanceLayer {
     snapshot: FactorySnapshot,
     now: number,
     reducedMotion: boolean,
+    visible?: ReadonlySet<number>,
   ): void {
     if (
       !this.statusMesh ||
@@ -1432,6 +1426,7 @@ export class WorldInstanceLayer {
     let cargos = 0;
     let plumes = 0;
     for (const building of snapshot.buildings) {
+      if (visible && !visible.has(building.id)) continue;
       const center = this.pointById.get(building.id);
       if (!center) continue;
       const height =
@@ -1862,8 +1857,15 @@ function positiveFraction(value: number): number {
 }
 
 function markInstancesDirty(mesh: InstancedMesh): void {
+  if (mesh.count === 0) return;
+  mesh.instanceMatrix.clearUpdateRanges();
+  mesh.instanceMatrix.addUpdateRange(0, mesh.count * 16);
   mesh.instanceMatrix.needsUpdate = true;
-  if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+  if (mesh.instanceColor) {
+    mesh.instanceColor.clearUpdateRanges();
+    mesh.instanceColor.addUpdateRange(0, mesh.count * 3);
+    mesh.instanceColor.needsUpdate = true;
+  }
 }
 
 function adjacentFootprintPairs(

@@ -86,6 +86,14 @@ export class GroundMeshes {
   });
   private ghost: InstancedMesh | null = null;
   private rim: InstancedMesh | null = null;
+  private current: InstancedMesh | null = null;
+  private readonly currentMaterial = new MeshBasicMaterial({
+    color: "#ffffff",
+    transparent: true,
+    opacity: 0.65,
+    depthTest: false,
+    depthWrite: false,
+  });
   private preview: GroundPreview | null = null;
   private terrain: ReadonlyMap<string, TerrainCell> | null = null;
 
@@ -105,6 +113,13 @@ export class GroundMeshes {
       preview.cells.length,
     );
     this.ghost.renderOrder = 24;
+    this.current = new InstancedMesh(
+      this.rimGeometry,
+      this.currentMaterial,
+      preview.cells.length,
+    );
+    this.current.name = "ground-current-height";
+    this.current.renderOrder = 26;
     if (edge.length > 0) {
       this.rim = new InstancedMesh(
         this.rimGeometry,
@@ -132,6 +147,9 @@ export class GroundMeshes {
       const base = this.terrain ? heightAt(this.terrain, cell.q, cell.r) : 0;
       const top = base + cell.change * HEIGHT_UNIT_HEIGHT + LIFT;
       const color = tint.set(colorFor(preview, cell));
+      position.set(centre.x, base + LIFT, centre.y);
+      matrix.compose(position, flat, one);
+      this.current!.setMatrixAt(index, matrix);
       position.set(centre.x, top, centre.y);
       matrix.compose(position, upright, scale);
       this.ghost!.setMatrixAt(index, matrix);
@@ -148,6 +166,9 @@ export class GroundMeshes {
     if (this.ghost.instanceColor) this.ghost.instanceColor.needsUpdate = true;
     this.ghost.computeBoundingSphere();
     this.group.add(this.ghost);
+    this.current.instanceMatrix.needsUpdate = true;
+    this.current.computeBoundingSphere();
+    this.group.add(this.current);
     if (this.rim) {
       this.rim.instanceMatrix.needsUpdate = true;
       if (this.rim.instanceColor) this.rim.instanceColor.needsUpdate = true;
@@ -157,13 +178,14 @@ export class GroundMeshes {
   }
 
   private drop(): void {
-    for (const mesh of [this.ghost, this.rim]) {
+    for (const mesh of [this.ghost, this.rim, this.current]) {
       if (!mesh) continue;
       this.group.remove(mesh);
       mesh.dispose();
     }
     this.ghost = null;
     this.rim = null;
+    this.current = null;
   }
 
   dispose(): void {
@@ -172,6 +194,7 @@ export class GroundMeshes {
     this.rimGeometry.dispose();
     this.material.dispose();
     this.rimMaterial.dispose();
+    this.currentMaterial.dispose();
   }
 }
 

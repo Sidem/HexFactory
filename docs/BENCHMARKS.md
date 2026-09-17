@@ -3,6 +3,38 @@
 This file records only the measurements that support current claims. Raw reports in `docs/benchmarks/`
 are authoritative; experiment history belongs in git.
 
+## Playtest investigation — 2026-09-16–17
+
+The supplied HXF1 file has 325 machines, 419 herds (2,244 animals), and 1,642 surveyed chunks.
+The [native ladder](benchmarks/playtest-2026-09-16/native.json) reaches 6,144 entities: mean tick
+359 µs, advance plus binary delta encoding 2,026 µs, and full snapshot 85,226 µs. This is the
+schema-4 aggregate workload, not a GPU frame or an idle-world benchmark. Collection used the
+release capacity binary on the Ryzen 7 5800X, based on `189a04f` plus this playtest patch.
+
+`node scripts/profile-playtest.mjs <save.hxf1> <report.json>` loads the supplied save through the
+production Wasm artifact and measures CPU preparation at a fixed 1280 × 720 camera. The
+[paired report](benchmarks/playtest-2026-09-16/save-filtered.json) records the save/artifact hashes,
+500 samples after 100 warmup calls, and both unfiltered and camera-filtered paths in the same process.
+The final paired run uses the production Wasm build from September 17.
+It excludes terrain mesh creation, DOM, WebGL submission, GPU execution, and presentation. It is
+evidence for reducing off-screen preparation, not an FPS guarantee. The original save is not included.
+
+Animated machine parts now upload visible instance ranges; herd matrices are packed for visible
+animals, with picking IDs kept in the same order. Re-entering view evaluates the current native
+snapshot. Static geometry keeps Three.js culling. Existing native steady-workload tests verify that
+idle and saturated factories publish no redundant entity/resource dirty marks; this change does not
+throttle simulation or snapshot publication.
+
+The September 17 [browser captures](benchmarks/playtest-2026-09-16/browser.json) record a successful
+production-build visual check with the supplied save, followed by development diagnostics at a
+1353 × 1204 canvas (DPR 1) in the Codex in-app browser. The opt-in `?diagnostics` panel now separates
+renderer CPU duration from browser frame-callback intervals. Each capture covers the latest 240
+samples; hidden-page intervals are discarded. High and Low both recorded about 30 callbacks/s,
+with renderer CPU p95 around 14 ms and roughly 1,700 draw calls at the initial camera. These short
+development captures have no browser before/after baseline and are not a production FPS guarantee.
+GPU execution and the cause of the 30 Hz cadence remain unisolated; the player's stutter cannot
+yet be attributed solely to rendering, Wasm, the DOM, or the embedded browser.
+
 ## Engineering E0 evidence (collection closed)
 
 E0 collection closed by user scope reduction on 2026-09-05. The former exhaustive gates are withdrawn;

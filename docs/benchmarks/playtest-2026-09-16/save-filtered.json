@@ -1,0 +1,43 @@
+{
+  "recorded": "2026-09-17T05:20:21.073Z",
+  "cpu": "AMD Ryzen 7 5800X 8-Core Processor             ",
+  "node": "v20.20.2",
+  "save_sha256": "448de381d753b5f1cfcf655274b0103edb7ca5be55515c9c5513de370d7318d3",
+  "wasm_sha256": "8909bff800c4cd86029b4df91ff7117f78a96657dc57533f663ffaa946a61345",
+  "entities": 325,
+  "herds": 419,
+  "animals": 2244,
+  "visibility": true,
+  "viewport": [1280, 720],
+  "limitation": "Node CPU preparation only, fixed imported snapshot and camera, no WebGL, GPU, DOM or presentation timing; terrain mesh construction excluded.",
+  "machines_all": {
+    "samples": 500,
+    "median_us": 424.50000000008004,
+    "p95_us": 648.1000000003405,
+    "max_us": 963.2999999994354
+  },
+  "machines": {
+    "samples": 500,
+    "median_us": 330.4000000007363,
+    "p95_us": 529.8999999995431,
+    "max_us": 854.0000000002692
+  },
+  "herds_all": {
+    "samples": 500,
+    "median_us": 857.6999999995678,
+    "p95_us": 1448.9999999996144,
+    "max_us": 1796.5000000003783
+  },
+  "herds_cpu": {
+    "samples": 500,
+    "median_us": 182.89999999979045,
+    "p95_us": 248.09999999979482,
+    "max_us": 432.4000000005981
+  },
+  "advance_and_encode": {
+    "samples": 500,
+    "median_us": 3022.399999999834,
+    "p95_us": 6687.600000000202,
+    "max_us": 16898.200000000543
+  }
+}

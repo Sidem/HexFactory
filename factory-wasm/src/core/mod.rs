@@ -12,6 +12,7 @@ mod inventory;
 mod persistence;
 mod placement;
 mod player;
+mod pole_drag;
 mod power;
 mod progression;
 mod snapshots;

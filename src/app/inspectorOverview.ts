@@ -113,7 +113,7 @@ Runtime.prototype.stockCompartments = function stockCompartments(
     if (hasInputs)
       compartments.push({
         stock: "input",
-        label: "Ingredient",
+        label: "Recipe ingredients",
         accepts: true,
         expected: [
           ...(recipe?.inputs.map((input) => input.item_id) ?? []),
@@ -124,7 +124,7 @@ Runtime.prototype.stockCompartments = function stockCompartments(
     if (hasFuel)
       compartments.push({
         stock: "fuel",
-        label: "Fuel",
+        label: "Fuel / heat",
         accepts: true,
         expected: [],
         entries: building.fuel_inventory ?? [],
